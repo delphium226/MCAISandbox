@@ -134,11 +134,11 @@ export function findPath(w: World, start: PathNode, goal: PathNode, range = 1, m
       if (tryNode(cur.y, 0)) continue;
       // step up (needs headroom above current position)
       if (!diagonal && passable(w, cur.x, cur.y + 2, cur.z) && tryNode(cur.y + 1, 0.5)) continue;
-      // drop down up to 3 blocks
+      // drop down: up to 3 blocks freely, up to 6 at a cost (small fall damage) to escape trees and ledges
       if (passable(w, nx, cur.y, nz) && passable(w, nx, cur.y + 1, nz)) {
-        for (let d = 1; d <= 3; d++) {
+        for (let d = 1; d <= 6; d++) {
           if (!passable(w, nx, cur.y - d + 1, nz)) break;
-          if (tryNode(cur.y - d, d * 0.3)) break;
+          if (tryNode(cur.y - d, d <= 3 ? d * 0.3 : 4 + d)) break;
         }
       }
     }

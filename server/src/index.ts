@@ -43,7 +43,9 @@ if (agentCount > 0) {
   const roles = ['farmer', 'miner', 'builder', 'explorer', 'guard', 'trader', 'artist', 'scout'];
   for (let k = 0; k < agentCount; k++) {
     const angle = (k / agentCount) * Math.PI * 2;
-    const pos = { x: game.spawn.x + Math.cos(angle) * 6, y: game.spawn.y + 2, z: game.spawn.z + Math.sin(angle) * 6 };
+    const x = game.spawn.x + Math.cos(angle) * 6, z = game.spawn.z + Math.sin(angle) * 6;
+    // Terrain height (ignores tree canopies) so agents start on the ground
+    const pos = { x, y: Math.max(game.world.gen.column(Math.floor(x), Math.floor(z)).height + 1, 64), z };
     try {
       game.agents.spawn(`Agent${k + 1}`, roles[k % roles.length], brain, pos);
     } catch (e) {

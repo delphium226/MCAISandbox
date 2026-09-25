@@ -133,6 +133,7 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status |
+| GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
 agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.

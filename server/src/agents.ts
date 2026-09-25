@@ -1014,11 +1014,91 @@ const round1 = (v: number) => Math.round(v * 10) / 10;
 // Manager + REST API
 // ---------------------------------------------------------------------------------------------
 
+export interface AgentMetrics {
+  role: string;
+  spawnedTick: number;
+  uniqueItems: Set<string>;
+  /** Tick at which each unique item was first obtained (progression curve, as in Project Sid). */
+  firstObtained: Record<string, number>;
+  crafted: Record<string, number>;
+  mined: Record<string, number>;
+  chatsSent: number;
+  deaths: number;
+  kills: Record<string, number>;
+  distanceTravelled: number;
+  lastPos: { x: number; z: number } | null;
+}
+
 export class AgentManager {
   agents = new Map<string, Agent>();
+  metrics = new Map<string, AgentMetrics>();
+  /** Social graph: speaker -> listener -> number of messages heard. */
+  heard = new Map<string, Map<string, number>>();
 
   constructor(public game: Game) {
-    game.chatListeners.push(() => {});
+    game.chatListeners.push((from, text) => this.onChat(from, text));
+  }
+
+  private m(name: string): AgentMetrics | undefined {
+    return this.metrics.get(name.toLowerCase());
+  }
+
+  private obtained(p: Player, item: string) {
+    const m = this.m(p.name);
+    if (!m) return;
+    if (!m.uniqueItems.has(item)) {
+      m.uniqueItems.add(item);
+      m.firstObtained[item] = this.game.tick - m.spawnedTick;
+    }
+  }
+
+  private onChat(from: Player | null, _text: string) {
+    if (!from) return;
+    const sm = this.m(from.name);
+    if (sm) sm.chatsSent++;
+    for (const a of this.agents.values()) {
+      if (!a.player || a.player === from || a.player.distanceTo(from) > a.hearingRange) continue;
+      let row = this.heard.get(from.name);
+      if (!row) this.heard.set(from.name, (row = new Map()));
+      row.set(a.player.name, (row.get(a.player.name) ?? 0) + 1);
+    }
+  }
+
+  /** Summary suitable for experiment logging (JSON-serialisable). */
+  metricsReport() {
+    const agents: Record<string, unknown> = {};
+    for (const [key, m] of this.metrics) {
+      const a = this.agents.get(key);
+      agents[a?.player.name ?? key] = {
+        role: m.role,
+        alive: !!a && !a.player.dead,
+        ticksAlive: this.game.tick - m.spawnedTick,
+        uniqueItemCount: m.uniqueItems.size,
+        uniqueItems: [...m.uniqueItems],
+        firstObtained: m.firstObtained,
+        crafted: m.crafted,
+        mined: m.mined,
+        kills: m.kills,
+        chatsSent: m.chatsSent,
+        deaths: m.deaths,
+        distanceTravelled: Math.round(m.distanceTravelled),
+        inventory: a ? a.observe(1).inventory : {},
+      };
+    }
+    const social: Record<string, Record<string, number>> = {};
+    for (const [from, row] of this.heard) social[from] = Object.fromEntries(row);
+    return { tick: this.game.tick, timeOfDay: this.game.time % DAY_LENGTH, agents, social };
+  }
+
+  /** Called every tick to accumulate movement statistics. */
+  private trackMovement() {
+    if (this.game.tick % 20 !== 0) return;
+    for (const [key, a] of this.agents) {
+      const m = this.metrics.get(key);
+      if (!m || !a.player) continue;
+      if (m.lastPos) m.distanceTravelled += Math.hypot(a.player.x - m.lastPos.x, a.player.z - m.lastPos.z);
+      m.lastPos = { x: a.player.x, z: a.player.z };
+    }
   }
 
   spawn(name: string, role = 'villager', brain: string | null = null, pos?: { x: number; y: number; z: number }): Agent {
@@ -1037,6 +1117,7 @@ export class AgentManager {
       agent.brain = factory();
       agent.brain.init?.(agent);
     }
+    this.metrics.set(name.toLowerCase(), { role, spawnedTick: this.game.tick, uniqueItems: new Set(), firstObtained: {}, crafted: {}, mined: {}, chatsSent: 0, deaths: 0, kills: {}, distanceTravelled: 0, lastPos: null });
     agent.pushEvent('system', `You are ${name}, a ${role}. You just arrived in the world.`);
     return agent;
   }
@@ -1058,6 +1139,7 @@ export class AgentManager {
   pathBudget = 3;
 
   tick() {
+    this.trackMovement();
     this.pathBudget = 3;
     // Rotate the starting agent so budget-limited work is shared fairly
     const list = [...this.agents.values()];
@@ -1073,18 +1155,30 @@ export class AgentManager {
   }
 
   onBlockBroken(p: Player, x: number, y: number, z: number, s: number) {
+    const mm = this.m(p.name);
+    if (mm) mm.mined[BLOCKS[s & 0xff].name] = (mm.mined[BLOCKS[s & 0xff].name] ?? 0) + 1;
     this.get(p.name)?.pushEvent('broke', `broke ${BLOCKS[s & 0xff].name} at ${x},${y},${z}`, { block: BLOCKS[s & 0xff].name, x, y, z });
   }
   onCrafted(p: Player, s: ItemStack) {
+    const mm = this.m(p.name);
+    if (mm) mm.crafted[itemDef(s.id).name] = (mm.crafted[itemDef(s.id).name] ?? 0) + s.count;
+    this.obtained(p, itemDef(s.id).name);
     this.get(p.name)?.pushEvent('crafted', `crafted ${s.count}x ${itemDef(s.id).name}`, { item: itemDef(s.id).name, count: s.count });
   }
   onItemPickup(p: Player, s: ItemStack) {
+    this.obtained(p, itemDef(s.id).name);
     this.get(p.name)?.pushEvent('pickup', `picked up ${s.count}x ${itemDef(s.id).name}`, { item: itemDef(s.id).name, count: s.count });
   }
   onMobKilled(m: Mob, killer: Entity | null) {
+    if (killer instanceof Player) {
+      const mm = this.m(killer.name);
+      if (mm) mm.kills[m.kind] = (mm.kills[m.kind] ?? 0) + 1;
+    }
     if (killer instanceof Player) this.get(killer.name)?.pushEvent('killed', `killed a ${m.kind}`, { kind: m.kind });
   }
   onPlayerDied(p: Player) {
+    const mm = this.m(p.name);
+    if (mm) mm.deaths++;
     this.get(p.name)?.pushEvent('death', 'you died and dropped your items');
   }
 
@@ -1133,6 +1227,10 @@ export class AgentManager {
     const parts = url.pathname.split('/').filter(Boolean); // ['api', 'agents', name, ...]
     if (parts[1] === 'skills') {
       sendJson(res, 200, Object.fromEntries(Object.entries(SKILLS).map(([k, v]) => [k, v.doc])));
+      return true;
+    }
+    if (parts[1] === 'metrics') {
+      sendJson(res, 200, this.metricsReport());
       return true;
     }
     if (parts[1] === 'recipes') {

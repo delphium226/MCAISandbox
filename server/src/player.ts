@@ -910,8 +910,10 @@ export class Player extends Entity {
     for (const e of this.game.entitiesNear(this.x, this.y + 0.9, this.z, 2.6)) {
       if (!(e instanceof ItemEntity) || e.removed || e.pickupDelay > 0) continue;
       // Minecraft: player hitbox expanded by 1 horizontally and 0.5 vertically
-      if (Math.abs(e.x - this.x) > 1.3 + 0.125 || Math.abs(e.z - this.z) > 1.3 + 0.125) continue;
-      if (e.y + 0.25 < this.y - 0.5 || e.y > this.y + this.body.height + 0.5) continue;
+      // AI agents get a slightly larger reach (like bot auto-collect) so drops in dig holes aren't missed
+      const reachH = this.isAgent ? 2.0 : 1.3 + 0.125, reachDown = this.isAgent ? 1.6 : 0.5;
+      if (Math.abs(e.x - this.x) > reachH || Math.abs(e.z - this.z) > reachH) continue;
+      if (e.y + 0.25 < this.y - reachDown || e.y > this.y + this.body.height + 0.5) continue;
       const before = e.stack.count;
       const rem = addToSlots(this.inventory, e.stack, [...Array(9).keys(), ...Array.from({ length: 27 }, (_, i) => i + 9)]);
       if (rem && rem.count === before) continue;
