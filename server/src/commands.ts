@@ -94,6 +94,15 @@ const COMMANDS: Record<string, Command> = {
       return 'World spawn set';
     },
   },
+  weather: {
+    usage: '/weather <clear|rain|thunder> [seconds]',
+    help: 'Change the weather',
+    run: (g, _p, [kind, secs]) => {
+      if (!['clear', 'rain', 'thunder'].includes(kind)) return 'Usage: /weather <clear|rain|thunder> [seconds]';
+      g.setWeather(kind !== 'clear', kind === 'thunder', secs ? parseFloat(secs) : undefined);
+      return 'Weather set to ' + kind;
+    },
+  },
   seed: { usage: '/seed', help: 'Show world seed', run: (g) => `Seed: ${g.seed}` },
   kill: { usage: '/kill', help: 'Kill yourself', run: (_g, p) => { p.gamemode = 'survival'; p.health = 0; p.die(null); } },
   summon: {
@@ -118,6 +127,7 @@ const COMMANDS: Record<string, Command> = {
       if (rule === 'doMobSpawning') g.doMobSpawning = b;
       else if (rule === 'doDaylightCycle') { g.doDaylightCycle = b; g.broadcast({ t: 'time', time: g.time, rate: b ? g.timeRate : 0 }); }
       else if (rule === 'pvp') g.pvp = b;
+      else if (rule === 'doWeatherCycle') g.doWeatherCycle = b;
       else return 'Unknown rule';
       return `${rule} = ${b}`;
     },

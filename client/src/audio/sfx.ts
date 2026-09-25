@@ -1142,6 +1142,46 @@ const genCave: Gen = (sr, rng, v) => {
   return normalize(out, PEAK);
 };
 
+
+/** Steady rain bed: band-limited hiss plus many tiny droplet ticks, seamlessly looped. */
+const genRain: Gen = (sr, rng) => {
+  const dur = 4, xf = 0.35;
+  const n = Math.floor(sr * (dur + xf));
+  const out = whiteNoise(n, rng);
+  filter(out, sr, 'lp', 4200);
+  filter(out, sr, 'hp', 350);
+  for (let i = 0; i < n; i++) out[i] *= 0.35;
+  for (let i = 0; i < 700; i++) addMode(out, sr, rng() * (dur + xf), 1800 + rng() * 5000, 0.08 + rng() * 0.25, 0.0025 + rng() * 0.004);
+  const m = Math.floor(sr * dur), x = n - m;
+  const res = new Float32Array(m);
+  for (let i = 0; i < m; i++) res[i] = out[i];
+  for (let i = 0; i < x; i++) {
+    const t = i / x;
+    res[i] = out[i] * t + out[m + i] * (1 - t);
+  }
+  return normalize(res, PEAK);
+};
+
+/** Thunder: a sharp crack followed by long rolling low rumble. */
+const genThunder: Gen = (sr, rng) => {
+  const dur = 5.5;
+  const out = alloc(sr, dur);
+  const rumble = brownNoise(out.length, rng);
+  filter(rumble, sr, 'lp', 180);
+  const env = curve([[0, 0], [0.05, 1], [0.6, 0.8], [1.6, 0.55], [3.2, 0.25], [dur, 0]]);
+  for (let i = 0; i < out.length; i++) {
+    const t = i / sr;
+    const roll = 0.7 + 0.3 * Math.sin(t * 5.3 + Math.sin(t * 1.7) * 2);
+    out[i] = rumble[i] * env(t) * roll;
+  }
+  const crack = whiteNoise(Math.floor(sr * 0.25), rng);
+  filter(crack, sr, 'hp', 900);
+  for (let i = 0; i < crack.length; i++) crack[i] *= Math.exp(-i / (sr * 0.05)) * 0.9;
+  mixInto(out, crack, sr, 0.02, 1);
+  saturate(out, 1.4);
+  return done(out, sr, 20);
+};
+
 const genWaterAmbient: Gen = (sr, rng) => {
   const dur = 8;
   const xf = 0.6;
@@ -1214,6 +1254,8 @@ function buildRegistry(): Record<string, SfxDef> {
     door: def(genDoor, 0.6, { variants: 3, priority: 2 }),
     ambient_cave: def(genCave, 0.55, { variants: 8, pitchVar: 0.05, reverb: 0.55, maxDist: 48, rate: 16000, priority: 1 }),
     water_ambient: def(genWaterAmbient, 0.35, { variants: 1, pitchVar: 0, rate: 16000, loop: true, priority: 5 }),
+    rain: def(genRain, 0.35, { variants: 1, pitchVar: 0, rate: 22050, loop: true, priority: 5 }),
+    thunder: def(genThunder, 1.0, { variants: 3, pitchVar: 0.1, reverb: 0.5, maxDist: 256, rate: 16000, priority: 5 }),
   });
 
   const mobGens: Record<Mob, [Gen, Gen, Gen]> = {

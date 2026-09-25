@@ -68,7 +68,10 @@ vec3 skyColor(vec3 dir) {
   // Moon halo
   float mm = max(dot(dir, -uSunDir), 0.0);
   col += vec3(0.3, 0.4, 0.6) * 0.04 * pow(mm, 16.0) * (1.0 - uDaylight);
-  return col * (1.0 - uRain * 0.6);
+  // Overcast: desaturate towards grey and darken when raining
+  float lum = dot(col, vec3(0.3, 0.5, 0.2));
+  col = mix(col, vec3(lum) * 0.85, uRain * 0.85);
+  return col * (1.0 - uRain * 0.45);
 }
 
 vec3 fogColor(vec3 dir) {
@@ -226,6 +229,8 @@ void main() {
   vec3 tint = pow(vTint, vec3(2.2));
   if ((vFlags & 64) != 0) albedo *= tint;
   if ((vFlags & 16) != 0 && a < 0.75) albedo *= tint;
+  // Rain makes exposed ground darker (wet)
+  albedo *= 1.0 - 0.22 * uRain * smoothstep(0.8, 1.0, vLight.x);
 
   vec3 n = NORMALS[vNormalIdx];
   float face = FACE_SHADE[vNormalIdx];
@@ -562,7 +567,8 @@ void main() {
   float shade = vN.y > 0.5 ? 1.0 : vN.y < -0.5 ? 0.65 : (abs(vN.x) > 0.5 ? 0.8 : 0.88);
   vec3 base = mix(vec3(0.025, 0.03, 0.045), vec3(1.0), clamp(uDaylight * 1.1, 0.0, 1.0));
   base = mix(base, base * vec3(1.0, 0.75, 0.6), clamp(1.0 - abs(uSunDir.y) * 3.0, 0.0, 1.0) * uDaylight);
-  vec3 col = base * shade * (1.0 - uRain * 0.5);
+  base = mix(base, vec3(0.5) * (0.08 + uDaylight * 0.9), uRain * 0.85);
+  vec3 col = base * shade;
   vec3 v = vWorld - uCamPos;
   float dist = length(v.xz);
   float fade = 1.0 - smoothstep(uFogEnd * 1.6, uFogEnd * 2.6, dist);

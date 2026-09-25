@@ -243,6 +243,7 @@ export class Renderer {
     const warm = THREE.MathUtils.smoothstep(sy, 0.0, 0.4);
     const sunI = THREE.MathUtils.smoothstep(sy, -0.03, 0.1);
     const sc = new THREE.Vector3(1.0, 0.45, 0.18).multiplyScalar(1.0).lerp(new THREE.Vector3(1.0, 0.93, 0.82).multiplyScalar(1.45), warm).multiplyScalar(sunI);
+    sc.multiplyScalar(1 - U.uRain.value * 0.7);
     U.uSunColor.value.copy(sc);
     const moonI = THREE.MathUtils.smoothstep(-sy, -0.03, 0.15);
     U.uMoonColor.value.set(0.16, 0.2, 0.32).multiplyScalar(moonI * 0.7);
@@ -250,6 +251,7 @@ export class Renderer {
     // Sunset tint on ambient
     const sunset = Math.max(0, 1 - Math.abs(sy) * 4) * day;
     amb.lerp(new THREE.Vector3(0.62, 0.45, 0.4), sunset * 0.35);
+    amb.lerp(new THREE.Vector3(amb.x + amb.y + amb.z, amb.x + amb.y + amb.z, amb.x + amb.y + amb.z).multiplyScalar(0.3), U.uRain.value * 0.6);
     U.uAmbient.value.copy(amb);
   }
 

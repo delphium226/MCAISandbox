@@ -117,6 +117,8 @@ export type S2C =
   | { t: 'breakAnim'; id: number; x: number; y: number; z: number; stage: number }
   | { t: 'velocity'; vx: number; vy: number; vz: number }
   | { t: 'pong'; n: number }
+  | { t: 'weather'; rain: number; thunder: boolean }
+  | { t: 'lightning'; x: number; y: number; z: number }
   | { t: 'kick'; reason: string };
 
 export const BIN_CHUNK = 1;

@@ -18,6 +18,7 @@ import { UI, ClientSettings } from '../ui/ui';
 import { IconRenderer } from '../ui/icons';
 import { SoundEngine } from '../audio/sound';
 import { PlayerPreview } from '../ui/playerPreview';
+import { Weather } from '../render/weather';
 
 const CRACK_VERT = /* glsl */ `
 precision highp float;
@@ -85,6 +86,8 @@ export class ClientGame {
   private lastHealth = 20;
   private disposed = false;
   private preview: PlayerPreview | null = null;
+  weather: Weather;
+  private bolts: { mesh: THREE.Mesh; life: number }[] = [];
   private rafId = 0;
 
   constructor(private canvas: HTMLCanvasElement, public ui: UI, public settings: ClientSettings, public sound: SoundEngine) {
@@ -95,6 +98,8 @@ export class ClientGame {
     this.entities = new EntityRenderer(this.renderer.entityScene, this.world, this.items);
     this.particles = new Particles(this.world, this.renderer.atlas);
     this.renderer.entityScene.add(this.particles.mesh);
+    this.weather = new Weather(this.world);
+    this.renderer.entityScene.add(this.weather.mesh);
     this.input = new Input(canvas);
     this.input.sensitivity = 0.0022 * settings.sensitivity;
     this.player = new LocalPlayer(this.world, this.input, {
@@ -319,6 +324,13 @@ export class ClientGame {
         this.player.body.vy = m.vy;
         this.player.body.vz = m.vz;
         break;
+      case 'weather':
+        this.weather.target = m.rain;
+        this.weather.thunder = m.thunder;
+        break;
+      case 'lightning':
+        this.spawnBolt(m.x, m.y, m.z);
+        break;
       case 'pong':
         this.ping = performance.now() - this.pingSent;
         break;
@@ -370,9 +382,28 @@ export class ClientGame {
   }
 
   private onHurt() {
+    this.renderer.flash.color.set(0.6, 0, 0);
     this.renderer.flash.amount = 0.25;
     this.player.hurtTilt = 1;
     this.ui.hurtFlash();
+  }
+
+  private spawnBolt(x: number, y: number, z: number) {
+    const pts: THREE.Vector3[] = [];
+    let px = x, pz = z;
+    for (let h = y + 110; h > y; h -= 3 + Math.random() * 4) {
+      pts.push(new THREE.Vector3(px, h, pz));
+      px += (Math.random() - 0.5) * 3;
+      pz += (Math.random() - 0.5) * 3;
+    }
+    pts.push(new THREE.Vector3(x, y, z));
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'chordal', 0);
+    const geo = new THREE.TubeGeometry(curve, pts.length * 3, 0.25, 4, false);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 6, 9), transparent: true, opacity: 0.9, depthWrite: false }));
+    this.renderer.entityScene.add(mesh);
+    this.bolts.push({ mesh, life: 0.45 });
+    this.renderer.flash.color.set(1, 1, 1);
+    this.renderer.flash.amount = Math.max(this.renderer.flash.amount, 0.45 * Math.max(0.2, 1 - this.player.eyePos().distanceTo(new THREE.Vector3(x, y, z)) / 200));
   }
 
   private updateStatsUI() {
@@ -550,6 +581,17 @@ export class ClientGame {
     this.entities.frame(dt, this.renderer.camera.position);
     this.updateSelfModel();
     this.particles.update(dt);
+    this.weather.update(dt, this.renderer.camera.position);
+    this.sound.setRain(this.weather.level * (this.weather.hasPrecipitation(Math.floor(this.player.body.x), Math.floor(this.player.body.z)) && !this.weather.isSnowAt(Math.floor(this.player.body.x), Math.floor(this.player.body.y), Math.floor(this.player.body.z)) ? 1 : 0) * (this.world.getSkyLight(Math.floor(this.player.body.x), Math.floor(this.player.body.y + 1), Math.floor(this.player.body.z)) > 10 ? 1 : 0.35));
+    for (const b of this.bolts) {
+      b.life -= dt;
+      (b.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, b.life / 0.45) * (Math.random() < 0.3 ? 0.4 : 0.95);
+      if (b.life <= 0) {
+        this.renderer.entityScene.remove(b.mesh);
+        b.mesh.geometry.dispose();
+      }
+    }
+    this.bolts = this.bolts.filter((b) => b.life > 0);
     this.ambientParticles(dt);
     const eye = this.renderer.camera.position;
     const sky = this.world.getSkyLight(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z)) / 15;

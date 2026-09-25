@@ -501,6 +501,40 @@ export class SoundEngine {
     }
   }
 
+  private rainLoop: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  /** Rain ambience level 0..1 (loops a rain bed; follows sfx volume). */
+  setRain(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.sfxBus) return;
+    const def = SFX['rain'];
+    if (!def) return;
+    if (level > 0.01 && !this.rainLoop) {
+      const buffer = this.getBuffers('rain', def)[0];
+      if (!buffer) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(gain);
+      gain.connect(this.sfxBus as GainNode);
+      src.start();
+      this.rainLoop = { src, gain };
+    }
+    if (this.rainLoop) {
+      setParam(this.rainLoop.gain.gain, def.gain * level * (this.underwater ? 0.3 : 1), ctx, 0.5);
+      if (level <= 0.01) {
+        const r = this.rainLoop;
+        this.rainLoop = null;
+        try {
+          r.src.stop(ctx.currentTime + 1.5);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   private startWaterLoop(ctx: AudioContext): void {
     if (this.waterLoop || !this.master) return;
     const def = SFX['water_ambient'];

@@ -53,6 +53,8 @@ export class Game {
   chatListeners: Array<(from: Player | null, text: string) => void> = [];
   doMobSpawning = true;
   doDaylightCycle = true;
+  doWeatherCycle = true;
+  weather = { rain: false, thunder: false, timer: 20 * 60 * (6 + Math.random() * 8) };
 
   constructor(opts: GameOptions) {
     this.opts = opts;
@@ -158,6 +160,7 @@ export class Game {
       time: this.time, gamemode: p.gamemode, viewDistance: p.viewDistance, seed: this.seed, spawn: [this.spawn.x, this.spawn.y, this.spawn.z],
     });
     p.send({ t: 'time', time: this.time, rate: this.doDaylightCycle ? this.timeRate : 0 });
+    p.send({ t: 'weather', rain: this.weather.rain ? 1 : 0, thunder: this.weather.thunder });
     p.sendInventory();
     p.sendHealth();
     this.broadcast({ t: 'chat', text: `${name} joined the game`, color: '#ffff55' });
@@ -659,6 +662,7 @@ export class Game {
     }
 
     this.tickFurnaces();
+    this.tickWeather();
 
     // Random ticks near players
     if (this.players.size) {
@@ -680,6 +684,31 @@ export class Game {
       this.broadcast({ t: 'time', time: this.time, rate: this.doDaylightCycle ? this.timeRate : 0 });
     }
     if (this.tick % 200 === 0) this.world.unloadUnneeded(600);
+  }
+
+  setWeather(rain: boolean, thunder: boolean, seconds?: number) {
+    this.weather.rain = rain;
+    this.weather.thunder = rain && thunder;
+    this.weather.timer = (seconds ?? (rain ? 60 * (3 + Math.random() * 5) : 60 * (8 + Math.random() * 12))) * 20;
+    this.broadcast({ t: 'weather', rain: rain ? 1 : 0, thunder: this.weather.thunder });
+  }
+
+  private tickWeather() {
+    const w = this.weather;
+    if (this.doWeatherCycle && --w.timer <= 0) this.setWeather(!w.rain, !w.rain && Math.random() < 0.3);
+    if (!w.thunder) return;
+    for (const p of this.players) {
+      if (p.isAgent || Math.random() > 1 / 500) continue;
+      const x = Math.floor(p.x + (Math.random() - 0.5) * 96), z = Math.floor(p.z + (Math.random() - 0.5) * 96);
+      if (!this.world.isLoaded(x, z)) continue;
+      const y = this.world.getHeight(x, z) + 1;
+      this.broadcastNear({ x, z }, { t: 'lightning', x: x + 0.5, y, z: z + 0.5 }, undefined, 256);
+      this.broadcastNear({ x, z }, { t: 'sound', s: 'thunder', x, y, z, v: 3, p: 1 }, undefined, 256);
+      for (const e of this.entitiesNear(x + 0.5, y, z + 0.5, 3)) {
+        e.damage(5, null, 'lightning');
+        e.fire = Math.max(e.fire, 160);
+      }
+    }
   }
 
   private spawnMobs() {
