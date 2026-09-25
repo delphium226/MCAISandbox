@@ -428,16 +428,17 @@ export class Player extends Entity {
     this.digging = null;
     if (!d || d.x !== x || d.y !== y || d.z !== z) {
       // Instant-break blocks (hardness 0) may skip 'start'
-      if (this.requiredBreakTicks(x, y, z) > 1) return this.resync(x, y, z);
+      if (this.requiredBreakTicks(x, y, z) > 1) return this.resync(x, y, z, 'no dig in progress');
     } else {
       const need = this.requiredBreakTicks(x, y, z);
       const elapsed = this.game.tick - d.start;
-      if (elapsed + 6 < need * 0.7) return this.resync(x, y, z);
+      if (elapsed + 6 < need * 0.7) return this.resync(x, y, z, `too fast (${elapsed}/${need} ticks)`);
     }
-    if (!this.breakBlock(x, y, z)) this.resync(x, y, z);
+    if (!this.breakBlock(x, y, z)) this.resync(x, y, z, 'break refused');
   }
 
-  private resync(x: number, y: number, z: number) {
+  private resync(x: number, y: number, z: number, reason = '') {
+    if (reason && process.env.MC_DEBUG) console.log(`[dig] ${this.name} rejected at ${x},${y},${z}: ${reason}`);
     this.send({ t: 'block', x, y, z, s: this.game.world.getBlock(x, y, z) });
   }
 
@@ -834,9 +835,11 @@ export class Player extends Entity {
 
   private pickupItems() {
     if (this.gamemode === 'spectator') return;
-    for (const e of this.game.entitiesNear(this.x, this.y + 0.9, this.z, 2)) {
+    for (const e of this.game.entitiesNear(this.x, this.y + 0.9, this.z, 2.6)) {
       if (!(e instanceof ItemEntity) || e.removed || e.pickupDelay > 0) continue;
-      if (Math.abs(e.y - (this.y + 0.5)) > 1.5) continue;
+      // Minecraft: player hitbox expanded by 1 horizontally and 0.5 vertically
+      if (Math.abs(e.x - this.x) > 1.3 + 0.125 || Math.abs(e.z - this.z) > 1.3 + 0.125) continue;
+      if (e.y + 0.25 < this.y - 0.5 || e.y > this.y + this.body.height + 0.5) continue;
       const before = e.stack.count;
       const rem = addToSlots(this.inventory, e.stack, [...Array(9).keys(), ...Array.from({ length: 27 }, (_, i) => i + 9)]);
       if (rem && rem.count === before) continue;

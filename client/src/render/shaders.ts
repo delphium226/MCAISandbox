@@ -210,9 +210,17 @@ float shadowFactor() {
 }
 
 void main() {
-  vec4 tex = texture(uAtlas, vUv);
+  vec3 uvw = vUv;
+  if ((vFlags & 8) != 0) {
+    // Lava: world-space UVs with slow flowing distortion so the texture doesn't look tiled
+    vec3 nn = NORMALS[vNormalIdx];
+    vec2 base = abs(nn.y) > 0.5 ? vWorld.xz : vec2(vWorld.x + vWorld.z, -vWorld.y);
+    vec2 flow = vec2(sin(uTime * 0.35 + base.y * 0.6), cos(uTime * 0.3 + base.x * 0.5)) * 0.12;
+    uvw.xy = base * 0.5 + flow + vec2(uTime * 0.015, uTime * 0.01);
+  }
+  vec4 tex = texture(uAtlas, uvw);
   // Alpha test on the base mip so cutout shapes stay crisp at distance
-  float a = textureLod(uAtlas, vUv, 0.0).a;
+  float a = textureLod(uAtlas, uvw, 0.0).a;
   if (uCutout > 0.5 && a < 0.1) discard;
   vec3 albedo = tex.rgb;
   vec3 tint = pow(vTint, vec3(2.2));
@@ -244,8 +252,8 @@ void main() {
   if ((vFlags & 32) != 0) col = mix(col, albedo * 1.6, 0.85); // emissive
   if ((vFlags & 8) != 0) {
     // Lava: animated glow
-    float t = vnoise(vWorld.xz * 0.8 + uTime * 0.25) * 0.5 + vnoise(vWorld.xz * 2.1 - uTime * 0.3) * 0.5;
-    col = albedo * (1.6 + t * 1.4);
+    float t = vnoise(vWorld.xz * 0.6 + uTime * 0.2) * 0.6 + vnoise(vWorld.xz * 1.7 - uTime * 0.25) * 0.4;
+    col = albedo * (1.3 + t * 1.2) * vec3(1.0, 0.92, 0.85);
   }
   col = applyFog(col, vWorld);
   outColor = vec4(col, 1.0);
@@ -552,7 +560,7 @@ in vec3 vN;
 layout(location = 0) out vec4 outColor;
 void main() {
   float shade = vN.y > 0.5 ? 1.0 : vN.y < -0.5 ? 0.65 : (abs(vN.x) > 0.5 ? 0.8 : 0.88);
-  vec3 base = mix(vec3(0.06, 0.07, 0.1), vec3(1.0), clamp(uDaylight * 1.1, 0.0, 1.0));
+  vec3 base = mix(vec3(0.025, 0.03, 0.045), vec3(1.0), clamp(uDaylight * 1.1, 0.0, 1.0));
   base = mix(base, base * vec3(1.0, 0.75, 0.6), clamp(1.0 - abs(uSunDir.y) * 3.0, 0.0, 1.0) * uDaylight);
   vec3 col = base * shade * (1.0 - uRain * 0.5);
   vec3 v = vWorld - uCamPos;

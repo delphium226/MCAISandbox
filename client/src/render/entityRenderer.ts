@@ -84,12 +84,21 @@ interface Model {
   overlayMats: THREE.RawShaderMaterial[];
 }
 
+/** Fixed studio lighting used for UI previews (inventory player model). */
+const PREVIEW_UNIFORMS = {
+  uAmbient: { value: new THREE.Vector3(0.75, 0.75, 0.75) },
+  uSunColor: { value: new THREE.Vector3(0.7, 0.68, 0.62) },
+  uSunDir: { value: new THREE.Vector3(0.4, 0.7, -0.6).normalize() },
+  uMoonColor: { value: new THREE.Vector3(0, 0, 0) },
+};
+let previewMode = false;
+
 function makeMaterial(tex: THREE.Texture, light: THREE.Vector2, hurt: { value: number }, white: { value: number }, tint: THREE.Vector3) {
   return new THREE.RawShaderMaterial({
     vertexShader: ENTITY_VERT,
-    fragmentShader: ENTITY_FRAG,
+    fragmentShader: previewMode ? ENTITY_FRAG.replace('col = applyFog(col, vWorld);', '') : ENTITY_FRAG,
     glslVersion: THREE.GLSL3,
-    uniforms: { ...U, uTex: { value: tex }, uLight: { value: light }, uHurt: hurt, uWhite: white, uTintColor: { value: tint } },
+    uniforms: { ...U, ...(previewMode ? PREVIEW_UNIFORMS : {}), uTex: { value: tex }, uLight: { value: light }, uHurt: hurt, uWhite: white, uTintColor: { value: tint } },
   });
 }
 
@@ -185,10 +194,14 @@ export class EntityRenderer {
     scene.add(this.group);
   }
 
+  preview = false;
+
   add(state: EntityState) {
     this.remove(state.id, true);
     const e = new RenderEntity(state);
+    previewMode = this.preview;
     this.build(e);
+    previewMode = false;
     this.entities.set(state.id, e);
     this.group.add(e.group);
     return e;

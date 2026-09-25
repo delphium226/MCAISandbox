@@ -598,6 +598,7 @@ export class UI {
       const prev = h('div', 'player-preview', top);
       prev.style.margin = `0 calc(4px * var(--ui-scale))`;
       prev.id = 'player-preview';
+      this.onPlayerPreview(prev);
       const craft = h('div', 'col', top);
       craft.style.marginLeft = 'calc(10px * var(--ui-scale))';
       h('div', 'title', craft, 'Crafting');
@@ -717,6 +718,7 @@ export class UI {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   hoverIndex = -1;
+  onPlayerPreview: (el: HTMLElement) => void = () => {};
 
   private endDrag(_e: MouseEvent) {
     const d = this.dragging;

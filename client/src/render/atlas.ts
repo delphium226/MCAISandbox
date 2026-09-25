@@ -58,6 +58,8 @@ export function buildAtlas(): Atlas {
   texture.minFilter = THREE.NearestMipmapLinearFilter;
   texture.generateMipmaps = true;
   texture.anisotropy = 1;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
   texture.needsUpdate = true;
   cached = { texture, layers, pixels, average };
   return cached;

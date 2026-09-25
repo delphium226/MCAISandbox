@@ -17,6 +17,7 @@ import { LocalPlayer } from './localPlayer';
 import { UI, ClientSettings } from '../ui/ui';
 import { IconRenderer } from '../ui/icons';
 import { SoundEngine } from '../audio/sound';
+import { PlayerPreview } from '../ui/playerPreview';
 
 const CRACK_VERT = /* glsl */ `
 precision highp float;
@@ -83,6 +84,7 @@ export class ClientGame {
   private cameraShake = 0;
   private lastHealth = 20;
   private disposed = false;
+  private preview: PlayerPreview | null = null;
   private rafId = 0;
 
   constructor(private canvas: HTMLCanvasElement, public ui: UI, public settings: ClientSettings, public sound: SoundEngine) {
@@ -200,6 +202,8 @@ export class ClientGame {
         this.player.frozen = true;
         this.spawnPos.set(m.x, m.y, m.z);
         this.hand = new Hand(this.items, hashName(m.name) % 8);
+        this.preview = new PlayerPreview(this.world, this.items, hashName(m.name) % 8);
+        this.ui.onPlayerPreview = (el) => this.preview?.attach(el, this.inventory[this.selected]);
         this.renderer.handScene.add(this.hand.root);
         this.selfModel = new RenderEntity({ id: -1, kind: 'player', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, skin: hashName(m.name) % 8 });
         this.selfModel = this.entities.add({ ...this.selfModel.state, id: -999 });

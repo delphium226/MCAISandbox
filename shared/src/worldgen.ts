@@ -60,7 +60,7 @@ export class WorldGenerator {
   column(x: number, z: number): ColumnInfo {
     const c = this.continental.fbm2(x / 900, z / 900, 4) * 1.25 + 0.08;
     const e = this.erosion.fbm2(x / 420, z / 420, 3);
-    const pk = this.peaks.ridged2(x / 380, z / 380, 5);
+    const pk = this.peaks.ridged2(x / 420, z / 420, 3) * 0.8 + (this.peaks.fbm2(x / 160 + 31, z / 160, 2) * 0.5 + 0.5) * 0.2;
     const d = this.detail.fbm2(x / 55, z / 55, 4);
     const t = this.temp.fbm2(x / 1100, z / 1100, 3) + this.detail.noise2(x / 30, z / 30) * 0.03;
     const h = this.humid.fbm2(x / 900, z / 900, 3);
@@ -82,7 +82,7 @@ export class WorldGenerator {
     const mountain = mountainMask * smooth(0.4, 0.85, pk);
     const hills = (d * 0.5 + 0.5) * lerp(4, 16, smooth(-0.4, 0.6, -e)) * inland;
     let height = base + hills * 0.6 + d * 3 * (1 - inland * 0.3);
-    height += mountain * 80 * (0.6 + 0.4 * pk);
+    height += mountain * 72 * (0.55 + 0.45 * pk);
     // Carve rivers on land (not mountains)
     if (height > SEA_LEVEL - 2 && valley > 0) {
       const target = SEA_LEVEL - 3 - river * 2;
@@ -155,7 +155,9 @@ export class WorldGenerator {
           filler = B.dirt;
           if (h < SEA_LEVEL - 4) top = B.gravel;
         }
-        if (bio === Biome.Savanna && slope > 4) top = B.grass;
+        // Steep slopes expose stone (like Minecraft cliffs), with a thin dirt layer on moderate ones
+        if (!underwater && top === B.grass && slope >= 5 + (hash2(this.seed + 3, wx, wz) < 0.5 ? 1 : 0)) { top = B.stone; filler = B.stone; }
+        else if (!underwater && top === B.grass && slope >= 4) filler = B.stone;
 
         for (let y = 0; y <= Math.max(h, SEA_LEVEL); y++) {
           let v: number;
