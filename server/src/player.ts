@@ -598,6 +598,10 @@ export class Player extends Entity {
     } else if (pdef.shape === 'ladder') {
       if (face === 2 || face === 3) return false;
       meta = face;
+    } else if (pdef.shape === 'stairs') {
+      const d = this.lookDir();
+      meta = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 0 : 2) : d[2] > 0 ? 1 : 3;
+      if (face === 3 || (face !== 2 && hy > 0.5)) meta |= 4;
     } else if (pdef.shape === 'slab') {
       meta = face === 3 || (face !== 2 && hy > 0.5) ? 1 : 0;
       if (pdef.name === 'bed') meta = 0;

@@ -42,8 +42,8 @@ For example: `npx tsx server/src/index.ts --world test --seed hello`.
   - Damage from falling, drowning, lava, fire and starvation.
   - Death drops your items and shows a respawn screen.
   - Beds set your spawn point and skip the night.
-- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs), and two slabs merge into a full block.
-- **Crafting:** over 130 shaped and shapeless recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, food and building blocks.
+- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs, stairs), and two slabs merge into a full block. Doors are two blocks tall and open and close.
+- **Crafting:** over 130 shaped and shapeless recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, doors, stairs, food and building blocks.
   - 2×2 grid in the inventory, 3×3 grid on the crafting table.
   - Shift-click crafts in bulk; drag with the mouse to split stacks.
 - **Smelting:** a furnace with fuel burn time and cooking progress: ores, food, sand to glass, and more.
@@ -68,16 +68,18 @@ WebGL2 through Three.js, with a custom deferred-style pipeline:
 - **Water:** animated waves, refraction of the scene below, colour absorption with depth, Fresnel reflections of the sky, **screen-space reflections** and sun highlights. Being underwater adds fog.
 - **Sky and time of day:** a sky model with sunrise and sunset glow, a square sun and moon, twinkling stars, and a 20-minute day/night cycle.
 - **Clouds:** Minecraft-style block clouds.
+- **Weather:** rain and snow (snow in cold biomes), thunderstorms with lightning, an overcast sky, ground that looks wet, and rain sounds. Use `/weather clear|rain|thunder`.
 - **Foliage and lava:** leaves and plants sway in the wind; lava glows and flows.
 - **Post-processing:** HDR tone mapping (ACES), bloom, god rays, vignette and dithering.
 - **Particles:** block-break debris, torch flames and smoke, explosions, bubbles and critical-hit sparks.
+- **Title screen:** a rotating 3D panorama of a world generated locally.
 - **Settings:** each effect can be turned off in *Options*.
 
 Controls: WASD, Space, Shift (sneak), Ctrl or double-tap W (sprint), mouse, 1–9 or the scroll wheel, E (inventory),
 Q (drop), T or / (chat), F1 (hide the HUD), F3 (debug screen), F5 (camera view), Tab (player list), middle-click (pick block).
 
 Useful commands: `/gamemode creative|survival|spectator`, `/time set day|night`, `/give <item> [count]`, `/tp x y z`,
-`/summon <mob>`, `/gamerule doMobSpawning false`, `/agent ...` (see below).
+`/summon <mob>`, `/weather rain`, `/gamerule doMobSpawning false`, `/agent ...` (see below).
 
 ## AI agents
 
@@ -125,6 +127,9 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status |
+
+**Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
+agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
 
 `examples/agent_loop.py` is a small, dependency-free Python controller that runs an observe → decide → act loop. Its
 `decide()` function is where an LLM or PIANO-style architecture goes.

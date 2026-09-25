@@ -16,7 +16,8 @@ export type BlockShape =
   | 'crop'
   | 'ladder'
   | 'snow_layer'
-  | 'door';
+  | 'door'
+  | 'stairs';
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'sword' | 'hoe' | 'shears' | 'none';
 export type SoundGroup = 'stone' | 'wood' | 'gravel' | 'grass' | 'sand' | 'glass' | 'cloth' | 'snow' | 'metal';
 export type Tint = 'none' | 'grass' | 'foliage' | 'birch' | 'spruce' | 'water';
@@ -104,7 +105,7 @@ function reg(id: number, name: string, displayName: string, opts: BlockOpts): Bl
     displayName,
     shape,
     layer,
-    solid: opts.solid ?? (shape === 'cube' || shape === 'cactus' || shape === 'slab' || shape === 'farmland'),
+    solid: opts.solid ?? (shape === 'cube' || shape === 'cactus' || shape === 'slab' || shape === 'farmland' || shape === 'stairs'),
     opaque: opts.opaque ?? (shape === 'cube' && layer === 'opaque'),
     lightFilter: opts.lightFilter ?? 0,
     lightEmission: opts.lightEmission ?? 0,
@@ -294,6 +295,9 @@ reg(81, 'oak_door', 'Oak Door', {
   shape: 'door', layer: 'cutout', solid: true, opaque: false, interactive: true, tex: { top: 'oak_door_top', bottom: 'oak_door_bottom', side: 'oak_door_bottom' },
   hardness: 3, tool: 'axe', sound: 'wood', needsSupport: true, flammable: false, mapColor: [150, 120, 70],
 });
+reg(82, 'oak_stairs', 'Oak Stairs', { shape: 'stairs', opaque: false, tex: 'oak_planks', hardness: 2, tool: 'axe', sound: 'wood', flammable: true, mapColor: [162, 130, 78] });
+reg(83, 'cobblestone_stairs', 'Cobblestone Stairs', { shape: 'stairs', opaque: false, tex: 'cobblestone', hardness: 2, tool: 'pickaxe', minTier: 1, mapColor: [110, 110, 110] });
+reg(84, 'stone_brick_stairs', 'Stone Brick Stairs', { shape: 'stairs', opaque: false, tex: 'stone_bricks', hardness: 1.5, tool: 'pickaxe', minTier: 1, mapColor: [122, 121, 122] });
 reg(80, 'lantern', 'Lantern', { shape: 'torch', layer: 'cutout', solid: false, opaque: false, lightEmission: 15, hardness: 3.5, tool: 'pickaxe', sound: 'metal', needsSupport: true, mapColor: [250, 200, 100] });
 
 export const WOOL_COLORS: Array<[string, string, [number, number, number]]> = [
@@ -459,4 +463,15 @@ export function doorPanel(meta: number): [number, number, number, number, number
     case 2: return [0, 0, 0, 3, 16, 16];
     default: return [0, 0, 0, 16, 16, 3];
   }
+}
+
+/** Stair geometry in pixels. Meta: bits 0-1 facing (tall side: 0 +X, 1 +Z, 2 -X, 3 -Z), bit 2 upside-down. */
+export function stairBoxes(meta: number): Array<[number, number, number, number, number, number]> {
+  const f = meta & 3;
+  const inv = (meta & 4) !== 0;
+  const base: [number, number, number, number, number, number] = inv ? [0, 8, 0, 16, 16, 16] : [0, 0, 0, 16, 8, 16];
+  const y0 = inv ? 0 : 8, y1 = inv ? 8 : 16;
+  const step: [number, number, number, number, number, number] =
+    f === 0 ? [8, y0, 0, 16, y1, 16] : f === 1 ? [0, y0, 8, 16, y1, 16] : f === 2 ? [0, y0, 0, 8, y1, 16] : [0, y0, 0, 16, y1, 8];
+  return [base, step];
 }
