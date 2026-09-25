@@ -1,4 +1,4 @@
-import { Entity, ItemEntity } from './entity';
+import { Entity, ItemEntity, spawnXp } from './entity';
 import { C2S, EntityState, S2C } from '../../shared/src/protocol';
 import { GameMode, MAX_FOOD, MAX_HEALTH, PLAYER_EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_SNEAK_EYE, REACH_DISTANCE, FACE_DIRS } from '../../shared/src/constants';
 import { ItemStack, itemDef, ITEMS, sameItem, stackSizeOf, itemId, ITEMS_BY_NAME } from '../../shared/src/items';
@@ -34,6 +34,7 @@ export interface PlayerData {
   selected: number;
   gamemode: GameMode;
   spawn?: [number, number, number];
+  xp?: number;
 }
 
 export class Player extends Entity {
@@ -89,6 +90,7 @@ export class Player extends Entity {
       this.selected = data.selected;
       this.gamemode = data.gamemode;
       if (data.spawn) this.spawnPoint = data.spawn;
+      this.xpTotal = data.xp ?? 0;
       if (this.health <= 0) this.health = MAX_HEALTH;
     } else {
       this.body.x = sp.x;
@@ -106,6 +108,7 @@ export class Player extends Entity {
       name: this.name, x: this.x, y: this.y, z: this.z, yaw: this.yaw, pitch: this.pitch,
       health: this.health, food: this.food, saturation: this.saturation,
       inventory: this.inventory, armor: this.armor, selected: this.selected, gamemode: this.gamemode, spawn: this.spawnPoint,
+      xp: this.xpTotal,
     };
   }
 
@@ -731,11 +734,43 @@ export class Player extends Entity {
     return ok;
   }
   lastDamageCause = 'generic';
+  /** Total experience points and derived level (Minecraft formulas). */
+  xpTotal = 0;
+  static xpForLevel(level: number): number {
+    if (level < 16) return 2 * level + 7;
+    if (level < 31) return 5 * level - 38;
+    return 9 * level - 158;
+  }
+  xpLevel(): { level: number; progress: number } {
+    let level = 0, left = this.xpTotal;
+    while (left >= Player.xpForLevel(level)) {
+      left -= Player.xpForLevel(level);
+      level++;
+    }
+    return { level, progress: left / Player.xpForLevel(level) };
+  }
+  addXp(n: number) {
+    const before = this.xpLevel().level;
+    this.xpTotal = Math.max(0, this.xpTotal + n);
+    const after = this.xpLevel().level;
+    this.game.playSound('pop', this.x, this.y + 1, this.z, 0.2, 1.6 + Math.random() * 0.5);
+    if (after > before && after % 5 === 0) this.game.playSound('levelup', this.x, this.y + 1, this.z, 0.75);
+    this.sendXp();
+  }
+  sendXp() {
+    const { level, progress } = this.xpLevel();
+    this.send({ t: 'xp', level, progress, total: this.xpTotal });
+  }
   lastDamageSource: Entity | null = null;
 
   die(killer: Entity | null) {
     if (this.dead) return;
     this.dead = true;
+    // Drop some experience (7 per level, max 100) and lose the rest
+    const lvl = this.xpLevel().level;
+    if (lvl > 0) spawnXp(this.game, this.x, this.y + 0.5, this.z, Math.min(100, lvl * 7));
+    this.xpTotal = 0;
+    this.sendXp();
     this.health = 0;
     this.sendHealth();
     this.closeWindow();

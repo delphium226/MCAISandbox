@@ -48,6 +48,7 @@ For example: `npx tsx server/src/index.ts --world test --seed hello`.
   - Shift-click crafts in bulk; drag with the mouse to split stacks.
 - **Smelting:** a furnace with fuel burn time and cooking progress: ores, food, sand to glass, and more.
 - **Containers:** chests.
+- **Experience:** XP orbs from mining ores, killing mobs and smelting fly to the nearest player and fill a green XP bar with a level number (Minecraft level formula); you drop some XP when you die.
 - **Creative mode:** a tabbed, searchable item palette and flying.
 - **Mobs:** pig, cow, sheep (dyed and shearable), chicken, zombie, skeleton (shoots arrows), creeper (explodes) and spider.
   - Animals wander, panic when hit and follow you when you hold wheat or seeds.

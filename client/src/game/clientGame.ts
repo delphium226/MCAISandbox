@@ -87,6 +87,7 @@ export class ClientGame {
   private disposed = false;
   private preview: PlayerPreview | null = null;
   weather: Weather;
+  xp = { level: 0, progress: 0 };
   private bolts: { mesh: THREE.Mesh; life: number }[] = [];
   private rafId = 0;
   /** Listeners on window/canvas, removed on dispose so a new game after reconnecting doesn't double-fire. */
@@ -339,6 +340,7 @@ export class ClientGame {
       case 'gamemode':
         this.gamemode = m.mode;
         this.ui.gamemode = m.mode;
+        this.ui.setXp(this.xp.level, this.xp.progress);
         if (m.mode !== 'creative') this.player.flying = m.mode === 'spectator';
         this.player.cancelDig();
         this.updateStatsUI();
@@ -367,6 +369,10 @@ export class ClientGame {
         break;
       case 'lightning':
         this.spawnBolt(m.x, m.y, m.z);
+        break;
+      case 'xp':
+        this.xp = { level: m.level, progress: m.progress };
+        this.ui.setXp(m.level, m.progress);
         break;
       case 'pong':
         if (m.n === 0) this.ping = performance.now() - this.pingSent;

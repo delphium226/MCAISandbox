@@ -106,6 +106,7 @@ export type S2C =
   | WindowUpdate
   | { t: 'closeWindow' }
   | { t: 'health'; hp: number; food: number; sat: number; air: number }
+  | { t: 'xp'; level: number; progress: number; total: number }
   | { t: 'chat'; text: string; from?: string; color?: string }
   | { t: 'time'; time: number; rate: number }
   | { t: 'players'; list: { id: number; name: string; agent?: boolean; ping?: number }[] }

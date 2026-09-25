@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ServerWorld } from './serverWorld';
-import { Entity, ItemEntity, FallingBlockEntity, TntEntity, ArrowEntity } from './entity';
+import { Entity, ItemEntity, FallingBlockEntity, TntEntity, ArrowEntity, spawnXp } from './entity';
 import { Player, Connection, PlayerData } from './player';
 import { Mob, MobKind, MOB_SPECS } from './mobs';
 import { BlockEntity, FurnaceState, ChestState, tickFurnace } from './containers';
@@ -163,6 +163,7 @@ export class Game {
     p.send({ t: 'weather', rain: this.weather.rain ? 1 : 0, thunder: this.weather.thunder });
     p.sendInventory();
     p.sendHealth();
+    p.sendXp();
     this.broadcast({ t: 'chat', text: `${name} joined the game`, color: '#ffff55' });
     this.sendPlayerList();
     if (!conn.isAgent) p.send({ t: 'chat', text: this.opts.motd, color: '#aaaaaa' });
@@ -325,6 +326,9 @@ export class Game {
     }
     if (breaker) {
       this.dropBlockItems(x, y, z, s, tool);
+      const oreXp: Record<string, [number, number]> = { coal_ore: [0, 2], diamond_ore: [3, 7], emerald_ore: [3, 7], lapis_ore: [2, 5], redstone_ore: [1, 5] };
+      const ox = oreXp[def.name];
+      if (ox && breaker.gamemode === 'survival') spawnXp(this, x + 0.5, y + 0.5, z + 0.5, ox[0] + Math.floor(Math.random() * (ox[1] - ox[0] + 1)));
       this.agents?.onBlockBroken(breaker, x, y, z, s);
     }
     // Ice leaves water behind
@@ -526,6 +530,7 @@ export class Game {
     this.agents?.onItemPickup(p, stack);
   }
   onMobKilled(mob: Mob, killer: Entity | null) {
+    if (killer instanceof Player) spawnXp(this, mob.x, mob.y + 0.5, mob.z, mob.hostile ? 5 : 1 + Math.floor(Math.random() * 3));
     this.agents?.onMobKilled(mob, killer);
   }
   onPlayerDied(p: Player) {

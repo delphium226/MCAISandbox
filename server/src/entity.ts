@@ -128,6 +128,55 @@ export class ItemEntity extends Entity {
   }
 }
 
+/** Experience orb: drifts towards the nearest player and is absorbed on contact. */
+export class XpOrbEntity extends Entity {
+  readonly kind = 'xp' as const;
+  constructor(game: Game, x: number, y: number, z: number, public value: number) {
+    super(game, x, y, z, 0.3, 0.3);
+    this.body.stepHeight = 0;
+    this.body.vx = (Math.random() - 0.5) * 0.2;
+    this.body.vz = (Math.random() - 0.5) * 0.2;
+    this.body.vy = 0.2 + Math.random() * 0.1;
+  }
+  state(): EntityState {
+    return { ...super.state(), variant: this.value };
+  }
+  damage(): boolean {
+    return false;
+  }
+  tick() {
+    this.age++;
+    if (this.age > 6000) return this.remove();
+    const p = this.game.nearestPlayer(this.x, this.y, this.z, 8, (pl) => pl.gamemode !== 'spectator' && !pl.dead);
+    if (p && this.age > 10) {
+      const dx = p.x - this.x, dy = p.y + 0.8 - this.y, dz = p.z - this.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1.2) {
+        p.addXp(this.value);
+        this.remove();
+        return;
+      }
+      const pull = (1 - d / 8) ** 2 * 0.1;
+      this.body.vx += (dx / d) * pull;
+      this.body.vy += (dy / d) * pull;
+      this.body.vz += (dz / d) * pull;
+    }
+    stepEntity(this.game.world, this.body, 0.03, 0.98, 0.6);
+  }
+}
+
+/** Split an XP amount into orbs like Minecraft (bigger values -> fewer, larger orbs). */
+export function spawnXp(game: Game, x: number, y: number, z: number, amount: number) {
+  const sizes = [37, 17, 7, 3, 1];
+  let left = Math.floor(amount);
+  let guard = 0;
+  while (left > 0 && guard++ < 50) {
+    const v = sizes.find((s) => s <= left) ?? 1;
+    left -= v;
+    game.addEntity(new XpOrbEntity(game, x, y, z, v));
+  }
+}
+
 export class FallingBlockEntity extends Entity {
   readonly kind = 'falling_block' as const;
   constructor(game: Game, x: number, y: number, z: number, public blockState: number) {

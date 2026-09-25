@@ -71,38 +71,49 @@ export class IconRenderer {
     const tint = b.tint !== 'none' ? tintColor(b) : undefined;
     const isGrass = b.name === 'grass_block';
     const top = this.textureCanvas(t.top, tint);
-    const sideName = isDirectional(b.id) || b.name === 'crafting_table' ? t.front ?? t.side : t.side;
-    const left = this.textureCanvas(sideName, isGrass ? tint : tint, isGrass);
-    const right = this.textureCanvas(t.side, isGrass ? tint : tint, isGrass);
-    // Isometric cube: size fits in S x S
-    const s = S * 0.5; // half width
-    const cx = S / 2;
-    const h = S * 0.29; // top rhombus half-height
-    let topY = S * 0.06;
-    let sideH = S * 0.58;
-    if (b.shape === 'slab') { topY += sideH * 0.5; sideH *= 0.5; }
-    if (b.shape === 'snow_layer') { topY += sideH * 0.875; sideH *= 0.125; }
-    // top face
-    ctx.save();
-    ctx.setTransform(s / 16, h / 16, -s / 16, h / 16, cx, topY);
-    ctx.drawImage(top, 0, 0);
-    ctx.restore();
-    // left face (front)
-    ctx.save();
-    ctx.setTransform(s / 16, h / 16, 0, sideH / 16 * (b.shape === 'slab' ? 2 : 1), cx - s, topY + h);
-    ctx.drawImage(left, 0, b.shape === 'slab' ? 8 : 0, 16, b.shape === 'slab' ? 8 : 16, 0, 0, 16, b.shape === 'slab' ? 8 : 16);
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.restore();
-    // right face
-    ctx.save();
-    ctx.setTransform(s / 16, -h / 16, 0, sideH / 16 * (b.shape === 'slab' ? 2 : 1), cx, topY + 2 * h);
-    ctx.drawImage(right, 0, b.shape === 'slab' ? 8 : 0, 16, b.shape === 'slab' ? 8 : 16, 0, 0, 16, b.shape === 'slab' ? 8 : 16);
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.fillStyle = 'rgba(0,0,0,0.42)';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.restore();
+    const frontName = isDirectional(b.id) || b.name === 'crafting_table' ? t.front ?? t.side : t.side;
+    const left = this.textureCanvas(frontName, tint, isGrass);
+    const right = this.textureCanvas(t.side, tint, isGrass);
+    // Box list (block units) for the item's shape, drawn back-to-front
+    type Box = [number, number, number, number, number, number];
+    let boxes: Box[] = [[0, 0, 0, 1, 1, 1]];
+    switch (b.shape) {
+      case 'slab': boxes = [[0, 0, 0, 1, 0.5, 1]]; break;
+      case 'snow_layer': boxes = [[0, 0, 0, 1, 0.125, 1]]; break;
+      case 'farmland': boxes = [[0, 0, 0, 1, 15 / 16, 1]]; break;
+      case 'cactus': boxes = [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]]; break;
+      case 'stairs': boxes = [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]]; break;
+      case 'fence':
+        boxes = b.name.endsWith('wall')
+          ? [[0.25, 0, 0, 0.75, 1, 0.3], [0.31, 0, 0.3, 0.69, 0.8, 0.7], [0.25, 0, 0.7, 0.75, 1, 1]]
+          : [[0.375, 0, 0, 0.625, 1, 0.25], [0.4375, 0.75, 0.25, 0.5625, 0.9375, 0.75], [0.4375, 0.375, 0.25, 0.5625, 0.5625, 0.75], [0.375, 0, 0.75, 0.625, 1, 1]];
+        break;
+    }
+    // Isometric projection of block-space points (viewer at +X,+Z looking down)
+    const s = S * 0.5, h = S * 0.29, H = S * 0.58;
+    const cx = S / 2, baseY = S * 0.06 + H;
+    const P = (x: number, y: number, z: number) => [cx + (x - z) * s, baseY + (x + z) * h - y * H] as const;
+    const face = (tex: HTMLCanvasElement, o: readonly number[], du: readonly number[], dv: readonly number[], u0: number, v0: number, u1: number, v1: number, shade: number) => {
+      ctx.save();
+      ctx.setTransform((du[0] - o[0]) / 16, (du[1] - o[1]) / 16, (dv[0] - o[0]) / 16, (dv[1] - o[1]) / 16, o[0], o[1]);
+      const w = Math.max(0.01, u1 - u0), hh = Math.max(0.01, v1 - v0);
+      ctx.drawImage(tex, u0, v0, w, hh, u0, v0, w, hh);
+      if (shade > 0) {
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.fillStyle = `rgba(0,0,0,${shade})`;
+        ctx.fillRect(u0, v0, w, hh);
+      }
+      ctx.restore();
+    };
+    boxes.sort((p, q) => p[0] + p[2] - (q[0] + q[2]) || p[1] - q[1]);
+    for (const [x0, y0, z0, x1, y1, z1] of boxes) {
+      // top: u along +x, v along +z
+      face(top, P(0, y1, 0), P(1, y1, 0), P(0, y1, 1), x0 * 16, z0 * 16, x1 * 16, z1 * 16, 0);
+      // +z side (left): u along +x, v down
+      face(left, P(0, 1, z1), P(1, 1, z1), P(0, 0, z1), x0 * 16, (1 - y1) * 16, x1 * 16, (1 - y0) * 16, 0.22);
+      // +x side (right): u along -z, v down
+      face(right, P(x1, 1, 1), P(x1, 1, 0), P(x1, 0, 1), (1 - z1) * 16, (1 - y1) * 16, (1 - z0) * 16, (1 - y0) * 16, 0.42);
+    }
   }
 }
 

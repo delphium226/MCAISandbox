@@ -138,8 +138,11 @@ export function furnaceWindow(p: Player, id: number, pos: [number, number, numbe
       output: true,
       get: () => f.output,
       set: (s) => (f.output = s),
-      onTake: () => {
+      onTake: (taken) => {
         f.output = null;
+        // Smelting experience: roughly 0.35 per item, like Minecraft ores/food
+        const n = Math.floor(taken.count * 0.35 + Math.random());
+        if (n > 0) p.addXp(n);
       },
     },
     ...inventorySlots(p, 1),

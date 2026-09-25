@@ -119,7 +119,7 @@ input.mc-input:focus { border-color: #fff; }
 .durability { position: absolute; left: calc(2px * var(--ui-scale)); bottom: calc(1px * var(--ui-scale)); width: calc(13px * var(--ui-scale)); height: calc(2px * var(--ui-scale)); background: #000; pointer-events: none; }
 .durability > div { height: 50%; }
 
-.stats { position: absolute; bottom: calc(24px * var(--ui-scale)); left: 50%; transform: translateX(-50%); width: calc(182px * var(--ui-scale)); height: calc(20px * var(--ui-scale)); }
+.stats { position: absolute; bottom: calc(30px * var(--ui-scale)); left: 50%; transform: translateX(-50%); width: calc(182px * var(--ui-scale)); height: calc(20px * var(--ui-scale)); }
 .stat-row { position: absolute; display: flex; }
 .stat-row img { width: calc(9px * var(--ui-scale)); height: calc(9px * var(--ui-scale)); margin-right: calc(-1px * var(--ui-scale)); image-rendering: pixelated; }
 .stat-row.hearts { left: 0; bottom: 0; }
@@ -128,7 +128,9 @@ input.mc-input:focus { border-color: #fff; }
 .stat-row.food img { margin-right: 0; margin-left: calc(-1px * var(--ui-scale)); }
 .stat-row.air { right: 0; bottom: calc(10px * var(--ui-scale)); flex-direction: row-reverse; }
 .stat-row.air img { margin-right: 0; margin-left: calc(-1px * var(--ui-scale)); }
-.xpbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(22px * var(--ui-scale)); width: calc(182px * var(--ui-scale)); height: calc(5px * var(--ui-scale)); background: #000; border: var(--px) solid #000; box-shadow: inset 0 0 0 var(--px) #3a3a3a; }
+.xpbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(23px * var(--ui-scale)); width: calc(182px * var(--ui-scale)); height: calc(5px * var(--ui-scale)); background: #202020; border: var(--px) solid #000; box-shadow: inset 0 0 0 var(--px) #3a3a3a; }
+.xpfill { height: 100%; width: 0; background: linear-gradient(#b7ff5a, #80ff20 50%, #4fbf10); transition: width 0.2s; }
+.xplevel { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(26px * var(--ui-scale)); font-size: calc(8px * var(--ui-scale)); color: #80ff20; text-shadow: calc(1px * var(--ui-scale)) 0 0 #000, calc(-1px * var(--ui-scale)) 0 0 #000, 0 calc(1px * var(--ui-scale)) 0 #000, 0 calc(-1px * var(--ui-scale)) 0 #000; }
 
 .item-name {
   position: absolute; left: 50%; bottom: calc(50px * var(--ui-scale)); transform: translateX(-50%);

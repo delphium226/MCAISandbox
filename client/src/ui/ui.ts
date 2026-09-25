@@ -52,6 +52,8 @@ export class UI {
   private screen: HTMLElement | null = null;
   screenName = '';
   private hotbarSlots: HTMLElement[] = [];
+  private xpFill!: HTMLElement;
+  private xpLevel!: HTMLElement;
   private hotbarSel!: HTMLElement;
   private heartsRow!: HTMLElement;
   private foodRow!: HTMLElement;
@@ -353,6 +355,9 @@ export class UI {
     this.armorRow = h('div', 'stat-row armor', stats);
     this.foodRow = h('div', 'stat-row food', stats);
     this.airRow = h('div', 'stat-row air', stats);
+    const xp = h('div', 'xpbar', hud);
+    this.xpFill = h('div', 'xpfill', xp);
+    this.xpLevel = h('div', 'xplevel', hud);
     const bar = h('div', 'hotbar', hud);
     for (let i = 0; i < 9; i++) this.hotbarSlots.push(h('div', 'hslot', bar));
     this.hotbarSel = h('div', 'sel', bar);
@@ -407,6 +412,14 @@ export class UI {
     const bubbles = air < 300 && survival ? Math.max(0, Math.ceil((air * 10) / 300)) : 0;
     const airImgs = this.statImgs(this.airRow, bubbles);
     airImgs.forEach((img) => (img.src = HUD_ICONS.bubble));
+  }
+
+  setXp(level: number, progress: number) {
+    this.xpFill.style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
+    this.xpLevel.textContent = level > 0 ? String(level) : '';
+    const show = this.gamemode === 'survival';
+    (this.xpFill.parentElement as HTMLElement).style.display = show ? '' : 'none';
+    this.xpLevel.style.display = show ? '' : 'none';
   }
 
   hurtFlash() {
@@ -805,7 +818,7 @@ export class UI {
     this.windowSlots = [];
     const wrap = h('div', 'col', s);
     const tabs = h('div', 'creative-tabs', wrap);
-    const tabIcons = ['bricks', 'poppy', 'iron_sword', 'apple', 'compass'];
+    const tabIcons = ['bricks', 'poppy', 'iron_sword', 'apple', 'book'];
     const tabNames = ['Building Blocks', 'Decoration Blocks', 'Tools & Combat', 'Food & Materials', 'Search Items'];
     tabNames.forEach((name, i) => {
       const t = h('div', `creative-tab${i === this.creativeTab ? ' active' : ''}`, tabs);

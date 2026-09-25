@@ -181,6 +181,7 @@ export function entitySize(s: EntityState): [number, number] {
     case 'creeper': return [0.6, 1.7];
     case 'spider': return [1.4, 0.9];
     case 'item': return [0.25, 0.25];
+    case 'xp': return [0.3, 0.3];
     case 'arrow': return [0.3, 0.3];
     default: return [0.98, 0.98];
   }
@@ -221,6 +222,15 @@ export class EntityRenderer {
       mesh.position.y = 0.49;
       e.itemMesh = mesh;
       e.group.add(mesh);
+      return;
+    }
+    if (kind === 'xp') {
+      const orb = new THREE.Sprite(xpMaterial());
+      const sz = 0.15 + Math.min(0.2, (s.variant ?? 1) * 0.01);
+      orb.scale.set(sz, sz, 1);
+      orb.position.y = 0.15;
+      e.itemMesh = orb;
+      e.group.add(orb);
       return;
     }
     if (kind === 'arrow') {
@@ -402,6 +412,13 @@ export class EntityRenderer {
         }
         continue;
       }
+      if (kind === 'xp') {
+        if (e.itemMesh) {
+          e.itemMesh.position.y = 0.15 + Math.sin(e.age * 4) * 0.04;
+          ((e.itemMesh as THREE.Sprite).material as THREE.SpriteMaterial).color.setRGB(2.2 + Math.sin(e.age * 6) * 0.6, 3.2, 0.6);
+        }
+        continue;
+      }
       if (kind === 'arrow') {
         e.group.rotation.set(0, e.yaw, 0, 'YXZ');
         if (e.itemMesh) {
@@ -550,4 +567,26 @@ function makeNameTag(text: string): THREE.Sprite {
   const s = new THREE.Sprite(mat);
   s.scale.set((c.width / c.height) * 0.3, 0.3, 1);
   return s;
+}
+
+let xpMat: THREE.SpriteMaterial | null = null;
+/** Glowing experience orb sprite (HDR colour so it blooms). */
+function xpMaterial(): THREE.SpriteMaterial {
+  if (xpMat) return xpMat.clone();
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d')!;
+  const rows = ['......####......', '....########....', '...##########...', '..###########+#.', '.#############+#', '.##############.', '################', '################', '################', '################', '.##############.', '.##############.', '..############..', '...##########...', '....########....', '......####......'];
+  rows.forEach((r, y) => [...r].forEach((ch, x) => {
+    if (ch === '.') return;
+    const edge = rows[y - 1]?.[x] === '.' || rows[y + 1]?.[x] === '.' || r[x - 1] === '.' || r[x + 1] === '.' || y === 0 || y === 15;
+    ctx.fillStyle = ch === '+' ? '#ffffff' : edge ? '#3a6a00' : x + y < 14 ? '#d8ff60' : '#9be020';
+    ctx.fillRect(x, y, 1, 1);
+  }));
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  xpMat = new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.5 });
+  return xpMat.clone();
 }
