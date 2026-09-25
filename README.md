@@ -132,6 +132,16 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 To write a brain in TypeScript instead, implement `AgentBrain` in `server/src/brains.ts` (`tick`, `onEvent`) and
 register it in `BRAINS`.
 
+**LLM brain (Claude).** `server/src/llmBrain.ts` is a ready-made brain that sends each agent's observation and recent
+events to Claude and runs the returned tool calls as skills. It needs Anthropic credentials (`ANTHROPIC_API_KEY` or an
+`ant auth login` profile). Spawn an agent with it using `/agent spawn Ada farmer llm` or `POST /api/agents {"name":"Ada","brain":"llm"}`.
+
+Settings:
+- `MC_LLM_MODEL` sets the model (default `claude-opus-5`).
+- `MC_LLM_INTERVAL_MS` sets how often an idle agent asks for a new decision (default `6000`).
+
+Requests use low effort, cache the system prompt, and opt into Anthropic's server-side refusal fallback (`fallbacks: "default"`).
+
 ## Project layout
 
 ```

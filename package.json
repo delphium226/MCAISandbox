@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "opentype.js": "^2.0.0",
     "three": "^0.186.1",
     "ws": "^8.21.3"

@@ -10,6 +10,7 @@
 import type { Agent, AgentEvent } from './agents';
 import { itemId, itemDef } from '../../shared/src/items';
 import { countItem } from '../../shared/src/inventory';
+import { LLMBrain } from './llmBrain';
 
 export interface AgentBrain {
   name: string;
@@ -209,4 +210,5 @@ export const BRAINS: Record<string, () => AgentBrain> = {
   idle: () => new IdleBrain(),
   worker: () => new WorkerBrain(),
   companion: () => new CompanionBrain(),
+  llm: () => new LLMBrain(),
 };
