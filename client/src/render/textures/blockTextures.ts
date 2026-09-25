@@ -1528,3 +1528,56 @@ export function generateBlockTexture(name: string): Uint8ClampedArray {
 export function knownBlockTextures(): string[] {
   return [...GEN.keys()];
 }
+
+// ---- Doors (added with the door block) -------------------------------------------------------
+function doorHalf(top: boolean) {
+  return (t: Tex, r: Rng) => {
+    const p = OAK;
+    // vertical boards
+    for (let x = 0; x < 16; x++)
+      for (let y = 0; y < 16; y++) {
+        const board = x >> 2;
+        const c = (x & 3) === 3 ? p.sep : r.weighted([p.light, p.mid2, p.mid], [2, 3, 2]);
+        t.set(x, y, board % 2 === 0 && r.chance(0.08) ? p.dark : c);
+      }
+    // frame
+    for (let i = 0; i < 16; i++) {
+      t.set(0, i, p.sep); t.set(15, i, p.sep);
+      if (top) t.set(i, 0, p.sep);
+      else t.set(i, 15, p.sep);
+    }
+    if (top) {
+      // two window panes (transparent) with a cross bar
+      for (let y = 2; y <= 7; y++)
+        for (let x = 2; x <= 13; x++) {
+          if (x === 7 || x === 8) { t.set(x, y, p.dark); continue; }
+          t.set(x, y, [0, 0, 0], 0);
+        }
+      for (let x = 1; x <= 14; x++) { t.set(x, 1, p.dark); t.set(x, 8, p.dark); }
+      for (let y = 1; y <= 8; y++) { t.set(1, y, p.dark); t.set(14, y, p.dark); }
+      // cross brace
+      for (let x = 2; x <= 13; x++) t.set(x, 11, p.dark);
+    } else {
+      // diagonal brace and handle
+      for (let i = 2; i <= 13; i++) t.set(i, 15 - i, p.dark);
+      for (let x = 1; x <= 14; x++) { t.set(x, 2, p.dark); t.set(x, 13, p.dark); }
+      t.set(12, 0, hex(0x3a3a3a)); t.set(12, 1, hex(0x5a5a5a));
+    }
+  };
+}
+def('oak_door_top', doorHalf(true));
+def('oak_door_bottom', doorHalf(false));
+def('oak_door_item', (t, r) => {
+  t.clear();
+  const top = new Tex(); doorHalf(true)(top, r);
+  const bot = new Tex(); doorHalf(false)(bot, r);
+  // two halves squeezed into an item icon (8px wide, 16 tall)
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 8; x++) {
+      const src = y < 8 ? top : bot;
+      const sy = (y % 8) * 2, sx = x * 2;
+      const c = src.get(sx, sy);
+      const a = src.data[(sy * 16 + sx) * 4 + 3];
+      if (a) t.set(x + 4, y, c);
+    }
+});

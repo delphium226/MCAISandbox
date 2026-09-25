@@ -8,7 +8,7 @@
  *   a_light Uint8  x4 : sky*17, block*17, ao*85, extra (0)
  *   a_color Uint8  x4 : tint r, g, b, wave phase
  */
-import { BLOCKS, BlockDef, fluidHeight, isLog, isDirectional } from '../../../shared/src/blocks';
+import { BLOCKS, BlockDef, fluidHeight, isLog, isDirectional, doorPanel } from '../../../shared/src/blocks';
 import { BIOMES } from '../../../shared/src/biomes';
 import { WORLD_HEIGHT } from '../../../shared/src/constants';
 
@@ -231,6 +231,12 @@ export class Mesher {
             case 'ladder':
               this.ladder(x, y, z, s, def);
               break;
+            case 'door': {
+              const d = doorPanel(s >> 8);
+              const layer = L((s >> 8) & 8 ? 'oak_door_top' : 'oak_door_bottom');
+              for (let f = 0; f < 6; f++) this.emitFace(this.opaque, x, y, z, f, d[0], d[1], d[2], d[3], d[4], d[5], layer, 0, [255, 255, 255], 0, 0, false);
+              break;
+            }
           }
         }
     return { cx: job.cx, cz: job.cz, opaque: this.opaque.finish(), translucent: this.trans.finish() };

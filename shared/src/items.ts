@@ -50,7 +50,7 @@ function add(def: ItemDef) {
 }
 
 // Block items
-const FLAT_BLOCK_SHAPES = new Set(['cross', 'torch', 'crop', 'ladder']);
+const FLAT_BLOCK_SHAPES = new Set(['cross', 'torch', 'crop', 'ladder', 'door']);
 for (const b of BLOCKS) {
   if (b.id === 0 || b.name.startsWith('unknown_')) continue;
   const flat = FLAT_BLOCK_SHAPES.has(b.shape);
@@ -60,7 +60,7 @@ for (const b of BLOCKS) {
     displayName: b.displayName,
     stackSize: b.stackSize,
     block: b,
-    icon: flat ? (b.shape === 'crop' ? 'wheat_stage7' : b.textures.side) : b.name,
+    icon: flat ? (b.shape === 'crop' ? 'wheat_stage7' : b.shape === 'door' ? 'oak_door_item' : b.textures.side) : b.name,
     flatIcon: flat,
     fuel: b.flammable && b.shape === 'cube' ? 300 : undefined,
   });

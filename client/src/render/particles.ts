@@ -20,7 +20,9 @@ out vec3 vUv;
 out vec4 vCol;
 out vec2 vLight;
 out vec3 vWorld;
+out vec2 vCorner;
 void main() {
+  vCorner = corner.xy;
   vec4 view = viewMatrix * vec4(position, 1.0);
   float c = cos(corner.w), s = sin(corner.w);
   vec2 off = vec2(corner.x * c - corner.y * s, corner.x * s + corner.y * c) * corner.z;
@@ -39,8 +41,11 @@ in vec3 vUv;
 in vec4 vCol;
 in vec2 vLight;
 in vec3 vWorld;
+in vec2 vCorner;
 layout(location = 0) out vec4 outColor;
 void main() {
+  // Untextured particles (smoke, bubbles, sparks) are soft round dots
+  if (vUv.z < 0.0 && dot(vCorner, vCorner) > 1.0) discard;
   vec4 tex = vUv.z < 0.0 ? vec4(1.0) : textureLod(uAtlas, vUv, 0.0);
   if (tex.a < 0.3) discard;
   vec3 albedo = tex.rgb * vCol.rgb;

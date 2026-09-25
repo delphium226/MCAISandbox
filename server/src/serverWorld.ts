@@ -27,6 +27,7 @@ export interface WorldEvents {
 
 const H4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const LANTERN = BLOCKS.find((b) => b.name === 'lantern')!.id;
+const DOOR = BLOCKS.find((b) => b.name === 'oak_door')!.id;
 
 export class ServerWorld extends World {
   readonly gen: WorldGenerator;
@@ -249,6 +250,11 @@ export class ServerWorld extends World {
       // wall torch: meta = face it is attached on (0..5), support is opposite
       const d = FACE_DIRS[m];
       return BLOCKS[this.getBlock(x - d[0], y, z - d[2]) & 0xff].solid;
+    }
+    if (id === DOOR) {
+      const upper = ((s >> 8) & 8) !== 0;
+      if (upper) return (this.getBlock(x, y - 1, z) & 0xff) === DOOR;
+      return bdef.solid && (this.getBlock(x, y + 1, z) & 0xff) === DOOR;
     }
     if (id === B.ladder) {
       const d = FACE_DIRS[s >> 8] ?? FACE_DIRS[4];

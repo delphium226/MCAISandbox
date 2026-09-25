@@ -483,6 +483,15 @@ export class Player extends Entity {
         return true;
       }
       if (id === B.bed) return this.game.trySleep(this, [x, y, z]), true;
+      if (id === DOOR) {
+        const meta = target >> 8;
+        const oy = meta & 8 ? y - 1 : y + 1;
+        const other = world.getBlock(x, oy, z);
+        world.set(x, y, z, makeState(DOOR, meta ^ 4), false);
+        if ((other & 0xff) === DOOR) world.set(x, oy, z, makeState(DOOR, (other >> 8) ^ 4), false);
+        this.game.playSound('door', x + 0.5, y + 0.5, z + 0.5);
+        return true;
+      }
     }
     if (!held || !heldDef) return false;
 
@@ -593,6 +602,17 @@ export class Player extends Entity {
       meta = face === 3 || (face !== 2 && hy > 0.5) ? 1 : 0;
       if (pdef.name === 'bed') meta = 0;
     } else if (pdef.name.endsWith('leaves')) meta = 4; // player placed: no decay
+    if (pdef.id === DOOR) {
+      // Two-block tall door: needs solid ground and free space above
+      if (!blockOf(world.getBlock(px, py - 1, pz)).solid || !blockOf(world.getBlock(px, py + 1, pz)).replaceable || py + 1 >= 256) return false;
+      const d = this.lookDir();
+      const facing = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 0 : 2) : d[2] > 0 ? 1 : 3;
+      world.set(px, py, pz, makeState(DOOR, facing), false);
+      world.set(px, py + 1, pz, makeState(DOOR, facing | 8));
+      this.game.playSound('place_wood', px + 0.5, py + 0.5, pz + 0.5);
+      this.consumeHeld();
+      return true;
+    }
     const state = makeState(pdef.id, meta);
     if (pdef.needsSupport && !this.game.world.hasSupport(px, py, pz, state)) return false;
     if (pdef.id === B.wheat && (world.getBlock(px, py - 1, pz) & 0xff) !== B.farmland) return false;
@@ -887,6 +907,7 @@ export class Player extends Entity {
 }
 
 const B_SMOOTH = BLOCKS_BY_NAME.get('smooth_stone')!.id;
+const DOOR = BLOCKS_BY_NAME.get('oak_door')!.id;
 
 function facingFromYaw(yaw: number): number {
   // Face towards the player: player looking -Z (yaw 0) => block front faces +Z (south, face 4)

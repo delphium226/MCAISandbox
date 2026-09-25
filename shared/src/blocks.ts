@@ -15,7 +15,8 @@ export type BlockShape =
   | 'farmland'
   | 'crop'
   | 'ladder'
-  | 'snow_layer';
+  | 'snow_layer'
+  | 'door';
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'sword' | 'hoe' | 'shears' | 'none';
 export type SoundGroup = 'stone' | 'wood' | 'gravel' | 'grass' | 'sand' | 'glass' | 'cloth' | 'snow' | 'metal';
 export type Tint = 'none' | 'grass' | 'foliage' | 'birch' | 'spruce' | 'water';
@@ -289,6 +290,10 @@ reg(76, 'diorite', 'Diorite', { hardness: 1.5, tool: 'pickaxe', minTier: 1, mapC
 reg(77, 'andesite', 'Andesite', { hardness: 1.5, tool: 'pickaxe', minTier: 1, mapColor: [135, 135, 135] });
 reg(78, 'moss_block', 'Moss Block', { hardness: 0.1, tool: 'hoe', sound: 'grass', mapColor: [90, 110, 45] });
 reg(79, 'mossy_stone_bricks', 'Mossy Stone Bricks', { hardness: 1.5, tool: 'pickaxe', minTier: 1, mapColor: [110, 120, 100] });
+reg(81, 'oak_door', 'Oak Door', {
+  shape: 'door', layer: 'cutout', solid: true, opaque: false, interactive: true, tex: { top: 'oak_door_top', bottom: 'oak_door_bottom', side: 'oak_door_bottom' },
+  hardness: 3, tool: 'axe', sound: 'wood', needsSupport: true, flammable: false, mapColor: [150, 120, 70],
+});
 reg(80, 'lantern', 'Lantern', { shape: 'torch', layer: 'cutout', solid: false, opaque: false, lightEmission: 15, hardness: 3.5, tool: 'pickaxe', sound: 'metal', needsSupport: true, mapColor: [250, 200, 100] });
 
 export const WOOL_COLORS: Array<[string, string, [number, number, number]]> = [
@@ -436,5 +441,22 @@ export function allTextureNames(): string[] {
   set.add('destroy_stage_0');
   for (let i = 0; i < 10; i++) set.add(`destroy_stage_${i}`);
   set.add('torch_fire');
+  set.add('oak_door_item');
   return [...set];
+}
+
+/**
+ * Door geometry. Meta: bits 0-1 facing (0 +X, 1 +Z, 2 -X, 3 -Z), bit 2 open, bit 3 upper half.
+ * Returns the panel box in pixels [x0,y0,z0,x1,y1,z1] (0..16).
+ */
+export function doorPanel(meta: number): [number, number, number, number, number, number] {
+  const facing = meta & 3;
+  const open = (meta >> 2) & 1;
+  const edge = (facing + open) % 4;
+  switch (edge) {
+    case 0: return [13, 0, 0, 16, 16, 16];
+    case 1: return [0, 0, 13, 16, 16, 16];
+    case 2: return [0, 0, 0, 3, 16, 16];
+    default: return [0, 0, 0, 16, 16, 3];
+  }
 }

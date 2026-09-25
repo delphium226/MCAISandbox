@@ -1,4 +1,4 @@
-import { BLOCKS, fluidHeight, blockOf } from './blocks';
+import { BLOCKS, fluidHeight, blockOf, doorPanel } from './blocks';
 import { World } from './world';
 
 /** Axis-aligned box as [minX,minY,minZ,maxX,maxY,maxZ]. */

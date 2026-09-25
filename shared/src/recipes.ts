@@ -55,6 +55,7 @@ shaped(['###', '# #', '###'], { '#': '#planks' }, 'chest');
 shaped(['###', '# #', '###'], { '#': 'cobblestone' }, 'furnace');
 shaped(['C', 'S'], { C: '#coals', S: 'stick' }, 'torch', 4);
 shaped(['S S', 'SSS', 'S S'], { S: 'stick' }, 'ladder', 3);
+shaped(['##', '##', '##'], { '#': '#planks' }, 'oak_door', 3);
 shaped(['###'], { '#': 'oak_planks' }, 'oak_slab', 6);
 shaped(['###'], { '#': 'cobblestone' }, 'cobblestone_slab', 6);
 shaped(['###'], { '#': 'smooth_stone' }, 'stone_slab', 6);

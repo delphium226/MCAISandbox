@@ -728,7 +728,8 @@ export class ClientGame {
     }
     if (U.uUnderwater.value > 0.5 && Math.random() < 0.5) {
       const e = this.renderer.camera.position;
-      this.particles.bubble(e.x + (Math.random() - 0.5) * 3, e.y - 1, e.z + (Math.random() - 0.5) * 3);
+      const a = Math.random() * Math.PI * 2, d = 1.5 + Math.random() * 3;
+      this.particles.bubble(e.x + Math.cos(a) * d, e.y - 1.5, e.z + Math.sin(a) * d);
     }
   }
 
