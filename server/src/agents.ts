@@ -1132,7 +1132,7 @@ export class AgentManager {
       if (req.method === 'POST') {
         const body = await readJson(req);
         if (this.get(String(body.name ?? ''))) {
-          sendJson(res, 409, { error:  });
+          sendJson(res, 409, { error: 'agent already exists' });
           return true;
         }
         const a = this.spawn(String(body.name ?? ''), String(body.role ?? 'villager'), body.brain ?? null, body.position);
