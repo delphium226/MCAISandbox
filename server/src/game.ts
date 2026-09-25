@@ -54,6 +54,8 @@ export class Game {
   doMobSpawning = true;
   doDaylightCycle = true;
   doWeatherCycle = true;
+  /** A* searches hostile mobs may run this tick. */
+  mobPathBudget = 4;
   weather = { rain: false, thunder: false, timer: 20 * 60 * (6 + Math.random() * 8) };
 
   constructor(opts: GameOptions) {
@@ -642,6 +644,7 @@ export class Game {
   private step() {
     let t = performance.now();
     this.tick++;
+    this.mobPathBudget = 4;
     if (this.doDaylightCycle) this.time += this.timeRate;
     this.world.tickScheduled();
 

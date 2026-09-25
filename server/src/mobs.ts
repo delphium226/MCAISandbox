@@ -1,6 +1,7 @@
 import { Entity, ArrowEntity } from './entity';
 import { EntityKind, EntityState } from '../../shared/src/protocol';
 import { stepEntity } from '../../shared/src/physics';
+import { findPath, PathNode } from '../../shared/src/pathfinding';
 import { B, BLOCKS } from '../../shared/src/blocks';
 import { itemId, ItemStack } from '../../shared/src/items';
 import { WOOL_COLORS } from '../../shared/src/blocks';
@@ -48,6 +49,9 @@ export class Mob extends Entity {
   headYaw = 0;
   persistent = false;
   followItem: number | null = null;
+  /** Cached A* path towards the current target (melee mobs). */
+  private path: PathNode[] | null = null;
+  private pathIdx = 0;
 
   constructor(game: Game, public mobKind: MobKind, x: number, y: number, z: number) {
     const spec = MOB_SPECS[mobKind];
@@ -124,6 +128,27 @@ export class Mob extends Entity {
         if (this.fuse < 0 && dist > 1) { desiredX = dx / dist; desiredZ = dz / dist; }
       } else {
         if (dist > 0.8) { desiredX = dx / dist; desiredZ = dz / dist; }
+        // Path around obstacles when the target isn't directly reachable (budgeted per tick)
+        if (dist > 2.5 && (this.age + this.id) % 30 === 0 && this.game.mobPathBudget > 0) {
+          this.game.mobPathBudget--;
+          this.path = findPath(this.game.world, { x: this.x, y: this.y + 0.01, z: this.z }, { x: t.x, y: t.y, z: t.z }, 1.5, 400);
+          this.pathIdx = 1;
+        }
+        if (this.path && dist > 2.5) {
+          while (this.pathIdx < this.path.length) {
+            const wp = this.path[this.pathIdx];
+            if (Math.hypot(wp.x + 0.5 - this.x, wp.z + 0.5 - this.z) < 0.5) this.pathIdx++;
+            else break;
+          }
+          const wp = this.path[this.pathIdx];
+          if (wp) {
+            const wx = wp.x + 0.5 - this.x, wz = wp.z + 0.5 - this.z, wd = Math.hypot(wx, wz) || 1;
+            desiredX = wx / wd;
+            desiredZ = wz / wd;
+            this.yaw = Math.atan2(-wx, -wz);
+            if (wp.y > Math.floor(this.y + 0.01) && b.onGround) wantJump = true;
+          }
+        } else if (dist <= 2.5) this.path = null;
         const reach = this.kind === 'spider' ? 1.8 : 1.6;
         if (dist3 < reach + b.width / 2 && this.attackCooldown <= 0 && Math.abs(t.y - this.y) < 2) {
           this.attackCooldown = 20;
