@@ -41,14 +41,14 @@ For example: `npx tsx server/src/index.ts --world test --seed hello`.
 
 ## What's in the game
 
-- **World:** infinite procedurally generated terrain with 16 biomes: oceans, beaches, plains, forests, birch forests, taiga, snowy taiga and plains, deserts, savanna, windswept hills, snowy peaks, swamps and meadows. It has rivers, caves (spaghetti tunnels and large caverns), underground lava lakes, ore veins, and oak, birch and spruce trees. Flowers, grass, sugar cane, cacti and pumpkins are scattered around.
+- **World:** infinite procedurally generated terrain with 15 biomes: oceans, beaches, plains, forests, birch forests, taiga, snowy taiga and plains, deserts, savanna, windswept hills, snowy peaks, swamps and meadows. It has rivers, caves (spaghetti tunnels and large caverns), underground lava lakes, ore veins, and oak, birch and spruce trees. Flowers, grass, sugar cane, cacti and pumpkins are scattered around.
 - **Survival:**
   - Health, hunger and saturation, with natural regeneration.
   - Damage from falling, drowning, lava, fire and starvation.
   - Death drops your items and shows a respawn screen.
   - Beds set your spawn point and skip the night.
-- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs, stairs), and two slabs merge into a full block. Doors are two blocks tall and open and close.
-- **Crafting:** over 130 shaped and shapeless recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, doors, stairs, food and building blocks.
+- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs, stairs), and two slabs merge into a full block. Doors are two blocks tall and open and close; fences and cobblestone walls connect to their neighbours.
+- **Crafting:** 95 shaped and shapeless crafting recipes plus 21 smelting recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, doors, stairs, fences, walls, food and building blocks.
   - 2×2 grid in the inventory, 3×3 grid on the crafting table.
   - Shift-click crafts in bulk; drag with the mouse to split stacks.
 - **Smelting:** a furnace with fuel burn time and cooking progress: ores, food, sand to glass, and more.

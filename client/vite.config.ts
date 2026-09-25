@@ -2,21 +2,21 @@ import { defineConfig } from 'vite';
 import { resolve } from 'node:path';
 
 export default defineConfig({
-  root: resolve(__dirname),
+  root: resolve(import.meta.dirname),
   publicDir: false,
   server: {
     port: 5173,
-    fs: { allow: [resolve(__dirname, '..')] },
+    fs: { allow: [resolve(import.meta.dirname, '..')] },
   },
   build: {
-    outDir: resolve(__dirname, '../dist'),
+    outDir: resolve(import.meta.dirname, '../dist'),
     emptyOutDir: true,
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        soundTest: resolve(__dirname, 'sound-test.html'),
+        main: resolve(import.meta.dirname, 'index.html'),
+        soundTest: resolve(import.meta.dirname, 'sound-test.html'),
       },
     },
   },
