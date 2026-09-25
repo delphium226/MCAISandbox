@@ -8,7 +8,7 @@ import { BlockEntity, FurnaceState, ChestState, tickFurnace } from './containers
 import { handleCommand } from './commands';
 import { S2C, encodeChunkPacket } from '../../shared/src/protocol';
 import { B, BLOCKS, BlockDef, blockOf, makeState } from '../../shared/src/blocks';
-import { ItemStack } from '../../shared/src/items';
+import { ItemStack, ITEMS_BY_NAME } from '../../shared/src/items';
 import { blockDrops } from '../../shared/src/mining';
 import { numKey } from '../../shared/src/world';
 import { DAY_LENGTH, SEA_LEVEL, TICK_MS, WORLD_HEIGHT } from '../../shared/src/constants';
@@ -430,9 +430,13 @@ export class Game {
         const stacks = be.kind === 'chest' ? be.items : [be.input, be.fuel, be.output];
         for (const st of stacks) if (st) this.dropItem(bx + 0.5, by + 0.5, bz + 0.5, st);
         this.blockEntities.delete(key);
+        this.activeFurnaces.delete(key);
+        // Close open views of the destroyed container, otherwise its (already dropped) items stay usable
+        for (const p of this.players) if (p.openWin?.pos && `${p.openWin.pos}` === key) p.closeWindow();
       }
       this.world.set(bx, by, bz, 0);
-      if (Math.random() < 1 / power) this.dropBlockItems(bx, by, bz, s);
+      // Explosions harvest like a diamond pickaxe would (stone drops cobblestone, ores drop their items)
+      if (Math.random() < 1 / power) this.dropBlockItems(bx, by, bz, s, EXPLOSION_TOOL);
     }
     // Damage entities
     const r = power * 2;
@@ -779,6 +783,8 @@ export class Game {
     return [x, y, z];
   }
 }
+
+const EXPLOSION_TOOL = { id: ITEMS_BY_NAME.get('diamond_pickaxe')!.id, count: 1 };
 
 function isLeavesId(id: number) {
   return id === B.oakLeaves || id === B.birchLeaves || id === B.spruceLeaves;

@@ -5,6 +5,7 @@ import { buildAtlas } from './render/atlas';
 import { SoundEngine } from './audio/sound';
 import { ClientGame } from './game/clientGame';
 import { defaultServerUrl } from './net/connection';
+import { Panorama } from './ui/panorama';
 
 const STORAGE_KEY = 'mcai-settings-v1';
 
@@ -61,29 +62,36 @@ async function main() {
   const stone = textureCanvas('stone');
 
   let game: ClientGame | null = null;
+  let panorama: Panorama | null = null;
+  const showTitle = () => {
+    if (!panorama && !new URLSearchParams(location.search).get('autojoin')) panorama = new Panorama();
+    ui.showTitle(dirt, stone);
+  };
   const ui: UI = new UI(settings, {
     play: async (name, server) => {
       sound.unlock();
+      panorama?.dispose();
+      panorama = null;
       ui.showMessage('Connecting to the server...', server, dirt);
       if (game) game.dispose();
       game = new ClientGame(canvas, ui, settings, sound);
       (window as unknown as { game: ClientGame }).game = game;
       game.onExit = (reason) => {
         ui.showHud(false);
-        ui.showMessage('Disconnected', reason, dirt, () => ui.showTitle(dirt, stone));
+        ui.showMessage('Disconnected', reason, dirt, () => showTitle());
         sound.stopMusic();
       };
       try {
         await game.connect(server, name);
       } catch (e) {
-        ui.showMessage('Failed to connect to the server', (e as Error).message, dirt, () => ui.showTitle(dirt, stone));
+        ui.showMessage('Failed to connect to the server', (e as Error).message, dirt, () => showTitle());
       }
     },
     resume: () => game?.resume(),
     disconnect: () => {
       game?.stop('Disconnected');
       ui.showHud(false);
-      ui.showTitle(dirt, stone);
+      showTitle();
     },
     respawn: () => game?.respawn(),
     settingsChanged: (s) => {
@@ -101,7 +109,7 @@ async function main() {
     chat: (text) => game?.conn.send({ t: 'chat', text }),
     uiSound: () => sound.play('click', { volume: 0.5 }),
   });
-  ui.showTitle(dirt, stone);
+  showTitle();
 
   // Auto-join for automated testing: ?autojoin=Name
   const params = new URLSearchParams(location.search);

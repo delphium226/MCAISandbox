@@ -39,6 +39,8 @@ export function blockDrops(state: number, tool: ItemStack | null, rand: () => nu
     return [{ id: seeds, count: 1 }];
   }
   if (block.name === 'stone_slab' || block.name === 'oak_slab' || block.name === 'cobblestone_slab') return [{ id: block.id, count: 1 }];
+  // Gravel drops flint *instead of* itself (the two drop entries are mutually exclusive)
+  if (block.name === 'gravel') return [{ id: ITEMS_BY_NAME.get(rand() < 0.1 ? 'flint' : 'gravel')!.id, count: 1 }];
   if (block.drops === 'none') return [];
   if (block.drops === 'self') return [{ id: block.id, count: 1 }];
   const out: ItemStack[] = [];

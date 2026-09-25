@@ -221,8 +221,10 @@ export class World {
             continue;
           }
           const id = blocks[i] & 0xff;
+          // Same rule as propagate(): full sky light only passes straight down through
+          // non-filtering blocks; otherwise it loses 1 + filter per block.
           if (OPAQUE[id]) level = 0;
-          else if (FILTER[id]) level = Math.max(0, level - FILTER[id]);
+          else if (level < 15 || FILTER[id]) level = Math.max(0, level - 1 - FILTER[id]);
           if (level === 0) break;
           light[i] = level << 4;
         }
@@ -365,9 +367,11 @@ export class World {
         // Directly under the sky: full light
         const above = y + 1 >= WORLD_HEIGHT ? 15 : this.getSkyLight(x, y + 1, z);
         if (above === 15) {
-          const v = Math.max(0, 15 - FILTER[newId]);
-          this.setLight(x, y, z, true, v);
-          add.push(x, y, z, v);
+          const v = FILTER[newId] ? Math.max(0, 15 - 1 - FILTER[newId]) : 15;
+          if (v > 0) {
+            this.setLight(x, y, z, true, v);
+            add.push(x, y, z, v);
+          }
         }
       }
       // Neighbours spill into the (possibly now transparent) cell

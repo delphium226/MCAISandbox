@@ -223,7 +223,7 @@ export class ServerWorld extends World {
     if (def.gravity) {
       const below = this.getBlock(x, y - 1, z);
       const bd = blockOf(below);
-      if (y > 0 && (below & 0xff) === 0 || bd.fluid || (bd.replaceable && !bd.solid)) {
+      if (y > 0 && ((below & 0xff) === 0 || bd.fluid || (bd.replaceable && !bd.solid))) {
         this.set(x, y, z, 0);
         this.events.spawnFalling(x, y, z, s);
       }
@@ -328,8 +328,10 @@ export class ServerWorld extends World {
     const bdef = blockOf(below);
     if (y > 0 && this.canFlowInto(below, id)) {
       if ((below & 0xff) === B.lava && isWater) this.set(x, y - 1, z, (below >> 8) === 0 ? B.obsidian : B.cobblestone);
+      else if ((below & 0xff) === B.water && !isWater) this.set(x, y - 1, z, B.stone); // lava flowing down onto water
       else {
-        if (bdef.replaceable && !bdef.fluid && (below & 0xff) !== 0) this.events.dropBlockItems(x, y - 1, z, below);
+        // canFlowInto() already limited this to plants/torches/etc.: water washes them away as items, lava burns them
+        if (isWater && !bdef.fluid && (below & 0xff) !== 0) this.events.dropBlockItems(x, y - 1, z, below);
         this.set(x, y - 1, z, makeState(id, 8));
       }
       return;
@@ -356,7 +358,7 @@ export class ServerWorld extends World {
         return;
       }
       const nd = BLOCKS[nid];
-      if (nid !== 0 && nd.replaceable && !nd.fluid) this.events.dropBlockItems(x + dx, y, z + dz, n);
+      if (isWater && nid !== 0 && !nd.fluid) this.events.dropBlockItems(x + dx, y, z + dz, n);
       this.set(x + dx, y, z + dz, makeState(id, next));
     }
     void delay;
@@ -373,9 +375,9 @@ export class ServerWorld extends World {
   // ---- Leaves -------------------------------------------------------------------------------
 
   private scheduleLeafDecay(x: number, y: number, z: number) {
-    for (let dx = -4; dx <= 4; dx++)
-      for (let dy = -4; dy <= 4; dy++)
-        for (let dz = -4; dz <= 4; dz++) {
+    for (let dx = -5; dx <= 5; dx++)
+      for (let dy = -5; dy <= 5; dy++)
+        for (let dz = -5; dz <= 5; dz++) {
           const s = this.getBlock(x + dx, y + dy, z + dz);
           if (isLeaves(s & 0xff) && !((s >> 8) & 4)) this.schedule(x + dx, y + dy, z + dz, 20 + Math.floor(Math.random() * 200));
         }

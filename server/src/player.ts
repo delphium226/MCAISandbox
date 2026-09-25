@@ -272,13 +272,14 @@ export class Player extends Entity {
       case 'eat':
         return void this.eat();
       case 'hotbar':
-        if (msg.slot >= 0 && msg.slot < 9) {
+        if (Number.isInteger(msg.slot) && msg.slot >= 0 && msg.slot < 9) {
           this.selected = msg.slot;
           this.game.broadcastNear(this, { t: 'meta', id: this.id, e: { item: this.heldItem() } }, this);
         }
         return;
       case 'click': {
-        const w = this.openWin && this.openWin.id === msg.w ? this.openWin : msg.w === 0 ? this.playerWin : null;
+        // The player inventory (id 0) is only interactive while no container is open
+        const w = this.openWin ? (this.openWin.id === msg.w ? this.openWin : null) : msg.w === 0 ? this.playerWin : null;
         if (!w) return;
         w.win.click(msg.slot, msg.button, msg.shift);
         this.sendWindow(w);
@@ -286,7 +287,8 @@ export class Player extends Entity {
         return;
       }
       case 'drag': {
-        const w = this.openWin && this.openWin.id === msg.w ? this.openWin : msg.w === 0 ? this.playerWin : null;
+        // The player inventory (id 0) is only interactive while no container is open
+        const w = this.openWin ? (this.openWin.id === msg.w ? this.openWin : null) : msg.w === 0 ? this.playerWin : null;
         if (!w) return;
         w.win.drag(msg.slots, msg.button);
         this.sendWindow(w);
@@ -302,7 +304,7 @@ export class Player extends Entity {
         } else if (msg.slot === -2) {
           // give to inventory directly (creative pick)
           if (msg.item) this.addItem({ ...msg.item });
-        } else if (msg.slot >= 0 && msg.slot < 36) {
+        } else if (Number.isInteger(msg.slot) && msg.slot >= 0 && msg.slot < 36) {
           this.inventory[msg.slot] = msg.item ? { ...msg.item } : null;
         }
         this.sendWindow(w);
@@ -445,6 +447,7 @@ export class Player extends Entity {
   /** Break a block as this player (drops, tool damage, sounds). */
   breakBlock(x: number, y: number, z: number): boolean {
     const world = this.game.world;
+    if (this.gamemode === 'spectator') return false;
     if (!this.canReach(x, y, z) && !this.isAgent) return false;
     const s = world.getBlock(x, y, z);
     const def = blockOf(s);
@@ -674,22 +677,25 @@ export class Player extends Entity {
 
   damage(amount: number, source: Entity | null, cause = 'generic'): boolean {
     if (this.dead || this.gamemode !== 'survival') return false;
+    // Hits during the invulnerability window are ignored and must not wear armour either
+    if (this.removed || this.hurtCooldown > 0 || this.health <= 0) return false;
     // Armor reduces damage (except fall/void/starve/drown)
     let dmg = amount;
-    if (cause !== 'fall' && cause !== 'void' && cause !== 'starve' && cause !== 'drown') {
-      const defense = this.armor.reduce((a, s) => a + (s ? itemDef(s.id).armor?.defense ?? 0 : 0), 0);
-      dmg = amount * (1 - Math.min(20, defense) / 25);
-      if (defense > 0)
-        for (let i = 0; i < 4; i++) {
-          const a = this.armor[i];
-          if (!a) continue;
-          const info = itemDef(a.id).armor;
-          if (!info) continue;
-          const nd = (a.damage ?? 0) + 1;
-          this.armor[i] = nd >= info.durability ? null : { ...a, damage: nd };
-        }
-    }
+    const armored = cause !== 'fall' && cause !== 'void' && cause !== 'starve' && cause !== 'drown';
+    const defense = armored ? this.armor.reduce((a, s) => a + (s ? itemDef(s.id).armor?.defense ?? 0 : 0), 0) : 0;
+    if (defense > 0) dmg = amount * (1 - Math.min(20, defense) / 25);
     const ok = super.damage(Math.max(0.5, Math.round(dmg * 2) / 2), source, cause);
+    if (ok && defense > 0) {
+      for (let i = 0; i < 4; i++) {
+        const a = this.armor[i];
+        if (!a) continue;
+        const info = itemDef(a.id).armor;
+        if (!info) continue;
+        const nd = (a.damage ?? 0) + 1;
+        this.armor[i] = nd >= info.durability ? null : { ...a, damage: nd };
+      }
+      this.sendInventory();
+    }
     if (ok) {
       this.exhaustion += 0.1;
       this.lastDamageCause = cause;
@@ -741,6 +747,13 @@ export class Player extends Entity {
     this.air = 300;
     this.fire = 0;
     this.body.fallDistance = 0;
+    // A bed spawn point is only valid while the bed still exists
+    const sp = this.game.spawn;
+    const [bx, by, bz] = this.spawnPoint.map(Math.floor);
+    if ((this.spawnPoint[0] !== sp.x || this.spawnPoint[1] !== sp.y || this.spawnPoint[2] !== sp.z) && this.game.world.isLoaded(bx, bz) && (this.game.world.getBlock(bx, by - 1, bz) & 0xff) !== B.bed) {
+      this.spawnPoint = [sp.x, sp.y, sp.z];
+      this.send({ t: 'chat', text: 'You have no home bed, or it was obstructed', color: '#aaaaaa' });
+    }
     const [x, y, z] = this.spawnPoint;
     this.teleport(x, y, z);
     this.sendHealth();

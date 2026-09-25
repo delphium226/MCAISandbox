@@ -150,8 +150,9 @@ export class UI {
   }
 
   showTitle(dirtUrl: string | null, stoneUrl: HTMLCanvasElement | null) {
-    const s = this.openScreen('title', 'dirt');
-    this.dirtBackground(s, dirtUrl);
+    const pano = !!document.getElementById('panorama');
+    const s = this.openScreen('title', pano ? 'title-pano' : 'dirt');
+    if (!pano) this.dirtBackground(s, dirtUrl);
     const logo = h('div', 'logo', s);
     logo.appendChild(renderLogo('MCAI', 'SANDBOX', stoneUrl));
     h('div', 'splash', logo, SPLASHES[Math.floor(Math.random() * SPLASHES.length)]);

@@ -292,7 +292,8 @@ export function stepEntity(world: World, body: Body, gravity = 0.08, drag = 0.98
     body.vx *= 0.8; body.vz *= 0.8; body.vy *= 0.8;
   }
   moveBody(world, body, body.vx, body.vy, body.vz);
-  if (!body.onGround && body.y < prevY) body.fallDistance += prevY - body.y;
+  if (body.inWater) body.fallDistance = 0; // water breaks falls
+  else if (!body.onGround && body.y < prevY) body.fallDistance += prevY - body.y;
   body.vy -= body.inWater ? gravity * 0.25 : gravity;
   body.vy *= drag;
   const f = body.onGround ? groundFriction * 0.91 : 0.91;

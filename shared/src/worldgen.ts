@@ -1,4 +1,5 @@
-import { B, makeState } from './blocks';
+import { B, makeState, blockId } from './blocks';
+const GLOWSTONE = blockId('glowstone');
 import { Biome, BIOMES } from './biomes';
 import { Chunk } from './chunk';
 import { SEA_LEVEL, WORLD_HEIGHT } from './constants';
@@ -204,6 +205,8 @@ export class WorldGenerator {
     blob(B.lapisOre, 2, 6, 5, 32, isStone);
     blob(B.redstoneOre, 6, 6, 5, 18, isStone);
     blob(B.diamondOre, 2, 5, 5, 17, isStone);
+    // Rare glowstone clusters deep underground (the only survival source of glowstone dust)
+    if (rand() < 0.08) blob(GLOWSTONE, 1, 6, 6, 20, isStone);
     for (let z = 0; z < 16; z++)
       for (let x = 0; x < 16; x++) {
         const info = col(x, z);
@@ -345,7 +348,9 @@ export class WorldGenerator {
         if (h < SEA_LEVEL) continue;
         const r = rand();
         const bio = info.biome;
-        if (ground === B.grass) {
+        if (ground === B.grass && bio === Biome.Swamp && r < 0.08) {
+          blocks[x | (z << 4) | (h << 8)] = B.mossBlock; // mossy patches in swamps
+        } else if (ground === B.grass) {
           const flowerNoise = this.misc.noise2(wx / 18 + 100, wz / 18);
           let grassChance = 0.12;
           if (bio === Biome.Plains || bio === Biome.Meadow) grassChance = 0.35;

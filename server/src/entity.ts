@@ -137,6 +137,10 @@ export class FallingBlockEntity extends Entity {
   state(): EntityState {
     return { ...super.state(), state: this.blockState };
   }
+  /** Not a living entity: explosions/lightning must not "kill" it. */
+  damage(): boolean {
+    return false;
+  }
   tick() {
     this.age++;
     stepEntity(this.game.world, this.body, 0.04, 0.98, 0.6);
@@ -159,6 +163,10 @@ export class TntEntity extends Entity {
     this.body.vx = (Math.random() - 0.5) * 0.04;
     this.body.vz = (Math.random() - 0.5) * 0.04;
   }
+  /** Primed TNT can't be destroyed by damage (it would vanish without exploding). */
+  damage(): boolean {
+    return false;
+  }
   tick() {
     stepEntity(this.game.world, this.body, 0.04, 0.98, 0.6);
     if (--this.fuse <= 0) {
@@ -179,6 +187,9 @@ export class ArrowEntity extends Entity {
     this.body.stepHeight = 0;
     this.updateRotation();
   }
+  damage(): boolean {
+    return false;
+  }
   private updateRotation() {
     const b = this.body;
     this.yaw = Math.atan2(-b.vx, -b.vz);
@@ -198,7 +209,12 @@ export class ArrowEntity extends Entity {
         const bb = e.aabb();
         if (px >= bb[0] - 0.15 && px <= bb[3] + 0.15 && py >= bb[1] && py <= bb[4] && pz >= bb[2] - 0.15 && pz <= bb[5] + 0.15) {
           const speed = Math.hypot(b.vx, b.vy, b.vz);
-          e.damage(Math.ceil(this.damageAmount * speed / 2), this.shooter);
+          const pvpBlocked = e.kind === 'player' && this.shooter?.kind === 'player' && !this.game.pvp;
+          // Thrown snowballs/eggs (damageAmount < 1) only knock back, like Minecraft
+          if (pvpBlocked) {
+            // no damage between players when PvP is off
+          } else if (this.damageAmount >= 1) e.damage(Math.ceil(this.damageAmount * speed / 2), this.shooter);
+          else if (e.kind !== 'player') e.knockback(b.vx / (speed || 1), b.vz / (speed || 1), 0.4);
           this.remove();
           return;
         }

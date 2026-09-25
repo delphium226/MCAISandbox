@@ -17,7 +17,7 @@ html, body {
   user-select: none; -webkit-user-select: none;
 }
 canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
 #ui > * { pointer-events: auto; }
 .mc-text { font-size: calc(8px * var(--ui-scale)); line-height: calc(9px * var(--ui-scale)); text-shadow: var(--text-shadow); }
 img.pix, .pix { image-rendering: pixelated; }
@@ -206,3 +206,5 @@ input.mc-input:focus { border-color: #fff; }
 .loading-bar { width: calc(200px * var(--ui-scale)); height: calc(4px * var(--ui-scale)); background: #333; margin-top: calc(8px * var(--ui-scale)); border: var(--px) solid #000; }
 .loading-bar > div { height: 100%; background: #80ff20; transition: width 0.2s; }
 .recipe-hint { position: absolute; left: calc(-24px * var(--ui-scale)); top: calc(8px * var(--ui-scale)); }
+
+.screen.title-pano { background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.45)); }

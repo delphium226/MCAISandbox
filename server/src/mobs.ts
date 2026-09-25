@@ -58,7 +58,7 @@ export class Mob extends Entity {
     this.yaw = Math.random() * Math.PI * 2;
     if (mobKind === 'sheep') {
       const r = Math.random();
-      this.variant = r < 0.82 ? 0 : r < 0.87 ? 14 : r < 0.92 ? 7 : r < 0.97 ? 8 : r < 0.99 ? 12 : 6; // white, black, gray, light gray, brown, pink
+      this.variant = r < 0.82 ? 0 : r < 0.87 ? 15 : r < 0.92 ? 7 : r < 0.97 ? 8 : r < 0.99 ? 12 : 6; // white, black, gray, light gray, brown, pink
     }
     if (mobKind === 'cow' || mobKind === 'sheep' || mobKind === 'pig') this.followItem = itemId('wheat');
     if (mobKind === 'chicken') this.followItem = itemId('wheat_seeds');
@@ -244,6 +244,7 @@ export class Mob extends Entity {
     const sx = this.x, sy = this.y + 1.5, sz = this.z;
     const dx = t.x - sx, dy = t.y + 1.2 - sy, dz = t.z - sz;
     const dh = Math.hypot(dx, dz);
+    if (dh < 0.01) return; // target straight above/below: direction undefined
     const speed = 1.6;
     const vy = dy / dh * speed + dh * 0.012;
     const len = Math.hypot(dx, dz);

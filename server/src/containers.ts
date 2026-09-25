@@ -145,7 +145,9 @@ export function furnaceWindow(p: Player, id: number, pos: [number, number, numbe
     ...inventorySlots(p, 1),
   ];
   const win = new Window(slots, (i, stack) => {
-    if (i < 3) return [...range(30, 39).reverse(), ...range(3, 30).reverse()];
+    // Minecraft: the output goes hotbar-first (reverse), input/fuel go main-inventory-first
+    if (i === 2) return [...range(30, 39).reverse(), ...range(3, 30).reverse()];
+    if (i < 2) return range(3, 39);
     if (smeltResult(stack.id) !== null) return [0];
     if (fuelValue(stack.id) > 0) return [1];
     if (i < 30) return range(30, 39);

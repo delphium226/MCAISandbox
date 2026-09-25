@@ -155,6 +155,7 @@ export class Window {
         this.cursor = cursor.count > 1 ? { ...cursor, count: cursor.count - 1 } : null;
       } else {
         if (slot.accepts && !slot.accepts(cursor)) return false;
+        if (cursor.count > this.maxFor(slot, cursor)) return false;
         slot.set(cursor);
         this.cursor = cur;
       }
