@@ -135,8 +135,14 @@ class Navigator {
       return true;
     }
     if (!this.path || this.idx >= this.path.length) {
+      // Global per-tick pathfinding budget keeps tick time flat with many agents
+      if (this.agent.manager.pathBudget <= 0) {
+        this.agent.input.forward = 0;
+        return false;
+      }
+      this.agent.manager.pathBudget--;
       if (this.replans++ > 6) return 'fail';
-      this.path = findPath(this.agent.game.world, { x: b.x, y: b.y + 0.01, z: b.z }, this.goal, this.range, 6000);
+      this.path = findPath(this.agent.game.world, { x: b.x, y: b.y + 0.01, z: b.z }, this.goal, this.range, 3500);
       this.idx = 1;
       if (!this.path) return 'fail';
       if (this.path.length <= 1) {
@@ -786,23 +792,30 @@ export class Agent {
     const w = this.game.world;
     const px = Math.floor(this.player.x), py = Math.floor(this.player.y), pz = Math.floor(this.player.z);
     let best: [number, number, number] | null = null, bd = Infinity;
-    const r = radius;
-    for (let dx = -r; dx <= r; dx++)
-      for (let dz = -r; dz <= r; dz++) {
-        const x = px + dx, z = pz + dz;
-        const c = w.getChunk(x >> 4, z >> 4);
-        if (!c) continue;
-        const top = Math.min(255, Math.max(py + 24, c.heightmap[(x & 15) | ((z & 15) << 4)]));
-        for (let y = Math.max(1, py - 24); y <= top; y++) {
-          const id = c.blocks[(x & 15) | ((z & 15) << 4) | (y << 8)] & 0xff;
-          if (!match(id)) continue;
-          const d = dx * dx + dz * dz + (y - py) * (y - py) * 1.5;
-          if (d < bd && !(exclude && exclude.has(`${x},${y},${z}`))) {
-            bd = d;
-            best = [x, y, z];
+    const y0 = Math.max(1, py - 24);
+    // Search square rings outwards so we can stop as soon as nothing closer can exist
+    for (let r = 0; r <= radius; r++) {
+      if (r * r > bd) break;
+      for (let dx = -r; dx <= r; dx++)
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const x = px + dx, z = pz + dz;
+          const c = w.getChunk(x >> 4, z >> 4);
+          if (!c) continue;
+          const col = (x & 15) | ((z & 15) << 4);
+          const top = Math.min(255, Math.max(py + 24, c.heightmap[col]));
+          const blocks = c.blocks;
+          for (let y = y0; y <= top; y++) {
+            const id = blocks[col | (y << 8)] & 0xff;
+            if (!match(id)) continue;
+            const d = dx * dx + dz * dz + (y - py) * (y - py) * 1.5;
+            if (d < bd && !(exclude && exclude.has(`${x},${y},${z}`))) {
+              bd = d;
+              best = [x, y, z];
+            }
           }
         }
-      }
+    }
     return best;
   }
 
@@ -1040,8 +1053,18 @@ export class AgentManager {
     return this.agents.get(name.toLowerCase());
   }
 
+  /** Pathfinding searches allowed per server tick (shared by all agents). */
+  pathBudget = 3;
+
   tick() {
-    for (const a of this.agents.values()) if (a.player) a.tick();
+    this.pathBudget = 3;
+    // Rotate the starting agent so budget-limited work is shared fairly
+    const list = [...this.agents.values()];
+    const start = this.game.tick % Math.max(1, list.length);
+    for (let i = 0; i < list.length; i++) {
+      const a = list[(start + i) % list.length];
+      if (a.player) a.tick();
+    }
   }
 
   persistent(_p: Player) {

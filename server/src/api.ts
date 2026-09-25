@@ -25,6 +25,8 @@ export async function handleApi(game: Game, req: IncomingMessage, res: ServerRes
         time: game.time,
         mspt: tt.length ? tt.reduce((a, b) => a + b, 0) / tt.length : 0,
         seed: game.seed,
+        profilePeakMs: Object.fromEntries(Object.entries(game.profilePeak).map(([k, v]) => [k, Math.round(v * 100) / 100])),
+        profileMs: Object.fromEntries(Object.entries(game.profile).map(([k, v]) => [k, Math.round(v * 100) / 100])),
       });
     }
     const handled = await (game.agents as any).handleApi?.(req, res, url);

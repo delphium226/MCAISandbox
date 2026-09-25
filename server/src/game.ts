@@ -624,7 +624,18 @@ export class Game {
     if (gone.length) p.send({ t: 'despawn', ids: gone });
   }
 
+  /** Rolling average milliseconds per tick phase (see /api/status). */
+  profile: Record<string, number> = {};
+  profilePeak: Record<string, number> = {};
+  private prof(name: string, t0: number) {
+    const dt = performance.now() - t0;
+    this.profile[name] = (this.profile[name] ?? dt) * 0.95 + dt * 0.05;
+    this.profilePeak[name] = Math.max(dt, (this.profilePeak[name] ?? 0) * 0.995);
+    return performance.now();
+  }
+
   private step() {
+    let t = performance.now();
     this.tick++;
     if (this.doDaylightCycle) this.time += this.timeRate;
     this.world.tickScheduled();
@@ -633,7 +644,9 @@ export class Game {
     for (const e of this.entities.values()) {
       if (!e.removed) e.tick();
     }
+    t = this.prof('entities', t);
     this.agents?.tick();
+    t = this.prof('agents', t);
     // Collect removed
     const removed: number[] = [];
     for (const [id, e] of this.entities) {
@@ -665,6 +678,7 @@ export class Game {
       if (d.length) p.send({ t: 'moves', d });
     }
 
+    t = this.prof('network', t);
     this.tickFurnaces();
     this.tickWeather();
 
@@ -683,11 +697,13 @@ export class Game {
       }
     }
 
+    t = this.prof('world', t);
     if (this.tick % 20 === 0) {
       if (this.doMobSpawning) this.spawnMobs();
       this.broadcast({ t: 'time', time: this.time, rate: this.doDaylightCycle ? this.timeRate : 0 });
     }
     if (this.tick % 200 === 0) this.world.unloadUnneeded(600);
+    this.prof('periodic', t);
   }
 
   setWeather(rain: boolean, thunder: boolean, seconds?: number) {

@@ -93,9 +93,10 @@ export function findPath(w: World, start: PathNode, goal: PathNode, range = 1, m
     const dx = Math.abs(x - gx), dy = Math.abs(y - gy), dz = Math.abs(z - gz);
     return Math.max(dx, dz) + 0.41 * Math.min(dx, dz) + dy * 1.2;
   };
-  const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
+  // Numeric keys relative to the start position (much faster than string keys)
+  const key = (x: number, y: number, z: number) => ((x - sx + 2048) * 4096 + (z - sz + 2048)) * 256 + y;
   const open = new Heap();
-  const best = new Map<string, number>();
+  const best = new Map<number, number>();
   const startNode: OpenNode = { x: sx, y: sy, z: sz, g: 0, f: h(sx, sy, sz), parent: null };
   open.push(startNode);
   best.set(key(sx, sy, sz), 0);
@@ -127,7 +128,7 @@ export function findPath(w: World, start: PathNode, goal: PathNode, range = 1, m
         const k = key(nx, ny, nz);
         if (g >= (best.get(k) ?? Infinity)) return true;
         best.set(k, g);
-        open.push({ x: nx, y: ny, z: nz, g, f: g + h(nx, ny, nz), parent: cur });
+        open.push({ x: nx, y: ny, z: nz, g, f: g + 1.6 * h(nx, ny, nz), parent: cur });
         return true;
       };
       if (tryNode(cur.y, 0)) continue;
@@ -151,7 +152,7 @@ export function findPath(w: World, start: PathNode, goal: PathNode, range = 1, m
         if (g >= (best.get(k) ?? Infinity)) continue;
         if (!isWater(w, cur.x, ny, cur.z) && !solidBelow(w, cur.x, ny, cur.z) && dy < 0) continue;
         best.set(k, g);
-        open.push({ x: cur.x, y: ny, z: cur.z, g, f: g + h(cur.x, ny, cur.z), parent: cur });
+        open.push({ x: cur.x, y: ny, z: cur.z, g, f: g + 1.6 * h(cur.x, ny, cur.z), parent: cur });
       }
     }
   }
