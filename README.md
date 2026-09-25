@@ -6,6 +6,9 @@ A Minecraft-style voxel sandbox that runs in the browser, backed by an authorita
 
 All textures, skins, sounds, music and the UI font are generated procedurally in code; no Mojang assets are used.
 
+![Landscape](docs/screenshot-landscape.png)
+![Sunset over the ocean](docs/screenshot-sunset.png)
+
 ## Quick start
 
 ```bash
@@ -31,6 +34,8 @@ Server options (flags or `MC_*` environment variables):
 | `--seed` | random | Number or text seed (only used when a new world is created) |
 | `--view-distance` | `10` | Chunks sent to human players |
 | `--pvp` | `true` | Player-vs-player damage |
+| `--agents` | `0` | Number of AI agents to spawn at start-up |
+| `--agent-brain` | `worker` | Brain for those agents (`worker`, `companion`, `idle`, `llm`) |
 
 For example: `npx tsx server/src/index.ts --world test --seed hello`.
 

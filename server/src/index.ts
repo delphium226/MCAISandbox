@@ -36,6 +36,23 @@ const game = new Game({
 game.agents = new AgentManager(game);
 game.start();
 
+// Optionally populate the world with autonomous worker agents: --agents 5 [--agent-brain worker|companion|idle|llm]
+const agentCount = parseInt(arg('agents', '0'), 10) || 0;
+if (agentCount > 0) {
+  const brain = arg('agent-brain', 'worker');
+  const roles = ['farmer', 'miner', 'builder', 'explorer', 'guard', 'trader', 'artist', 'scout'];
+  for (let k = 0; k < agentCount; k++) {
+    const angle = (k / agentCount) * Math.PI * 2;
+    const pos = { x: game.spawn.x + Math.cos(angle) * 6, y: game.spawn.y + 2, z: game.spawn.z + Math.sin(angle) * 6 };
+    try {
+      game.agents.spawn(`Agent${k + 1}`, roles[k % roles.length], brain, pos);
+    } catch (e) {
+      console.warn('Could not spawn agent', (e as Error).message);
+    }
+  }
+  console.log(`Spawned ${agentCount} agents with brain '${brain}'`);
+}
+
 // ---- HTTP: static client + agent API ----
 const DIST = path.join(ROOT, 'dist');
 const MIME: Record<string, string> = {

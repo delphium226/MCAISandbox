@@ -19,6 +19,7 @@ import { Mob } from './mobs';
 import type { S2C } from '../../shared/src/protocol';
 import { ItemStack, itemDef, ITEMS_BY_NAME, itemId } from '../../shared/src/items';
 import { BLOCKS, BLOCKS_BY_NAME, blockOf } from '../../shared/src/blocks';
+import { BIOMES } from '../../shared/src/biomes';
 import { findPath, PathNode, standable } from '../../shared/src/pathfinding';
 import { stepPlayer, MoveInput, raycast } from '../../shared/src/physics';
 import { breakTicks, canHarvest } from '../../shared/src/mining';
@@ -986,7 +987,7 @@ export class Agent {
       food: p.food,
       gamemode: p.gamemode,
       dead: p.dead,
-      biome: c ? String(c.biomes[(px & 15) | ((pz & 15) << 4)]) : 'unknown',
+      biome: c ? BIOMES[c.biomes[(px & 15) | ((pz & 15) << 4)]]?.name ?? 'unknown' : 'unknown',
       holding: p.heldItem() ? itemDef(p.heldItem()!.id).name : null,
       inventory,
       equipment: p.armor.map((a) => (a ? itemDef(a.id).name : null)),
