@@ -58,6 +58,8 @@ shaped(['S S', 'SSS', 'S S'], { S: 'stick' }, 'ladder', 3);
 shaped(['##', '##', '##'], { '#': '#planks' }, 'oak_door', 3);
 shaped(['###'], { '#': 'oak_planks' }, 'oak_slab', 6);
 shaped(['#  ', '## ', '###'], { '#': '#planks' }, 'oak_stairs', 4);
+shaped(['#S#', '#S#'], { '#': '#planks', S: 'stick' }, 'oak_fence', 3);
+shaped(['###', '###'], { '#': 'cobblestone' }, 'cobblestone_wall', 6);
 shaped(['#  ', '## ', '###'], { '#': 'cobblestone' }, 'cobblestone_stairs', 4);
 shaped(['#  ', '## ', '###'], { '#': 'stone_bricks' }, 'stone_brick_stairs', 4);
 shaped(['###'], { '#': 'cobblestone' }, 'cobblestone_slab', 6);

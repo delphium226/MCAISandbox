@@ -74,17 +74,19 @@ async function main() {
       panorama = null;
       ui.showMessage('Connecting to the server...', server, dirt);
       if (game) game.dispose();
-      game = new ClientGame(canvas, ui, settings, sound);
-      (window as unknown as { game: ClientGame }).game = game;
-      game.onExit = (reason) => {
+      const g = new ClientGame(canvas, ui, settings, sound);
+      game = g;
+      (window as unknown as { game: ClientGame }).game = g;
+      g.onExit = (reason) => {
         ui.showHud(false);
         ui.showMessage('Disconnected', reason, dirt, () => showTitle());
         sound.stopMusic();
       };
       try {
-        await game.connect(server, name);
+        await g.connect(server, name);
       } catch (e) {
-        ui.showMessage('Failed to connect to the server', (e as Error).message, dirt, () => showTitle());
+        // Ignore failures of a game that was already replaced by a newer Play
+        if (game === g) ui.showMessage('Failed to connect to the server', (e as Error).message, dirt, () => showTitle());
       }
     },
     resume: () => game?.resume(),

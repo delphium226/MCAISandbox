@@ -17,7 +17,8 @@ export type BlockShape =
   | 'ladder'
   | 'snow_layer'
   | 'door'
-  | 'stairs';
+  | 'stairs'
+  | 'fence';
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'sword' | 'hoe' | 'shears' | 'none';
 export type SoundGroup = 'stone' | 'wood' | 'gravel' | 'grass' | 'sand' | 'glass' | 'cloth' | 'snow' | 'metal';
 export type Tint = 'none' | 'grass' | 'foliage' | 'birch' | 'spruce' | 'water';
@@ -298,6 +299,8 @@ reg(81, 'oak_door', 'Oak Door', {
 reg(82, 'oak_stairs', 'Oak Stairs', { shape: 'stairs', opaque: false, tex: 'oak_planks', hardness: 2, tool: 'axe', sound: 'wood', flammable: true, mapColor: [162, 130, 78] });
 reg(83, 'cobblestone_stairs', 'Cobblestone Stairs', { shape: 'stairs', opaque: false, tex: 'cobblestone', hardness: 2, tool: 'pickaxe', minTier: 1, mapColor: [110, 110, 110] });
 reg(84, 'stone_brick_stairs', 'Stone Brick Stairs', { shape: 'stairs', opaque: false, tex: 'stone_bricks', hardness: 1.5, tool: 'pickaxe', minTier: 1, mapColor: [122, 121, 122] });
+reg(85, 'oak_fence', 'Oak Fence', { shape: 'fence', opaque: false, solid: true, tex: 'oak_planks', hardness: 2, tool: 'axe', sound: 'wood', flammable: true, mapColor: [162, 130, 78] });
+reg(86, 'cobblestone_wall', 'Cobblestone Wall', { shape: 'fence', opaque: false, solid: true, tex: 'cobblestone', hardness: 2, tool: 'pickaxe', minTier: 1, mapColor: [110, 110, 110] });
 reg(80, 'lantern', 'Lantern', { shape: 'torch', layer: 'cutout', solid: false, opaque: false, lightEmission: 15, hardness: 3.5, tool: 'pickaxe', sound: 'metal', needsSupport: true, mapColor: [250, 200, 100] });
 
 export const WOOL_COLORS: Array<[string, string, [number, number, number]]> = [
@@ -474,4 +477,31 @@ export function stairBoxes(meta: number): Array<[number, number, number, number,
   const step: [number, number, number, number, number, number] =
     f === 0 ? [8, y0, 0, 16, y1, 16] : f === 1 ? [0, y0, 8, 16, y1, 16] : f === 2 ? [0, y0, 0, 8, y1, 16] : [0, y0, 0, 16, y1, 8];
   return [base, step];
+}
+
+/** Does a fence/wall at some position connect to a neighbour with this state? */
+export function fenceConnects(self: number, neighbour: number): boolean {
+  const n = defs[neighbour & 0xff];
+  if (n.shape === 'fence') return (self & 0xff) === (neighbour & 0xff) || defs[self & 0xff].name.endsWith('wall') === n.name.endsWith('wall');
+  return n.opaque && n.shape === 'cube';
+}
+
+/**
+ * Fence / wall geometry in pixels for a connection mask (bit0 +X, bit1 +Z, bit2 -X, bit3 -Z).
+ * Fences: 4px post with two rails; walls: 8px post with a thick 13px-tall wall.
+ */
+export function fenceBoxes(state: number, mask: number, collision = false): Array<[number, number, number, number, number, number]> {
+  const wall = defs[state & 0xff].name.endsWith('wall');
+  const top = collision ? 24 : 16;
+  const p0 = wall ? 4 : 6, p1 = wall ? 12 : 10;
+  const out: Array<[number, number, number, number, number, number]> = [[p0, 0, p0, p1, top, p1]];
+  const rails: Array<[number, number]> = collision ? [[0, 24]] : wall ? [[0, 13]] : [[6, 9], [12, 15]];
+  const t0 = wall ? 5 : 7, t1 = wall ? 11 : 9;
+  for (const [y0, y1] of rails) {
+    if (mask & 1) out.push([p1, y0, t0, 16, y1, t1]);
+    if (mask & 2) out.push([t0, y0, p1, t1, y1, 16]);
+    if (mask & 4) out.push([0, y0, t0, p0, y1, t1]);
+    if (mask & 8) out.push([t0, y0, 0, t1, y1, p0]);
+  }
+  return out;
 }

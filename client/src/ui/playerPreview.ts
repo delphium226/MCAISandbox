@@ -14,6 +14,7 @@ export class PlayerPreview {
   private el: HTMLElement | null = null;
   private raf = 0;
   private mouse = { x: 0, y: 0 };
+  private abort = new AbortController();
 
   constructor(world: World, items: ItemModels, private skin: number) {
     this.ents = new EntityRenderer(this.scene, world, items);
@@ -23,7 +24,7 @@ export class PlayerPreview {
     window.addEventListener('mousemove', (e) => {
       this.mouse.x = e.clientX;
       this.mouse.y = e.clientY;
-    });
+    }, { signal: this.abort.signal });
   }
 
   attach(el: HTMLElement, held: ItemStack | null) {
@@ -51,6 +52,17 @@ export class PlayerPreview {
     cancelAnimationFrame(this.raf);
     if (this.renderer && this.el?.contains(this.renderer.domElement)) this.el.removeChild(this.renderer.domElement);
     this.el = null;
+  }
+
+  /** Tear down: stop rendering, remove listeners and release the WebGL context. */
+  dispose() {
+    this.detach();
+    this.abort.abort();
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.forceContextLoss();
+      this.renderer = null;
+    }
   }
 
   private frame() {

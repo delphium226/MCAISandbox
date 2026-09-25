@@ -350,8 +350,10 @@ export class EntityRenderer {
     const e = this.entities.get(id);
     if (!e) return;
     if (!immediate && e.dying > 0 && e.dying < 1) {
-      // let the death animation finish
-      setTimeout(() => this.remove(id, true), 900);
+      // let the death animation finish (only remove this exact instance; the id may be re-spawned meanwhile)
+      setTimeout(() => {
+        if (this.entities.get(id) === e) this.remove(id, true);
+      }, 900);
       return;
     }
     this.group.remove(e.group);

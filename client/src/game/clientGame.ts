@@ -89,8 +89,19 @@ export class ClientGame {
   weather: Weather;
   private bolts: { mesh: THREE.Mesh; life: number }[] = [];
   private rafId = 0;
+  /** Listeners on window/canvas, removed on dispose so a new game after reconnecting doesn't double-fire. */
+  private abort = new AbortController();
+  /** Highest container window id the client closed; late updates for it must not reopen it. */
+  private closedWindowId = 0;
+  /** Sequence number of an unacknowledged hotbar change (0 = none). */
+  private hotbarSeq = 0;
+  private hotbarPending = 0;
+  private lastFrameError = 0;
+  /** Predicted block placements awaiting the server's confirmation (the server doesn't resync refused placements). */
+  private pendingPlaces = new Map<string, { x: number; y: number; z: number; prev: number; state: number; t: number }>();
 
   constructor(private canvas: HTMLCanvasElement, public ui: UI, public settings: ClientSettings, public sound: SoundEngine) {
+    ui.resetSession();
     this.renderer = new Renderer(canvas, this.world, settings);
     this.items = new ItemModels(this.renderer.atlas);
     this.icons = new IconRenderer(this.renderer.atlas, this.items);
@@ -149,15 +160,21 @@ export class ClientGame {
     this.input.onLockChange = (locked) => {
       if (!locked && this.running && !this.ui.screenName && !this.ui.chatOpen && !this.dead) this.openPause();
     };
+    // The browser refused the lock (no user gesture, or too soon after Esc): show the pause menu instead of
+    // leaving the player in a game that ignores the mouse
+    this.input.onLockError = () => {
+      if (this.running && this.loaded && !this.ui.screenName && !this.ui.chatOpen && !this.dead) this.openPause();
+    };
+    const opts = { signal: this.abort.signal };
     canvas.addEventListener('click', () => {
       this.sound.unlock();
-      if (this.running && !this.ui.screenName && !this.ui.chatOpen) this.input.lock();
-    });
+      if (this.running && !this.ui.screenName && !this.ui.chatOpen && !this.dead) this.input.lock();
+    }, opts);
     this.ui.onChatClosed = () => {
-      if (this.running && !this.ui.screenName) this.input.lock();
+      if (this.running && !this.ui.screenName && !this.dead) this.input.lock();
     };
-    window.addEventListener('resize', () => this.renderer.resize(window.innerWidth, window.innerHeight));
-    window.addEventListener('keydown', (e) => this.onKey(e));
+    window.addEventListener('resize', () => this.renderer.resize(window.innerWidth, window.innerHeight), opts);
+    window.addEventListener('keydown', (e) => this.onKey(e), opts);
   }
 
   applySettings(s: ClientSettings) {
@@ -170,6 +187,7 @@ export class ClientGame {
   async connect(url: string, name: string) {
     this.myName = name;
     await this.conn.connect(url);
+    if (this.disposed) return;
     this.conn.send({ t: 'hello', name, version: PROTOCOL_VERSION });
     this.running = true;
     this.loop();
@@ -178,13 +196,24 @@ export class ClientGame {
   stop(reason: string) {
     this.running = false;
     this.input.unlock();
+    if (this.ui.chatOpen) this.ui.closeChat();
     this.conn.close();
     this.onExit(reason);
   }
 
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
+    this.running = false;
     cancelAnimationFrame(this.rafId);
+    this.abort.abort();
+    this.input.dispose();
+    this.conn.onMessage = () => {};
+    this.conn.onChunk = () => {};
+    this.conn.onClose = () => {};
+    this.conn.close();
+    this.preview?.dispose();
+    this.preview = null;
     this.renderer.chunks.dispose();
     this.renderer.renderer.dispose();
   }
@@ -209,6 +238,7 @@ export class ClientGame {
         this.hand = new Hand(this.items, hashName(m.name) % 8);
         this.preview = new PlayerPreview(this.world, this.items, hashName(m.name) % 8);
         this.ui.onPlayerPreview = (el) => this.preview?.attach(el, this.inventory[this.selected]);
+        this.player.flying = m.gamemode === 'spectator';
         this.renderer.handScene.add(this.hand.root);
         this.selfModel = new RenderEntity({ id: -1, kind: 'player', x: m.x, y: m.y, z: m.z, yaw: m.yaw, pitch: m.pitch, skin: hashName(m.name) % 8 });
         this.selfModel = this.entities.add({ ...this.selfModel.state, id: -999 });
@@ -219,12 +249,10 @@ export class ClientGame {
         this.world.removeChunk(m.cx, m.cz);
         this.renderer.chunks.removeChunk(m.cx, m.cz);
         break;
-      case 'block': {
-        const prev = this.world.getBlock(m.x, m.y, m.z);
+      case 'block':
+        this.pendingPlaces.delete(`${m.x},${m.y},${m.z}`);
         this.world.setBlock(m.x, m.y, m.z, m.s);
-        void prev;
         break;
-      }
       case 'spawn':
         if (m.e.id !== this.myId) this.entities.add(m.e);
         break;
@@ -247,22 +275,26 @@ export class ClientGame {
       case 'inv':
         this.inventory = m.slots;
         this.armor = m.armor;
-        this.selected = m.selected;
-        this.ui.setInventory(m.slots, m.armor, m.selected);
+        // While our own hotbar change is in flight, the server's selection is stale: keep ours
+        if (!this.hotbarPending) this.selected = m.selected;
+        this.ui.setInventory(m.slots, m.armor, this.selected);
         this.hand?.setItem(this.inventory[this.selected]);
         this.updateStatsUI();
         this.entities.update(-999, { item: this.inventory[this.selected] });
         break;
       case 'window':
-        if (this.ui.window && (this.ui.window.id === m.id || this.ui.screenName === 'creative')) this.ui.updateWindow(m);
-        else if (m.id !== 0) {
+        if (m.id === 0) this.lastPlayerWindow = m;
+        if (this.ui.window && this.ui.window.id === m.id) this.ui.updateWindow(m);
+        else if (m.id > this.closedWindowId && !this.dead) {
+          // A container opened (ids only grow; late updates for a window we already closed are ignored)
           this.input.unlock();
           this.ui.openWindow(m);
-        } else this.lastPlayerWindow = m;
-        if (m.id === 0) this.lastPlayerWindow = m;
+          if (this.ui.chatOpen) this.ui.closeChat();
+        }
         break;
       case 'closeWindow':
-        if (this.ui.window) this.closeScreen();
+        // Server-initiated close (container broken, death...): no need to echo a closeWindow back
+        if (this.ui.window) this.closeScreen(false);
         break;
       case 'health':
         if (m.hp < this.health && this.health > 0) this.onHurt();
@@ -308,13 +340,18 @@ export class ClientGame {
         this.gamemode = m.mode;
         this.ui.gamemode = m.mode;
         if (m.mode !== 'creative') this.player.flying = m.mode === 'spectator';
+        this.player.cancelDig();
         this.updateStatsUI();
+        // Switch between the survival and creative inventory screens if one is open
+        if (this.ui.window?.id === 0) this.ui.openWindow(this.lastPlayerWindow ?? this.ui.window);
         this.ui.actionMessage(`Game mode: ${m.mode[0].toUpperCase()}${m.mode.slice(1)}`);
         break;
       case 'death':
         this.dead = true;
         this.input.unlock();
+        this.player.cancelDig();
         this.ui.showDeath(m.msg);
+        if (this.ui.chatOpen) this.ui.closeChat();
         break;
       case 'breakAnim':
         this.setOtherCrack(m.id, m.x, m.y, m.z, m.stage);
@@ -332,7 +369,8 @@ export class ClientGame {
         this.spawnBolt(m.x, m.y, m.z);
         break;
       case 'pong':
-        this.ping = performance.now() - this.pingSent;
+        if (m.n === 0) this.ping = performance.now() - this.pingSent;
+        else if (m.n === this.hotbarPending) this.hotbarPending = 0;
         break;
       case 'kick':
         this.stop(m.reason);
@@ -378,7 +416,21 @@ export class ClientGame {
     // Don't place inside the player
     const pb = this.player.body;
     if (px + 1 > pb.x - 0.3 && px < pb.x + 0.3 && pz + 1 > pb.z - 0.3 && pz < pb.z + 0.3 && py + 1 > pb.y && py < pb.y + pb.height) return;
-    this.world.setBlock(px, py, pz, makeState(b.id, 0));
+    const state = makeState(b.id, 0);
+    this.pendingPlaces.set(`${px},${py},${pz}`, { x: px, y: py, z: pz, prev: this.world.getBlock(px, py, pz), state, t: performance.now() });
+    this.world.setBlock(px, py, pz, state);
+  }
+
+  /** Undo predicted placements the server never confirmed (e.g. refused because a mob stands there). */
+  private expirePredictions() {
+    if (!this.pendingPlaces.size) return;
+    const now = performance.now();
+    const timeout = 1000 + Math.min(2000, this.ping * 2);
+    for (const [k, p] of this.pendingPlaces) {
+      if (now - p.t < timeout) continue;
+      this.pendingPlaces.delete(k);
+      if (this.world.getBlock(p.x, p.y, p.z) === p.state) this.world.setBlock(p.x, p.y, p.z, p.prev);
+    }
   }
 
   private onHurt() {
@@ -444,6 +496,8 @@ export class ClientGame {
       if (this.ui.window) this.closeScreen();
       else if (screen === 'pause') this.resume();
       else if (screen === 'options' || screen === 'controls') this.openPause();
+      // In game without pointer lock (e.g. the lock request was refused): open the menu like Minecraft does
+      else if (!screen && !this.ui.chatOpen && !this.dead && this.loaded && !this.input.locked) this.openPause();
       return;
     }
     if (e.code === 'KeyE' && (screen === 'window' || screen === 'creative')) {
@@ -494,7 +548,13 @@ export class ClientGame {
     this.ui.select(i);
     this.hand?.setItem(this.inventory[i]);
     this.conn.send({ t: 'hotbar', slot: i });
+    // The pong for this ping tells us the server has processed the hotbar change (messages are handled in order)
+    this.hotbarSeq = (this.hotbarSeq % 1e9) + 1;
+    this.hotbarPending = this.hotbarSeq;
+    this.conn.send({ t: 'ping', n: this.hotbarSeq });
     this.player.cancelDig();
+    this.player.eating = 0;
+    this.entities.update(-999, { item: this.inventory[i] });
   }
 
   openInventory() {
@@ -503,10 +563,14 @@ export class ClientGame {
     this.ui.openWindow(w);
   }
 
-  closeScreen() {
-    if (this.ui.window) this.conn.send({ t: 'closeWindow' });
+  closeScreen(notifyServer = true) {
+    const w = this.ui.window;
+    if (w) {
+      if (notifyServer) this.conn.send({ t: 'closeWindow' });
+      this.closedWindowId = Math.max(this.closedWindowId, w.id);
+    }
     this.ui.closeScreen();
-    if (this.running && !this.dead) this.input.lock();
+    if (this.running && !this.dead && !this.ui.chatOpen) this.input.lock();
   }
 
   openPause() {
@@ -553,28 +617,54 @@ export class ClientGame {
       if (this.loadProgress() >= 1) {
         this.loaded = true;
         this.player.frozen = false;
-        this.ui.closeScreen();
+        // Only close the loading screen (a death screen or container may already have replaced it)
+        if (this.ui.screenName === 'message') this.ui.closeScreen();
         this.ui.showHud(true);
-        this.input.lock();
+        if (!this.ui.screenName && !this.ui.chatOpen) this.input.lock();
         this.sound.startMusic();
       }
     }
 
     const uiOpen = !!this.ui.screenName || this.ui.chatOpen || !this.input.locked;
     this.input.enabled = !uiOpen;
-    if (!uiOpen) {
-      if (this.input.wheel) {
-        this.selectSlot((((this.selected + this.input.wheel) % 9) + 9) % 9);
+    // Each section is guarded so that an exception can't freeze rendering for good
+    this.guard('input', () => {
+      if (!uiOpen) {
+        if (this.input.wheel) {
+          this.selectSlot((((this.selected + this.input.wheel) % 9) + 9) % 9);
+        }
+        if (this.input.clicked.has(1) && this.player.target) this.conn.send({ t: 'pickBlock', state: this.player.target.state });
       }
-      if (this.input.clicked.has(1) && this.player.target) this.conn.send({ t: 'pickBlock', state: this.player.target.state });
-    }
-    this.player.update(dtMs, uiOpen || this.dead);
-    if (this.player.digging && Math.random() < 0.3) {
-      const d = this.player.digging;
-      this.particles.blockHit(d.x, d.y, d.z, d.face, this.world.getBlock(d.x, d.y, d.z));
-    }
+      this.player.update(dtMs, uiOpen || this.dead);
+      if (this.player.digging && Math.random() < 0.3) {
+        const d = this.player.digging;
+        this.particles.blockHit(d.x, d.y, d.z, d.face, this.world.getBlock(d.x, d.y, d.z));
+      }
+    });
     this.input.endFrame();
+    this.guard('update', () => this.updateWorld(dt));
+    this.guard('render', () => this.renderer.render(dt));
+    this.guard('ui', () => {
+      this.ui.frame(dt);
+      if (this.ui.debugVisible) this.updateDebug();
+      this.ui.setPlayerList(this.input.keys.has('Tab') && !uiOpen ? this.players.map((p) => p.name + (p.agent ? ' [AI]' : '')) : null);
+    });
+  };
 
+  private guard(section: string, fn: () => void) {
+    try {
+      fn();
+    } catch (e) {
+      const now = performance.now();
+      if (now - this.lastFrameError > 2000) {
+        this.lastFrameError = now;
+        console.error(`Frame error (${section}):`, e);
+      }
+    }
+  }
+
+  private updateWorld(dt: number) {
+    this.expirePredictions();
     this.updateCamera(dt);
     this.updateSelection();
     this.renderer.setTime(this.time);
@@ -611,12 +701,7 @@ export class ClientGame {
     this.sound.setListener(eye.x, eye.y, eye.z, this.player.yaw, this.player.pitch);
     const surface = this.world.getHeight(Math.floor(eye.x), Math.floor(eye.z));
     this.sound.updateAmbience({ depthBelowSurface: surface - eye.y, skyLight: sky * 15, inWater: underwater });
-
-    this.renderer.render(dt);
-    this.ui.frame(dt);
-    if (this.ui.debugVisible) this.updateDebug();
-    this.ui.setPlayerList(this.input.keys.has('Tab') && !uiOpen ? this.players.map((p) => p.name + (p.agent ? ' [AI]' : '')) : null);
-  };
+  }
 
   private updateCamera(dt: number) {
     const cam = this.renderer.camera;

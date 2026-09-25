@@ -101,6 +101,7 @@ export class LocalPlayer {
     while (this.tickAcc >= TICK_MS) {
       this.tickAcc -= TICK_MS;
       this.tick(uiOpen);
+      this.input.endTick();
     }
     // Smooth eye height
     const targetEye = this.eyeHeight;
@@ -178,6 +179,11 @@ export class LocalPlayer {
     this.bob += speedH * 3.2;
 
     if (!uiOpen) this.tickActions();
+    else {
+      // Opening a screen (inventory, chat, pause, death) stops digging and eating
+      this.cancelDig();
+      this.eating = 0;
+    }
     this.sendMove();
   }
 
@@ -238,15 +244,15 @@ export class LocalPlayer {
       } else if (this.digging) {
         this.cancelDig();
       }
-      if (input.clicked.has(0) && !this.target && this.targetEntity === null) this.swing();
+      if (input.tickClicked.has(0) && !this.target && this.targetEntity === null) this.swing();
     } else if (this.digging) {
       this.cancelDig();
     }
 
     // --- Use / place / eat ---
+    const food = !!heldDef?.food && (this.hooks.foodLevel() < 20 || gm === 'creative' || heldDef.name === 'golden_apple');
     if (right && this.useCooldown <= 0 && gm !== 'spectator') {
-      const food = heldDef?.food && (this.hooks.foodLevel() < 20 || gm === 'creative' || heldDef.name === 'golden_apple');
-      if (this.targetEntity !== null && input.clicked.has(2)) {
+      if (this.targetEntity !== null && input.tickClicked.has(2)) {
         this.hooks.send({ t: 'interact', id: this.targetEntity });
         this.swing();
         this.useCooldown = 4;
@@ -271,13 +277,14 @@ export class LocalPlayer {
         const f = this.fluidTarget()!;
         this.hooks.send({ t: 'useBlock', x: f.x, y: f.y, z: f.z, face: f.face, hx: 0.5, hy: 0.5, hz: 0.5, sneak: false });
         this.useCooldown = 5;
-      } else if (input.clicked.has(2) && heldDef && ['snowball', 'egg', 'bow'].includes(heldDef.name)) {
+      } else if (input.tickClicked.has(2) && heldDef && ['snowball', 'egg', 'bow'].includes(heldDef.name)) {
         this.hooks.send({ t: 'useItem' });
         this.swing();
         this.useCooldown = heldDef.name === 'bow' ? 15 : 4;
       }
     }
-    if (!right) this.eating = 0;
+    // Releasing the button or switching to a non-food item cancels eating
+    if (!right || !food) this.eating = 0;
   }
 
   private isInteractive(state: number) {

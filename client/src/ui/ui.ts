@@ -123,9 +123,34 @@ export class UI {
     this.screenName = '';
     this.window = null;
     this.windowSlots = [];
+    this.dragging = null;
+    this.hoverIndex = -1;
     this.cursorEl.classList.add('hidden');
     this.tooltip.classList.add('hidden');
     this.progressUpdater = null;
+  }
+
+  /** Reset per-session HUD state so nothing leaks from a previous game into the next one. */
+  resetSession() {
+    this.closeScreen();
+    this.chatInputWrap?.remove();
+    this.chatInputWrap = null;
+    for (const l of this.chatLines) l.el.remove();
+    this.chatLines = [];
+    this.historyIdx = -1;
+    this.debugVisible = false;
+    this.setDebug(null);
+    this.setPlayerList(null);
+    this.setHudHidden(false);
+    this.gamemode = 'survival';
+    this.setInventory(new Array(36).fill(null), [null, null, null, null], 0);
+    this.setStats(20, 20, 300, 0);
+    this.itemName.style.opacity = '0';
+    this.itemNameTimer = 0;
+    this.actionMsg.style.opacity = '0';
+    this.actionTimer = 0;
+    this.onChatClosed = () => {};
+    this.onPlayerPreview = () => {};
   }
 
   private openScreen(name: string, cls: string): HTMLElement {
@@ -668,12 +693,12 @@ export class UI {
     if (!this.window) {
       return;
     }
+    if (w.id !== this.window.id) return;
     if (this.screenName === 'creative') {
       this.window = w;
       this.updateCreative();
       return;
     }
-    if (w.id !== this.window.id) return;
     this.window = w;
     w.slots.forEach((s, i) => {
       const el = this.windowSlots[i];
@@ -681,6 +706,8 @@ export class UI {
     });
     this.renderCursor(w.cursor);
     this.updateFurnaceProgress();
+    // The hovered slot's contents may have changed (e.g. an item was just put down there)
+    if (this.hoverIndex >= 0 && !w.cursor) this.showTooltipFor(w.slots[this.hoverIndex] ?? null);
   }
 
   private renderCursor(c: ItemStack | null) {
@@ -807,7 +834,10 @@ export class UI {
         this.creativeSearch = search.value;
         this.fillCreativeGrid(grid);
       });
-      search.addEventListener('keydown', (e) => e.stopPropagation());
+      search.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') this.handlers.closeWindow();
+      });
     }
     const scroll = h('div', 'creative-scroll', panel);
     const grid = h('div', 'slot-grid', scroll);

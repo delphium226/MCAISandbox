@@ -1,4 +1,4 @@
-import { BLOCKS, fluidHeight, blockOf, doorPanel, stairBoxes } from './blocks';
+import { BLOCKS, fluidHeight, blockOf, doorPanel, stairBoxes, fenceBoxes, fenceConnects } from './blocks';
 import { World } from './world';
 
 /** Axis-aligned box as [minX,minY,minZ,maxX,maxY,maxZ]. */
@@ -73,6 +73,16 @@ function collectBoxes(world: World, box: AABB, out: AABB[]) {
         for (const b of blockBoxes(s)) out.push([b[0] + x, b[1] + y, b[2] + z, b[3] + x, b[4] + y, b[5] + z]);
       }
     }
+}
+
+/** Connection mask of a fence/wall at x,y,z (bit0 +X, bit1 +Z, bit2 -X, bit3 -Z). */
+export function fenceMask(world: World, x: number, y: number, z: number, s: number): number {
+  let m = 0;
+  if (fenceConnects(s, world.getBlock(x + 1, y, z))) m |= 1;
+  if (fenceConnects(s, world.getBlock(x, y, z + 1))) m |= 2;
+  if (fenceConnects(s, world.getBlock(x - 1, y, z))) m |= 4;
+  if (fenceConnects(s, world.getBlock(x, y, z - 1))) m |= 8;
+  return m;
 }
 
 const tmpBoxes: AABB[] = [];

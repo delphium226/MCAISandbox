@@ -8,7 +8,7 @@
  *   a_light Uint8  x4 : sky*17, block*17, ao*85, extra (0)
  *   a_color Uint8  x4 : tint r, g, b, wave phase
  */
-import { BLOCKS, BlockDef, fluidHeight, isLog, isDirectional, doorPanel, stairBoxes } from '../../../shared/src/blocks';
+import { BLOCKS, BlockDef, fluidHeight, isLog, isDirectional, doorPanel, stairBoxes, fenceBoxes, fenceConnects } from '../../../shared/src/blocks';
 import { BIOMES } from '../../../shared/src/biomes';
 import { WORLD_HEIGHT } from '../../../shared/src/constants';
 
@@ -231,6 +231,15 @@ export class Mesher {
             case 'ladder':
               this.ladder(x, y, z, s, def);
               break;
+            case 'fence': {
+              let m = 0;
+              if (fenceConnects(s, this.get(x + 1, y, z))) m |= 1;
+              if (fenceConnects(s, this.get(x, y, z + 1))) m |= 2;
+              if (fenceConnects(s, this.get(x - 1, y, z))) m |= 4;
+              if (fenceConnects(s, this.get(x, y, z - 1))) m |= 8;
+              for (const fb of fenceBoxes(s, m)) this.box(x, y, z, s, def, fb[0], fb[1], fb[2], fb[3], fb[4], fb[5]);
+              break;
+            }
             case 'stairs':
               for (const sb of stairBoxes(s >> 8)) this.box(x, y, z, s, def, sb[0], sb[1], sb[2], sb[3], sb[4], sb[5]);
               break;
