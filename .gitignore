@@ -1,0 +1,9 @@
+node_modules
+dist
+server/worlds
+*.log
+.DS_Store
+
+.shots
+shot-*.png
+.playwright-mcp

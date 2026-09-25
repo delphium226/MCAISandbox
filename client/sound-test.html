@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sound Test</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { font: 14px/1.4 system-ui, sans-serif; background: #1d1f21; color: #ddd; margin: 0; padding: 16px 20px 60px; }
+      h1 { margin: 0 0 4px; font-size: 22px; }
+      h2 { font-size: 15px; margin: 18px 0 8px; color: #9fd67a; text-transform: uppercase; letter-spacing: 0.05em; }
+      section { border-top: 1px solid #333; }
+      button { background: #3a3d40; color: #eee; border: 1px solid #555; border-radius: 4px; padding: 5px 10px; margin: 2px; cursor: pointer; font: inherit; }
+      button:hover { background: #4b5054; }
+      button:active { background: #6a8f4e; }
+      table { border-collapse: collapse; }
+      td, th { padding: 2px 6px; text-align: left; }
+      th { color: #999; font-weight: normal; }
+      .grid { display: flex; flex-wrap: wrap; gap: 2px; }
+      .slider { display: inline-block; margin: 4px 14px 4px 0; }
+      .status { position: fixed; left: 0; right: 0; bottom: 0; background: #111; padding: 8px 20px; font-family: ui-monospace, monospace; font-size: 12px; color: #aaa; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/audio/soundTest.ts"></script>
+  </body>
+</html>
