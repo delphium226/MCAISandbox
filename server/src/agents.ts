@@ -1131,6 +1131,10 @@ export class AgentManager {
       }
       if (req.method === 'POST') {
         const body = await readJson(req);
+        if (this.get(String(body.name ?? ''))) {
+          sendJson(res, 409, { error:  });
+          return true;
+        }
         const a = this.spawn(String(body.name ?? ''), String(body.role ?? 'villager'), body.brain ?? null, body.position);
         sendJson(res, 201, { name: a.player.name, id: a.player.id });
         return true;
