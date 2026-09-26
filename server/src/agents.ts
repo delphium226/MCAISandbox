@@ -7,7 +7,7 @@
  *
  * Something external (an LLM, a scripted policy, a research harness such as a PIANO-style architecture)
  * decides WHICH skills to run. It can do that either
- *   - in-process by implementing `AgentBrain` (see brains.ts), or
+ *   - in-process by implementing `AgentBrain` (see world.ts and brains.ts), or
  *   - over HTTP via the REST API below (observe -> act loop), from any language.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -30,51 +30,12 @@ import { readJson, sendJson } from './api';
 import { VillageRegistry, Village, Area, Reservation, Design, overlaps, areaText } from './village';
 import { validateDesign } from './designs';
 import { schematicToDesign } from './schematic';
-import { BRAINS, AgentBrain } from './brains';
+import { BRAINS } from './brains';
+import { TOOLS } from './skills';
+import type { ActionStatus, AgentBrain, AgentEvent, Observation, ToolDef, WorldAdapter, WorldAgent } from './world';
+
+export type { ActionStatus, AgentEvent, Observation } from './world';
 import type { FurnaceState } from './containers';
-
-// ---------------------------------------------------------------------------------------------
-// Events & observations
-// ---------------------------------------------------------------------------------------------
-
-export interface AgentEvent {
-  id: number;
-  tick: number;
-  type: 'chat' | 'damage' | 'death' | 'pickup' | 'crafted' | 'action_done' | 'action_failed' | 'system' | 'killed' | 'broke';
-  text: string;
-  data?: Record<string, unknown>;
-}
-
-export interface Observation {
-  name: string;
-  tick: number;
-  timeOfDay: number;
-  isDay: boolean;
-  position: { x: number; y: number; z: number };
-  yaw: number;
-  health: number;
-  food: number;
-  gamemode: string;
-  dead: boolean;
-  biome: string;
-  holding: string | null;
-  inventory: Record<string, number>;
-  equipment: (string | null)[];
-  nearbyBlocks: Record<string, { count: number; nearest: [number, number, number] }>;
-  nearbyEntities: Array<{ id: number; kind: string; name?: string; x: number; y: number; z: number; distance: number; health?: number }>;
-  currentAction: ActionStatus | null;
-  queuedActions: number;
-  recentEvents: AgentEvent[];
-}
-
-export interface ActionStatus {
-  id: number;
-  type: string;
-  args: Record<string, unknown>;
-  state: 'queued' | 'running' | 'done' | 'failed';
-  message?: string;
-  startedTick?: number;
-}
 
 /** Connection stand-in for an agent: collects the messages a human client would receive. */
 class AgentConnection implements Connection {
@@ -1585,14 +1546,14 @@ function describeRecipe(r: Recipe): string {
 let nextEventId = 1;
 let nextActionId = 1;
 
-export class Agent {
+export class Agent implements WorldAgent {
   player: Player;
   events: AgentEvent[] = [];
   queue: Array<{ status: ActionStatus; skill: Skill }> = [];
   current: { status: ActionStatus; skill: Skill } | null = null;
   history: ActionStatus[] = [];
   input: MoveInput = { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, yaw: 0, flying: false };
-  brain: AgentBrain | null = null;
+  brain: AgentBrain<Agent> | null = null;
   role: string;
   /** Free-form memory store usable by brains / external controllers. */
   memory: Record<string, unknown> = {};
@@ -1600,6 +1561,18 @@ export class Agent {
   /** The village this agent belongs to (memory.village), if any. */
   village(): Village | undefined {
     return this.manager.villages.get(this.memory.village);
+  }
+  get name() {
+    return this.player.name;
+  }
+  get gamemode() {
+    return this.player.gamemode;
+  }
+  get world(): WorldAdapter {
+    return this.manager;
+  }
+  idle() {
+    return !this.current && this.queue.length === 0;
   }
   hearingRange = 48;
 
@@ -1696,7 +1669,7 @@ export class Agent {
         } else {
           st.state = 'failed';
           st.message = r.fail;
-          this.pushEvent('action_failed', `${st.type} failed: ${r.fail}`, { action: st.id, type: st.type });
+          this.pushEvent('action_failed', `${st.type} failed: ${r.fail}`, { action: st.id, type: st.type, args: st.args, message: r.fail });
         }
         this.current.skill.cancel();
         this.history.push(st);
@@ -1971,7 +1944,11 @@ export interface AgentMetrics {
   lastPos: { x: number; z: number } | null;
 }
 
-export class AgentManager {
+/** The sandbox as a world for agents: the manager is its WorldAdapter. */
+export class AgentManager implements WorldAdapter {
+  readonly kind = 'sandbox' as const;
+  /** Every skill in skills.ts is implemented here. */
+  readonly skills: ToolDef[] = TOOLS.filter((t) => t.name in SKILLS);
   agents = new Map<string, Agent>();
   metrics = new Map<string, AgentMetrics>();
   /** Social graph: speaker -> listener -> number of messages heard. */
@@ -1982,6 +1959,20 @@ export class AgentManager {
   constructor(public game: Game) {
     this.villages = VillageRegistry.forWorld(game.world.dir);
     game.chatListeners.push((from, text) => this.onChat(from, text));
+  }
+
+  get ticks() {
+    return this.game.tick;
+  }
+
+  isAgent(name: string) {
+    return !!this.get(name);
+  }
+
+  isPlaceable(block: string) {
+    const it = ITEMS_BY_NAME.get(block);
+    const place = it ? it.places ?? it.block?.name : undefined;
+    return !!place && BLOCKS_BY_NAME.has(place);
   }
 
   private m(name: string): AgentMetrics | undefined {
@@ -2205,7 +2196,7 @@ export class AgentManager {
           chunks.push(c as Buffer);
         }
         const imported = schematicToDesign(Buffer.concat(chunks), name, Math.max(0, Number(url.searchParams.get('skip_bottom') ?? 0) || 0));
-        const { design, errors } = validateDesign(imported.design, 'import', { maxSide: 64, maxLayers: 64, requireDoor: false });
+        const { design, errors } = validateDesign(imported.design, 'import', { isPlaceable: (b) => this.isPlaceable(b), maxSide: 64, maxLayers: 64, requireDoor: false });
         if (!design) return sendJson(res, 400, { errors, format: imported.format }), true;
         v.designs[design.name] = design;
         this.villages.note(v, `design "${design.name}" imported (${design.width}x${design.depth}, ${design.height} high)`);
@@ -2217,7 +2208,7 @@ export class AgentManager {
         return true;
       }
       if (v && parts[3] === 'designs' && req.method === 'POST') {
-        const { design, errors, fixes } = validateDesign(await readJson(req), 'api');
+        const { design, errors, fixes } = validateDesign(await readJson(req), 'api', { isPlaceable: (b) => this.isPlaceable(b) });
         if (!design) return sendJson(res, 400, { errors }), true;
         v.designs[design.name] = design;
         this.villages.note(v, `design "${design.name}" added through the API`);

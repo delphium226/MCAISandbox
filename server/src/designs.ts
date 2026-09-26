@@ -5,8 +5,6 @@
  * Designs are drawn by an LLM
  * (see tieredBrain's design_building), checked here, stored in the village's design library and built by build_design.
  */
-import { ITEMS_BY_NAME } from '../../shared/src/items';
-import { BLOCKS_BY_NAME } from '../../shared/src/blocks';
 import type { Design } from './village';
 
 export const DESIGN_LIMITS = { minSide: 3, maxSide: 15, maxLayers: 10 };
@@ -18,12 +16,6 @@ export const DESIGN_BLOCKS = [
   'oak_slab', 'stone_slab', 'cobblestone_slab', 'oak_fence', 'cobblestone_wall', 'bookshelf', 'glowstone', 'lantern',
   'crafting_table', 'furnace', 'chest', 'oak_door', 'dirt', 'grass_block', 'stone',
 ];
-
-function placeable(item: string): boolean {
-  const it = ITEMS_BY_NAME.get(item);
-  const place = it ? it.places ?? it.block?.name : undefined;
-  return !!place && BLOCKS_BY_NAME.has(place);
-}
 
 /**
  * Put the door where it belongs. Models reliably draw good buildings but often place the door a block inside the wall
@@ -69,11 +61,14 @@ function fixDoor(layers: string[][], palette: Record<string, string>, width: num
   return fixes;
 }
 
-/** Check a design the model submitted; returns the cleaned design or the problems to send back to it. */
+/**
+ * Check a design the model submitted; returns the cleaned design or the problems to send back to it.
+ * isPlaceable comes from the world the design is for (WorldAdapter.isPlaceable).
+ */
 export function validateDesign(
   raw: Record<string, unknown>,
   by: string,
-  opts: { maxSide?: number; maxLayers?: number; requireDoor?: boolean } = {},
+  opts: { isPlaceable: (block: string) => boolean; maxSide?: number; maxLayers?: number; requireDoor?: boolean },
 ): { design?: Design; errors: string[]; fixes?: string[] } {
   const maxLayers = opts.maxLayers ?? DESIGN_LIMITS.maxLayers;
   const requireDoor = opts.requireDoor ?? true;
@@ -85,7 +80,7 @@ export function validateDesign(
   const rawPalette = (raw.palette ?? {}) as Record<string, unknown>;
   for (const [ch, block] of Object.entries(rawPalette)) {
     if (ch.length !== 1 || ch === '.' || ch === '_' || ch === ' ') errors.push(`palette key "${ch}" must be one character other than ".", "_" and space`);
-    else if (typeof block !== 'string' || (block !== 'air' && !placeable(block))) errors.push(`palette "${ch}": "${String(block)}" is not a placeable block`);
+    else if (typeof block !== 'string' || (block !== 'air' && !opts.isPlaceable(block))) errors.push(`palette "${ch}": "${String(block)}" is not a placeable block`);
     else palette[ch] = block;
   }
   // Rows may be spaced ("L P P L") or packed ("LPPL"); a row that has spaces is split on them

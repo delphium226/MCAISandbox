@@ -1,30 +1,22 @@
 /**
  * Agent "brains": in-process decision makers that choose which skills an agent runs.
  *
- * To plug in an LLM or a PIANO-style cognitive architecture, implement AgentBrain:
- *   - tick(agent) is called every server tick (20 Hz) — keep it cheap; do slow work asynchronously
- *     (e.g. call an LLM with agent.observe() and enqueue the returned actions when the promise resolves).
- *   - onEvent(agent, event) receives chat, damage, crafting results, action completions, ...
+ * To plug in an LLM or a PIANO-style cognitive architecture, implement AgentBrain (world.ts). Brains written against
+ * WorldAgent (llm, tiered) run in any world; the scripted ones here use the sandbox's Agent directly.
  * External controllers can do the same over HTTP (see README "Agent API").
  */
-import type { Agent, AgentEvent } from './agents';
+import type { Agent } from './agents';
+import type { AgentBrain, AgentEvent } from './world';
 import { itemId, itemDef } from '../../shared/src/items';
 import { countItem } from '../../shared/src/inventory';
 import { LLMBrain } from './llmBrain';
 import { TieredBrain } from './tieredBrain';
 
-export interface AgentBrain {
-  name: string;
-  init?(agent: Agent): void;
-  tick?(agent: Agent): void;
-  onEvent?(agent: Agent, e: AgentEvent): void;
-}
-
 const has = (a: Agent, item: string) => countItem(a.player.inventory, itemId(item));
 const hasAny = (a: Agent, items: string[]) => items.reduce((s, i) => s + has(a, i), 0);
 
 /** Does nothing on its own; controlled entirely via the API or /agent do. */
-class IdleBrain implements AgentBrain {
+class IdleBrain implements AgentBrain<Agent> {
   name = 'idle';
 }
 
@@ -33,7 +25,7 @@ class IdleBrain implements AgentBrain {
  * Responds to simple natural-language requests from nearby players ("follow me", "come here",
  * "give me <item>", "stop", "what are you doing?"). Serves as a baseline and as a smoke test for skills.
  */
-class WorkerBrain implements AgentBrain {
+class WorkerBrain implements AgentBrain<Agent> {
   name = 'worker';
   private cooldown = 40;
   private failures = new Map<string, number>();
@@ -193,7 +185,7 @@ const CHATTER = [
 ];
 
 /** Follows the nearest human player around and chats occasionally — a simple companion. */
-class CompanionBrain implements AgentBrain {
+class CompanionBrain implements AgentBrain<Agent> {
   name = 'companion';
   tick(a: Agent) {
     if (a.current || a.queue.length) return;
@@ -207,7 +199,7 @@ class CompanionBrain implements AgentBrain {
   }
 }
 
-export const BRAINS: Record<string, () => AgentBrain> = {
+export const BRAINS: Record<string, () => AgentBrain<Agent>> = {
   idle: () => new IdleBrain(),
   worker: () => new WorkerBrain(),
   companion: () => new CompanionBrain(),

@@ -21,9 +21,7 @@
  * through the memory API. Spawn with `/agent spawn Ada farmer tiered`.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import type { Agent, AgentEvent } from './agents';
-import type { AgentBrain } from './brains';
-import { TOOLS as SKILL_TOOLS } from './llmBrain';
+import type { AgentBrain, AgentEvent, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
 import type { Design, Village } from './village';
 
@@ -37,7 +35,6 @@ const PLAN_INTERVAL_MS = Number(process.env.MC_PLAN_INTERVAL_MS ?? 180000);
 // ---------------------------------------------------------------------------------------------
 
 interface ModelSpec { provider: 'ollama' | 'anthropic'; model: string }
-interface ToolDef { name: string; description?: string; input_schema: unknown }
 interface ToolCall { name: string; input: Record<string, unknown> }
 interface Reply { calls: ToolCall[]; text: string; promptTokens?: number; loadMs?: number }
 
@@ -193,8 +190,8 @@ Keep each task specific enough that a worker can do it without asking. Review th
 tasks with a fix, add follow-ups, and call declare_complete once the summary shows the objective is met. Use set_plan
 only for your own steps (find_site, chat once to announce, design_building), or with an empty list to wait.`;
 
-const EXEC_TOOLS: ToolDef[] = [
-  ...SKILL_TOOLS,
+/** Executor tools the brain handles itself, added to the world's skills. */
+const BRAIN_TOOLS: ToolDef[] = [
   { name: 'step_done', description: 'Mark the current plan step as complete (only when the observation shows it is done).', input_schema: obj({}) },
   {
     name: 'design_building',
@@ -206,14 +203,24 @@ const EXEC_TOOLS: ToolDef[] = [
 
 /** What the mayor may do itself: look around, talk, design; building and land work are for workers. */
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
-const MAYOR_EXEC_TOOLS = EXEC_TOOLS.filter((t) => MAYOR_EXEC.has(t.name));
-const CHAT_TOOLS = EXEC_TOOLS.filter((t) => t.name === 'chat');
 
-const SKILL_SUMMARY = SKILL_TOOLS.map((t) => `- ${t.name}: ${t.description}`).join('\n');
+interface ToolSets { exec: ToolDef[]; mayorExec: ToolDef[]; chat: ToolDef[]; planSystem: string }
+const toolSets = new WeakMap<ToolDef[], ToolSets>();
 
-const PLAN_SYSTEM = `You are the strategic planner for a player character in a Minecraft-like survival world shared with humans and other AI agents.
+/** The executor's tools and the planner's prompt for a world's skills (built once per world). */
+function toolsFor(skills: ToolDef[]): ToolSets {
+  let t = toolSets.get(skills);
+  if (!t) {
+    const exec = [...skills, ...BRAIN_TOOLS];
+    t = { exec, mayorExec: exec.filter((x) => MAYOR_EXEC.has(x.name)), chat: exec.filter((x) => x.name === 'chat'), planSystem: planSystem(skills) };
+    toolSets.set(skills, t);
+  }
+  return t;
+}
+
+const planSystem = (skills: ToolDef[]) => `You are the strategic planner for a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A separate, faster executor model carries out your plan one step at a time using these skills:
-${SKILL_SUMMARY}
+${skills.map((t) => `- ${t.name}: ${t.description}`).join('\n')}
 
 Given the agent's role, objective, situation, previous plan and recent events, call set_plan with a goal and 3-8 steps.
 If an objective is given, every plan must work toward it.
@@ -245,7 +252,7 @@ For building, prefer one build or build_box call over many place calls; their re
 const FILLER = /leaves|grass|fern|bush|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|granite|diorite|andesite|^dirt$|^snow$|vine|sapling/;
 
 /** A trimmed, flattened observation: ~3x fewer tokens than the raw one. */
-function compactObservation(a: Agent) {
+function compactObservation(a: WorldAgent) {
   const o = a.observe(12);
   const p = o.position;
   const d2 = ([x, y, z]: [number, number, number]) => (x - p.x) ** 2 + (y - p.y) ** 2 + (z - p.z) ** 2;
@@ -278,15 +285,15 @@ const formatEvents = (events: AgentEvent[], max: number) =>
   events.slice(-max).map((e) => `- [${e.type}] ${e.text}`).join('\n') || '- none';
 
 /** Prepared building plots (from prepare_site), so plans can build on and extend them. */
-function formatPlots(a: Agent): string {
+function formatPlots(a: WorldAgent): string {
   const v = a.village();
-  if (v) return a.manager.villages.summary(v, a.player.name);
+  if (v) return a.world.villages.summary(v, a.name);
   const plots = a.memory.plots as Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> | undefined;
   if (!plots?.length) return '';
   return 'Prepared plots (level ground):\n' + plots.map((p) => `- x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2}, ground y=${p.y}`).join('\n');
 }
 
-function villageRole(a: Agent): 'mayor' | 'worker' | null {
+function villageRole(a: WorldAgent): 'mayor' | 'worker' | null {
   if (!a.village()) return null;
   return a.memory.villageRole === 'mayor' ? 'mayor' : 'worker';
 }
@@ -339,7 +346,7 @@ export class TieredBrain implements AgentBrain {
   /** Task claimed for the plan being made (workers claim before asking the planner). */
   private claimedTask: string | undefined;
 
-  private specs(a: Agent): { exec: ModelSpec; plan: ModelSpec | null } {
+  private specs(a: WorldAgent): { exec: ModelSpec; plan: ModelSpec | null } {
     const m = a.memory;
     const exec = (typeof m.execModel === 'string' && parseSpec(m.execModel)) || EXEC_SPEC;
     let plan = PLAN_SPEC;
@@ -348,13 +355,13 @@ export class TieredBrain implements AgentBrain {
     return { exec, plan };
   }
 
-  private stat(a: Agent, key: string, add = 1) {
+  private stat(a: WorldAgent, key: string, add = 1) {
     const s = (a.memory.stats ??= {}) as Record<string, number>;
     s[key] = (s[key] ?? 0) + add;
     return s;
   }
 
-  private async timed(a: Agent, tier: 'exec' | 'plan', run: () => Promise<Reply>): Promise<Reply> {
+  private async timed(a: WorldAgent, tier: 'exec' | 'plan', run: () => Promise<Reply>): Promise<Reply> {
     const t0 = Date.now();
     const out = await run();
     const s = this.stat(a, `${tier}Calls`);
@@ -373,23 +380,23 @@ export class TieredBrain implements AgentBrain {
       .map(([k, f]) => `- ${k}: ${f.why.slice(0, 160)}`);
   }
 
-  private plan(a: Agent): Plan | undefined {
+  private plan(a: WorldAgent): Plan | undefined {
     const p = a.memory.plan as Partial<Plan> | undefined;
     if (!p || typeof p.goal !== 'string' || !Array.isArray(p.steps)) return undefined;
     // Plans posted through the memory API may leave out the bookkeeping fields.
     p.step ??= 0;
     p.by ??= 'external';
-    p.tick ??= a.game.tick;
+    p.tick ??= a.world.ticks;
     return p as Plan;
   }
 
-  onEvent(a: Agent, e: AgentEvent) {
-    if (e.type === 'chat' && e.data?.from !== a.player.name) {
+  onEvent(a: WorldAgent, e: AgentEvent) {
+    if (e.type === 'chat' && e.data?.from !== a.name) {
       // Reply at once to people, and to agents who address this agent by name; other agent chatter waits for the
       // next turn (otherwise every message makes every listener answer, and the answers never stop)
       const from = String(e.data?.from ?? '');
-      const byAgent = !!a.manager.get(from);
-      if (!byAgent || new RegExp(`\\b${a.player.name}\\b`, 'i').test(String(e.data?.text ?? ''))) this.urgent = true;
+      const byAgent = a.world.isAgent(from);
+      if (!byAgent || new RegExp(`\\b${a.name}\\b`, 'i').test(String(e.data?.text ?? ''))) this.urgent = true;
     }
     if (e.type === 'damage') this.urgent = true;
     if (e.type === 'death') {
@@ -399,11 +406,11 @@ export class TieredBrain implements AgentBrain {
     if (e.type === 'action_failed') {
       this.failuresSincePlan++;
       this.stat(a, 'actionsFailed');
-      const st = a.current?.status;
-      if (st) {
-        const k = callKey(st.type, st.args);
+      const type = e.data?.type, args = e.data?.args;
+      if (typeof type === 'string' && args && typeof args === 'object') {
+        const k = callKey(type, args as Record<string, unknown>);
         const f = this.failed.get(k);
-        this.failed.set(k, { count: (f?.count ?? 0) + 1, at: Date.now(), why: st.message ?? e.text });
+        this.failed.set(k, { count: (f?.count ?? 0) + 1, at: Date.now(), why: String(e.data?.message ?? e.text) });
       }
     }
     if (e.type === 'action_done') {
@@ -425,7 +432,7 @@ export class TieredBrain implements AgentBrain {
     }
   }
 
-  tick(a: Agent) {
+  tick(a: WorldAgent) {
     const now = Date.now();
     const plan = this.plan(a);
     const { exec: EXEC, plan: PLAN } = this.specs(a);
@@ -440,7 +447,7 @@ export class TieredBrain implements AgentBrain {
     const complete = !!plan && plan.steps.length > 0 && plan.step >= plan.steps.length;
     // A worker whose plan is complete has finished its task
     if (v && role === 'worker' && complete && plan.taskId && v.tasks.find((t) => t.id === plan.taskId)?.status === 'claimed') {
-      a.manager.villages.finish(v, plan.taskId, a.player.name, this.notes.slice(-3).join(' ') || 'done');
+      a.world.villages.finish(v, plan.taskId, a.name, this.notes.slice(-3).join(' ') || 'done');
       plan.taskId = undefined;
     }
     const boardKey = v ? v.tasks.map((t) => t.status[0]).join('') : '';
@@ -461,9 +468,9 @@ export class TieredBrain implements AgentBrain {
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
       // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
       if (why && free) {
-        const next = a.manager.villages.claimable(v!)[0];
+        const next = a.world.villages.claimable(v!)[0];
         if (next) {
-          a.manager.villages.claim(v!, next.id, a.player.name);
+          a.world.villages.claim(v!, next.id, a.name);
           this.claimedTask = next.id;
         } else why = null;
       }
@@ -476,7 +483,7 @@ export class TieredBrain implements AgentBrain {
     if (this.execPending) return;
     if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
     if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !this.urgent) return; // waiting
-    const idle = !a.current && a.queue.length === 0;
+    const idle = a.idle();
     if (!idle && !this.urgent) return;
     if (now - this.lastExec < (this.urgent ? 1500 : EXEC_INTERVAL_MS)) return;
     this.urgent = false;
@@ -490,7 +497,7 @@ export class TieredBrain implements AgentBrain {
       .finally(() => (this.execPending = false));
   }
 
-  private startPlan(a: Agent, spec: ModelSpec, old: Plan | undefined, why: string) {
+  private startPlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
     this.planPending = true;
     this.replanReason = null;
     this.makePlan(a, spec, old, why)
@@ -498,7 +505,7 @@ export class TieredBrain implements AgentBrain {
         a.pushEvent('system', `Planner error (${label(spec)}): ${(err as Error).message}`);
         this.lastPlan = Date.now() + 30000; // back off
         const v = a.village();
-        if (v && this.claimedTask && this.plan(a)?.taskId !== this.claimedTask) a.manager.villages.giveUp(v, this.claimedTask, a.player.name, 'could not plan it');
+        if (v && this.claimedTask && this.plan(a)?.taskId !== this.claimedTask) a.world.villages.giveUp(v, this.claimedTask, a.name, 'could not plan it');
       })
       .finally(() => {
         this.planPending = false;
@@ -506,12 +513,12 @@ export class TieredBrain implements AgentBrain {
       });
   }
 
-  private async makePlan(a: Agent, spec: ModelSpec, old: Plan | undefined, why: string) {
+  private async makePlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
     const events = a.events.filter((e) => e.id > this.seenPlan);
     if (events.length) this.seenPlan = events[events.length - 1].id;
     const notes = typeof a.memory.notes === 'string' ? a.memory.notes : '';
     let user = [
-      `You are planning for ${a.player.name}, role: ${a.role}, game mode: ${a.player.gamemode}. Replanning because ${why}.`,
+      `You are planning for ${a.name}, role: ${a.role}, game mode: ${a.gamemode}. Replanning because ${why}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       notes ? `Long-term notes:\n${notes}` : '',
       formatPlots(a),
@@ -528,7 +535,7 @@ export class TieredBrain implements AgentBrain {
       const n = (this.taskReplans.get(old.taskId) ?? 0) + 1;
       this.taskReplans.set(old.taskId, n);
       if (n >= 3) {
-        a.manager.villages.giveUp(v, old.taskId, a.player.name, `stuck after ${n} attempts; last problem: ${why}`);
+        a.world.villages.giveUp(v, old.taskId, a.name, `stuck after ${n} attempts; last problem: ${why}`);
         a.memory.plan = { ...old, steps: [], taskId: undefined };
         this.taskReplans.delete(old.taskId);
         this.lastPlan = Date.now();
@@ -538,22 +545,22 @@ export class TieredBrain implements AgentBrain {
     }
     const task = v && this.claimedTask ? v.tasks.find((t) => t.id === this.claimedTask) : undefined;
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
-    const system = PLAN_SYSTEM + (role === 'mayor' ? MAYOR_ROLE : role === 'worker' ? WORKER_ROLE : '');
+    const system = toolsFor(a.world.skills).planSystem + (role === 'mayor' ? MAYOR_ROLE : role === 'worker' ? WORKER_ROLE : '');
     const tools = role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS;
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
-    const reg = a.manager.villages;
+    const reg = a.world.villages;
     for (const c of reply.calls) {
       if (!v) break;
       if (c.name === 'post_tasks' && Array.isArray(c.input.tasks)) {
         const made = reg.post(v, (c.input.tasks as Array<Record<string, unknown>>).filter((t) => t && typeof t.title === 'string').map((t) => ({
           title: String(t.title), detail: String(t.detail ?? ''), after: Array.isArray(t.after) ? (t.after as Array<string | number>) : [],
-        })), a.player.name);
+        })), a.name);
         a.pushEvent('system', `Posted tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}`);
       }
       if (c.name === 'declare_complete') {
         v.complete = true;
         reg.cancelOpen(v, 'the village objective is complete');
-        reg.note(v, `${a.player.name} declared the objective complete: ${String(c.input.summary ?? '')}`);
+        reg.note(v, `${a.name} declared the objective complete: ${String(c.input.summary ?? '')}`);
         a.pushEvent('system', `Declared the village complete: ${String(c.input.summary ?? '')}`);
       }
     }
@@ -562,14 +569,14 @@ export class TieredBrain implements AgentBrain {
     const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete');
     if (role === 'mayor' && (!call || !steps.length)) {
       // Nothing to do personally: wait for the board to change
-      a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.game.tick };
+      a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
       this.lastPlan = Date.now();
       if (!acted && !call) throw new Error(`the mayor returned no tasks or plan${reply.text ? `: ${reply.text.slice(0, 120)}` : ''}`);
       return;
     }
     if (!call || typeof call.input.goal !== 'string' || !steps.length) throw new Error(`no usable plan returned${reply.text ? `: ${reply.text.slice(0, 120)}` : ''}`);
 
-    const plan: Plan = { goal: call.input.goal, steps: steps.slice(0, 8), step: 0, by: label(spec), tick: a.game.tick };
+    const plan: Plan = { goal: call.input.goal, steps: steps.slice(0, 8), step: 0, by: label(spec), tick: a.world.ticks };
     if (v && role === 'worker') plan.taskId = this.claimedTask ?? old?.taskId;
     // Re-issuing the same steps (common on a stall review) keeps the progress made so far.
     if (old && JSON.stringify(old.steps) === JSON.stringify(plan.steps)) plan.step = old.step;
@@ -578,11 +585,11 @@ export class TieredBrain implements AgentBrain {
     this.lastPlan = Date.now();
     this.failuresSincePlan = 0;
     a.pushEvent('system', `New plan: ${plan.goal} | ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join(' ')}`);
-    console.log(`[tiered] ${a.player.name} plan (${plan.by}, ${why}): ${plan.goal}\n  ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n  ')}`);
+    console.log(`[tiered] ${a.name} plan (${plan.by}, ${why}): ${plan.goal}\n  ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n  ')}`);
   }
 
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */
-  private async design(a: Agent, name: string, brief: string): Promise<string> {
+  private async design(a: WorldAgent, name: string, brief: string): Promise<string> {
     // Drawing is the hardest job: memory.designModel can give it a stronger model than the agent's planner
     const spec = (typeof a.memory.designModel === 'string' && parseSpec(a.memory.designModel)) || this.specs(a).plan || this.specs(a).exec;
     const v = a.village();
@@ -602,11 +609,11 @@ export class TieredBrain implements AgentBrain {
       if (!call) {
         problems = ['no submit_design call was made'];
       } else {
-        const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.player.name);
+        const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.name, { isPlaceable: (b) => a.world.isPlaceable(b) });
         if (design) {
           if (v) {
             v.designs[design.name] = design;
-            a.manager.villages.note(v, `${a.player.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
+            a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
           } else a.memory.designs = { ...((a.memory.designs as Record<string, Design> | undefined) ?? {}), [design.name]: design };
           this.stat(a, 'designs');
           const fixed = fixes?.length ? ` (${fixes.join(', ')})` : '';
@@ -620,12 +627,12 @@ export class TieredBrain implements AgentBrain {
     return `design "${name}" failed: ${problems.join('; ')}`;
   }
 
-  private async execute(a: Agent, spec: ModelSpec) {
+  private async execute(a: WorldAgent, spec: ModelSpec) {
     const events = a.events.filter((e) => e.id > this.seenExec);
     if (events.length) this.seenExec = events[events.length - 1].id;
     const plan = this.plan(a);
     const user = [
-      `You are ${a.player.name}, role: ${a.role}, game mode: ${a.player.gamemode}.`,
+      `You are ${a.name}, role: ${a.role}, game mode: ${a.gamemode}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       formatPlots(a),
       formatTask(a.village(), plan),
@@ -637,7 +644,8 @@ export class TieredBrain implements AgentBrain {
     ].filter(Boolean).join('\n\n');
 
     // Without a plan (answering chat while waiting) an agent may only talk: no freelance building
-    const tools = !plan || !plan.steps.length ? CHAT_TOOLS : villageRole(a) === 'mayor' ? MAYOR_EXEC_TOOLS : EXEC_TOOLS;
+    const ts = toolsFor(a.world.skills);
+    const tools = !plan || !plan.steps.length ? ts.chat : villageRole(a) === 'mayor' ? ts.mayorExec : ts.exec;
     const reply = await this.timed(a, 'exec', () => complete(spec, EXEC_SYSTEM, user, tools));
     const done: string[] = [];
     for (const c of reply.calls) {
@@ -689,7 +697,7 @@ export class TieredBrain implements AgentBrain {
       }
     }
     if (!reply.calls.length && reply.text) done.push(`(no action; said: ${reply.text.slice(0, 100)})`);
-    if (done.length) this.notes.push(`t=${a.game.tick}: ${done.join('; ')}`);
+    if (done.length) this.notes.push(`t=${a.world.ticks}: ${done.join('; ')}`);
     if (this.notes.length > 20) this.notes.splice(0, this.notes.length - 20);
   }
 }

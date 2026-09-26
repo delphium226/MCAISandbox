@@ -44,7 +44,16 @@ on the project and what earlier sessions learned.
 
 ## Agent architecture (server/src)
 
-- `agents.ts`: `Agent` (body, skill queue, events, memory), all skills, the building engine (`BuildJob`: reach-first
+- `world.ts`: the world interface. `WorldAgent` (name, role, gamemode, memory, events, observe, enqueue, stop, idle,
+  pushEvent, village) and `WorldAdapter` (villages, ticks, skills, isAgent, isPlaceable), plus `AgentBrain`, the
+  event, observation and tool types. `tieredBrain.ts`, `llmBrain.ts`, `village.ts` and `designs.ts` depend only on it
+  (and on each other), never on `agents.ts`, so they can run in another world (the planned Mineflayer adapter). World
+  contract for events: `chat` carries `{from, text}`, `action_done` `{type}`, `action_failed` `{type, args, message}`
+  (the loop guard keys on type + args).
+- `skills.ts`: `TOOLS`, the skill tool definitions shared by both LLM brains. A world exposes the ones it implements
+  as `WorldAdapter.skills`; keep skill names and arguments identical across worlds.
+- `agents.ts`: the sandbox world. `Agent` implements `WorldAgent`, `AgentManager` implements `WorldAdapter`. It holds
+  the body, skill queue, events and memory, all skills, the building engine (`BuildJob`: reach-first
   work order, commits to its walk target, reserves village ground, `buildSpeed` pacing, tree felling, creative direct
   placement), `find_site` / `prepare_site` / `build` / `build_box` / `build_design`, Navigator (A*, opens doors, digs out
   in creative through natural blocks only), and the REST API (`AgentManager.handleApi`).
@@ -52,8 +61,10 @@ on the project and what earlier sessions learned.
   `execModel` / `planModel` / `designModel`), village roles (mayor, worker), design drawing, loop guards, stats.
 - `village.ts`: shared village registry (plots, structures, design library, task board, reservations), saved to disk.
 - `designs.ts`: design format (spaced symbol layers + palette), validation, automatic door fixing, the architect prompt.
-- `schematic.ts` + `nbt.ts`: import `.schem` / `.schematic` / `.litematic` / `.nbt` as designs, with block mapping.
-- `llmBrain.ts`: the Claude brain and `TOOLS`, the skill tool list shared by both LLM brains.
+- `schematic.ts` + `nbt.ts`: import `.schem` / `.schematic` / `.litematic` / `.nbt` as designs, with block mapping
+  onto the sandbox's blocks (sandbox-only; real Minecraft needs no mapping).
+- `llmBrain.ts`: the Claude brain.
+- `brains.ts`: the brain registry and the scripted brains (worker, companion), which use the sandbox `Agent` directly.
 
 ## Lessons from building the agents
 
@@ -110,10 +121,11 @@ fence collision; survival-mode building (gather materials, then build).
 
 ## Next step: run the same agents in real Minecraft
 
-Agreed plan (for a new session):
-1. Extract a small **world adapter** interface from `Agent` (observe, queue/stop skills, event stream, memory, village)
-   so `tieredBrain.ts`, `village.ts` and `designs.ts` depend only on it. Keep this sandbox as the first adapter: it is
-   fast, controllable and good for tests.
+Agreed plan:
+1. Done: the **world adapter** interface (`world.ts`, see Agent architecture). The sandbox is its first
+   implementation: it is fast, controllable and good for tests. For Phase 2, the agent parts of `handleApi` (spawn,
+   observe, act, events, memory, villages) should be rewritten against `WorldAgent`, so `scripts/watch_*.py` also
+   work against real Minecraft.
 2. Build a **Mineflayer adapter** against a local Paper/vanilla Java server (offline mode, private machine only; pick a
    Minecraft version Mineflayer supports). Skills map to mineflayer-pathfinder (walks, opens doors, digs, scaffolds),
    collectblock, pvp and bot.craft; building either places blocks one by one or uses operator commands (`/fill`,

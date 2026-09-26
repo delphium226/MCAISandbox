@@ -160,8 +160,9 @@ agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
 `examples/agent_loop.py` is a small, dependency-free Python controller that runs an observe → decide → act loop. Its
 `decide()` function is where an LLM or PIANO-style architecture goes.
 
-To write a brain in TypeScript instead, implement `AgentBrain` in `server/src/brains.ts` (`tick`, `onEvent`) and
-register it in `BRAINS`.
+To write a brain in TypeScript instead, implement `AgentBrain` from `server/src/world.ts` (`tick`, `onEvent`) and
+register it in `BRAINS` in `server/src/brains.ts`. A brain written against `WorldAgent` uses only the world interface,
+so it is not tied to this sandbox.
 
 **LLM brain (Claude).** `server/src/llmBrain.ts` is a ready-made brain that sends each agent's observation and recent
 events to Claude and runs the returned tool calls as skills. It needs Anthropic credentials (`ANTHROPIC_API_KEY` or an
@@ -280,8 +281,10 @@ examples/    external agent controller example
 scripts/     agent test harnesses
 ```
 
-The agent framework lives in `server/src`: `agents.ts` (agents, skills including the building engine, REST API),
-`brains.ts` (brain registry and scripted brains), `llmBrain.ts` (Claude brain and the shared skill tool list),
+The agent framework lives in `server/src`: `world.ts` (the world interface brains depend on: `WorldAgent`,
+`WorldAdapter`, `AgentBrain`), `skills.ts` (skill tool definitions shared by the LLM brains), `agents.ts` (the sandbox
+world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
+`llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
 `designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import).
 
