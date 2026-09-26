@@ -219,7 +219,8 @@ curl -X POST localhost:8765/api/agents -d '{"name":"Ada","brain":"tiered","gamem
 ```
 
 With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
-objective takes about four minutes at `buildSpeed: 4`.
+objective takes about four minutes at `buildSpeed: 4`. `designModel` in an agent's memory sets the model that draws its designs
+(default: its planner), so workers can plan with a fast model while designs still come from a strong one.
 
 To keep several agents from looping or flooding each other: chat from other agents only interrupts an agent that is
 addressed by name, each agent speaks at most once every 30 seconds, an agent without a plan can only talk, a step is

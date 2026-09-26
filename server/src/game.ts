@@ -154,7 +154,8 @@ export class Game {
       }
     const p = new Player(this, conn, name, this.loadPlayer(name));
     if (skin !== undefined) p.skin = skin;
-    p.viewDistance = conn.isAgent ? 3 : this.opts.viewDistance;
+    // Agents load 4 chunks around them: enough for find_site to survey plots of up to 40x40 within 48 blocks
+    p.viewDistance = conn.isAgent ? 4 : this.opts.viewDistance;
     this.players.add(p);
     this.entities.set(p.id, p);
     p.send({

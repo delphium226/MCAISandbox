@@ -51,7 +51,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   { name: 'get_item', description: 'Creative mode only: take any item from the creative inventory.', input_schema: obj({ item: s, count: n }, ['item']) },
   {
     name: 'build',
-    description: "Build a whole structure centred on x,z on prepared ground (run prepare_site first; build refuses sloped or cluttered ground and never overlaps existing buildings). Creative mode supplies the blocks; in survival carry them. structure: 'hut' (5x5), 'house' (7x7, door and windows), 'platform' (floor only) or 'wall' (a line from x,z along direction). Optional: material (walls), roof, floor, width, depth, height, door side, length and direction for walls.",
+    description: "Build a whole structure centred on x,z on prepared ground (run prepare_site first; build refuses sloped or cluttered ground and never overlaps existing buildings). Creative mode supplies the blocks; in survival carry them. structure: 'hut' (5x5), 'house' (7x7, door and windows), 'platform' (floor only) or 'wall' (a straight line starting at x,z and running `length` blocks toward `direction`, e.g. a north edge runs east). Optional: material (walls), roof, floor, width, depth, height, door side, length and direction for walls.",
     input_schema: obj({
       structure: { type: 'string', enum: ['hut', 'house', 'platform', 'wall'] },
       x: n, z: n, material: s, roof: s, floor: s, width: n, depth: n, height: n,
@@ -60,7 +60,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
     }, ['structure']),
   },
   { name: 'build_design', description: 'Build a design from the village design library (see the village summary), centred on x,z on prepared, level ground. rotate turns it clockwise (0, 90, 180, 270), e.g. to face a door toward the street.', input_schema: obj({ design: s, x: n, z: n, rotate: n }, ['design', 'x', 'z']) },
-  { name: 'build_box', description: "Fill the box between two corners with a block (hollow: only the shell, inside cleared), or clear it with block 'air'. For custom shapes: towers, pillars, bridges, extensions.", input_schema: obj({ x1: n, y1: n, z1: n, x2: n, y2: n, z2: n, block: s, hollow: { type: 'boolean' } }, ['x1', 'y1', 'z1', 'x2', 'y2', 'z2', 'block']) },
+  { name: 'build_box', description: "Fill the box between two corners with a block (hollow: only the shell, inside cleared), or clear it with block 'air'. For custom shapes: towers, pillars, bridges, extensions. label names it in the village record.", input_schema: obj({ x1: n, y1: n, z1: n, x2: n, y2: n, z2: n, block: s, hollow: { type: 'boolean' }, label: s }, ['x1', 'y1', 'z1', 'x2', 'y2', 'z2', 'block']) },
 ];
 
 const SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.

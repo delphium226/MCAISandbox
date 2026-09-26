@@ -15,6 +15,7 @@
  * a world; memory.stats records call counts, average latency and action outcomes for comparing models.
  *
  * memory.objective (a sentence, e.g. "build a small village") steers every plan.
+ * memory.designModel sets the model that draws designs (default: the planner).
  *
  * The plan lives in agent.memory.plan (and long-term notes in agent.memory.notes), so it can be read or replaced
  * through the memory API. Spawn with `/agent spawn Ada farmer tiered`.
@@ -186,6 +187,8 @@ tasks. Once you know the site, post the rest with post_tasks, always with absolu
 2. Land: 'Prepare the village plot': prepare_site at x, z (the site centre) with width and depth.
 3. Buildings: one task per building: 'Build cottage 1': build_design "cottage" at x, z (inside the plot), after the design
    and land tasks. Space footprints (design width x depth) so there are 3-block streets between buildings.
+   Walls and fences are not designs: 'Build the north wall': build structure "wall" from x, z with length and direction
+   (the direction it runs, e.g. east along a north edge), material, after the land task.
 Keep each task specific enough that a worker can do it without asking. Review the board when it changes: re-post failed
 tasks with a fix, add follow-ups, and call declare_complete once the summary shows the objective is met. Use set_plan
 only for your own steps (find_site, chat once to announce, design_building), or with an empty list to wait.`;
@@ -331,6 +334,8 @@ export class TieredBrain implements AgentBrain {
   private recent: Array<{ key: string; at: number }> = [];
   /** Task board state the mayor last planned on. */
   private boardSeen = '';
+  /** How often each held task has had to be replanned. */
+  private taskReplans = new Map<string, number>();
   /** Task claimed for the plan being made (workers claim before asking the planner). */
   private claimedTask: string | undefined;
 
@@ -442,8 +447,10 @@ export class TieredBrain implements AgentBrain {
 
     if (PLAN && !this.planPending && now >= this.lastPlan && !v?.complete) {
       let why: string | null = null;
+      const free = role === 'worker' && (!plan || complete || !plan.steps.length);
       if (!plan) why = 'there is no plan yet';
       else if (complete) why = 'the previous plan is complete';
+      else if (free) why = 'you are free for a new task';
       else if (this.replanReason) why = this.replanReason;
       else if (this.failuresSincePlan >= 3) why = `${this.failuresSincePlan} actions failed since the plan was made`;
       else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || t.status === 'claimed'))
@@ -453,7 +460,7 @@ export class TieredBrain implements AgentBrain {
       else if (plan.by !== 'external' && (plan.steps.length || role === 'mayor') && now - this.lastProgress > PLAN_INTERVAL_MS)
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
       // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
-      if (why && role === 'worker' && (!plan || complete)) {
+      if (why && free) {
         const next = a.manager.villages.claimable(v!)[0];
         if (next) {
           a.manager.villages.claim(v!, next.id, a.player.name);
@@ -515,8 +522,20 @@ export class TieredBrain implements AgentBrain {
 
     const v = a.village();
     const role = villageRole(a);
-    // A worker plans the task it holds: the one just claimed, or the one it was already doing
-    if (role === 'worker' && !this.claimedTask && old?.taskId && v?.tasks.find((t) => t.id === old.taskId)?.status === 'claimed') this.claimedTask = old.taskId;
+    // A worker plans the task it holds: the one just claimed, or the one it was already doing; a task it has had to
+    // replan three times is handed back (twice handed back, it fails, so the mayor can rethink it)
+    if (role === 'worker' && !this.claimedTask && old?.taskId && v?.tasks.find((t) => t.id === old.taskId)?.status === 'claimed') {
+      const n = (this.taskReplans.get(old.taskId) ?? 0) + 1;
+      this.taskReplans.set(old.taskId, n);
+      if (n >= 3) {
+        a.manager.villages.giveUp(v, old.taskId, a.player.name, `stuck after ${n} attempts; last problem: ${why}`);
+        a.memory.plan = { ...old, steps: [], taskId: undefined };
+        this.taskReplans.delete(old.taskId);
+        this.lastPlan = Date.now();
+        return;
+      }
+      this.claimedTask = old.taskId;
+    }
     const task = v && this.claimedTask ? v.tasks.find((t) => t.id === this.claimedTask) : undefined;
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
     const system = PLAN_SYSTEM + (role === 'mayor' ? MAYOR_ROLE : role === 'worker' ? WORKER_ROLE : '');
@@ -564,7 +583,8 @@ export class TieredBrain implements AgentBrain {
 
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */
   private async design(a: Agent, name: string, brief: string): Promise<string> {
-    const spec = this.specs(a).plan ?? this.specs(a).exec;
+    // Drawing is the hardest job: memory.designModel can give it a stronger model than the agent's planner
+    const spec = (typeof a.memory.designModel === 'string' && parseSpec(a.memory.designModel)) || this.specs(a).plan || this.specs(a).exec;
     const v = a.village();
     const library = v?.designs ?? (a.memory.designs as Record<string, Design> | undefined) ?? {};
     const key = name.trim().toLowerCase();
