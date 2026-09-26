@@ -150,6 +150,7 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
 | GET | `/api/village/:name` | A village's plots, buildings, designs, task board, reservations and recent events |
 | POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
+| POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
 | GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
@@ -217,6 +218,20 @@ curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two
 curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood","villageRole":"mayor"}}'
 curl -X POST localhost:8765/api/agents -d '{"name":"Ada","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood"}}'
 ```
+
+**Importing schematics.** Builds shared on sites such as Planet Minecraft or Minecraft-Schematics.com can be added to a
+village's design library: `.schem` (WorldEdit/Sponge v1-v3), `.schematic` (MCEdit, pre-1.13 ids), `.litematic`
+(Litematica) and `.nbt` (structure blocks), up to 64x64x64 after trimming empty space.
+
+```sh
+curl -X POST "localhost:8765/api/village/Birchwood/designs/import?name=tavern" --data-binary @tavern.schem
+```
+
+Blocks this game lacks become the nearest match (dark oak planks become spruce planks, brick stairs become bricks, glass
+panes become glass); decorations with no counterpart (carpets, signs, trapdoors) are left out, and plants and water
+keep whatever is on site. The response lists the substitutions and any blocks with no match. Use `skip_bottom=N` to drop
+ground layers saved with the build. Stairs and logs lose their orientation; doors face outward. Check each build's
+licence before sharing it further.
 
 With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
 objective takes about four minutes at `buildSpeed: 4`. `designModel` in an agent's memory sets the model that draws its designs

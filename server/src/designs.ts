@@ -70,7 +70,13 @@ function fixDoor(layers: string[][], palette: Record<string, string>, width: num
 }
 
 /** Check a design the model submitted; returns the cleaned design or the problems to send back to it. */
-export function validateDesign(raw: Record<string, unknown>, by: string): { design?: Design; errors: string[]; fixes?: string[] } {
+export function validateDesign(
+  raw: Record<string, unknown>,
+  by: string,
+  opts: { maxSide?: number; maxLayers?: number; requireDoor?: boolean } = {},
+): { design?: Design; errors: string[]; fixes?: string[] } {
+  const maxLayers = opts.maxLayers ?? DESIGN_LIMITS.maxLayers;
+  const requireDoor = opts.requireDoor ?? true;
   const errors: string[] = [];
   const name = String(raw.name ?? '').trim().toLowerCase().replace(/[^a-z0-9_ -]/g, '').slice(0, 32);
   if (!name) errors.push('name is required');
@@ -89,12 +95,12 @@ export function validateDesign(raw: Record<string, unknown>, by: string): { desi
   };
   const layers = Array.isArray(raw.layers) ? (raw.layers as unknown[]).map((l) => (Array.isArray(l) ? l.map(pack) : [])) : [];
   if (!layers.length) errors.push('layers must be a non-empty list of layers, each a list of rows');
-  if (layers.length > DESIGN_LIMITS.maxLayers) errors.push(`at most ${DESIGN_LIMITS.maxLayers} layers`);
-  const { minSide, maxSide } = DESIGN_LIMITS;
+  if (layers.length > maxLayers) errors.push(`at most ${maxLayers} layers`);
+  const minSide = DESIGN_LIMITS.minSide, maxSide = opts.maxSide ?? DESIGN_LIMITS.maxSide;
   const width = Math.floor(Number(raw.width)) || layers[0]?.[0]?.length || 0;
   const depth = Math.floor(Number(raw.depth)) || layers[0]?.length || 0;
   if (depth < minSide || depth > maxSide || width < minSide || width > maxSide) errors.push(`width and depth must be ${minSide} to ${maxSide} (got ${width}x${depth})`);
-  const fixes = errors.length ? [] : fixDoor(layers, palette, width, depth);
+  const fixes = errors.length || !requireDoor ? [] : fixDoor(layers, palette, width, depth);
   let blocks = 0, doors = 0;
   const unknown = new Set<string>();
   layers.forEach((layer, li) => {
@@ -114,7 +120,7 @@ export function validateDesign(raw: Record<string, unknown>, by: string): { desi
     });
   });
   if (unknown.size) errors.push(`symbols not in the palette (each cell must be one character): ${[...unknown].map((c) => `"${c}"`).join(', ')}`);
-  if (!doors) errors.push('no door: put an oak_door character in layer 1 on the outer edge, with "." above it in layer 2 and outside it');
+  if (!doors && requireDoor) errors.push('no door: put an oak_door character in layer 1 on the outer edge, with "." above it in layer 2 and outside it');
   if (errors.length) return { errors: errors.slice(0, 12) };
   return { design: { name, description, palette, layers, width, depth, height: layers.length, blocks, by }, errors: [], fixes };
 }

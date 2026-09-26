@@ -29,6 +29,7 @@ import { DAY_LENGTH, FACE_DIRS, PLAYER_EYE_HEIGHT, PLAYER_WIDTH, REACH_DISTANCE 
 import { readJson, sendJson } from './api';
 import { VillageRegistry, Village, Area, Reservation, Design, overlaps, areaText } from './village';
 import { validateDesign } from './designs';
+import { schematicToDesign } from './schematic';
 import { BRAINS, AgentBrain } from './brains';
 import type { FurnaceState } from './containers';
 
@@ -1368,7 +1369,7 @@ function readySite(agent: Agent, a: Area, height: number, what: string): number 
 
 /** Build a design from the village design library (or the agent's own), turned clockwise by `rotate`, on prepared ground. */
 class BuildDesignSkill extends BuildJob {
-  maxBlocks = 5000;
+  maxBlocks = 60000; // imported schematics can be large
   built: (Area & { y: number; kind: string }) | null = null;
   already = '';
 
@@ -2192,6 +2193,29 @@ export class AgentManager {
       }
       if (!parts[2]) return sendJson(res, 200, [...this.villages.villages.values()]), true;
       const v = this.villages.get(decodeURIComponent(parts[2]));
+      if (v && parts[3] === 'designs' && parts[4] === 'import' && req.method === 'POST') {
+        // Body: the raw schematic file (.schem, .schematic, .litematic or structure .nbt)
+        const name = (url.searchParams.get('name') ?? '').trim();
+        if (!name) return sendJson(res, 400, { error: 'add ?name=<design name>' }), true;
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const c of req) {
+          size += (c as Buffer).length;
+          if (size > 32 * 1024 * 1024) return sendJson(res, 413, { error: 'file larger than 32 MB' }), true;
+          chunks.push(c as Buffer);
+        }
+        const imported = schematicToDesign(Buffer.concat(chunks), name, Math.max(0, Number(url.searchParams.get('skip_bottom') ?? 0) || 0));
+        const { design, errors } = validateDesign(imported.design, 'import', { maxSide: 64, maxLayers: 64, requireDoor: false });
+        if (!design) return sendJson(res, 400, { errors, format: imported.format }), true;
+        v.designs[design.name] = design;
+        this.villages.note(v, `design "${design.name}" imported (${design.width}x${design.depth}, ${design.height} high)`);
+        sendJson(res, 200, {
+          ok: true, name: design.name, format: imported.format, originalSize: imported.originalSize,
+          size: `${design.width}x${design.depth}x${design.height}`, blocks: design.blocks,
+          substitutions: imported.substitutions, unmatched: imported.unmatched,
+        });
+        return true;
+      }
       if (v && parts[3] === 'designs' && req.method === 'POST') {
         const { design, errors, fixes } = validateDesign(await readJson(req), 'api');
         if (!design) return sendJson(res, 400, { errors }), true;
