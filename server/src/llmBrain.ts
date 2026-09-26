@@ -59,6 +59,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
       length: n, direction: { type: 'string', enum: ['north', 'south', 'east', 'west'] },
     }, ['structure']),
   },
+  { name: 'build_design', description: 'Build a design from the village design library (see the village summary), centred on x,z on prepared, level ground. rotate turns it clockwise (0, 90, 180, 270), e.g. to face a door toward the street.', input_schema: obj({ design: s, x: n, z: n, rotate: n }, ['design', 'x', 'z']) },
   { name: 'build_box', description: "Fill the box between two corners with a block (hollow: only the shell, inside cleared), or clear it with block 'air'. For custom shapes: towers, pillars, bridges, extensions.", input_schema: obj({ x1: n, y1: n, z1: n, x2: n, y2: n, z2: n, block: s, hollow: { type: 'boolean' } }, ['x1', 'y1', 'z1', 'x2', 'y2', 'z2', 'block']) },
 ];
 

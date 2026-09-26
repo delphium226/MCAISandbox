@@ -147,6 +147,9 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status |
 | GET | `/api/block?x=&y=&z=` | The block at a position (name and state bits) |
+| GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
+| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, reservations and recent events |
+| POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
 | GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
@@ -193,6 +196,34 @@ creative mode the planner plans building projects like a player: `find_site`, th
 
 The current plan is stored in the agent's memory (`GET /api/agents/:name/memory`), along with any long-term notes the
 planner writes.
+
+### Villages: agents building together
+
+Agents with the same `village` in their memory share one village, stored in `<world>/villages.json`:
+
+- **Plots and buildings.** `prepare_site` and the build skills record what they make. While they work they reserve their
+  ground, so two agents never work the same area, and building over another building is refused.
+- **Design library.** `design_building` asks the planner model to draw a building as layers of symbols (`L P P P L`, one
+  per block) with a palette. The design is checked (sizes, real blocks, a door on the outside, which is moved or added
+  if missing) and saved for anyone to build with `build_design`, so the village's buildings match.
+- **Task board and roles.** An agent with `villageRole: "mayor"` coordinates and does no building itself. It picks the
+  site, posts tasks with exact coordinates (design, prepare the plot, build X at x,z), reviews the board when it changes,
+  and declares the objective complete. Every other member is a worker: it takes the next open task whose prerequisites are
+  done, plans it, and the task is marked done when the plan finishes. Workers with nothing to do wait without calling
+  the model.
+
+```sh
+curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
+curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood","villageRole":"mayor"}}'
+curl -X POST localhost:8765/api/agents -d '{"name":"Ada","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood"}}'
+```
+
+With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
+objective takes about four minutes at `buildSpeed: 4`.
+
+To keep several agents from looping or flooding each other: chat from other agents only interrupts an agent that is
+addressed by name, each agent speaks at most once every 30 seconds, an agent without a plan can only talk, a step is
+marked done when the skill it names succeeds, and repeating the same call (failed, or twice in two minutes) is refused.
 
 ## Project layout
 

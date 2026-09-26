@@ -27,6 +27,8 @@ import { RECIPES, Recipe, TAGS, SMELTING, fuelValue } from '../../shared/src/rec
 import { countItem, removeItem } from '../../shared/src/inventory';
 import { DAY_LENGTH, FACE_DIRS, PLAYER_EYE_HEIGHT, REACH_DISTANCE } from '../../shared/src/constants';
 import { readJson, sendJson } from './api';
+import { VillageRegistry, Village, Area, Reservation, Design, overlaps, areaText } from './village';
+import { validateDesign } from './designs';
 import { BRAINS, AgentBrain } from './brains';
 import type { FurnaceState } from './containers';
 
@@ -840,7 +842,7 @@ function treeAt(agent: Agent, x: number, y: number, z: number): { blocks: Pos[];
 /** Find a dry, flat, open area for a structure and report its centre. */
 class FindSiteSkill extends Skill {
   tick(): SkillResult {
-    const size = Math.max(3, Math.min(21, Math.floor(this.args.size !== undefined ? num(this.args.size, 'size') : 9)));
+    const size = Math.max(3, Math.min(40, Math.floor(this.args.size !== undefined ? num(this.args.size, 'size') : 9)));
     const radius = Math.max(8, Math.min(64, Math.floor(this.args.radius !== undefined ? num(this.args.radius, 'radius') : 48)));
     const maxSlope = this.args.max_slope !== undefined ? num(this.args.max_slope, 'max_slope') : 2;
     const p = this.player;
@@ -853,12 +855,23 @@ class FindSiteSkill extends Skill {
       return cache.get(k)!;
     };
     const half = Math.floor(size / 2);
+    // In a village, stay off buildings (with a walkway around them) and ground other agents have reserved
+    const v = this.agent.village();
+    const now = Date.now();
+    const taken: Area[] = v
+      ? [...v.structures.map((st) => ({ x1: st.x1 - 2, z1: st.z1 - 2, x2: st.x2 + 2, z2: st.z2 + 2 })), ...v.reservations.filter((r) => r.by !== p.name && r.until > now)]
+      : [];
     let best: { x: number; z: number; y: number; range: number; trees: number; score: number } | null = null;
-    let wet = 0, unloaded = 0, steep = 0;
+    let wet = 0, unloaded = 0, steep = 0, occupied = 0;
     for (let cx = ox - radius; cx <= ox + radius; cx += 2)
       next: for (let cz = oz - radius; cz <= oz + radius; cz += 2) {
         const dist = Math.hypot(cx - ox, cz - oz);
         if (dist > radius) continue;
+        const fp = { x1: cx - half, z1: cz - half, x2: cx - half + size - 1, z2: cz - half + size - 1 };
+        if (taken.some((t) => overlaps(fp, t))) {
+          occupied++;
+          continue;
+        }
         let lo = 256, hi = 0, trees = 0, built = 0;
         const ys: number[] = [];
         for (let x = cx - half; x < cx - half + size; x++)
@@ -890,14 +903,15 @@ class FindSiteSkill extends Skill {
         }
       }
     if (!best) {
-      const why = [wet && `${wet} over water`, steep && `${steep} too steep`, unloaded && `${unloaded} not loaded yet`].filter(Boolean).join(', ');
+      const why = [wet && `${wet} over water`, steep && `${steep} too steep`, occupied && `${occupied} taken by buildings or other agents`, unloaded && `${unloaded} not loaded yet`].filter(Boolean).join(', ');
       return { fail: `no dry, flat ${size}x${size} site within ${radius} blocks (candidates rejected: ${why}); explore in another direction and try again, or use a smaller size or larger max_slope` };
     }
     this.agent.memory.lastSite = { x: best.x, y: best.y, z: best.z, size };
     const b = best;
-    const onPlot = ((this.agent.memory.plots as Plot[] | undefined) ?? []).some(
+    if (v && this.agent.memory.villageRole === 'mayor') this.agent.manager.villages.note(v, `${p.name} found a ${size}x${size} site centred at x=${b.x} z=${b.z} (ground y=${b.y})`);
+    const onPlot = ((v ? v.plots : (this.agent.memory.plots as Plot[] | undefined)) ?? []).some(
       (q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + size - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + size - 1 <= q.z2);
-    const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on your prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
+    const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on a prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
     return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${size}x${size}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${ready}` };
   }
 }
@@ -936,6 +950,39 @@ abstract class BuildJob extends Skill {
 
   /** Computed when the skill starts, since the world can change while it waits in the queue. */
   abstract plan(): BuildTarget[];
+
+  /** Ground this job works on, set by plan(): checked against the village and reserved while the job runs. */
+  claim: { area: Area; purpose: string; avoidStructures: boolean } | null = null;
+  village?: Village;
+  reservation?: Reservation;
+
+  /** Called once when the job succeeds, to record what it made; returns text to prepend to the result. */
+  protected finished(): string {
+    return '';
+  }
+
+  tick(): SkillResult {
+    const r = this.run();
+    if (r === 'running') {
+      if (this.reservation && this.ticks % 200 === 0) this.agent.manager.villages.renew(this.reservation);
+      return r;
+    }
+    this.release();
+    if (r !== 'done' && 'done' in r) {
+      const extra = this.finished();
+      return extra ? { done: `${extra}; ${r.done}` } : r;
+    }
+    return r;
+  }
+
+  cancel() {
+    this.release();
+  }
+
+  private release() {
+    if (this.reservation && this.village) this.agent.manager.villages.release(this.village, this.reservation.id);
+    this.reservation = undefined;
+  }
 
   private remove(t: BuildTarget) {
     this.targets.splice(this.targets.indexOf(t), 1);
@@ -987,12 +1034,19 @@ abstract class BuildJob extends Skill {
     this.agent.input.forward = -1;
   }
 
-  tick(): SkillResult {
+  private run(): SkillResult {
     if (++this.ticks > 20 * 600) return { fail: `timed out: ${this.summary()}` };
     if (!this.started) {
       this.started = true;
       this.targets = this.plan();
       if (this.targets.length > this.maxBlocks) return { fail: `too big (${this.targets.length} blocks, max ${this.maxBlocks})` };
+      this.village = this.agent.village();
+      if (this.claim && this.village) {
+        const reg = this.agent.manager.villages;
+        const why = reg.conflict(this.village, this.claim.area, this.player.name, this.claim.avoidStructures);
+        if (why) return { fail: `cannot work at ${areaText(this.claim.area)}: ${why}; pick another spot (find_site avoids taken ground)` };
+        this.reservation = reg.reserve(this.village, this.claim.area, this.player.name, this.claim.purpose);
+      }
     }
     if (this.aside) {
       const r = this.aside.step();
@@ -1092,6 +1146,13 @@ abstract class BuildJob extends Skill {
         return blockOf(world.getBlock(t.x - d[0], t.y - d[1], t.z - d[2])).solid;
       });
       if (face === undefined) {
+        // Creative builders place floating blocks (roof overhangs, lintels) directly, as a player would by bridging
+        if (creative && want.shape !== 'door') {
+          this.game.setBlockBy(this.player, t.x, t.y, t.z, want.id);
+          this.placed++;
+          this.remove(t);
+          return 'running';
+        }
         if (++t.tries >= 6) this.skip(t, 'with nothing to place against');
         return 'running';
       }
@@ -1119,6 +1180,7 @@ class BuildBoxSkill extends BuildJob {
     const [z1, z2] = [Math.min(c('z1'), c('z2')), Math.max(c('z1'), c('z2'))];
     if ((x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1) > MAX_BUILD_BLOCKS) throw new Error(`box too big (max ${MAX_BUILD_BLOCKS} blocks)`);
     const hollow = !!this.args.hollow;
+    this.claim = { area: { x1, z1, x2, z2 }, purpose: `build_box ${block}`, avoidStructures: false };
     const out: BuildTarget[] = [];
     for (let x = x1; x <= x2; x++)
       for (let y = y1; y <= y2; y++)
@@ -1202,6 +1264,7 @@ class PrepareSiteSkill extends BuildJob {
       }
     if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
     this.plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
+    this.claim = { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false };
     return out;
   }
 
@@ -1209,10 +1272,129 @@ class PrepareSiteSkill extends BuildJob {
     const r = super.tick();
     if (typeof r !== 'object' || !('done' in r) || !this.plot) return r;
     const pl = this.plot;
-    const plots = ((this.agent.memory.plots as Plot[] | undefined) ?? []).filter((q) => q.x1 !== pl.x1 || q.z1 !== pl.z1 || q.x2 !== pl.x2 || q.z2 !== pl.z2);
-    this.agent.memory.plots = [...plots, pl].slice(-20);
+    const same = (q: Plot) => q.x1 === pl.x1 && q.z1 === pl.z1 && q.x2 === pl.x2 && q.z2 === pl.z2;
+    if (this.village) {
+      const reg = this.agent.manager.villages;
+      this.village.plots = this.village.plots.filter((q) => !same(q));
+      this.village.plots.push({ ...pl, id: reg.id('plot'), preparedBy: this.player.name });
+      reg.note(this.village, `${this.player.name} prepared a plot at ${areaText(pl)}`);
+    } else this.agent.memory.plots = [...((this.agent.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), pl].slice(-20);
     const cx = Math.floor((pl.x1 + pl.x2) / 2), cz = Math.floor((pl.z1 + pl.z2) / 2);
     return { done: `plot ready: ${pl.x2 - pl.x1 + 1}x${pl.z2 - pl.z1 + 1} centred at x=${cx} z=${cz}, level ground at y=${pl.y} (x ${pl.x1}..${pl.x2}, z ${pl.z1}..${pl.z2}, plus a ${this.margin}-block margin)${this.protectedCols ? `; left ${this.protectedCols} columns with existing buildings untouched` : ''}; ${r.done}` };
+  }
+}
+
+/** Add a finished building to the agent's village, if it has one. */
+function recordStructure(agent: Agent, b: (Area & { y: number; kind: string }) | null): string {
+  const v = agent.village();
+  if (!v || !b) return '';
+  const reg = agent.manager.villages;
+  v.structures.push({ ...b, id: reg.id('s'), builtBy: agent.player.name });
+  reg.note(v, `${agent.player.name} built a ${b.kind} at ${areaText(b)}`);
+  return `${b.kind} recorded in village ${v.name} at ${areaText(b)}`;
+}
+
+/**
+ * Ground level for a building footprint, or throws why the site is not ready: unloaded, water, not level, trees or
+ * rocks in the way (prepare it), or another building (go elsewhere).
+ */
+function readySite(agent: Agent, a: Area, height: number, what: string): number {
+  const p = agent.player;
+  const w = a.x2 - a.x1 + 1, d = a.z2 - a.z1 + 1;
+  const cx = a.x1 + Math.floor(w / 2), cz = a.z1 + Math.floor(d / 2);
+  const prep = `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
+  const v = agent.village();
+  const there = v?.structures.find((st) => overlaps(a, st));
+  if (there) {
+    const same = there.kind === what.replace(/"/g, '') ? ' (the same design: if building it here was your task, it is already done)' : '';
+    throw new Error(`a ${there.kind} built by ${there.builtBy} already stands at ${areaText(there)}${same}; otherwise pick a free spot on the plot`);
+  }
+  const heights: number[] = [];
+  let wet = 0;
+  for (let x = a.x1; x <= a.x2; x++)
+    for (let z = a.z1; z <= a.z2; z++) {
+      const c = surfaceAt(agent, x, z, Math.floor(p.y));
+      if (!c) throw new Error(`the site is not loaded; walk closer to x=${cx} z=${cz}`);
+      if (c.liquid) wet++;
+      heights.push(c.y);
+    }
+  if (wet) throw new Error(`the ${w}x${d} site at x=${cx} z=${cz} has ${wet} columns of water or lava; use find_site to pick a dry spot`);
+  heights.sort((m, n) => m - n);
+  if (heights[heights.length - 1] !== heights[0]) throw new Error(`the ground is not level here (heights ${heights[0]}..${heights[heights.length - 1]}); ${prep}`);
+  const y0 = heights[0];
+  let blocked = 0, built = '';
+  for (let x = a.x1; x <= a.x2; x++)
+    for (let z = a.z1; z <= a.z2; z++)
+      for (let y = y0 + 1; y < y0 + height; y++) {
+        const def = blockOf(agent.game.world.getBlock(x, y, z));
+        if (def.id === 0 || def.replaceable) continue;
+        blocked++;
+        if (!NATURAL.test(def.name)) built ||= `${def.name} at ${x},${y},${z}`;
+      }
+  if (built) throw new Error(`the site overlaps an existing structure (${built}); choose another site with find_site`);
+  if (blocked) throw new Error(`${blocked} blocks (trees or rocks) stand where the ${what} would go; ${prep}`);
+  return y0;
+}
+
+/** Build a design from the village design library (or the agent's own), turned clockwise by `rotate`, on prepared ground. */
+class BuildDesignSkill extends BuildJob {
+  maxBlocks = 5000;
+  built: (Area & { y: number; kind: string }) | null = null;
+
+  protected finished(): string {
+    return recordStructure(this.agent, this.built);
+  }
+
+  plan(): BuildTarget[] {
+    const name = str(this.args.design, 'design').trim().toLowerCase();
+    const lib = this.agent.village()?.designs ?? (this.agent.memory.designs as Record<string, Design> | undefined) ?? {};
+    const d = lib[name];
+    if (!d) {
+      const names = Object.keys(lib);
+      throw new Error(`no design called "${name}"; ${names.length ? `available: ${names.map((n) => `"${n}"`).join(', ')}` : 'create one with design_building first'}`);
+    }
+    const rot = (((Math.round(Number(this.args.rotate ?? 0) / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+    const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+    const p = this.player;
+    const cx = this.args.x !== undefined ? Math.floor(num(this.args.x, 'x')) : Math.floor(p.x);
+    const cz = this.args.z !== undefined ? Math.floor(num(this.args.z, 'z')) : Math.floor(p.z);
+    const area = { x1: cx - Math.floor(W / 2), z1: cz - Math.floor(D / 2), x2: cx - Math.floor(W / 2) + W - 1, z2: cz - Math.floor(D / 2) + D - 1 };
+    const y0 = readySite(this.agent, area, d.height, `"${d.name}"`);
+    // Design column i (west to east) and row j (north to south), turned clockwise rot times
+    const turn = (i: number, j: number): [number, number] => {
+      let [a, b, w, h] = [i, j, d.width, d.depth];
+      for (let r = 0; r < rot; r++) [a, b, w, h] = [h - 1 - b, a, h, w];
+      return [a, b];
+    };
+    const out: BuildTarget[] = [];
+    const doors: Array<[number, number, [number, number]]> = [];
+    d.layers.forEach((layer, li) =>
+      layer.forEach((row, j) => {
+        for (let i = 0; i < row.length; i++) {
+          const ch = row[i];
+          if (ch === '_') continue;
+          const block = ch === '.' ? 'air' : d.palette[ch];
+          const [ox, oz] = turn(i, j);
+          const x = area.x1 + ox, z = area.z1 + oz;
+          let facing: [number, number] | undefined;
+          if (block === 'oak_door') {
+            facing = ox === 0 ? [-1, 0] : ox === W - 1 ? [1, 0] : oz === 0 ? [0, -1] : [0, 1];
+            if (li === 1) doors.push([x, z, facing]);
+          }
+          out.push({ x, y: y0 + li, z, block, tries: 0, facing });
+        }
+      }),
+    );
+    // Keep the way out clear in front of each outside door
+    for (const [x, z, [fx, fz]] of doors)
+      for (let i = 1; i <= 2; i++) {
+        const wx = x + fx * i, wz = z + fz * i;
+        if (!blockOf(this.game.world.getBlock(wx, y0, wz)).solid) out.push({ x: wx, y: y0, z: wz, block: 'dirt', tries: 0 });
+        for (let y = y0 + 1; y <= y0 + 3; y++) out.push({ x: wx, y, z: wz, block: 'air', tries: 0 });
+      }
+    this.claim = { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true };
+    this.built = { ...area, y: y0, kind: d.name };
+    return out;
   }
 }
 
@@ -1221,6 +1403,12 @@ const SIDES: Record<string, [number, number]> = { north: [0, -1], south: [0, 1],
 
 /** Blueprint builder: finds the ground level, clears the site and builds a whole structure. */
 class BlueprintSkill extends BuildJob {
+  built: (Area & { y: number; kind: string }) | null = null;
+
+  protected finished(): string {
+    return recordStructure(this.agent, this.built);
+  }
+
   plan(): BuildTarget[] {
     const kind = str(this.args.structure, 'structure');
     if (!STRUCTURES.includes(kind)) throw new Error(`unknown structure ${kind}. Options: ${STRUCTURES.join(', ')}`);
@@ -1243,6 +1431,9 @@ class BlueprintSkill extends BuildJob {
         const g = groundY(this.agent, x, z, Math.floor(p.y));
         for (let y = g + 1; y <= g + h; y++) add(x, y, z, material);
       }
+      const area = { x1: Math.min(cx, cx + dx * (len - 1)), z1: Math.min(cz, cz + dz * (len - 1)), x2: Math.max(cx, cx + dx * (len - 1)), z2: Math.max(cz, cz + dz * (len - 1)) };
+      this.claim = { area, purpose: 'build a wall', avoidStructures: true };
+      this.built = { ...area, y: groundY(this.agent, cx, cz, Math.floor(p.y)), kind: 'wall' };
       return out;
     }
 
@@ -1302,6 +1493,8 @@ class BlueprintSkill extends BuildJob {
           }
         }
       }
+    this.claim = { area: { x1: x0 - 1, z1: z0 - 1, x2: x1 + 1, z2: z1 + 1 }, purpose: `build a ${kind}`, avoidStructures: true };
+    this.built = { x1: x0, z1: z0, x2: x1, z2: z1, y: y0, kind };
     // Keep the way out clear: two blocks of walkway in front of the door, with ground under them
     if (kind !== 'platform')
       for (let i = 1; i <= 2; i++) {
@@ -1332,7 +1525,8 @@ export const SKILLS: Record<string, { cls: new (a: Agent, args: Record<string, u
   explore: { cls: ExploreSkill, doc: 'Walk ~distance blocks in a direction to explore. args: direction? (north/south/east/west), distance?' },
   sleep: { cls: SleepSkill, doc: 'Sleep in a nearby bed (skips the night).' },
   prepare_site: { cls: PrepareSiteSkill, doc: 'Prepare a building plot: fell trees, level the ground (cut and fill) with a margin, never demolishing builds. args: x?, z? (default: last find_site), width?, depth? (default 9), margin? (default 2), y? (level; reuse an existing plot y to extend it)' },
-  find_site: { cls: FindSiteSkill, doc: 'Find a dry, flat, open area to build on and report its centre. args: size? (default 9), radius? (default 48), x?, z? (search around), max_slope? (default 2)' },
+  find_site: { cls: FindSiteSkill, doc: 'Find a dry, flat, open area to build on and report its centre. args: size? (default 9, up to 40), radius? (default 48), x?, z? (search around), max_slope? (default 2)' },
+  build_design: { cls: BuildDesignSkill, doc: 'Build a design from the village design library centred on x,z, on prepared ground. args: design, x, z, rotate? (0/90/180/270 clockwise)' },
   get_item: { cls: GetItemSkill, doc: 'Creative mode only: take items from the creative inventory. args: item, count? (default 64)' },
   build_box: { cls: BuildBoxSkill, doc: "Fill a box with a block, or clear it with block 'air'. args: x1, y1, z1, x2, y2, z2, block, hollow?" },
   build: { cls: BlueprintSkill, doc: `Build a whole structure centred on x,z (ground level found automatically). args: structure (${STRUCTURES.join('/')}), x?, z?, y?, material?, roof?, floor?, width?, depth?, height?, door? (north/south/east/west), length?/direction? (wall)` },
@@ -1363,6 +1557,11 @@ export class Agent {
   role: string;
   /** Free-form memory store usable by brains / external controllers. */
   memory: Record<string, unknown> = {};
+
+  /** The village this agent belongs to (memory.village), if any. */
+  village(): Village | undefined {
+    return this.manager.villages.get(this.memory.village);
+  }
   hearingRange = 48;
 
   constructor(public game: Game, public manager: AgentManager, name: string, role: string) {
@@ -1739,7 +1938,10 @@ export class AgentManager {
   /** Social graph: speaker -> listener -> number of messages heard. */
   heard = new Map<string, Map<string, number>>();
 
+  villages: VillageRegistry;
+
   constructor(public game: Game) {
+    this.villages = VillageRegistry.forWorld(game.world.dir);
     game.chatListeners.push((from, text) => this.onChat(from, text));
   }
 
@@ -1942,6 +2144,27 @@ export class AgentManager {
       sendJson(res, 200, item ? RECIPES.filter((r) => r.result.item === item) : RECIPES);
       return true;
     }
+    if (parts[1] === 'village') {
+      if (req.method === 'POST' && !parts[2]) {
+        const body = await readJson(req);
+        const name = String(body.name ?? '').trim();
+        if (!name) return sendJson(res, 400, { error: 'name is required' }), true;
+        sendJson(res, 200, this.villages.ensure(name, typeof body.objective === 'string' ? body.objective : ''));
+        return true;
+      }
+      if (!parts[2]) return sendJson(res, 200, [...this.villages.villages.values()]), true;
+      const v = this.villages.get(decodeURIComponent(parts[2]));
+      if (v && parts[3] === 'designs' && req.method === 'POST') {
+        const { design, errors, fixes } = validateDesign(await readJson(req), 'api');
+        if (!design) return sendJson(res, 400, { errors }), true;
+        v.designs[design.name] = design;
+        this.villages.note(v, `design "${design.name}" added through the API`);
+        sendJson(res, 200, { ok: true, name: design.name, fixes });
+        return true;
+      }
+      sendJson(res, v ? 200 : 404, v ?? { error: 'no such village' });
+      return true;
+    }
     if (parts[1] === 'block') {
       const c = ['x', 'y', 'z'].map((k) => Math.floor(Number(url.searchParams.get(k))));
       if (c.some((v) => !isFinite(v))) return sendJson(res, 400, { error: 'x, y and z are required' }), true;
@@ -1972,6 +2195,7 @@ export class AgentManager {
         const a = this.spawn(String(body.name ?? ''), String(body.role ?? 'villager'), body.brain ?? null, body.position);
         // Initial memory is set before the brain's first tick (e.g. a per-agent model for the tiered brain).
         if (body.memory && typeof body.memory === 'object') Object.assign(a.memory, body.memory);
+        if (typeof a.memory.village === 'string' && a.memory.village) this.villages.ensure(a.memory.village);
         if (body.gamemode === 'creative' || body.gamemode === 'survival') a.player.setGamemode(body.gamemode);
         sendJson(res, 201, { name: a.player.name, id: a.player.id });
         return true;
