@@ -11,6 +11,11 @@ on the project and what earlier sessions learned.
   running agents (see Testing).
 - `tsx watch` **restarts the server on every server-file edit**. That removes all agents (villages in
   `world/villages.json` and players' inventories persist). Do not edit server files while a test run is in progress.
+- **World saving:** chunks are written to disk only when they unload (30 s after no player or agent needs them) or on a
+  clean shutdown (SIGINT/SIGTERM runs `Game.stop()`). On Windows neither a `tsx watch` restart nor killing the process
+  runs that handler, so building in still-loaded chunks is lost, while `villages.json` (saved on every change) keeps
+  listing it. Before stopping the server, remove agents and let their chunks unload; a `/save` command or API endpoint
+  would be a worthwhile addition.
 - To watch in the game: open http://localhost:5173, `/gamemode spectator`, `/tp <agent>`.
 - `GET /api/block?x=&y=&z=` inspects the world; `loaded: false` means the chunk is not loaded (unloaded blocks used to read
   as air, which caused false conclusions).
