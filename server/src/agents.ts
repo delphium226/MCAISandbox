@@ -25,7 +25,7 @@ import { stepPlayer, MoveInput, raycast } from '../../shared/src/physics';
 import { breakTicks, canHarvest } from '../../shared/src/mining';
 import { RECIPES, Recipe, TAGS, SMELTING, fuelValue } from '../../shared/src/recipes';
 import { countItem, removeItem } from '../../shared/src/inventory';
-import { DAY_LENGTH, FACE_DIRS, PLAYER_EYE_HEIGHT } from '../../shared/src/constants';
+import { DAY_LENGTH, FACE_DIRS, PLAYER_EYE_HEIGHT, REACH_DISTANCE } from '../../shared/src/constants';
 import { readJson, sendJson } from './api';
 import { BRAINS, AgentBrain } from './brains';
 import type { FurnaceState } from './containers';
@@ -91,7 +91,7 @@ class AgentConnection implements Connection {
 // Skills (actions)
 // ---------------------------------------------------------------------------------------------
 
-type SkillResult = 'running' | 'done' | { fail: string };
+type SkillResult = 'running' | 'done' | { done: string } | { fail: string };
 
 abstract class Skill {
   ticks = 0;
@@ -124,7 +124,43 @@ class Navigator {
   stuck = 0;
   lastDist = Infinity;
   replans = 0;
+  digging = false;
+  digTicks = 0;
   constructor(public agent: Agent, public goal: PathNode, public range: number) {}
+
+  /** In creative mode, when there is no path, tunnel straight toward the goal through natural blocks instead of giving up. */
+  private startDigging(): false | 'fail' {
+    if (this.agent.player.gamemode !== 'creative' || this.digging) return 'fail';
+    this.digging = true;
+    this.digTicks = 0;
+    return false;
+  }
+
+  private dig(): boolean | 'fail' {
+    const p = this.agent.player;
+    const b = p.body;
+    const w = this.agent.game.world;
+    if (++this.digTicks > 20 * 30) return 'fail';
+    const dx = this.goal.x + 0.5 - b.x, dz = this.goal.z + 0.5 - b.z, hd = Math.hypot(dx, dz);
+    const bx = Math.floor(b.x), fy = Math.floor(b.y + 0.01), bz = Math.floor(b.z);
+    const up = this.goal.y > fy, down = this.goal.y < fy && hd < 1.5;
+    const cells: Array<[number, number, number]> = [];
+    if (hd > 0.5) {
+      const nx = Math.floor(b.x + (dx / hd) * 0.9), nz = Math.floor(b.z + (dz / hd) * 0.9);
+      // Going up: keep the block ahead at foot level as a step and clear headroom to jump onto it
+      if (up) cells.push([nx, fy + 1, nz], [nx, fy + 2, nz], [bx, fy + 2, bz]);
+      else cells.push([nx, fy, nz], [nx, fy + 1, nz]);
+    }
+    if (down) cells.push([bx, fy - 1, bz]);
+    for (const [x, y, z] of cells) {
+      const def = blockOf(w.getBlock(x, y, z));
+      if (def.solid && def.hardness >= 0 && NATURAL.test(def.name)) p.breakBlock(x, y, z); // never tunnel through builds
+    }
+    this.agent.lookAt(this.goal.x + 0.5, b.y + PLAYER_EYE_HEIGHT, this.goal.z + 0.5, true);
+    this.agent.input.forward = hd > 0.3 ? 1 : 0;
+    this.agent.input.jump = up;
+    return false;
+  }
 
   /** Returns true when within range; 'fail' if unreachable. */
   step(): boolean | 'fail' {
@@ -133,8 +169,10 @@ class Navigator {
     const d = Math.hypot(b.x - (this.goal.x + 0.5), b.y - this.goal.y, b.z - (this.goal.z + 0.5));
     if (d <= this.range + 0.3) {
       this.agent.input.forward = 0;
+      this.agent.input.jump = false;
       return true;
     }
+    if (this.digging) return this.dig();
     if (!this.path || this.idx >= this.path.length) {
       // Global per-tick pathfinding budget keeps tick time flat with many agents
       if (this.agent.manager.pathBudget <= 0) {
@@ -142,17 +180,27 @@ class Navigator {
         return false;
       }
       this.agent.manager.pathBudget--;
-      if (this.replans++ > 6) return 'fail';
+      if (this.replans++ > 6) return this.startDigging();
       this.path = findPath(this.agent.game.world, { x: b.x, y: b.y + 0.01, z: b.z }, this.goal, this.range, 3500);
       this.idx = 1;
-      if (!this.path) return 'fail';
+      if (!this.path) return this.startDigging();
       if (this.path.length <= 1) {
         // Already at the closest reachable spot
         this.agent.input.forward = 0;
-        return d <= this.range + 1.5 ? true : 'fail';
+        return d <= this.range + 1.5 ? true : this.startDigging();
       }
     }
     const wp = this.path[this.idx];
+    // Open a closed door on the way (the pathfinder treats doors as passable); toggling one half moves both
+    const world = this.agent.game.world;
+    for (const dy of [0, 1]) {
+      const s = world.getBlock(wp.x, wp.y + dy, wp.z);
+      if (BLOCKS[s & 0xff].name === 'oak_door' && !((s >> 8) & 4)) {
+        this.agent.lookAt(wp.x + 0.5, wp.y + dy + 0.5, wp.z + 0.5);
+        p.useOnBlock(wp.x, wp.y + dy, wp.z, 0, 0.5, 0.5, 0.5, false);
+        break;
+      }
+    }
     const tx = wp.x + 0.5, tz = wp.z + 0.5;
     const dx = tx - b.x, dz = tz - b.z;
     const hd = Math.hypot(dx, dz);
@@ -277,7 +325,7 @@ class CollectSkill extends Skill {
     if (r === 'done') {
       this.mined++;
       this.current = null;
-    } else if (typeof r === 'object') {
+    } else if (typeof r === 'object' && 'fail' in r) {
       const t = this.current.target;
       this.failed.add(t.join(','));
       this.current = null;
@@ -330,18 +378,30 @@ class PlaceSkill extends Skill {
 /** Craft an item using recipes. Uses a nearby crafting table for 3x3 recipes (placing one if carried). */
 class CraftSkill extends Skill {
   crafted = 0;
+  prepCrafts = 0;
   tableNav: Navigator | null = null;
   tick(): SkillResult {
     if (++this.ticks > 20 * 60) return { fail: 'timed out' };
     const name = str(this.args.item, 'item');
     const count = this.args.count !== undefined ? num(this.args.count, 'count') : 1;
     const recipes = RECIPES.filter((r) => r.result.item === name);
-    if (!recipes.length) return { fail: `no recipe for ${name}` };
+    if (!recipes.length) {
+      const guess = [name.replace(/s$/, ''), `${name}s`, name.replace(/es$/, '')].find((n) => n !== name && RECIPES.some((r) => r.result.item === n));
+      return { fail: `no recipe for ${name}${guess ? ` (did you mean ${guess}?)` : ''}` };
+    }
     const inv = this.player.inventory;
     // Choose the first recipe we have ingredients for
     const recipe = recipes.find((r) => this.agent.canAfford(r));
-    if (!recipe) return { fail: `missing ingredients for ${name}: needs ${describeRecipe(recipes[0])}` };
-    const needsTable = recipe.kind === 'shaped' && (recipe.pattern.length > 2 || recipe.pattern.some((row) => row.length > 2));
+    if (!recipe) {
+      // Make missing intermediate ingredients (planks from logs, sticks from planks) one craft per tick, then retry.
+      if (this.prepCrafts < 32 && recipes.some((r) => this.agent.missing(r).some(([ing]) => this.craftToward(ing, 2)))) {
+        this.prepCrafts++;
+        return 'running';
+      }
+      const short = this.agent.missing(recipes[0]).map(([ing, need, have]) => `${need}x ${ing} (have ${have})`).join(', ');
+      return { fail: `missing ingredients for ${name}: needs ${describeRecipe(recipes[0])}; short of ${short}` };
+    }
+    const needsTable = isTableRecipe(recipe);
     if (needsTable) {
       const table = this.agent.findNearestBlock((id) => id === BLOCKS_BY_NAME.get('crafting_table')!.id, 12);
       if (!table) {
@@ -361,15 +421,34 @@ class CraftSkill extends Skill {
       if (!r) return 'running';
       this.agent.lookAt(table[0] + 0.5, table[1] + 0.5, table[2] + 0.5);
     }
-    // Consume ingredients & produce
+    this.craftOnce(recipe);
+    this.crafted += recipe.result.count;
+    return this.crafted >= count ? 'done' : 'running';
+  }
+
+  private craftOnce(recipe: Recipe) {
     this.agent.consumeRecipe(recipe);
     this.player.giveOrDrop({ id: itemId(recipe.result.item), count: recipe.result.count });
     this.game.onCrafted(this.player, { id: itemId(recipe.result.item), count: recipe.result.count });
-    this.crafted += recipe.result.count;
     this.game.broadcastNear(this.player, { t: 'anim', id: this.player.id, a: 'swing' });
-    return this.crafted >= count ? 'done' : 'running';
+  }
+
+  /** Craft one step toward an ingredient (item or #tag) using only 2x2 recipes, recursing into their inputs. */
+  private craftToward(ing: string, depth: number): boolean {
+    const names = ing.startsWith('#') ? TAGS[ing.slice(1)] ?? [] : [ing];
+    for (const r of RECIPES) {
+      if (!names.includes(r.result.item) || isTableRecipe(r)) continue;
+      if (this.agent.canAfford(r)) {
+        this.craftOnce(r);
+        return true;
+      }
+      if (depth > 0 && this.agent.missing(r).some(([sub]) => this.craftToward(sub, depth - 1))) return true;
+    }
+    return false;
   }
 }
+
+const isTableRecipe = (r: Recipe) => r.kind === 'shaped' && (r.pattern.length > 2 || r.pattern.some((row) => row.length > 2));
 
 class SmeltSkill extends Skill {
   nav: Navigator | null = null;
@@ -626,6 +705,614 @@ class SleepSkill extends Skill {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Building (best in creative mode: unlimited blocks, instant clearing)
+// ---------------------------------------------------------------------------------------------
+
+/** Take items from the creative inventory. */
+class GetItemSkill extends Skill {
+  tick(): SkillResult {
+    const item = str(this.args.item, 'item');
+    const count = this.args.count !== undefined ? Math.max(1, Math.min(64 * 9, Math.floor(num(this.args.count, 'count')))) : 64;
+    if (this.player.gamemode !== 'creative') return { fail: 'get_item only works in creative mode' };
+    if (!ITEMS_BY_NAME.has(item)) return { fail: `unknown item ${item}` };
+    const max = itemDef(itemId(item)).stackSize || 64;
+    for (let left = count; left > 0; left -= max) this.player.giveOrDrop({ id: itemId(item), count: Math.min(max, left) });
+    this.player.sendInventory();
+    return 'done';
+  }
+}
+
+interface BuildTarget {
+  x: number;
+  y: number;
+  z: number;
+  block: string;
+  tries: number;
+  /** Horizontal direction to face while placing (doors take their orientation from it). */
+  facing?: [number, number];
+  /** The tree this block belongs to, once looked up: felled whole from its base. */
+  tree?: { blocks: Pos[]; base: Pos } | null;
+}
+
+const MAX_BUILD_BLOCKS = 2000;
+/** Building speed multiplier (MC_BUILD_SPEED): 1 is about 10 blocks per second; raise it to make tests faster. */
+const BUILD_SPEED = Math.max(0.25, Math.min(20, Number(process.env.MC_BUILD_SPEED ?? 1) || 1));
+const NON_GROUND = /leaves|_log$|grass$|fern|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|bush|sapling|snow$/;
+
+/** The y of the highest ground block (ignoring trees and plants) in a column, searching around y0. */
+function groundY(agent: Agent, x: number, z: number, y0: number): number {
+  const w = agent.game.world;
+  for (let y = Math.min(255, y0 + 12); y > Math.max(1, y0 - 24); y--) {
+    const def = blockOf(w.getBlock(x, y, z));
+    if (def.solid && !NON_GROUND.test(def.name)) return y;
+  }
+  return y0 - 1;
+}
+
+interface Surface { y: number; block: string; liquid: boolean; trees: number }
+
+/** The top of a column as a builder sees it: liquid, or the first solid non-plant block, plus tree blocks above it. */
+function surfaceAt(agent: Agent, x: number, z: number, yHint: number): Surface | null {
+  const w = agent.game.world;
+  if (!w.isLoaded(x, z)) return null;
+  let trees = 0;
+  for (let y = Math.min(255, yHint + 32); y > Math.max(1, yHint - 48); y--) {
+    const s = w.getBlock(x, y, z);
+    if ((s & 0xff) === 0) continue;
+    const def = blockOf(s);
+    if (def.fluid) return { y, block: def.name, liquid: true, trees };
+    if (/leaves|_log$/.test(def.name)) trees++;
+    if (def.solid && !NON_GROUND.test(def.name)) return { y, block: def.name, liquid: false, trees };
+  }
+  return null;
+}
+
+const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|podzol|sand|red_sand|gravel|stone|snow_block|clay|mycelium)$/;
+
+/** Blocks that occur in the wild. Preparing a site may remove these, but never anything built. */
+const NATURAL = /^(stone|grass_block|dirt|bedrock|water|lava|sand|red_sand|gravel|sandstone|snow_block|snow|ice|clay|terracotta|granite|diorite|andesite|moss_block|mossy_cobblestone|cactus|sugar_cane|dead_bush|short_grass|fern|dandelion|poppy|cornflower|red_mushroom|brown_mushroom|pumpkin|melon)$|_ore$|_log$|_leaves$|_sapling$/;
+const isLog = (name: string) => name.endsWith('_log');
+const isLeaves = (name: string) => name.endsWith('_leaves');
+
+type Pos = [number, number, number];
+
+/**
+ * The whole tree around a log or leaf block (tree felling): its connected logs and the leaves around them, plus the
+ * lowest log, which is where the agent stands to fell it. Null for leaves that belong to no tree.
+ */
+function treeAt(agent: Agent, x: number, y: number, z: number): { blocks: Pos[]; base: Pos } | null {
+  const w = agent.game.world;
+  const name = (p: Pos) => BLOCKS[w.getBlock(p[0], p[1], p[2]) & 0xff].name;
+  const k = (p: Pos) => `${p[0]},${p[1]},${p[2]}`;
+  let start: Pos | null = isLog(name([x, y, z])) ? [x, y, z] : null;
+  if (!start && isLeaves(name([x, y, z]))) {
+    // Leaves are at most a few blocks from their trunk: search through them for a log
+    const seen = new Set([k([x, y, z])]);
+    let frontier: Pos[] = [[x, y, z]];
+    for (let depth = 0; depth < 6 && frontier.length && !start; depth++) {
+      const next: Pos[] = [];
+      for (const p of frontier)
+        for (const d of FACE_DIRS) {
+          const q: Pos = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+          if (seen.has(k(q))) continue;
+          seen.add(k(q));
+          const n = name(q);
+          if (isLog(n)) {
+            start = q;
+            break;
+          }
+          if (isLeaves(n)) next.push(q);
+        }
+      frontier = next;
+    }
+  }
+  if (!start) return null;
+  const logs: Pos[] = [start];
+  const seen = new Set([k(start)]);
+  for (let i = 0; i < logs.length && logs.length < 300; i++)
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++) {
+          const q: Pos = [logs[i][0] + dx, logs[i][1] + dy, logs[i][2] + dz];
+          if (seen.has(k(q)) || Math.abs(q[0] - start[0]) > 8 || Math.abs(q[2] - start[2]) > 8) continue;
+          seen.add(k(q));
+          if (isLog(name(q))) logs.push(q);
+        }
+  const leaves: Pos[] = [];
+  let frontier = logs;
+  for (let depth = 0; depth < 6 && frontier.length && leaves.length < 2000; depth++) {
+    const next: Pos[] = [];
+    for (const p of frontier)
+      for (const d of FACE_DIRS) {
+        const q: Pos = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+        if (seen.has(k(q))) continue;
+        seen.add(k(q));
+        if (isLeaves(name(q))) next.push(q);
+      }
+    leaves.push(...next);
+    frontier = next;
+  }
+  const base = logs.reduce((a, b) => (b[1] < a[1] ? b : a));
+  return { blocks: [...logs, ...leaves], base };
+}
+
+/** Find a dry, flat, open area for a structure and report its centre. */
+class FindSiteSkill extends Skill {
+  tick(): SkillResult {
+    const size = Math.max(3, Math.min(21, Math.floor(this.args.size !== undefined ? num(this.args.size, 'size') : 9)));
+    const radius = Math.max(8, Math.min(64, Math.floor(this.args.radius !== undefined ? num(this.args.radius, 'radius') : 48)));
+    const maxSlope = this.args.max_slope !== undefined ? num(this.args.max_slope, 'max_slope') : 2;
+    const p = this.player;
+    const ox = this.args.x !== undefined ? Math.floor(num(this.args.x, 'x')) : Math.floor(p.x);
+    const oz = this.args.z !== undefined ? Math.floor(num(this.args.z, 'z')) : Math.floor(p.z);
+    const cache = new Map<string, Surface | null>();
+    const col = (x: number, z: number) => {
+      const k = `${x},${z}`;
+      if (!cache.has(k)) cache.set(k, surfaceAt(this.agent, x, z, Math.floor(p.y)));
+      return cache.get(k)!;
+    };
+    const half = Math.floor(size / 2);
+    let best: { x: number; z: number; y: number; range: number; trees: number; score: number } | null = null;
+    let wet = 0, unloaded = 0, steep = 0;
+    for (let cx = ox - radius; cx <= ox + radius; cx += 2)
+      next: for (let cz = oz - radius; cz <= oz + radius; cz += 2) {
+        const dist = Math.hypot(cx - ox, cz - oz);
+        if (dist > radius) continue;
+        let lo = 256, hi = 0, trees = 0, built = 0;
+        const ys: number[] = [];
+        for (let x = cx - half; x < cx - half + size; x++)
+          for (let z = cz - half; z < cz - half + size; z++) {
+            const c = col(x, z);
+            if (!c) {
+              unloaded++;
+              continue next;
+            }
+            if (c.liquid) {
+              wet++;
+              continue next;
+            }
+            lo = Math.min(lo, c.y);
+            hi = Math.max(hi, c.y);
+            if (hi - lo > maxSlope) {
+              steep++;
+              continue next;
+            }
+            trees += c.trees;
+            if (!NATURAL_GROUND.test(c.block)) built++;
+            ys.push(c.y);
+          }
+        // Level ground matters most, then staying off existing builds, then fewer trees, then distance
+        const score = (hi - lo) * 6 + built * 3 + trees * 0.3 + dist * 0.1;
+        if (!best || score < best.score) {
+          ys.sort((a, b) => a - b);
+          best = { x: cx, z: cz, y: ys[ys.length >> 1], range: hi - lo, trees, score };
+        }
+      }
+    if (!best) {
+      const why = [wet && `${wet} over water`, steep && `${steep} too steep`, unloaded && `${unloaded} not loaded yet`].filter(Boolean).join(', ');
+      return { fail: `no dry, flat ${size}x${size} site within ${radius} blocks (candidates rejected: ${why}); explore in another direction and try again, or use a smaller size or larger max_slope` };
+    }
+    this.agent.memory.lastSite = { x: best.x, y: best.y, z: best.z, size };
+    const b = best;
+    const onPlot = ((this.agent.memory.plots as Plot[] | undefined) ?? []).some(
+      (q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + size - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + size - 1 <= q.z2);
+    const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on your prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
+    return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${size}x${size}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${ready}` };
+  }
+}
+
+/** The block an item places, or null. */
+function placesBlock(item: string): string | null {
+  const it = ITEMS_BY_NAME.get(item);
+  if (!it) return null;
+  const place = it.places ?? it.block?.name ?? null;
+  return place && BLOCKS_BY_NAME.has(place) ? place : null;
+}
+
+function blockItem(name: string, what: string): string {
+  if (!placesBlock(name)) throw new Error(`${what} '${name}' is not a placeable block (try oak_planks, cobblestone, stone_bricks, glass)`);
+  return name;
+}
+
+/**
+ * Places (or clears, block 'air') a list of blocks, walking to each: clearing top-down first, then placing
+ * bottom-up, nearest-first within a layer. Targets that keep failing are skipped and reported in the result.
+ */
+abstract class BuildJob extends Skill {
+  targets: BuildTarget[] = [];
+  maxBlocks = MAX_BUILD_BLOCKS;
+  placed = 0;
+  cleared = 0;
+  felled = 0;
+  skipped = new Map<string, number>();
+  nav: Navigator | null = null;
+  navFor: BuildTarget | null = null;
+  navStart = 0;
+  budget = 0;
+  walking = false;
+  aside: Navigator | null = null;
+  started = false;
+
+  /** Computed when the skill starts, since the world can change while it waits in the queue. */
+  abstract plan(): BuildTarget[];
+
+  private remove(t: BuildTarget) {
+    this.targets.splice(this.targets.indexOf(t), 1);
+    if (this.navFor === t) this.navFor = null;
+  }
+
+  private skip(t: BuildTarget, reason: string) {
+    this.remove(t);
+    this.skipped.set(reason, (this.skipped.get(reason) ?? 0) + 1);
+  }
+
+  private next(): BuildTarget | undefined {
+    // Stay with the target being walked to: re-picking the nearest each step makes the agent flip between two targets
+    if (this.navFor && this.targets.includes(this.navFor)) return this.navFor;
+    const p = this.player;
+    const eye = p.y + p.eyeHeight;
+    const clearing = this.targets.some((t) => t.block === 'air');
+    let best: BuildTarget | undefined;
+    let bestScore = Infinity;
+    for (const t of this.targets) {
+      if (clearing && t.block !== 'air') continue; // clear everything before placing anything
+      // Do everything within arm's reach before walking: top-down when clearing (so nothing is left hanging),
+      // bottom-up when placing (so blocks have support). Out of reach, walk to the nearest.
+      const d = Math.hypot(t.x + 0.5 - p.x, t.y + 0.5 - eye, t.z + 0.5 - p.z);
+      const score = t.tries * 8 + (d <= REACH_DISTANCE ? (clearing ? -t.y : t.y) : 1000 + d + (clearing ? 0 : t.y));
+      if (score < bestScore) (best = t), (bestScore = score);
+    }
+    return best;
+  }
+
+  protected summary(): string {
+    const skipped = [...this.skipped].map(([why, n]) => `${n} ${why}`).join(', ');
+    return `placed ${this.placed} blocks, cleared ${this.cleared}${this.felled ? ` (${this.felled} trees felled)` : ''}${skipped ? `; skipped ${skipped}` : ''}`;
+  }
+
+  /** Walk to a free spot a couple of blocks away that is not part of the build. */
+  private stepAside() {
+    const b = this.player.body;
+    const bx = Math.floor(b.x), by = Math.floor(b.y + 0.01), bz = Math.floor(b.z);
+    const pending = new Set(this.targets.map((t) => `${t.x},${t.z}`));
+    for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [2, -2], [-2, 2], [3, 0], [0, 3], [-3, 0], [0, -3]])
+      for (const dy of [0, 1, -1]) {
+        const x = bx + dx, y = by + dy, z = bz + dz;
+        if (!pending.has(`${x},${z}`) && standable(this.game.world, x, y, z)) {
+          this.aside = new Navigator(this.agent, { x, y, z }, 0.4);
+          return;
+        }
+      }
+    this.agent.input.forward = -1;
+  }
+
+  tick(): SkillResult {
+    if (++this.ticks > 20 * 600) return { fail: `timed out: ${this.summary()}` };
+    if (!this.started) {
+      this.started = true;
+      this.targets = this.plan();
+      if (this.targets.length > this.maxBlocks) return { fail: `too big (${this.targets.length} blocks, max ${this.maxBlocks})` };
+    }
+    if (this.aside) {
+      const r = this.aside.step();
+      if (r === false && this.ticks % 200 !== 0) return 'running';
+      this.aside = null;
+    }
+    // Pace the work: `speed` operations (a block placed, a block or tree cleared) per 2 ticks
+    const speed = Math.max(0.25, Math.min(20, Number(this.agent.memory.buildSpeed) || BUILD_SPEED)); // per-agent override
+    this.budget = Math.min(this.budget + speed / 2, speed + 1);
+    while (this.budget >= 1) {
+      this.budget--;
+      this.walking = false;
+      const r = this.work();
+      if (r !== 'running' || this.walking) return r;
+    }
+    return 'running';
+  }
+
+  /** One unit of work: skip finished targets, then walk toward, clear or place the next one. */
+  private work(): SkillResult {
+    const world = this.game.world;
+    const creative = this.player.gamemode === 'creative';
+    for (let guard = 0; guard < 64; guard++) {
+      const t = this.next();
+      if (!t) return { done: this.summary() };
+      const cur = world.getBlock(t.x, t.y, t.z);
+      const curDef = blockOf(cur);
+      const want = t.block === 'air' ? null : BLOCKS_BY_NAME.get(placesBlock(t.block)!)!;
+      // Already right? Doors and stairs carry orientation in the state, so compare block ids.
+      if (want ? (cur & 0xff) === want.id : (cur & 0xff) === 0 || curDef.fluid) {
+        this.remove(t);
+        continue;
+      }
+      // Trees in the way are felled whole from their base, so canopy out of reach is never left behind
+      const clearing = (cur & 0xff) !== 0 && (!want || !curDef.replaceable);
+      if (clearing && creative && (isLog(curDef.name) || isLeaves(curDef.name)) && t.tree === undefined) t.tree = treeAt(this.agent, t.x, t.y, t.z);
+      const tree = clearing && creative ? t.tree : null;
+      const [gx, gy, gz] = tree ? tree.base : [t.x, t.y, t.z];
+      // Walk only when out of arm's reach, and not for long: chasing an unreachable block (tree tops, cliffs)
+      // along partial paths would otherwise drag the agent away from the site.
+      const eye = this.player.y + this.player.eyeHeight;
+      if (Math.hypot(gx + 0.5 - this.player.x, gy + 0.5 - eye, gz + 0.5 - this.player.z) > REACH_DISTANCE) {
+        if (this.navFor !== t) {
+          this.nav = new Navigator(this.agent, { x: gx, y: gy, z: gz }, 4);
+          this.navFor = t;
+          this.navStart = this.ticks;
+        }
+        const r = this.nav!.step();
+        this.walking = true;
+        if (r === 'fail' || (r === false && this.ticks - this.navStart > 200)) {
+          this.navFor = null;
+          this.agent.input.forward = 0;
+          if (++t.tries >= 2) this.skip(t, 'unreachable');
+          return 'running';
+        }
+        if (!r) return 'running';
+      }
+      this.agent.input.forward = 0;
+      if (tree) {
+        for (const [x, y, z] of tree.blocks) {
+          const n = BLOCKS[world.getBlock(x, y, z) & 0xff].name;
+          if ((isLog(n) || isLeaves(n)) && this.player.breakBlock(x, y, z)) this.cleared++;
+        }
+        this.felled++;
+        t.tree = undefined;
+        return 'running';
+      }
+      // Clear whatever is in the way; plants are replaceable, so placement simply overwrites them.
+      if (clearing) {
+        if (!creative) {
+          this.skip(t, 'occupied (clearing needs creative mode)');
+          return 'running';
+        }
+        this.player.breakBlock(t.x, t.y, t.z);
+        this.cleared++;
+        return 'running';
+      }
+      if (!want) {
+        this.remove(t);
+        continue;
+      }
+      if (countItem(this.player.inventory, itemId(t.block)) === 0) {
+        if (!creative) return { fail: `ran out of ${t.block}: ${this.summary()}` };
+        this.player.giveOrDrop({ id: itemId(t.block), count: 64 });
+      }
+      this.agent.equip(t.block);
+      const b = this.player.body;
+      const by = Math.floor(b.y + 0.01);
+      if (Math.floor(b.x) === t.x && Math.floor(b.z) === t.z && t.y >= by - 1 && t.y <= by + 1) {
+        if (++t.tries >= 6) this.skip(t, 'blocked by the agent');
+        else this.stepAside();
+        this.walking = true;
+        return 'running';
+      }
+      const face = [2, 0, 1, 4, 5, 3].find((f) => { // prefer placing on top of the block below
+        const d = FACE_DIRS[f];
+        return blockOf(world.getBlock(t.x - d[0], t.y - d[1], t.z - d[2])).solid;
+      });
+      if (face === undefined) {
+        if (++t.tries >= 6) this.skip(t, 'with nothing to place against');
+        return 'running';
+      }
+      const d = FACE_DIRS[face];
+      if (t.facing) this.agent.lookAt(b.x + t.facing[0] * 16, b.y + PLAYER_EYE_HEIGHT, b.z + t.facing[1] * 16);
+      else this.agent.lookAt(t.x + 0.5, t.y + 0.5, t.z + 0.5);
+      if (this.player.useOnBlock(t.x - d[0], t.y - d[1], t.z - d[2], face, 0.5, 0.5, 0.5, true)) {
+        this.placed++;
+        this.remove(t);
+      } else if (++t.tries >= 4) this.skip(t, 'rejected (something in the way)');
+      return 'running';
+    }
+    return 'running';
+  }
+}
+
+/** Fill a box with a block (optionally hollow, with the inside cleared), or clear it with block 'air'. */
+class BuildBoxSkill extends BuildJob {
+  plan(): BuildTarget[] {
+    const block = str(this.args.block, 'block');
+    if (block !== 'air') blockItem(block, 'block');
+    const c = (k: string) => Math.floor(num(this.args[k], k));
+    const [x1, x2] = [Math.min(c('x1'), c('x2')), Math.max(c('x1'), c('x2'))];
+    const [y1, y2] = [Math.min(c('y1'), c('y2')), Math.max(c('y1'), c('y2'))];
+    const [z1, z2] = [Math.min(c('z1'), c('z2')), Math.max(c('z1'), c('z2'))];
+    if ((x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1) > MAX_BUILD_BLOCKS) throw new Error(`box too big (max ${MAX_BUILD_BLOCKS} blocks)`);
+    const hollow = !!this.args.hollow;
+    const out: BuildTarget[] = [];
+    for (let x = x1; x <= x2; x++)
+      for (let y = y1; y <= y2; y++)
+        for (let z = z1; z <= z2; z++) {
+          const shell = x === x1 || x === x2 || y === y1 || y === y2 || z === z1 || z === z2;
+          out.push({ x, y, z, block: hollow && !shell ? 'air' : block, tries: 0 });
+        }
+    return out;
+  }
+}
+
+interface Plot { x1: number; z1: number; x2: number; z2: number; y: number }
+
+/**
+ * Prepare ground for building: fell every tree touching the area, cut high ground down and fill low ground (and
+ * shallow water) up to one level, with grass on top. Columns containing anything built are left untouched. The plot is recorded in
+ * memory.plots; preparing next to it at the same y extends it seamlessly.
+ */
+class PrepareSiteSkill extends BuildJob {
+  maxBlocks = 12000;
+  plot: Plot | null = null;
+  margin = 0;
+  protectedCols = 0;
+
+  plan(): BuildTarget[] {
+    const p = this.player;
+    const last = this.agent.memory.lastSite as { x: number; z: number } | undefined;
+    const cx = this.args.x !== undefined ? Math.floor(num(this.args.x, 'x')) : last?.x ?? Math.floor(p.x);
+    const cz = this.args.z !== undefined ? Math.floor(num(this.args.z, 'z')) : last?.z ?? Math.floor(p.z);
+    const size = (k: string, def: number, lo: number, hi: number) =>
+      Math.max(lo, Math.min(hi, Math.floor(this.args[k] !== undefined ? num(this.args[k], k) : def)));
+    const w = size('width', 9, 3, 32), d = size('depth', 9, 3, 32), m = (this.margin = size('margin', 2, 0, 4));
+    const x0 = cx - Math.floor(w / 2), z0 = cz - Math.floor(d / 2), x1 = x0 + w - 1, z1 = z0 + d - 1;
+    const world = this.game.world;
+    const surf = new Map<string, Surface>();
+    for (let x = x0 - m; x <= x1 + m; x++)
+      for (let z = z0 - m; z <= z1 + m; z++) {
+        const c = surfaceAt(this.agent, x, z, Math.floor(p.y));
+        if (!c) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
+        surf.set(`${x},${z}`, c);
+      }
+    // Level: the most common ground height on the plot itself (least digging and filling), unless given
+    let y = this.args.y !== undefined ? Math.floor(num(this.args.y, 'y')) : NaN;
+    if (isNaN(y)) {
+      const counts = new Map<number, number>();
+      for (let x = x0; x <= x1; x++)
+        for (let z = z0; z <= z1; z++) {
+          const c = surf.get(`${x},${z}`)!;
+          if (!c.liquid) counts.set(c.y, (counts.get(c.y) ?? 0) + 1);
+        }
+      if (!counts.size) throw new Error('the area is all water; use find_site to choose dry land');
+      y = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+    }
+    const out: BuildTarget[] = [];
+    const add = (x: number, yy: number, z: number, block: string) => out.push({ x, y: yy, z, block, tries: 0 });
+    let columns = 0;
+    this.protectedCols = 0;
+    for (let x = x0 - m; x <= x1 + m; x++)
+      next: for (let z = z0 - m; z <= z1 + m; z++) {
+        // Everything above the level goes, but columns with anything built in them are left alone
+        const cut: number[] = [];
+        for (let yy = y + 1; yy <= Math.min(255, y + 32); yy++) {
+          const n = BLOCKS[world.getBlock(x, yy, z) & 0xff].name;
+          if (n === 'air') continue;
+          if (!NATURAL.test(n)) {
+            this.protectedCols++;
+            continue next;
+          }
+          cut.push(yy);
+        }
+        columns++;
+        for (const yy of cut) add(x, yy, z, 'air');
+        // Fill low ground and shallow water up to the level
+        const c = surf.get(`${x},${z}`)!;
+        let g = c.y;
+        if (c.liquid) while (g > y - 10 && !blockOf(world.getBlock(x, g, z)).solid) g--;
+        if (y - g > 8) throw new Error(`the ground at ${x},${z} is ${y - g} blocks below the level (deep water or a ravine); choose a flatter site with find_site`);
+        for (let yy = g + 1; yy < y; yy++) add(x, yy, z, 'dirt');
+        const top = BLOCKS[world.getBlock(x, y, z) & 0xff].name;
+        if (top !== 'grass_block' && (g < y || top === 'dirt' || !blockOf(world.getBlock(x, y, z)).solid)) add(x, y, z, 'grass_block');
+      }
+    if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
+    this.plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
+    return out;
+  }
+
+  tick(): SkillResult {
+    const r = super.tick();
+    if (typeof r !== 'object' || !('done' in r) || !this.plot) return r;
+    const pl = this.plot;
+    const plots = ((this.agent.memory.plots as Plot[] | undefined) ?? []).filter((q) => q.x1 !== pl.x1 || q.z1 !== pl.z1 || q.x2 !== pl.x2 || q.z2 !== pl.z2);
+    this.agent.memory.plots = [...plots, pl].slice(-20);
+    const cx = Math.floor((pl.x1 + pl.x2) / 2), cz = Math.floor((pl.z1 + pl.z2) / 2);
+    return { done: `plot ready: ${pl.x2 - pl.x1 + 1}x${pl.z2 - pl.z1 + 1} centred at x=${cx} z=${cz}, level ground at y=${pl.y} (x ${pl.x1}..${pl.x2}, z ${pl.z1}..${pl.z2}, plus a ${this.margin}-block margin)${this.protectedCols ? `; left ${this.protectedCols} columns with existing buildings untouched` : ''}; ${r.done}` };
+  }
+}
+
+const STRUCTURES = ['hut', 'house', 'platform', 'wall'];
+const SIDES: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+
+/** Blueprint builder: finds the ground level, clears the site and builds a whole structure. */
+class BlueprintSkill extends BuildJob {
+  plan(): BuildTarget[] {
+    const kind = str(this.args.structure, 'structure');
+    if (!STRUCTURES.includes(kind)) throw new Error(`unknown structure ${kind}. Options: ${STRUCTURES.join(', ')}`);
+    const material = blockItem(typeof this.args.material === 'string' ? this.args.material : 'oak_planks', 'material');
+    const roof = blockItem(typeof this.args.roof === 'string' ? this.args.roof : material, 'roof');
+    const floor = blockItem(typeof this.args.floor === 'string' ? this.args.floor : kind === 'platform' ? material : 'cobblestone', 'floor');
+    const p = this.player;
+    const cx = this.args.x !== undefined ? Math.floor(num(this.args.x, 'x')) : Math.floor(p.x) + 6;
+    const cz = this.args.z !== undefined ? Math.floor(num(this.args.z, 'z')) : Math.floor(p.z);
+    const size = (k: string, def: number, lo: number, hi: number) =>
+      Math.max(lo, Math.min(hi, Math.floor(this.args[k] !== undefined ? num(this.args[k], k) : def)));
+    const out: BuildTarget[] = [];
+    const add = (x: number, y: number, z: number, block: string, facing?: [number, number]) => out.push({ x, y, z, block, tries: 0, facing });
+
+    if (kind === 'wall') {
+      const [dx, dz] = SIDES[String(this.args.direction ?? 'east')] ?? SIDES.east;
+      const len = size('length', 8, 1, 32), h = size('height', 3, 1, 5);
+      for (let i = 0; i < len; i++) {
+        const x = cx + dx * i, z = cz + dz * i;
+        const g = groundY(this.agent, x, z, Math.floor(p.y));
+        for (let y = g + 1; y <= g + h; y++) add(x, y, z, material);
+      }
+      return out;
+    }
+
+    const w = size('width', kind === 'house' ? 7 : 5, 3, 11), d = size('depth', kind === 'house' ? 7 : 5, 3, 11);
+    const h = kind === 'platform' ? 0 : size('height', kind === 'house' ? 4 : 3, 2, 5);
+    const x0 = cx - Math.floor(w / 2), z0 = cz - Math.floor(d / 2);
+    const x1 = x0 + w - 1, z1 = z0 + d - 1;
+    let wet = 0;
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) if (surfaceAt(this.agent, x, z, Math.floor(p.y))?.liquid) wet++;
+    if (wet) throw new Error(`the ${w}x${d} site at x=${cx} z=${cz} has ${wet} columns of water or lava; use find_site (size ${Math.max(w, d) + 2}) to pick a dry spot`);
+    // Floor level: the median ground height over the footprint, so a sloped site is partly dug in, partly raised
+    const ground = new Map<string, number>();
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) ground.set(`${x},${z}`, groundY(this.agent, x, z, Math.floor(p.y)));
+    const heights = [...ground.values()].sort((a, b) => a - b);
+    const y0 = this.args.y !== undefined ? Math.floor(num(this.args.y, 'y')) : heights[heights.length >> 1];
+    // Houses and huts go on prepared ground: level, with nothing standing where the building will be
+    if (kind !== 'platform') {
+      const prep = `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
+      if (heights[heights.length - 1] !== heights[0]) throw new Error(`the ground is not level here (heights ${heights[0]}..${heights[heights.length - 1]}); ${prep}`);
+      let blocked = 0, built = '';
+      for (let x = x0; x <= x1; x++)
+        for (let z = z0; z <= z1; z++)
+          for (let y = y0 + 1; y <= y0 + h + 1; y++) {
+            const def = blockOf(this.game.world.getBlock(x, y, z));
+            if (def.id === 0 || def.replaceable) continue;
+            blocked++;
+            if (!NATURAL.test(def.name)) built ||= `${def.name} at ${x},${y},${z}`;
+          }
+      if (built) throw new Error(`the site overlaps an existing structure (${built}); choose another site with find_site`);
+      if (blocked) throw new Error(`${blocked} blocks (trees or rocks) stand where the ${kind} would go; ${prep}`);
+    }
+
+    // Door on the side facing the agent unless told otherwise
+    const side = typeof this.args.door === 'string' && SIDES[this.args.door] ? this.args.door
+      : Math.abs(p.x - cx) > Math.abs(p.z - cz) ? (p.x > cx ? 'east' : 'west') : p.z > cz ? 'south' : 'north';
+    const [sdx, sdz] = SIDES[side];
+    const doorX = sdx ? (sdx > 0 ? x1 : x0) : cx, doorZ = sdz ? (sdz > 0 ? z1 : z0) : cz;
+
+    for (let x = x0; x <= x1; x++)
+      for (let z = z0; z <= z1; z++) {
+        for (let y = ground.get(`${x},${z}`)! + 1; y < y0; y++) add(x, y, z, floor); // raise low ground to the floor
+        add(x, y0, z, floor);
+        const edge = x === x0 || x === x1 || z === z0 || z === z1;
+        for (let y = y0 + 1; y <= y0 + h + 2; y++) {
+          const rel = y - y0;
+          if (kind === 'platform' || rel > h + 1) add(x, y, z, 'air');
+          else if (rel === h + 1) add(x, y, z, roof);
+          else if (!edge) add(x, y, z, 'air');
+          else if (x === doorX && z === doorZ && rel <= 2) {
+            if (rel === 1) add(x, y, z, 'oak_door', [sdx, sdz]); // face through the wall so the door swings clear
+            else add(x, y, z, 'air');
+          }
+          else {
+            const corner = (x === x0 || x === x1) && (z === z0 || z === z1);
+            const mid = x === x0 || x === x1 ? z === cz : x === cx;
+            add(x, y, z, !corner && mid && rel === 2 && w >= 5 && d >= 5 ? 'glass' : material);
+          }
+        }
+      }
+    // Keep the way out clear: two blocks of walkway in front of the door, with ground under them
+    if (kind !== 'platform')
+      for (let i = 1; i <= 2; i++) {
+        const x = doorX + sdx * i, z = doorZ + sdz * i;
+        if (!blockOf(this.game.world.getBlock(x, y0, z)).solid) add(x, y0, z, floor);
+        for (let y = y0 + 1; y <= y0 + 3; y++) add(x, y, z, 'air');
+      }
+    return out;
+  }
+}
+
 export const SKILLS: Record<string, { cls: new (a: Agent, args: Record<string, unknown>) => Skill; doc: string }> = {
   move_to: { cls: MoveToSkill, doc: 'Walk to a position. args: x, y, z, range?' },
   mine: { cls: MineSkill, doc: 'Mine the block at x,y,z (walks there, uses best tool, collects drops).' },
@@ -644,6 +1331,11 @@ export const SKILLS: Record<string, { cls: new (a: Agent, args: Record<string, u
   wait: { cls: WaitSkill, doc: 'Do nothing for a while. args: seconds?' },
   explore: { cls: ExploreSkill, doc: 'Walk ~distance blocks in a direction to explore. args: direction? (north/south/east/west), distance?' },
   sleep: { cls: SleepSkill, doc: 'Sleep in a nearby bed (skips the night).' },
+  prepare_site: { cls: PrepareSiteSkill, doc: 'Prepare a building plot: fell trees, level the ground (cut and fill) with a margin, never demolishing builds. args: x?, z? (default: last find_site), width?, depth? (default 9), margin? (default 2), y? (level; reuse an existing plot y to extend it)' },
+  find_site: { cls: FindSiteSkill, doc: 'Find a dry, flat, open area to build on and report its centre. args: size? (default 9), radius? (default 48), x?, z? (search around), max_slope? (default 2)' },
+  get_item: { cls: GetItemSkill, doc: 'Creative mode only: take items from the creative inventory. args: item, count? (default 64)' },
+  build_box: { cls: BuildBoxSkill, doc: "Fill a box with a block, or clear it with block 'air'. args: x1, y1, z1, x2, y2, z2, block, hollow?" },
+  build: { cls: BlueprintSkill, doc: `Build a whole structure centred on x,z (ground level found automatically). args: structure (${STRUCTURES.join('/')}), x?, z?, y?, material?, roof?, floor?, width?, depth?, height?, door? (north/south/east/west), length?/direction? (wall)` },
 };
 
 function describeRecipe(r: Recipe): string {
@@ -759,9 +1451,10 @@ export class Agent {
       }
       if (r !== 'running') {
         const st = this.current.status;
-        if (r === 'done') {
+        if (r === 'done' || 'done' in r) {
           st.state = 'done';
-          this.pushEvent('action_done', `${st.type} finished`, { action: st.id, type: st.type });
+          if (r !== 'done') st.message = r.done;
+          this.pushEvent('action_done', `${st.type} finished${r !== 'done' ? `: ${r.done}` : ''}`, { action: st.id, type: st.type });
         } else {
           st.state = 'failed';
           st.message = r.fail;
@@ -923,6 +1616,17 @@ export class Agent {
       if (have < n) return false;
     }
     return true;
+  }
+
+  /** Ingredients the inventory is short of for a recipe, as [ingredient, needed, have]. */
+  missing(r: Recipe): Array<[string, number, number]> {
+    const inv = this.player.inventory;
+    const out: Array<[string, number, number]> = [];
+    for (const [ing, n] of this.ingredientCounts(r)) {
+      const have = this.idsFor(ing).reduce((a, id) => a + countItem(inv, id), 0);
+      if (have < n) out.push([ing, n, have]);
+    }
+    return out;
   }
 
   consumeRecipe(r: Recipe) {
@@ -1238,6 +1942,14 @@ export class AgentManager {
       sendJson(res, 200, item ? RECIPES.filter((r) => r.result.item === item) : RECIPES);
       return true;
     }
+    if (parts[1] === 'block') {
+      const c = ['x', 'y', 'z'].map((k) => Math.floor(Number(url.searchParams.get(k))));
+      if (c.some((v) => !isFinite(v))) return sendJson(res, 400, { error: 'x, y and z are required' }), true;
+      if (!this.game.world.isLoaded(c[0], c[2])) return sendJson(res, 200, { x: c[0], y: c[1], z: c[2], loaded: false }), true;
+      const st = this.game.world.getBlock(c[0], c[1], c[2]);
+      sendJson(res, 200, { x: c[0], y: c[1], z: c[2], block: BLOCKS[st & 0xff].name, meta: st >> 8 });
+      return true;
+    }
     if (parts[1] === 'chat' && req.method === 'POST') {
       const body = await readJson(req);
       this.game.systemMessage(String(body.text ?? ''), '#55ffff');
@@ -1258,6 +1970,9 @@ export class AgentManager {
           return true;
         }
         const a = this.spawn(String(body.name ?? ''), String(body.role ?? 'villager'), body.brain ?? null, body.position);
+        // Initial memory is set before the brain's first tick (e.g. a per-agent model for the tiered brain).
+        if (body.memory && typeof body.memory === 'object') Object.assign(a.memory, body.memory);
+        if (body.gamemode === 'creative' || body.gamemode === 'survival') a.player.setGamemode(body.gamemode);
         sendJson(res, 201, { name: a.player.name, id: a.player.id });
         return true;
       }

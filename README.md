@@ -99,13 +99,26 @@ the agent by running **skills** that you queue up.
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
 | `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `iron_ore`, ...) |
 | `place` | item, x, y, z | Places a block |
-| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3 |
+| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
 | `attack` | id \| kind | Fights an entity |
 | `follow` | player, distance?, seconds? | Follows a player |
 | `give` | player, item, count? | Walks to a player and tosses them items (for trading and economy experiments) |
 | `chat` | message | Talks. Agents only **hear** chat within 48 blocks, like people in the paper |
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
+| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off existing builds) and reports its centre |
+| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot in `memory.plots`; preparing next to it at the same `y` extends it |
+| `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: levels the site, clears it, places walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
+| `build_box` | x1, y1, z1, x2, y2, z2, block, hollow? | Fills a box with a block (or only its shell), or clears it with `air` |
+| `get_item` | item, count? | Creative mode only: takes items from the creative inventory |
+
+`MC_BUILD_SPEED` multiplies how fast `build`, `build_box` and `prepare_site` work (default `1`, about 10 blocks per second;
+walking speed is unchanged). Raise it to make experiments and tests faster. `buildSpeed` in an agent's memory overrides it
+for that agent.
+
+Building works best in creative mode, where blocks are unlimited and clearing is instant. In survival, `build` and
+`build_box` use blocks from the inventory and skip anything they would have to dig out. Spawn an agent in creative mode
+with `POST /api/agents {"name": "Mason", "gamemode": "creative"}`.
 
 ### In-game
 ```
@@ -124,7 +137,7 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 ### REST API (control agents from any language)
 | Method | Endpoint | Purpose |
 |---|---|---|
-| POST | `/api/agents` `{name, role?, brain?, position?}` | Spawn an agent |
+| POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`) |
 | GET | `/api/agents` | List agents |
 | GET | `/api/agents/:name/observe?radius=16` | Observation: position, health, food, inventory, visible blocks (counts and nearest), nearby entities, current action, recent events |
 | POST | `/api/agents/:name/act` `{action, ...args, replace?}` (or an array) | Queue skills |
@@ -133,6 +146,7 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status |
+| GET | `/api/block?x=&y=&z=` | The block at a position (name and state bits) |
 | GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
@@ -153,6 +167,32 @@ Settings:
 - `MC_LLM_INTERVAL_MS` sets how often an idle agent asks for a new decision (default `6000`).
 
 Requests use low effort, cache the system prompt, and opt into Anthropic's server-side refusal fallback (`fallbacks: "default"`).
+
+**Two-tier brain (local or mixed models).** `server/src/tieredBrain.ts` splits the work between a planner model, which sets
+a goal and 3-8 steps, and a faster executor model, which turns the current step and the latest observation into skill
+calls. The planner runs when there is no plan, when a plan finishes, when the executor asks for a new one, after 3 failed
+actions, after a death, or when no step has been completed for a while. Spawn an agent with it using
+`/agent spawn Ada farmer tiered`. It runs on [Ollama](https://ollama.com) by default, so it needs no API credentials.
+
+Settings take `<provider>:<model>`, where the provider is `ollama` (local or `:cloud` models) or `anthropic`:
+- `MC_EXEC_MODEL` sets the executor (default `ollama:gemma4:31b`).
+- `MC_PLAN_MODEL` sets the planner (default: the executor's model). For example, `anthropic:claude-sonnet-5` pairs a local
+  executor with a Claude planner. `none` turns off automatic planning, so plans come only from
+  `POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}`.
+- `MC_OLLAMA_URL` (default `http://localhost:11434`) and `MC_OLLAMA_CTX` (context length, default `8192`). On a 24 GB GPU,
+  8192 keeps a ~20 GB model like `gemma4:31b` entirely on the GPU. At 16384 part of it spills to the CPU and it runs
+  several times slower.
+- Per agent, `execModel` and `planModel` in its memory override the two settings above, so agents on different models
+  can share a world: `POST /api/agents {"name":"Qwen","brain":"tiered","memory":{"execModel":"ollama:qwen3:30b-instruct"}}`.
+  `memory.stats` records call counts, average latency and how many actions succeeded or failed.
+- `MC_PLAN_INTERVAL_MS` sets how long without a completed step before the planner reviews the plan (default `180000`).
+
+Set `objective` in the agent's memory (for example `"build a small village"`) to steer every plan toward it. In
+creative mode the planner plans building projects like a player: `find_site`, then `prepare_site`, then `build` or
+`build_box` on the plot, extending the plot at the same level when the settlement grows.
+
+The current plan is stored in the agent's memory (`GET /api/agents/:name/memory`), along with any long-term notes the
+planner writes.
 
 ## Project layout
 

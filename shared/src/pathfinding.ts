@@ -15,7 +15,8 @@ export interface PathNode {
 const passable = (w: World, x: number, y: number, z: number) => {
   const s = w.getBlock(x, y, z);
   const d = BLOCKS[s & 0xff];
-  return !d.solid && d.name !== 'lava' && d.name !== 'cactus';
+  // Doors count as open: walkers open closed doors on their way (see the agent Navigator)
+  return (!d.solid || d.name === 'oak_door') && d.name !== 'lava' && d.name !== 'cactus';
 };
 const isWater = (w: World, x: number, y: number, z: number) => BLOCKS[w.getBlock(x, y, z) & 0xff].name === 'water';
 const solidBelow = (w: World, x: number, y: number, z: number) => {

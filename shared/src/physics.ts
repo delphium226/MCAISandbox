@@ -21,6 +21,11 @@ export function blockBoxes(state: number): AABB[] {
       return [[0, 0, 0, 1, 15 / 16, 1]];
     case 'cactus':
       return [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]];
+    case 'door': {
+      // A 3-pixel panel whose side depends on facing and open state, so open doors can be walked through
+      const p = doorPanel(state >> 8);
+      return [[p[0] / 16, p[1] / 16, p[2] / 16, p[3] / 16, p[4] / 16, p[5] / 16]];
+    }
     default:
       return [[0, 0, 0, 1, 1, 1]];
   }
