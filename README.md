@@ -109,7 +109,8 @@ the agent by running **skills** that you queue up.
 | `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off existing builds) and reports its centre |
 | `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot in `memory.plots`; preparing next to it at the same `y` extends it |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: levels the site, clears it, places walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
-| `build_box` | x1, y1, z1, x2, y2, z2, block, hollow? | Fills a box with a block (or only its shell), or clears it with `air` |
+| `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise, with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
+| `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
 | `get_item` | item, count? | Creative mode only: takes items from the creative inventory |
 
 `MC_BUILD_SPEED` multiplies how fast `build`, `build_box` and `prepare_site` work (default `1`, about 10 blocks per second;
@@ -191,6 +192,18 @@ Settings take `<provider>:<model>`, where the provider is `ollama` (local or `:c
   `memory.stats` records call counts, average latency and how many actions succeeded or failed.
 - `MC_PLAN_INTERVAL_MS` sets how long without a completed step before the planner reviews the plan (default `180000`).
 
+**Choosing local models.** Measured on RTX 3090s (24 GB each) with Ollama, 8-minute runs from an empty inventory:
+
+| Model | Decision time | Notes |
+|---|---|---|
+| `gemma4:31b` (dense) | 14-18 s | Plans well and gets quantities right; slow because every turn re-reads the prompt |
+| `qwen3:30b-instruct` (MoE, ~3B active) | 0.7-1.1 s | Very fast, clean once skills are forgiving, but a shallower planner |
+
+The best mix is Qwen as executor with Gemma as planner and architect. The two models (about 20 GB each) do not fit on
+one 24 GB card together, so swapping would cost 7-50 s per switch; with two GPUs Ollama keeps one on each. Prompt size
+dominates local latency, so observations are trimmed to about 2,000 tokens. Language models count badly, so skills
+do the arithmetic (craft makes missing planks and sticks, designs are drawn with spaced symbols, doors are fixed in code).
+
 Set `objective` in the agent's memory (for example `"build a small village"`) to steer every plan toward it. In
 creative mode the planner plans building projects like a player: `find_site`, then `prepare_site`, then `build` or
 `build_box` on the plot, extending the plot at the same level when the settlement grows.
@@ -219,6 +232,12 @@ curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gam
 curl -X POST localhost:8765/api/agents -d '{"name":"Ada","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood"}}'
 ```
 
+With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
+objective takes about four minutes at `buildSpeed: 4`; four cottages, a meeting hall and a wall took ten minutes with four
+workers in dense forest. `designModel` in an agent's memory sets the model that draws its designs (default: its planner),
+so workers can plan with a fast model (`planModel: "ollama:qwen3:30b-instruct"`, 6-10 s per plan instead of 20-60 s) while
+designs still come from a strong one.
+
 **Importing schematics.** Builds shared on sites such as Planet Minecraft or Minecraft-Schematics.com can be added to a
 village's design library: `.schem` (WorldEdit/Sponge v1-v3), `.schematic` (MCEdit, pre-1.13 ids), `.litematic`
 (Litematica) and `.nbt` (structure blocks), up to 64x64x64 after trimming empty space.
@@ -233,13 +252,23 @@ keep whatever is on site. The response lists the substitutions and any blocks wi
 ground layers saved with the build. Stairs and logs lose their orientation; doors face outward. Check each build's
 licence before sharing it further.
 
-With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
-objective takes about four minutes at `buildSpeed: 4`. `designModel` in an agent's memory sets the model that draws its designs
-(default: its planner), so workers can plan with a fast model while designs still come from a strong one.
-
 To keep several agents from looping or flooding each other: chat from other agents only interrupts an agent that is
 addressed by name, each agent speaks at most once every 30 seconds, an agent without a plan can only talk, a step is
 marked done when the skill it names succeeds, and repeating the same call (failed, or twice in two minutes) is refused.
+
+### Testing agents
+
+`scripts/` has the harnesses used to develop the agents (Python, standard library only; the game server must be running):
+
+- `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
+  dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
+  objective complete. It prints tasks, designs, plots, buildings and per-agent stats.
+- `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
+  stuck. `bench_agent.py` compares models on survival progression.
+- `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
+  schematic format.
+
+Most of this world is ocean or hills, so start village tests where there is land (the village watcher searches for it).
 
 ## Project layout
 
@@ -248,7 +277,13 @@ shared/src   game logic used by both sides: blocks, items, recipes, world gen, l
 server/src   authoritative server: world storage, entities and mobs, players, containers, commands, agents and API
 client/src   browser client: renderer and shaders, meshing workers, UI, audio, input, networking
 examples/    external agent controller example
+scripts/     agent test harnesses
 ```
+
+The agent framework lives in `server/src`: `agents.ts` (agents, skills including the building engine, REST API),
+`brains.ts` (brain registry and scripted brains), `llmBrain.ts` (Claude brain and the shared skill tool list),
+`tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
+`designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import).
 
 The protocol is JSON over WebSocket (`/ws`), plus a compact binary format for chunks (`shared/src/protocol.ts`).
 Because the protocol is documented and shared, you can also write a headless bot as an ordinary network client.
