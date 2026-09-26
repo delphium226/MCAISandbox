@@ -10,12 +10,22 @@
     "dev:client": "vite --config client/vite.config.ts",
     "build": "vite build --config client/vite.config.ts",
     "start": "tsx server/src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "mc:setup": "python mc/setup.py",
+    "mc:server": "python mc/start.py",
+    "mc:agents": "tsx server/src/mineflayer/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
+    "minecraft-data": "^3.117.0",
+    "mineflayer": "^4.39.0",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-pvp": "^1.3.2",
     "opentype.js": "^2.0.0",
+    "prismarine-schematic": "^1.3.0",
     "three": "^0.186.1",
+    "vec3": "^0.1.10",
     "ws": "^8.21.3"
   },
   "devDependencies": {

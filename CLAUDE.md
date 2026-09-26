@@ -24,7 +24,7 @@ on the project and what earlier sessions learned.
 
 - Work on the feature branch `tiered-brain-building` (see below); commit only when asked or clearly agreed. Commit
   messages end with the `Co-Authored-By` line the harness specifies.
-- `package-lock.json` was already modified before this work started: leave it out of commits.
+- Commit `package-lock.json` together with dependency changes.
 - Source files use CRLF line endings and `core.autocrlf=true`. `shared/src/physics.ts` has **mixed** endings (the fence
   block is LF): preserve them. When editing with Python on Windows, `open(p).read()` then `open(p, 'w').write()` keeps
   CRLF; never write with `newline=''`. Check `git diff --stat` against `git diff --ignore-cr-at-eol --stat` before committing.
@@ -115,19 +115,45 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 3. `c661150` village robustness (fast worker planning, walls, stuck tasks, site search)
 4. `570778d` schematic import
 5. documentation and test scripts (this file, README, `scripts/`)
+6. `86b6794` world interface (`world.ts`, `skills.ts`)
+7. real Minecraft: server setup and Mineflayer adapter, milestone (a)
 
 Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
 
-## Next step: run the same agents in real Minecraft
+## Real Minecraft (in progress)
 
-Agreed plan:
-1. Done: the **world adapter** interface (`world.ts`, see Agent architecture). The sandbox is its first
-   implementation: it is fast, controllable and good for tests. For Phase 2, the agent parts of `handleApi` (spawn,
-   observe, act, events, memory, villages) should be rewritten against `WorldAgent`, so `scripts/watch_*.py` also
-   work against real Minecraft.
-2. Build a **Mineflayer adapter** against a local Paper/vanilla Java server (offline mode, private machine only; pick a
-   Minecraft version Mineflayer supports). Skills map to mineflayer-pathfinder (walks, opens doors, digs, scaffolds),
-   collectblock, pvp and bot.craft; building either places blocks one by one or uses operator commands (`/fill`,
-   `/setblock`, WorldEdit) for creative-style speed; schematics load natively (prismarine-schematic), so no block mapping.
-3. Mindcraft (open source, LLM agents on Mineflayer) is a useful reference for the skills layer.
+The same brains run in real Minecraft Java Edition through Mineflayer. Decisions (agreed with the user): Minecraft
+**26.1** (Paper 26.1.2; protocol 775, the newest Mineflayer supports; Paper warns it is behind 26.2, which is expected),
+**Paper**, adapter code in `server/src/mineflayer/`, and building in two modes behind an option (operator commands in
+creative, block-by-block placement in survival; not built yet).
+
+- `mc/`: `setup.py` (portable Temurin 25 in `mc/runtime`, the Paper jar and `server.properties` in `mc/server`, both
+  gitignored; checksums verified), `start.py` (runs the server), `rcon.py` (send commands, e.g. `python mc/rcon.py
+  "list"`). The server listens on 127.0.0.1 only, offline mode, RCON on localhost, seed 1793578865, survival, easy.
+  The user accepted the EULA on 2026-09-26. Stop the server with `python mc/rcon.py stop` (saves the world); killing
+  it loses unsaved chunks. 26.x keeps no spawn chunks loaded: RCON block tests need `forceload` or a player nearby.
+- `npm run mc:agents` (`server/src/mineflayer/index.ts`) connects agents as bots and serves the agent REST API on
+  **port 8766**, with the sandbox's routes and JSON shapes, so the watch scripts can point at it. It needs the
+  Minecraft server running. `tsx` here does not watch; stopping `npm` leaves the `tsx` child listening on 8766: stop
+  it by PID (`Get-NetTCPConnection -LocalPort 8766`).
+- `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, villages in
+  `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation), `mcSkills.ts`
+  (skills as async functions with an AbortSignal; same names and arguments as the sandbox), `mcApi.ts`, `rcon.ts`.
+- Skills so far: move_to (pathfinder, with a watchdog for stuck/timeout, and y snapped to the ground in that column),
+  chat (refuses "/" commands), wait, look_at. Brains: idle, tiered, llm.
+
+Lessons from the adapter:
+1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
+   server uses 0.6f / 2, so a bot pressed into a wall overlaps it by ~1e-8 in the server's eyes and every move is
+   rejected (the server teleports it back each tick, silently). `botAgent.ts` sets `playerHalfWidth` to 0.3001.
+   Worth reporting upstream (ask the user first).
+2. Wait for chunks (`waitForChunksToLoad`) after spawning and after teleports, or the first skills see unloaded
+   (null) blocks.
+3. Pin `vec3` to Mineflayer's 0.1.x, or its types clash with the pathfinder's.
+
+Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
+(b) a survival tiered agent gets wood, crafts and reaches stone tools (sandbox baseline: ~10 unique items in 8 min
+on gemma4:31b); (c) a creative agent runs find_site, prepare_site, build_design; (d) the full village, watched with
+the real client. Mindcraft (github.com/kolbytn/mindcraft) is a reference for skills; check its licence before
+copying anything.

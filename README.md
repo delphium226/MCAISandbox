@@ -271,6 +271,22 @@ marked done when the skill it names succeeds, and repeating the same call (faile
 
 Most of this world is ocean or hills, so start village tests where there is land (the village watcher searches for it).
 
+## Real Minecraft (experimental)
+
+The same agents can play real Minecraft Java Edition (26.1) through [Mineflayer](https://github.com/PrismarineJS/mineflayer),
+on a private local server:
+
+```bash
+npm run mc:setup     # once: portable Java 25 and a Paper 26.1.2 server in mc/ (listens on 127.0.0.1 only)
+# accept the Minecraft EULA: eula=true in mc/server/eula.txt
+npm run mc:server    # start the server (stop it with: python mc/rcon.py stop)
+npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
+```
+
+Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
+the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at
+(`GET /api/skills`). Join with a 26.1.2 client at `localhost` to watch.
+
 ## Project layout
 
 ```
@@ -286,7 +302,8 @@ The agent framework lives in `server/src`: `world.ts` (the world interface brain
 world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
-`designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import).
+`designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer
+adapter for real Minecraft is in `server/src/mineflayer/`, the local server's scripts in `mc/`.
 
 The protocol is JSON over WebSocket (`/ws`), plus a compact binary format for chunks (`shared/src/protocol.ts`).
 Because the protocol is documented and shared, you can also write a headless bot as an ordinary network client.
