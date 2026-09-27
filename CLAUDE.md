@@ -104,6 +104,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   stop, `buildSpeed: 4`, and background runs with a notification.
 - A typical village run (mayor + 3-4 workers, qwen executors, gemma mayor/designs) takes 4-10 minutes. Spawn on land
   (the village watcher searches for it); read the log for failures, loops and duplicate work, not just the outcome.
+- **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
+  **Mayor, Worker1, Worker2, Worker3** for villages. In real Minecraft a name keeps its inventory and position, so
+  spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
   results with the events stream and `/api/block`.
 
@@ -116,7 +119,8 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 4. `570778d` schematic import
 5. documentation and test scripts (this file, README, `scripts/`)
 6. `86b6794` world interface (`world.ts`, `skills.ts`)
-7. real Minecraft: server setup and Mineflayer adapter, milestone (a)
+7. `c143688` real Minecraft: server setup and Mineflayer adapter, milestone (a)
+8. survival skills, reflex, fresh-start spawns (milestone b, partly tested)
 
 Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
@@ -137,11 +141,20 @@ creative, block-by-block placement in survival; not built yet).
   **port 8766**, with the sandbox's routes and JSON shapes, so the watch scripts can point at it. It needs the
   Minecraft server running. `tsx` here does not watch; stopping `npm` leaves the `tsx` child listening on 8766: stop
   it by PID (`Get-NetTCPConnection -LocalPort 8766`).
-- `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, villages in
-  `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation), `mcSkills.ts`
-  (skills as async functions with an AbortSignal; same names and arguments as the sandbox), `mcApi.ts`, `rcon.ts`.
-- Skills so far: move_to (pathfinder, with a watchdog for stuck/timeout, and y snapped to the ground in that column),
-  chat (refuses "/" commands), wait, look_at. Brains: idle, tiered, llm.
+- `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, `reset` for a fresh start,
+  villages in `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation,
+  self-defence reflex), `mcSkills.ts` (registry; skills as async functions with an AbortSignal, same names and
+  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcUtil.ts` (walk with watchdog, helpers),
+  `mcApi.ts`, `rcon.ts`.
+- Skills so far: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
+  attack, explore, follow, give, equip, drop, get_item. Written on the pathfinder directly (collectblock and pvp were
+  dropped: less control over failure messages and cancelling, and pvp pulls in mineflayer 2.x). Brains: idle,
+  tiered, llm.
+- `collect` resolves names in code: "logs" is any log, an item means the blocks that drop it (cobblestone -> stone),
+  ores include deepslate variants; open blocks first, buried ones by digging to them. `craft` makes the table, then
+  sticks, then planks (in that order: each uses planks), and prefers everyday recipe variants in messages.
+- **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
+  from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
@@ -151,9 +164,17 @@ Lessons from the adapter:
 2. Wait for chunks (`waitForChunksToLoad`) after spawning and after teleports, or the first skills see unloaded
    (null) blocks.
 3. Pin `vec3` to Mineflayer's 0.1.x, or its types clash with the pathfinder's.
+4. **Crafts sent back to back desync the inventory** (the server drops some, the client counts them): `doCraft` waits
+   for the result to appear. At a crafting table it can take over 2 s, so a false "not confirmed" still happens
+   occasionally (the craft does go through; open issue).
+5. A bot that climbed a tree for logs can stand on leaves 5 blocks up; the pathfinder's 4-block drop limit leaves it
+   no path at all. `walk` retries once with an 8-block drop.
+6. A player name keeps its inventory and position on the server between runs: tests spawn with `"reset": true`.
+7. In creative, broken blocks drop nothing (collect refuses and suggests get_item).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
-(b) a survival tiered agent gets wood, crafts and reaches stone tools (sandbox baseline: ~10 unique items in 8 min
-on gemma4:31b); (c) a creative agent runs find_site, prepare_site, build_design; (d) the full village, watched with
+(b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
+pickaxe; the best tiered run (qwen exec, gemma plan) had 7 unique items and a wooden pickaxe at 3.1 min (sandbox
+baseline ~10 items in 8 min); earlier runs died to zombies before the reflex; `scripts/watch_survival.py`; (c) a creative agent runs find_site, prepare_site, build_design; (d) the full village, watched with
 the real client. Mindcraft (github.com/kolbytn/mindcraft) is a reference for skills; check its licence before
 copying anything.

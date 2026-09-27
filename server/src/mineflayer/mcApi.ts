@@ -69,7 +69,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       if (w.get(String(body.name ?? ''))) return sendJson(res, 409, { error: 'agent already exists' });
       const a = await w.spawn(String(body.name ?? ''), {
         role: typeof body.role === 'string' ? body.role : undefined, brain: body.brain ?? null, gamemode: body.gamemode,
-        position: body.position, memory: body.memory && typeof body.memory === 'object' ? body.memory : undefined,
+        position: body.position, memory: body.memory && typeof body.memory === 'object' ? body.memory : undefined, reset: body.reset === true,
       });
       return sendJson(res, 201, { name: a.name, id: a.bot.entity?.id });
     }

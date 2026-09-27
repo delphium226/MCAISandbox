@@ -5,9 +5,9 @@ Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objectiv
 Starts near X,Z: a scout first searches outward from there for dry land with room for a SITE_SIZE plot (default 30).
 WORKER_PLANNER defaults to gemma4:31b; the mayor plans and every agent designs with gemma4:31b.
 """
-import json, math, sys, time, urllib.error, urllib.request
+import json, os, math, sys, time, urllib.error, urllib.request
 
-API = "http://localhost:8765/api"
+API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
 worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"
 site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30

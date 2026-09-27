@@ -5,9 +5,9 @@ Usage: python scripts/watch_agent.py SPEC_JSON [MAX_MINUTES=6] [EXPECTED_BUILDS=
 Stops early when EXPECTED_BUILDS build/build_box actions have succeeded, after 5 failures in a row, or when the
 executor keeps retrying calls that are blocked.
 """
-import json, sys, time, urllib.error, urllib.request
+import json, os, sys, time, urllib.error, urllib.request
 
-API = "http://localhost:8765/api"
+API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 spec = json.loads(sys.argv[1])
 minutes = float(sys.argv[2]) if len(sys.argv) > 2 else 6
 expected = int(sys.argv[3]) if len(sys.argv) > 3 else 3

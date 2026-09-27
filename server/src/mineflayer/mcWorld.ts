@@ -27,6 +27,8 @@ export interface SpawnOptions {
   gamemode?: string;
   position?: { x: number; y?: number; z: number };
   memory?: Record<string, unknown>;
+  /** Start afresh: empty inventory, full health and food, at the world spawn (a name keeps its player data otherwise). */
+  reset?: boolean;
 }
 
 export class MineflayerWorld implements WorldAdapter {
@@ -69,6 +71,13 @@ export class MineflayerWorld implements WorldAdapter {
       this.agents.delete(name.toLowerCase());
       a.bot.quit();
       throw e;
+    }
+    if (o.reset) {
+      for (const c of [`clear ${name}`, `effect clear ${name}`, `effect give ${name} minecraft:instant_health 1 10 true`, `effect give ${name} minecraft:saturation 1 10 true`, `xp set ${name} 0 levels`])
+        await this.rcon.command(c);
+      // Back to the world spawn (the server tells every bot where it is), on the surface
+      const sp = a.bot.spawnPoint;
+      if (!o.position && sp) o.position = { x: Math.floor(sp.x) + 0.5, z: Math.floor(sp.z) + 0.5 };
     }
     if (o.gamemode === 'creative' || o.gamemode === 'survival') await this.rcon.command(`gamemode ${o.gamemode} ${name}`);
     if (o.position) {

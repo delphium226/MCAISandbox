@@ -261,6 +261,9 @@ marked done when the skill it names succeeds, and repeating the same call (faile
 
 `scripts/` has the harnesses used to develop the agents (Python, standard library only; the game server must be running):
 
+- `watch_survival.py NAME [MAX_MINUTES] [TARGET]` spawns a tiered survival agent and tracks unique items until it
+  holds TARGET (default stone_pickaxe) or stalls.
+- All watch scripts use the sandbox API by default; set `MCAI_API=http://localhost:8766/api` for real Minecraft.
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete. It prints tasks, designs, plots, buildings and per-agent stats.
@@ -284,8 +287,10 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 ```
 
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
-the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at
-(`GET /api/skills`). Join with a 26.1.2 client at `localhost` to watch.
+the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at,
+mine, collect, place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item (`GET /api/skills`);
+the building skills are next. Spawn with `"reset": true` for a fresh start (a name keeps its inventory otherwise).
+Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to watch.
 
 ## Project layout
 

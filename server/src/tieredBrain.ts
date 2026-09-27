@@ -699,5 +699,7 @@ export class TieredBrain implements AgentBrain {
     if (!reply.calls.length && reply.text) done.push(`(no action; said: ${reply.text.slice(0, 100)})`);
     if (done.length) this.notes.push(`t=${a.world.ticks}: ${done.join('; ')}`);
     if (this.notes.length > 20) this.notes.splice(0, this.notes.length - 20);
+    // Visible through the memory API, for watching and debugging (not part of any prompt)
+    a.memory.recentDecisions = this.notes.slice(-8);
   }
 }

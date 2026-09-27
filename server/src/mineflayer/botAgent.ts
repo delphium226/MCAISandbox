@@ -10,6 +10,8 @@ import type { ActionStatus, AgentBrain, AgentEvent, Observation, WorldAgent } fr
 import type { Village } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
+import { attack } from './mcSurvival';
+import { goals, walk } from './mcUtil';
 
 const { pathfinder, Movements } = pathfinderPkg;
 
@@ -25,6 +27,9 @@ const NATURAL = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|
  * (teleporting the bot back each tick), so it is stuck for good. A slightly wider client box avoids it.
  */
 const PLAYER_HALF_WIDTH = 0.3001;
+
+/** Mobs the self-defence reflex fights (creepers are fled from instead). */
+const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider', 'witch', 'pillager', 'vindicator', 'slime', 'silverfish', 'phantom', 'creaking']);
 
 interface Running {
   status: ActionStatus;
@@ -43,6 +48,9 @@ export class BotAgent implements WorldAgent {
   readonly ready: Promise<void>;
   private lastHealth = 20;
   private movements: InstanceType<typeof Movements> | null = null;
+  /** The self-defence reflex, while it runs: it pauses the queue. */
+  private reflex: AbortController | null = null;
+  private lastHurt = 0;
 
   constructor(readonly world: MineflayerWorld, readonly name: string, readonly role: string) {
     this.bot = mineflayer.createBot({ host: world.host, port: world.port, username: name, version: world.version, auth: 'offline' });
@@ -75,7 +83,7 @@ export class BotAgent implements WorldAgent {
   }
 
   idle() {
-    return !this.current && this.queue.length === 0;
+    return !this.current && this.queue.length === 0 && !this.reflex;
   }
 
   /** Pathfinder movement rules for this bot (dig natural blocks only, no parkour). */
@@ -103,9 +111,17 @@ export class BotAgent implements WorldAgent {
       const distance = speaker ? Math.round(speaker.position.distanceTo(bot.entity.position)) : undefined;
       this.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(distance !== undefined ? { distance } : {}) });
     });
+    bot.on('entityHurt', (e) => {
+      if (e === bot.entity) this.lastHurt = Date.now();
+    });
     bot.on('health', () => {
       if (bot.health < this.lastHealth) this.pushEvent('damage', `took ${Math.round(this.lastHealth - bot.health)} damage (health ${Math.round(bot.health)})`);
       this.lastHealth = bot.health;
+    });
+    bot.on('playerCollect', (collector, collected) => {
+      if (collector !== bot.entity) return;
+      const it = collected.getDroppedItem?.();
+      if (it) this.pushEvent('pickup', `picked up ${it.count}x ${it.name}`, { item: it.name, count: it.count });
     });
     bot.on('death', () => {
       this.stop();
@@ -126,6 +142,8 @@ export class BotAgent implements WorldAgent {
   }
 
   stop() {
+    this.reflex?.abort();
+    this.reflex = null;
     if (this.current) {
       this.current.abort.abort();
       this.current.status.state = 'failed';
@@ -151,7 +169,8 @@ export class BotAgent implements WorldAgent {
   tick() {
     if (!this.bot.entity) return;
     this.brain?.tick?.(this);
-    if (this.current || !this.queue.length) return;
+    this.selfDefence();
+    if (this.reflex || this.current || !this.queue.length) return;
     const status = this.queue.shift()!;
     const run: Running = { status, abort: new AbortController() };
     this.current = run;
@@ -163,6 +182,54 @@ export class BotAgent implements WorldAgent {
         (msg) => this.finish(run, { done: msg ?? '' }),
         (err: unknown) => this.finish(run, { fail: (err as Error).message }),
       );
+  }
+
+  /**
+   * A reflex, like a player's: when a hostile mob that just hurt the bot is close, stop what it is doing and fight back
+   * (or back away from a creeper), then resume the interrupted action. The brain only hears about it afterwards: an
+   * LLM turn takes seconds, and a zombie kills in about ten.
+   */
+  private selfDefence() {
+    const bot = this.bot;
+    if (this.reflex || this.gamemode === 'creative' || (bot.health ?? 20) <= 0) return;
+    const p = bot.entity.position;
+    const near = Object.values(bot.entities)
+      .filter((e) => e.name && (HOSTILE.has(e.name) || e.name === 'creeper') && e.position.distanceTo(p) < 5)
+      .sort((u, v) => u.position.distanceTo(p) - v.position.distanceTo(p));
+    const mob = near[0];
+    if (!mob || !(Date.now() - this.lastHurt < 3000 || (mob.name === 'creeper' && mob.position.distanceTo(p) < 4))) return;
+    // Put the interrupted action back at the front of the queue (its run is cancelled and ignored)
+    if (this.current) {
+      const st = this.current.status;
+      this.current.abort.abort();
+      this.current = null;
+      st.state = 'queued';
+      this.queue.unshift(st);
+    }
+    this.halt();
+    const ac = new AbortController();
+    this.reflex = ac;
+    const what = mob.name!;
+    // Bare fists lose to a zombie (1 damage a hit against 20 health): without a weapon, or badly hurt, run instead
+    const armed = bot.inventory.items().some((it) => /_(sword|axe)$/.test(it.name));
+    const flee = what === 'creeper' || !armed || (bot.health ?? 20) <= 6;
+    const why = what === 'creeper' ? 'creepers explode' : !armed ? 'no weapon: craft a wooden_sword or stone_sword to fight back' : 'health is low';
+    const act = flee
+      ? walk(this, new goals.GoalInvert(new goals.GoalFollow(mob, 16)), `away from the ${what}`, ac.signal, 10000).then(
+          () => `ran away (${why})`,
+          (e: Error) => {
+            if (e.message === 'cancelled') throw e;
+            return `tried to run away (${why}) but ${e.message}`;
+          },
+        )
+      : attack(this, { id: mob.id }, ac.signal);
+    act.then(
+      (msg) => this.pushEvent('system', `Reflex: a ${what} attacked you; ${msg}. Resuming your action.`),
+      (err: Error) => err.message !== 'cancelled' && this.pushEvent('system', `Reflex: a ${what} attacked you; ${err.message}`),
+    ).finally(() => {
+      if (this.reflex === ac) this.reflex = null;
+      this.halt();
+    });
   }
 
   private finish(run: Running, r: { done: string } | { fail: string }) {
