@@ -12,12 +12,14 @@ import { overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt } from './mcSurvival';
-import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, str, syncInventory } from './mcUtil';
+import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, standableY, str, syncInventory } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
 /** Kept by deposit "all": the tools an agent works with. */
 const TOOL = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/;
+/** Left out of deposit "all": what gathering picks up by the way (a chest filled up with saplings, seeds and dirt). */
+const JUNK = /_sapling$|_seeds$|^(dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
 /** Names that stand for any kind of an item. */
 const KINDS: Array<[RegExp, RegExp, string]> = [
   [/^(any[ _:]?)?(wood(en)?[ _])?planks?$/, /_planks$/, 'planks'],
@@ -76,7 +78,25 @@ function slotsUsed(a: BotAgent, c: StorageChest): number {
 async function openChest(a: BotAgent, v: Village, c: StorageChest, signal: AbortSignal): Promise<Window> {
   const pos = new Vec3(c.x, c.y, c.z);
   const far = a.bot.entity.position.distanceTo(pos);
-  await reach(a, pos.offset(0.5, 0, 0.5), 3, signal, Math.min(120000, 20000 + 1500 * far));
+  try {
+    await reach(a, pos.offset(0.5, 0, 0.5), 3, signal, Math.min(120000, 20000 + 1500 * far));
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    // The walk stalled (a chest on a step up from the plot, twice): try a standable spot right beside it
+    let ok = false;
+    for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const y = standableY(a, c.x + dx, c.y, c.z + dz);
+      if (y === null) continue;
+      try {
+        await reach(a, new Vec3(c.x + dx + 0.5, y, c.z + dz + 0.5), 0.8, signal, 30000);
+        ok = true;
+        break;
+      } catch (e2) {
+        if ((e2 as Error).message === 'cancelled') throw e2;
+      }
+    }
+    if (!ok) throw e;
+  }
   const block = a.bot.blockAt(pos);
   if (!block) throw new Error(`the storage chest at ${at(pos)} is not loaded; move closer`);
   if (block.name !== 'chest') {
@@ -131,8 +151,9 @@ function nextChestSpot(a: BotAgent, v: Village): Vec3 | null {
     for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) for (const dy of [0, 1, -1]) tries.push(new Vec3(last.x + dx, last.y + dy, last.z + dz));
     for (let r = 2; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) for (const dy of [0, 1, -1]) tries.push(new Vec3(last.x + dx, last.y + dy, last.z + dz));
   } else {
+    // The agent's own level first, then a block up or down (a chest on a step made the walk to it stall)
     const base = a.bot.entity.position.floored();
-    for (let r = 1; r <= 8; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) for (const dy of [0, -1, 1]) tries.push(base.offset(dx, dy, dz));
+    for (const dy of [0, -1, 1]) for (let r = 1; r <= 8; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) tries.push(base.offset(dx, dy, dz));
   }
   return tries.find((p) => chestSpotOk(a, v, p)) ?? null;
 }
@@ -172,7 +193,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   if (!v) throw new Error('deposit puts items in the village storage, and you are not in a village');
   const raw = args.item === undefined ? 'all' : str(args.item, 'item');
   // "all" keeps tools, and chests (a carried chest becomes more storage when the chests are full)
-  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.test(n) && n !== 'chest', label: 'anything but tools' } : matcher(a, raw);
+  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.test(n) && !JUNK.test(n) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
   if (!m) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
   const carried = () => {
@@ -211,9 +232,14 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
       for (const [type, { name, count }] of want) {
         const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
         if (n <= 0) continue;
-        await abortable(w.deposit(type, null, n), signal);
-        moved[name] = (moved[name] ?? 0) + n;
-        left -= n;
+        // One item's failure (Mineflayer's view of the slots drifts) does not stop the rest
+        try {
+          await abortable(w.deposit(type, null, n), signal);
+          moved[name] = (moved[name] ?? 0) + n;
+          left -= n;
+        } catch (e) {
+          if ((e as Error).message === 'cancelled') throw e;
+        }
       }
       c.items = chestItems(w);
     } finally {
@@ -267,6 +293,19 @@ async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string)
     a.world.villages.save();
   }
   return { got, invFull };
+}
+
+/** Open every storage chest to re-read what it holds (someone may have filled or emptied it outside the record). */
+export async function refreshStorage(a: BotAgent, v: Village, signal: AbortSignal): Promise<void> {
+  for (const c of [...(v.storage?.chests ?? [])]) {
+    checkAbort(signal);
+    const w = await openChest(a, v, c, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return null;
+    });
+    w?.close();
+  }
+  await syncInventory(a);
 }
 
 /** Take exact items from the village storage (builders fetching a bill of materials); returns what was taken. */

@@ -25,7 +25,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
-import { layoutBuildings, type Design, type Village } from './village';
+import type { Design, Village } from './village';
+import { postLayout, type Site } from './layout';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
@@ -209,7 +210,8 @@ board, one at a time in the order posted, and do the physical work.
    building (e.g. ["cottage", "cottage", "meeting_hall"]). Code places the buildings on one plot with streets and posts
    every task they need (land, storage, materials, building, in order). Do not compute coordinates or post those tasks
    yourself.
-3. Then wait: set_plan with an empty list. Review the board when it changes: re-post a failed task with a fix
+3. Then wait: set_plan with an empty list. Gathering takes several minutes per task: while workers hold the layout's
+   tasks, do not post more tasks or plan work, just wait. Review the board when it changes: re-post a failed task with a fix
    (post_tasks), and call declare_complete once the summary shows the objective is met. Walls and fences are not
    designs: if the objective asks for them, post_tasks 'build structure "wall" from x, z, length, direction, material'
    after the land task.`;
@@ -287,6 +289,12 @@ If the step is impossible or makes no sense any more, call request_replan with t
 Urgent things come first: reply briefly and in character when someone talks to you, eat when food is low, and fight or flee
 monsters that attack you. If an action failed, try a different approach instead of repeating it. Use exact item and block ids.
 For building, prefer one build or build_box call over many place calls; their results say how many blocks were placed or skipped.`;
+
+/** The planner's system prompt and tools for a role (exported for scripts/bench/mayorbench.mts). */
+export function plannerPrompt(role: 'mayor' | 'worker' | null, skills: ToolDef[], economy: boolean) {
+  const system = toolsFor(skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
+  return { system, tools: role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS };
+}
 
 /** Blocks that rarely matter for decisions; dropping them keeps prompts short (prompt size dominates local-model latency). */
 const FILLER = /leaves|grass|fern|bush|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|granite|diorite|andesite|^dirt$|^snow$|vine|sapling/;
@@ -574,7 +582,8 @@ export class TieredBrain implements AgentBrain {
         why = 'every posted task is finished or failed: review the village';
       else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && v!.tasks.some((t) => t.status === 'failed' && t.updated > this.lastPlan))
         why = 'a task failed';
-      else if (plan.by !== 'external' && (plan.steps.length || role === 'mayor') && now - this.lastProgress > PLAN_INTERVAL_MS)
+      // (a waiting mayor is not reviewed on a timer while workers hold tasks: it only re-posted work already on the board)
+      else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS)
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
       // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
       if (why && free) {
@@ -718,9 +727,7 @@ export class TieredBrain implements AgentBrain {
     }
     const task = v && this.claimedTask ? v.tasks.find((t) => t.id === this.claimedTask) : undefined;
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
-    const economy = a.gamemode !== 'creative' && !!a.world.materialTasks;
-    const system = toolsFor(a.world.skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
-    const tools = role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS;
+    const { system, tools } = plannerPrompt(role, a.world.skills, a.gamemode !== 'creative' && !!a.world.materialTasks);
     const planStart = Date.now();
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
     this.lastPlanCall = modelCall(spec, planStart, user, reply);
@@ -808,73 +815,10 @@ export class TieredBrain implements AgentBrain {
     console.log(`[tiered] ${a.name} plan (${plan.by}, ${why}): ${plan.goal}\n  ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n  ')}`);
   }
 
-  /**
-   * plan_layout: place the buildings on one plot around the mayor's find_site result and post every task for them, in
-   * order: prepare the plot, set up the storage and gather materials (survival economy), then each building at its
-   * computed position. Returns what happened (or why not) for the mayor's events.
-   */
+  /** plan_layout, around the mayor's find_site result (layout.ts does the work). */
   private layout(a: WorldAgent, v: Village, input: Record<string, unknown>): string {
-    const reg = a.world.villages;
-    const raw = Array.isArray(input.buildings) ? (input.buildings as unknown[]) : typeof input.buildings === 'string' ? String(input.buildings).split(',') : [];
-    const names: string[] = [];
-    for (const b of raw) {
-      // A name, or {design, count}
-      const o = b && typeof b === 'object' ? (b as Record<string, unknown>) : null;
-      const n = String(o ? o.design ?? o.name ?? '' : b).trim().toLowerCase().replace(/^"|"$/g, '');
-      const count = o && Number(o.count) > 1 ? Math.min(8, Math.floor(Number(o.count))) : 1;
-      if (n) for (let i = 0; i < count; i++) names.push(n);
-    }
-    if (!names.length) return 'plan_layout needs buildings: a list of design names, one per building (repeat a name for each copy)';
-    const missing = [...new Set(names.filter((n) => !v.designs[n]))];
-    if (missing.length) return `plan_layout: no design yet for ${missing.map((n) => `"${n}"`).join(', ')}; draw ${missing.length > 1 ? 'them' : 'it'} with design_building first, then call plan_layout again`;
-    const site = a.memory.lastSite as { x: number; y: number; z: number } | undefined;
-    if (!site) return 'plan_layout: no site yet; run find_site first (size 30 for three or four small buildings)';
-    const laidOut = v.tasks.filter((t) => t.postedBy === a.name && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
-    if (laidOut.length) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
     const economy = a.gamemode !== 'creative' && !!a.world.materialTasks;
-    const materials = new Map<string, ReturnType<NonNullable<typeof a.world.materialTasks>>>();
-    if (economy)
-      for (const n of new Set(names)) {
-        const m = a.world.materialTasks!(v.designs[n], '{label}');
-        if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
-        materials.set(n, m);
-      }
-    const lay = layoutBuildings(site.x, site.z, names.map((n) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth })));
-    if (lay.width > 32 || lay.depth > 32) return `plan_layout: ${names.length} buildings need a ${lay.width}x${lay.depth} plot, more than the 32x32 prepare_site allows; lay out fewer buildings now and the rest on a second site later`;
-    // The site search must have looked at ground as big as the plot plus prepare_site's margin
-    const need = Math.max(lay.width, lay.depth) + 4;
-    const siteSize = Number((a.memory.lastSite as { size?: number }).size ?? 0);
-    if (siteSize && siteSize < need) return `plan_layout: these buildings need a ${lay.width}x${lay.depth} plot, but find_site looked for only ${siteSize}x${siteSize}; run find_site size=${need}, then call plan_layout again`;
-    const why = reg.conflict(v, lay.plot, a.name);
-    if (why) return `plan_layout: the plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2} is not free (${why}); run find_site again for another site`;
-    const tasks: Array<{ title: string; detail: string; after: Array<string | number> }> = [];
-    tasks.push({ title: 'Prepare the village plot', detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${names.length} buildings and the streets between them)`, after: [] });
-    let storage: number | undefined;
-    if (economy && !v.storage?.chests.length) {
-      storage = tasks.length;
-      const sx = lay.x, sz = lay.plot.z2 + 4;
-      tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
-    }
-    const copies = new Map<string, number>();
-    const total = (n: string) => names.filter((x) => x === n).length;
-    for (const p of lay.places) {
-      const k = (copies.get(p.name) ?? 0) + 1;
-      copies.set(p.name, k);
-      const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
-      const gather: number[] = [];
-      for (const t of materials.get(p.name)?.tasks ?? []) {
-        gather.push(tasks.length);
-        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: storage !== undefined ? [storage] : [] });
-      }
-      tasks.push({
-        title: `Build ${label}`,
-        detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}`,
-        after: [0, ...gather],
-      });
-    }
-    const made = reg.post(v, tasks, a.name, 100);
-    reg.note(v, `${a.name} laid out ${names.join(', ')} on a ${lay.width}x${lay.depth} plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2}`);
-    return `Laid out ${names.length} buildings on a ${lay.width}x${lay.depth} plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2} (${lay.places.map((p) => `${p.name} at ${p.x},${p.z}`).join('; ')}) and posted ${made.length} tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}. Now wait for the workers.`;
+    return postLayout(a.world, v, a.name, a.memory.lastSite as Site | undefined, input.buildings, economy);
   }
 
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */

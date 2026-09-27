@@ -53,6 +53,8 @@ export interface Task {
   title: string;
   detail: string;
   status: 'open' | 'claimed' | 'done' | 'failed';
+  /** A prerequisite whose failure does not block what waits for it (gathering: the build checks its materials itself). */
+  soft?: boolean;
   postedBy: string;
   /** Tasks that must be done first. */
   after: string[];
@@ -165,7 +167,11 @@ export class VillageRegistry {
 
   /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
   claimable(v: Village): Task[] {
-    return v.tasks.filter((t) => t.status === 'open' && t.after.every((id) => this.task(v, id)?.status === 'done') && !this.missingDesigns(v, t).length);
+    const finished = (id: string) => {
+      const p = this.task(v, id);
+      return p?.status === 'done' || (p?.status === 'failed' && !!p.soft);
+    };
+    return v.tasks.filter((t) => t.status === 'open' && t.after.every(finished) && !this.missingDesigns(v, t).length);
   }
 
   /**
@@ -185,11 +191,11 @@ export class VillageRegistry {
 
   /** Post tasks; `after` may name existing task ids or earlier tasks in the same batch by 0-based index. */
   /** Post tasks (at most `max` at once: a guard against models flooding the board; code posting a layout lifts it). */
-  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number> }>, by: string, max = 8): Task[] {
+  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number>; soft?: boolean }>, by: string, max = 8): Task[] {
     const made: Task[] = [];
     for (const t of tasks.slice(0, max)) {
       const after = (t.after ?? []).map((a) => (typeof a === 'number' ? made[a]?.id : String(a))).filter((id): id is string => !!id && !!(this.task(v, id) ?? made.find((m) => m.id === id)));
-      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now() };
+      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now(), ...(t.soft ? { soft: true } : {}) };
       v.tasks.push(task);
       made.push(task);
     }

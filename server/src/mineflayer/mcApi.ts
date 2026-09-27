@@ -10,6 +10,7 @@ import { TOOLS } from '../skills';
 import { handlePanel } from '../panel';
 import { describePlan, designBill, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
+import { postLayout } from '../layout';
 import type { MineflayerWorld } from './mcWorld';
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -47,6 +48,25 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       v.designs[design.name] = design;
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });
+    }
+    // Lay buildings out and post their tasks, as the mayor's plan_layout does (tests): {buildings, x, y, z, size?, economy?}
+    if (v && parts[3] === 'layout' && req.method === 'POST') {
+      const b = await readJson(req);
+      const site = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y ?? 64)), z: Math.floor(Number(b.z)), size: b.size !== undefined ? Number(b.size) : undefined };
+      if (!Number.isFinite(site.x) || !Number.isFinite(site.z)) return sendJson(res, 400, { error: 'x and z (the site centre) are required' });
+      const result = postLayout(w, v, String(b.by ?? 'api'), site, b.buildings, b.economy !== false);
+      return sendJson(res, result.startsWith('plan_layout:') ? 400 : 200, { result, tasks: v.tasks });
+    }
+    // Set a task's status (tests skipping a stage): {status: "done" | "open" | "failed"}
+    if (v && parts[3] === 'tasks' && parts[4] && req.method === 'POST') {
+      const t = v.tasks.find((x) => x.id === parts[4]);
+      const status = String((await readJson(req)).status ?? '');
+      if (!t || !['open', 'done', 'failed'].includes(status)) return sendJson(res, 400, { error: 'unknown task or status (open, done, failed)' });
+      t.status = status as typeof t.status;
+      if (status === 'open') t.claimedBy = undefined;
+      t.updated = Date.now();
+      w.villages.save();
+      return sendJson(res, 200, t);
     }
     // Register a chest already in the world as village storage (tests): {x, y, z}
     if (v && parts[3] === 'storage' && req.method === 'POST') {

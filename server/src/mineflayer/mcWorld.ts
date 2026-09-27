@@ -11,6 +11,7 @@ import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
+import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Design } from '../village';
 import { Materials, designBill, gatherTasks, hardToGather } from './mcMaterials';
@@ -22,6 +23,8 @@ export const MC_BRAINS: Record<string, () => AgentBrain> = {
   idle: () => ({ name: 'idle' }),
   tiered: () => new TieredBrain(),
   llm: () => new LLMBrain(),
+  // Scripted village worker (tests): runs the skill calls each task spells out
+  tasks: () => new TaskBrain(),
 };
 
 export interface SpawnOptions {
@@ -66,6 +69,8 @@ export class MineflayerWorld implements WorldAdapter {
     // sent back (a lantern meant mining raw iron with a stone pickaxe)
     const hard = hardToGather(plan.gather);
     const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. lanterns, bricks, wool, bookshelves)`] : [])];
+    // Two logs spare: gathered logs come in mixed kinds and a builder uses one kind (short by a log, twice)
+    plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + 2;
     return { tasks: gatherTasks(plan.gather, label), problems };
   }
 

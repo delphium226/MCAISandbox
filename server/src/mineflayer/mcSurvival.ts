@@ -138,7 +138,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const got = items.length ? have() - start : mined;
     if (got >= want) return `collected ${got} ${label}`;
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
-    const found = nearestBlocks(a, blocks, 48).filter((p) => !failed.has(at(p)));
+    // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off
+    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)));
     // Blocks in the open first (visible, like a player would pick), then buried ones within 16 blocks
     let next = found.find((p) => exposed(a, p)) ?? found.find((p) => p.distanceTo(a.bot.entity.position) < 16);
     if (!next) {

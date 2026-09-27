@@ -19,9 +19,9 @@ import { areaText, overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
-import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS } from './mcSurvival';
-import { at, checkAbort, goals, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
+import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
 
 type Pos = [number, number, number];
 
@@ -183,7 +183,7 @@ async function requeueBuild(a: BotAgent, job: Job, short: Counts, signal: AbortS
   const plan = a.world.materials.plan(short, other);
   if (!Object.keys(plan.gather).length || plan.problems.length) return '';
   const reg = a.world.villages;
-  const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design!), a.name, 20);
+  const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design!).map((t) => ({ ...t, soft: true })), a.name, 20);
   task.status = 'open';
   task.claimedBy = undefined;
   task.after = [...task.after, ...made.map((t) => t.id)];
@@ -395,7 +395,13 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     if (pay) {
       // Survival: have everything before starting, taking what is missing from the village storage
       await syncInventory(a);
-      const store = v ? storageContents(v) : {};
+      let store = v ? storageContents(v) : {};
+      // The record looks short: look in the chests first (items put in or taken out by hand are not in the record)
+      const rough = billOf(place);
+      if (v?.storage?.chests.length && Object.entries(rough).some(([n, q]) => (store[n] ?? 0) + (inventoryCounts(a)[n] ?? 0) < q)) {
+        await refreshStorage(a, v, signal);
+        store = storageContents(v);
+      }
       const all = inventoryCounts(a);
       for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
       const woods = chooseWood(place, all);
@@ -571,7 +577,12 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
   const taken: Area[] = v
     ? [...v.structures.map((st) => ({ x1: st.x1 - 2, z1: st.z1 - 2, x2: st.x2 + 2, z2: st.z2 + 2 })), ...v.reservations.filter((r) => r.by !== a.name && r.until > now)]
     : [];
-  let best: { x: number; z: number; y: number; range: number; trees: number; score: number } | null = null;
+  // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
+  const survival = a.gamemode !== 'creative';
+  const logIds = survival ? a.world.registry.blocksArray.filter((b) => /^(?!stripped_).*_log$/.test(b.name)).map((b) => b.id) : [];
+  const logs = survival ? nearestBlocks(a, logIds, 128, 4096) : [];
+  const logsNear = (x: number, z: number) => logs.filter((q) => Math.hypot(q.x - x, q.z - z) <= 48).length;
+  let best: { x: number; z: number; y: number; range: number; trees: number; score: number; wood: number } | null = null;
   let wet = 0, unloaded = 0, steep = 0, occupied = 0;
   for (let cx = ox - radius; cx <= ox + radius; cx += 2)
     next: for (let cz = oz - radius; cz <= oz + radius; cz += 2) {
@@ -605,11 +616,13 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
           if (!NATURAL_GROUND.test(c.block)) built++;
           ys.push(c.y);
         }
-      // Level ground matters most, then staying off existing builds, then fewer trees, then distance
-      const score = (hi - lo) * 6 + built * 3 + trees * 0.3 + dist * 0.1;
+      // Level ground matters most, then staying off existing builds, then fewer trees, then distance; in survival, no
+      // trees at all within 48 blocks counts heavily against a site
+      const wood = survival ? logsNear(cx, cz) : 0;
+      const score = (hi - lo) * 6 + built * 3 + trees * 0.3 + dist * 0.1 + (survival && !wood ? 40 : 0);
       if (!best || score < best.score) {
         ys.sort((m, n) => m - n);
-        best = { x: cx, z: cz, y: ys[ys.length >> 1], range: hi - lo, trees, score };
+        best = { x: cx, z: cz, y: ys[ys.length >> 1], range: hi - lo, trees, score, wood };
       }
     }
   if (!best) {
@@ -622,7 +635,8 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
   const plots = ((v ? v.plots : (a.memory.plots as Plot[] | undefined)) ?? []) as Plot[];
   const onPlot = plots.some((q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + sz - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + sz - 1 <= q.z2);
   const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on a prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
-  return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${sz}x${sz}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${ready}` };
+  const woodNote = survival ? (b.wood ? ` ${b.wood} log blocks within 48 blocks.` : ' No trees within 48 blocks: wood will have to come from farther away.') : '';
+  return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${sz}x${sz}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${woodNote}${ready}` };
 }
 
 async function findSite(a: BotAgent, args: Record<string, unknown>): Promise<string> {

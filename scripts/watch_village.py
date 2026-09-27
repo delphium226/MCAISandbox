@@ -1,5 +1,5 @@
 """Run a village: one mayor plus workers, all tiered agents, until the mayor declares the objective complete, the run
-stalls (no successful action for MCAI_STALL_MIN minutes, default 6) or time runs out. Agents are in creative mode unless
+stalls (no successful action for MCAI_STALL_MIN minutes, default 3), an agent fails the same way 3 times, or time runs out. Agents are in creative mode unless
 MCAI_GAMEMODE=survival (real Minecraft's village economy: materials are gathered, stored and paid for).
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
@@ -15,7 +15,7 @@ worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"
 site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30
 mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
 gamemode = os.environ.get("MCAI_GAMEMODE", "creative")
-stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "6"))
+stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
 BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
         "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
 
@@ -35,7 +35,7 @@ def find_land(x, z):
             call("/agents/Mayor", method="DELETE")
         except urllib.error.HTTPError:
             pass
-        call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "creative", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
+        call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
         time.sleep(10)
         call("/agents/Mayor/act", {"action": "find_site", "size": site_size})
         time.sleep(3)
@@ -64,6 +64,7 @@ print(f"spawned {', '.join(names)} in village {village}; mayor plans with {mayor
 
 t0, seen, board, reason, chats = time.time(), {n: 0 for n in names}, "", "time limit", 0
 last_done = time.time()
+fails = {}
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 while time.time() - t0 < minutes * 60:
     time.sleep(5)
@@ -80,11 +81,18 @@ while time.time() - t0 < minutes * 60:
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:220]}", flush=True)
                 if e["type"] == "action_done":
                     last_done = time.time()
+                if e["type"] == "action_failed":
+                    k = (n, e["text"][:80])
+                    fails[k] = fails.get(k, 0) + 1
+                    if fails[k] >= 3:
+                        reason = f"{n} failed the same way 3 times: {e['text'][:160]}"
     v = call(f"/village/{village}")
     b = " ".join(f"{t['id']}:{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}" for t in v["tasks"])
     if b != board:
         board = b
         print(f"{stamp()} BOARD {b}", flush=True)
+    if reason != "time limit":
+        break
     if v.get("complete"):
         reason = "objective declared complete"
         break
