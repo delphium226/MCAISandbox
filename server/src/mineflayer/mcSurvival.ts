@@ -10,7 +10,7 @@ import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
-  sleep, standableY, str, walk,
+  sleep, standableY, str, syncInventory, walk,
 } from './mcUtil';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
@@ -140,10 +140,23 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
     const found = nearestBlocks(a, blocks, 48).filter((p) => !failed.has(at(p)));
     // Blocks in the open first (visible, like a player would pick), then buried ones within 16 blocks
-    const next = found.find((p) => exposed(a, p)) ?? found.find((p) => p.distanceTo(a.bot.entity.position) < 16);
+    let next = found.find((p) => exposed(a, p)) ?? found.find((p) => p.distanceTo(a.bot.entity.position) < 16);
     if (!next) {
-      if (got > 0) throw new Error(`only found ${got} ${label}; no more within 48 blocks: explore to find more`);
-      throw new Error(`no ${label} within 48 blocks; explore to find some${lastError ? ` (last problem: ${lastError})` : ''}`);
+      // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
+      // worker told to "explore" wandered for minutes without ever looking again
+      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p))).find((p) => exposed(a, p));
+      if (next) {
+        const far = Math.round(next.distanceTo(a.bot.entity.position));
+        await reach(a, next.offset(0.5, 0, 0.5), 4, signal, Math.min(180000, 30000 + 1500 * far)).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          failed.add(at(next!));
+        });
+        continue;
+      }
+    }
+    if (!next) {
+      if (got > 0) throw new Error(`only found ${got} ${label}; none left within 128 blocks: explore 100 blocks or more in one direction, then collect again`);
+      throw new Error(`no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     try {
       await mineBlock(a, next, signal);
@@ -251,18 +264,38 @@ function bestPlanks(a: BotAgent): { name: string; n: number } | null {
  * Craft a recipe and wait for the server's inventory update. Crafts sent back to back desync the inventory: the
  * server drops some while the client counts them as made, and later crafts fail on items that are not there.
  */
-async function doCraft(a: BotAgent, r: Recipe, times: number, table: Block | null, signal: AbortSignal): Promise<number> {
-  const id = r.result.id;
-  const before = countItem(a, id);
-  await abortable(a.bot.craft(r, times, table ?? undefined), signal);
-  // Crafting at a table takes longer to show up than in the inventory grid
-  for (let i = 0; i < 20 && countItem(a, id) <= before; i++) await sleep(100, signal);
-  await sleep(300, signal);
-  const got = countItem(a, id) - before;
-  const name = itemName(a, id);
-  if (got <= 0) throw new Error(`crafting ${name} was not confirmed by the server; try again`);
-  a.pushEvent('crafted', `crafted ${got}x ${name}`, { item: name, count: got });
-  return got;
+/**
+ * Craft `times` of a recipe by server command, charged exactly: the ingredients are counted and taken on the server
+ * (/clear) and the result given (/give). Mineflayer's window clicking is unreliable on 26.1: working from a stale view
+ * of the inventory it put crafted planks back into the grid and made an oak_button of them, or crafted nothing, in
+ * most of a series of chest crafts. A recipe that needs a table still needs one placed nearby (ensureTable).
+ */
+async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | null, signal: AbortSignal): Promise<number> {
+  checkAbort(signal);
+  const rcon = a.world.rcon;
+  const name = itemName(a, r.result.id);
+  const count = async (item: string) => Number(/Found (\d+)/i.exec(await rcon.command(`clear ${a.name} ${item} 0`))?.[1] ?? 0);
+  const ingredients = needs(r).map(({ id, count: n }) => ({ item: itemName(a, id), n: n * times }));
+  for (const { item, n } of ingredients) {
+    const have = await count(item);
+    if (have < n) throw new Error(`missing ingredients for ${times} x ${name}: needs ${n} ${item} (have ${have})`);
+  }
+  const taken: Array<{ item: string; n: number }> = [];
+  for (const { item, n } of ingredients) {
+    const got = Number(/Removed (\d+)/i.exec(await rcon.command(`clear ${a.name} ${item} ${n}`))?.[1] ?? 0);
+    if (got < n) {
+      // Something changed under us: give everything back
+      for (const t of [...taken, { item, n: got }]) if (t.n) await rcon.command(`give ${a.name} ${t.item} ${t.n}`);
+      throw new Error(`crafting ${name} failed: could only take ${got} of ${n} ${item}`);
+    }
+    taken.push({ item, n });
+  }
+  const made = r.result.count * times;
+  await rcon.command(`give ${a.name} ${name} ${made}`);
+  await sleep(200, signal);
+  await syncInventory(a);
+  a.pushEvent('crafted', `crafted ${made}x ${name}`, { item: name, count: made });
+  return made;
 }
 
 /** Craft `times` of a recipe that needs no table (planks, sticks, the table itself). */
@@ -297,8 +330,9 @@ async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: 
 
 /** A crafting table within reach of use: a nearby one, or one carried or made and put down. */
 async function ensureTable(a: BotAgent, signal: AbortSignal, notes: string[]): Promise<Block> {
+  // A table far above or below may be out of reach (one on a ledge 4 blocks up had no path to it)
   const near = nearestBlockNamed(a, 'crafting_table', 16);
-  if (near) return near;
+  if (near && Math.abs(near.position.y - a.bot.entity.position.y) <= 3) return near;
   if (!countItem(a, itemId(a, 'crafting_table')!)) {
     const p = bestPlanks(a);
     if (!p || p.n < 4) throw new Error(`needs a crafting table: craft one from 4 planks (have ${p?.n ?? 0}, counting logs)`);
@@ -347,6 +381,7 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   if (!name) throw new Error(`unknown item ${raw}; use exact ids like oak_planks, stick, crafting_table, wooden_pickaxe`);
   const id = itemId(a, name)!;
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
+  await syncInventory(a);
   const all = a.bot.recipesAll(id, null, true);
   if (!all.length) throw new Error(`${name} has no crafting recipe${/ingot|glass|charcoal|stone$|brick$/.test(name) ? ' (try smelt)' : ''}`);
   const start = countItem(a, id);
@@ -360,7 +395,11 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     const { r, short } = scored[0];
     if (short.length) {
       const miss = short.map(([n, need, have]) => `${need}x ${n} (have ${have})`).join(', ');
-      throw new Error(`missing ingredients for ${name}: needs ${describe(a, r)}; short of ${miss}${made ? ` (made ${made} so far)` : ''}`);
+      // Planks and sticks come from logs: say how many more logs would do it
+      const wood = short.reduce((s, [n, need, have]) => s + (/_planks$/.test(n) ? need - have : n === 'stick' ? Math.ceil((need - have) / 4) * 2 : 0), 0);
+      const hint = wood && wood === short.reduce((s, [n, need, have]) => s + (/_planks$|^stick$/.test(n) ? (/_planks$/.test(n) ? need - have : Math.ceil((need - have) / 4) * 2) : 1000), 0)
+        ? `; collect ${Math.ceil(wood / 4)} more log${Math.ceil(wood / 4) > 1 ? 's' : ''} and craft again` : '';
+      throw new Error(`missing ingredients for ${name}: needs ${describe(a, r)}; short of ${miss}${made ? ` (made ${made} so far)` : ''}${hint}`);
     }
     // The table first (it takes 4 planks), then sticks (they take planks), then the recipe's planks
     const table = r.requiresTable ? await ensureTable(a, signal, notes) : null;
@@ -396,11 +435,13 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     if (itemId(a, raw) !== undefined) input = raw;
   }
   if (!input) throw new Error(`unknown item ${String(args.item)}`);
+  await syncInventory(a);
   const inId = itemId(a, input)!;
   const have = countItem(a, inId);
   if (!have) throw new Error(`no ${input} in inventory`);
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
   let furnaceBlock = nearestBlockNamed(a, 'furnace', 16);
+  if (furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;
   const notes: string[] = [];
   if (!furnaceBlock) {
     if (!countItem(a, itemId(a, 'furnace')!)) throw new Error('needs a furnace: craft one from 8 cobblestone');

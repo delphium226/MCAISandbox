@@ -105,7 +105,7 @@ elif cmd == "start":
             continue
         env = {**os.environ, "OLLAMA_HOST": f"127.0.0.1:{c['port']}", "CUDA_VISIBLE_DEVICES": gpu_uuid(c["gpu"]),
                "OLLAMA_NUM_PARALLEL": str(c["parallel"]),
-               "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_KEEP_ALIVE": "60m"}
+               "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_KEEP_ALIVE": "-1"}
         flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
         log = TMP / f"ollama_{n}.log"
         proc = subprocess.Popen([str(EXE), "serve"], env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT, creationflags=flags)
@@ -128,7 +128,14 @@ elif cmd == "start":
             time.sleep(5)
         tps = r.get("eval_count", 0) / max(1e-9, r.get("eval_duration", 1) / 1e9)
         ok = m and m["size_vram"] >= m["size"] and tps >= c["min_tps"]
-        print(f"{n}: {c['model']} on GPU {c['gpu']}, port {c['port']}, {describe(url)}, {tps:.0f} tok/s"
+        # Warm up with a prompt the size of an agent's (~3k tokens): the first long prompt after loading took qwen3.8
+        # about 4 minutes (short ones do not show it), which timed out the first worker plans of a run
+        t = time.time()
+        filler = " ".join(f"Block {i} is stone at {i},{i % 7},{-i}." for i in range(300))
+        call(url, "/api/generate", {"model": c["model"], "prompt": filler + " How many blocks are listed?", "stream": False,
+                                    "options": {"num_ctx": 8192, "num_predict": 20}}, timeout=900)
+        print(f"{n}: {c['model']} on GPU {c['gpu']}, port {c['port']}, {describe(url)}, {tps:.0f} tok/s, "
+              f"long-prompt warm-up {time.time() - t:.0f} s"
               f"{'' if ok else '  WARNING: not all in VRAM or too slow (spilled into system RAM?)'}")
     for i, used, total in gpus():
         print(f"GPU {i}: {used} / {total} MB used")

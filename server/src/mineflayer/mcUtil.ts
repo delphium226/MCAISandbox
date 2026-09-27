@@ -137,6 +137,17 @@ export function standableY(a: BotAgent, x: number, y: number, z: number): number
   return null;
 }
 
+/**
+ * Have the server resend the whole inventory. Mineflayer's own view drifts after crafts and chest transfers (it has
+ * counted 3 new planks for 8, and acacia logs for an oak one), and recipes are then planned on items that are not
+ * there. A no-op click with an impossible state id always gets the full inventory back (Mineflayer's _syncWindow).
+ */
+export async function syncInventory(a: BotAgent): Promise<void> {
+  const sync = (a.bot as unknown as { _syncWindow?: (w: unknown) => Promise<void> })._syncWindow;
+  if (!sync) return;
+  await Promise.race([sync(a.bot.inventory).catch(() => undefined), new Promise((ok) => setTimeout(ok, 2000))]);
+}
+
 /** How many of an item (by id) the bot carries. */
 export function countItem(a: BotAgent, id: number): number {
   return a.bot.inventory.items().reduce((s, it) => s + (it.type === id ? it.count : 0), 0);

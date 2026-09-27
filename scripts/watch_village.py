@@ -1,5 +1,6 @@
-"""Run a village: one mayor plus workers, all tiered agents in creative mode, until the mayor declares the objective
-complete or time runs out.
+"""Run a village: one mayor plus workers, all tiered agents, until the mayor declares the objective complete, the run
+stalls (no successful action for MCAI_STALL_MIN minutes, default 6) or time runs out. Agents are in creative mode unless
+MCAI_GAMEMODE=survival (real Minecraft's village economy: materials are gathered, stored and paid for).
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
 Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30).
@@ -13,6 +14,8 @@ village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), fl
 worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"
 site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30
 mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
+gamemode = os.environ.get("MCAI_GAMEMODE", "creative")
+stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "6"))
 BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
         "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
 
@@ -52,14 +55,15 @@ names = ["Mayor"] + [f"Worker{i + 1}" for i in range(workers)]
 for i, n in enumerate(names):
     mem = {**BASE, "village": village, "planModel": mayor_planner if i == 0 else worker_planner, **({"villageRole": "mayor"} if i == 0 else {})}
     try:
-        call("/agents", {"name": n, "role": "mayor" if i == 0 else "builder", "brain": "tiered", "gamemode": "creative", "reset": True,
+        call("/agents", {"name": n, "role": "mayor" if i == 0 else "builder", "brain": "tiered", "gamemode": gamemode, "reset": True,
                          "position": {"x": x + 0.5 + 2 * i, "y": 90, "z": z + 0.5}, "memory": mem})
     except urllib.error.HTTPError as e:
         print(f"{n}: {e.code} {e.read()[:100]}")
 print(f"spawned {', '.join(names)} in village {village}; mayor plans with {mayor_planner}, workers with {worker_planner}, "
-      f"designs by {BASE['designModel']}, executors {BASE['execModel']}", flush=True)
+      f"designs by {BASE['designModel']}, executors {BASE['execModel']}, {gamemode}", flush=True)
 
 t0, seen, board, reason, chats = time.time(), {n: 0 for n in names}, "", "time limit", 0
+last_done = time.time()
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 while time.time() - t0 < minutes * 60:
     time.sleep(5)
@@ -74,6 +78,8 @@ while time.time() - t0 < minutes * 60:
                 chats += 1
             elif e["type"] in ("action_done", "action_failed", "system"):
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:220]}", flush=True)
+                if e["type"] == "action_done":
+                    last_done = time.time()
     v = call(f"/village/{village}")
     b = " ".join(f"{t['id']}:{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}" for t in v["tasks"])
     if b != board:
@@ -81,6 +87,9 @@ while time.time() - t0 < minutes * 60:
         print(f"{stamp()} BOARD {b}", flush=True)
     if v.get("complete"):
         reason = "objective declared complete"
+        break
+    if time.time() - last_done > stall_minutes * 60:
+        reason = f"stalled: no successful action for {stall_minutes:g} minutes"
         break
 
 v = call(f"/village/{village}")
@@ -90,6 +99,11 @@ for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {t['detail'][:140]}")
 print("DESIGNS", [(d["name"], f"{d['width']}x{d['depth']}x{d['height']}") for d in v["designs"].values()])
 print("PLOTS", [(p["id"], p["x1"], p["x2"], p["z1"], p["z2"], p["y"]) for p in v["plots"]])
+storage = {}
+for c in (v.get("storage") or {}).get("chests", []):
+    for k, q in c["items"].items():
+        storage[k] = storage.get(k, 0) + q
+print("STORAGE", storage)
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])
 for n in names:
     try:

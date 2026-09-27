@@ -33,6 +33,12 @@ const SMELT: Record<string, string> = {
 /** Found in the world as they are (gathering beats their recipes, e.g. coal from a coal block). */
 const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine']);
 
+/** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
+const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2 };
+const gatherCost = (name: string) => GATHER_COST[name] ?? 1;
+/** Raw materials that take finding (iron ore, animals): a village design should not need them. */
+export const hardToGather = (gather: Counts) => Object.keys(gather).filter((n) => gatherCost(n) > 1);
+
 /** Not obtainable in a peaceful overworld: Nether blocks and hostile-mob drops. */
 const UNOBTAINABLE: Record<string, string> = {
   glowstone_dust: 'Nether only', glowstone: 'Nether only', quartz: 'Nether only', netherrack: 'Nether only', soul_sand: 'Nether only',
@@ -56,6 +62,8 @@ export interface Step {
   item: string;
   runs: number;
   makes: number;
+  /** What is smelted (smelting steps). */
+  input?: string;
 }
 
 export interface MaterialPlan {
@@ -149,7 +157,7 @@ export class Materials {
     if (UNOBTAINABLE[name]) return 1000;
     const options = this.optionsFor(name);
     // No recipe at all: gathered as it is
-    let best = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !options.length ? 1 : Infinity;
+    let best = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !options.length ? gatherCost(name) : Infinity;
     let cut = false;
     path.add(name);
     for (const o of options) {
@@ -170,7 +178,7 @@ export class Materials {
   /** The chosen way to get an item, or null when it is gathered. */
   private choose(name: string, memo: Map<string, number>): Option | null {
     const gather = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !!UNOBTAINABLE[name];
-    let best: Option | null = null, bestCost = gather ? (UNOBTAINABLE[name] ? 1000 : 1) : Infinity;
+    let best: Option | null = null, bestCost = gather ? (UNOBTAINABLE[name] ? 1000 : gatherCost(name)) : Infinity;
     for (const o of this.optionsFor(name)) {
       let c = o.kind === 'smelt' ? 0.3 : 0.02;
       for (const [n, q] of Object.entries(o.ins)) {
@@ -258,7 +266,7 @@ export class Materials {
         continue;
       }
       const runs = Math.ceil(need / o.out);
-      steps.push({ do: o.kind, item: n, runs, makes: runs * o.out });
+      steps.push({ do: o.kind, item: n, runs, makes: runs * o.out, ...(o.kind === 'smelt' ? { input: Object.keys(o.ins)[0] } : {}) });
       if (o.kind === 'smelt') smelts += runs;
       // Surplus from a batch (6 planks make 3 doors) stays in the pool for later uses
       if (runs * o.out > need) surplus[n] = (surplus[n] ?? 0) + runs * o.out - need;
@@ -290,4 +298,32 @@ export function describePlan(p: MaterialPlan): string {
   const work = describeWork(p);
   if (work) parts.push(work);
   return parts.join('; ');
+}
+
+const PICKAXE = /^(cobblestone|stone|sandstone|red_sandstone|terracotta|coal|raw_iron)$/;
+
+/**
+ * Village tasks that gather raw materials into the storage (collect, then deposit everything), in even parts small
+ * enough for two workers to share: at most 12 logs or 32 of anything else (57 cobblestone: 29 and 28).
+ */
+export function gatherTasks(gather: Counts, label: string): Array<{ title: string; detail: string }> {
+  const merged: Counts = {};
+  for (const [item, n] of Object.entries(gather)) {
+    // Logs of any kind will do (builders swap wood kinds); a furnace takes any cobblestone
+    const what = /_log$|^any:logs$/.test(item) ? 'logs' : item === 'any:cobblestone' ? 'cobblestone' : item.replace(/^any:/, '');
+    merged[what] = (merged[what] ?? 0) + n;
+  }
+  const tasks: Array<{ title: string; detail: string }> = [];
+  for (const [what, n] of Object.entries(merged)) {
+    const parts = Math.ceil(n / (what === 'logs' ? 12 : 32));
+    for (let i = 0; i < parts; i++) {
+      const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
+      const tool = PICKAXE.test(what) ? ' (mining it needs a pickaxe: if you have none, craft a wooden_pickaxe first; keep your tools)' : '';
+      tasks.push({
+        title: `Gather ${q} ${what} for ${label}${parts > 1 ? ` (${i + 1}/${parts})` : ''}`,
+        detail: `collect block=${what} count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)${tool}`,
+      });
+    }
+  }
+  return tasks;
 }

@@ -18,9 +18,10 @@ import type { Area, Design, Reservation } from '../village';
 import { areaText, overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { chargedItem, describeWork, type Counts } from './mcMaterials';
-import { storageContents, withdrawItems } from './mcStorage';
-import { at, checkAbort, goals, num, sleep, standableY, str, walk } from './mcUtil';
+import { chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
+import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
+import { SURVIVAL_SKILLS } from './mcSurvival';
+import { at, checkAbort, goals, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
 
 type Pos = [number, number, number];
 
@@ -85,7 +86,9 @@ function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | 
     if (isLog(b.name) || isLeaves(b.name)) trees++;
     if (b.boundingBox === 'block' && !NON_GROUND.test(b.name)) return { y, block: b.name, liquid: false, trees };
   }
-  return null;
+  // Loaded, but no ground within 48 blocks down: a ravine or a cave shaft (reported as far below the level, not as
+  // unloaded: "walk closer" sent a worker standing beside the plot walking in circles)
+  return { y: yHint - 48, block: 'air', liquid: false, trees };
 }
 
 /** The whole tree around a log or leaf block: its connected logs and the leaves around them (tree felling). */
@@ -160,6 +163,35 @@ interface Job {
   free?: boolean;
   /** What is being built, for messages ("the cottage"). */
   what?: string;
+  /** The design (build_design): a short village build puts its task back on the board behind new gather tasks. */
+  design?: string;
+}
+
+/**
+ * A village build that is short of raw materials (some gathered wood went missing, say): post gather tasks for exactly
+ * what is missing, put the build task back on the board behind them, and return what was withdrawn to the storage.
+ * Returns what to tell the builder, or '' when the agent holds no such task.
+ */
+async function requeueBuild(a: BotAgent, job: Job, short: Counts, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const task = v && job.design ? v.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && t.detail.includes(`build_design "${job.design}"`)) : undefined;
+  if (!v || !task) return '';
+  const store = storageContents(v);
+  const other: Counts = { ...inventoryCounts(a) };
+  for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
+  for (const n of Object.keys(short)) delete other[n];
+  const plan = a.world.materials.plan(short, other);
+  if (!Object.keys(plan.gather).length || plan.problems.length) return '';
+  const reg = a.world.villages;
+  const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design!), a.name, 20);
+  task.status = 'open';
+  task.claimedBy = undefined;
+  task.after = [...task.after, ...made.map((t) => t.id)];
+  task.updated = Date.now();
+  reg.note(v, `${task.id} "${task.title}" waits for ${made.map((t) => t.id).join(', ')}: materials were short`);
+  // What this builder took from the storage goes back, for whoever builds it next
+  await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch(() => undefined);
+  return ` Posted ${made.map((t) => `${t.id} ${t.title}`).join('; ')} and put ${task.id} back on the board to wait for them; your part is done.`;
 }
 
 /** Survival builders pay for every block; creative builds free, and memory.buildMode "commands" too (tests). */
@@ -256,6 +288,63 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
   return `short of materials for ${what}: ${lines.join(', ')}. To get them: ${work || 'gather them'}; then build again`;
 }
 
+/**
+ * Make what is short from what is in hand and in the village storage: gatherers bring raw materials, the builder crafts
+ * planks, doors and slabs and smelts glass (with a crafting table and a furnace, made too if there are none). Returns
+ * what was made, or null when something still has to be gathered.
+ */
+async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal): Promise<string | null> {
+  const v = a.village();
+  const store = v ? storageContents(v) : {};
+  const carried = inventoryCounts(a);
+  // What is on hand beyond the building's own blocks (the cobblestone carried for the floor is not furnace material)
+  const other: Counts = { ...carried };
+  for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
+  for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
+  const near = (n: string) => {
+    const p = a.bot.entity.position;
+    return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: 16, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
+  };
+  const bill: Counts = { ...short };
+  let plan = a.world.materials.plan(bill, other);
+  if (plan.fuel.smelts && !other.furnace && !near('furnace')) bill.furnace = 1;
+  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) bill.crafting_table = 1;
+  plan = a.world.materials.plan(bill, other);
+  if (Object.keys(plan.gather).length || plan.problems.length) return null;
+  // Ingredients kept in storage come to hand first
+  const fetch: Counts = {};
+  for (const [n, q] of Object.entries(plan.fromStock)) {
+    const spare = Math.max(0, (carried[n] ?? 0) - (need[n] ?? 0));
+    const f = Math.min(q - spare, store[n] ?? 0);
+    if (f > 0) fetch[n] = f;
+  }
+  if (v && Object.keys(fetch).length) {
+    await withdrawItems(a, v, fetch, signal);
+    // Craft at the site, where the table and furnace were looked for
+    await back();
+  }
+  // The table and the furnace first (smelting does not depend on the furnace in the recipe chain)
+  const station = (st: { item: string }) => Number(!/^(crafting_table|furnace)$/.test(st.item));
+  const steps = [...plan.steps].sort((x, y) => station(x) - station(y));
+  const made: string[] = [];
+  for (const st of steps) {
+    checkAbort(signal);
+    try {
+      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? 'planks' : st.item, count: st.makes }, signal);
+      else {
+        // "Any logs" (charcoal) is whichever kind is carried
+        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log' : st.input ?? '';
+        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs }, signal);
+      }
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      throw new Error(`could not ${st.do} ${st.makes} ${st.item.replace(/^any:/, '')} for the building (${(e as Error).message})`);
+    }
+    made.push(`${st.do === 'smelt' ? 'smelted' : 'crafted'} ${st.makes} ${st.item.replace(/^any:/, '')}`);
+  }
+  return made.length ? `made from storage: ${made.join(', ')}` : null;
+}
+
 /** Stand just south of the site (out of the way of the blocks), where it can be seen. */
 async function standBy(a: BotAgent, job: Job, signal: AbortSignal) {
   const cx = Math.floor((job.area.x1 + job.area.x2) / 2), sz = job.area.z2 + 3;
@@ -305,6 +394,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     let place = todo.filter((t) => t.block !== 'air').sort((u, w) => u.y - w.y || u.x - w.x || u.z - w.z);
     if (pay) {
       // Survival: have everything before starting, taking what is missing from the village storage
+      await syncInventory(a);
       const store = v ? storageContents(v) : {};
       const all = inventoryCounts(a);
       for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
@@ -325,8 +415,24 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         await standBy(a, job, signal);
         inv = await carriedCounts(a, Object.keys(need));
       }
-      const why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
-      if (why) throw new Error(why);
+      let why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+      if (why) {
+        // Short only of things that can be made from what is in hand and in storage: make them here
+        const short: Counts = {};
+        for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
+        const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal);
+        if (made) {
+          notes.push(made);
+          await standBy(a, job, signal);
+          inv = await carriedCounts(a, Object.keys(need));
+          why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+        }
+      }
+      if (why) {
+        const left: Counts = {};
+        for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
+        throw new Error(why + (await requeueBuild(a, job, left, signal)));
+      }
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
     type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean };
@@ -752,7 +858,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   if (work.length > 60000) throw new Error(`too big (${work.length} blocks, max 60000)`);
   a.memory.pendingBuilds = { ...pending, [key]: y0 };
   const summary = await runJob(a, {
-    targets: work, area, y: y0, what: `the ${d.name}`,
+    targets: work, area, y: y0, what: `the ${d.name}`, design: d.name,
     claim: { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true },
   }, signal).catch((e: Error) => {
     // A fresh build that placed nothing (short of materials, site taken) gets the site checks again next time

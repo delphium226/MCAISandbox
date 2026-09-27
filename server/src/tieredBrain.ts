@@ -25,7 +25,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
-import type { Design, Village } from './village';
+import { layoutBuildings, type Design, type Village } from './village';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
@@ -35,6 +35,8 @@ export const OLLAMA_ROUTES = new Map(
 );
 const ollamaUrl = (model: string) => OLLAMA_ROUTES.get(model) ?? OLLAMA_URL;
 const OLLAMA_CTX = Number(process.env.MC_OLLAMA_CTX ?? 8192);
+/** How long one local model call may take (MC_OLLAMA_TIMEOUT, seconds): a 27B planner can queue behind another agent's call. */
+const OLLAMA_TIMEOUT_MS = Number(process.env.MC_OLLAMA_TIMEOUT ?? 300) * 1000;
 const EXEC_INTERVAL_MS = Number(process.env.MC_LLM_INTERVAL_MS ?? 6000);
 const PLAN_INTERVAL_MS = Number(process.env.MC_PLAN_INTERVAL_MS ?? 180000);
 
@@ -72,12 +74,14 @@ async function completeOllama(model: string, system: string, user: string, tools
       model,
       stream: false,
       think: false,
-      keep_alive: '30m',
+      // A model on its own pinned server stays loaded: reloaded after an idle unload, it once came back partly in
+      // system RAM (a planner call then took over 3 minutes); the shared app unloads after 30 minutes as before
+      keep_alive: OLLAMA_ROUTES.has(model) ? -1 : '30m',
       options: { num_ctx: OLLAMA_CTX, temperature: 0.4 },
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
     }),
-    signal: AbortSignal.timeout(180000),
+    signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as {
@@ -173,6 +177,11 @@ const MAYOR_PLAN_TOOLS: ToolDef[] = [
       tasks: { type: 'array', items: obj({ title: { type: 'string' }, detail: { type: 'string' }, after: { type: 'array', items: {} } }, ['title', 'detail']) },
     }, ['tasks']),
   },
+  {
+    name: 'plan_layout',
+    description: 'Once the site is found (find_site) and every design is in the library: lay the buildings out on one plot with streets and post all their tasks (prepare the plot, village storage, gathering materials, building). Code computes the positions and the materials. List one design name per building; repeat a name for each copy.',
+    input_schema: obj({ buildings: { type: 'array', items: { type: 'string' }, description: 'e.g. ["cottage", "cottage", "meeting_hall"]' } }, ['buildings']),
+  },
   { name: 'declare_complete', description: 'Declare the village objective achieved (only when the village summary shows it).', input_schema: obj({ summary: { type: 'string' } }, ['summary']) },
 ];
 
@@ -182,21 +191,37 @@ marked done when your plan's steps are all complete, so the steps must fully acc
 "prepare_site x=.. z=.. width=.. depth=.." or "build_design cottage at x=.. z=.."). Use the coordinates, plots and designs
 the task and the village summary give; never build over another building or on ground someone else is working on.`;
 
+/** Workers in the survival economy: materials are gathered and pooled. */
+const WORKER_SURVIVAL = `
+Materials are gathered by hand and pooled in the village storage: a gathering task is collect, then deposit (keep your
+tools; craft a wooden_pickaxe first if the task needs one and you have none). build_design takes what it needs from the
+storage itself and crafts planks, doors and glass from what is there; if it says materials are short, those must be
+gathered first (hand the task back with request_replan rather than gathering for it yourself).`;
+
 const MAYOR_ROLE = `
-You are the mayor. You coordinate; you do not build or prepare land yourself. Workers claim tasks from the task board,
-one at a time in the order posted, and do the physical work.
-First choose where the village goes: if the village has no plot and you have no find_site result yet, set_plan with a
-find_site step sized for the whole village (e.g. size 30 for four small buildings plus streets) and post only the design
-tasks. Any dry, flat land will do, whatever the biome (desert, badlands, savanna): do not go looking for a better one. Once you know the site, post the rest with post_tasks, always with absolute coordinates:
-1. Designs, one task per kind of building: 'Design "cottage"' with a brief (style, materials, size up to 11x11).
-2. Land: 'Prepare the village plot': prepare_site at x, z (the site centre) with width and depth.
-3. Buildings: one task per building: 'Build cottage 1': build_design "cottage" at x, z (inside the plot), after the design
-   and land tasks. Space footprints (design width x depth) so there are 3-block streets between buildings.
-   Walls and fences are not designs: 'Build the north wall': build structure "wall" from x, z with length and direction
-   (the direction it runs, e.g. east along a north edge), material, after the land task.
-Keep each task specific enough that a worker can do it without asking. Review the board when it changes: re-post failed
-tasks with a fix, add follow-ups, and call declare_complete once the summary shows the objective is met. Use set_plan
-only for your own steps (find_site, chat once to announce, design_building), or with an empty list to wait.`;
+You are the mayor. You coordinate; you do not build, gather or prepare land yourself. Workers claim tasks from the task
+board, one at a time in the order posted, and do the physical work.
+1. Site and designs: while the village has no plot and you have no find_site result, set_plan with a find_site step
+   (size 30 fits three or four small buildings with streets) followed by one design_building step per kind of building
+   the objective needs (e.g. 'design_building name=cottage brief=...', size up to 11x11; matching buildings share one
+   design). Any dry, flat land will do, whatever the biome (desert, badlands, savanna): do not look for a better one.
+2. Layout: once the site is found and every design is in the library, call plan_layout with one design name per
+   building (e.g. ["cottage", "cottage", "meeting_hall"]). Code places the buildings on one plot with streets and posts
+   every task they need (land, storage, materials, building, in order). Do not compute coordinates or post those tasks
+   yourself.
+3. Then wait: set_plan with an empty list. Review the board when it changes: re-post a failed task with a fix
+   (post_tasks), and call declare_complete once the summary shows the objective is met. Walls and fences are not
+   designs: if the objective asks for them, post_tasks 'build structure "wall" from x, z, length, direction, material'
+   after the land task.`;
+
+/** The mayor in the survival economy: designs must be cheap to gather. */
+const MAYOR_SURVIVAL = `
+Materials are gathered by hand: brief the designs with cheap materials (planks, logs, cobblestone or sandstone, at most
+a few glass windows; no bricks, stone bricks, wool, bookshelves, glowstone or lanterns). Gathering takes a while: wait
+for it.`;
+
+/** Architect's note in the survival economy. */
+const DESIGN_SURVIVAL = 'Materials are gathered by hand in survival: use only planks, logs, cobblestone, sandstone and at most 4 glass (no bricks, stone bricks, wool, bookshelves, glowstone, lanterns or smooth stone).';
 
 /** Executor tools the brain handles itself, added to the world's skills. */
 const BRAIN_TOOLS: ToolDef[] = [
@@ -234,8 +259,7 @@ Given the agent's role, objective, situation, previous plan and recent events, c
 If an objective is given, every plan must work toward it.
 Each step must be concrete, checkable from the inventory or surroundings, and achievable with the skills above
 (e.g. "Collect 8 logs", "Craft 4 oak_planks into a crafting_table", "Smelt 3 raw_iron"). Build on what the agent already has.
-Follow the usual progression: wood -> crafting table -> wooden pickaxe -> stone tools -> furnace -> coal and iron -> iron tools.
-Keep the agent alive (food, night, monsters) and fit the role. Use exact item and block ids.
+Use exact item and block ids.
 In creative mode the agent cannot be hurt, has unlimited blocks (get_item, and build supplies its own) and needs no gathering:
 plan building projects the way a player does: find_site (never guess coordinates: the ground may be water or a cliff),
 then prepare_site to fell trees and level a plot big enough for the project plus room to walk (a 7x7 house needs about 11x11,
@@ -244,6 +268,14 @@ add a step to design_building when the village needs a new kind of building (a d
 match). build (simple hut/house/wall) and build_box (custom shapes) also work.
 Structures must not overlap: give each its own space on the plot. To grow a settlement, prepare the neighbouring area with the
 same y as the existing plot, then build there.`;
+
+/** For agents on their own (not in a village): the survival progression. Village roles get their role instead. */
+const PLAN_SOLO = `
+Follow the usual progression: wood -> crafting table -> wooden pickaxe -> stone tools -> furnace -> coal and iron -> iron tools.
+Keep the agent alive (food, night, monsters) and fit the role.`;
+
+/** Skills a mayor's plan step may not use: gathering, crafting, building and land work are for the workers. */
+const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|gather|attack|give|equip)\b/i;
 
 const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your
@@ -491,7 +523,7 @@ export class TieredBrain implements AgentBrain {
       const plan = this.plan(a);
       const type = String(e.data?.type ?? '');
       if (plan && type && type !== 'move_to') {
-        const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`).test(st));
+        const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st));
         if (i >= 0) {
           this.stat(a, 'stepsDone', i + 1 - plan.step);
           this.stat(a, 'stepsAutoDone');
@@ -499,7 +531,7 @@ export class TieredBrain implements AgentBrain {
         }
       }
       // The mayor's site search is what unblocks the land and building tasks: act on it straight away
-      if (e.data?.type === 'find_site' && villageRole(a) === 'mayor') this.replanReason = `you found a site (${e.text.slice(0, 160)}): post the land and building tasks for it now`;
+      if (e.data?.type === 'find_site' && villageRole(a) === 'mayor') this.replanReason = `you found a site (${e.text.slice(0, 160)}): draw any design still missing, then call plan_layout`;
     }
   }
 
@@ -520,6 +552,13 @@ export class TieredBrain implements AgentBrain {
     if (v && role === 'worker' && complete && plan.taskId && v.tasks.find((t) => t.id === plan.taskId)?.status === 'claimed') {
       a.world.villages.finish(v, plan.taskId, a.name, this.notes.slice(-3).join(' ') || 'done');
       plan.taskId = undefined;
+    }
+    // Its task finished by code (the first deposit completes the storage task) or put back on the board (a build short
+    // of materials waits for new gather tasks): the rest of the plan is moot
+    const held = v && plan?.taskId ? v.tasks.find((t) => t.id === plan.taskId) : undefined;
+    if (v && role === 'worker' && plan?.taskId && !complete && held && (held.status === 'done' || held.status === 'open' || held.claimedBy !== a.name)) {
+      plan.taskId = undefined;
+      plan.step = plan.steps.length;
     }
     const boardKey = v ? v.tasks.map((t) => t.status[0]).join('') : '';
 
@@ -679,7 +718,8 @@ export class TieredBrain implements AgentBrain {
     }
     const task = v && this.claimedTask ? v.tasks.find((t) => t.id === this.claimedTask) : undefined;
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
-    const system = toolsFor(a.world.skills).planSystem + (role === 'mayor' ? MAYOR_ROLE : role === 'worker' ? WORKER_ROLE : '');
+    const economy = a.gamemode !== 'creative' && !!a.world.materialTasks;
+    const system = toolsFor(a.world.skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
     const tools = role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS;
     const planStart = Date.now();
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
@@ -688,8 +728,42 @@ export class TieredBrain implements AgentBrain {
     for (const c of reply.calls) {
       if (!v) break;
       if (c.name === 'post_tasks' && Array.isArray(c.input.tasks)) {
-        const made = reg.post(v, postedTasks(c.input.tasks as unknown[]), a.name);
-        a.pushEvent('system', `Posted tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}`);
+        let posted = postedTasks(c.input.tasks as unknown[]);
+        // A mayor writing the building tasks by hand before any layout (gpt-oss did, with its own gather and craft
+        // chain): lay those buildings out in code instead, and drop its land and materials tasks
+        const designOf = (t: { title: string; detail: string }) => {
+          const text = `${t.title} ${t.detail}`.toLowerCase();
+          return /build/.test(text) ? Object.keys(v.designs).find((n) => new RegExp(`(^|[^a-z0-9_])${n.replace(/[^a-z0-9_]/g, '.')}($|[^a-z0-9_])`).test(text)) : undefined;
+        };
+        const builds = posted.map(designOf).filter((n): n is string => !!n);
+        if (role === 'mayor' && builds.length && !v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail))) {
+          const out = this.layout(a, v, { buildings: builds });
+          a.pushEvent('system', `Building tasks are laid out in code (plan_layout): ${out}`);
+          console.log(`[tiered] ${a.name} post_tasks -> plan_layout: ${out}`);
+          posted = posted.filter((t) => !designOf(t) && !/prepare_site|prepare the|collect|gather|craft|smelt|deposit|withdraw/i.test(`${t.title} ${t.detail}`));
+        }
+        // With a layout on the board and nothing failed, the mayor's own land, storage, gathering and building tasks
+        // duplicate it (gpt-oss re-posted its whole chain when a worker's plan timed out)
+        const laidOut = v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail));
+        if (role === 'mayor' && laidOut && !v.tasks.some((t) => t.status === 'failed')) {
+          const dup = (t: { title: string; detail: string }) => !!designOf(t) || /prepare|storage|chest|collect|gather|craft|smelt|deposit|withdraw/i.test(`${t.title} ${t.detail}`);
+          const skipped = posted.filter(dup);
+          if (skipped.length) {
+            posted = posted.filter((t) => !dup(t));
+            a.pushEvent('system', `Not posted, the layout's tasks already cover them (wait for the workers; re-post only a failed task): ${skipped.map((t) => t.title).join('; ')}`);
+          }
+        }
+        if (posted.length) {
+          const made = reg.post(v, posted, a.name);
+          a.pushEvent('system', `Posted tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}`);
+        }
+      }
+      if (c.name === 'plan_layout') {
+        const out = this.layout(a, v, c.input);
+        a.pushEvent('system', out);
+        // Refused (a design missing, the site too small, ...): act on the reason now, not at the next review
+        if (out.startsWith('plan_layout:')) this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
+        console.log(`[tiered] ${a.name} plan_layout: ${out}`);
       }
       if (c.name === 'declare_complete') {
         v.complete = true;
@@ -699,8 +773,19 @@ export class TieredBrain implements AgentBrain {
       }
     }
     const call = reply.calls.find((c) => c.name === 'set_plan');
-    const steps = Array.isArray(call?.input.steps) ? (call.input.steps as unknown[]).map(stepText).filter(Boolean) : [];
-    const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete');
+    let steps = Array.isArray(call?.input.steps) ? (call.input.steps as unknown[]).map(stepText).filter(Boolean) : [];
+    if (role === 'mayor' && steps.length) {
+      // The mayor does not gather or build (its executor cannot): drop such steps, and without a site find one first
+      const dropped = steps.filter((st) => WORKER_WORK.test(st) && !/design_building|find_site/i.test(st));
+      if (dropped.length) {
+        steps = steps.filter((st) => !dropped.includes(st));
+        if (!a.memory.lastSite && !v?.plots.length && !steps.some((st) => /find_site/i.test(st))) steps.unshift('find_site size=30');
+        a.pushEvent('system', `Dropped plan steps that are workers' jobs (the mayor does not gather, craft or build; plan_layout posts those tasks): ${dropped.join(' | ')}`);
+        // With the site and the designs in hand, what is left is plan_layout: ask for it now, not at the next review
+        if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason = 'the site and the designs are ready: call plan_layout with one design name per building now';
+      }
+    }
+    const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete' || c.name === 'plan_layout');
     if (role === 'mayor' && (!call || !steps.length)) {
       // Nothing to do personally: wait for the board to change
       a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
@@ -712,14 +797,84 @@ export class TieredBrain implements AgentBrain {
 
     const plan: Plan = { goal: call.input.goal, steps: steps.slice(0, 8), step: 0, by: label(spec), tick: a.world.ticks };
     if (v && role === 'worker') plan.taskId = this.claimedTask ?? old?.taskId;
-    // Re-issuing the same steps (common on a stall review) keeps the progress made so far.
-    if (old && JSON.stringify(old.steps) === JSON.stringify(plan.steps)) plan.step = old.step;
+    // Re-issuing the same steps (common on a stall review) keeps the progress made so far, for the same task only (two
+    // "Gather 13 logs" tasks in a row plan identical steps: the second was marked done without any work)
+    if (old && old.taskId === plan.taskId && JSON.stringify(old.steps) === JSON.stringify(plan.steps)) plan.step = old.step;
     a.memory.plan = plan;
     if (typeof call.input.notes === 'string' && call.input.notes.trim()) a.memory.notes = call.input.notes.trim();
     this.lastPlan = Date.now();
     this.failuresSincePlan = 0;
     a.pushEvent('system', `New plan: ${plan.goal} | ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join(' ')}`);
     console.log(`[tiered] ${a.name} plan (${plan.by}, ${why}): ${plan.goal}\n  ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n  ')}`);
+  }
+
+  /**
+   * plan_layout: place the buildings on one plot around the mayor's find_site result and post every task for them, in
+   * order: prepare the plot, set up the storage and gather materials (survival economy), then each building at its
+   * computed position. Returns what happened (or why not) for the mayor's events.
+   */
+  private layout(a: WorldAgent, v: Village, input: Record<string, unknown>): string {
+    const reg = a.world.villages;
+    const raw = Array.isArray(input.buildings) ? (input.buildings as unknown[]) : typeof input.buildings === 'string' ? String(input.buildings).split(',') : [];
+    const names: string[] = [];
+    for (const b of raw) {
+      // A name, or {design, count}
+      const o = b && typeof b === 'object' ? (b as Record<string, unknown>) : null;
+      const n = String(o ? o.design ?? o.name ?? '' : b).trim().toLowerCase().replace(/^"|"$/g, '');
+      const count = o && Number(o.count) > 1 ? Math.min(8, Math.floor(Number(o.count))) : 1;
+      if (n) for (let i = 0; i < count; i++) names.push(n);
+    }
+    if (!names.length) return 'plan_layout needs buildings: a list of design names, one per building (repeat a name for each copy)';
+    const missing = [...new Set(names.filter((n) => !v.designs[n]))];
+    if (missing.length) return `plan_layout: no design yet for ${missing.map((n) => `"${n}"`).join(', ')}; draw ${missing.length > 1 ? 'them' : 'it'} with design_building first, then call plan_layout again`;
+    const site = a.memory.lastSite as { x: number; y: number; z: number } | undefined;
+    if (!site) return 'plan_layout: no site yet; run find_site first (size 30 for three or four small buildings)';
+    const laidOut = v.tasks.filter((t) => t.postedBy === a.name && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
+    if (laidOut.length) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
+    const economy = a.gamemode !== 'creative' && !!a.world.materialTasks;
+    const materials = new Map<string, ReturnType<NonNullable<typeof a.world.materialTasks>>>();
+    if (economy)
+      for (const n of new Set(names)) {
+        const m = a.world.materialTasks!(v.designs[n], '{label}');
+        if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
+        materials.set(n, m);
+      }
+    const lay = layoutBuildings(site.x, site.z, names.map((n) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth })));
+    if (lay.width > 32 || lay.depth > 32) return `plan_layout: ${names.length} buildings need a ${lay.width}x${lay.depth} plot, more than the 32x32 prepare_site allows; lay out fewer buildings now and the rest on a second site later`;
+    // The site search must have looked at ground as big as the plot plus prepare_site's margin
+    const need = Math.max(lay.width, lay.depth) + 4;
+    const siteSize = Number((a.memory.lastSite as { size?: number }).size ?? 0);
+    if (siteSize && siteSize < need) return `plan_layout: these buildings need a ${lay.width}x${lay.depth} plot, but find_site looked for only ${siteSize}x${siteSize}; run find_site size=${need}, then call plan_layout again`;
+    const why = reg.conflict(v, lay.plot, a.name);
+    if (why) return `plan_layout: the plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2} is not free (${why}); run find_site again for another site`;
+    const tasks: Array<{ title: string; detail: string; after: Array<string | number> }> = [];
+    tasks.push({ title: 'Prepare the village plot', detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${names.length} buildings and the streets between them)`, after: [] });
+    let storage: number | undefined;
+    if (economy && !v.storage?.chests.length) {
+      storage = tasks.length;
+      const sx = lay.x, sz = lay.plot.z2 + 4;
+      tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
+    }
+    const copies = new Map<string, number>();
+    const total = (n: string) => names.filter((x) => x === n).length;
+    for (const p of lay.places) {
+      const k = (copies.get(p.name) ?? 0) + 1;
+      copies.set(p.name, k);
+      const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
+      const gather: number[] = [];
+      for (const t of materials.get(p.name)?.tasks ?? []) {
+        gather.push(tasks.length);
+        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: storage !== undefined ? [storage] : [] });
+      }
+      tasks.push({
+        title: `Build ${label}`,
+        detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}`,
+        after: [0, ...gather],
+      });
+    }
+    const made = reg.post(v, tasks, a.name, 100);
+    reg.note(v, `${a.name} laid out ${names.join(', ')} on a ${lay.width}x${lay.depth} plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2}`);
+    return `Laid out ${names.length} buildings on a ${lay.width}x${lay.depth} plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2} (${lay.places.map((p) => `${p.name} at ${p.x},${p.z}`).join('; ')}) and posted ${made.length} tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}. Now wait for the workers.`;
   }
 
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */
@@ -735,6 +890,7 @@ export class TieredBrain implements AgentBrain {
       `Design a building named "${name}". Brief: ${brief}`,
       v ? `It is for the village ${v.name}${v.objective ? ` (objective: ${v.objective})` : ''}.` : '',
       existing.length ? `Existing designs (make this one distinct): ${existing.map((d) => `${d.name} (${d.width}x${d.depth}, ${d.description})`).join('; ')}` : '',
+      a.gamemode !== 'creative' && a.world.materialTasks ? DESIGN_SURVIVAL : '',
     ].filter(Boolean).join('\n');
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -744,7 +900,10 @@ export class TieredBrain implements AgentBrain {
         problems = ['no submit_design call was made'];
       } else {
         const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.name, { isPlaceable: (b) => a.world.isPlaceable(b) });
-        if (design) {
+        // In the survival economy every block must be obtainable (no glowstone from the Nether)
+        const unobtainable = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name).problems : [];
+        if (unobtainable.length) errors.push(`these blocks cannot be had here: ${unobtainable.join('; ')}; use other materials`);
+        if (design && !unobtainable.length) {
           if (v) {
             v.designs[design.name] = design;
             a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);

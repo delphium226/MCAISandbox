@@ -12,7 +12,7 @@ import { overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt } from './mcSurvival';
-import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, str } from './mcUtil';
+import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, str, syncInventory } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -111,6 +111,8 @@ function chestSpotOk(a: BotAgent, v: Village, pos: Vec3): boolean {
   const here = bot.blockAt(pos), above = bot.blockAt(pos.offset(0, 1, 0)), ground = bot.blockAt(pos.offset(0, -1, 0));
   if (!here || !above || !ground) return false;
   if (here.boundingBox !== 'empty' || here.name === 'water' || here.name === 'lava' || above.boundingBox !== 'empty' || ground.boundingBox !== 'block') return false;
+  // Not on a block that opens when clicked (placing against a chest opens it instead: the server refused the chest)
+  if (/chest|barrel|furnace|smoker|crafting_table|door|trapdoor|gate|bed$|shulker|anvil|table$|lectern|hopper|dispenser|dropper/.test(ground.name)) return false;
   const cell = { x1: pos.x, z1: pos.z, x2: pos.x, z2: pos.z };
   if (v.plots.some((p) => overlaps(cell, p, 1))) return false;
   if (a.world.villages.conflict(v, { x1: pos.x - 1, z1: pos.z - 1, x2: pos.x + 1, z2: pos.z + 1 }, a.name)) return false;
@@ -155,6 +157,13 @@ async function placeChest(a: BotAgent, v: Village, signal: AbortSignal): Promise
   v.storage.chests.push(c);
   v.structures.push({ id: a.world.villages.id('s'), kind: 'storage', x1: spot.x, z1: spot.z, x2: spot.x, z2: spot.z, y: spot.y, builtBy: a.name });
   a.world.villages.note(v, `${a.name} put ${first ? 'the storage chest' : 'another storage chest'} at ${at(spot)}`);
+  // That was the storage task (whatever steps were left of it)
+  if (first)
+    for (const t of v.tasks)
+      if (/set up the village storage/i.test(t.title) && (t.status === 'open' || t.status === 'claimed')) {
+        t.claimedBy ??= a.name;
+        a.world.villages.finish(v, t.id, t.claimedBy, `storage chest at ${at(spot)}`);
+      }
   return c;
 }
 
@@ -176,6 +185,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     }
     return out;
   };
+  await syncInventory(a);
   let want = carried();
   if (!want.size) throw new Error(`not carrying ${m.label} (carrying ${a.bot.inventory.items().map((it) => `${it.count} ${it.name}`).join(', ') || 'nothing'})`);
   const chestId = itemId(a, 'chest')!;
@@ -209,6 +219,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     } finally {
       w.close();
     }
+    await syncInventory(a);
     v.storage!.updated = Date.now();
     a.world.villages.save();
     want = carried();
@@ -251,6 +262,7 @@ async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string)
     } finally {
       w.close();
     }
+    await syncInventory(a);
     v.storage!.updated = Date.now();
     a.world.villages.save();
   }

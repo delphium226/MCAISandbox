@@ -184,9 +184,10 @@ export class VillageRegistry {
   }
 
   /** Post tasks; `after` may name existing task ids or earlier tasks in the same batch by 0-based index. */
-  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number> }>, by: string): Task[] {
+  /** Post tasks (at most `max` at once: a guard against models flooding the board; code posting a layout lifts it). */
+  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number> }>, by: string, max = 8): Task[] {
     const made: Task[] = [];
-    for (const t of tasks.slice(0, 8)) {
+    for (const t of tasks.slice(0, max)) {
       const after = (t.after ?? []).map((a) => (typeof a === 'number' ? made[a]?.id : String(a))).filter((id): id is string => !!id && !!(this.task(v, id) ?? made.find((m) => m.id === id)));
       const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now() };
       v.tasks.push(task);
@@ -268,4 +269,59 @@ export class VillageRegistry {
     if (res.length) lines.push('Ground others are working on:', ...res.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));
     return lines.join('\n');
   }
+}
+
+/** A building to lay out: its design name and footprint. */
+export interface Footprint {
+  name: string;
+  width: number;
+  depth: number;
+}
+
+export interface Layout {
+  /** The plot to prepare (buildings, streets and a margin), and its centre and size for prepare_site. */
+  plot: Area;
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  /** Each building's footprint and its centre (x, z as build_design takes them), in build order. */
+  places: Array<Footprint & Area & { x: number; z: number }>;
+}
+
+/**
+ * Pack buildings into rows on one plot centred at (cx, cz), with `street` blocks between buildings and rows and a
+ * margin round the edge; the column count that gives the squarest plot wins. Code does this, not the mayor: models
+ * placed buildings overlapping or sticking out of the plot.
+ */
+export function layoutBuildings(cx: number, cz: number, items: Footprint[], street = 3, margin = 2): Layout {
+  const sorted = [...items].sort((a, b) => b.width * b.depth - a.width * a.depth);
+  let best: { rows: Footprint[][]; rowWidth: number[]; rowDepth: number[]; W: number; D: number; score: number } | null = null;
+  for (let cols = 1; cols <= Math.max(1, sorted.length); cols++) {
+    const rows: Footprint[][] = [];
+    for (let i = 0; i < sorted.length; i += cols) rows.push(sorted.slice(i, i + cols));
+    const rowWidth = rows.map((r) => r.reduce((s, f) => s + f.width, 0) + street * (r.length - 1));
+    const rowDepth = rows.map((r) => Math.max(...r.map((f) => f.depth)));
+    const W = Math.max(...rowWidth) + 2 * margin;
+    const D = rowDepth.reduce((s, d) => s + d, 0) + street * (rows.length - 1) + 2 * margin;
+    const score = Math.max(W, D) * 1000 + W * D;
+    if (!best || score < best.score) best = { rows, rowWidth, rowDepth, W, D, score };
+  }
+  const { rows, rowWidth, rowDepth, W, D } = best!;
+  const x0 = cx - Math.floor(W / 2), z0 = cz - Math.floor(D / 2);
+  const inner = W - 2 * margin;
+  const places: Layout['places'] = [];
+  let z = z0 + margin;
+  rows.forEach((row, i) => {
+    // Rows are centred across the plot; each building is centred in its row's depth
+    let x = x0 + margin + Math.floor((inner - rowWidth[i]) / 2);
+    for (const f of row) {
+      const z1 = z + Math.floor((rowDepth[i] - f.depth) / 2);
+      const area = { x1: x, z1, x2: x + f.width - 1, z2: z1 + f.depth - 1 };
+      places.push({ ...f, ...area, x: x + Math.floor(f.width / 2), z: z1 + Math.floor(f.depth / 2) });
+      x += f.width + street;
+    }
+    z += rowDepth[i] + street;
+  });
+  return { plot: { x1: x0, z1: z0, x2: x0 + W - 1, z2: z0 + D - 1 }, x: cx, z: cz, width: W, depth: D, places };
 }

@@ -9,7 +9,7 @@
  *   action_failed  data { action, type, args, message }
  *   damage, death, pickup, crafted, killed, broke, system: text only is enough
  */
-import type { Village, VillageRegistry } from './village';
+import type { Design, Village, VillageRegistry } from './village';
 
 export interface AgentEvent {
   id: number;
@@ -128,6 +128,12 @@ export interface WorldAdapter {
   agentList(): WorldAgent[];
   /** Whether a design may use this block (design validation). */
   isPlaceable(block: string): boolean;
+  /**
+   * The survival economy (real Minecraft): the gather tasks building a design needs (collect raw materials, deposit them
+   * in the village storage), and why it cannot be built here at all (materials not obtainable). Worlds without an
+   * economy leave it out.
+   */
+  materialTasks?(design: Design, label: string): { tasks: Array<{ title: string; detail: string }>; problems: string[] };
 }
 
 /**

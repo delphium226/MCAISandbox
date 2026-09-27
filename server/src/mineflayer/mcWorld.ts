@@ -12,7 +12,8 @@ import { MC_SKILLS } from './mcSkills';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import type { AgentBrain } from '../world';
-import { Materials } from './mcMaterials';
+import type { Design } from '../village';
+import { Materials, designBill, gatherTasks, hardToGather } from './mcMaterials';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 
@@ -50,6 +51,22 @@ export class MineflayerWorld implements WorldAdapter {
     this.registry = minecraftData(version);
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
+  }
+
+  /**
+   * Gather tasks for building a design in survival: its raw materials (from the bill of materials and the recipe
+   * chain, with a furnace and fuel when something must be smelted), in chunks two workers can share. Builders craft
+   * and smelt the rest from the village storage themselves (build_design does it).
+   */
+  materialTasks(d: Design, label: string) {
+    let plan = this.materials.plan(designBill(d));
+    // A crafting table for the doors and the like, and a furnace when something must be smelted
+    plan = this.materials.plan({ ...designBill(d), crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
+    // Blocks that need iron ore, leather, clay or wool are too slow to gather for a village: a design using them is
+    // sent back (a lantern meant mining raw iron with a stone pickaxe)
+    const hard = hardToGather(plan.gather);
+    const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. lanterns, bricks, wool, bookshelves)`] : [])];
+    return { tasks: gatherTasks(plan.gather, label), problems };
   }
 
   isAgent(name: string) {
