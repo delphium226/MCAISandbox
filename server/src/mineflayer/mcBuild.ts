@@ -218,34 +218,51 @@ async function carriedCounts(a: BotAgent, items: string[]): Promise<Counts> {
 
 const listCounts = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n}`).join(', ');
 
+/** Planks a wooden part costs per item (doors come three from six planks, slabs six from three). */
+const PLANK_COST: Record<string, number> = { planks: 1, door: 2, slab: 0.5, stairs: 1.5, fence: 5 / 3, fence_gate: 4, trapdoor: 2, pressure_plate: 2, button: 1 };
+
 /**
- * Builders place the wood they can get: each wood kind in the work becomes the kind with the most of the needed items
- * in hand and in storage, or failing that the kind with the most logs and planks; the design's own kind wins ties.
+ * Builders place the wood they can get, part by part: log parts go to the kind with enough real logs, plank parts
+ * (planks, doors, slabs...) to the kind with enough planks or logs left for them. One kind for the whole building
+ * left 11 oak logs unused while the acacia ran out (log corners had taken 8 of 22 acacia logs). The design's own kind
+ * wins ties. Returns "kind_part" -> kind to build it in.
  */
 function chooseWood(place: Target[], have: Counts): Map<string, string> {
-  const need = new Map<string, Counts>();
+  const need = new Map<string, number>(); // "oak_planks" -> how many
   for (const t of place) {
     const m = WOOD_ITEM.exec(baseName(t.block));
-    if (!m) continue;
-    const c = need.get(m[1]) ?? {};
-    c[m[2]] = (c[m[2]] ?? 0) + 1;
-    need.set(m[1], c);
+    if (m) need.set(`${m[1]}_${m[2]}`, (need.get(`${m[1]}_${m[2]}`) ?? 0) + 1);
+  }
+  const logs: Counts = {}, planks: Counts = {};
+  for (const k of WOODS) {
+    logs[k] = (have[`${k}_log`] ?? 0) + (have[`${k}_wood`] ?? 0);
+    planks[k] = have[`${k}_planks`] ?? 0;
   }
   const out = new Map<string, string>();
-  for (const [kind, parts] of need) {
-    const score = (k: string) => Object.entries(parts).reduce((s, [part, n]) => s + Math.min(n, have[`${k}_${part}`] ?? 0), 0);
-    const wood = (k: string) => (have[`${k}_log`] ?? 0) * 4 + (have[`${k}_planks`] ?? 0);
-    let best = kind;
-    for (const k of WOODS) if (score(k) > score(best)) best = k;
-    if (!score(best)) for (const k of WOODS) if (wood(k) > wood(best)) best = k;
-    out.set(kind, best);
+  const entries = [...need].map(([key, n]) => { const m = WOOD_ITEM.exec(key)!; return { key, kind: m[1], part: m[2], n }; });
+  // Real logs first (planks cannot become logs), then the plank parts, biggest first
+  for (const e of entries.filter((x) => x.part === 'log' || x.part === 'wood')) {
+    let best = e.kind;
+    for (const k of WOODS) if (logs[k] > logs[best] && (logs[best] < e.n)) best = k;
+    logs[best] = Math.max(0, logs[best] - e.n);
+    out.set(e.key, best);
+  }
+  for (const e of entries.filter((x) => x.part !== 'log' && x.part !== 'wood').sort((x, y) => y.n - x.n)) {
+    const units = Math.ceil(e.n * (PLANK_COST[e.part] ?? 1));
+    const supply = (k: string) => planks[k] + logs[k] * 4;
+    let best = e.kind;
+    for (const k of WOODS) if (supply(k) > supply(best) && supply(best) < units) best = k;
+    const fromPlanks = Math.min(planks[best], units);
+    planks[best] -= fromPlanks;
+    logs[best] = Math.max(0, logs[best] - Math.ceil((units - fromPlanks) / 4));
+    out.set(e.key, best);
   }
   return out;
 }
 
 function swapWood(block: string, woods: Map<string, string>): string {
   const m = WOOD_ITEM.exec(baseName(block));
-  const k = m && woods.get(m[1]);
+  const k = m && woods.get(`${m[1]}_${m[2]}`);
   if (!m || !k || k === m[1]) return block;
   const i = block.indexOf('[');
   return `${k}_${m[2]}${i >= 0 ? block.slice(i) : ''}`;
@@ -409,7 +426,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
       const woods = chooseWood(place, all);
       place = place.map((t) => ({ ...t, block: swapWood(t.block, woods) }));
-      const swapped = [...woods].filter(([k, b]) => k !== b).map(([k, b]) => `${b} instead of ${k}`);
+      const swapped = [...woods].filter(([key, b]) => !key.startsWith(`${b}_`)).map(([key, b]) => `${b} for the ${key.replace(/_/g, ' ')}`);
       if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
       const need = billOf(place);
       let inv = await carriedCounts(a, Object.keys(need));

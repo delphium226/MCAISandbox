@@ -27,6 +27,7 @@ import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from '.
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
 import type { Design, Village } from './village';
 import { postLayout, type Site } from './layout';
+import { taskCalls } from './taskBrain';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
@@ -735,6 +736,17 @@ export class TieredBrain implements AgentBrain {
     }
     const task = v && this.claimedTask ? v.tasks.find((t) => t.id === this.claimedTask) : undefined;
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
+    // A task code posted (plan_layout, a short build) spells out its skill calls: they are the plan. The planner turned
+    // "build_design cottage" into its own furnace-and-smelting recipe and failed the build twice
+    const calls = task ? taskCalls(task.detail, new Set(a.world.skills.map((t) => t.name))) : [];
+    if (task && role === 'worker' && calls.length && calls.every((c) => Object.keys(c.args).length)) {
+      const steps = calls.map((c) => `${c.type} ${Object.entries(c.args).map(([k, val]) => `${k}=${val}`).join(' ')}`);
+      a.memory.plan = { goal: `${task.id}: ${task.title}`, steps, step: 0, by: 'task', tick: a.world.ticks, taskId: task.id } satisfies Plan;
+      this.lastPlan = Date.now();
+      this.failuresSincePlan = 0;
+      a.pushEvent('system', `New plan (the task's own steps): ${steps.map((st, i) => `${i + 1}. ${st}`).join(' ')}`);
+      return;
+    }
     const { system, tools } = plannerPrompt(role, a.world.skills, a.gamemode !== 'creative' && !!a.world.materialTasks);
     const planStart = Date.now();
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));

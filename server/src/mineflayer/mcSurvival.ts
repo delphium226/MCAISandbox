@@ -317,8 +317,10 @@ async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | nu
     taken.push({ item, n });
   }
   const made = r.result.count * times;
+  const before = countItem(a, r.result.id);
   await rcon.command(`give ${a.name} ${name} ${made}`);
-  await sleep(200, signal);
+  // Wait until the bot sees the result: a pickaxe crafted inside collect was not there yet for the very next dig
+  for (let i = 0; i < 30 && countItem(a, r.result.id) < before + made; i++) await sleep(100, signal);
   await syncInventory(a);
   a.pushEvent('crafted', `crafted ${made}x ${name}`, { item: name, count: made });
   return made;
