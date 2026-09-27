@@ -8,6 +8,7 @@ import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
 import { TOOLS } from '../skills';
 import { handlePanel } from '../panel';
+import { describePlan, designBill, type Counts } from './mcMaterials';
 import type { MineflayerWorld } from './mcWorld';
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -46,7 +47,22 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });
     }
+    // What a design needs and what getting it takes
+    if (v && parts[3] === 'designs' && parts[5] === 'bill') {
+      const d = v.designs[decodeURIComponent(parts[4] ?? '')];
+      if (!d) return sendJson(res, 404, { error: `no design "${parts[4]}" in ${v.name}: ${Object.keys(v.designs).join(', ') || 'none'}` });
+      const plan = w.materials.plan(designBill(d));
+      return sendJson(res, 200, { ...plan, text: describePlan(plan) });
+    }
     return sendJson(res, v ? 200 : 404, v ?? { error: 'no such village' });
+  }
+
+  // Any list of items: /api/materials?items=glass:8,chest:1&have=oak_log:3
+  if (parts[1] === 'materials') {
+    const counts = (s: string | null): Counts =>
+      Object.fromEntries((s ?? '').split(',').filter(Boolean).map((x) => { const [n, q] = x.split(':'); return [n.trim(), Math.max(1, Math.floor(Number(q ?? 1)) || 1)]; }));
+    const plan = w.materials.plan(counts(url.searchParams.get('items')), counts(url.searchParams.get('have')));
+    return sendJson(res, 200, { ...plan, text: describePlan(plan) });
   }
 
   if (parts[1] === 'block') {

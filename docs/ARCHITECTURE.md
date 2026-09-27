@@ -149,6 +149,7 @@ flowchart TB
     mcworld["mcWorld.ts"]
     bot["botAgent.ts"]
     mcskills["mcSkills.ts, mcSurvival.ts,<br/>mcBuild.ts, mcUtil.ts"]
+    mcecon["mcRules.ts (peaceful settings),<br/>mcMaterials.ts (bills, recipe chains)"]
     mcapi["mcApi.ts, rcon.ts, index.ts"]
   end
   neutral --> world

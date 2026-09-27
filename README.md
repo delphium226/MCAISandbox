@@ -152,6 +152,8 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET | `/api/block?x=&y=&z=` | The block at a position (name and state bits) |
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
 | GET | `/api/village/:name` | A village's plots, buildings, designs, task board, reservations and recent events |
+| GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
+| GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
 | POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
 | POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
 | GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
@@ -297,7 +299,9 @@ place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, 
 build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure messages.
 Creative agents build with `/setblock` and `/fill` (run over RCON, paced by `buildSpeed`); building in survival is not
 supported there yet. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
-Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
+The agent server makes the world peaceful when it starts (no hostile mobs, no fall, drowning, fire or freeze damage,
+keep-inventory; `mcRules.ts`), for the village economy in progress: agents gather and craft materials, then build
+with them. Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
 `localhost` to watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
 
 ### Models

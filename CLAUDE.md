@@ -197,7 +197,12 @@ the materials a village needs, then build with them. Decisions made with the use
 
 Agreed plan (each step tested before the next):
 1. Done (tested: a 30-block drop leaves a survival bot at 20 health). World config: peaceful + no-damage game rules, applied at agent-server start.
-2. Bill of materials in code: blocks per design (a door is one item for two cells; `_` and `.` cost nothing), and a
+2. Done (`mcMaterials.ts`; `GET /api/village/:v/designs/:d/bill`, `GET /api/materials?items=glass:8&have=sand:2`,
+   `scripts/bench/materials.mts` prints every stored design's plan). Recipes merged across wood kinds become
+   "any planks"/"any logs" (a chest takes any planks, an oak door oak planks); smelting is a hand table (minecraft-data
+   has none); batches round up and leftovers are reused; sandstone, terracotta, coal and wool count as gathered;
+   Nether and hostile-drop items (glowstone, string) are reported as unobtainable. Placed grass is charged as dirt.
+   The plan was: blocks per design (a door is one item for two cells; `_` and `.` cost nothing), and a
    recipe-chain resolver to raw materials with minecraft-data (planks <- logs, glass <- sand + fuel in a furnace,
    stone bricks <- stone <- cobblestone smelted, doors <- planks...). Code, not the model, does this arithmetic.
 3. Village storage: a chest position in the village record; skills `deposit` (items or all but tools) and `withdraw`
@@ -241,7 +246,8 @@ creative, block-by-block placement in survival; not built yet).
 - `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, `reset` for a fresh start,
   villages in `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation,
   self-defence reflex), `mcSkills.ts` (registry; skills as async functions with an AbortSignal, same names and
-  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcUtil.ts` (walk
+  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcRules.ts` (peaceful world settings), `mcMaterials.ts` (bills of
+  materials, recipe chains), `mcUtil.ts` (walk
   with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
 - Skills: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
