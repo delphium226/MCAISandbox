@@ -145,7 +145,7 @@ if storage_spot:
         for item, q in call(f"/village/{args.village}/designs/{n}/bill").get("gather", {}).items():
             item = "oak_log" if re.search(r"_log$|^any:logs$", item) else "cobblestone" if item == "any:cobblestone" else item.replace("any:", "")
             need[item] = need.get(item, 0) + q
-    need["oak_log"] = need.get("oak_log", 0) + 2
+    need["oak_log"] = need.get("oak_log", 0) + 4
     need["cobblestone"] = need.get("cobblestone", 0) + 8
     slot = 0
     for item, q in need.items():

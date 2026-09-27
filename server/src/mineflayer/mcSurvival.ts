@@ -123,6 +123,15 @@ function exposed(a: BotAgent, p: Vec3): boolean {
   });
 }
 
+/** Where a village member's home is: its storage chest, or its first plot's centre. */
+function homeOf(a: BotAgent): { x: number; z: number } | null {
+  const v = a.village();
+  const c = v?.storage?.chests[0];
+  if (c) return { x: c.x, z: c.z };
+  const p = v?.plots[0];
+  return p ? { x: (p.x1 + p.x2) / 2, z: (p.z1 + p.z2) / 2 } : null;
+}
+
 async function collect(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { blocks, items, label } = collectTargets(a, str(args.block, 'block'));
   if (a.gamemode === 'creative') throw new Error(`in creative mode broken blocks drop nothing; use get_item ${label} instead`);
@@ -132,20 +141,24 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let mined = 0;
   const failed = new Set<string>();
   let lastError = '';
+  let toolTried = false;
   const t0 = Date.now();
   while (true) {
     checkAbort(signal);
     const got = items.length ? have() - start : mined;
     if (got >= want) return `collected ${got} ${label}`;
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
-    // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off
-    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)));
+    // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off. A village
+    // member stays within 96 blocks of home (the storage chest or plot): gathering walk by walk it drifted 150 away
+    const home = homeOf(a);
+    const near = (p: Vec3) => !home || Math.hypot(p.x - home.x, p.z - home.z) <= 96;
+    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)) && near(p));
     // Blocks in the open first (visible, like a player would pick), then buried ones within 16 blocks
     let next = found.find((p) => exposed(a, p)) ?? found.find((p) => p.distanceTo(a.bot.entity.position) < 16);
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
-      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p))).find((p) => exposed(a, p));
+      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && near(p)).find((p) => exposed(a, p));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         await reach(a, next.offset(0.5, 0, 0.5), 4, signal, Math.min(180000, 30000 + 1500 * far)).catch((e: Error) => {
@@ -156,7 +169,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       }
     }
     if (!next) {
-      if (got > 0) throw new Error(`only found ${got} ${label}; none left within 128 blocks: explore 100 blocks or more in one direction, then collect again`);
+      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
       throw new Error(`no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     try {
@@ -164,6 +177,18 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       mined++;
     } catch (e) {
       const m = (e as Error).message;
+      // Stone wants a pickaxe: make a wooden one (and the logs for it) rather than hand the chore to the model, which
+      // churned for minutes over tables, sticks and planks
+      if (/^needs wooden_pickaxe/.test(m) && !toolTried && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
+        toolTried = true;
+        const wood = a.bot.inventory.items().reduce((s, it) => s + (/_log$/.test(it.name) ? it.count * 4 : /_planks$/.test(it.name) ? it.count : 0), 0);
+        // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
+        const table = nearestBlockNamed(a, 'crafting_table', 16);
+        const want = 5 + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
+        if (wood < want) await collect(a, { block: 'logs', count: Math.ceil((want - wood) / 4) }, signal);
+        await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
+        continue;
+      }
       if (m === 'cancelled' || m.startsWith('needs ')) throw e;
       failed.add(at(next));
       lastError = m;

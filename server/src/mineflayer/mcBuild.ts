@@ -318,6 +318,9 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     const f = Math.min(q - spare, store[n] ?? 0);
     if (f > 0) fetch[n] = f;
   }
+  // A furnace or table kept in the storage comes along too (it was counted as there, then smelting found none)
+  if (plan.fuel.smelts && !near('furnace') && !carried.furnace && store.furnace) fetch.furnace = 1;
+  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !near('crafting_table') && !carried.crafting_table && store.crafting_table) fetch.crafting_table = 1;
   if (v && Object.keys(fetch).length) {
     await withdrawItems(a, v, fetch, signal);
     // Craft at the site, where the table and furnace were looked for

@@ -367,9 +367,11 @@ function stepText(s: unknown): string {
   if (!s || typeof s !== 'object') return s === undefined || s === null ? '' : String(s);
   const o = s as Record<string, unknown>;
   for (const k of ['step', 'text', 'description', 'title', 'goal']) if (typeof o[k] === 'string' && o[k]) return String(o[k]).trim();
-  const skill = String(o.skill ?? o.action ?? o.task ?? o.tool ?? o.name ?? '').trim();
+  const key = ['skill', 'action', 'task', 'tool', 'name'].find((k) => typeof o[k] === 'string' && o[k]);
+  const skill = key ? String(o[key]).trim() : '';
+  // Only the key the skill came from is dropped: {action: "design_building", name: "cottage"} keeps name=cottage
   const args = Object.entries(o)
-    .filter(([k, v]) => !['skill', 'action', 'task', 'tool', 'name'].includes(k) && v !== null && typeof v !== 'object')
+    .filter(([k, v]) => k !== key && !['skill', 'action', 'task', 'tool'].includes(k) && v !== null && typeof v !== 'object')
     .map(([k, v]) => `${k}=${v}`);
   const nested = o.args ?? o.arguments ?? o.params ?? o.input;
   if (nested && typeof nested === 'object') for (const [k, v] of Object.entries(nested as Record<string, unknown>)) if (typeof v !== 'object') args.push(`${k}=${v}`);
@@ -530,8 +532,14 @@ export class TieredBrain implements AgentBrain {
       // (it may name a later step, when preparatory steps such as move_to were not marked done)
       const plan = this.plan(a);
       const type = String(e.data?.type ?? '');
+      // For gathering and crafting the step must also name the item ("collect logs" for the pickaxe is not "Collect 26
+      // cobblestone": that task was marked done with nothing gathered); worlds that send no args match on the skill alone
+      const args = (e.data?.args ?? {}) as Record<string, unknown>;
+      const item = String(args.block ?? args.item ?? '').toLowerCase().replace(/^minecraft:/, '');
+      const names = (st: string) => !item || item === 'all' || !/^(collect|craft|withdraw|deposit|smelt)$/.test(type)
+        || st.toLowerCase().replace(/_/g, ' ').includes(item.replace(/_/g, ' ').replace(/s$/, ''));
       if (plan && type && type !== 'move_to') {
-        const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st));
+        const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st) && names(st));
         if (i >= 0) {
           this.stat(a, 'stepsDone', i + 1 - plan.step);
           this.stat(a, 'stepsAutoDone');

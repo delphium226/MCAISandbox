@@ -66,6 +66,29 @@ function pathError(e: Error, target: string): Error {
  */
 export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs = 60000) {
   const moves = a.moves();
+  // Far away: go in legs of ~40 blocks toward it (a single path search over 150 blocks found "no path" home), trying
+  // a little to either side when a leg is blocked
+  const g = goal as unknown as { x?: number; z?: number };
+  if (typeof g.x === 'number' && typeof g.z === 'number') {
+    for (let leg = 0; leg < 16; leg++) {
+      const p = a.bot.entity.position;
+      const dx = g.x - p.x, dz = g.z - p.z;
+      if (Math.hypot(dx, dz) <= 64) break;
+      let moved = false;
+      for (const turn of [0, 0.5, -0.5, 1, -1]) {
+        const ang = Math.atan2(dz, dx) + turn;
+        const nx = Math.round(p.x + Math.cos(ang) * 40), nz = Math.round(p.z + Math.sin(ang) * 40);
+        try {
+          await walkOnce(a, new goals.GoalNearXZ(nx, nz, 4), `${nx},${nz} on the way to ${target}`, signal, 45000);
+          moved = true;
+          break;
+        } catch (e) {
+          if ((e as Error).message === 'cancelled') throw e;
+        }
+      }
+      if (!moved) break;
+    }
+  }
   try {
     await walkOnce(a, goal, target, signal, timeoutMs);
   } catch (e) {

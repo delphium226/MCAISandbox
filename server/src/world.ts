@@ -5,7 +5,7 @@
  *
  * Events a world must emit (brains rely on their data):
  *   chat           data { from, text, distance? }
- *   action_done    data { action, type }
+ *   action_done    data { action, type, args? }
  *   action_failed  data { action, type, args, message }
  *   damage, death, pickup, crafted, killed, broke, system: text only is enough
  */

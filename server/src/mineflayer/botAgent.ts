@@ -270,7 +270,7 @@ export class BotAgent implements WorldAgent {
     if ('done' in r) {
       st.state = 'done';
       if (r.done) st.message = r.done;
-      this.pushEvent('action_done', `${st.type} finished${r.done ? `: ${r.done}` : ''}`, { action: st.id, type: st.type });
+      this.pushEvent('action_done', `${st.type} finished${r.done ? `: ${r.done}` : ''}`, { action: st.id, type: st.type, args: st.args });
     } else {
       st.state = 'failed';
       st.message = r.fail;

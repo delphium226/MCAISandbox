@@ -7,7 +7,7 @@ Starts near X,Z: the Mayor (as an idle agent) first searches outward from there 
 WORKER_PLANNER defaults to gemma4:31b. Other models: MCAI_MAYOR_MODEL (the mayor's planner), MCAI_DESIGN_MODEL (the
 architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud.
 """
-import json, os, math, sys, time, urllib.error, urllib.request
+import json, os, math, re, sys, time, urllib.error, urllib.request
 
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
@@ -79,7 +79,8 @@ while time.time() - t0 < minutes * 60:
                 chats += 1
             elif e["type"] in ("action_done", "action_failed", "system"):
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:220]}", flush=True)
-                if e["type"] == "action_done":
+                # Progress also counts: brain tools (designs, the layout) report as system events
+                if e["type"] == "action_done" or (e["type"] == "system" and re.search(r"saved|Laid out|Posted tasks", e["text"])):
                     last_done = time.time()
                 if e["type"] == "action_failed":
                     k = (n, e["text"][:80])
