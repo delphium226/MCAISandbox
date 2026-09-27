@@ -120,7 +120,8 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 5. documentation and test scripts (this file, README, `scripts/`)
 6. `86b6794` world interface (`world.ts`, `skills.ts`)
 7. `c143688` real Minecraft: server setup and Mineflayer adapter, milestone (a)
-8. survival skills, reflex, fresh-start spawns (milestone b, partly tested)
+8. `4749536` survival skills, reflex, fresh-start spawns (milestone b, partly tested)
+9. building skills with server commands (milestone c)
 
 Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
@@ -144,15 +145,22 @@ creative, block-by-block placement in survival; not built yet).
 - `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, `reset` for a fresh start,
   villages in `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation,
   self-defence reflex), `mcSkills.ts` (registry; skills as async functions with an AbortSignal, same names and
-  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcUtil.ts` (walk with watchdog, helpers),
+  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcUtil.ts` (walk
+  with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
 - Skills so far: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
-  attack, explore, follow, give, equip, drop, get_item. Written on the pathfinder directly (collectblock and pvp were
+  attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site, build_design, build_box, build. Written on the pathfinder directly (collectblock and pvp were
   dropped: less control over failure messages and cancelling, and pvp pulls in mineflayer 2.x). Brains: idle,
   tiered, llm.
 - `collect` resolves names in code: "logs" is any log, an item means the blocks that drop it (cobblestone -> stone),
   ores include deepslate variants; open blocks first, buried ones by digging to them. `craft` makes the table, then
   sticks, then planks (in that order: each uses planks), and prefers everyday recipe variants in messages.
+- **Building** (`mcBuild.ts`) ports the sandbox's checks, messages and village records (reserve, plots, structures,
+  "already stands here"), but in creative the work is done with `/setblock` and `/fill` over RCON (the server console,
+  so bots need no op), paced by `buildSpeed` (x10 blocks/s), vertical runs merged into one `/fill`, while the bot
+  stands south of the site and looks at the blocks. Doors are set as both halves with the outward facing; whole trees
+  touching a plot are felled. Survival building (placing carried blocks) is not implemented: it refuses with a message
+  (`memory.buildMode: "commands"` forces commands in survival). `isPlaceable` accepts block states (`[facing=east]`).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
@@ -176,5 +184,8 @@ Milestones (each tested and reported before the next): (a) done: an idle bot joi
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
 pickaxe; the best tiered run (qwen exec, gemma plan) had 7 unique items and a wooden pickaxe at 3.1 min (sandbox
 baseline ~10 items in 8 min); earlier runs died to zombies before the reflex; `scripts/watch_survival.py`; (c) a creative agent runs find_site, prepare_site, build_design; (d) the full village, watched with
-the real client. Mindcraft (github.com/kolbytn/mindcraft) is a reference for skills; check its licence before
+the real client. (c) done: the tiered brain (qwen exec, gemma plan) ran find_site, prepare_site and build_design
+"cottage" in 1.1 min with no failures (Gus not in a village, the design in memory.designs: as a village member he would
+be a worker waiting for tasks). The village "Testville" in `mc/server/villages.json` holds the cottage design copied
+from the sandbox (`POST /api/village/Testville/designs`). Mindcraft (github.com/kolbytn/mindcraft) is a reference for skills; check its licence before
 copying anything.

@@ -288,8 +288,9 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at,
-mine, collect, place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item (`GET /api/skills`);
-the building skills are next. Spawn with `"reset": true` for a fresh start (a name keeps its inventory otherwise).
+mine, collect, place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, find_site,
+prepare_site, build_design, build_box and build (`GET /api/skills`). Creative agents build with `/setblock` and `/fill`
+(run over RCON, paced by `buildSpeed`); building in survival is not supported there yet. Spawn with `"reset": true` for a fresh start (a name keeps its inventory otherwise).
 Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to watch.
 
 ## Project layout

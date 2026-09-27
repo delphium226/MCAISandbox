@@ -2,7 +2,7 @@
 
 Usage: python scripts/watch_agent.py SPEC_JSON [MAX_MINUTES=6] [EXPECTED_BUILDS=3]
   e.g. SPEC_JSON = {"name":"Architect","brain":"tiered","gamemode":"creative","memory":{"objective":"build a small village"}}
-Stops early when EXPECTED_BUILDS build/build_box actions have succeeded, after 5 failures in a row, or when the
+Stops early when EXPECTED_BUILDS build/build_box/build_design actions have succeeded, after 5 failures in a row, or when the
 executor keeps retrying calls that are blocked.
 """
 import json, os, sys, time, urllib.error, urllib.request
@@ -40,7 +40,7 @@ while time.time() - t0 < minutes * 60:
             fails_in_row += 1
         elif e["type"] == "action_done":
             fails_in_row = 0
-            if e["text"].startswith(("build finished", "build_box finished")) and "placed 0 blocks" not in e["text"]:
+            if e["text"].startswith(("build finished", "build_box finished", "build_design finished")) and "placed 0 blocks" not in e["text"]:
                 builds += 1
     stats = (call(f"/agents/{name}/memory").get("stats") or {})
     if builds >= expected:

@@ -2,10 +2,11 @@
  * Skills for agents in real Minecraft, with the same names and arguments as the sandbox's (skills.ts), so the brains'
  * tools and prompts do not change. Each skill checks its arguments when queued and runs as an async function that
  * resolves with a result message or throws what went wrong (what is short, where the problem is, what to try).
- * The survival skills (mining, crafting, fighting, ...) are in mcSurvival.ts.
+ * The survival skills (mining, crafting, fighting, ...) are in mcSurvival.ts, the building skills in mcBuild.ts.
  */
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
+import { BUILD_SKILLS } from './mcBuild';
 import { SURVIVAL_SKILLS } from './mcSurvival';
 import { at, goals, num, sleep, standableY, str, walk } from './mcUtil';
 
@@ -55,4 +56,5 @@ export const MC_SKILLS: Record<string, McSkill> = {
     },
   },
   ...SURVIVAL_SKILLS,
+  ...BUILD_SKILLS,
 };

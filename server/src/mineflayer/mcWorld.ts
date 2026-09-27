@@ -49,8 +49,10 @@ export class MineflayerWorld implements WorldAdapter {
     return this.agents.has(name.toLowerCase());
   }
 
+  /** A block with an item (so it can be carried and placed); states such as "[facing=east]" are allowed. */
   isPlaceable(block: string) {
-    return !!this.registry.blocksByName[block] && !!this.registry.itemsByName[block];
+    const name = block.replace(/^minecraft:/, '').replace(/\[.*\]$/, '');
+    return !!this.registry.blocksByName[name] && !!this.registry.itemsByName[name];
   }
 
   get(name: string) {
