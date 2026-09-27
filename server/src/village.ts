@@ -165,10 +165,11 @@ export class VillageRegistry {
    */
   missingDesigns(v: Village, t: Task): string[] {
     const text = `${t.title} ${t.detail}`;
-    if (/^\s*design/i.test(t.title) || !/build/i.test(text) || !/design/i.test(text)) return [];
+    if (/^\s*design\b/i.test(t.title) || !/build/i.test(text) || !/design/i.test(text)) return [];
     const names = new Set<string>();
     for (const m of text.matchAll(/"([^"]{2,32})"/g)) names.add(m[1].trim().toLowerCase());
-    for (const m of text.matchAll(/build_design\s+([a-z0-9_]+)/gi)) names.add(m[1].toLowerCase());
+    // build_design cottage (a bare name), not build_design design=... (an argument name)
+    for (const m of text.matchAll(/build_design\s+([a-z0-9_]+)\b(?!\s*=)/gi)) names.add(m[1].toLowerCase());
     const lib = Object.keys(v.designs);
     return [...names].filter((n) => /^[a-z0-9_ -]+$/.test(n) && !lib.includes(n) && !lib.includes(n.replace(/ /g, '_')) && !lib.includes(n.replace(/_/g, ' ')));
   }
