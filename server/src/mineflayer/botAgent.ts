@@ -113,6 +113,9 @@ export class BotAgent implements WorldAgent {
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
       m.scafoldingBlocks = [this.world.registry.itemsByName.dirt.id];
+      // Doors open (off by default in the pathfinder, "probably due to non-Paper servers"; this is Paper): a builder
+      // left inside a finished cottage had no path out
+      m.canOpenDoors = true;
       // Diagonal steps only with both sides clear: the pathfinder allows one side blocked, and a bot cutting past that
       // corner catches on it and wiggles in place until the walk watchdog calls it stuck
       const diagonal = m.getMoveDiagonal.bind(m);

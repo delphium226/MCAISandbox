@@ -84,7 +84,8 @@ def find_land(x, z, size):
         time.sleep(3)
         site = call("/agents/Mayor/memory").get("lastSite")
         call("/agents/Mayor", method="DELETE")
-        if site:
+        # find_site falls back to the largest site near by: that is too small for the layout
+        if site and site.get("size", size) >= size:
             print(f"land near {px:.0f},{pz:.0f}: site {site}", flush=True)
             return site
     raise SystemExit("no land found")

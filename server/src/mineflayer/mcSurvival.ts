@@ -110,6 +110,9 @@ function collectTargets(a: BotAgent, raw: string): { blocks: number[]; items: nu
       items.add(item.id);
     }
     if (!blocks.size) throw new Error(`unknown block ${raw}; use a block id such as oak_log, stone, coal_ore, sand, or 'logs' for any tree`);
+    // Building blocks that also drop themselves are almost always placed by someone: cobblestone comes from stone
+    // (a gatherer was mining the meeting hall's cobblestone floor)
+    if (blocks.size > 1) for (const placed of ['cobblestone', 'mossy_cobblestone', 'stone_bricks', 'bricks']) blocks.delete(reg.blocksByName[placed]?.id ?? -1);
   }
   items.delete(-1);
   return { blocks: [...blocks], items: [...items], label: n };
@@ -151,10 +154,16 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off. A village
     // member stays within 96 blocks of home (the storage chest or plot): gathering walk by walk it drifted 150 away
     const home = homeOf(a);
-    const near = (p: Vec3) => !home || Math.hypot(p.x - home.x, p.z - home.z) <= 96;
+    // Never inside a village building (its footprint, from its floor up)
+    const built = a.village()?.structures ?? [];
+    const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96)
+      && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1);
     const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)) && near(p));
-    // Blocks in the open first (visible, like a player would pick), then buried ones within 16 blocks
-    let next = found.find((p) => exposed(a, p)) ?? found.find((p) => p.distanceTo(a.bot.entity.position) < 16);
+    // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
+    // the open rather than buried; buried ones only within 16 blocks
+    const me = a.bot.entity.position;
+    const effort = (p: Vec3) => p.distanceTo(me) + 2 * Math.max(0, me.y - p.y) - (exposed(a, p) ? 4 : 0);
+    let next: Vec3 | undefined = found.filter((p) => p.distanceTo(me) < 16 || exposed(a, p)).sort((u, w) => effort(u) - effort(w))[0];
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
@@ -170,7 +179,9 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     }
     if (!next) {
       if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
-      throw new Error(`no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
+      throw new Error(home
+        ? `no ${label} within 96 blocks of the village: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
+        : `no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     try {
       await mineBlock(a, next, signal);

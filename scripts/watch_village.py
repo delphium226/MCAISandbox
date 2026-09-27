@@ -16,6 +16,7 @@ site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30
 mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
 gamemode = os.environ.get("MCAI_GAMEMODE", "creative")
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
+same_fail = int(os.environ.get("MCAI_SAME_FAIL", "3"))
 BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
         "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
 
@@ -85,8 +86,8 @@ while time.time() - t0 < minutes * 60:
                 if e["type"] == "action_failed":
                     k = (n, e["text"][:80])
                     fails[k] = fails.get(k, 0) + 1
-                    if fails[k] >= 3:
-                        reason = f"{n} failed the same way 3 times: {e['text'][:160]}"
+                    if fails[k] >= same_fail:
+                        reason = f"{n} failed the same way {same_fail} times: {e['text'][:160]}"
     v = call(f"/village/{village}")
     b = " ".join(f"{t['id']}:{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}" for t in v["tasks"])
     if b != board:

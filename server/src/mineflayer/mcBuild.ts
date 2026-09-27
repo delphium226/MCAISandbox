@@ -172,14 +172,16 @@ interface Job {
  * what is missing, put the build task back on the board behind them, and return what was withdrawn to the storage.
  * Returns what to tell the builder, or '' when the agent holds no such task.
  */
-async function requeueBuild(a: BotAgent, job: Job, short: Counts, signal: AbortSignal): Promise<string> {
+async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, signal: AbortSignal): Promise<string> {
   const v = a.village();
   const task = v && job.design ? v.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && t.detail.includes(`build_design "${job.design}"`)) : undefined;
   if (!v || !task) return '';
   const store = storageContents(v);
+  // What is spare beyond the building's own blocks (the logs carried for its log corners are not plank material:
+  // counting them, the requeue posted no log gathering and the build failed again)
   const other: Counts = { ...inventoryCounts(a) };
   for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
-  for (const n of Object.keys(short)) delete other[n];
+  for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const plan = a.world.materials.plan(short, other);
   if (!Object.keys(plan.gather).length || plan.problems.length) return '';
   const reg = a.world.villages;
@@ -370,7 +372,9 @@ async function standBy(a: BotAgent, job: Job, signal: AbortSignal) {
   const cx = Math.floor((job.area.x1 + job.area.x2) / 2), sz = job.area.z2 + 3;
   const sy = standableY(a, cx, job.y + 1, sz);
   const p = a.bot.entity.position;
-  if (Math.hypot(p.x - cx, p.z - sz) > 6)
+  // Also out of the footprint itself: a builder standing inside was walled in by its own cottage
+  const inside = p.x >= job.area.x1 - 1 && p.x < job.area.x2 + 2 && p.z >= job.area.z1 - 1 && p.z < job.area.z2 + 2;
+  if (inside || Math.hypot(p.x - cx, p.z - sz) > 6)
     await walk(a, sy !== null ? new goals.GoalNear(cx, sy, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
@@ -449,6 +453,15 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal);
         if (made) {
           notes.push(made);
+          // Crafting planks uses whatever logs are carried, the ones fetched for log parts too: top up from storage
+          inv = await carriedCounts(a, Object.keys(need));
+          const again: Counts = {};
+          const now = v ? storageContents(v) : {};
+          for (const [n, q] of Object.entries(need)) {
+            const f = Math.min(q - (inv[n] ?? 0), now[n] ?? 0);
+            if (f > 0) again[n] = f;
+          }
+          if (v && Object.keys(again).length) await withdrawItems(a, v, again, signal);
           await standBy(a, job, signal);
           inv = await carriedCounts(a, Object.keys(need));
           why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
@@ -457,7 +470,11 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       if (why) {
         const left: Counts = {};
         for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
-        throw new Error(why + (await requeueBuild(a, job, left, signal)));
+        // Short only of glass (no sand near the village): leave the windows open rather than fail the building
+        if (Object.keys(left).every((n) => /^glass(_pane)?$/.test(n))) {
+          place = place.map((t) => (/^glass(_pane)?$/.test(chargedItem(t.block)) ? { ...t, optional: true } : t));
+          notes.push(`left ${Object.values(left).reduce((s, q) => s + q, 0)} windows open (no glass: no sand to make it)`);
+        } else throw new Error(why + (await requeueBuild(a, job, need, left, signal)));
       }
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
