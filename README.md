@@ -266,6 +266,9 @@ marked done when the skill it names succeeds, and repeating the same call (faile
 - `watch_survival.py NAME [MAX_MINUTES] [TARGET]` spawns a tiered survival agent and tracks unique items until it
   holds TARGET (default stone_pickaxe) or stalls.
 - All watch scripts use the sandbox API by default; set `MCAI_API=http://localhost:8766/api` for real Minecraft.
+- `scripts/bench/` compares models on the brain's real prompts and tools: `modelbench.mts` (mayor planning and
+  designs), `execbench.mts` (executor turns) and `planbench.mts` (worker plans), e.g.
+  `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct` (`OLLAMA_URL=` for another Ollama server).
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete. It prints tasks, designs, plots, buildings and per-agent stats.

@@ -366,4 +366,23 @@ flowchart LR
 ```
 
 Agent names are fixed (Gus for single-agent tests; Mayor, Worker1, Worker2 for villages) so they are easy to find in
-the world. There is no unit test suite: `npm run typecheck`, then agents are run.
+the world. There is no unit test suite: `npm run typecheck`, then agents are run. `scripts/bench/` compares models on
+the brain's real prompts and tools.
+
+## 9. Where this is going
+
+The next step (agreed, see CLAUDE.md, "Next: the peaceful village economy") replaces creative building with a safe
+survival economy in Minecraft: peaceful difficulty with no damage, a bill of materials per design worked back through
+the recipes to raw materials, a shared village storage chest, building that charges the builder's inventory, and a
+mayor whose building tasks come with the gather and craft tasks they need, laid out by `plan_layout`.
+
+```mermaid
+flowchart LR
+  design["design<br/>(architect)"] --> bom["bill of materials<br/>(code)"]
+  bom --> raw["raw materials<br/>logs, cobblestone, sand, fuel<br/>(recipe chain, code)"]
+  raw --> gather["gather tasks<br/>collect"]
+  gather --> craft["craft / smelt tasks"]
+  craft --> storage[("village chest<br/>deposit")]
+  storage --> build["build task<br/>withdraw, then /setblock<br/>charging the inventory"]
+  layout["plan_layout<br/>(code)"] --> build
+```

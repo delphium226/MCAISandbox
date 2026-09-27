@@ -10,6 +10,16 @@ on the project and what earlier sessions learned.
 - `npm run dev` starts the game server (http://localhost:8765, REST API under `/api`) and the Vite client
   (http://localhost:5173). `npm run typecheck` is the main check; there is no test suite, so verify agent changes by
   running agents (see Testing).
+- **Starting the real-Minecraft stack** (in this order; after a reboot nothing is running, and the Ollama app is started
+  by the user):
+  1. `python mc/start.py` (Paper server; wait for "Done" in `mc/server/console.log`)
+  2. `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
+  3. `MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" node_modules/.bin/tsx server/src/mineflayer/index.ts`
+     (agent server + panel on 8766; restart it after editing server files: it does not watch)
+  4. a watch script, e.g. `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud
+     MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud python scripts/watch_village.py <Village> 120 0 2 12 "<objective>" ollama:qwen3.8:27b`
+  Stop: `python mc/rcon.py stop` (saves the world), `python scripts/ollama_exec.py stop`, the agent server by PID.
+  Watch scripts leave their agents in the world when they stop on the time limit: remove them (panel or `DELETE`).
 - `tsx watch` **restarts the server on every server-file edit**. That removes all agents (villages in
   `world/villages.json` and players' inventories persist). Do not edit server files while a test run is in progress.
 - **World saving:** chunks are written to disk only when they unload (30 s after no player or agent needs them) or on a
@@ -120,7 +130,14 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    one model instance is a queue: gemma (mayor and designs) was the bottleneck until the cloud planner; now the
    executors share qwen3:30b with three parallel slots. The user's Minecraft client on GPU 1 made models 3-10x slower:
    keep it closed during runs (watch from the control panel).
-10. **Model output needs normalising in code**, differently per model: qwen3.8 sent design layers as a JSON string
+10. **Evaluating a model**: time it on the real prompts and tools (`scripts/bench/`: `modelbench.mts` planner and
+   architect, `execbench.mts` executor turns from situations that went wrong, `planbench.mts` worker plans; run with
+   `node_modules/.bin/tsx scripts/bench/<name>.mts <model>...` and `OLLAMA_URL=` for a pinned server; `PEEK=1` prints
+   raw tool calls). Look at the raw tool calls before judging: most "failures" of new models were format quirks.
+   Results so far: gemma4:31b 10 tok/s but reliable designs; qwen3.8:27b 20 tok/s, best worker plans, designs need a
+   retry; qwen3:30b fastest and fine as executor, poor designs and loose plans; gpt-oss:120b-cloud fastest planner and
+   architect (~3.5 s / ~9 s).
+11. **Model output needs normalising in code**, differently per model: qwen3.8 sent design layers as a JSON string
    without its outer brackets; gpt-oss wrote tasks as skill calls (`{task: "build_design", name, x, z}`) and plan steps
    as objects. `normalizeLayers`, `postedTasks` and `stepText` handle these; check a new model's raw tool calls first
    (the benchmark scripts in the scratchpad did: raw `/api/chat` with the real prompts and tools).
@@ -151,11 +168,56 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 8. `4749536` survival skills, reflex, fresh-start spawns (milestone b, partly tested)
 9. `bc94747` building skills with server commands (milestone c)
 10. `7b9b392` control panel; village fixes; cloud planner (milestone d passed)
-11. panel maps and "what the model saw", model routing and pinned Ollama servers, docs/ARCHITECTURE.md; pushed to
-    origin (the feature branch only; `main` untouched)
+11. `41d35e2` panel maps and "what the model saw", model routing and pinned Ollama servers, docs/ARCHITECTURE.md
+12. `cd33cc4` fix: build tasks wrongly held back for a missing design ("build_design design=..." read as a design
+    called "design"); pushed to origin (the feature branch only; `main` untouched)
+13. handover notes and model benchmark scripts (`scripts/bench/`)
 
-Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
+**Next: the peaceful village economy** (see the section below). Other backlog: `plan_layout` for the mayor (part of the
+next work); import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
+
+## Next: the peaceful village economy (agreed 2026-09-27, not started)
+
+The user changed the base assumptions: **no survival with hostile mobs or damage at all**. Agents gather and craft
+the materials a village needs, then build with them. Decisions made with the user:
+- **Minecraft only.** The sandbox stays as it is (a quick test bed for the brain); no peaceful mode is added there.
+- **Survival mode, made safe:** peaceful difficulty (no hostile mobs; hunger does not drain), and game rules for no
+  fall, drowning, fire or freeze damage and keep-inventory. The agent server should apply them over RCON at every
+  start. 26.1 renamed some game rules (and `time query daytime` no longer exists: it uses timelines), so list them
+  on the server first (`python mc/rcon.py "gamerule"`).
+- **Building places blocks by command but charges the inventory:** `/setblock` / `/fill` as now, but each block must
+  be carried, is taken from the inventory (e.g. RCON `clear <agent> <item> <n>` per run of blocks), and the job stops
+  when a material runs out. Not real block-by-block placement.
+- **Shared village storage:** gatherers and crafters deposit into a village chest; builders withdraw what a building
+  needs. The first chest is crafted like anything else (8 planks).
+
+Agreed plan (each step tested before the next):
+1. World config: peaceful + no-damage game rules, applied at agent-server start.
+2. Bill of materials in code: blocks per design (a door is one item for two cells; `_` and `.` cost nothing), and a
+   recipe-chain resolver to raw materials with minecraft-data (planks <- logs, glass <- sand + fuel in a furnace,
+   stone bricks <- stone <- cobblestone smelted, doors <- planks...). Code, not the model, does this arithmetic.
+3. Village storage: a chest position in the village record; skills `deposit` (items or all but tools) and `withdraw`
+   (item, count); the storage contents readable for the planner's village summary and the panel.
+4. Survival building: `build_design` / `build` / `build_box` check the bill against inventory + storage, withdraw
+   what is missing, charge the inventory while placing, and fail with "short of N x (carrying A, storage has B):
+   gather or craft them".
+5. Mayor planning: code adds the gather / craft / deposit tasks a build task needs ahead of it (from the bill of
+   materials), and `plan_layout` gives building positions inside the plot with streets (the Ashvale run showed the
+   mayor's layout arithmetic still fails: the hall stuck out of the plot and he spent the run relocating it).
+6. Test: one cottage first, then two cottages and a meeting hall.
+
+Things to expect:
+- **Gathering is slow**: two cottages and a hall are ~600 blocks (~75 logs' worth of planks, cobblestone, sand for
+  glass, fuel): perhaps half an hour or more for two workers. Start with one small cottage; have the architect prefer
+  cheap, gatherable materials (planks, logs, cobblestone, glass; sandstone only if sand is near); consider axes and
+  pickaxes early (crafting them is the usual progression, and they speed gathering a lot).
+- The spawn area (seed 1793578865) is badlands/savanna: acacia trees are scattered, sand and terracotta common,
+  stone close under the surface. Earlier plots are at ~86..130, -32..23 (Oakridge, Elmfield, Ashvale): build elsewhere
+  or reuse them.
+- Survival skills that exist and work (`collect`, `craft`, `smelt`, `mine`, `place`, `explore`): see the lessons below
+  (crafting desync, buried stone, leaves). The self-defence reflex stays but should never fire in peaceful.
+- Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
 
 ## Real Minecraft
 
@@ -194,6 +256,11 @@ creative, block-by-block placement in survival; not built yet).
   (`memory.buildMode: "commands"` forces commands in survival). `isPlaceable` accepts block states (`[facing=east]`).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
+
+Open issues left from the last session: the Ashvale agents (Mayor, Worker1, Worker2) are still in the world on old
+code with task t55 (a relocated meeting hall) open and unneeded; the pinned servers and the Paper server were left
+running. `/api/maps` and the "what the model saw" panel sections were checked through the API but not yet viewed in
+a browser by the user.
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
