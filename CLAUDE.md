@@ -205,8 +205,13 @@ Agreed plan (each step tested before the next):
    The plan was: blocks per design (a door is one item for two cells; `_` and `.` cost nothing), and a
    recipe-chain resolver to raw materials with minecraft-data (planks <- logs, glass <- sand + fuel in a furnace,
    stone bricks <- stone <- cobblestone smelted, doors <- planks...). Code, not the model, does this arithmetic.
-3. Village storage: a chest position in the village record; skills `deposit` (items or all but tools) and `withdraw`
-   (item, count); the storage contents readable for the planner's village summary and the panel.
+3. Done (`mcStorage.ts`; tested with Gus in the test village Depot, chests at -6,81,8 and -4,80,8). `village.storage`
+   holds the chests and each one's contents as last opened (the server's counts matched). The first `deposit` puts a
+   carried chest down near the agent, outside plots; a full storage takes a carried chest in a row beside the others,
+   one block apart (single chests, never read twice). Each chest is also a 1x1 `storage` structure, so building and
+   site search keep off it. `deposit` item / "logs" / "planks" / "all" (keeps tools and chests), `withdraw` item and
+   count (partial amounts reported). Shown in the village summary, the panel and `/api/village/:v`;
+   `POST /api/village/:v/storage {x,y,z}` registers an existing chest.
 4. Survival building: `build_design` / `build` / `build_box` check the bill against inventory + storage, withdraw
    what is missing, charge the inventory while placing, and fail with "short of N x (carrying A, storage has B):
    gather or craft them".
@@ -251,7 +256,8 @@ creative, block-by-block placement in survival; not built yet).
   with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
 - Skills: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
-  attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site, build_design, build_box, build. Written on the pathfinder directly (collectblock and pvp were
+  attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site, build_design, build_box, build, deposit,
+  withdraw. Written on the pathfinder directly (collectblock and pvp were
   dropped: less control over failure messages and cancelling, and pvp pulls in mineflayer 2.x). Brains: idle,
   tiered, llm.
 - `collect` resolves names in code: "logs" is any log, an item means the blocks that drop it (cobblestone -> stone),
@@ -289,6 +295,13 @@ Lessons from the adapter:
 8. On Windows `curl localhost:...` takes ~0.2 s per request (IPv6 first, servers listen on IPv4): time with 127.0.0.1.
 9. prismarine-viewer (a live 3D bot view) stops at 1.21.4 (last release 2025-02), so there is none for 26.1; the
    panel's top-down map (`mapAround`) is the substitute.
+10. The pathfinder spends carried dirt **and cobblestone** as scaffolding by default: `moves()` limits it to dirt
+   (cobblestone is a building material now).
+11. The pathfinder takes diagonal steps with one side blocked; the bot catches on that corner and wiggles in place until
+   the watchdog says "stuck" (reproduced on a badlands terracotta mound). `moves()` allows diagonals only with both
+   sides clear.
+12. Teleporting a bot with `tp x ~ z` can put it inside a hill: it suffocates (damage the game rules do not turn off)
+   and cannot walk. Use `spreadplayers x z 0 1 false <name>` for the surface. A name also rejoins where it left.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

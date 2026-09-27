@@ -259,6 +259,13 @@ function renderVillage(v) {
         <td>${esc(t.claimedBy || '')}</td>
         <td><b>${esc(t.title)}</b><div class="sub">${esc(t.detail)}</div>${t.result ? `<div class="sub">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
     : '<div class="empty">no tasks posted yet</div>';
+  const storageList = (st) => {
+    const sum = {};
+    for (const c of st.chests) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
+    const rows = Object.entries(sum).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+    return (rows.length ? `<ul class="list">${rows.map(([n, q]) => `<li><b>${q}</b> ${esc(n)}</li>`).join('')}</ul>` : '<div class="empty">empty</div>') +
+      `<div class="sub mono">${st.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ')}</div>`;
+  };
   const list = (items, f) => (items.length ? `<ul class="list">${items.map((x) => `<li>${f(x)}</li>`).join('')}</ul>` : '<div class="empty">none</div>');
   const area = (x) => `x ${x.x1}..${x.x2}, z ${x.z1}..${x.z2}`;
   const now = Date.now();
@@ -269,6 +276,7 @@ function renderVillage(v) {
     <div class="section"><div class="label">Task board</div>${tasks}</div>
     <div class="section grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
       <div><div class="label">Buildings</div>${list(v.structures, (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`)}</div>
+      <div><div class="label">Storage${v.storage?.chests?.length ? ` <span class="sub">(${v.storage.chests.length} chest${v.storage.chests.length > 1 ? 's' : ''}, seen ${ago(v.storage.updated)} ago)</span>` : ''}</div>${v.storage?.chests?.length ? storageList(v.storage) : '<div class="empty">no chest yet</div>'}</div>
       <div><div class="label">Plots</div>${list(v.plots, (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}</span>`)}</div>
       <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height} <span class="sub">${esc(d.description)}</span>`)}</div>
       <div><div class="label">Ground being worked</div>${list(v.reservations.filter((r) => r.until > now), (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)}</div>

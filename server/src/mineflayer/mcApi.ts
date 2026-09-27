@@ -9,6 +9,7 @@ import { validateDesign } from '../designs';
 import { TOOLS } from '../skills';
 import { handlePanel } from '../panel';
 import { describePlan, designBill, type Counts } from './mcMaterials';
+import { registerChest } from './mcStorage';
 import type { MineflayerWorld } from './mcWorld';
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -46,6 +47,15 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       v.designs[design.name] = design;
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });
+    }
+    // Register a chest already in the world as village storage (tests): {x, y, z}
+    if (v && parts[3] === 'storage' && req.method === 'POST') {
+      const b = await readJson(req);
+      const pos = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y)), z: Math.floor(Number(b.z)) };
+      if (![pos.x, pos.y, pos.z].every(Number.isFinite)) return sendJson(res, 400, { error: 'x, y and z are required' });
+      const block = (await w.rcon.command(`execute if block ${pos.x} ${pos.y} ${pos.z} chest`)).trim();
+      if (!/passed/i.test(block)) return sendJson(res, 400, { error: `no chest at ${pos.x},${pos.y},${pos.z} (${block})` });
+      return sendJson(res, 200, { result: registerChest({ name: 'api' }, v, pos, w.villages), storage: v.storage });
     }
     // What a design needs and what getting it takes
     if (v && parts[3] === 'designs' && parts[5] === 'bill') {

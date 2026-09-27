@@ -165,7 +165,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
 const FACES = [new Vec3(0, -1, 0), new Vec3(0, 1, 0), new Vec3(-1, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 0, -1), new Vec3(0, 0, 1)];
 
 /** Place a carried block at pos, against any solid neighbour. */
-async function placeAt(a: BotAgent, item: string, pos: Vec3, signal: AbortSignal): Promise<void> {
+export async function placeAt(a: BotAgent, item: string, pos: Vec3, signal: AbortSignal): Promise<void> {
   const bot = a.bot;
   const id = itemId(a, item);
   if (id === undefined || !countItem(a, id)) throw new Error(`no ${item} in inventory`);

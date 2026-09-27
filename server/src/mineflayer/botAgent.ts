@@ -105,12 +105,24 @@ export class BotAgent implements WorldAgent {
     });
   }
 
-  /** Pathfinder movement rules for this bot (dig natural blocks only, no parkour). */
+  /** Pathfinder movement rules for this bot (dig natural blocks only, no parkour, scaffold with dirt). */
   moves() {
     if (!this.movements) {
       const m = new Movements(this.bot);
       m.allowParkour = false;
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
+      // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
+      m.scafoldingBlocks = [this.world.registry.itemsByName.dirt.id];
+      // Diagonal steps only with both sides clear: the pathfinder allows one side blocked, and a bot cutting past that
+      // corner catches on it and wiggles in place until the walk watchdog calls it stuck
+      const diagonal = m.getMoveDiagonal.bind(m);
+      m.getMoveDiagonal = (node, dir, neighbors) => {
+        // The typings say Vec3; the pathfinder passes its path node (which has x, y, z)
+        const block = (dx: number, dy: number, dz: number) => m.getBlock(node as unknown as Parameters<typeof m.getBlock>[0], dx, dy, dz);
+        const y = block(dir.x, 0, dir.z).physical ? 1 : 0;
+        for (const [dx, dz] of [[0, dir.z], [dir.x, 0]]) if (block(dx, y, dz).physical || block(dx, y + 1, dz).physical) return;
+        diagonal(node, dir, neighbors);
+      };
       this.movements = m;
     }
     return this.movements;

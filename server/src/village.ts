@@ -29,6 +29,13 @@ export interface Reservation extends Area {
   purpose: string;
   until: number;
 }
+/** A village storage chest and what it held when last opened. */
+export interface StorageChest {
+  x: number;
+  y: number;
+  z: number;
+  items: Record<string, number>;
+}
 /** A building drawn as layers (bottom-up) of rows (north to south) of palette characters (west to east). */
 export interface Design {
   name: string;
@@ -66,6 +73,8 @@ export interface Village {
   tasks: Task[];
   reservations: Reservation[];
   log: string[];
+  /** Shared storage (real Minecraft's village economy): chests and their contents as last seen. */
+  storage?: { chests: StorageChest[]; updated: number };
 }
 
 const RESERVATION_MS = 3 * 60 * 1000;
@@ -245,6 +254,13 @@ export class VillageRegistry {
         const result = t.result && t.status !== 'open' ? ` -> ${t.result.slice(0, 120)}` : '';
         return `- ${t.id} [${t.status}${who}] ${t.title}${after}${t.status === 'done' ? '' : `: ${t.detail}`}${result}`;
       }));
+    }
+    if (v.storage?.chests.length) {
+      const sum: Record<string, number> = {};
+      for (const c of v.storage.chests) for (const [n, q] of Object.entries(c.items)) sum[n] = (sum[n] ?? 0) + q;
+      const items = Object.entries(sum).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+      const where = v.storage.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ');
+      lines.push(`Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${items.length ? items.slice(0, 24).map(([n, q]) => `${q} ${n}`).join(', ') : 'empty'}`);
     }
     if (v.log.length) lines.push('Recent village events:', ...v.log.slice(-6).map((l) => `- ${l}`));
     const now = Date.now();
