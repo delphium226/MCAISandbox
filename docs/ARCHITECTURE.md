@@ -286,7 +286,7 @@ flowchart LR
 | Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog, digging natural blocks only, a retry with longer drops |
 | Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), digs to buried blocks |
 | Crafting | sandbox recipes | minecraft-data recipes; table, sticks and planks made in order; each craft waits for the server |
-| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON in creative, paced by `buildSpeed`, vertical runs merged |
+| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged; in survival each run is charged to the inventory (`/clear`) after a material check |
 | Safety | none | reflex: fight back with a weapon, run when unarmed, hurt or near a creeper |
 | Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn |
 
@@ -305,7 +305,13 @@ sequenceDiagram
   J->>J: readySite: loaded, dry, level, nothing in the way?
   J->>V: conflict check, reserve the footprint
   J->>B: walk south of the site, look at the blocks
+  opt survival: materials
+    J->>R: count what the builder carries (clear name item 0)
+    J->>B: withdraw what is missing from the village storage, walk back
+    J-->>E: action_failed "short of materials ... to get them: ..." if still short
+  end
   loop paced by buildSpeed (x10 blocks a second)
+    J->>R: survival: clear name item n (charge the run)
     J->>R: fill / setblock (clear top-down, then place bottom-up)
     R->>P: run as the server console
     P-->>B: block updates reach the bot's world
@@ -372,10 +378,11 @@ the brain's real prompts and tools.
 
 ## 9. Where this is going
 
-The next step (agreed, see CLAUDE.md, "Next: the peaceful village economy") replaces creative building with a safe
-survival economy in Minecraft: peaceful difficulty with no damage, a bill of materials per design worked back through
-the recipes to raw materials, a shared village storage chest, building that charges the builder's inventory, and a
-mayor whose building tasks come with the gather and craft tasks they need, laid out by `plan_layout`.
+The peaceful village economy (see CLAUDE.md, "Next: the peaceful village economy") replaces creative building with a
+safe survival economy in Minecraft. In place: peaceful difficulty with no damage (`mcRules.ts`), a bill of materials
+per design worked back through the recipes to raw materials (`mcMaterials.ts`), shared village storage chests
+(`mcStorage.ts`) and building that charges the builder's inventory (`mcBuild.ts`). Still to come: a mayor whose
+building tasks come with the gather and craft tasks they need, laid out by `plan_layout`.
 
 ```mermaid
 flowchart LR

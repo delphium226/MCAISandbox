@@ -269,16 +269,25 @@ export class Materials {
   }
 }
 
-/** One paragraph for a model or a failure message. */
-export function describePlan(p: MaterialPlan): string {
+/** What getting the items takes: "gather ...; craft ...; smelt ... (fuel ...)"; flags what cannot be had. */
+export function describeWork(p: MaterialPlan): string {
   const list = (c: Counts) => Object.entries(c).map(([n, q]) => `${q} ${label(n)}`).join(', ');
-  const parts = [`needs ${list(p.bill)}`];
-  if (Object.keys(p.fromStock).length) parts.push(`in hand: ${list(p.fromStock)}`);
+  const parts: string[] = [];
   if (Object.keys(p.gather).length) parts.push(`gather ${list(p.gather)}`);
   const crafts = p.steps.filter((s) => s.do === 'craft').map((s) => `${s.makes} ${label(s.item)}`);
   const smelts = p.steps.filter((s) => s.do === 'smelt').map((s) => `${s.makes} ${label(s.item)}`);
   if (crafts.length) parts.push(`craft ${crafts.join(', ')}`);
   if (smelts.length) parts.push(`smelt ${smelts.join(', ')} (fuel: ${p.fuel.coal ? `${p.fuel.coal} coal` : ''}${p.fuel.coal && p.fuel.planks ? ' + ' : ''}${p.fuel.planks ? `${p.fuel.planks} planks, or ${Math.ceil((p.fuel.smelts - p.fuel.coal * 8) / 8)} coal instead` : ''})`);
   if (p.problems.length) parts.push(`cannot be had: ${p.problems.join('; ')}`);
+  return parts.join('; ');
+}
+
+/** One paragraph for a model or a failure message. */
+export function describePlan(p: MaterialPlan): string {
+  const list = (c: Counts) => Object.entries(c).map(([n, q]) => `${q} ${label(n)}`).join(', ');
+  const parts = [`needs ${list(p.bill)}`];
+  if (Object.keys(p.fromStock).length) parts.push(`in hand: ${list(p.fromStock)}`);
+  const work = describeWork(p);
+  if (work) parts.push(work);
   return parts.join('; ');
 }

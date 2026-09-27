@@ -212,9 +212,16 @@ Agreed plan (each step tested before the next):
    site search keep off it. `deposit` item / "logs" / "planks" / "all" (keeps tools and chests), `withdraw` item and
    count (partial amounts reported). Shown in the village summary, the panel and `/api/village/:v`;
    `POST /api/village/:v/storage {x,y,z}` registers an existing chest.
-4. Survival building: `build_design` / `build` / `build_box` check the bill against inventory + storage, withdraw
-   what is missing, charge the inventory while placing, and fail with "short of N x (carrying A, storage has B):
-   gather or craft them".
+4. Done (tested with Gus and a 5x5 "shed" design in Depot, sheds at -10,-24, 29,-26 and 58,-20). Survival agents pay
+   for every block (`runJob`, `charged()`): at the site the builder counts what is still missing (server-side counts,
+   `clear <name> <item> 0`), withdraws it from storage, and fails before placing anything with "short of materials for
+   the shed: 35 acacia_planks (carrying 1, storage has 0). To get them: withdraw ...; gather 9 acacia_log; craft ...".
+   Each run of blocks is then charged with `clear <name> <item> <n>` (refunded if not placed); running out stops the
+   job ("ran out of X after placing N blocks; still needed: ...") and the same build later continues at the
+   remembered level (`memory.pendingBuilds`; its own walls would fail the site checks). Wood kinds are swapped for the
+   kind the builder can supply (`chooseWood`: oak designs built in acacia). The dirt walkway in front of doors is
+   optional. prepare_site stays free (landscaping) and gives the preparer the logs of the trees it fells.
+   `memory.buildMode: "commands"` builds free in survival. Creative is unchanged.
 5. Mayor planning: code adds the gather / craft / deposit tasks a build task needs ahead of it (from the bill of
    materials), and `plan_layout` gives building positions inside the plot with streets (the Ashvale run showed the
    mayor's layout arithmetic still fails: the hall stuck out of the plot and he spent the run relocating it).
@@ -267,8 +274,8 @@ creative, block-by-block placement in survival; not built yet).
   "already stands here"), but in creative the work is done with `/setblock` and `/fill` over RCON (the server console,
   so bots need no op), paced by `buildSpeed` (x10 blocks/s), vertical runs merged into one `/fill`, while the bot
   stands south of the site and looks at the blocks. Doors are set as both halves with the outward facing; whole trees
-  touching a plot are felled. Survival building (placing carried blocks) is not implemented: it refuses with a message
-  (`memory.buildMode: "commands"` forces commands in survival). `isPlaceable` accepts block states (`[facing=east]`).
+  touching a plot are felled. In survival the same commands run but every block is charged to the builder's
+  inventory (village economy step 4). `isPlaceable` accepts block states (`[facing=east]`).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
@@ -302,6 +309,13 @@ Lessons from the adapter:
    sides clear.
 12. Teleporting a bot with `tp x ~ z` can put it inside a hill: it suffocates (damage the game rules do not turn off)
    and cannot walk. Use `spreadplayers x z 0 1 false <name>` for the surface. A name also rejoins where it left.
+13. **Mineflayer's inventory view can drift after chest withdrawals**: once it showed 4 cobblestone where the server
+   had 25 (not reproducible in plain withdrawals; it happened in a withdraw-then-walk build flow). Anything that must
+   be right (building's material check) counts on the server with `clear <name> <item> 0`.
+14. `treeAt` (whole-tree felling) returned the logs only: the log search marked the leaves around each log as seen, so
+   the leaf search found none, canopies outside a plot stayed floating and each leaf column counted as another tree.
+   Fixed with separate seen-sets. `runJob`'s pacing slept once per command however far over budget, so buildSpeed
+   below ~10 had no effect; it now waits until the budget is positive.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

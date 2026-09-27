@@ -297,8 +297,10 @@ Agents are spawned and driven through the same REST API as in the sandbox (on po
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, deposit, withdraw, find_site, prepare_site,
 build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure messages.
-Creative agents build with `/setblock` and `/fill` (run over RCON, paced by `buildSpeed`); building in survival is not
-supported there yet. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
+Agents build with `/setblock` and `/fill` (run over RCON, paced by `buildSpeed`): free in creative, while survival
+agents pay for every block from their inventory, fetch what is missing from the village storage first, and are told
+what is short and how to get it (gather, craft, smelt) if they cannot build. Wood kinds adapt to what the builder has
+(an oak design is built in acacia), and a build that ran out continues where it stopped. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
 The agent server makes the world peaceful when it starts (no hostile mobs, no fall, drowning, fire or freeze damage,
 keep-inventory; `mcRules.ts`), for the village economy in progress: agents gather and craft materials, then build
 with them, through shared village storage: `deposit` and `withdraw` use the village's chests (the first deposit

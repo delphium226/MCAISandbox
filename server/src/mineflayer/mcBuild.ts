@@ -3,15 +3,23 @@
  * find_site, prepare_site (fell trees, cut and fill to one level), build_design, build_box and build (hut, house,
  * platform, wall).
  *
- * Creative agents build with server commands (/setblock and /fill over RCON, which need no operator rights for the
- * bots), paced by memory.buildSpeed like the sandbox (1 is about 10 blocks a second), while the bot stands by the site
- * and looks at what it builds. Survival building (placing carried blocks one by one) is not implemented yet.
+ * Blocks are placed with server commands (/setblock and /fill over RCON, which need no operator rights for the bots),
+ * paced by memory.buildSpeed like the sandbox (1 is about 10 blocks a second), while the bot stands by the site and
+ * looks at what it builds. Creative agents build for free. Survival agents pay for every block (the village economy):
+ * before placing anything the builder works out what is still missing, takes it from the village storage, and fails
+ * with the shortage and how to get it if anything is still short; each run of blocks is then taken from its inventory
+ * (/clear) as it is placed. Wood kinds are swapped for the kind the builder can supply (designs say oak, the land
+ * grows acacia). A build stopped part-way continues where it stopped when run again. prepare_site is landscaping and
+ * stays free; in survival the preparer keeps the logs of the trees it fells. memory.buildMode "commands" builds free
+ * in survival (tests).
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation } from '../village';
 import { areaText, overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
+import { chargedItem, describeWork, type Counts } from './mcMaterials';
+import { storageContents, withdrawItems } from './mcStorage';
 import { at, checkAbort, goals, num, sleep, standableY, str, walk } from './mcUtil';
 
 type Pos = [number, number, number];
@@ -24,6 +32,8 @@ interface Target {
   block: string;
   /** Outward direction for doors. */
   facing?: [number, number];
+  /** Survival: placed only if the builder carries the block (the walkway in front of a door). */
+  optional?: boolean;
 }
 
 interface Built extends Area {
@@ -45,6 +55,9 @@ const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|myceli
 /** Blocks that occur in the wild: preparing a site may remove these, never anything built. */
 const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
 const isLog = (n: string) => /_log$|_wood$|_stem$/.test(n);
+const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
+/** A wooden item: its wood kind and part ("acacia", "planks"). */
+const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -103,16 +116,18 @@ function treeAt(a: BotAgent, x: number, y: number, z: number): Pos[] {
   }
   if (!start) return [];
   const logs: Pos[] = [start];
-  const seen = new Set([k(start)]);
+  const checked = new Set([k(start)]);
   for (let i = 0; i < logs.length && logs.length < 300; i++)
     for (let dx = -1; dx <= 1; dx++)
       for (let dy = -1; dy <= 1; dy++)
         for (let dz = -1; dz <= 1; dz++) {
           const q: Pos = [logs[i][0] + dx, logs[i][1] + dy, logs[i][2] + dz];
-          if (seen.has(k(q)) || Math.abs(q[0] - start[0]) > 8 || Math.abs(q[2] - start[2]) > 8) continue;
-          seen.add(k(q));
+          if (checked.has(k(q)) || Math.abs(q[0] - start[0]) > 8 || Math.abs(q[2] - start[2]) > 8) continue;
+          checked.add(k(q));
           if (isLog(name(q))) logs.push(q);
         }
+  // The leaves: a search of its own (the log search looked at the cells around each log, leaves included)
+  const seen = new Set(logs.map(k));
   const leaves: Pos[] = [];
   let frontier = logs;
   for (let depth = 0; depth < 6 && frontier.length && leaves.length < 2000; depth++) {
@@ -141,14 +156,128 @@ interface Job {
   /** Where to stand: the area worked on. */
   area: Area;
   y: number;
+  /** Landscaping (prepare_site): never charged. */
+  free?: boolean;
+  /** What is being built, for messages ("the cottage"). */
+  what?: string;
 }
 
-/** Whether a block is already what a target wants (by id; states such as door facing are not compared). */
-function alreadyThere(a: BotAgent, t: Target): boolean {
+/** Survival builders pay for every block; creative builds free, and memory.buildMode "commands" too (tests). */
+const charged = (a: BotAgent, job: Job) => !job.free && a.gamemode !== 'creative' && a.memory.buildMode !== 'commands';
+
+function inventoryCounts(a: BotAgent): Counts {
+  const out: Counts = {};
+  for (const it of a.bot.inventory.items()) out[it.name] = (out[it.name] ?? 0) + it.count;
+  return out;
+}
+
+/**
+ * What the builder carries of these items, as the server counts it: Mineflayer's own view of the inventory has been
+ * seen to drift after chest withdrawals (it showed 4 cobblestone where the server had 25).
+ */
+async function carriedCounts(a: BotAgent, items: string[]): Promise<Counts> {
+  const out: Counts = {};
+  for (const n of items) {
+    const r = await a.world.rcon.command(`clear ${a.name} ${n} 0`);
+    out[n] = Number(/Found (\d+)/i.exec(r)?.[1] ?? 0);
+  }
+  return out;
+}
+
+const listCounts = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n}`).join(', ');
+
+/**
+ * Builders place the wood they can get: each wood kind in the work becomes the kind with the most of the needed items
+ * in hand and in storage, or failing that the kind with the most logs and planks; the design's own kind wins ties.
+ */
+function chooseWood(place: Target[], have: Counts): Map<string, string> {
+  const need = new Map<string, Counts>();
+  for (const t of place) {
+    const m = WOOD_ITEM.exec(baseName(t.block));
+    if (!m) continue;
+    const c = need.get(m[1]) ?? {};
+    c[m[2]] = (c[m[2]] ?? 0) + 1;
+    need.set(m[1], c);
+  }
+  const out = new Map<string, string>();
+  for (const [kind, parts] of need) {
+    const score = (k: string) => Object.entries(parts).reduce((s, [part, n]) => s + Math.min(n, have[`${k}_${part}`] ?? 0), 0);
+    const wood = (k: string) => (have[`${k}_log`] ?? 0) * 4 + (have[`${k}_planks`] ?? 0);
+    let best = kind;
+    for (const k of WOODS) if (score(k) > score(best)) best = k;
+    if (!score(best)) for (const k of WOODS) if (wood(k) > wood(best)) best = k;
+    out.set(kind, best);
+  }
+  return out;
+}
+
+function swapWood(block: string, woods: Map<string, string>): string {
+  const m = WOOD_ITEM.exec(baseName(block));
+  const k = m && woods.get(m[1]);
+  if (!m || !k || k === m[1]) return block;
+  const i = block.indexOf('[');
+  return `${k}_${m[2]}${i >= 0 ? block.slice(i) : ''}`;
+}
+
+/** Items the placing costs (a door is one item; optional blocks are not counted). */
+function billOf(place: Target[]): Counts {
+  const out: Counts = {};
+  for (const t of place) {
+    if (t.optional) continue;
+    const item = chargedItem(t.block);
+    out[item] = (out[item] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Why the builder cannot start (what is short, and how to get it), or null. */
+function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: Counts): string | null {
+  const short: Counts = {};
+  const lines: string[] = [];
+  for (const [n, q] of Object.entries(need)) {
+    const have = inv[n] ?? 0;
+    if (have >= q) continue;
+    short[n] = q - have;
+    lines.push(`${q - have} ${n} (carrying ${have}, storage has ${store[n] ?? 0})`);
+  }
+  if (!lines.length) return null;
+  // What else is in hand (logs, sand, ...) counts towards making them
+  const other: Counts = { ...inv };
+  for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
+  for (const n of Object.keys(need)) delete other[n];
+  const plan = a.world.materials.plan(short, other);
+  // Ingredients that are in storage rather than in hand have to be fetched first
+  const fetch: Counts = {};
+  for (const [n, q] of Object.entries(plan.fromStock)) {
+    const f = Math.min(q, Math.max(0, q - (inv[n] ?? 0)), store[n] ?? 0);
+    if (f > 0) fetch[n] = f;
+  }
+  const work = [Object.keys(fetch).length ? `withdraw ${listCounts(fetch)}` : '', describeWork(plan)].filter(Boolean).join('; ');
+  return `short of materials for ${what}: ${lines.join(', ')}. To get them: ${work || 'gather them'}; then build again`;
+}
+
+/** Stand just south of the site (out of the way of the blocks), where it can be seen. */
+async function standBy(a: BotAgent, job: Job, signal: AbortSignal) {
+  const cx = Math.floor((job.area.x1 + job.area.x2) / 2), sz = job.area.z2 + 3;
+  const sy = standableY(a, cx, job.y + 1, sz);
+  const p = a.bot.entity.position;
+  if (Math.hypot(p.x - cx, p.z - sz) > 6)
+    await walk(a, sy !== null ? new goals.GoalNear(cx, sy, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+}
+
+/**
+ * Whether a block is already what a target wants (by id; states such as door facing are not compared). With anyWood,
+ * another wood kind of the same part counts (a survival build that swapped oak for acacia, resumed).
+ */
+function alreadyThere(a: BotAgent, t: Target, anyWood = false): boolean {
   const cur = blockName(a, t.x, t.y, t.z);
   if (cur === null) return false;
   if (t.block === 'air') return cur === 'air' || cur === 'cave_air' || LIQUID.test(cur);
-  return cur === baseName(t.block);
+  if (cur === baseName(t.block)) return true;
+  const c = anyWood ? WOOD_ITEM.exec(cur) : null, w = c ? WOOD_ITEM.exec(baseName(t.block)) : null;
+  return !!c && !!w && c[2] === w[2];
 }
 
 const DIR_NAMES: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
@@ -158,8 +287,7 @@ const DIR_NAMES: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1'
  * merging vertical runs of the same block. Returns the summary ("placed N blocks, cleared M; skipped ...").
  */
 async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): Promise<string> {
-  if (a.gamemode !== 'creative' && a.memory.buildMode !== 'commands')
-    throw new Error('building in survival mode is not supported yet in real Minecraft; it works in creative mode');
+  const pay = charged(a, job);
   const v = a.village();
   const reg = a.world.villages;
   let reservation: Reservation | undefined;
@@ -168,50 +296,70 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     if (why) throw new Error(`cannot work at ${areaText(job.claim.area)}: ${why}; pick another spot (find_site avoids taken ground)`);
     reservation = reg.reserve(v, job.claim.area, a.name, job.claim.purpose);
   }
+  const notes: string[] = [];
   try {
-    // Stand just south of the site (out of the way of the blocks), where it can be seen
-    const cx = Math.floor((job.area.x1 + job.area.x2) / 2), sz = job.area.z2 + 3;
-    const sy = standableY(a, cx, job.y + 1, sz);
-    const p = a.bot.entity.position;
-    if (Math.hypot(p.x - cx, p.z - sz) > 6)
-      await walk(a, sy !== null ? new goals.GoalNear(cx, sy, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000).catch((e: Error) => {
-        if (e.message === 'cancelled') throw e;
-      });
+    await standBy(a, job, signal);
     // What is left to do, and in what order: clearing top-down, then placing bottom-up
-    const todo = job.targets.filter((t) => !alreadyThere(a, t));
+    const todo = job.targets.filter((t) => !alreadyThere(a, t, pay));
     const clear = todo.filter((t) => t.block === 'air').sort((u, w) => w.y - u.y);
-    const place = todo.filter((t) => t.block !== 'air').sort((u, w) => u.y - w.y || u.x - w.x || u.z - w.z);
-    // Merge vertical runs of one block in one column into a single /fill
-    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean };
+    let place = todo.filter((t) => t.block !== 'air').sort((u, w) => u.y - w.y || u.x - w.x || u.z - w.z);
+    if (pay) {
+      // Survival: have everything before starting, taking what is missing from the village storage
+      const store = v ? storageContents(v) : {};
+      const all = inventoryCounts(a);
+      for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
+      const woods = chooseWood(place, all);
+      place = place.map((t) => ({ ...t, block: swapWood(t.block, woods) }));
+      const swapped = [...woods].filter(([k, b]) => k !== b).map(([k, b]) => `${b} instead of ${k}`);
+      if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
+      const need = billOf(place);
+      let inv = await carriedCounts(a, Object.keys(need));
+      const fetch: Counts = {};
+      for (const [n, q] of Object.entries(need)) {
+        const f = Math.min(q - (inv[n] ?? 0), store[n] ?? 0);
+        if (f > 0) fetch[n] = f;
+      }
+      if (v && Object.keys(fetch).length) {
+        const { got } = await withdrawItems(a, v, fetch, signal);
+        if (Object.keys(got).length) notes.push(`took ${listCounts(got)} from storage`);
+        await standBy(a, job, signal);
+        inv = await carriedCounts(a, Object.keys(need));
+      }
+      const why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+      if (why) throw new Error(why);
+    }
+    // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
+    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean };
     const cmds: Cmd[] = [];
     const columns = (list: Target[], clearing: boolean) => {
       const byCol = new Map<string, Target[]>();
       for (const t of list) {
         if (/_door$/.test(baseName(t.block))) {
           const f = DIR_NAMES[`${t.facing?.[0] ?? 0},${t.facing?.[1] ?? 1}`] ?? 'south';
-          cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${baseName(t.block)}[facing=${f},half=lower]`, n: 1, pos: [t.x, t.y, t.z], clear: false });
+          cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${baseName(t.block)}[facing=${f},half=lower]`, n: 1, pos: [t.x, t.y, t.z], clear: false, item: baseName(t.block) });
           cmds.push({ cmd: `setblock ${t.x} ${t.y + 1} ${t.z} ${baseName(t.block)}[facing=${f},half=upper]`, n: 0, pos: [t.x, t.y + 1, t.z], clear: false });
           continue;
         }
-        const k = `${t.x},${t.z},${t.block}`;
+        const k = `${t.x},${t.z},${t.block},${t.optional ? 1 : 0}`;
         if (!byCol.has(k)) byCol.set(k, []);
         byCol.get(k)!.push(t);
       }
-      const runs: Array<{ x: number; z: number; y1: number; y2: number; block: string }> = [];
+      const runs: Array<{ x: number; z: number; y1: number; y2: number; block: string; optional?: boolean }> = [];
       for (const ts of byCol.values()) {
         const ys = ts.map((t) => t.y).sort((m, n) => m - n);
+        const { x, z, block, optional } = ts[0];
         let y1 = ys[0], y2 = ys[0];
         for (const y of ys.slice(1)) {
           if (y === y2 + 1) y2 = y;
-          else runs.push({ x: ts[0].x, z: ts[0].z, y1, y2, block: ts[0].block }), (y1 = y2 = y);
+          else runs.push({ x, z, y1, y2, block, optional }), (y1 = y2 = y);
         }
-        runs.push({ x: ts[0].x, z: ts[0].z, y1, y2, block: ts[0].block });
+        runs.push({ x, z, y1, y2, block, optional });
       }
       runs.sort((u, w) => (clearing ? w.y2 - u.y2 : u.y1 - w.y1));
       for (const r of runs)
         cmds.push({
           cmd: r.y1 === r.y2 ? `setblock ${r.x} ${r.y1} ${r.z} ${r.block}` : `fill ${r.x} ${r.y1} ${r.z} ${r.x} ${r.y2} ${r.z} ${r.block}`,
-          n: r.y2 - r.y1 + 1, pos: [r.x, r.y1, r.z], clear: clearing,
+          n: r.y2 - r.y1 + 1, pos: [r.x, r.y1, r.z], clear: clearing, item: clearing ? undefined : chargedItem(r.block), optional: r.optional,
         });
     };
     columns(clear, true);
@@ -220,22 +368,41 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     const speed = Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1));
     let placed = 0, cleared = 0, budget = 0;
     const skipped = new Map<string, number>();
+    const spent: Counts = {};
     let lastRenew = Date.now();
-    for (const c of cmds) {
+    let outOf = -1;
+    for (let i = 0; i < cmds.length; i++) {
+      const c = cmds[i];
       checkAbort(signal);
-      if (budget <= 0) {
+      while (budget <= 0) {
         await sleep(100, signal);
         budget += speed;
       }
       budget -= c.n;
+      // Survival: take the blocks from the inventory first; running out stops the job (optional blocks are skipped)
+      const cost = pay && c.item && c.n > 0 ? c.item : null;
+      if (cost) {
+        const r = await a.world.rcon.command(`clear ${a.name} ${cost} ${c.n}`);
+        const got = Number(/Removed (\d+)/i.exec(r)?.[1] ?? 0);
+        if (got < c.n) {
+          if (got) await a.world.rcon.command(`give ${a.name} ${cost} ${got}`);
+          if (c.optional) continue;
+          outOf = i;
+          break;
+        }
+      }
       a.bot.lookAt(new Vec3(c.pos[0] + 0.5, c.pos[1] + 0.5, c.pos[2] + 0.5)).catch(() => {});
       const out = await a.world.rcon.command(c.cmd);
       if (/^(Changed the block|Successfully filled)/i.test(out)) {
         if (c.clear) cleared += c.n;
         else placed += c.n;
-      } else if (!/Could not set the block|No blocks were filled/i.test(out)) {
-        const why = /not loaded/i.test(out) ? 'in unloaded chunks' : `rejected (${out.slice(0, 60)})`;
-        skipped.set(why, (skipped.get(why) ?? 0) + c.n);
+        if (cost) spent[cost] = (spent[cost] ?? 0) + c.n;
+      } else {
+        if (cost) await a.world.rcon.command(`give ${a.name} ${cost} ${c.n}`); // not placed: give the blocks back
+        if (!/Could not set the block|No blocks were filled/i.test(out)) {
+          const why = /not loaded/i.test(out) ? 'in unloaded chunks' : `rejected (${out.slice(0, 60)})`;
+          skipped.set(why, (skipped.get(why) ?? 0) + c.n);
+        }
       }
       if (reservation && Date.now() - lastRenew > 30000) {
         reg.renew(reservation);
@@ -244,8 +411,14 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     }
     // The client hears about the changes a moment later
     await sleep(300, signal);
+    if (outOf >= 0) {
+      const left: Counts = {};
+      for (const c of cmds.slice(outOf)) if (c.item && c.n > 0 && !c.optional) left[c.item] = (left[c.item] ?? 0) + c.n;
+      throw new Error(`ran out of ${cmds[outOf].item} after placing ${placed} blocks; still needed: ${listCounts(left)}. Get them (withdraw from storage, or gather and craft), then run the same build again: it continues where it stopped`);
+    }
     const sk = [...skipped].map(([why, n]) => `${n} ${why}`).join(', ');
-    return `placed ${placed} blocks, cleared ${cleared}${felled ? ` (${felled} trees felled)` : ''}${sk ? `; skipped ${sk}` : ''}`;
+    const used = pay && Object.keys(spent).length ? `; used ${listCounts(spent)}` : '';
+    return `placed ${placed} blocks, cleared ${cleared}${felled ? ` (${felled} trees felled)` : ''}${used}${sk ? `; skipped ${sk}` : ''}${notes.length ? `; ${notes.join('; ')}` : ''}`;
   } finally {
     if (reservation && v) reg.release(v, reservation.id);
   }
@@ -446,10 +619,21 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
   if (targets.length > 12000) throw new Error(`too much work (${targets.length} blocks, max 12000); prepare a smaller area`);
   const plot: Plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
-  const summary = await runJob(a, {
-    targets, area: plot, y,
+  // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping)
+  const logs: Counts = {};
+  for (const key of treeLogs) {
+    const [tx, ty, tz] = key.split(',').map(Number);
+    const n = blockName(a, tx, ty, tz);
+    if (n && isLog(n)) logs[n] = (logs[n] ?? 0) + 1;
+  }
+  let summary = await runJob(a, {
+    targets, area: plot, y, free: true,
     claim: { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false },
   }, signal, felled);
+  if (a.gamemode !== 'creative' && Object.keys(logs).length) {
+    for (const [n, q] of Object.entries(logs)) await a.world.rcon.command(`give ${a.name} ${n} ${q}`);
+    summary += `; kept ${listCounts(logs)} from the felled trees`;
+  }
   const same = (q: Plot) => q.x1 === plot.x1 && q.z1 === plot.z1 && q.x2 === plot.x2 && q.z2 === plot.z2;
   const v = a.village();
   if (v) {
@@ -524,7 +708,10 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   // Asked to build what already stands there (e.g. a task someone else finished): that is done, not a failure
   const same = a.village()?.structures.find((st) => st.kind === d.name && overlaps(area, st));
   if (same) return `a ${d.name} built by ${same.builtBy} already stands at ${areaText(same)}, so this is already done`;
-  const y0 = readySite(a, area, d.height, `"${d.name}"`);
+  // A build stopped part-way (out of materials) continues at the same level: its own walls would fail the site checks
+  const key = `${d.name}@${cx},${cz},${rot}`;
+  const pending = (a.memory.pendingBuilds ?? {}) as Record<string, number>;
+  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`);
   // Design column i (west to east) and row j (north to south), turned clockwise rot times
   const turn = (i: number, j: number): [number, number] => {
     let [u, v, w, h] = [i, j, d.width, d.depth];
@@ -559,14 +746,20 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   for (const [x, z, [fx, fz]] of doors)
     for (let i = 1; i <= 2; i++) {
       const wx = x + fx * i, wz = z + fz * i;
-      if (a.bot.blockAt(new Vec3(wx, y0, wz))?.boundingBox !== 'block') work.push({ x: wx, y: y0, z: wz, block: 'dirt' });
+      if (a.bot.blockAt(new Vec3(wx, y0, wz))?.boundingBox !== 'block') work.push({ x: wx, y: y0, z: wz, block: 'dirt', optional: true });
       for (let y = y0 + 1; y <= y0 + 3; y++) work.push({ x: wx, y, z: wz, block: 'air' });
     }
   if (work.length > 60000) throw new Error(`too big (${work.length} blocks, max 60000)`);
+  a.memory.pendingBuilds = { ...pending, [key]: y0 };
   const summary = await runJob(a, {
-    targets: work, area, y: y0,
+    targets: work, area, y: y0, what: `the ${d.name}`,
     claim: { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true },
-  }, signal);
+  }, signal).catch((e: Error) => {
+    // A fresh build that placed nothing (short of materials, site taken) gets the site checks again next time
+    if (pending[key] === undefined && !/^ran out of/.test(e.message)) delete (a.memory.pendingBuilds as Record<string, number>)[key];
+    throw e;
+  });
+  delete (a.memory.pendingBuilds as Record<string, number>)[key];
   const rec = recordStructure(a, { ...area, y: y0, kind: d.name });
   return rec ? `${rec}; ${summary}` : summary;
 }
@@ -587,7 +780,7 @@ async function buildBox(a: BotAgent, args: Record<string, unknown>, signal: Abor
         targets.push({ x, y, z, block: hollow && !shell ? 'air' : block });
       }
   const area = { x1, z1, x2, z2 };
-  const summary = await runJob(a, { targets, area, y: y1, claim: { area, purpose: `build_box ${block}`, avoidStructures: false } }, signal);
+  const summary = await runJob(a, { targets, area, y: y1, what: `the ${block} box`, claim: { area, purpose: `build_box ${block}`, avoidStructures: false } }, signal);
   const placedSome = !/^placed 0 /.test(summary);
   const rec = block !== 'air' && placedSome ? recordStructure(a, { ...area, y: y1, kind: typeof args.label === 'string' && args.label ? args.label : `${block} box` }) : '';
   return rec ? `${rec}; ${summary}` : summary;
@@ -641,9 +834,12 @@ async function buildStructure(a: BotAgent, args: Record<string, unknown>, signal
   for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) ground.set(`${x},${z}`, groundY(a, x, z, py));
   const heights = [...ground.values()].sort((m, n) => m - n);
   const level = heights[heights.length - 1] - heights[0] <= 1 && kind !== 'platform' ? heights[heights.length - 1] : heights[heights.length >> 1];
-  const y0 = args.y !== undefined ? int(args, 'y') : level;
+  // A build stopped part-way (out of materials) continues at the same level, without the site checks
+  const key = `${kind}@${cx},${cz}`;
+  const pending = (a.memory.pendingBuilds ?? {}) as Record<string, number>;
+  const y0 = args.y !== undefined ? int(args, 'y') : pending[key] ?? level;
   // Houses and huts go on prepared ground: level, with nothing standing where the building will be
-  if (kind !== 'platform') {
+  if (kind !== 'platform' && pending[key] === undefined) {
     const prep = `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
     if (heights[heights.length - 1] - heights[0] > 1) throw new Error(`the ground is not level here (heights ${heights[0]}..${heights[heights.length - 1]}); ${prep}`);
     let blocked = 0, built = '';
@@ -686,12 +882,17 @@ async function buildStructure(a: BotAgent, args: Record<string, unknown>, signal
   if (kind !== 'platform')
     for (let i = 1; i <= 2; i++) {
       const x = doorX + sdx * i, z = doorZ + sdz * i;
-      if (a.bot.blockAt(new Vec3(x, y0, z))?.boundingBox !== 'block') add(x, y0, z, floor);
+      if (a.bot.blockAt(new Vec3(x, y0, z))?.boundingBox !== 'block') targets.push({ x, y: y0, z, block: floor, optional: true });
       for (let y = y0 + 1; y <= y0 + 3; y++) add(x, y, z, 'air');
     }
   if (targets.length > MAX_BUILD_BLOCKS) throw new Error(`too big (${targets.length} blocks, max ${MAX_BUILD_BLOCKS})`);
   const area = { x1: x0, z1: z0, x2: x1, z2: z1 };
-  const summary = await runJob(a, { targets, area, y: y0, claim: { area: { x1: x0 - 1, z1: z0 - 1, x2: x1 + 1, z2: z1 + 1 }, purpose: `build a ${kind}`, avoidStructures: true } }, signal);
+  if (kind !== 'platform') a.memory.pendingBuilds = { ...pending, [key]: y0 };
+  const summary = await runJob(a, { targets, area, y: y0, what: `the ${kind}`, claim: { area: { x1: x0 - 1, z1: z0 - 1, x2: x1 + 1, z2: z1 + 1 }, purpose: `build a ${kind}`, avoidStructures: true } }, signal).catch((e: Error) => {
+    if (pending[key] === undefined && !/^ran out of/.test(e.message)) delete (a.memory.pendingBuilds as Record<string, number> | undefined)?.[key];
+    throw e;
+  });
+  delete (a.memory.pendingBuilds as Record<string, number> | undefined)?.[key];
   const rec = recordStructure(a, { ...area, y: y0, kind });
   return rec ? `${rec}; ${summary}` : summary;
 }

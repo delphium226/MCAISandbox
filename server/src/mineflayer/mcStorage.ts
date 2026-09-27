@@ -222,6 +222,47 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     `. Storage now holds ${describeStorage(v, 12)}`;
 }
 
+/**
+ * Take items from the storage chests: each want is a test on item names and how many; chests the record says hold
+ * something wanted are opened first, the others only while nothing was found (someone may have filled them).
+ */
+async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string) => boolean; left: number }>, signal: AbortSignal) {
+  const got: Record<string, number> = {};
+  let invFull = false;
+  const open = () => wants.filter((w) => w.left > 0);
+  const has = (c: StorageChest) => Object.entries(c.items).some(([n, q]) => q > 0 && open().some((w) => w.test(n)));
+  const order = [...(v.storage?.chests ?? [])].sort((x, y) => Number(has(y)) - Number(has(x)));
+  for (const c of order) {
+    if (!open().length || invFull) break;
+    if (!has(c) && Object.keys(got).length) continue;
+    checkAbort(signal);
+    const w = await openChest(a, v, c, signal);
+    try {
+      for (const it of w.containerItems()) {
+        const want = open().find((x) => x.test(it.name));
+        if (!want) continue;
+        const n = Math.min(want.left, it.count, room(a, w, w.inventoryStart, w.slots.length, it.type));
+        if (n <= 0) { invFull = true; break; }
+        await abortable(w.withdraw(it.type, null, n), signal);
+        got[it.name] = (got[it.name] ?? 0) + n;
+        want.left -= n;
+      }
+      c.items = chestItems(w);
+    } finally {
+      w.close();
+    }
+    v.storage!.updated = Date.now();
+    a.world.villages.save();
+  }
+  return { got, invFull };
+}
+
+/** Take exact items from the village storage (builders fetching a bill of materials); returns what was taken. */
+export async function withdrawItems(a: BotAgent, v: Village, want: Record<string, number>, signal: AbortSignal) {
+  const wants = Object.entries(want).filter(([, q]) => q > 0).map(([name, q]) => ({ test: (n: string) => n === name, left: q }));
+  return wants.length && v.storage?.chests.length ? take(a, v, wants, signal) : { got: {}, invFull: false };
+}
+
 async function withdraw(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('withdraw takes items from the village storage, and you are not in a village');
@@ -230,41 +271,14 @@ async function withdraw(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const m = matcher(a, raw);
   if (!m) throw new Error(`unknown item ${raw}; use an item id (oak_planks, glass), "logs" or "planks"`);
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 64;
-  const has = (c: StorageChest) => Object.entries(c.items).some(([n, q]) => q > 0 && m.test(n));
-  // Chests the record says hold it first; the others are checked too, in case someone else filled them
-  const order = [...v.storage.chests].sort((x, y) => Number(has(y)) - Number(has(x)));
-  const got: Record<string, number> = {};
-  let left = want, invFull = false;
-  for (const c of order) {
-    if (left <= 0) break;
-    if (!has(c) && Object.keys(got).length) continue;
-    checkAbort(signal);
-    const w = await openChest(a, v, c, signal);
-    try {
-      for (const it of w.containerItems()) {
-        if (left <= 0) break;
-        if (!m.test(it.name)) continue;
-        const space = room(a, w, w.inventoryStart, w.slots.length, it.type);
-        const n = Math.min(left, it.count, space);
-        if (n <= 0) { invFull = true; break; }
-        await abortable(w.withdraw(it.type, null, n), signal);
-        got[it.name] = (got[it.name] ?? 0) + n;
-        left -= n;
-      }
-      c.items = chestItems(w);
-    } finally {
-      w.close();
-    }
-    v.storage.updated = Date.now();
-    a.world.villages.save();
-    if (invFull) break;
-  }
-  const taken = Object.entries(got).map(([n, q]) => `${q} ${n}`).join(', ');
+  const { got, invFull } = await take(a, v, [{ test: m.test, left: want }], signal);
+  const n = Object.values(got).reduce((s, q) => s + q, 0);
+  const taken = Object.entries(got).map(([k, q]) => `${q} ${k}`).join(', ');
   if (!taken) {
     if (invFull) throw new Error('inventory is full: deposit something first');
     throw new Error(`storage has no ${m.label}; it holds ${describeStorage(v, 12)}`);
   }
-  const short = left > 0 ? (invFull ? `; inventory is full, ${left} not taken` : `; storage had only ${want - left} of the ${want} asked for`) : '';
+  const short = n < want ? (invFull ? `; inventory is full, ${want - n} not taken` : `; storage had only ${n} of the ${want} asked for`) : '';
   return `withdrew ${taken}${short}`;
 }
 
