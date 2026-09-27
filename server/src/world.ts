@@ -80,6 +80,38 @@ export interface WorldAgent {
   village(): Village | undefined;
   /** The brain driving it, if any (for status displays). */
   readonly brain?: AgentBrain | null;
+  /** A top-down map of the ground around the agent, for the control panel. */
+  mapAround?(radius: number): MapView;
+}
+
+/** The top block of each column in a square around a point: palette indexes (-1: not loaded) and heights, row by row. */
+export interface MapView {
+  x0: number;
+  z0: number;
+  size: number;
+  palette: string[];
+  cells: number[];
+  heights: number[];
+}
+
+/** Build a MapView from a function giving a column's top block and its height (or null when it is not loaded). */
+export function makeMapView(cx: number, cz: number, radius: number, top: (x: number, z: number) => [string, number] | null): MapView {
+  const size = radius * 2 + 1, x0 = cx - radius, z0 = cz - radius;
+  const palette: string[] = [], index = new Map<string, number>(), cells: number[] = [], heights: number[] = [];
+  for (let z = z0; z < z0 + size; z++)
+    for (let x = x0; x < x0 + size; x++) {
+      const t = top(x, z);
+      if (!t) {
+        cells.push(-1);
+        heights.push(0);
+        continue;
+      }
+      let i = index.get(t[0]);
+      if (i === undefined) index.set(t[0], (i = palette.push(t[0]) - 1));
+      cells.push(i);
+      heights.push(t[1]);
+    }
+  return { x0, z0, size, palette, cells, heights };
 }
 
 /** A world that hosts agents. */

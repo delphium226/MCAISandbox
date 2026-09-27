@@ -1,7 +1,8 @@
 # MCAISandbox: notes for Claude Code sessions
 
 A browser Minecraft-style sandbox with an authoritative Node server, built to host human players and LLM agents in one
-world (Project Sid-style experiments). The README documents features, skills and the API; this file records how to work
+world (Project Sid-style experiments); the same agents also run in real Minecraft. The README documents features,
+skills and the API, `docs/ARCHITECTURE.md` how the system fits together (with diagrams); this file records how to work
 on the project and what earlier sessions learned.
 
 ## Running and checking
@@ -20,8 +21,13 @@ on the project and what earlier sessions learned.
 - **Control panel:** http://localhost:8766/panel (real Minecraft) or http://localhost:8765/panel (sandbox):
   every agent's brain state (planning / thinking / acting / waiting, since when and why), plan, task, current action,
   recent decisions and events, blocked calls, model stats, inventory, the village task board, and Ollama's loaded
-  models; buttons to stop, remove or (Minecraft) watch an agent. `server/panel/index.html` (no build step) and
-  `server/src/panel.ts` (`/api/overview`, `/api/models`); brains report through `AgentBrain.status()`.
+  models; buttons to stop, remove or (Minecraft) watch an agent. Each card also has a top-down map (every 2 s:
+  terrain by top block and height, the agent's facing, mobs, players, its target, plots, buildings, reserved ground;
+  `WorldAgent.mapAround`, `/api/maps`, cached 1.5 s, ~2 ms per 49x49 map) and "what the executor / planner saw": the
+  exact user prompt of its last model call and the reply (`TieredBrain.status().lastExecutorCall/lastPlannerCall`).
+  `server/panel/index.html` (no build step) and `server/src/panel.ts` (`/api/overview`, `/api/models`, `/api/maps`).
+  A live 3D view was considered: prismarine-viewer stops at 1.21.4 (last release 2025-02), so not for 26.1.
+  On Windows, `curl localhost:...` adds ~0.2 s per request (IPv6 first); use 127.0.0.1 when timing.
 - `GET /api/block?x=&y=&z=` inspects the world; `loaded: false` means the chunk is not loaded (unloaded blocks used to read
   as air, which caused false conclusions).
 
@@ -40,8 +46,19 @@ on the project and what earlier sessions learned.
 ## Local models (the user's machine)
 
 - Two RTX 3090s (24 GB each); GPU 1 also drives the display. Ollama (0.34.x) at localhost:11434, models in `F:\AI Models`.
-- Installed: `gemma4:31b` (dense, ~20 GB loaded; planner/architect), `qwen3:30b-instruct` (MoE, ~19 GB; executor), plus
-  some `:cloud` models. Ollama puts one model per GPU, so both stay loaded.
+- Installed: `qwen3:30b-instruct` (MoE, ~19 GB; the executor), `qwen3.8:27b` (dense, ~22 GB at 8k; the workers'
+  planner), `gemma4:31b` (dense, ~21 GB, only ~10 tok/s: the old planner/architect), and cloud models through the
+  Ollama app: `gpt-oss:120b-cloud` (the user's paid subscription; the mayor's planner and architect), kimi, deepseek,
+  mistral-large, minimax. Pull models through the API (`POST /api/pull`), not the CLI.
+- **Local models run on their own servers** (`scripts/ollama_exec.py start|stop|status`): qwen3:30b on GPU 1 (it also
+  drives the display) at port 11435 with `OLLAMA_NUM_PARALLEL=3`, qwen3.8 on GPU 0 at port 11436; the Ollama app
+  (11434) only relays cloud models. The agent server routes by model: `MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436"`.
+  Why: the app, holding two local models, split one across both cards and Windows silently spilled the rest into
+  system RAM (qwen3:30b fell from ~30 to 1.8 tok/s). The script pins by GPU UUID (CUDA's device numbers differ from
+  nvidia-smi's here), waits for the app to free memory, and checks each model is fully in VRAM and fast.
+- Measured (Minecraft and agent servers running): executor turn ~2.0 s alone (1.2 s with them stopped), three at
+  once ~1.7x the throughput of three in sequence; qwen3.8 worker plan ~7-10 s; gpt-oss mayor plan ~3.5 s, designs
+  ~9 s. In a village run executors took 6-11 s per turn on one shared model: benchmarks alone understate queueing.
 - Keep `num_ctx` at 8192 (`MC_OLLAMA_CTX`): at 16384 gemma spills to the CPU and runs ~7x slower. Two gemma instances do
   not fit, so `OLLAMA_NUM_PARALLEL` does not help it.
 - Running the `ollama` CLI launches the Ollama app, which may auto-update itself.
@@ -99,8 +116,14 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 8. **Doors** collide as a thin panel (they were full cubes, a pre-existing bug), the pathfinder treats them as passable,
    walkers open them, and blueprint doors are placed facing through the wall. Stairs and fences still collide as full
    cubes (not fixed).
-9. **Latency.** Prompt size dominates local-model speed (observations are trimmed to ~2k tokens). With several agents the
-   single gemma instance is the bottleneck; workers plan with qwen (6-10 s) while designs and the mayor use gemma.
+9. **Latency.** Prompt size dominates local-model speed (observations are trimmed to ~2k tokens). With several agents
+   one model instance is a queue: gemma (mayor and designs) was the bottleneck until the cloud planner; now the
+   executors share qwen3:30b with three parallel slots. The user's Minecraft client on GPU 1 made models 3-10x slower:
+   keep it closed during runs (watch from the control panel).
+10. **Model output needs normalising in code**, differently per model: qwen3.8 sent design layers as a JSON string
+   without its outer brackets; gpt-oss wrote tasks as skill calls (`{task: "build_design", name, x, z}`) and plan steps
+   as objects. `normalizeLayers`, `postedTasks` and `stepText` handle these; check a new model's raw tool calls first
+   (the benchmark scripts in the scratchpad did: raw `/api/chat` with the real prompts and tools).
 
 ## Testing agents
 
@@ -127,12 +150,14 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 7. `c143688` real Minecraft: server setup and Mineflayer adapter, milestone (a)
 8. `4749536` survival skills, reflex, fresh-start spawns (milestone b, partly tested)
 9. `bc94747` building skills with server commands (milestone c)
-10. control panel; village fixes; cloud planner (milestone d passed)
+10. `7b9b392` control panel; village fixes; cloud planner (milestone d passed)
+11. panel maps and "what the model saw", model routing and pinned Ollama servers, docs/ARCHITECTURE.md; pushed to
+    origin (the feature branch only; `main` untouched)
 
 Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
 
-## Real Minecraft (in progress)
+## Real Minecraft
 
 The same brains run in real Minecraft Java Edition through Mineflayer. Decisions (agreed with the user): Minecraft
 **26.1** (Paper 26.1.2; protocol 775, the newest Mineflayer supports; Paper warns it is behind 26.2, which is expected),
@@ -154,7 +179,7 @@ creative, block-by-block placement in survival; not built yet).
   arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcUtil.ts` (walk
   with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
-- Skills so far: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
+- Skills: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
   attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site, build_design, build_box, build. Written on the pathfinder directly (collectblock and pvp were
   dropped: less control over failure messages and cancelling, and pvp pulls in mineflayer 2.x). Brains: idle,
   tiered, llm.
@@ -185,6 +210,9 @@ Lessons from the adapter:
    no path at all. `walk` retries once with an 8-block drop.
 6. A player name keeps its inventory and position on the server between runs: tests spawn with `"reset": true`.
 7. In creative, broken blocks drop nothing (collect refuses and suggests get_item).
+8. On Windows `curl localhost:...` takes ~0.2 s per request (IPv6 first, servers listen on IPv4): time with 127.0.0.1.
+9. prismarine-viewer (a live 3D bot view) stops at 1.21.4 (last release 2025-02), so there is none for 26.1; the
+   panel's top-down map (`mapAround`) is the substitute.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
@@ -194,7 +222,10 @@ the real client. (d) passed on 2026-09-27 (village Elmfield, 11.0 min, 2 cottage
 1 failed action) with gpt-oss:120b-cloud as mayor planner and architect, qwen3.8:27b as worker planner (tight 1-step
 plans, 6/6 in a benchmark against 2/6 for qwen3:30b) and qwen3:30b-instruct as executor (1.2 s/turn alone, but 6-11 s
 in the run: three agents queue on one Ollama model). Models are set per run with MCAI_MAYOR_MODEL / MCAI_DESIGN_MODEL /
-MCAI_EXEC_MODEL and the WORKER_PLANNER argument of watch_village.py. Model output is normalised in code: designs with
+MCAI_EXEC_MODEL and the WORKER_PLANNER argument of watch_village.py. Rerun as Ashvale with the pinned Ollama servers (3 parallel executor
+slots): all 6 tasks done in 4.2 min instead of 7.8, executor turns 3.4-7 s instead of 6.5-11, 0 failed actions; but
+the mayor placed the hall partly outside the prepared plot (layout arithmetic, lesson 5), then spent the rest of the
+run relocating it (17 refused repeats) instead of declaring complete: `plan_layout` is the next thing to build. Model output is normalised in code: designs with
 stringified layers (even without outer brackets) or rows as symbol arrays, tasks posted as skill calls
 ({task:"build_design", name, x, z}); build tasks wait for missing designs and for a land task posted with them.
 (c) done: the tiered brain (qwen exec, gemma plan) ran find_site, prepare_site and build_design

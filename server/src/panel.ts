@@ -5,6 +5,7 @@
  *   GET /panel          the page
  *   GET /api/overview   every agent (body, brain state, plan, task, recent events, stats) and their villages
  *   GET /api/models     the models Ollama has loaded (name, VRAM)
+ *   GET /api/maps       a top-down map around every agent (?radius=, default 24)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,11 +13,13 @@ import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WorldAdapter, WorldAgent } from './world';
 import { sendJson } from './api';
+import { OLLAMA_ROUTES } from './tieredBrain';
 
 const PAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../panel/index.html');
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Event types too frequent to be worth showing. */
 const NOISE = new Set(['broke', 'pickup']);
+const mapCache = new Map<string, { at: number; radius: number; map: unknown }>();
 
 function agentOverview(a: WorldAgent) {
   const o = a.observe(4);
@@ -50,6 +53,8 @@ function agentOverview(a: WorldAgent) {
     stats: m.stats ?? null,
     buildSpeed: m.buildSpeed ?? null,
     events: a.events.filter((e) => !NOISE.has(e.type)).slice(-30),
+    nearby: o.nearbyEntities.slice(0, 25).map((e) => ({ kind: e.kind, name: e.name, x: e.x, z: e.z })),
+    yaw: o.yaw,
   };
 }
 
@@ -60,14 +65,22 @@ export function overview(w: WorldAdapter) {
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages };
 }
 
+/** The models loaded in every Ollama instance in use (the main one and any in MC_OLLAMA_ROUTES). */
 async function loadedModels() {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/ps`, { signal: AbortSignal.timeout(3000) });
-    const data = (await res.json()) as { models?: Array<{ name: string; size: number; size_vram: number; expires_at: string }> };
-    return { ok: true, models: (data.models ?? []).map((x) => ({ name: x.name, sizeMB: Math.round(x.size / 2 ** 20), vramMB: Math.round(x.size_vram / 2 ** 20), expires: x.expires_at })) };
-  } catch (e) {
-    return { ok: false, error: `Ollama is not answering at ${OLLAMA_URL} (${(e as Error).message})`, models: [] };
+  const urls = [...new Set([OLLAMA_URL, ...OLLAMA_ROUTES.values()])];
+  const models: Array<{ name: string; server: string; sizeMB: number; vramMB: number; expires: string }> = [];
+  const errors: string[] = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(`${url}/api/ps`, { signal: AbortSignal.timeout(3000) });
+      const data = (await res.json()) as { models?: Array<{ name: string; size: number; size_vram: number; expires_at: string }> };
+      const server = new URL(url).port || url;
+      for (const x of data.models ?? []) models.push({ name: x.name, server, sizeMB: Math.round(x.size / 2 ** 20), vramMB: Math.round(x.size_vram / 2 ** 20), expires: x.expires_at });
+    } catch (e) {
+      errors.push(`Ollama is not answering at ${url} (${(e as Error).message})`);
+    }
   }
+  return { ok: errors.length < urls.length, error: errors.join('; ') || undefined, models };
 }
 
 /** Serve the panel routes; returns false for anything else. */
@@ -80,5 +93,18 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
   }
   if (url.pathname === '/api/overview') return sendJson(res, 200, overview(w)), true;
   if (url.pathname === '/api/models') return sendJson(res, 200, await loadedModels()), true;
+  if (url.pathname === '/api/maps') {
+    const radius = Math.max(8, Math.min(40, Number(url.searchParams.get('radius') ?? 24) || 24));
+    const maps: Record<string, unknown> = {};
+    const now = Date.now();
+    for (const a of w.agentList()) {
+      if (!a.mapAround) continue;
+      // Maps are costly (every column scanned) and run in the agents' process: share one per agent for 1.5 s
+      const c = mapCache.get(a.name);
+      if (c && c.radius === radius && now - c.at < 1500) maps[a.name] = c.map;
+      else mapCache.set(a.name, { at: now, radius, map: (maps[a.name] = a.mapAround(radius)) });
+    }
+    return sendJson(res, 200, maps), true;
+  }
   return false;
 }

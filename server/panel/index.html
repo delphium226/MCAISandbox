@@ -77,6 +77,11 @@
   .empty { color: var(--muted); font-style: italic; }
   .warnbox { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid var(--bad); border-radius: 6px; padding: 4px 8px; margin-top: 6px; font-size: 13px; }
   .feed li { display: grid; grid-template-columns: 70px 90px 110px 1fr; gap: 8px; }
+  .mapwrap { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  canvas.map { width: 196px; height: 196px; border-radius: 6px; border: 1px solid var(--line); image-rendering: pixelated; background: var(--panel-2); }
+  .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
+  .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
+  pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
   @media (max-width: 700px) {
     .grid { grid-template-columns: 1fr; }
     main { padding: 12px 16px; }
@@ -152,6 +157,15 @@ function renderPlan(p) {
   return `<div><b>${esc(p.goal)}</b> <span class="sub">by ${esc(p.by || '?')}</span></div>${list}`;
 }
 
+function seen(key, title, c) {
+  if (!c) return det(key, `${title} (no call yet)`, '<div class="empty">none yet</div>');
+  const calls = (c.calls || []).map((x) => `<li>${esc(x.name)}(${esc(JSON.stringify(x.input))})</li>`).join('');
+  const body = `<div class="sub">${esc(c.model)}, ${Math.round(c.ms / 100) / 10}s${c.promptTokens ? `, ${c.promptTokens} prompt tokens` : ''}; the fixed system prompt for its role is not shown</div>
+    <pre class="prompt">${esc(c.prompt)}</pre>
+    <div class="label">It answered</div>${calls ? `<ul class="list mono">${calls}</ul>` : ''}${c.text ? `<div class="sub">${esc(c.text)}</div>` : ''}${!calls && !c.text ? '<div class="empty">nothing</div>' : ''}`;
+  return det(key, `${title} (${ago(c.at)} ago)`, body);
+}
+
 function renderStats(s) {
   if (!s) return '<div class="empty">no model calls yet</div>';
   const n = (k) => s[k] ?? 0;
@@ -200,6 +214,19 @@ function renderAgent(a) {
       <span class="sub">${esc(a.biome || '')}</span>
       ${a.dead ? '<span style="color:var(--bad)">dead</span>' : ''}
     </div>
+    <div class="section mapwrap">
+      <canvas class="map" width="196" height="196" data-map="${esc(a.name)}" title="Top-down view, north up, about 49 blocks across"></canvas>
+      <div class="legend">
+        <i style="background:#fff;border:1px solid #000"></i><span>${esc(a.name)} (arrow: facing)</span>
+        <i style="background:#e0453a"></i><span>hostile mob</span>
+        <i style="background:#f2c14e"></i><span>animal</span>
+        <i style="background:#39c5d6"></i><span>player or agent</span>
+        <i style="border:2px solid #e14fd8"></i><span>current target</span>
+        <i style="border:2px solid #4cc27f"></i><span>prepared plot</span>
+        <i style="background:rgba(140,90,40,.55);border:1px solid #8c5a28"></i><span>building</span>
+        <i style="border:2px dashed #f39c34"></i><span>ground being worked</span>
+      </div>
+    </div>
     ${a.objective ? `<div class="section"><div class="label">Objective</div>${esc(a.objective)}</div>` : ''}
     ${a.task ? `<div class="section"><div class="label">Task ${esc(a.task.id)} (${esc(a.task.status)})</div><b>${esc(a.task.title)}</b>: ${esc(a.task.detail)}</div>` : ''}
     <div class="section"><div class="label">Plan</div>${renderPlan(a.plan)}</div>
@@ -207,6 +234,8 @@ function renderAgent(a) {
     ${blocked ? `<div class="section"><div class="label">Blocked calls (failed twice, refused for 5 min)</div><ul class="list mono">${blocked}</ul></div>` : ''}
     <div class="section">
       ${det(k('brain'), 'Brain', brainInfo, true)}
+      ${seen(k('execSeen'), 'What the executor saw', st.lastExecutorCall)}
+      ${seen(k('planSeen'), 'What the planner saw', st.lastPlannerCall)}
       ${det(k('decisions'), `Recent executor decisions (${(st.recentDecisions || []).length})`, decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>', true)}
       ${det(k('events'), 'Recent events', events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>', true)}
       ${det(k('inv'), `Inventory (${a.inventoryKinds} kinds)${a.holding ? `, holding ${esc(a.holding)}` : ''}`, inv || '<div class="empty">empty</div>')}
@@ -248,6 +277,89 @@ function renderVillage(v) {
   </div>`;
 }
 
+// ---- maps ----
+let lastMaps = {};
+const HOSTILE = /zombie|husk|drowned|skeleton|stray|bogged|spider|creeper|witch|pillager|vindicator|evoker|ravager|slime|phantom|silverfish|enderman|blaze|ghast|piglin_brute|hoglin|zoglin|warden|creaking|breeze|vex|guardian/;
+const PLAYERISH = /^(player|agent)$/;
+const COLORS = [
+  [/^(water|bubble_column)$|seagrass|kelp/, [58, 111, 216]], [/lava/, [224, 98, 42]], [/leaves/, [47, 125, 50]],
+  [/_log$|_wood$|_stem$/, [107, 74, 43]], [/^grass_block$/, [90, 161, 66]], [/grass|fern|bush/, [108, 179, 79]],
+  [/flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|lilac|peony|rose|sunflower|petal/, [124, 192, 90]],
+  [/^red_sand/, [192, 122, 58]], [/sand/, [217, 201, 140]], [/terracotta/, [156, 91, 59]],
+  [/snow/, [238, 243, 246]], [/ice/, [158, 196, 240]], [/dirt|mud|podzol|mycelium|farmland|path/, [122, 86, 53]],
+  [/planks|door|fence|slab|stairs|bookshelf|crafting|chest|barrel/, [181, 138, 76]], [/glass/, [191, 227, 238]],
+  [/brick/, [155, 74, 58]], [/cactus/, [70, 140, 60]], [/stone|andesite|diorite|granite|deepslate|tuff|gravel|cobble|calcite/, [138, 138, 138]],
+];
+function blockColor(n) {
+  for (const [re, c] of COLORS) if (re.test(n)) return c;
+  let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return [100 + (h % 90), 100 + ((h >> 8) % 90), 100 + ((h >> 16) % 90)];
+}
+function drawMaps() {
+  if (!lastData) return;
+  const villages = lastData.villages || [];
+  for (const cv of document.querySelectorAll('canvas[data-map]')) {
+    const m = lastMaps[cv.dataset.map];
+    const a = lastData.agents.find((x) => x.name === cv.dataset.map);
+    const g = cv.getContext('2d');
+    g.clearRect(0, 0, cv.width, cv.height);
+    if (!m || !a) continue;
+    const px = cv.width / m.size;
+    const cy = a.position ? a.position.y : 64;
+    const img = g.createImageData(m.size, m.size);
+    for (let i = 0; i < m.cells.length; i++) {
+      const c = m.cells[i];
+      let rgb = c < 0 ? [30, 30, 36] : blockColor(m.palette[c]);
+      if (c >= 0) { const f = Math.max(-0.35, Math.min(0.35, (m.heights[i] - cy) / 30)); rgb = rgb.map((v) => Math.max(0, Math.min(255, v * (1 + f)))); }
+      img.data.set([rgb[0], rgb[1], rgb[2], 255], i * 4);
+    }
+    // The terrain at one pixel per block, scaled up
+    const tmp = document.createElement('canvas'); tmp.width = m.size; tmp.height = m.size;
+    tmp.getContext('2d').putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(tmp, 0, 0, cv.width, cv.height);
+    const X = (x) => (x - m.x0) * px, Z = (z) => (z - m.z0) * px;
+    const rect = (ar, style, fill, dash) => {
+      g.save(); g.setLineDash(dash || []); g.lineWidth = 2; g.strokeStyle = style;
+      if (fill) { g.fillStyle = fill; g.fillRect(X(ar.x1), Z(ar.z1), (ar.x2 - ar.x1 + 1) * px, (ar.z2 - ar.z1 + 1) * px); }
+      g.strokeRect(X(ar.x1), Z(ar.z1), (ar.x2 - ar.x1 + 1) * px, (ar.z2 - ar.z1 + 1) * px); g.restore();
+    };
+    const now = Date.now();
+    for (const v of villages) {
+      for (const p of v.plots) rect(p, '#4cc27f');
+      for (const s of v.structures) rect(s, '#8c5a28', 'rgba(140,90,40,.55)');
+      for (const r of v.reservations) if (r.until > now) rect(r, '#f39c34', null, [4, 3]);
+    }
+    // The current action's target: a point or a box
+    const t = a.currentAction && a.currentAction.args;
+    if (t) {
+      if (t.x1 !== undefined && t.z1 !== undefined) rect({ x1: Math.min(t.x1, t.x2), z1: Math.min(t.z1, t.z2), x2: Math.max(t.x1, t.x2), z2: Math.max(t.z1, t.z2) }, '#e14fd8');
+      else if (t.x !== undefined && t.z !== undefined) {
+        g.save(); g.strokeStyle = '#e14fd8'; g.lineWidth = 2; const x = X(Number(t.x) + 0.5), z = Z(Number(t.z) + 0.5);
+        g.beginPath(); g.arc(x, z, 6, 0, Math.PI * 2); g.moveTo(x - 9, z); g.lineTo(x + 9, z); g.moveTo(x, z - 9); g.lineTo(x, z + 9); g.stroke(); g.restore();
+      }
+    }
+    for (const e of a.nearby || []) {
+      if (e.kind === 'item') continue;
+      const col = PLAYERISH.test(e.kind) ? '#39c5d6' : HOSTILE.test(e.kind) ? '#e0453a' : '#f2c14e';
+      g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 1;
+      g.beginPath(); g.arc(X(e.x), Z(e.z), 3.2, 0, Math.PI * 2); g.fill(); g.stroke();
+    }
+    // The agent: an arrow pointing where it faces (yaw 0 is north, -z, turning counter-clockwise)
+    if (a.position) {
+      const x = X(a.position.x), z = Z(a.position.z), yaw = a.yaw || 0;
+      const dx = -Math.sin(yaw), dz = -Math.cos(yaw);
+      g.save(); g.translate(x, z); g.rotate(Math.atan2(dz, dx));
+      g.beginPath(); g.moveTo(8, 0); g.lineTo(-6, -5); g.lineTo(-3, 0); g.lineTo(-6, 5); g.closePath();
+      g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5; g.fill(); g.stroke(); g.restore();
+    }
+  }
+}
+async function refreshMaps() {
+  if (paused) return;
+  try { lastMaps = await api('/api/maps'); drawMaps(); } catch {}
+}
+
 function render(d) {
   lastData = d;
   $('agentCount').textContent = `(${d.agents.length})`;
@@ -256,6 +368,7 @@ function render(d) {
   const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 60);
   $('feed').innerHTML = all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>';
   $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
+  drawMaps();
 }
 
 document.addEventListener('toggle', (e) => {
@@ -309,7 +422,7 @@ async function refreshHeader() {
   try {
     const m = await api('/api/models');
     $('models').innerHTML = m.ok
-      ? (m.models.length ? m.models.map((x) => `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB</span>`).join(' ') : '<span class="chip">Ollama: no models loaded</span>')
+      ? (m.models.length ? m.models.map((x) => `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB${x.server && x.server !== '11434' ? ` <span class="sub">:${esc(x.server)}</span>` : ''}</span>`).join(' ') + (m.error ? ` <span class="chip" style="color:var(--bad)">${esc(m.error)}</span>` : '') : '<span class="chip">Ollama: no models loaded</span>')
       : `<span class="chip" style="color:var(--bad)">${esc(m.error)}</span>`;
   } catch {}
 }
@@ -318,6 +431,8 @@ refreshHeader();
 refresh();
 setInterval(refresh, 2000);
 setInterval(refreshHeader, 5000);
+refreshMaps();
+setInterval(refreshMaps, 2000);
 setInterval(() => { if (lastData && !paused) render(lastData); }, 1000); // keep the "for N s" timers moving
 </script>
 </body>

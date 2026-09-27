@@ -32,7 +32,8 @@ import { validateDesign } from './designs';
 import { schematicToDesign } from './schematic';
 import { BRAINS } from './brains';
 import { TOOLS } from './skills';
-import type { ActionStatus, AgentBrain, AgentEvent, Observation, ToolDef, WorldAdapter, WorldAgent } from './world';
+import type { ActionStatus, AgentBrain, AgentEvent, MapView, Observation, ToolDef, WorldAdapter, WorldAgent } from './world';
+import { makeMapView } from './world';
 
 export type { ActionStatus, AgentEvent, Observation } from './world';
 import type { FurnaceState } from './containers';
@@ -1577,6 +1578,20 @@ export class Agent implements WorldAgent {
   }
   idle() {
     return !this.current && this.queue.length === 0;
+  }
+
+  /** The top block of every column around the agent (trees and water included), for the control panel's map. */
+  mapAround(radius: number): MapView {
+    const w = this.game.world;
+    const px = Math.floor(this.player.x), py = Math.floor(this.player.y), pz = Math.floor(this.player.z);
+    return makeMapView(px, pz, radius, (x, z) => {
+      if (!w.isLoaded(x, z)) return null;
+      for (let y = Math.min(255, py + 16); y > Math.max(0, py - 40); y--) {
+        const id = w.getBlock(x, y, z) & 0xff;
+        if (id !== 0) return [BLOCKS[id].name, y];
+      }
+      return null;
+    });
   }
   hearingRange = 48;
 

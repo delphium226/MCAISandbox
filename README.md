@@ -89,6 +89,8 @@ Useful commands: `/gamemode creative|survival|spectator`, `/time set day|night`,
 
 ## AI agents
 
+(For how the agent system is built, with diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).)
+
 Agents are **real players**: they have a body in the world, an inventory and health, and follow the same rules as
 humans. Everyone sees them move, mine, craft and chat. Instead of a browser client, a server-side controller drives
 the agent by running **skills** that you queue up.
@@ -277,24 +279,52 @@ Most of this world is ocean or hills, so start village tests where there is land
 ## Real Minecraft (experimental)
 
 The same agents can play real Minecraft Java Edition (26.1) through [Mineflayer](https://github.com/PrismarineJS/mineflayer),
-on a private local server:
+on a private local server. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it fits together, with diagrams.
 
 ```bash
 npm run mc:setup     # once: portable Java 25 and a Paper 26.1.2 server in mc/ (listens on 127.0.0.1 only)
 # accept the Minecraft EULA: eula=true in mc/server/eula.txt
-npm run mc:server    # start the server (stop it with: python mc/rcon.py stop)
+npm run mc:server    # start the server (stop it with: python mc/rcon.py stop, which saves the world)
 npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
 ```
 
-A control panel at http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) shows what every agent
-and its brain is doing, the village task board and the loaded models, with buttons to stop, remove or watch an agent.
-
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
-the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at,
-mine, collect, place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, find_site,
-prepare_site, build_design, build_box and build (`GET /api/skills`). Creative agents build with `/setblock` and `/fill`
-(run over RCON, paced by `buildSpeed`); building in survival is not supported there yet. Spawn with `"reset": true` for a fresh start (a name keeps its inventory otherwise).
-Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to watch.
+the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
+place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site,
+build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure messages.
+Creative agents build with `/setblock` and `/fill` (run over RCON, paced by `buildSpeed`); building in survival is not
+supported there yet. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
+Survival bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
+`localhost` to watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
+
+### Models
+
+Each brain role can use its own model (`"<provider>:<model>"`, per agent in memory: `planModel`, `execModel`,
+`designModel`). The combination that built a whole village fastest so far:
+
+| Role | Model | Runs on |
+|---|---|---|
+| Mayor's planner and architect | `ollama:gpt-oss:120b-cloud` | Ollama cloud (a subscription; prompts leave the machine) |
+| Workers' planner | `ollama:qwen3.8:27b` | local, GPU 0 |
+| Executors | `ollama:qwen3:30b-instruct` | local, GPU 1, three requests at once |
+
+`scripts/ollama_exec.py start` runs the two local models on their own Ollama servers (ports 11435 and 11436), each
+pinned to one GPU, and checks they fit; the Ollama app keeps relaying cloud models. Then point the agents at them:
+
+```bash
+python scripts/ollama_exec.py start
+MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" npm run mc:agents
+MCAI_API=http://localhost:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud \
+  python scripts/watch_village.py Elmfield 120 0 2 12 "two matching cottages and a meeting hall" ollama:qwen3.8:27b
+```
+
+### Control panel
+
+http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) shows, for every agent: what its brain is
+doing (planning, thinking, acting, waiting: since when and why), its plan as a checklist, its task, the current action,
+a live top-down map (terrain, facing, mobs, players, the target, village plots and buildings), the exact prompt its
+executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
+plus the village task board and the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
 
 ## Project layout
 
@@ -303,7 +333,9 @@ shared/src   game logic used by both sides: blocks, items, recipes, world gen, l
 server/src   authoritative server: world storage, entities and mobs, players, containers, commands, agents and API
 client/src   browser client: renderer and shaders, meshing workers, UI, audio, input, networking
 examples/    external agent controller example
-scripts/     agent test harnesses
+scripts/     agent test harnesses and the local model servers (ollama_exec.py)
+mc/          the local Minecraft server: setup, start and RCON scripts (jar, Java and world are gitignored)
+docs/        ARCHITECTURE.md: how the agent system fits together, with diagrams
 ```
 
 The agent framework lives in `server/src`: `world.ts` (the world interface brains depend on: `WorldAgent`,
@@ -312,7 +344,8 @@ world: agents, skills including the building engine, REST API), `brains.ts` (bra
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
 `designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer
-adapter for real Minecraft is in `server/src/mineflayer/`, the local server's scripts in `mc/`.
+adapter for real Minecraft is in `server/src/mineflayer/`, the local server's scripts in `mc/`; the control panel is
+`server/panel/index.html` with `server/src/panel.ts`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 The protocol is JSON over WebSocket (`/ws`), plus a compact binary format for chunks (`shared/src/protocol.ts`).
 Because the protocol is documented and shared, you can also write a headless bot as an ordinary network client.

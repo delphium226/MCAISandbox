@@ -7,7 +7,9 @@
  *   MC_PLAN_MODEL   planner, default: same as the executor. "none" disables automatic planning, so plans only come
  *                   from outside (POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}).
  * Providers: "ollama" (local or :cloud models via the Ollama server) and "anthropic" (Claude, needs credentials).
- * Other settings: MC_OLLAMA_URL (default http://localhost:11434), MC_OLLAMA_CTX (context length, default 8192:
+ * Other settings: MC_OLLAMA_URL (default http://localhost:11434), MC_OLLAMA_ROUTES (models served by other Ollama
+ * instances, e.g. "qwen3:30b-instruct=http://127.0.0.1:11435": a second instance on its own GPU with parallel requests
+ * for the executors, see scripts/ollama_exec.py), MC_OLLAMA_CTX (context length, default 8192:
  * enough for these prompts, and it keeps a ~20 GB model like gemma4:31b entirely on a 24 GB GPU),
  * MC_PLAN_INTERVAL_MS (replan when no step completes for this long, default 180000), MC_LLM_INTERVAL_MS (idle executor interval).
  *
@@ -26,6 +28,12 @@ import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
 import type { Design, Village } from './village';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
+/** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
+export const OLLAMA_ROUTES = new Map(
+  (process.env.MC_OLLAMA_ROUTES ?? '').split(',').map((r) => r.trim()).filter((r) => r.includes('='))
+    .map((r) => [r.slice(0, r.indexOf('=')).trim(), r.slice(r.indexOf('=') + 1).trim().replace(/\/$/, '')] as [string, string]),
+);
+const ollamaUrl = (model: string) => OLLAMA_ROUTES.get(model) ?? OLLAMA_URL;
 const OLLAMA_CTX = Number(process.env.MC_OLLAMA_CTX ?? 8192);
 const EXEC_INTERVAL_MS = Number(process.env.MC_LLM_INTERVAL_MS ?? 6000);
 const PLAN_INTERVAL_MS = Number(process.env.MC_PLAN_INTERVAL_MS ?? 180000);
@@ -57,7 +65,7 @@ async function complete(spec: ModelSpec, system: string, user: string, tools: To
 }
 
 async function completeOllama(model: string, system: string, user: string, tools: ToolDef[]): Promise<Reply> {
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+  const res = await fetch(`${ollamaUrl(model)}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -311,6 +319,24 @@ function formatPlan(p: Plan | undefined): string {
 }
 
 /**
+ * A plan step as text. Some models give steps as objects ({skill: "find_site", size: 30} or {step: "..."}), which
+ * would otherwise show as "[object Object]" and leave the executor with nothing to go on.
+ */
+function stepText(s: unknown): string {
+  if (typeof s === 'string') return s.trim();
+  if (!s || typeof s !== 'object') return s === undefined || s === null ? '' : String(s);
+  const o = s as Record<string, unknown>;
+  for (const k of ['step', 'text', 'description', 'title', 'goal']) if (typeof o[k] === 'string' && o[k]) return String(o[k]).trim();
+  const skill = String(o.skill ?? o.action ?? o.task ?? o.tool ?? o.name ?? '').trim();
+  const args = Object.entries(o)
+    .filter(([k, v]) => !['skill', 'action', 'task', 'tool', 'name'].includes(k) && v !== null && typeof v !== 'object')
+    .map(([k, v]) => `${k}=${v}`);
+  const nested = o.args ?? o.arguments ?? o.params ?? o.input;
+  if (nested && typeof nested === 'object') for (const [k, v] of Object.entries(nested as Record<string, unknown>)) if (typeof v !== 'object') args.push(`${k}=${v}`);
+  return `${skill} ${args.join(' ')}`.trim();
+}
+
+/**
  * Tasks from a post_tasks call, as the board wants them (title, detail, after). Some models write a task as the skill
  * call itself ({task: "build_design", name: "cottage", x: 158, z: -20}) instead of title and detail: those are turned
  * into text with the same coordinates. Building tasks posted with a land task and no prerequisites wait for it.
@@ -339,6 +365,13 @@ export function postedTasks(raw: unknown[]): Array<{ title: string; detail: stri
   if (land >= 0) for (const [i, t] of out.entries()) if (i !== land && !t.after.length && /build/i.test(`${t.title} ${t.detail}`)) t.after = [land];
   return out;
 }
+
+/** One model call as the control panel shows it (the system prompt is fixed per role, so only the user prompt). */
+interface ModelCall { at: number; ms: number; model: string; prompt: string; promptTokens?: number; calls: ToolCall[]; text: string }
+
+const modelCall = (spec: ModelSpec, start: number, prompt: string, r: Reply): ModelCall => ({
+  at: start, ms: Date.now() - start, model: label(spec), prompt, promptTokens: r.promptTokens, calls: r.calls, text: r.text.slice(0, 2000),
+});
 
 // ---------------------------------------------------------------------------------------------
 // Brain
@@ -380,6 +413,9 @@ export class TieredBrain implements AgentBrain {
   private execStartedAt = 0;
   private planWhy = '';
   private lastError = '';
+  /** The last planner and executor calls: what the model was shown (the user prompt) and what it answered. */
+  private lastPlanCall: ModelCall | null = null;
+  private lastExecCall: ModelCall | null = null;
 
   private specs(a: WorldAgent): { exec: ModelSpec; plan: ModelSpec | null } {
     const m = a.memory;
@@ -606,6 +642,8 @@ export class TieredBrain implements AgentBrain {
       urgent: this.urgent,
       lastError: this.lastError || null,
       recentDecisions: this.notes.slice(-8),
+      lastPlannerCall: this.lastPlanCall,
+      lastExecutorCall: this.lastExecCall,
     };
   }
 
@@ -643,7 +681,9 @@ export class TieredBrain implements AgentBrain {
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
     const system = toolsFor(a.world.skills).planSystem + (role === 'mayor' ? MAYOR_ROLE : role === 'worker' ? WORKER_ROLE : '');
     const tools = role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS;
+    const planStart = Date.now();
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
+    this.lastPlanCall = modelCall(spec, planStart, user, reply);
     const reg = a.world.villages;
     for (const c of reply.calls) {
       if (!v) break;
@@ -659,7 +699,7 @@ export class TieredBrain implements AgentBrain {
       }
     }
     const call = reply.calls.find((c) => c.name === 'set_plan');
-    const steps = Array.isArray(call?.input.steps) ? call.input.steps.map(String).filter(Boolean) : [];
+    const steps = Array.isArray(call?.input.steps) ? (call.input.steps as unknown[]).map(stepText).filter(Boolean) : [];
     const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete');
     if (role === 'mayor' && (!call || !steps.length)) {
       // Nothing to do personally: wait for the board to change
@@ -740,7 +780,9 @@ export class TieredBrain implements AgentBrain {
     // Without a plan (answering chat while waiting) an agent may only talk: no freelance building
     const ts = toolsFor(a.world.skills);
     const tools = !plan || !plan.steps.length ? ts.chat : villageRole(a) === 'mayor' ? ts.mayorExec : ts.exec;
+    const execStart = Date.now();
     const reply = await this.timed(a, 'exec', () => complete(spec, EXEC_SYSTEM, user, tools));
+    this.lastExecCall = modelCall(spec, execStart, user, reply);
     const done: string[] = [];
     for (const c of reply.calls) {
       if (c.name === 'step_done') {

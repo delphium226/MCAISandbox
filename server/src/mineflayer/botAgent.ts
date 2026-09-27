@@ -6,7 +6,8 @@
 import mineflayer, { type Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
-import type { ActionStatus, AgentBrain, AgentEvent, Observation, WorldAgent } from '../world';
+import type { ActionStatus, AgentBrain, AgentEvent, MapView, Observation, WorldAgent } from '../world';
+import { makeMapView } from '../world';
 import type { Village } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
@@ -84,6 +85,24 @@ export class BotAgent implements WorldAgent {
 
   idle() {
     return !this.current && this.queue.length === 0 && !this.reflex;
+  }
+
+  /** The top block of every column around the bot (trees and water included), for the control panel's map. */
+  mapAround(radius: number): MapView {
+    const bot = this.bot;
+    const reg = this.world.registry;
+    const p = bot.entity.position;
+    const py = Math.floor(p.y);
+    const v = new Vec3(0, 0, 0);
+    return makeMapView(Math.floor(p.x), Math.floor(p.z), radius, (x, z) => {
+      for (let y = py + 16; y > py - 40; y--) {
+        const id = bot.world.getBlockStateId(v.set(x, y, z)) as number | undefined;
+        if (id === undefined) return null; // not loaded
+        const name = reg.blocksByStateId[id]?.name;
+        if (name && name !== 'air' && name !== 'cave_air' && name !== 'void_air') return [name, y];
+      }
+      return null;
+    });
   }
 
   /** Pathfinder movement rules for this bot (dig natural blocks only, no parkour). */
