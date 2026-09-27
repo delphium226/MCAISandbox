@@ -59,6 +59,10 @@ export class MineflayerWorld implements WorldAdapter {
     return this.agents.get(name.toLowerCase());
   }
 
+  agentList() {
+    return [...this.agents.values()];
+  }
+
   async spawn(rawName: string, o: SpawnOptions = {}): Promise<BotAgent> {
     const name = rawName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16);
     if (!name) throw new Error('invalid name');

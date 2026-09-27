@@ -2,8 +2,9 @@
 complete or time runs out.
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
-Starts near X,Z: a scout first searches outward from there for dry land with room for a SITE_SIZE plot (default 30).
-WORKER_PLANNER defaults to gemma4:31b; the mayor plans and every agent designs with gemma4:31b.
+Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30).
+WORKER_PLANNER defaults to gemma4:31b. Other models: MCAI_MAYOR_MODEL (the mayor's planner), MCAI_DESIGN_MODEL (the
+architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud.
 """
 import json, os, math, sys, time, urllib.error, urllib.request
 
@@ -11,7 +12,9 @@ API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft:
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
 worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"
 site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30
-BASE = {"execModel": "ollama:qwen3:30b-instruct", "designModel": "ollama:gemma4:31b", "buildSpeed": 4}
+mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
+BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
+        "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
 
 
 def call(path, body=None, method=None):
@@ -26,16 +29,16 @@ def find_land(x, z):
     points = [(x, z)] + [(x + r * math.cos(a * math.pi / 4), z + r * math.sin(a * math.pi / 4)) for r in (120, 240) for a in range(8)]
     for px, pz in points:
         try:
-            call("/agents/Scout", method="DELETE")
+            call("/agents/Mayor", method="DELETE")
         except urllib.error.HTTPError:
             pass
-        call("/agents", {"name": "Scout", "brain": "idle", "gamemode": "creative", "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
+        call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "creative", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
         time.sleep(10)
-        call("/agents/Scout/act", {"action": "find_site", "size": site_size})
+        call("/agents/Mayor/act", {"action": "find_site", "size": site_size})
         time.sleep(3)
-        result = [e for e in call("/agents/Scout/events?since=0") if e["type"] in ("action_done", "action_failed")]
-        site = call("/agents/Scout/memory").get("lastSite")
-        call("/agents/Scout", method="DELETE")
+        result = [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]
+        site = call("/agents/Mayor/memory").get("lastSite")
+        call("/agents/Mayor", method="DELETE")
         if result and result[-1]["type"] == "action_done" and site:
             print(f"land found near {px:.0f},{pz:.0f}: {result[-1]['text'][:120]}", flush=True)
             return px, pz
@@ -47,13 +50,14 @@ x, z = find_land(x, z)
 call("/village", {"name": village, "objective": objective})
 names = ["Mayor"] + [f"Worker{i + 1}" for i in range(workers)]
 for i, n in enumerate(names):
-    mem = {**BASE, "village": village, "planModel": "ollama:gemma4:31b" if i == 0 else worker_planner, **({"villageRole": "mayor"} if i == 0 else {})}
+    mem = {**BASE, "village": village, "planModel": mayor_planner if i == 0 else worker_planner, **({"villageRole": "mayor"} if i == 0 else {})}
     try:
-        call("/agents", {"name": n, "role": "mayor" if i == 0 else "builder", "brain": "tiered", "gamemode": "creative",
+        call("/agents", {"name": n, "role": "mayor" if i == 0 else "builder", "brain": "tiered", "gamemode": "creative", "reset": True,
                          "position": {"x": x + 0.5 + 2 * i, "y": 90, "z": z + 0.5}, "memory": mem})
     except urllib.error.HTTPError as e:
         print(f"{n}: {e.code} {e.read()[:100]}")
-print(f"spawned {', '.join(names)} in village {village}; workers plan with {worker_planner}", flush=True)
+print(f"spawned {', '.join(names)} in village {village}; mayor plans with {mayor_planner}, workers with {worker_planner}, "
+      f"designs by {BASE['designModel']}, executors {BASE['execModel']}", flush=True)
 
 t0, seen, board, reason, chats = time.time(), {n: 0 for n in names}, "", "time limit", 0
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"

@@ -21,7 +21,7 @@
  * through the memory API. Spawn with `/agent spawn Ada farmer tiered`.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentBrain, AgentEvent, ToolDef, WorldAgent } from './world';
+import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
 import type { Design, Village } from './village';
 
@@ -179,7 +179,7 @@ You are the mayor. You coordinate; you do not build or prepare land yourself. Wo
 one at a time in the order posted, and do the physical work.
 First choose where the village goes: if the village has no plot and you have no find_site result yet, set_plan with a
 find_site step sized for the whole village (e.g. size 30 for four small buildings plus streets) and post only the design
-tasks. Once you know the site, post the rest with post_tasks, always with absolute coordinates:
+tasks. Any dry, flat land will do, whatever the biome (desert, badlands, savanna): do not go looking for a better one. Once you know the site, post the rest with post_tasks, always with absolute coordinates:
 1. Designs, one task per kind of building: 'Design "cottage"' with a brief (style, materials, size up to 11x11).
 2. Land: 'Prepare the village plot': prepare_site at x, z (the site centre) with width and depth.
 3. Buildings: one task per building: 'Build cottage 1': build_design "cottage" at x, z (inside the plot), after the design
@@ -310,6 +310,36 @@ function formatPlan(p: Plan | undefined): string {
   return `Goal: ${p.goal}\n` + p.steps.map((s, i) => `${i < p.step ? '[x]' : i === p.step ? '-> ' : '[ ]'} ${i + 1}. ${s}`).join('\n');
 }
 
+/**
+ * Tasks from a post_tasks call, as the board wants them (title, detail, after). Some models write a task as the skill
+ * call itself ({task: "build_design", name: "cottage", x: 158, z: -20}) instead of title and detail: those are turned
+ * into text with the same coordinates. Building tasks posted with a land task and no prerequisites wait for it.
+ */
+export function postedTasks(raw: unknown[]): Array<{ title: string; detail: string; after: Array<string | number> }> {
+  const out: Array<{ title: string; detail: string; after: Array<string | number> }> = [];
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const t = r as Record<string, unknown>;
+    const after = Array.isArray(t.after) ? (t.after as Array<string | number>) : [];
+    if (typeof t.title === 'string' && t.title.trim()) {
+      out.push({ title: t.title, detail: String(t.detail ?? t.description ?? ''), after });
+      continue;
+    }
+    const skill = String(t.task ?? t.skill ?? t.action ?? t.type ?? '').trim();
+    if (!skill) continue;
+    const design = typeof t.design === 'string' ? t.design : typeof t.name === 'string' ? t.name : '';
+    const args = Object.entries(t)
+      .filter(([k, v]) => !['task', 'skill', 'action', 'type', 'name', 'design', 'after', 'detail', 'description'].includes(k) && (typeof v === 'number' || typeof v === 'string'))
+      .map(([k, v]) => `${k}=${v}`);
+    const title = skill === 'prepare_site' ? 'Prepare the village plot' : skill === 'build_design' && design ? `Build a ${design}` : design ? `${skill} ${design}` : skill;
+    out.push({ title, detail: `${skill}${design ? ` "${design}"` : ''} ${args.join(', ')}`.trim(), after });
+  }
+  // Land first: building tasks posted without prerequisites wait for a land task in the same batch
+  const land = out.findIndex((t) => /prepare/i.test(`${t.title} ${t.detail}`));
+  if (land >= 0) for (const [i, t] of out.entries()) if (i !== land && !t.after.length && /build/i.test(`${t.title} ${t.detail}`)) t.after = [land];
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Brain
 // ---------------------------------------------------------------------------------------------
@@ -345,6 +375,11 @@ export class TieredBrain implements AgentBrain {
   private taskReplans = new Map<string, number>();
   /** Task claimed for the plan being made (workers claim before asking the planner). */
   private claimedTask: string | undefined;
+  /** For status(): when the pending model calls started, why the latest plan was asked for, the last error. */
+  private planStartedAt = 0;
+  private execStartedAt = 0;
+  private planWhy = '';
+  private lastError = '';
 
   private specs(a: WorldAgent): { exec: ModelSpec; plan: ModelSpec | null } {
     const m = a.memory;
@@ -489,8 +524,10 @@ export class TieredBrain implements AgentBrain {
     this.urgent = false;
     this.lastExec = now;
     this.execPending = true;
+    this.execStartedAt = now;
     this.execute(a, EXEC)
       .catch((err: unknown) => {
+        this.lastError = `executor: ${(err as Error).message}`;
         a.pushEvent('system', `Executor error (${label(EXEC)}): ${(err as Error).message}`);
         this.lastExec = Date.now() + 20000; // back off
       })
@@ -499,9 +536,12 @@ export class TieredBrain implements AgentBrain {
 
   private startPlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
     this.planPending = true;
+    this.planStartedAt = Date.now();
+    this.planWhy = why;
     this.replanReason = null;
     this.makePlan(a, spec, old, why)
       .catch((err: unknown) => {
+        this.lastError = `planner: ${(err as Error).message}`;
         a.pushEvent('system', `Planner error (${label(spec)}): ${(err as Error).message}`);
         this.lastPlan = Date.now() + 30000; // back off
         const v = a.village();
@@ -511,6 +551,62 @@ export class TieredBrain implements AgentBrain {
         this.planPending = false;
         this.claimedTask = undefined;
       });
+  }
+
+  /** What the brain is doing right now, for the control panel. */
+  status(a: WorldAgent): BrainStatus {
+    const { exec, plan: planSpec } = this.specs(a);
+    const plan = this.plan(a);
+    const v = a.village();
+    const role = villageRole(a);
+    const now = Date.now();
+    const complete = !!plan && plan.steps.length > 0 && plan.step >= plan.steps.length;
+    let state: BrainStatus['state'], detail: string, since: number | undefined;
+    if (this.planPending) {
+      state = 'planning';
+      detail = `the planner (${planSpec ? label(planSpec) : 'none'}) is making a plan because ${this.planWhy}`;
+      since = this.planStartedAt;
+    } else if (this.execPending) {
+      state = 'thinking';
+      detail = `the executor (${label(exec)}) is choosing the next actions`;
+      since = this.execStartedAt;
+    } else if (this.lastPlan > now || this.lastExec > now) {
+      state = 'backing off';
+      detail = `after an error, waiting before trying again: ${this.lastError}`;
+    } else if (!a.idle()) {
+      state = 'acting';
+      detail = 'running its queued actions';
+    } else if (v?.complete) {
+      state = 'done';
+      detail = `the village ${v.name} is declared complete`;
+    } else if (!plan) {
+      state = 'waiting';
+      detail = planSpec ? 'waiting for its first plan' : 'no planner: waiting for a plan through the memory API';
+    } else if (role === 'worker' && (complete || !plan.steps.length)) {
+      state = 'waiting';
+      detail = 'no task it can claim: waiting for the task board';
+    } else if (!plan.steps.length) {
+      state = 'waiting';
+      detail = role === 'mayor' ? 'waiting for the workers (reviews when the task board changes)' : 'waiting (empty plan)';
+    } else {
+      state = 'idle';
+      detail = `about to take its next turn on step ${plan.step + 1}`;
+      since = this.lastExec;
+    }
+    return {
+      state, detail, since,
+      role: role ?? 'solo',
+      models: { exec: label(exec), plan: planSpec ? label(planSpec) : 'none' },
+      lastPlanReason: this.planWhy || null,
+      lastPlanAt: this.lastPlan && this.lastPlan <= now ? this.lastPlan : null,
+      nextReplanReason: this.replanReason,
+      failuresSincePlan: this.failuresSincePlan,
+      lastProgressAt: this.lastProgress || null,
+      blockedCalls: this.blockedCalls(),
+      urgent: this.urgent,
+      lastError: this.lastError || null,
+      recentDecisions: this.notes.slice(-8),
+    };
   }
 
   private async makePlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
@@ -552,9 +648,7 @@ export class TieredBrain implements AgentBrain {
     for (const c of reply.calls) {
       if (!v) break;
       if (c.name === 'post_tasks' && Array.isArray(c.input.tasks)) {
-        const made = reg.post(v, (c.input.tasks as Array<Record<string, unknown>>).filter((t) => t && typeof t.title === 'string').map((t) => ({
-          title: String(t.title), detail: String(t.detail ?? ''), after: Array.isArray(t.after) ? (t.after as Array<string | number>) : [],
-        })), a.name);
+        const made = reg.post(v, postedTasks(c.input.tasks as unknown[]), a.name);
         a.pushEvent('system', `Posted tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}`);
       }
       if (c.name === 'declare_complete') {

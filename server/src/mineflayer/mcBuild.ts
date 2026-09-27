@@ -351,12 +351,16 @@ async function findSite(a: BotAgent, args: Record<string, unknown>): Promise<str
   const cache = new Map<string, Surface | null>();
   const r = searchSite(a, args, sz, cache);
   if ('done' in r) return r.done;
-  // Nothing that big: say what does fit, so the planner can scale the project instead of searching in circles
+  // Nothing that big: say what does fit, so the planner can scale the project instead of searching in circles.
+  // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them).
   if (sz > 9)
-    for (let s = sz - 4; s >= Math.max(9, Math.floor(sz / 2)); s -= 4) {
+    for (let s = sz - 2; s >= Math.max(9, Math.floor(sz / 2)); s -= 2) {
       const alt = searchSite(a, args, s, cache);
-      if ('done' in alt)
-        throw new Error(`${r.fail.split(';')[0]}. The largest nearby is smaller: ${alt.done.replace(/^site found: /, '')} It is saved as the last site, so prepare_site defaults to it; plan the project to fit, or explore further`);
+      if ('done' in alt) {
+        const rest = alt.done.replace(/^site found: /, '');
+        if (s >= sz * 0.6) return `site found (${s}x${s}, the largest near here; ${sz}x${sz} does not fit): ${rest} Plan the project to fit it.`;
+        throw new Error(`${r.fail.split(';')[0]}. The largest nearby is smaller: ${rest} It is saved as the last site, so prepare_site defaults to it; plan the project to fit, or explore further`);
+      }
     }
   throw new Error(r.fail);
 }
@@ -509,7 +513,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   const d = lib[name];
   if (!d) {
     const names = Object.keys(lib);
-    throw new Error(`no design called "${name}"; ${names.length ? `available: ${names.map((n) => `"${n}"`).join(', ')}` : 'create one with design_building first'}`);
+    throw new Error(`no design called "${name}"${names.length ? ` (available: ${names.map((n) => `"${n}"`).join(', ')})` : ''}; if it is not drawn yet, draw it first with design_building name="${name}" and a short brief, then build it`);
   }
   const rot = (((Math.round(Number(args.rotate ?? 0) / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
   const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;

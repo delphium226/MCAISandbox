@@ -10,6 +10,7 @@ import { C2S, S2C } from '../../shared/src/protocol';
 import { DEFAULT_PORT, PROTOCOL_VERSION } from '../../shared/src/constants';
 import { hashString } from '../../shared/src/noise';
 import { handleApi } from './api';
+import { handlePanel } from './panel';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -68,6 +69,7 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   if (req.method === 'OPTIONS') return res.end();
+  if (url.pathname.startsWith('/panel')) return void handlePanel(game.agents, req, res, url);
   if (url.pathname.startsWith('/api/')) return handleApi(game, req, res, url);
   let file = path.join(DIST, decodeURIComponent(url.pathname));
   if (!file.startsWith(DIST)) return res.writeHead(403).end();

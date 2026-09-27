@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Control Panel</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f0f2f5; --text: #1c1f24; --muted: #5f6773; --line: #dde1e6;
+    --accent: #2f6fdb; --good: #1f8a4c; --bad: #c8372d; --warn: #b7791f; --info: #6b4fd8; --chat: #0f7c86;
+    --planning: #6b4fd8; --thinking: #2f6fdb; --acting: #1f8a4c; --waiting: #8a8f98; --idle: #5f6773; --done: #0f7c86; --backoff: #c8372d;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #1a1e24; --panel-2: #222731; --text: #e6e9ee; --muted: #9aa3ae; --line: #2d333d;
+      --accent: #6c9cff; --good: #4cc27f; --bad: #ff6b60; --warn: #e5a93b; --info: #a58cff; --chat: #4fc3cf;
+      --planning: #a58cff; --thinking: #6c9cff; --acting: #4cc27f; --waiting: #7d8591; --idle: #9aa3ae; --done: #4fc3cf; --backoff: #ff6b60;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #1a1e24; --panel-2: #222731; --text: #e6e9ee; --muted: #9aa3ae; --line: #2d333d;
+    --accent: #6c9cff; --good: #4cc27f; --bad: #ff6b60; --warn: #e5a93b; --info: #a58cff; --chat: #4fc3cf;
+    --planning: #a58cff; --thinking: #6c9cff; --acting: #4cc27f; --waiting: #7d8591; --idle: #9aa3ae; --done: #4fc3cf; --backoff: #ff6b60;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .spacer { flex: 1; }
+  button, input { font: inherit; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  input[type=text] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; width: 150px; }
+  main { padding: 16px; max-width: 1800px; margin: 0 auto; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 10px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card-head .name { font-weight: 650; font-size: 16px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .pill { color: #fff; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .detail { margin: 6px 0 8px; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+  .bar { width: 70px; height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .bar i { display: block; height: 100%; }
+  .section { border-top: 1px solid var(--line); margin-top: 9px; padding-top: 8px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
+  ol.steps { margin: 2px 0 0; padding-left: 0; list-style: none; }
+  ol.steps li { padding: 1px 0 1px 22px; position: relative; }
+  ol.steps li::before { position: absolute; left: 2px; top: 1px; font-size: 12px; }
+  ol.steps li.done { color: var(--muted); text-decoration: line-through; }
+  ol.steps li.done::before { content: "\2713"; color: var(--good); text-decoration: none; }
+  ol.steps li.cur { font-weight: 600; }
+  ol.steps li.cur::before { content: "\25B6"; color: var(--accent); }
+  ol.steps li.todo::before { content: "\25CB"; color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .list { margin: 0; padding: 0; list-style: none; }
+  .list li { padding: 2px 0; border-bottom: 1px dashed var(--line); overflow-wrap: anywhere; }
+  .list li:last-child { border-bottom: 0; }
+  .ev-action_done { color: var(--good); } .ev-action_failed { color: var(--bad); } .ev-chat { color: var(--chat); }
+  .ev-system { color: var(--info); } .ev-damage, .ev-death { color: var(--warn); } .ev-crafted { color: var(--text); }
+  .tag { font-family: var(--mono); font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin: 1px 2px 1px 0; display: inline-block; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 1px 10px; font-size: 13px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+  details > summary { cursor: pointer; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; list-style: none; }
+  details > summary::before { content: "\25B8 "; } details[open] > summary::before { content: "\25BE "; }
+  details { margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .st-open { color: var(--muted); } .st-claimed { color: var(--accent); } .st-done { color: var(--good); } .st-failed { color: var(--bad); }
+  .empty { color: var(--muted); font-style: italic; }
+  .warnbox { background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid var(--bad); border-radius: 6px; padding: 4px 8px; margin-top: 6px; font-size: 13px; }
+  .feed li { display: grid; grid-template-columns: 70px 90px 110px 1fr; gap: 8px; }
+  @media (max-width: 700px) {
+    .grid { grid-template-columns: 1fr; }
+    main { padding: 12px 16px; }
+    .feed li { grid-template-columns: 1fr; gap: 0; }
+    input[type=text] { width: 120px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent control panel</h1>
+  <span class="chip" id="world"><span class="dot"></span> connecting…</span>
+  <span id="models"></span>
+  <span class="spacer"></span>
+  <span class="chip" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
+  <button id="pause" title="Stop or resume refreshing">Pause</button>
+  <button id="theme" title="Switch light and dark">Theme</button>
+  <span class="chip" id="updated">–</span>
+</header>
+<main>
+  <div id="error"></div>
+  <h2>Agents <span id="agentCount" class="sub"></span></h2>
+  <div class="grid" id="agents"></div>
+  <div id="villagesWrap"></div>
+  <h2>All recent events</h2>
+  <div class="card"><ul class="list feed mono" id="feed"></ul></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const STATE_COLORS = { planning: 'var(--planning)', thinking: 'var(--thinking)', acting: 'var(--acting)', waiting: 'var(--waiting)', idle: 'var(--idle)', done: 'var(--done)', 'backing off': 'var(--backoff)' };
+let paused = false, world = null, lastData = null;
+const openDetails = new Set(JSON.parse(store.get('panel.open', '[]')));
+
+const theme = store.get('panel.theme', '');
+if (theme) document.documentElement.dataset.theme = theme;
+$('theme').onclick = () => {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = document.documentElement.dataset.theme || (dark ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  store.set('panel.theme', next);
+};
+$('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
+$('player').value = store.get('panel.player', '');
+$('player').onchange = () => store.set('panel.player', $('player').value.trim());
+
+function ago(ms) {
+  if (!ms) return '';
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+const bar = (v, max, color) => `<span class="bar" title="${v}/${max}"><i style="width:${Math.max(0, Math.min(100, (v / max) * 100))}%;background:${color}"></i></span>`;
+const fmtArgs = (args) => Object.entries(args || {}).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' ');
+const det = (key, title, body, openByDefault = false) => {
+  const open = openDetails.has(key) || (openByDefault && !openDetails.has('!' + key));
+  return `<details data-key="${esc(key)}" ${open ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
+};
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+function renderPlan(p) {
+  if (!p) return '<div class="empty">no plan yet</div>';
+  const steps = p.steps || [];
+  const list = steps.length
+    ? `<ol class="steps">${steps.map((s, i) => `<li class="${i < p.step ? 'done' : i === p.step ? 'cur' : 'todo'}">${esc(s)}</li>`).join('')}</ol>`
+    : '<div class="empty">no steps: waiting</div>';
+  return `<div><b>${esc(p.goal)}</b> <span class="sub">by ${esc(p.by || '?')}</span></div>${list}`;
+}
+
+function renderStats(s) {
+  if (!s) return '<div class="empty">no model calls yet</div>';
+  const n = (k) => s[k] ?? 0;
+  return `<dl class="kv">
+    <dt>planner</dt><dd>${n('planCalls')} calls, avg ${Math.round(n('planMsAvg') / 100) / 10}s, ~${n('planPromptTokensAvg')} tokens</dd>
+    <dt>executor</dt><dd>${n('execCalls')} calls, avg ${Math.round(n('execMsAvg') / 100) / 10}s, ~${n('execPromptTokensAvg')} tokens</dd>
+    <dt>actions</dt><dd><span style="color:var(--good)">${n('actionsDone')} done</span>, <span style="color:var(--bad)">${n('actionsFailed')} failed</span>, ${n('repeatsRefused')} repeats refused</dd>
+    <dt>steps</dt><dd>${n('stepsDone')} done (${n('stepsAutoDone')} marked automatically)</dd>
+    ${s.designs || s.designsFailed ? `<dt>designs</dt><dd>${n('designs')} drawn, ${n('designsFailed')} failed</dd>` : ''}
+  </dl>`;
+}
+
+function renderAgent(a) {
+  const st = a.status || { state: a.brain ? 'idle' : 'waiting', detail: a.brain ? '' : 'no brain: controlled through the API' };
+  const color = STATE_COLORS[st.state] || 'var(--idle)';
+  const k = (s) => `${a.name}:${s}`;
+  const cur = a.currentAction ? `<span class="mono">${esc(a.currentAction.type)} ${esc(fmtArgs(a.currentAction.args))}</span> <span class="sub">(${esc(a.currentAction.state)})</span>` : '<span class="empty">nothing</span>';
+  const events = a.events.slice(-10).reverse().map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">[${esc(e.type)}]</span> ${esc(e.text)}</li>`).join('');
+  const decisions = (st.recentDecisions || []).slice().reverse().map((d) => `<li>${esc(d)}</li>`).join('');
+  const blocked = (st.blockedCalls || []).map((b) => `<li>${esc(b)}</li>`).join('');
+  const inv = a.inventory.map(([n, c]) => `<span class="tag">${esc(n)} ${c}</span>`).join('') + (a.inventoryKinds > a.inventory.length ? ` <span class="sub">+${a.inventoryKinds - a.inventory.length} more</span>` : '');
+  const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)` : '';
+  const watch = world?.kind === 'minecraft' ? `<button data-act="watch" data-agent="${esc(a.name)}" title="Spectate this agent in the game">Watch</button>` : '';
+  const brainInfo = `<dl class="kv">
+      ${models ? `<dt>models</dt><dd>${models}</dd>` : ''}
+      <dt>last plan because</dt><dd>${esc(st.lastPlanReason || '–')}${st.lastPlanAt ? ` <span class="sub">(${ago(st.lastPlanAt)} ago)</span>` : ''}</dd>
+      ${st.nextReplanReason ? `<dt>will replan</dt><dd>${esc(st.nextReplanReason)}</dd>` : ''}
+      <dt>failures since plan</dt><dd>${st.failuresSincePlan ?? 0}</dd>
+      ${st.lastProgressAt ? `<dt>last step progress</dt><dd>${ago(st.lastProgressAt)} ago</dd>` : ''}
+      ${st.urgent ? `<dt>urgent</dt><dd>yes (chat or damage to answer)</dd>` : ''}
+    </dl>`;
+  return `<div class="card">
+    <div class="card-head">
+      <span class="name">${esc(a.name)}</span>
+      <span class="sub">${esc(a.role)}${a.villageRole ? ` · ${esc(a.villageRole)}` : ''}${a.village ? ` of ${esc(a.village)}` : ''} · ${esc(a.brain || 'no brain')} · ${esc(a.gamemode)}</span>
+      <span class="spacer"></span>
+      <span class="pill" style="background:${color}">${esc(st.state)}</span>
+      ${st.since ? `<span class="sub">${ago(st.since)}</span>` : ''}
+    </div>
+    <div class="detail">${esc(st.detail)}</div>
+    ${st.lastError ? `<div class="warnbox">${esc(st.lastError)}</div>` : ''}
+    <div class="row">
+      <span>♥ ${bar(a.health, 20, 'var(--bad)')} ${a.health}</span>
+      <span>🍗 ${bar(a.food, 20, 'var(--warn)')} ${a.food}</span>
+      <span class="mono">${a.position ? `${Math.round(a.position.x)}, ${Math.round(a.position.y)}, ${Math.round(a.position.z)}` : '?'}</span>
+      <span class="sub">${esc(a.biome || '')}</span>
+      ${a.dead ? '<span style="color:var(--bad)">dead</span>' : ''}
+    </div>
+    ${a.objective ? `<div class="section"><div class="label">Objective</div>${esc(a.objective)}</div>` : ''}
+    ${a.task ? `<div class="section"><div class="label">Task ${esc(a.task.id)} (${esc(a.task.status)})</div><b>${esc(a.task.title)}</b>: ${esc(a.task.detail)}</div>` : ''}
+    <div class="section"><div class="label">Plan</div>${renderPlan(a.plan)}</div>
+    <div class="section"><div class="label">Doing now</div>${cur}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
+    ${blocked ? `<div class="section"><div class="label">Blocked calls (failed twice, refused for 5 min)</div><ul class="list mono">${blocked}</ul></div>` : ''}
+    <div class="section">
+      ${det(k('brain'), 'Brain', brainInfo, true)}
+      ${det(k('decisions'), `Recent executor decisions (${(st.recentDecisions || []).length})`, decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>', true)}
+      ${det(k('events'), 'Recent events', events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>', true)}
+      ${det(k('inv'), `Inventory (${a.inventoryKinds} kinds)${a.holding ? `, holding ${esc(a.holding)}` : ''}`, inv || '<div class="empty">empty</div>')}
+      ${det(k('stats'), 'Model and action stats', renderStats(a.stats))}
+      ${a.notes ? det(k('notes'), 'Long-term notes', `<div>${esc(a.notes)}</div>`) : ''}
+    </div>
+    <div class="section row">
+      ${watch}
+      <button data-act="stop" data-agent="${esc(a.name)}" title="Cancel the current and queued actions">Stop actions</button>
+      <button class="danger" data-act="remove" data-agent="${esc(a.name)}" title="Take the agent out of the world">Remove</button>
+      ${a.buildSpeed ? `<span class="sub">buildSpeed ${esc(a.buildSpeed)}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderVillage(v) {
+  const tasks = v.tasks.length
+    ? `<table><thead><tr><th>Task</th><th>Status</th><th>Who</th><th>What</th></tr></thead><tbody>${v.tasks.map((t) => `<tr>
+        <td class="mono">${esc(t.id)}${t.after.length ? `<div class="sub">after ${esc(t.after.join(', '))}</div>` : ''}</td>
+        <td class="st-${esc(t.status)}">${esc(t.status)}${t.tries ? ` <span class="sub">(${t.tries} tries)</span>` : ''}</td>
+        <td>${esc(t.claimedBy || '')}</td>
+        <td><b>${esc(t.title)}</b><div class="sub">${esc(t.detail)}</div>${t.result ? `<div class="sub">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">no tasks posted yet</div>';
+  const list = (items, f) => (items.length ? `<ul class="list">${items.map((x) => `<li>${f(x)}</li>`).join('')}</ul>` : '<div class="empty">none</div>');
+  const area = (x) => `x ${x.x1}..${x.x2}, z ${x.z1}..${x.z2}`;
+  const now = Date.now();
+  return `<div class="card">
+    <div class="card-head"><span class="name">${esc(v.name)}</span>
+      <span class="sub">${esc(v.objective || '')}</span><span class="spacer"></span>
+      ${v.complete ? '<span class="pill" style="background:var(--done)">complete</span>' : ''}</div>
+    <div class="section"><div class="label">Task board</div>${tasks}</div>
+    <div class="section grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+      <div><div class="label">Buildings</div>${list(v.structures, (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`)}</div>
+      <div><div class="label">Plots</div>${list(v.plots, (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}</span>`)}</div>
+      <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height} <span class="sub">${esc(d.description)}</span>`)}</div>
+      <div><div class="label">Ground being worked</div>${list(v.reservations.filter((r) => r.until > now), (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)}</div>
+    </div>
+    <div class="section"><div class="label">Village log</div>${list(v.log.slice(-10).reverse(), (l) => esc(l))}</div>
+  </div>`;
+}
+
+function render(d) {
+  lastData = d;
+  $('agentCount').textContent = `(${d.agents.length})`;
+  $('agents').innerHTML = d.agents.length ? d.agents.map(renderAgent).join('') : '<div class="empty">No agents are running.</div>';
+  $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid" style="grid-template-columns:1fr">${d.villages.map(renderVillage).join('')}</div>` : '';
+  const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 60);
+  $('feed').innerHTML = all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>';
+  $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
+}
+
+document.addEventListener('toggle', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLDetailsElement) || !el.dataset.key) return;
+  const key = el.dataset.key;
+  if (el.open) { openDetails.add(key); openDetails.delete('!' + key); } else { openDetails.delete(key); openDetails.add('!' + key); }
+  store.set('panel.open', JSON.stringify([...openDetails]));
+}, true);
+
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const name = b.dataset.agent;
+  try {
+    if (b.dataset.act === 'stop') await api(`/api/agents/${encodeURIComponent(name)}/stop`, { method: 'POST' });
+    if (b.dataset.act === 'remove') {
+      if (!confirm(`Remove ${name} from the world?`)) return;
+      await api(`/api/agents/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    }
+    if (b.dataset.act === 'watch') {
+      const player = $('player').value.trim();
+      if (!player) { $('player').focus(); alert('Type your Minecraft player name in "watch as" first.'); return; }
+      await api('/api/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player, agent: name }) });
+    }
+    refresh();
+  } catch (err) { alert(err.message); }
+});
+
+async function refresh() {
+  if (paused) return;
+  try {
+    render(await api('/api/overview'));
+    $('error').innerHTML = '';
+  } catch (err) {
+    $('error').innerHTML = `<div class="warnbox">Cannot reach the agent server: ${esc(err.message)}</div>`;
+  }
+}
+
+async function refreshHeader() {
+  try {
+    const s = await api('/api/status');
+    world = { kind: s.world === 'minecraft' ? 'minecraft' : 'sandbox', ...s };
+    $('world').innerHTML = world.kind === 'minecraft'
+      ? `<span class="dot" style="background:var(--good)"></span> <b>Minecraft ${esc(s.version)}</b> ${esc(s.server)}`
+      : `<span class="dot" style="background:var(--good)"></span> <b>Sandbox</b> seed ${esc(s.seed)}, ${Math.round(s.mspt * 10) / 10} ms/tick`;
+    $('mcWatch').hidden = world.kind !== 'minecraft';
+  } catch {
+    $('world').innerHTML = '<span class="dot" style="background:var(--bad)"></span> agent server not answering';
+  }
+  try {
+    const m = await api('/api/models');
+    $('models').innerHTML = m.ok
+      ? (m.models.length ? m.models.map((x) => `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB</span>`).join(' ') : '<span class="chip">Ollama: no models loaded</span>')
+      : `<span class="chip" style="color:var(--bad)">${esc(m.error)}</span>`;
+  } catch {}
+}
+
+refreshHeader();
+refresh();
+setInterval(refresh, 2000);
+setInterval(refreshHeader, 5000);
+setInterval(() => { if (lastData && !paused) render(lastData); }, 1000); // keep the "for N s" timers moving
+</script>
+</body>
+</html>

@@ -62,6 +62,42 @@ function fixDoor(layers: string[][], palette: Record<string, string>, width: num
 }
 
 /**
+ * Layers as models actually send them, turned into a list of layers of row strings: some send the whole list as a JSON
+ * string (at times without its outer brackets), rows as arrays of symbols (["L","P","L"]), or one flat list of rows
+ * for all layers (split every `depth` rows).
+ */
+function normalizeLayers(raw: unknown, depth: number): string[][] {
+  let v = raw;
+  if (typeof v === 'string') {
+    // Sometimes the layers come without their outer brackets: [[...]], [[...]]
+    const text = v.trim().replace(/,\s*$/, '');
+    try {
+      v = JSON.parse(text);
+    } catch {
+      try {
+        v = JSON.parse(`[${text}]`);
+      } catch {
+        return [];
+      }
+    }
+  }
+  if (!Array.isArray(v)) return [];
+  const row = (r: unknown): string | null => (typeof r === 'string' ? r : Array.isArray(r) && r.every((c) => typeof c === 'string') ? (r as string[]).join(' ') : null);
+  // A flat list of rows (each a string, or an array of single symbols): one list for all layers
+  const flat = v.every((r) => typeof r === 'string' || (Array.isArray(r) && r.every((c) => typeof c === 'string' && c.trim().length <= 1)));
+  if (flat && v.length) {
+    const rows = v.map(row).filter((r): r is string => r !== null);
+    if (depth > 0 && rows.length > depth && rows.length % depth === 0) {
+      const out: string[][] = [];
+      for (let i = 0; i < rows.length; i += depth) out.push(rows.slice(i, i + depth));
+      return out;
+    }
+    return [rows];
+  }
+  return v.map((l) => (Array.isArray(l) ? l.map(row).filter((r): r is string => r !== null) : []));
+}
+
+/**
  * Check a design the model submitted; returns the cleaned design or the problems to send back to it.
  * isPlaceable comes from the world the design is for (WorldAdapter.isPlaceable).
  */
@@ -88,7 +124,7 @@ export function validateDesign(
     const t = String(r).trim();
     return /\s/.test(t) ? t.split(/\s+/).map((c) => (c.length === 1 ? c : '?')).join('') : t;
   };
-  const layers = Array.isArray(raw.layers) ? (raw.layers as unknown[]).map((l) => (Array.isArray(l) ? l.map(pack) : [])) : [];
+  const layers = normalizeLayers(raw.layers, Math.floor(Number(raw.depth)) || 0).map((l) => l.map(pack));
   if (!layers.length) errors.push('layers must be a non-empty list of layers, each a list of rows');
   if (layers.length > maxLayers) errors.push(`at most ${maxLayers} layers`);
   const minSide = DESIGN_LIMITS.minSide, maxSide = opts.maxSide ?? DESIGN_LIMITS.maxSide;

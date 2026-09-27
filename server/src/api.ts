@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Game } from './game';
+import { handlePanel } from './panel';
 
 export async function readJson(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
@@ -29,6 +30,7 @@ export async function handleApi(game: Game, req: IncomingMessage, res: ServerRes
         profileMs: Object.fromEntries(Object.entries(game.profile).map(([k, v]) => [k, Math.round(v * 100) / 100])),
       });
     }
+    if (await handlePanel(game.agents, req, res, url)) return;
     const handled = await (game.agents as any).handleApi?.(req, res, url);
     if (handled) return;
     sendJson(res, 404, { error: 'Not found' });

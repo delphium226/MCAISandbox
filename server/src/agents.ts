@@ -814,12 +814,16 @@ class FindSiteSkill extends Skill {
   tick(): SkillResult {
     const size = Math.max(3, Math.min(40, Math.floor(this.args.size !== undefined ? num(this.args.size, 'size') : 9)));
     const r = this.search(size);
-    // Nothing that big: say what does fit, so the planner can scale the project instead of searching in circles
+    // Nothing that big: say what does fit, so the planner can scale the project instead of searching in circles.
+    // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them).
     if (typeof r === 'object' && 'fail' in r && size > 9)
-      for (let s = size - 4; s >= Math.max(9, Math.floor(size / 2)); s -= 4) {
+      for (let s = size - 2; s >= Math.max(9, Math.floor(size / 2)); s -= 2) {
         const alt = this.search(s);
-        if (typeof alt === 'object' && 'done' in alt)
-          return { fail: `${r.fail.split(';')[0]}. The largest nearby is smaller: ${alt.done.replace(/^site found: /, '')} It is saved as the last site, so prepare_site defaults to it; plan the project to fit, or explore further` };
+        if (typeof alt === 'object' && 'done' in alt) {
+          const rest = alt.done.replace(/^site found: /, '');
+          if (s >= size * 0.6) return { done: `site found (${s}x${s}, the largest near here; ${size}x${size} does not fit): ${rest} Plan the project to fit it.` };
+          return { fail: `${r.fail.split(';')[0]}. The largest nearby is smaller: ${rest} It is saved as the last site, so prepare_site defaults to it; plan the project to fit, or explore further` };
+        }
       }
     return r;
   }
@@ -1344,7 +1348,7 @@ class BuildDesignSkill extends BuildJob {
     const d = lib[name];
     if (!d) {
       const names = Object.keys(lib);
-      throw new Error(`no design called "${name}"; ${names.length ? `available: ${names.map((n) => `"${n}"`).join(', ')}` : 'create one with design_building first'}`);
+      throw new Error(`no design called "${name}"${names.length ? ` (available: ${names.map((n) => `"${n}"`).join(', ')})` : ''}; if it is not drawn yet, draw it first with design_building name="${name}" and a short brief, then build it`);
     }
     const rot = (((Math.round(Number(this.args.rotate ?? 0) / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
     const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
@@ -1967,6 +1971,10 @@ export class AgentManager implements WorldAdapter {
 
   isAgent(name: string) {
     return !!this.get(name);
+  }
+
+  agentList() {
+    return [...this.agents.values()];
   }
 
   isPlaceable(block: string) {

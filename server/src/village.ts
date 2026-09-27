@@ -154,9 +154,23 @@ export class VillageRegistry {
     return v.tasks.find((t) => t.id === id);
   }
 
-  /** Open tasks whose prerequisites are done. */
+  /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
   claimable(v: Village): Task[] {
-    return v.tasks.filter((t) => t.status === 'open' && t.after.every((id) => this.task(v, id)?.status === 'done'));
+    return v.tasks.filter((t) => t.status === 'open' && t.after.every((id) => this.task(v, id)?.status === 'done') && !this.missingDesigns(v, t).length);
+  }
+
+  /**
+   * Designs a building task names that are not in the library yet ('using the "cottage" design', 'build_design
+   * meeting_hall'). Such a task waits until the design is drawn: claimed early, a worker finds no design and flounders.
+   */
+  missingDesigns(v: Village, t: Task): string[] {
+    const text = `${t.title} ${t.detail}`;
+    if (/^\s*design/i.test(t.title) || !/build/i.test(text) || !/design/i.test(text)) return [];
+    const names = new Set<string>();
+    for (const m of text.matchAll(/"([^"]{2,32})"/g)) names.add(m[1].trim().toLowerCase());
+    for (const m of text.matchAll(/build_design\s+([a-z0-9_]+)/gi)) names.add(m[1].toLowerCase());
+    const lib = Object.keys(v.designs);
+    return [...names].filter((n) => /^[a-z0-9_ -]+$/.test(n) && !lib.includes(n) && !lib.includes(n.replace(/ /g, '_')) && !lib.includes(n.replace(/_/g, ' ')));
   }
 
   /** Post tasks; `after` may name existing task ids or earlier tasks in the same batch by 0-based index. */
@@ -225,7 +239,8 @@ export class VillageRegistry {
       const shown = [...v.tasks.filter((t) => t.status !== 'done'), ...v.tasks.filter((t) => t.status === 'done').slice(-6)];
       lines.push('Task board:', ...shown.map((t) => {
         const who = t.claimedBy ? ` by ${t.claimedBy}` : '';
-        const after = t.after.length && t.status === 'open' ? ` (after ${t.after.join(', ')})` : '';
+        const missing = t.status === 'open' ? this.missingDesigns(v, t) : [];
+        const after = (t.after.length && t.status === 'open' ? ` (after ${t.after.join(', ')})` : '') + (missing.length ? ` (waiting for the design ${missing.map((n) => `"${n}"`).join(', ')} to be drawn)` : '');
         const result = t.result && t.status !== 'open' ? ` -> ${t.result.slice(0, 120)}` : '';
         return `- ${t.id} [${t.status}${who}] ${t.title}${after}${t.status === 'done' ? '' : `: ${t.detail}`}${result}`;
       }));

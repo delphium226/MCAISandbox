@@ -78,6 +78,8 @@ export interface WorldAgent {
   pushEvent(type: AgentEvent['type'], text: string, data?: Record<string, unknown>): void;
   /** The village this agent belongs to (memory.village), if any. */
   village(): Village | undefined;
+  /** The brain driving it, if any (for status displays). */
+  readonly brain?: AgentBrain | null;
 }
 
 /** A world that hosts agents. */
@@ -90,6 +92,8 @@ export interface WorldAdapter {
   /** Tool definitions for the skills this world implements (names and arguments as in skills.ts). */
   readonly skills: ToolDef[];
   isAgent(name: string): boolean;
+  /** The agents in this world. */
+  agentList(): WorldAgent[];
   /** Whether a design may use this block (design validation). */
   isPlaceable(block: string): boolean;
 }
@@ -106,4 +110,14 @@ export interface AgentBrain<A extends WorldAgent = WorldAgent> {
   init?(agent: A): void;
   tick?(agent: A): void;
   onEvent?(agent: A, e: AgentEvent): void;
+  /** What the brain is doing right now, for the control panel. */
+  status?(agent: A): BrainStatus;
+}
+
+/** A brain's state at a glance: what it is doing (and since when, ms since the epoch) and why, plus details. */
+export interface BrainStatus {
+  state: 'planning' | 'thinking' | 'acting' | 'waiting' | 'idle' | 'done' | 'backing off';
+  detail: string;
+  since?: number;
+  [key: string]: unknown;
 }

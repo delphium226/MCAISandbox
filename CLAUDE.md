@@ -17,6 +17,11 @@ on the project and what earlier sessions learned.
   listing it. Before stopping the server, remove agents and let their chunks unload; a `/save` command or API endpoint
   would be a worthwhile addition.
 - To watch in the game: open http://localhost:5173, `/gamemode spectator`, `/tp <agent>`.
+- **Control panel:** http://localhost:8766/panel (real Minecraft) or http://localhost:8765/panel (sandbox):
+  every agent's brain state (planning / thinking / acting / waiting, since when and why), plan, task, current action,
+  recent decisions and events, blocked calls, model stats, inventory, the village task board, and Ollama's loaded
+  models; buttons to stop, remove or (Minecraft) watch an agent. `server/panel/index.html` (no build step) and
+  `server/src/panel.ts` (`/api/overview`, `/api/models`); brains report through `AgentBrain.status()`.
 - `GET /api/block?x=&y=&z=` inspects the world; `loaded: false` means the chunk is not loaded (unloaded blocks used to read
   as air, which caused false conclusions).
 
@@ -105,7 +110,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 - A typical village run (mayor + 3-4 workers, qwen executors, gemma mayor/designs) takes 4-10 minutes. Spawn on land
   (the village watcher searches for it); read the log for failures, loops and duplicate work, not just the outcome.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
-  **Mayor, Worker1, Worker2, Worker3** for villages. In real Minecraft a name keeps its inventory and position, so
+  **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
   results with the events stream and `/api/block`.
@@ -121,7 +126,8 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 6. `86b6794` world interface (`world.ts`, `skills.ts`)
 7. `c143688` real Minecraft: server setup and Mineflayer adapter, milestone (a)
 8. `4749536` survival skills, reflex, fresh-start spawns (milestone b, partly tested)
-9. building skills with server commands (milestone c)
+9. `bc94747` building skills with server commands (milestone c)
+10. control panel; village fixes; cloud planner (milestone d passed)
 
 Backlog: `plan_layout` for the mayor; import a real downloaded schematic (only generated test files so far); stairs and
 fence collision; survival-mode building (gather materials, then build).
@@ -184,7 +190,14 @@ Milestones (each tested and reported before the next): (a) done: an idle bot joi
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
 pickaxe; the best tiered run (qwen exec, gemma plan) had 7 unique items and a wooden pickaxe at 3.1 min (sandbox
 baseline ~10 items in 8 min); earlier runs died to zombies before the reflex; `scripts/watch_survival.py`; (c) a creative agent runs find_site, prepare_site, build_design; (d) the full village, watched with
-the real client. (c) done: the tiered brain (qwen exec, gemma plan) ran find_site, prepare_site and build_design
+the real client. (d) passed on 2026-09-27 (village Elmfield, 11.0 min, 2 cottages + meeting hall, 8/8 tasks done,
+1 failed action) with gpt-oss:120b-cloud as mayor planner and architect, qwen3.8:27b as worker planner (tight 1-step
+plans, 6/6 in a benchmark against 2/6 for qwen3:30b) and qwen3:30b-instruct as executor (1.2 s/turn alone, but 6-11 s
+in the run: three agents queue on one Ollama model). Models are set per run with MCAI_MAYOR_MODEL / MCAI_DESIGN_MODEL /
+MCAI_EXEC_MODEL and the WORKER_PLANNER argument of watch_village.py. Model output is normalised in code: designs with
+stringified layers (even without outer brackets) or rows as symbol arrays, tasks posted as skill calls
+({task:"build_design", name, x, z}); build tasks wait for missing designs and for a land task posted with them.
+(c) done: the tiered brain (qwen exec, gemma plan) ran find_site, prepare_site and build_design
 "cottage" in 1.1 min with no failures (Gus not in a village, the design in memory.designs: as a village member he would
 be a worker waiting for tasks). The village "Testville" in `mc/server/villages.json` holds the cottage design copied
 from the sandbox (`POST /api/village/Testville/designs`). Mindcraft (github.com/kolbytn/mindcraft) is a reference for skills; check its licence before

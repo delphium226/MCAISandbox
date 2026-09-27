@@ -7,11 +7,23 @@ import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
 import { TOOLS } from '../skills';
+import { handlePanel } from '../panel';
 import type { MineflayerWorld } from './mcWorld';
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (await handlePanel(w, req, res, url)) return;
   const parts = url.pathname.split('/').filter(Boolean); // ['api', 'agents', name, ...]
   if (parts[0] !== 'api') return sendJson(res, 404, { error: 'Not found' });
+
+  // Watch an agent from the real client: spectator mode, then teleport to it
+  if (parts[1] === 'watch' && req.method === 'POST') {
+    const body = await readJson(req);
+    const player = String(body.player ?? '').replace(/[^a-zA-Z0-9_]/g, '');
+    const agent = w.get(String(body.agent ?? ''));
+    if (!player || !agent) return sendJson(res, 400, { error: 'player and agent (the name of a running agent) are required' });
+    const out = [await w.rcon.command(`gamemode spectator ${player}`), await w.rcon.command(`tp ${player} ${agent.name}`)];
+    return sendJson(res, /No player was found/i.test(out.join(' ')) ? 404 : 200, { result: out });
+  }
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, agents: [...w.agents.values()].map((a) => a.name) });

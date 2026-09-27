@@ -286,6 +286,9 @@ npm run mc:server    # start the server (stop it with: python mc/rcon.py stop)
 npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
 ```
 
+A control panel at http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) shows what every agent
+and its brain is doing, the village task board and the loaded models, with buttons to stop, remove or watch an agent.
+
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills available so far: move_to, chat, wait, look_at,
 mine, collect, place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, find_site,
