@@ -9,6 +9,8 @@ architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gp
 """
 import json, os, math, re, sys, time, urllib.error, urllib.request
 
+# Chat and model text can hold any character; the Windows console encoding cannot
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
 worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"

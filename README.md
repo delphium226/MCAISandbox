@@ -273,7 +273,13 @@ marked done when the skill it names succeeds, and repeating the same call (faile
   `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct` (`OLLAMA_URL=` for another Ollama server).
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
-  objective complete. It prints tasks, designs, plots, buildings and per-agent stats.
+  objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
+  storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft).
+- `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered]` (real
+  Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
+  places and stocks the storage chest, and the default workers are scripted (brain `tasks`: they run the skill calls
+  each task spells out, no model), so the economy's code is tested in one to ten minutes.
+- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong.
 - `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
   stuck. `bench_agent.py` compares models on survival progression.
 - `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
@@ -302,9 +308,12 @@ agents pay for every block from their inventory, fetch what is missing from the 
 what is short and how to get it (gather, craft, smelt) if they cannot build. Wood kinds adapt to what the builder has
 (an oak design is built in acacia), and a build that ran out continues where it stopped. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
 The agent server makes the world peaceful when it starts (no hostile mobs, no fall, drowning, fire or freeze damage,
-keep-inventory; `mcRules.ts`), for the village economy in progress: agents gather and craft materials, then build
-with them, through shared village storage: `deposit` and `withdraw` use the village's chests (the first deposit
-puts a carried chest down), and their contents show in the planner's village summary and the panel. Survival bots
+keep-inventory; `mcRules.ts`), for the village economy: agents gather materials, then build with them, through
+shared village storage: `deposit` and `withdraw` use the village's chests (the first deposit puts a carried chest
+down), and their contents show in the planner's village summary and the panel. The mayor finds a site, has the
+buildings designed and calls `plan_layout`: code places them on one plot with streets and posts every task (prepare
+the plot, set up the storage, gather each building's raw materials, build). Builders craft planks, doors and glass
+from the storage themselves, and a build that is short posts gather tasks for what is missing. Survival bots
 have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
 `localhost` to watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
 

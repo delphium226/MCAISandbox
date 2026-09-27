@@ -44,8 +44,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       }
     const lay = layoutBuildings(site.x, site.z, names.map((n) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth })));
     if (lay.width > 32 || lay.depth > 32) return `plan_layout: ${names.length} buildings need a ${lay.width}x${lay.depth} plot, more than the 32x32 prepare_site allows; lay out fewer buildings now and the rest on a second site later`;
-    // The site search must have looked at ground as big as the plot plus prepare_site's margin
-    const need = Math.max(lay.width, lay.depth) + 4;
+    // The site search must have looked at ground at least as big as the plot (prepare_site levels its margin anyway;
+    // asking for the margin too sent a mayor round in circles when find_site's best nearby was just big enough)
+    const need = Math.max(lay.width, lay.depth);
     const siteSize = Number(site.size ?? 0);
     if (siteSize && siteSize < need) return `plan_layout: these buildings need a ${lay.width}x${lay.depth} plot, but find_site looked for only ${siteSize}x${siteSize}; run find_site size=${need}, then call plan_layout again`;
     const why = reg.conflict(v, lay.plot, by);

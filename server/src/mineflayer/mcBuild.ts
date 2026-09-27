@@ -450,7 +450,12 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         // Short only of things that can be made from what is in hand and in storage: make them here
         const short: Counts = {};
         for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
-        const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal);
+        // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
+        const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          notes.push(e.message);
+          return 'partly made';
+        });
         if (made) {
           notes.push(made);
           // Crafting planks uses whatever logs are carried, the ones fetched for log parts too: top up from storage

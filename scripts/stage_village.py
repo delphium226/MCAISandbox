@@ -16,6 +16,8 @@ Stops early when every building is done, when an agent fails the same way 3 time
 """
 import argparse, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
+# Chat and model text can hold any character; the Windows console encoding cannot
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

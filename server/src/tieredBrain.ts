@@ -772,8 +772,28 @@ export class TieredBrain implements AgentBrain {
         // With a layout on the board and nothing failed, the mayor's own land, storage, gathering and building tasks
         // duplicate it (gpt-oss re-posted its whole chain when a worker's plan timed out)
         const laidOut = v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail));
-        if (role === 'mayor' && laidOut && !v.tasks.some((t) => t.status === 'failed')) {
-          const dup = (t: { title: string; detail: string }) => !!designOf(t) || /prepare|storage|chest|collect|gather|craft|smelt|deposit|withdraw/i.test(`${t.title} ${t.detail}`);
+        // A building whose layout task failed is re-posted by re-opening that task (it has the coordinates); the mayor
+        // wrote "Build meeting hall" for the failed "Build meeting_hall" and the guard dropped it
+        if (role === 'mayor' && laidOut)
+          posted = posted.filter((t) => {
+            const d = designOf(t);
+            const failed = d && v.tasks.find((x) => x.status === 'failed' && x.detail.startsWith(`build_design "${d}"`));
+            if (!failed) return true;
+            failed.status = 'open';
+            failed.claimedBy = undefined;
+            failed.tries = 0;
+            failed.updated = Date.now();
+            reg.note(v, `${a.name} re-opened ${failed.id} "${failed.title}"`);
+            a.pushEvent('system', `Re-opened ${failed.id} ${failed.title} (the failed layout task, with its coordinates) instead of posting a new one`);
+            return false;
+          });
+        if (role === 'mayor' && laidOut) {
+          // Re-posting a failed task is fine; anything matching a task that is open, under way or done is a duplicate
+          // (after one failure gpt-oss re-posted the whole village, builds included)
+          const norm = (x: string) => x.toLowerCase().replace(/\(\d+\/\d+\)|\d+/g, '').replace(/[^a-z_ ]/g, ' ').replace(/\s+/g, ' ').trim();
+          const live = v.tasks.filter((t) => t.status !== 'failed');
+          const failedOnly = (t: { title: string; detail: string }) => v.tasks.some((x) => x.status === 'failed' && norm(x.title) === norm(t.title)) && !live.some((x) => norm(x.title) === norm(t.title));
+          const dup = (t: { title: string; detail: string }) => !failedOnly(t) && (live.some((x) => norm(x.title) === norm(t.title)) || !!designOf(t) || /prepare|storage|chest|collect|gather|craft|smelt|deposit|withdraw/i.test(`${t.title} ${t.detail}`));
           const skipped = posted.filter(dup);
           if (skipped.length) {
             posted = posted.filter((t) => !dup(t));
@@ -793,6 +813,12 @@ export class TieredBrain implements AgentBrain {
         console.log(`[tiered] ${a.name} plan_layout: ${out}`);
       }
       if (c.name === 'declare_complete') {
+        // Checked in code: gpt-oss once declared the village complete with nothing built
+        const open = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done');
+        if (open.length || !v.structures.some((st) => st.kind !== 'storage')) {
+          a.pushEvent('system', `Not complete yet: ${open.length ? `${open.map((t) => `${t.id} ${t.title} (${t.status})`).join('; ')} not built` : 'no building stands yet'}. Wait for the workers.`);
+          continue;
+        }
         v.complete = true;
         reg.cancelOpen(v, 'the village objective is complete');
         reg.note(v, `${a.name} declared the objective complete: ${String(c.input.summary ?? '')}`);

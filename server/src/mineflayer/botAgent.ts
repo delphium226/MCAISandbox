@@ -116,6 +116,8 @@ export class BotAgent implements WorldAgent {
       // Doors open (off by default in the pathfinder, "probably due to non-Paper servers"; this is Paper): a builder
       // left inside a finished cottage had no path out
       m.canOpenDoors = true;
+      // Around water rather than through it: a gatherer that walked into a lake stayed stuck in it for ten minutes
+      (m as unknown as { liquidCost: number }).liquidCost = 20; // (missing from the typings)
       // Diagonal steps only with both sides clear: the pathfinder allows one side blocked, and a bot cutting past that
       // corner catches on it and wiggles in place until the walk watchdog calls it stuck
       const diagonal = m.getMoveDiagonal.bind(m);

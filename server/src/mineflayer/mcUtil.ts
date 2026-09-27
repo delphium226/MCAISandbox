@@ -92,6 +92,11 @@ export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, t
   try {
     await walkOnce(a, goal, target, signal, timeoutMs);
   } catch (e) {
+    // Stuck in water (the pathfinder swims badly): swim up and toward the goal for a few seconds, then try again
+    if (/^stuck/.test((e as Error).message) && (a.bot.entity as unknown as { isInWater?: boolean }).isInWater) {
+      await swimOut(a, g, signal);
+      return walkOnce(a, goal, target, signal, timeoutMs);
+    }
     if (!/^no path/.test((e as Error).message)) throw e;
     const drop = moves.maxDropDown;
     moves.maxDropDown = 8;
@@ -100,6 +105,23 @@ export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, t
     } finally {
       moves.maxDropDown = drop;
     }
+  }
+}
+
+/** Swim toward a point (or just up and forward) for up to 6 seconds, until out of the water. */
+async function swimOut(a: BotAgent, toward: { x?: number; z?: number }, signal: AbortSignal) {
+  const bot = a.bot;
+  const p = bot.entity.position;
+  if (typeof toward.x === 'number' && typeof toward.z === 'number') await bot.lookAt(new Vec3(toward.x, p.y + 1, toward.z)).catch(() => {});
+  bot.pathfinder.stop();
+  bot.setControlState('jump', true);
+  bot.setControlState('forward', true);
+  try {
+    for (let i = 0; i < 30 && (bot.entity as unknown as { isInWater?: boolean }).isInWater; i++) await sleep(200, signal);
+    await sleep(600, signal);
+  } finally {
+    bot.setControlState('jump', false);
+    bot.setControlState('forward', false);
   }
 }
 

@@ -96,6 +96,8 @@ on the project and what earlier sessions learned.
 - `schematic.ts` + `nbt.ts`: import `.schem` / `.schematic` / `.litematic` / `.nbt` as designs, with block mapping
   onto the sandbox's blocks (sandbox-only; real Minecraft needs no mapping).
 - `llmBrain.ts`: the Claude brain.
+- `layout.ts`: plan_layout (`postLayout`), used by the mayor and the API. `taskBrain.ts`: the scripted village worker
+  for tests (runs the skill calls a task spells out).
 - `brains.ts`: the brain registry and the scripted brains (worker, companion), which use the sandbox `Agent` directly.
 
 ## Lessons from building the agents
@@ -154,6 +156,17 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
   results with the events stream and `/api/block`.
+- **Test the village economy in stages before model-driven runs** (the user asked for faster tests; almost every bug
+  of the economy work was in code, not in model behaviour): `python scripts/stage_village.py VILLAGE X Z [--stage
+  full|build] [--buildings testhut,testhut,testhall] [--brain tasks|tiered]` lays a village out through the API and
+  runs **scripted workers** (brain `tasks`, `taskBrain.ts`: they run the skill calls each task spells out, no model).
+  `--stage build` places and stocks the storage chest first, so only building from storage is tested (~1 min);
+  `--stage full` runs storage, gathering and building (~8 min for a testhut). It stops when every building is done,
+  when an agent fails the same way 3 times, or after 3 minutes without progress. Then run the model-driven village.
+- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
+  (seconds per case): run it after changing the mayor's prompt or tools.
+- While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
+  user); the final runs use qwen3.8:27b.
 
 ## State of the work
 
@@ -171,13 +184,17 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 11. `41d35e2` panel maps and "what the model saw", model routing and pinned Ollama servers, docs/ARCHITECTURE.md
 12. `cd33cc4` fix: build tasks wrongly held back for a missing design ("build_design design=..." read as a design
     called "design"); pushed to origin (the feature branch only; `main` untouched)
-13. handover notes and model benchmark scripts (`scripts/bench/`)
+13. `bedee15` handover notes and model benchmark scripts (`scripts/bench/`)
+14. `58f0d2d` peaceful world settings; `a597469` bills of materials; `11a691b` village storage; `2073569` survival
+    building charged to the inventory (village economy steps 1-4)
+15. `4803a57` plan_layout, material tasks, self-crafting builds; `65c3e9e` staged tests and scripted workers;
+    `ffcf9bd` movement, pickaxe, step-matching fixes (step 5, and step 6 in progress)
 
-**Next: the peaceful village economy** (see the section below). Other backlog: `plan_layout` for the mayor (part of the
-next work); import a real downloaded schematic (only generated test files so far); stairs and
-fence collision; survival-mode building (gather materials, then build).
+Backlog: import a real downloaded schematic (only generated test files so far); stairs and fence collision; the
+mayor still re-posts gathering when woken on a stall (the timed review is now off while workers hold tasks, and the
+duplicate guard drops its posts).
 
-## Next: the peaceful village economy (agreed 2026-09-27, not started)
+## The peaceful village economy (agreed 2026-09-27; done 2026-09-27)
 
 The user changed the base assumptions: **no survival with hostile mobs or damage at all**. Agents gather and craft
 the materials a village needs, then build with them. Decisions made with the user:
@@ -222,10 +239,27 @@ Agreed plan (each step tested before the next):
    kind the builder can supply (`chooseWood`: oak designs built in acacia). The dirt walkway in front of doors is
    optional. prepare_site stays free (landscaping) and gives the preparer the logs of the trees it fells.
    `memory.buildMode: "commands"` builds free in survival. Creative is unchanged.
-5. Mayor planning: code adds the gather / craft / deposit tasks a build task needs ahead of it (from the bill of
-   materials), and `plan_layout` gives building positions inside the plot with streets (the Ashvale run showed the
-   mayor's layout arithmetic still fails: the hall stuck out of the plot and he spent the run relocating it).
-6. Test: one cottage first, then two cottages and a meeting hall.
+5. Done. `plan_layout` (a mayor planner tool; `layout.ts`, also `POST /api/village/:v/layout`) packs the named
+   buildings onto one plot with 3-block streets (`layoutBuildings`), refuses undrawn designs, designs needing
+   unobtainable or hard-to-find materials (iron, wool...) and a find_site result smaller than the plot, and posts in
+   order: prepare the plot, set up the storage (collect 4 logs, craft a chest, deposit at a spot beside the plot; the
+   first chest finishes it), gather tasks per building (`WorldAdapter.materialTasks`, `gatherTasks`: even chunks of
+   <= 12 logs or 32 of anything, collect then deposit all, "soft" so a failed one does not block the build), and each
+   build at computed coordinates. Builders craft and smelt from storage themselves (`makeFromStock`: planks, doors,
+   slabs, glass, the table and furnace), re-read the chests when the record looks short, and a build short of raw
+   materials posts gather tasks for exactly that and goes back on the board (`requeueBuild`). The mayor's flow:
+   find_site + design_building steps, then plan_layout, then wait. Code guards: hand-written building tasks before
+   a layout are laid out in code; duplicates of the layout's tasks and plan steps that are workers' jobs are dropped;
+   a refused plan_layout replans at once; no timed review while workers hold tasks.
+6. Passed. Riverbend6: one cottage from nothing in 9.3 min (1 failed action). Meadowford2: "two matching cottages
+   and a meeting hall" in 35.0 min, declared complete, 6 failed actions (3 were self-healed material shortfalls);
+   mayor gpt-oss:120b-cloud (planner and architect), workers' planner qwen3.8:27b (never called: code-posted tasks
+   carry their own steps), executors qwen3:30b-instruct. Staged runs (two testhuts and a testhall from stocked
+   storage) then found more: see the lessons below. Meadowford5 (all fixes): both cottages in ~21 min, the hall build
+   failed on a crafting shortfall; resumed with fresh agents, the mayor's re-post re-opened the failed layout task and
+   the hall was built from storage in 4.3 min; completion is now checked in code. Failed confirming runs on the way:
+   a worker stuck in a lake (water avoidance and swim-out added), a mayor that declared a village complete with nothing
+   built (refused now), a site-size loop (the site must be as big as the plot, no margin).
 
 Things to expect:
 - **Gathering is slow**: two cottages and a hall are ~600 blocks (~75 logs' worth of planks, cobblestone, sand for
@@ -238,6 +272,8 @@ Things to expect:
 - Survival skills that exist and work (`collect`, `craft`, `smelt`, `mine`, `place`, `explore`): see the lessons below
   (crafting desync, buried stone, leaves). The self-defence reflex stays but should never fire in peaceful.
 - Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
+- Gatherers stay within 96 blocks of the village (the chest); find_site prefers ground with trees within 48 blocks
+  (a desert site had none within 128); walks over 64 blocks go in legs of ~40.
 
 ## Real Minecraft
 
@@ -292,9 +328,12 @@ Lessons from the adapter:
 2. Wait for chunks (`waitForChunksToLoad`) after spawning and after teleports, or the first skills see unloaded
    (null) blocks.
 3. Pin `vec3` to Mineflayer's 0.1.x, or its types clash with the pathfinder's.
-4. **Crafts sent back to back desync the inventory** (the server drops some, the client counts them): `doCraft` waits
-   for the result to appear. At a crafting table it can take over 2 s, so a false "not confirmed" still happens
-   occasionally (the craft does go through; open issue).
+4. **Crafting is done by server command**, charged exactly (`doCraft`: count and `/clear` the ingredients, `/give` the
+   result; a table recipe still needs a table placed nearby). Mineflayer's window clicking on 26.1 worked from a stale
+   inventory view: it put crafted planks back into the grid and made an oak_button of them, or crafted nothing, in 4
+   of 5 chest crafts. Its inventory view also drifts after chest transfers: `syncInventory` (Mineflayer's
+   `_syncWindow`, an impossible state id) gets the full inventory back; anything that must be right counts on the
+   server (`clear <name> <item> 0`).
 5. A bot that climbed a tree for logs can stand on leaves 5 blocks up; the pathfinder's 4-block drop limit leaves it
    no path at all. `walk` retries once with an 8-block drop.
 6. A player name keeps its inventory and position on the server between runs: tests spawn with `"reset": true`.
@@ -316,6 +355,16 @@ Lessons from the adapter:
    the leaf search found none, canopies outside a plot stayed floating and each leaf column counted as another tree.
    Fixed with separate seen-sets. `runJob`'s pacing slept once per command however far over budget, so buildSpeed
    below ~10 had no effect; it now waits until the budget is positive.
+15. **Village gathering lessons** (staged and model-driven runs): a worker holding a code-posted task runs the task's
+   own skill calls (the planner turned build_design into its own furnace recipe); a plan step counts as done only when
+   the action's item matches (action_done carries args); gathering stays within 96 blocks of the village and never
+   mines inside a village building (a gatherer mined the hall's cobblestone floor; cobblestone now comes from stone);
+   collect weighs candidates by effort (exposed stone deep in caves had no path); walks over 64 blocks go in legs;
+   builders step out of the footprint first (one walled itself in) and the pathfinder opens doors (`canOpenDoors`,
+   off by default); wood kinds are chosen per part; crafting planks eats any carried logs, so builders top up from
+   storage before requeueing; windows stay open when there is no sand for glass; paths avoid water (`liquidCost`) and
+   a walk stuck in water swims out; `declare_complete` is refused while a layout build is not done; a mayor re-posting
+   a failed building re-opens the layout task; the watch scripts write UTF-8 (a chat message with U+2011 crashed one).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

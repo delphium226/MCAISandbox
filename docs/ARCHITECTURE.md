@@ -134,6 +134,8 @@ flowchart TB
   subgraph neutral["World-neutral (depend only on world.ts)"]
     tiered["tieredBrain.ts"]
     llm["llmBrain.ts"]
+    layoutts["layout.ts<br/>(plan_layout)"]
+    taskb["taskBrain.ts<br/>(scripted worker, tests)"]
     village["village.ts"]
     designs["designs.ts"]
     skills["skills.ts<br/>(tool definitions)"]
@@ -378,11 +380,13 @@ the brain's real prompts and tools.
 
 ## 9. Where this is going
 
-The peaceful village economy (see CLAUDE.md, "Next: the peaceful village economy") replaces creative building with a
-safe survival economy in Minecraft. In place: peaceful difficulty with no damage (`mcRules.ts`), a bill of materials
-per design worked back through the recipes to raw materials (`mcMaterials.ts`), shared village storage chests
-(`mcStorage.ts`) and building that charges the builder's inventory (`mcBuild.ts`). Still to come: a mayor whose
-building tasks come with the gather and craft tasks they need, laid out by `plan_layout`.
+The peaceful village economy (see CLAUDE.md, "The peaceful village economy") replaces creative building with a safe
+survival economy in Minecraft: peaceful difficulty with no damage (`mcRules.ts`), a bill of materials per design
+worked back through the recipes to raw materials (`mcMaterials.ts`), shared village storage chests (`mcStorage.ts`),
+building that charges the builder's inventory and crafts what is short from the storage (`mcBuild.ts`), and a mayor
+whose `plan_layout` (`layout.ts`) places the buildings and posts the land, storage, gather and build tasks. Workers run
+those tasks' own skill calls (no planner call); a build short of materials posts gather tasks for exactly that.
+Staged tests with scripted workers (`taskBrain.ts`, `scripts/stage_village.py`) check the chain without models.
 
 ```mermaid
 flowchart LR
