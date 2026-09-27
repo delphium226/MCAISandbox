@@ -413,7 +413,8 @@ async function refreshHeader() {
     const s = await api('/api/status');
     world = { kind: s.world === 'minecraft' ? 'minecraft' : 'sandbox', ...s };
     $('world').innerHTML = world.kind === 'minecraft'
-      ? `<span class="dot" style="background:var(--good)"></span> <b>Minecraft ${esc(s.version)}</b> ${esc(s.server)}`
+      ? `<span class="dot" style="background:var(--good)"></span> <b>Minecraft ${esc(s.version)}</b> ${esc(s.server)}` +
+        (s.worldRules ? ` <span class="sub" style="color:${s.worldRules.ok ? 'inherit' : 'var(--bad)'}" title="${esc(s.worldRules.problems.join('; '))}">${esc(s.worldRules.ok ? 'peaceful, no damage' : s.worldRules.summary)}</span>` : '')
       : `<span class="dot" style="background:var(--good)"></span> <b>Sandbox</b> seed ${esc(s.seed)}, ${Math.round(s.mspt * 10) / 10} ms/tick`;
     $('mcWatch').hidden = world.kind !== 'minecraft';
   } catch {

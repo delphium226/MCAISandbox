@@ -183,9 +183,12 @@ The user changed the base assumptions: **no survival with hostile mobs or damage
 the materials a village needs, then build with them. Decisions made with the user:
 - **Minecraft only.** The sandbox stays as it is (a quick test bed for the brain); no peaceful mode is added there.
 - **Survival mode, made safe:** peaceful difficulty (no hostile mobs; hunger does not drain), and game rules for no
-  fall, drowning, fire or freeze damage and keep-inventory. The agent server should apply them over RCON at every
-  start. 26.1 renamed some game rules (and `time query daytime` no longer exists: it uses timelines), so list them
-  on the server first (`python mc/rcon.py "gamerule"`).
+  fall, drowning, fire or freeze damage and keep-inventory. Done: `mcRules.ts` applies them over RCON at every
+  agent-server start and reads each back (log line "World settings: ...", `/api/status` `worldRules`, the panel
+  header). 26.1 names game rules in snake_case (`fall_damage`, `keep_inventory`, `spawn_monsters`,
+  `fire_spread_radius_around_player`; camelCase is rejected), and a bare `gamerule` lists nothing over RCON: the full
+  list is in the jar (`net/minecraft/world/level/gamerules/GameRules.class`). `time query daytime` no longer exists
+  (timelines). `server.properties` now says `difficulty=peaceful` too (the server re-applies it at start).
 - **Building places blocks by command but charges the inventory:** `/setblock` / `/fill` as now, but each block must
   be carried, is taken from the inventory (e.g. RCON `clear <agent> <item> <n>` per run of blocks), and the job stops
   when a material runs out. Not real block-by-block placement.
@@ -193,7 +196,7 @@ the materials a village needs, then build with them. Decisions made with the use
   needs. The first chest is crafted like anything else (8 planks).
 
 Agreed plan (each step tested before the next):
-1. World config: peaceful + no-damage game rules, applied at agent-server start.
+1. Done (tested: a 30-block drop leaves a survival bot at 20 health). World config: peaceful + no-damage game rules, applied at agent-server start.
 2. Bill of materials in code: blocks per design (a door is one item for two cells; `_` and `.` cost nothing), and a
    recipe-chain resolver to raw materials with minecraft-data (planks <- logs, glass <- sand + fuel in a furnace,
    stone bricks <- stone <- cobblestone smelted, doors <- planks...). Code, not the model, does this arithmetic.
@@ -228,7 +231,7 @@ creative, block-by-block placement in survival; not built yet).
 
 - `mc/`: `setup.py` (portable Temurin 25 in `mc/runtime`, the Paper jar and `server.properties` in `mc/server`, both
   gitignored; checksums verified), `start.py` (runs the server), `rcon.py` (send commands, e.g. `python mc/rcon.py
-  "list"`). The server listens on 127.0.0.1 only, offline mode, RCON on localhost, seed 1793578865, survival, easy.
+  "list"`). The server listens on 127.0.0.1 only, offline mode, RCON on localhost, seed 1793578865, survival, peaceful.
   The user accepted the EULA on 2026-09-26. Stop the server with `python mc/rcon.py stop` (saves the world); killing
   it loses unsaved chunks. 26.x keeps no spawn chunks loaded: RCON block tests need `forceload` or a player nearby.
 - `npm run mc:agents` (`server/src/mineflayer/index.ts`) connects agents as bots and serves the agent REST API on

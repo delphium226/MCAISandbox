@@ -26,7 +26,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   }
 
   if (parts[1] === 'status') {
-    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, agents: [...w.agents.values()].map((a) => a.name) });
+    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, agents: [...w.agents.values()].map((a) => a.name) });
   }
   if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(TOOLS.filter((t) => w.skills.includes(t)).map((t) => [t.name, t.description])));
 

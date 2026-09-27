@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sendJson } from '../api';
 import { handleMcApi } from './mcApi';
+import { applyWorldRules } from './mcRules';
 import { MineflayerWorld } from './mcWorld';
 import { Rcon } from './rcon';
 
@@ -36,6 +37,19 @@ const props = serverProperties();
 if (props['enable-rcon'] !== 'true' || !props['rcon.password']) throw new Error('RCON is off in mc/server/server.properties (enable-rcon, rcon.password)');
 const rcon = new Rcon(HOST, Number(props['rcon.port'] ?? 25575), props['rcon.password']);
 const world = new MineflayerWorld(HOST, PORT, VERSION, rcon, SERVER_DIR);
+
+// Peaceful, no damage: applied at every start (retried until the Minecraft server answers)
+async function worldRules(attempt = 1): Promise<void> {
+  try {
+    world.worldRules = await applyWorldRules(rcon);
+    console.log(`World settings: ${world.worldRules.summary}`);
+  } catch (e) {
+    world.worldRules = { ok: false, summary: `world settings not applied yet: ${(e as Error).message}`, problems: [(e as Error).message], checkedAt: Date.now() };
+    if (attempt === 1) console.log(`World settings: RCON not answering (${(e as Error).message}); retrying every 10 s`);
+    setTimeout(() => void worldRules(attempt + 1), 10_000);
+  }
+}
+void worldRules();
 
 // The brains and skill queues tick at the game's 20 Hz, like the sandbox's
 setInterval(() => world.tick(), 50);

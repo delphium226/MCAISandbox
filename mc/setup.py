@@ -82,7 +82,7 @@ def setup_properties():
         "level-name=world",
         f"level-seed={SEED}",
         "gamemode=survival",
-        "difficulty=easy",
+        "difficulty=peaceful",
         "spawn-protection=0",
         "allow-flight=true",
         "max-players=16",

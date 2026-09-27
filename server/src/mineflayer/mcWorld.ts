@@ -12,6 +12,7 @@ import { MC_SKILLS } from './mcSkills';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import type { AgentBrain } from '../world';
+import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -39,6 +40,8 @@ export class MineflayerWorld implements WorldAdapter {
   readonly registry: ReturnType<typeof minecraftData>;
   agents = new Map<string, BotAgent>();
   ticks = 0;
+  /** Peaceful and no-damage settings (mcRules.ts), applied when the agent server starts. */
+  worldRules: WorldRulesStatus | null = null;
 
   constructor(readonly host: string, readonly port: number, readonly version: string, readonly rcon: Rcon, dataDir: string) {
     this.registry = minecraftData(version);
