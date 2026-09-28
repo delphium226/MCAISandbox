@@ -161,6 +161,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept7 | desert -35,324 | stopped at ~18 min | 18 min | only buried wood near the site: storage chest never made (F41) |
 | 09-28 | Accept8 | -262,125 | stopped at 21 min | 21 min | 1 log within 48 blocks; wood gave out, a worker chased logs 45 blocks down; plot margin dug out (F42) |
 | 09-28 | Accept9 | oak woods -405,5 | **3/3 built**, declared complete by code | 14.6 min | 0 failed actions, no worker executor calls; one window short (fuel, F43) |
+| 09-28 | Accept10 | woods -462,-183 | **3/3 built**, declared complete by the mayor | 25.2 min | 9 failed actions (logs out of reach near jungle); hall got 1 of 4 windows (F43, fixed after) |
+| 09-28 | Accept11 | acacia woods -111,50 | **3/3 built**, declared complete by the mayor | 29.2 min | 3 failed actions; 7x7 and 9x9 designs (~530 blocks); every window glazed. **Accept9-11: three in a row with the gpt-oss worker planner** |
 
 ## Findings log
 
@@ -273,6 +275,9 @@ CLAUDE.md when a phase ends.
   collect keeps within 16 blocks below the village and off a plot's 2-block margin (an 18-deep hole appeared there).
 - F43 (Accept9) One glass short: "could not smelt 2 glass (ran out of fuel after 1 of 2)". The fuel in the bill runs
   short by a little; backlog.
+- F43 fixed: smelting loaded only the first plank stack as fuel (a leftover of one or two planks) and gave up with
+  more in hand; it now tops up from the furnace window's slots (the bot's own inventory view lagged and offered the
+  plank already burning). Tested: 4 sand with fuel split 1 + 5 planks gave 4 glass; Accept11's windows all glazed.
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
