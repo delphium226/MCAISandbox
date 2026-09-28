@@ -130,7 +130,7 @@ export function collectTargets(a: BotAgent, raw: string): { blocks: number[]; it
 }
 
 /** Whether a block touches air or another see-through block (can be seen and reached without digging). */
-function exposed(a: BotAgent, p: Vec3): boolean {
+export function exposed(a: BotAgent, p: Vec3): boolean {
   return FACES.some((f) => {
     const b = a.bot.blockAt(p.plus(f));
     return !!b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';

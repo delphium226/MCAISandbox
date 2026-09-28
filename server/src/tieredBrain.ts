@@ -408,7 +408,7 @@ function siteRoom(a: WorldAgent): string {
 function siteMaterials(a: WorldAgent): string {
   const site = a.memory.lastSite as { x: number; y: number; z: number } | undefined;
   if (!site || a.gamemode === 'creative' || !a.world.materialsNear) return '';
-  const found = a.world.materialsNear(a.name, ['sandstone', 'sand'], site.x, site.y, site.z, 96);
+  const found = a.world.materialsNear(a.name, { sandstone: 1, sand: 1 }, site.x, site.y, site.z, 96);
   if (!found) return '';
   const notes = [
     found.sandstone === 0 ? 'there is no sandstone within 96 blocks of the site: do not use sandstone' : '',
@@ -614,8 +614,12 @@ export class TieredBrain implements AgentBrain {
       const pl = this.plan(a);
       const why = String(e.data?.message ?? e.text);
       const held = v && pl?.taskId ? v.tasks.find((t) => t.id === pl.taskId && t.status === 'claimed' && t.claimedBy === a.name) : undefined;
-      if (v && pl && held?.soft && type === 'collect' && /cannot be gathered here|none left within 96 blocks/.test(why)) {
+      const block = String((args as Record<string, unknown> | undefined)?.block ?? '').toLowerCase();
+      const ownMaterial = !!block && held?.detail.toLowerCase().includes(`collect block=${block}`);
+      if (v && pl && held?.soft && ownMaterial && type === 'collect' && /cannot be gathered here|none left within 96 blocks/.test(why)) {
         a.world.villages.fail(v, held.id, a.name, why);
+        // Whatever is still queued for it (more of the same collect) would fail again under the next task
+        a.stop();
         pl.taskId = undefined;
         pl.step = pl.steps.length;
         a.pushEvent('system', `Gave up ${held.id} "${held.title}": ${why.slice(0, 120)}. What was gathered is yours to deposit; the building goes without the rest.`);

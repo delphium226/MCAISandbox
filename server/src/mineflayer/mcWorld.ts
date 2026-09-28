@@ -9,7 +9,8 @@ import type { ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
-import { collectTargets } from './mcSurvival';
+import type { Vec3 } from 'vec3';
+import { collectTargets, exposed } from './mcSurvival';
 import { nearestBlocks } from './mcUtil';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
@@ -58,15 +59,18 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages = VillageRegistry.forWorld(dataDir);
   }
 
-  /** Whether blocks collect would gather for each name lie near x,y,z (plan_layout's check that a design's materials are there). */
-  materialsNear(by: string, names: string[], x: number, y: number, z: number, range: number) {
+  /** How many blocks collect would gather for each name lie near x,y,z, up to the number wanted (plan_layout's check). */
+  materialsNear(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number) {
     const a = this.agents.get(by.toLowerCase());
     if (!a) return null;
     const out: Record<string, number> = {};
-    for (const n of names) {
+    for (const [n, count] of Object.entries(want)) {
       try {
-        // Near the surface only (wood 36 blocks down in a mineshaft could not be reached), and the first one found will do
-        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, 1, (p) => p.y >= y - 16 && Math.hypot(p.x - x, p.z - z) <= range).length;
+        // What collect can get: near the surface (wood 36 blocks down in a mineshaft could not be reached), anything
+        // close to the site, and farther out only blocks in the open (Accept12: sandstone buried under sand 50-90 blocks
+        // away counted, and gatherers found "none within 96 blocks"); only as many as wanted
+        const keep = (p: Vec3) => { const d = Math.hypot(p.x - x, p.z - z); return p.y >= y - 16 && d <= range && (d <= 40 || exposed(a, p)); };
+        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, Math.max(1, Math.ceil(count)), keep).length;
       } catch {
         // An unknown name: not this check's business
       }

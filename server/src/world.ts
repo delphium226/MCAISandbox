@@ -135,11 +135,11 @@ export interface WorldAdapter {
    */
   materialTasks?(design: Design, label: string, wood?: string): { tasks: Array<{ title: string; detail: string }>; problems: string[]; logs?: number };
   /**
-   * Whether the blocks `collect` would gather for each name lie within `range` blocks of x,z and no more than 16 below
-   * ground level y (1 or 0), in the ground agent `by` has loaded; null when that agent is not here. For the survival
-   * economy.
+   * How many of the blocks `collect` would gather for each name lie within `range` blocks of x,z and no more than 16
+   * below ground level y, counted up to the number wanted, in the ground agent `by` has loaded; null when that agent is
+   * not here. For the survival economy.
    */
-  materialsNear?(by: string, names: string[], x: number, y: number, z: number, range: number): Record<string, number> | null;
+  materialsNear?(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number): Record<string, number> | null;
 }
 
 /**
