@@ -706,6 +706,18 @@ export class TieredBrain implements AgentBrain {
     // Once plan_layout has posted the work, code runs it (builds short of materials go back on the board behind new
     // gather tasks): the mayor is woken only for what code cannot handle, not on a timer (it re-posted work each time)
     const laidOut = !!v && v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail));
+    // Everything laid out is built and nothing is open, failed hard or waiting for a site: complete, whatever the mayor
+    // last did (Accept16: it tried to re-post gathering when the last cottage was done, so the check after its "wait"
+    // never ran, and nothing woke it again)
+    if (v && role === 'mayor' && laidOut && !v.complete && !v.unplaced?.length) {
+      const builds = v.tasks.filter((t) => /^Build /.test(t.title));
+      if (builds.length && builds.every((t) => t.status === 'done') && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft))) {
+        v.complete = true;
+        a.world.villages.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
+        a.pushEvent('system', 'The village is complete: every building you laid out is built (declared by code).');
+        console.log(`[tiered] ${a.name}: village ${v.name} declared complete by code`);
+      }
+    }
 
     if (PLAN && !this.planPending && now >= this.lastPlan && !v?.complete) {
       let why: string | null = null;
