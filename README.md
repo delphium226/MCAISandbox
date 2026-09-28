@@ -101,7 +101,7 @@ the agent by running **skills** that you queue up.
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
 | `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `iron_ore`, ...) |
 | `place` | item, x, y, z | Places a block |
-| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
+| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries (in real Minecraft the recipe is carried out by server command, ingredients charged exactly) |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
 | `attack` | id \| kind | Fights an entity |
 | `follow` | player, distance?, seconds? | Follows a player |
@@ -313,7 +313,9 @@ shared village storage: `deposit` and `withdraw` use the village's chests (the f
 down), and their contents show in the planner's village summary and the panel. The mayor finds a site, has the
 buildings designed and calls `plan_layout`: code places them on one plot with streets and posts every task (prepare
 the plot, set up the storage, gather each building's raw materials, build). Builders craft planks, doors and glass
-from the storage themselves, and a build that is short posts gather tasks for what is missing. Survival bots
+from the storage themselves, and a build that is short posts gather tasks for what is missing. Workers run the
+tasks code posts as written (no planner call); gatherers stay near the village and never mine its buildings.
+Survival bots
 have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
 `localhost` to watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
 

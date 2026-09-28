@@ -188,13 +188,17 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 14. `58f0d2d` peaceful world settings; `a597469` bills of materials; `11a691b` village storage; `2073569` survival
     building charged to the inventory (village economy steps 1-4)
 15. `4803a57` plan_layout, material tasks, self-crafting builds; `65c3e9e` staged tests and scripted workers;
-    `ffcf9bd` movement, pickaxe, step-matching fixes (step 5, and step 6 in progress)
+    `ffcf9bd` movement, pickaxe, step-matching fixes; `8f2a8b9` workers run code-posted tasks as written, wood per
+    part; `37d8a74` builds top up from storage, doors, buildings protected from gathering; `4fda71e` water, re-opened
+    failed builds, verified completion (village economy steps 5-6, done)
 
 Backlog: import a real downloaded schematic (only generated test files so far); stairs and fence collision; the
 mayor still re-posts gathering when woken on a stall (the timed review is now off while workers hold tasks, and the
-duplicate guard drops its posts).
+duplicate guard drops its posts); gather tasks fail on poor terrain (no sand, far trees; windows are left open);
+builds often come up a few logs short (a quick requeue each time); `collect` can take 5 minutes to give up on
+unreachable blocks.
 
-## The peaceful village economy (agreed 2026-09-27; done 2026-09-27)
+## The peaceful village economy (agreed 2026-09-27; done 2026-09-28)
 
 The user changed the base assumptions: **no survival with hostile mobs or damage at all**. Agents gather and craft
 the materials a village needs, then build with them. Decisions made with the user:
@@ -315,10 +319,10 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Open issues left from the last session: the Ashvale agents (Mayor, Worker1, Worker2) are still in the world on old
-code with task t55 (a relocated meeting hall) open and unneeded; the pinned servers and the Paper server were left
-running. `/api/maps` and the "what the model saw" panel sections were checked through the API but not yet viewed in
-a browser by the user.
+Left from the 2026-09-27/28 session: no agents in the world; the Paper server, the pinned model servers and the agent
+server were left running. Test buildings and storage chests stand near spawn and at the test villages (Depot, Stage*,
+Sunhollow*, Riverbend*, Meadowford*; all in `mc/server/villages.json`): build elsewhere or clear them. `/api/maps` and
+the "what the model saw" panel sections have not yet been viewed in a browser by the user.
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
