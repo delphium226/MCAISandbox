@@ -19,6 +19,8 @@ export const WORLD_RULES: Record<string, string> = {
   spawn_wardens: 'false',
   // Lightning or lava must not burn down plank villages
   fire_spread_radius_around_player: '0',
+  // Always day, so the user can watch (26.1's name for doDaylightCycle)
+  advance_time: 'false',
 };
 
 export interface WorldRulesStatus {
@@ -43,7 +45,7 @@ export async function applyWorldRules(rcon: Rcon): Promise<WorldRulesStatus> {
   }
   const ok = problems.length === 0;
   const summary = ok
-    ? `peaceful, no damage, keep_inventory (${Object.keys(WORLD_RULES).length} game rules checked)`
+    ? `peaceful, no damage, keep_inventory, always day (${Object.keys(WORLD_RULES).length} game rules checked)`
     : `world settings NOT applied: ${problems.join('; ')}`;
   return { ok, summary, problems, checkedAt: Date.now() };
 }

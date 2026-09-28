@@ -266,6 +266,8 @@ const BRAIN_TOOLS: ToolDef[] = [
 ];
 
 /** What the mayor may do itself: look around, talk, design; building and land work are for workers. */
+/** The smallest first site the mayor searches for (find_site reports the largest near by when this much is not there). */
+const MAYOR_FIRST_SITE = 24;
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
 
 interface ToolSets { exec: ToolDef[]; mayorExec: ToolDef[]; chat: ToolDef[]; planSystem: string }
@@ -394,7 +396,9 @@ function siteLimit(a: WorldAgent): { size: number; one: number; fits: Array<[num
 function siteRoom(a: WorldAgent): string {
   const r = siteLimit(a);
   if (!r) return '';
-  return `The village site is ${r.size}x${r.size} of level ground, and every building of the objective must fit on it together with streets: ${r.fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the whole objective fits.`;
+  const fits = r.fits.filter(([, f]) => f >= 5);
+  if (!fits.length) return '';
+  return `The village site is ${r.size}x${r.size} of level ground; it holds, with streets: ${fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the objective fits if it can, but never smaller than 5x5: what does not fit goes on a second site.`;
 }
 
 function villageRole(a: WorldAgent): 'mayor' | 'worker' | null {
@@ -985,9 +989,25 @@ export class TieredBrain implements AgentBrain {
     }
     const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete' || c.name === 'plan_layout');
     if (role === 'mayor' && (!call || !steps.length)) {
+      // With nothing laid out there is nothing to wait for: Fourfold7's mayor answered its first plan with an empty
+      // one and nothing woke it for 3 minutes (the stall review). Without a site, code gives it the first step
+      const nothingYet = v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
+      if (nothingYet && !a.memory.lastSite) {
+        a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${MAYOR_FIRST_SITE}`], step: 0, by: label(spec), tick: a.world.ticks };
+        this.lastPlan = Date.now();
+        a.pushEvent('system', 'Nothing is laid out yet, so there is nothing to wait for: find a site first (step added by code)');
+        console.log(`[tiered] ${a.name} returned an empty plan with nothing laid out: find_site added by code`);
+        return;
+      }
       // Nothing to do personally: wait for the board to change
       a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
       this.lastPlan = Date.now();
+      console.log(`[tiered] ${a.name} waits (${why.slice(0, 120)})`);
+      if (nothingYet) {
+        // A site but no layout: ask again shortly rather than at the 3-minute review
+        this.replanReason = 'nothing is laid out yet, so there is nothing to wait for: draw any design the objective still needs (design_building steps), then call plan_layout';
+        this.lastPlan = Date.now() + 10000;
+      }
       // Everything it laid out is built, nothing is open or failed, and it waits anyway: nothing would ever wake it again
       // (gpt-oss did this with a finished village), so code declares the objective met
       const builds = v ? v.tasks.filter((t) => /^Build /.test(t.title)) : [];
@@ -1140,6 +1160,12 @@ export class TieredBrain implements AgentBrain {
         this.replanReason = `the executor asked: ${String(c.input.reason ?? 'no reason given')}`;
         done.push(`request_replan(${String(c.input.reason ?? '')})`);
         continue;
+      }
+      // The first site must have room for a village: a vague step made the executor ask for 11x11 (Tightfit1), and the
+      // architect then drew 3x3 cottages to fit it; later searches (a second site) may be small
+      if (villageRole(a) === 'mayor' && c.name === 'find_site' && !a.village()?.layouts?.length && !(Number(c.input.size) >= MAYOR_FIRST_SITE)) {
+        a.pushEvent('system', `find_site size raised to ${MAYOR_FIRST_SITE}: the first site needs room for the whole village`);
+        c.input.size = MAYOR_FIRST_SITE;
       }
       if (villageRole(a) === 'mayor' && (c.name === 'move_to' || c.name === 'explore')) {
         const far = this.beyondRange(a, c);

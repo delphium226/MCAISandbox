@@ -69,12 +69,14 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       storage, or where it started: `memory.origin`) is refused or shortened. The architect's brief carries the site's
       room. Tested: find_site at Fourfold7's spot, from open water and forced legs; layouts on 12/14/9-block sites
       through the API; mayorbench; Tightfit1 (below).
-- [ ] 1.3 **Slow mayor start**: its first plan came 3 minutes after spawning in Fourfold7 (plans average 4.8 s).
-      Find where the time goes (server log timestamps, panel "what the planner saw").
-- [ ] 1.4 Small items: add `advance_time` to `mcRules.ts` WORLD_RULES (applied and checked at start); `explore`
-      reports "no path ... stopped at" its own target (arrival check against an estimated y, F23); village log lines in
-      plain words for the panel ("Worker4 built cottage 2"); confirm with the user that the panel's simple mode reads
-      well in a browser.
+- [x] 1.3 **Slow mayor start** (F29). Fourfold7's mayor answered its first plan with an empty (waiting) plan, which
+      was accepted silently; with nothing laid out only the 3-minute stall review woke it. Now a mayor with nothing
+      laid out that returns no steps gets `find_site` added by code (without a site) or is asked again after 10 s
+      (with one), and every mayor wait is logged. Accept1: first plan at 0.1 min, layout at 1.7 min.
+- [ ] 1.4 Small items. Done: `advance_time false` in `mcRules.ts` WORLD_RULES (11 rules checked at start, "always
+      day" in the summary); `explore` walks to an x/z goal (F23: the estimated y made it report "no path ... stopped
+      at" the spot it reached). Left: village log lines in plain words for the panel ("Worker4 built cottage 2");
+      confirm with the user that the panel's simple mode reads well in a browser.
 - [ ] 1.5 **Acceptance runs**: 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
@@ -151,6 +153,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Fourfold6 | model, 4 workers | stopped | 17 min | hall built; cottages blocked by sand tasks (fixed) |
 | 09-28 | Fourfold7 | model, 4 workers | stopped | 16 min | site too small; mayor wandered (step 1.2) |
 | 09-28 | Tightfit1 | model, 2 workers, gpt-oss worker planner, Fourfold7's spot | **3/3 built**, mayor declared complete | 32.0 min | 11 failed actions (logs on hills, sand); 11x11 site, two cottages there, hall on a second site laid out by code; 3x3 cottages (F25) |
+| 09-28 | Accept1 | model, 2 workers, gpt-oss worker planner, oak woods -335,-60 | **3/3 built**, declared complete by code | 10.6 min | 1 failed action; 13 trees felled on the plot (1200 blocks) supplied the wood; Worker1 made no executor calls |
 
 ## Findings log
 
@@ -213,6 +216,14 @@ CLAUDE.md when a phase ends.
   site as too small for everything), hence done in code. Old cases on the committed prompt vs the new one: first plan
   6/6 vs 7/10, requeued-wait 4/6 vs 6/10, layout-under-way 0/6 vs 1/6, failed-hard 0/6 vs 0/6: noise, and the last
   two are handled by code guards.
+- F29 (step 1.3) Fourfold7's 3-minute mayor start: its first plan (at spawn) was an empty wait, accepted without a
+  log line; the stall review ("no step has been completed for 3 minutes") was the first thing to wake it. Fixed as in
+  1.3; Accept1's mayor planned at 0.1 min.
+- F30 Accept1 (the F25 fix): "find_site size raised to 24" was seen, designs came out 5x5 and 7x7. find_site's
+  level-ground pass (height range 2) chose a 30x30 in the forest (1057 tree blocks) over open ground with range 4;
+  prepare_site felled 13 trees in 2.4 min and the logs fed the builds, so this is fine in woods. The watcher did not
+  teleport SausageOfDoom4, who was offline (correct).
+- F31 "Declared complete by code" seen working (Accept1, the mayor waited with everything built).
 
 ## Decisions log
 

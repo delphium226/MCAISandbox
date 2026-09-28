@@ -10,7 +10,7 @@ import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
-  sleep, standableY, str, syncInventory, walk,
+  sleep, str, syncInventory, walk,
 } from './mcUtil';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
@@ -700,8 +700,8 @@ async function explore(a: BotAgent, args: Record<string, unknown>, signal: Abort
   })();
   const p = bot.entity.position;
   const tx = Math.floor(p.x + dir[0] * dist), tz = Math.floor(p.z + dir[1] * dist);
-  const ty = standableY(a, tx, Math.floor(p.y), tz);
-  const goal = ty !== null ? new goals.GoalNear(tx, ty, tz, 3) : new goals.GoalNearXZ(tx, tz, 3);
+  // Only x and z matter: a goal at an estimated ground height reported "no path ... stopped at" the spot it reached
+  const goal = new goals.GoalNearXZ(tx, tz, 3);
   const from = p.clone();
   try {
     await walk(a, goal, `${tx},${tz}`, signal, 90000);
