@@ -207,8 +207,17 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let tools = 0;
   const t0 = Date.now();
   let failMs = 0, lastGot = 0, lastGain = Date.now();
+  // A village member far from home walks back first, so that what it finds (or not) is what the village has: a worker
+  // explored hop by hop to 180 blocks away, then gave up every gathering task it took (Accept14)
+  const base = homeOf(a);
+  if (base && Math.hypot(a.bot.entity.position.x - base.x, a.bot.entity.position.z - base.z) > 64)
+    await walk(a, new goals.GoalNearXZ(Math.floor(base.x), Math.floor(base.z), 8), `the village at ${Math.floor(base.x)},${Math.floor(base.z)}`, signal, 180000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
   const from = a.bot.entity.position.clone();
-  const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}. ${got ? 'Deposit what you have, or c' : 'C'}ollect somewhere else: explore 30 blocks or more in another direction first`);
+  const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}. ${base
+    ? `${got ? 'Deposit what you have; ' : ''}collect again: it searches within 96 blocks of the village by itself (no need to explore)`
+    : `${got ? 'Deposit what you have, or c' : 'C'}ollect somewhere else: explore 30 blocks or more in another direction first`}`);
   const fail = (p: Vec3, m: string, ms: number) => {
     failed.add(at(p));
     bad.set(at(p), Date.now() + 10 * 60000);

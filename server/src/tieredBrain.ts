@@ -1069,7 +1069,7 @@ export class TieredBrain implements AgentBrain {
   }
 
   /**
-   * The mayor stays within reach of its village (Fourfold7's mayor explored 500 blocks away while the workers waited):
+   * Village members stay within reach of their village (Fourfold7's mayor explored 500 blocks away while the workers waited):
    * why a move_to or explore would take it too far, or null. An explore that would overshoot is shortened instead.
    */
   private beyondRange(a: WorldAgent, c: { name: string; input: Record<string, unknown> }): string | null {
@@ -1077,7 +1077,9 @@ export class TieredBrain implements AgentBrain {
     if (!home) return null;
     const p = a.observe(1).position;
     const from = (x: number, z: number) => Math.round(Math.hypot(x - home.x, z - home.z));
-    const advice = `the mayor stays within ${VILLAGE_RANGE} blocks of the village (x=${home.x} z=${home.z}). find_site searches farther by itself (it walks when nothing fits in view), and plan_layout lays out what fits on a small site and says what needs a second one`;
+    const advice = villageRole(a) === 'mayor'
+      ? `the mayor stays within ${VILLAGE_RANGE} blocks of the village (x=${home.x} z=${home.z}). find_site searches farther by itself (it walks when nothing fits in view), and plan_layout lays out what fits on a small site and says what needs a second one`
+      : `workers stay within ${VILLAGE_RANGE} blocks of the village (x=${home.x} z=${home.z}); collect searches that whole range by itself, so there is no need to explore farther`;
     if (c.name === 'move_to') {
       const x = Number(c.input.x), z = Number(c.input.z);
       if (!Number.isFinite(x) || !Number.isFinite(z) || from(x, z) <= VILLAGE_RANGE) return null;
@@ -1204,7 +1206,8 @@ export class TieredBrain implements AgentBrain {
           c.input.size = floor;
         }
       }
-      if (villageRole(a) === 'mayor' && (c.name === 'move_to' || c.name === 'explore')) {
+      // Every village member stays in range (Accept14: a worker explored hop by hop to 180 blocks from its village)
+      if (villageRole(a) && (c.name === 'move_to' || c.name === 'explore')) {
         const far = this.beyondRange(a, c);
         if (far) {
           done.push(`(refused ${c.name}: ${far})`);
