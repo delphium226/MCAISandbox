@@ -134,6 +134,11 @@ export interface WorldAdapter {
    * economy leave it out.
    */
   materialTasks?(design: Design, label: string, wood?: string): { tasks: Array<{ title: string; detail: string }>; problems: string[]; logs?: number };
+  /**
+   * How many of the blocks `collect` would gather for each name lie within `range` blocks of x,z, in the ground agent
+   * `by` has loaded (counted up to a few dozen); null when that agent is not here. For the survival economy.
+   */
+  materialsNear?(by: string, names: string[], x: number, z: number, range: number): Record<string, number> | null;
 }
 
 /**

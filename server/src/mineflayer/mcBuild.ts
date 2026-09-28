@@ -679,6 +679,7 @@ interface Ground {
 
 async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal): Promise<Ground> {
   const n = 2 * r + 1, x0 = cx - r, z0 = cz - r, yHint = Math.floor(a.bot.entity.position.y);
+  taken = taken.filter((q) => q.x2 >= x0 && q.x1 <= x0 + n - 1 && q.z2 >= z0 && q.z1 <= z0 + n - 1);
   const y = new Int16Array(n * n), kind = new Uint8Array(n * n), trees = new Uint16Array(n * n), built = new Uint8Array(n * n);
   let t = Date.now();
   for (let j = 0; j < n; j++) {
@@ -822,11 +823,14 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const v = a.village();
   const home = villageHome(v, a.memory);
   const now = Date.now();
-  // In a village, stay off buildings (with a walkway around them), laid-out plots and ground other agents have reserved
-  const taken: Area[] = v
-    ? [...v.structures.map((st) => ({ x1: st.x1 - 2, z1: st.z1 - 2, x2: st.x2 + 2, z2: st.z2 + 2 })), ...(v.layouts ?? []).map((l) => ({ x1: l.x1 - 2, z1: l.z1 - 2, x2: l.x2 + 2, z2: l.z2 + 2 })),
-      ...v.reservations.filter((r) => r.by !== a.name && r.until > now)]
-    : [];
+  // Stay off buildings (with a walkway around them) and laid-out plots, of every village (only its own were kept off,
+  // so a new village could be laid out over an old one), other villages' prepared plots, and ground reserved by others
+  const pad = (q: Area) => ({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2 });
+  const all = [...a.world.villages.villages.values()];
+  const taken: Area[] = [
+    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? [] : o.plots)]).map(pad),
+    ...(v ? v.reservations.filter((r) => r.by !== a.name && r.until > now) : []),
+  ];
   const logIds = survival ? a.world.registry.blocksArray.filter((b) => /^(?!stripped_).*_log$/.test(b.name)).map((b) => b.id) : [];
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   const start = a.bot.entity.position.clone();

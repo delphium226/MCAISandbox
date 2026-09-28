@@ -63,6 +63,22 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
       }
+    // Every material a design needs gathered must be near the site: a hall drawn in sandstone in a jungle waited for 81
+    // sandstone no one could find (Accept3). Sand is let off: without it the windows stay open
+    if (economy && w.materialsNear) {
+      const want = new Map<string, string[]>();
+      for (const [n, m] of materials)
+        for (const t of m.tasks) {
+          const b = /collect block=(\S+)/.exec(t.detail)?.[1];
+          if (b && !/^(red_)?sand$/.test(b)) want.set(b, [...new Set([...(want.get(b) ?? []), n])]);
+        }
+      const found = want.size ? w.materialsNear(by, [...want.keys()], site.x, site.z, 96) : null;
+      const missing = found ? [...want.keys()].filter((b) => found[b] === 0) : [];
+      if (missing.length) {
+        const designs = [...new Set(missing.flatMap((b) => want.get(b)!))];
+        return `plan_layout: there is no ${missing.join(' or ')} within 96 blocks of this site, and ${designs.map((d) => `"${d}"`).join(', ')} ${designs.length > 1 ? 'need' : 'needs'} it; draw ${designs.length > 1 ? 'replacements' : 'a replacement'} without ${missing.join(' or ')} (planks, logs and cobblestone are found almost everywhere) under a new name, then call plan_layout with ${designs.length > 1 ? 'them' : 'it'}`;
+      }
+    }
     // The plot must fit on the ground find_site found (prepare_site levels its margin anyway; asking for the margin too
     // sent a mayor round in circles) and within the 32x32 prepare_site allows. Normal streets first, then narrow ones;
     // if the buildings still do not fit, the largest set that does (most buildings, then most floor area) goes on this

@@ -237,6 +237,14 @@ CLAUDE.md when a phase ends.
   could be laid out over an old one.
 - F35 The watch script truncates event text (~300 characters), hiding the end of long failure messages. Print them
   in full, or write the full events to a second file.
+- F36 (session 3) Fixes for F32-F35, tested without models (`runs/2026-09-28/s3-materials.log`): plan_layout asks the
+  world (`WorldAdapter.materialsNear`, the blocks `collect` would look for, within 96 blocks of the site) for every
+  material a design's gather tasks name, sand excepted, and refuses the design when one is missing: Fourfold7's
+  sandstone cottage was refused at Accept3's jungle site and laid out in the badlands. The architect's brief says when
+  the site has no sandstone or sand. Survival designs may not use furnaces, crafting tables, chests and the like as
+  decoration (Fourfold7's cottage had a chest and a table; checked in code, one retry; not yet seen in a run).
+  find_site keeps off every village's buildings, layouts and other villages' plots: Gus in the middle of Accept1's
+  plot got a site 45 blocks away. The watcher prints failures and finished builds in full.
 
 ## Decisions log
 

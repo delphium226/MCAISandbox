@@ -9,6 +9,8 @@ import type { ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
+import { collectTargets } from './mcSurvival';
+import { nearestBlocks } from './mcUtil';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
@@ -54,6 +56,21 @@ export class MineflayerWorld implements WorldAdapter {
     this.registry = minecraftData(version);
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
+  }
+
+  /** How many blocks collect would gather for each name lie near x,z (the plan_layout check that a design's materials are there). */
+  materialsNear(by: string, names: string[], x: number, z: number, range: number) {
+    const a = this.agents.get(by.toLowerCase());
+    if (!a) return null;
+    const out: Record<string, number> = {};
+    for (const n of names) {
+      try {
+        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, 32, (p) => Math.hypot(p.x - x, p.z - z) <= range).length;
+      } catch {
+        // An unknown name: not this check's business
+      }
+    }
+    return out;
   }
 
   /**

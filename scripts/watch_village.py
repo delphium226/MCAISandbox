@@ -105,7 +105,9 @@ while time.time() - t0 < minutes * 60:
             if e["type"] == "chat":
                 chats += 1
             elif e["type"] in ("action_done", "action_failed", "system"):
-                print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:220]}", flush=True)
+                # Failures and finished builds in full (their reasons are at the end); the rest shortened
+                full = e["type"] == "action_failed" or e["text"].startswith("build_design finished")
+                print(f"{stamp()} {n:8} {e['type']:13} | {e['text'] if full else e['text'][:220]}", flush=True)
                 # Progress also counts: brain tools (designs, the layout) report as system events
                 if e["type"] == "action_done" or (e["type"] == "system" and re.search(r"saved|Laid out|Posted tasks", e["text"])):
                     last_done = time.time()

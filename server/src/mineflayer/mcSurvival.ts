@@ -96,7 +96,7 @@ async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = fa
  * What `collect` looks for: block ids, and the items that count as progress. "logs" means any log; an item name
  * (cobblestone, coal, raw_iron) means the blocks that drop it; an ore includes its deepslate variant.
  */
-function collectTargets(a: BotAgent, raw: string): { blocks: number[]; items: number[]; label: string } {
+export function collectTargets(a: BotAgent, raw: string): { blocks: number[]; items: number[]; label: string } {
   const reg = a.world.registry;
   const n = raw.trim().toLowerCase().replace(/^minecraft:/, '').replace(/[\s-]+/g, '_');
   const blocks = new Set<number>();

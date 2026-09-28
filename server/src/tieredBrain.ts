@@ -401,6 +401,19 @@ function siteRoom(a: WorldAgent): string {
   return `The village site is ${r.size}x${r.size} of level ground; it holds, with streets: ${fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the objective fits if it can, but never smaller than 5x5: what does not fit goes on a second site.`;
 }
 
+/** Local materials the site lacks, for the architect's brief (plan_layout refuses designs that need them). */
+function siteMaterials(a: WorldAgent): string {
+  const site = a.memory.lastSite as { x: number; z: number } | undefined;
+  if (!site || a.gamemode === 'creative' || !a.world.materialsNear) return '';
+  const found = a.world.materialsNear(a.name, ['sandstone', 'sand'], site.x, site.z, 96);
+  if (!found) return '';
+  const notes = [
+    found.sandstone === 0 ? 'there is no sandstone within 96 blocks of the site: do not use sandstone' : '',
+    found.sand === 0 ? 'there is no sand near it for glass: use at most 2 glass (windows without sand stay open)' : '',
+  ].filter(Boolean);
+  return notes.length ? `Materials: ${notes.join('; ')}.` : '';
+}
+
 function villageRole(a: WorldAgent): 'mayor' | 'worker' | null {
   if (!a.village()) return null;
   return a.memory.villageRole === 'mayor' ? 'mayor' : 'worker';
@@ -1086,6 +1099,7 @@ export class TieredBrain implements AgentBrain {
       existing.length ? `Existing designs (make this one distinct): ${existing.map((d) => `${d.name} (${d.width}x${d.depth}, ${d.description})`).join('; ')}` : '',
       a.gamemode !== 'creative' && a.world.materialTasks ? DESIGN_SURVIVAL : '',
       siteRoom(a),
+      siteMaterials(a),
     ].filter(Boolean).join('\n');
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1098,10 +1112,14 @@ export class TieredBrain implements AgentBrain {
         // In the survival economy every block must be obtainable (no glowstone from the Nether)
         const unobtainable = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name).problems : [];
         if (unobtainable.length) errors.push(`these blocks cannot be had here: ${unobtainable.join('; ')}; use other materials`);
+        // Workstations as decoration cost materials and a crafting step, and a furnace placed as a block left a hall
+        // without one to smelt its glass (Accept2): not in survival designs
+        const stations = design && a.gamemode !== 'creative' ? [...new Set(Object.values(design.palette).map((b) => b.replace(/\[.*$/, '')).filter((b) => /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anvil)$/.test(b)))] : [];
+        if (stations.length) errors.push(`leave out the ${stations.join(', ')}: workstations and containers are not part of a building here`);
         const room = siteLimit(a);
         const tooBig = !!design && !!room && Math.max(design.width, design.depth) > room.one;
         if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}, but the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; draw it smaller`);
-        if (design && !unobtainable.length && !tooBig) {
+        if (design && !unobtainable.length && !tooBig && !stations.length) {
           if (v) {
             v.designs[design.name] = design;
             a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
