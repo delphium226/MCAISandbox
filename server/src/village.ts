@@ -79,6 +79,23 @@ export interface Village {
   storage?: { chests: StorageChest[]; updated: number };
   /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
   wood?: string;
+  /** Plots plan_layout has laid buildings out on (kept off by later site searches and layouts). */
+  layouts?: Array<Area & { buildings: string[] }>;
+  /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
+  unplaced?: string[];
+}
+
+/** How far a village's mayor and its site searches may go from home. */
+export const VILLAGE_RANGE = 96;
+
+/** Where a village is: its first plot's centre, else its storage chest, else where the agent started (memory.origin). */
+export function villageHome(v: Village | undefined, memory?: Record<string, unknown>): { x: number; z: number } | null {
+  const p = v?.layouts?.[0] ?? v?.plots[0];
+  if (p) return { x: Math.floor((p.x1 + p.x2) / 2), z: Math.floor((p.z1 + p.z2) / 2) };
+  const c = v?.storage?.chests[0];
+  if (c) return { x: c.x, z: c.z };
+  const o = memory?.origin as { x?: unknown; z?: unknown } | undefined;
+  return o && typeof o.x === 'number' && typeof o.z === 'number' ? { x: Math.floor(o.x), z: Math.floor(o.z) } : null;
 }
 
 const RESERVATION_MS = 3 * 60 * 1000;
@@ -297,6 +314,7 @@ export class VillageRegistry {
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     if (v.plots.length) lines.push('Prepared plots (level ground; build inside them):', ...v.plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
     if (v.structures.length) lines.push('Buildings (do not overlap them):', ...v.structures.map((s) => `- ${s.kind} at ${areaText(s)} by ${s.builtBy}`));
+    if (v.unplaced?.length) lines.push(`Not laid out yet (no room on the first site; they need a second site, then plan_layout): ${v.unplaced.join(', ')}`);
     const designs = Object.values(v.designs);
     if (designs.length) lines.push('Design library (build with build_design):', ...designs.map((d) => `- "${d.name}": ${d.width}x${d.depth}, ${d.height} high, ${d.description}`));
     if (v.tasks.length) {

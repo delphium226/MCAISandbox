@@ -54,11 +54,31 @@ const CASES: Array<[string, string, (c: Call[]) => boolean]> = [
     village('two matching cottages and a meeting hall', 'Design library (build with build_design):\n- "cottage": 7x7, 5 high, a small oak cottage\n- "meeting_hall": 11x11, 6 high, a hall of planks and cobblestone'),
     'Previous plan:\nGoal: site and designs\n[x] 1. find_site size=30\n[x] 2. design_building name=cottage\n[x] 3. design_building name=meeting_hall', 'Events since the last plan:\n- [action_done] find_site finished: site found: centre x=40 z=-100', `Observation:\n${obs}`,
   ].join('\n\n'), (c) => names(c) === 'cottage,cottage,meeting_hall' && !posted(c)],
+  // Site too small (Fourfold7: the mayor explored 500 blocks away): plan_layout placed what fits, the rest needs a site
+  ['partial layout: find a second site nearby', [
+    head('plan_layout placed only part of the village; meeting_hall needs a second site: Find a second site for it: find_site size=9 (it keeps off this plot), then plan_layout with "meeting_hall". The workers start on this plot meanwhile.', 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Not laid out yet (no room on the first site; they need a second site, then plan_layout): meeting_hall\nDesign library (build with build_design):\n- "cottage": 5x5, 5 high, a small acacia cottage\n- "meeting_hall": 7x7, 6 high, a hall of planks and cobblestone\nTask board:\n- t1 [claimed by Worker1] Prepare the village plot: prepare_site x=-195 z=-97 width=7 depth=14\n- t2 [claimed by Worker2] Set up the village storage\n- t3 [open] Gather 10 logs for cottage 1 (1/2) (after t2)\n- t8 [open] Build cottage 1 (after t1, t3): build_design "cottage" x=-195 z=-100\n- t15 [open] Build cottage 2 (after t1): build_design "cottage" x=-195 z=-93'),
+    'Previous plan:\nGoal: site and designs\n[x] 1. find_site size=30\n[x] 2. design_building name=cottage\n[x] 3. design_building name=meeting_hall',
+    'Events since the last plan:\n- [system] Laid out 2 buildings on a 7x14 plot at x -198..-192, z -104..-91 (cottage at -195,-100; cottage at -195,-93) and posted 16 tasks. Not laid out, no room on this 14x14 site: meeting_hall. Find a second site for it: find_site size=9 (it keeps off this plot), then plan_layout with "meeting_hall". The workers start on this plot meanwhile.', `Observation:\n${obs}`,
+  ].join('\n\n'), (c) => steps(c).some((s) => /find_site/.test(s)) && !steps(c).some((s) => /explore|move_to/.test(s)) && !posted(c)],
+  ['plan_layout refused, site too small: find_site bigger', [
+    head('plan_layout was refused: the site is only 12x12; only meeting_hall would fit, and all 3 need 16x16; run find_site size=16 (it searches farther out by itself), then plan_layout again', 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Design library (build with build_design):\n- "cottage": 5x5, 5 high, a small acacia cottage\n- "meeting_hall": 7x7, 6 high, a hall of planks and cobblestone'),
+    'Previous plan:\nGoal: site and designs\n[x] 1. find_site size=12\n[x] 2. design_building name=cottage\n[x] 3. design_building name=meeting_hall',
+    'Events since the last plan:\n- [action_done] find_site finished: site found (12x12, the largest within 112 blocks; 30x30 does not fit): centre x=-195 z=-97\n- [system] plan_layout: the site is only 12x12; only meeting_hall would fit, and all 3 need 16x16; run find_site size=16 (it searches farther out by itself), then plan_layout again', `Observation:\n${obs}`,
+  ].join('\n\n'), (c) => steps(c).some((s) => /find_site/.test(s) && Number(/size\D*(\d+)/.exec(s)?.[1] ?? 0) >= 16) && !steps(c).some((s) => /explore|move_to/.test(s)) && !posted(c) && !layout(c)],
+  ['second site found: plan_layout the rest', [
+    head('you found a site (find_site finished: site found: centre x=-170 z=-120, ground y=70, 9x9, height range 1, 0 tree blocks to clear, 24 blocks away): draw any design still missing, then call plan_layout', 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Not laid out yet (no room on the first site; they need a second site, then plan_layout): meeting_hall\nDesign library (build with build_design):\n- "cottage": 5x5, 5 high, a small acacia cottage\n- "meeting_hall": 7x7, 6 high, a hall of planks and cobblestone\nTask board:\n- t1 [done by Worker1] Prepare the village plot\n- t8 [claimed by Worker2] Build cottage 1: build_design "cottage" x=-195 z=-100\n- t15 [open] Build cottage 2 (after t1): build_design "cottage" x=-195 z=-93'),
+    'Previous plan:\nGoal: find a site for the meeting hall\n[x] 1. find_site size=9',
+    'Events since the last plan:\n- [action_done] find_site finished: site found: centre x=-170 z=-120, ground y=70, 9x9', `Observation:\n${obs}`,
+  ].join('\n\n'), (c) => names(c).split(',').includes('meeting_hall') && !posted(c)],
 ];
 
 console.log(`=== ${MODEL}, ${TIMES} times each`);
 let good = 0, total = 0;
 for (const [label, user, ok] of CASES) {
+  if (process.env.ONLY && !new RegExp(process.env.ONLY, 'i').test(label)) continue;
   let n = 0;
   const times: number[] = [];
   for (let i = 0; i < TIMES; i++) {

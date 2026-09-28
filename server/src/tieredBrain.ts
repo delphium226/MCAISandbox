@@ -25,7 +25,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
-import type { Design, Village } from './village';
+import { VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { taskCalls } from './taskBrain';
 
@@ -181,7 +181,7 @@ const MAYOR_PLAN_TOOLS: ToolDef[] = [
   },
   {
     name: 'plan_layout',
-    description: 'Once the site is found (find_site) and every design is in the library: lay the buildings out on one plot with streets and post all their tasks (prepare the plot, village storage, gathering materials, building). Code computes the positions and the materials. List one design name per building; repeat a name for each copy.',
+    description: 'Once the site is found (find_site) and every design is in the library: lay the buildings out on one plot with streets and post all their tasks (prepare the plot, village storage, gathering materials, building). Code computes the positions and the materials. List one design name per building; repeat a name for each copy. If they do not all fit on the site, it lays out as many as fit and names the rest: find a second site for them with find_site, then call plan_layout with their names.',
     input_schema: obj({ buildings: { type: 'array', items: { type: 'string' }, description: 'e.g. ["cottage", "cottage", "meeting_hall"]' } }, ['buildings']),
   },
   { name: 'declare_complete', description: 'Declare the village objective achieved (only when the village summary shows it).', input_schema: obj({ summary: { type: 'string' } }, ['summary']) },
@@ -236,7 +236,9 @@ board, one at a time in the order posted, and do the physical work.
 2. Layout: once the site is found and every design is in the library, call plan_layout with one design name per
    building (e.g. ["cottage", "cottage", "meeting_hall"]). Code places the buildings on one plot with streets and posts
    every task they need (land, storage, materials, building, in order). Do not compute coordinates or post those tasks
-   yourself.
+   yourself. If the site is too small for all of them, plan_layout lays out what fits and names the rest: run find_site
+   for a second site (it searches farther by itself; stay near the village, do not explore far), then plan_layout with
+   those names.
 3. Then wait: set_plan with an empty list. Gathering takes several minutes per task: while workers hold the layout's
    tasks, do not post more tasks or plan work, just wait. Review the board when it changes: re-post a failed task with a fix
    (post_tasks), and call declare_complete once the summary shows the objective is met. Walls and fences are not
@@ -366,6 +368,33 @@ function formatPlots(a: WorldAgent): string {
   const plots = a.memory.plots as Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> | undefined;
   if (!plots?.length) return '';
   return 'Prepared plots (level ground):\n' + plots.map((p) => `- x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2}, ground y=${p.y}`).join('\n');
+}
+
+/**
+ * How big buildings can be on the site the agent found last (find_site), laid out as plan_layout does with narrow
+ * streets: the largest square footprint when 1, 2, 3 or 4 buildings share the site. Designs drawn before anyone knew
+ * the land made a 19x19 layout for 17x17 of ground (Fourfold7).
+ */
+function siteLimit(a: WorldAgent): { size: number; one: number; fits: Array<[number, number]> } | null {
+  const size = Math.min(32, Number((a.memory.lastSite as { size?: number } | undefined)?.size) || 0);
+  if (!size) return null;
+  const fits: Array<[number, number]> = [];
+  for (let n = 1; n <= 4; n++) {
+    let best = 0;
+    for (let f = 3; f <= 15; f++) {
+      const l = layoutBuildings(0, 0, Array.from({ length: n }, () => ({ name: 'b', width: f, depth: f })), 2, 1);
+      if (Math.max(l.width, l.depth) <= size) best = f;
+    }
+    if (best) fits.push([n, best]);
+  }
+  return fits.length ? { size, one: fits[0][1], fits } : null;
+}
+
+/** The site's room, for the architect's brief. */
+function siteRoom(a: WorldAgent): string {
+  const r = siteLimit(a);
+  if (!r) return '';
+  return `The village site is ${r.size}x${r.size} of level ground, and every building of the objective must fit on it together with streets: ${r.fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the whole objective fits.`;
 }
 
 function villageRole(a: WorldAgent): 'mayor' | 'worker' | null {
@@ -599,7 +628,19 @@ export class TieredBrain implements AgentBrain {
         }
       }
       // The mayor's site search is what unblocks the land and building tasks: act on it straight away
-      if (e.data?.type === 'find_site' && villageRole(a) === 'mayor') this.replanReason = `you found a site (${e.text.slice(0, 160)}): draw any design still missing, then call plan_layout`;
+      if (e.data?.type === 'find_site' && villageRole(a) === 'mayor') {
+        const vil = a.village();
+        if (vil?.unplaced?.length && vil.layouts?.length) {
+          // A site for the buildings that did not fit on the first one: laid out in code (gpt-oss took a 9x9 found for
+          // the hall as too small for the whole village and searched again, 4 times in 6)
+          const out = this.layout(a, vil, { buildings: [...vil.unplaced] });
+          a.pushEvent('system', `Laid out on the site just found (in code): ${out}`);
+          console.log(`[tiered] ${a.name} find_site -> plan_layout: ${out}`);
+          this.replanReason = out.startsWith('plan_layout:') ? `plan_layout was refused: ${out.slice(13, 220)}`
+            : vil.unplaced?.length ? `plan_layout placed only part of the rest; ${vil.unplaced.join(', ')} still need a site: ${out.slice(out.indexOf('Find a second site'))}`
+            : 'the rest of the village is laid out on the site you found: wait for the workers (set_plan with an empty list)';
+        } else this.replanReason = `you found a site (${e.text.slice(0, 160)}): draw any design still missing, then call plan_layout`;
+      }
     }
   }
 
@@ -615,6 +656,11 @@ export class TieredBrain implements AgentBrain {
 
     const v = a.village();
     const role = villageRole(a);
+    // Where the agent started: the village's home until it has a plot or storage (the mayor's range and site searches)
+    if (v && !a.memory.origin) {
+      const p = a.observe(1).position;
+      a.memory.origin = { x: Math.floor(p.x), z: Math.floor(p.z) };
+    }
     const complete = !!plan && plan.steps.length > 0 && plan.step >= plan.steps.length;
     // A worker whose plan is complete has finished its task
     if (v && role === 'worker' && complete && plan.taskId && v.tasks.find((t) => t.id === plan.taskId)?.status === 'claimed') {
@@ -859,6 +905,14 @@ export class TieredBrain implements AgentBrain {
         // With a layout on the board and nothing failed, the mayor's own land, storage, gathering and building tasks
         // duplicate it (gpt-oss re-posted its whole chain when a worker's plan timed out)
         const laidOut = v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail));
+        // Buildings waiting for a second site are laid out in code too (at the mayor's last find_site)
+        const waiting = role === 'mayor' && laidOut && v.unplaced?.length ? posted.map(designOf).filter((n): n is string => !!n && v.unplaced!.includes(n)) : [];
+        if (waiting.length) {
+          const out = this.layout(a, v, { buildings: waiting });
+          a.pushEvent('system', `Building tasks are laid out in code (plan_layout): ${out}`);
+          console.log(`[tiered] ${a.name} post_tasks -> plan_layout: ${out}`);
+          posted = posted.filter((t) => !designOf(t));
+        }
         // A building whose layout task failed is re-posted by re-opening that task (it has the coordinates); the mayor
         // wrote "Build meeting hall" for the failed "Build meeting_hall" and the guard dropped it
         if (role === 'mayor' && laidOut)
@@ -897,13 +951,17 @@ export class TieredBrain implements AgentBrain {
         a.pushEvent('system', out);
         // Refused (a design missing, the site too small, ...): act on the reason now, not at the next review
         if (out.startsWith('plan_layout:')) this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
+        // Laid out only part of it: the rest needs a second site now, while the workers start on the first
+        else if (v.unplaced?.length) this.replanReason = `plan_layout placed only part of the village; ${v.unplaced.join(', ')} ${v.unplaced.length > 1 ? 'need' : 'needs'} a second site: ${out.slice(out.indexOf('Find a second site'), out.length)}`;
         console.log(`[tiered] ${a.name} plan_layout: ${out}`);
       }
       if (c.name === 'declare_complete') {
         // Checked in code: gpt-oss once declared the village complete with nothing built
         const open = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done');
-        if (open.length || !v.structures.some((st) => st.kind !== 'storage')) {
-          a.pushEvent('system', `Not complete yet: ${open.length ? `${open.map((t) => `${t.id} ${t.title} (${t.status})`).join('; ')} not built` : 'no building stands yet'}. Wait for the workers.`);
+        if (open.length || !v.structures.some((st) => st.kind !== 'storage') || v.unplaced?.length) {
+          const why = open.length ? `${open.map((t) => `${t.id} ${t.title} (${t.status})`).join('; ')} not built` : v.unplaced?.length ? '' : 'no building stands yet';
+          const unplaced = v.unplaced?.length ? `${why ? '; ' : ''}${v.unplaced.join(', ')} not laid out yet (find a second site, then plan_layout)` : '';
+          a.pushEvent('system', `Not complete yet: ${why}${unplaced}. ${unplaced ? 'Do that now.' : 'Wait for the workers.'}`);
           continue;
         }
         v.complete = true;
@@ -933,7 +991,7 @@ export class TieredBrain implements AgentBrain {
       // Everything it laid out is built, nothing is open or failed, and it waits anyway: nothing would ever wake it again
       // (gpt-oss did this with a finished village), so code declares the objective met
       const builds = v ? v.tasks.filter((t) => /^Build /.test(t.title)) : [];
-      if (v && !v.complete && !acted && builds.length && builds.every((t) => t.status === 'done')
+      if (v && !v.complete && !acted && builds.length && builds.every((t) => t.status === 'done') && !v.unplaced?.length
         && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft))) {
         v.complete = true;
         reg.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
@@ -964,6 +1022,35 @@ export class TieredBrain implements AgentBrain {
     return postLayout(a.world, v, a.name, a.memory.lastSite as Site | undefined, input.buildings, economy);
   }
 
+  /**
+   * The mayor stays within reach of its village (Fourfold7's mayor explored 500 blocks away while the workers waited):
+   * why a move_to or explore would take it too far, or null. An explore that would overshoot is shortened instead.
+   */
+  private beyondRange(a: WorldAgent, c: { name: string; input: Record<string, unknown> }): string | null {
+    const home = villageHome(a.village(), a.memory);
+    if (!home) return null;
+    const p = a.observe(1).position;
+    const from = (x: number, z: number) => Math.round(Math.hypot(x - home.x, z - home.z));
+    const advice = `the mayor stays within ${VILLAGE_RANGE} blocks of the village (x=${home.x} z=${home.z}). find_site searches farther by itself (it walks when nothing fits in view), and plan_layout lays out what fits on a small site and says what needs a second one`;
+    if (c.name === 'move_to') {
+      const x = Number(c.input.x), z = Number(c.input.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z) || from(x, z) <= VILLAGE_RANGE) return null;
+      return `${x},${z} is ${from(x, z)} blocks from the village; ${advice}`;
+    }
+    const dirs: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+    const d = dirs[String(c.input.direction ?? '')];
+    const dist = Math.min(128, Math.max(8, Number(c.input.distance) || 32));
+    if (!d) return from(p.x, p.z) + dist <= VILLAGE_RANGE ? null : `exploring ${dist} blocks in no set direction could leave the village's range; ${advice}`;
+    // The longest walk in that direction that stays in range
+    let t = dist;
+    while (t >= 8 && from(p.x + d[0] * t, p.z + d[1] * t) > VILLAGE_RANGE) t -= 4;
+    if (t >= dist) return null;
+    if (t < 8) return `${String(c.input.direction)} is out of the village's range from here; ${advice}`;
+    c.input.distance = t;
+    a.pushEvent('system', `explore ${String(c.input.direction)} shortened to ${t} blocks: ${advice}`);
+    return null;
+  }
+
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */
   private async design(a: WorldAgent, name: string, brief: string): Promise<string> {
     // Drawing is the hardest job: memory.designModel can give it a stronger model than the agent's planner
@@ -978,6 +1065,7 @@ export class TieredBrain implements AgentBrain {
       v ? `It is for the village ${v.name}${v.objective ? ` (objective: ${v.objective})` : ''}.` : '',
       existing.length ? `Existing designs (make this one distinct): ${existing.map((d) => `${d.name} (${d.width}x${d.depth}, ${d.description})`).join('; ')}` : '',
       a.gamemode !== 'creative' && a.world.materialTasks ? DESIGN_SURVIVAL : '',
+      siteRoom(a),
     ].filter(Boolean).join('\n');
     let problems: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -990,7 +1078,10 @@ export class TieredBrain implements AgentBrain {
         // In the survival economy every block must be obtainable (no glowstone from the Nether)
         const unobtainable = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name).problems : [];
         if (unobtainable.length) errors.push(`these blocks cannot be had here: ${unobtainable.join('; ')}; use other materials`);
-        if (design && !unobtainable.length) {
+        const room = siteLimit(a);
+        const tooBig = !!design && !!room && Math.max(design.width, design.depth) > room.one;
+        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}, but the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; draw it smaller`);
+        if (design && !unobtainable.length && !tooBig) {
           if (v) {
             v.designs[design.name] = design;
             a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
@@ -1049,6 +1140,15 @@ export class TieredBrain implements AgentBrain {
         this.replanReason = `the executor asked: ${String(c.input.reason ?? 'no reason given')}`;
         done.push(`request_replan(${String(c.input.reason ?? '')})`);
         continue;
+      }
+      if (villageRole(a) === 'mayor' && (c.name === 'move_to' || c.name === 'explore')) {
+        const far = this.beyondRange(a, c);
+        if (far) {
+          done.push(`(refused ${c.name}: ${far})`);
+          a.pushEvent('system', `Refused ${c.name}: ${far}`);
+          this.replanReason = `${c.name} was refused: ${far}`;
+          continue;
+        }
       }
       const ck = callKey(c.name, c.input);
       const f = this.failed.get(ck);

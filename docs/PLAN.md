@@ -58,14 +58,17 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       gather tasks covered by storage are marked done; ungatherable soft tasks fail at once; completion declared by
       code when the mayor waits with everything built; dig retry; pickaxe fixes; rescue only when the failed action
       got nowhere; pathfinder CPU limits; `collect` avoids plots and water.
-- [ ] 1.2 **A site that fits** (Fourfold7: land nearby was 17-18 blocks, the layout needed 19; after refused layouts
-      the mayor explored 500 blocks away while the workers waited).
-      - `find_site`: when nothing of the size is in view, search rings further out (in legs) before giving up.
-      - `plan_layout`: when the site is too small, say what fits ("two buildings fit; lay the hall on a second
-        site") or lay out on two plots in code.
-      - The mayor may not walk or explore more than ~96 blocks from its village (guard in code).
-      - Architect brief includes the largest footprint that fits the site found.
-      - Test: staged layout on a deliberately small site; mayorbench case "site too small".
+- [x] 1.2 **A site that fits** (F19, F21, F24-F25). `find_site` checks every centre on a height grid built once
+      (prefix sums, sliding min/max), allows a height range of 4 before shrinking (prepare_site levels it), widens to
+      112 blocks, then walks up to 2 legs of 40 blocks toward dry land, never leaving 96 blocks of the village.
+      `plan_layout` tries narrow streets (2, margin 1), then lays out the largest set that fits when at least half do
+      (the rest in `v.unplaced`, shown in the village summary); fewer than half is refused with the size the whole
+      village needs. When the mayor's next `find_site` succeeds, code lays out the unplaced buildings there (the model
+      managed it 1-2 times in 10). Laid-out plots (`v.layouts`) are kept off by site searches and later layouts;
+      completion waits for unplaced buildings. The mayor's `move_to`/`explore` beyond 96 blocks of home (first plot,
+      storage, or where it started: `memory.origin`) is refused or shortened. The architect's brief carries the site's
+      room. Tested: find_site at Fourfold7's spot, from open water and forced legs; layouts on 12/14/9-block sites
+      through the API; mayorbench; Tightfit1 (below).
 - [ ] 1.3 **Slow mayor start**: its first plan came 3 minutes after spawning in Fourfold7 (plans average 4.8 s).
       Find where the time goes (server log timestamps, panel "what the planner saw").
 - [ ] 1.4 Small items: add `advance_time` to `mcRules.ts` WORLD_RULES (applied and checked at start); `explore`
@@ -147,6 +150,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Fourfold5 | model, 4 workers | **3/3 built** | 21.6 min | 6 failures, 11 executor calls; mayor never declared complete (fixed) |
 | 09-28 | Fourfold6 | model, 4 workers | stopped | 17 min | hall built; cottages blocked by sand tasks (fixed) |
 | 09-28 | Fourfold7 | model, 4 workers | stopped | 16 min | site too small; mayor wandered (step 1.2) |
+| 09-28 | Tightfit1 | model, 2 workers, gpt-oss worker planner, Fourfold7's spot | **3/3 built**, mayor declared complete | 32.0 min | 11 failed actions (logs on hills, sand); 11x11 site, two cottages there, hall on a second site laid out by code; 3x3 cottages (F25) |
 
 ## Findings log
 
@@ -190,6 +194,26 @@ CLAUDE.md when a phase ends.
   inventory view and the server's disagree by a few items. Harmless (the items stay with the worker), but a sign to
   count deposits on the server as building already does. Backlog.
 
+- F24 (09-28, step 1.2) find_site at Fourfold7's spot (-195,-97) now finds 19x19 in 3 s: the old search stepped
+  centres by 2 blocks and offered 17x17 three times. Wider searches take 1-4 s (API replies stay under 1 s); forced to
+  walk (max_slope 0) it took 2 legs, 74 blocks, 24 s. Tightfit1: partial layout, then the second site found and laid
+  out by code within the same minute; the mayor never explored.
+- F25 A vague first plan step ("Search for a dry, flat, open area...") made the mayor's executor ask for 11x11, and
+  the architect sized to the site's room: 3x3 cottages. Fix (after the run, to be seen in 1.5): the mayor's first
+  find_site asks for at least 24, and the brief never goes below 5x5 (what does not fit goes on a second site).
+- F26 A worker gathered 135 blocks from the village (collect from -55,70,-54, storage at -189,-48) after repeated
+  "stuck" failures on acacia logs on hills (4 of Worker1's 6 failures): workers' explore is not range-guarded. Backlog
+  unless it recurs in 1.5.
+- F27 The b7908db checks in Tightfit1: "Gave up" an ungatherable sand task at once, seen; the teleport of
+  SausageOfDoom4, seen; no "Digging aborted" (5 in the 4-worker runs), consistent with the fix; completion was
+  declared by the mayor itself, so the code path was not needed; no stone pickaxe: both pickaxes were crafted by the
+  executor at 8-10 min with no cobblestone in hand (not a failure, not yet seen working).
+- F28 mayorbench (gpt-oss, 6-10 samples): the new cases "partial layout: find a second site nearby" 6/6 and "refused,
+  site too small: find_site bigger" 6/6; "second site found: plan_layout the rest" 2/6 and 1/10 (it took the second
+  site as too small for everything), hence done in code. Old cases on the committed prompt vs the new one: first plan
+  6/6 vs 7/10, requeued-wait 4/6 vs 6/10, layout-under-way 0/6 vs 1/6, failed-hard 0/6 vs 0/6: noise, and the last
+  two are handled by code guards.
+
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -203,6 +227,10 @@ CLAUDE.md when a phase ends.
   (not tested in 26.1: offer to check a sapling grows if it matters).
 - 09-28 The watch scripts teleport the watching player (MCAI_PLAYER, default SausageOfDoom4) to the Mayor, Worker1
   (staged) or the test agent.
+- 09-28 A partial layout goes ahead when at least half the buildings fit (the workers start at once); fewer is
+  refused in favour of a bigger site. The rest is laid out by code at the mayor's next successful find_site.
+- 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
+  40-block legs itself instead.
 
 ## Keeping this plan honest
 

@@ -60,8 +60,12 @@ def find_land(x, z):
         call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
         time.sleep(10)
         call("/agents/Mayor/act", {"action": "find_site", "size": site_size})
-        time.sleep(3)
-        result = [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]
+        # find_site takes a few seconds, more when it walks farther out
+        for _ in range(120):
+            time.sleep(1)
+            result = [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]
+            if result:
+                break
         site = call("/agents/Mayor/memory").get("lastSite")
         call("/agents/Mayor", method="DELETE")
         if result and result[-1]["type"] == "action_done" and site:

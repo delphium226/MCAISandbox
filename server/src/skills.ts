@@ -31,7 +31,7 @@ export const TOOLS: ToolDef[] = [
   { name: 'eat', description: 'Eat food from the inventory.', input_schema: obj({ item: s }) },
   { name: 'explore', description: 'Walk some distance in a direction to find new resources.', input_schema: obj({ direction: { type: 'string', enum: ['north', 'south', 'east', 'west'] }, distance: n }) },
   { name: 'wait', description: 'Idle for a number of seconds.', input_schema: obj({ seconds: n }, ['seconds']) },
-  { name: 'find_site', description: 'Find a dry, flat, open area to build on (no water, few trees, not on existing builds) and report its centre x,z. Then prepare_site there, then build. size: plot side (a 7x7 house needs about 11).', input_schema: obj({ size: n, radius: n, x: n, z: n }) },
+  { name: 'find_site', description: 'Find a dry, flat, open area to build on (no water, few trees, not on existing builds) and report its centre x,z. Then prepare_site there, then build. size: plot side (a 7x7 house needs about 11). When nothing that big is in view it looks farther out (in Minecraft it walks a little way); if that fails it reports the largest site that fits.', input_schema: obj({ size: n, radius: n, x: n, z: n }) },
   { name: 'prepare_site', description: 'Prepare a building plot before building: fells every tree touching it (whole trees), levels the ground by cutting and filling, and leaves a margin to walk around. Never demolishes buildings. Defaults to the last find_site result. To extend a plot later, prepare the neighbouring area with the same y.', input_schema: obj({ x: n, z: n, width: n, depth: n, margin: n, y: n }) },
   { name: 'get_item', description: 'Creative mode only: take any item from the creative inventory.', input_schema: obj({ item: s, count: n }, ['item']) },
   {

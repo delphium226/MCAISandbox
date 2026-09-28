@@ -15,7 +15,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation } from '../village';
-import { areaText, overlaps } from '../village';
+import { VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
@@ -663,77 +663,246 @@ const size = (args: Record<string, unknown>, k: string, def: number, lo: number,
 // find_site
 // ---------------------------------------------------------------------------------------------
 
-function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cache: Map<string, Surface | null>): { done: string } | { fail: string } {
-  const radius = Math.max(32, Math.min(64, args.radius !== undefined ? int(args, 'radius') : 48));
-  const maxSlope = args.max_slope !== undefined ? num(args.max_slope, 'max_slope') : 2;
-  const p = a.bot.entity.position;
-  const ox = args.x !== undefined ? int(args, 'x') : Math.floor(p.x);
-  const oz = args.z !== undefined ? int(args, 'z') : Math.floor(p.z);
-  const col = (x: number, z: number) => {
-    const k = `${x},${z}`;
-    if (!cache.has(k)) cache.set(k, surfaceAt(a, x, z, Math.floor(p.y)));
-    return cache.get(k)!;
-  };
-  const half = Math.floor(sz / 2);
-  // In a village, stay off buildings (with a walkway around them) and ground other agents have reserved
-  const v = a.village();
-  const now = Date.now();
-  const taken: Area[] = v
-    ? [...v.structures.map((st) => ({ x1: st.x1 - 2, z1: st.z1 - 2, x2: st.x2 + 2, z2: st.z2 + 2 })), ...v.reservations.filter((r) => r.by !== a.name && r.until > now)]
-    : [];
-  // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
-  const survival = a.gamemode !== 'creative';
-  const logIds = survival ? a.world.registry.blocksArray.filter((b) => /^(?!stripped_).*_log$/.test(b.name)).map((b) => b.id) : [];
-  const logs = survival ? nearestBlocks(a, logIds, 128, 4096) : [];
-  const logsNear = (x: number, z: number) => logs.filter((q) => Math.hypot(q.x - x, q.z - z) <= 48).length;
-  let best: { x: number; z: number; y: number; range: number; trees: number; score: number; wood: number } | null = null;
-  let wet = 0, unloaded = 0, steep = 0, occupied = 0;
-  for (let cx = ox - radius; cx <= ox + radius; cx += 2)
-    next: for (let cz = oz - radius; cz <= oz + radius; cz += 2) {
-      const dist = Math.hypot(cx - ox, cz - oz);
-      if (dist > radius) continue;
-      const fp = { x1: cx - half, z1: cz - half, x2: cx - half + sz - 1, z2: cz - half + sz - 1 };
-      if (taken.some((t) => overlaps(fp, t))) {
-        occupied++;
+/** The ground in a square around a point, surveyed once per position: each column's height and what stands on it. */
+interface Ground {
+  x0: number;
+  z0: number;
+  n: number;
+  y: Int16Array;
+  /** 0 usable, 1 not loaded, 2 water or lava, 3 taken (a building and its walkway, a layout, ground others reserved) */
+  kind: Uint8Array;
+  /** Prefix sums (n+1 by n+1) for window counts: not loaded, wet, taken, tree blocks, built-on columns. */
+  sums: Record<'unloaded' | 'wet' | 'taken' | 'trees' | 'built', Int32Array>;
+  /** Lowest and highest ground in every window of a size, computed on first use. */
+  extremes: Map<number, { lo: Int16Array; hi: Int16Array }>;
+}
+
+async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal): Promise<Ground> {
+  const n = 2 * r + 1, x0 = cx - r, z0 = cz - r, yHint = Math.floor(a.bot.entity.position.y);
+  const y = new Int16Array(n * n), kind = new Uint8Array(n * n), trees = new Uint16Array(n * n), built = new Uint8Array(n * n);
+  let t = Date.now();
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const k = j * n + i, x = x0 + i, z = z0 + j;
+      if (taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) {
+        kind[k] = 3;
         continue;
       }
-      let lo = 1e9, hi = -1e9, trees = 0, built = 0;
-      const ys: number[] = [];
-      for (let x = fp.x1; x <= fp.x2; x++)
-        for (let z = fp.z1; z <= fp.z2; z++) {
-          const c = col(x, z);
-          if (!c) {
-            unloaded++;
-            continue next;
-          }
-          if (c.liquid) {
-            wet++;
-            continue next;
-          }
-          lo = Math.min(lo, c.y);
-          hi = Math.max(hi, c.y);
-          if (hi - lo > maxSlope) {
-            steep++;
-            continue next;
-          }
-          trees += c.trees;
-          if (!NATURAL_GROUND.test(c.block)) built++;
-          ys.push(c.y);
-        }
-      // Level ground matters most, then staying off existing builds, then fewer trees, then distance; in survival, no
-      // trees at all within 48 blocks counts heavily against a site
-      const wood = survival ? logsNear(cx, cz) : 0;
-      const score = (hi - lo) * 6 + built * 3 + trees * 0.3 + dist * 0.1 + (survival && !wood ? 40 : 0);
-      if (!best || score < best.score) {
-        ys.sort((m, n) => m - n);
-        best = { x: cx, z: cz, y: ys[ys.length >> 1], range: hi - lo, trees, score, wood };
+      const c = surfaceAt(a, x, z, yHint);
+      if (!c) {
+        kind[k] = 1;
+        continue;
+      }
+      y[k] = c.y;
+      trees[k] = c.trees;
+      if (c.liquid) kind[k] = 2;
+      else if (!NATURAL_GROUND.test(c.block)) built[k] = 1;
+    }
+    // Several bots share one event loop (F16): let the others run between rows
+    if (Date.now() - t > 20) {
+      await new Promise((res) => setImmediate(res));
+      if (signal) checkAbort(signal);
+      t = Date.now();
+    }
+  }
+  const prefix = (f: (k: number) => number) => {
+    const m = n + 1, P = new Int32Array(m * m);
+    for (let j = 0; j < n; j++)
+      for (let i = 0; i < n; i++) P[(j + 1) * m + i + 1] = f(j * n + i) + P[j * m + i + 1] + P[(j + 1) * m + i] - P[j * m + i];
+    return P;
+  };
+  return {
+    x0, z0, n, y, kind, extremes: new Map(),
+    sums: {
+      unloaded: prefix((k) => +(kind[k] === 1)), wet: prefix((k) => +(kind[k] === 2)), taken: prefix((k) => +(kind[k] === 3)),
+      trees: prefix((k) => trees[k]), built: prefix((k) => built[k]),
+    },
+  };
+}
+
+/** Sum over the size-k window whose top-left cell is (i, j). */
+const windowSum = (P: Int32Array, n: number, i: number, j: number, k: number) => {
+  const m = n + 1;
+  return P[(j + k) * m + i + k] - P[j * m + i + k] - P[(j + k) * m + i] + P[j * m + i];
+};
+
+/** The lowest (or highest) value in every k x k window of an n x n grid: sliding windows along rows, then columns. */
+function windowExtreme(src: Int16Array, n: number, k: number, max: boolean): Int16Array {
+  const m = n - k + 1, rows = new Int16Array(m * n), out = new Int16Array(m * m), q = new Int32Array(n);
+  const worse = (u: number, w: number) => (max ? u <= w : u >= w);
+  for (let j = 0; j < n; j++) {
+    let h = 0, t = 0;
+    for (let i = 0; i < n; i++) {
+      const v = src[j * n + i];
+      while (t > h && worse(src[j * n + q[t - 1]], v)) t--;
+      q[t++] = i;
+      if (q[h] <= i - k) h++;
+      if (i >= k - 1) rows[j * m + i - k + 1] = src[j * n + q[h]];
+    }
+  }
+  for (let i = 0; i < m; i++) {
+    let h = 0, t = 0;
+    for (let j = 0; j < n; j++) {
+      const v = rows[j * m + i];
+      while (t > h && worse(rows[q[t - 1] * m + i], v)) t--;
+      q[t++] = j;
+      if (q[h] <= j - k) h++;
+      if (j >= k - 1) out[(j - k + 1) * m + i] = rows[q[h] * m + i];
+    }
+  }
+  return out;
+}
+
+interface SiteCandidate { x: number; z: number; y: number; size: number; range: number; trees: number; wood: number; score: number }
+interface Rejections { wet: number; steep: number; occupied: number; unloaded: number }
+
+/**
+ * The best sz x sz site in the surveyed ground: centre within `radius` of (ox, oz) and, in a village, within reach of
+ * its home. Level ground matters most, then staying off existing builds, then fewer trees, then distance; in survival,
+ * few trees within 48 blocks count against a site (none at all heavily: a desert site had none within 128 blocks, and
+ * a far 30x30 with 5 logs near it beat a site in the woods).
+ */
+function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: number, radius: number, home: { x: number; z: number } | null,
+  woodNear: ((x: number, z: number) => number) | null, why: Rejections): SiteCandidate | null {
+  const { n } = g, m = n - sz + 1, half = Math.floor(sz / 2);
+  if (m <= 0) return null;
+  let ext = g.extremes.get(sz);
+  if (!ext) g.extremes.set(sz, (ext = { lo: windowExtreme(g.y, n, sz, false), hi: windowExtreme(g.y, n, sz, true) }));
+  let best: SiteCandidate | null = null;
+  for (let j = 0; j < m; j++)
+    for (let i = 0; i < m; i++) {
+      const cx = g.x0 + i + half, cz = g.z0 + j + half;
+      const dist = Math.hypot(cx - ox, cz - oz);
+      if (dist > radius || (home && Math.hypot(cx - home.x, cz - home.z) > VILLAGE_RANGE)) continue;
+      if (windowSum(g.sums.unloaded, n, i, j, sz)) {
+        why.unloaded++;
+        continue;
+      }
+      if (windowSum(g.sums.taken, n, i, j, sz)) {
+        why.occupied++;
+        continue;
+      }
+      if (windowSum(g.sums.wet, n, i, j, sz)) {
+        why.wet++;
+        continue;
+      }
+      const range = ext.hi[j * m + i] - ext.lo[j * m + i];
+      if (range > maxSlope) {
+        why.steep++;
+        continue;
+      }
+      const trees = windowSum(g.sums.trees, n, i, j, sz);
+      const score0 = range * 6 + windowSum(g.sums.built, n, i, j, sz) * 3 + trees * 0.3 + dist * 0.1;
+      if (best && score0 >= best.score) continue;
+      const wood = woodNear ? woodNear(cx, cz) : 0;
+      const score = score0 + (woodNear ? Math.max(0, 40 - wood) : 0);
+      if (!best || score < best.score) best = { x: cx, z: cz, y: 0, size: sz, range, trees, wood, score };
+    }
+  if (best) {
+    // The ground level is the median height of the site's columns
+    const ys: number[] = [];
+    for (let z = best.z - half; z < best.z - half + sz; z++)
+      for (let x = best.x - half; x < best.x - half + sz; x++) ys.push(g.y[(z - g.z0) * n + (x - g.x0)]);
+    ys.sort((u, w) => u - w);
+    best.y = ys[ys.length >> 1];
+  }
+  return best;
+}
+
+/** How far find_site looks around its first position, and one step (a leg) further when nothing fits there. */
+const SITE_WIDE = 112, SITE_LEG = 40, SITE_LEGS = 2;
+const COMPASS: Array<[string, number, number]> = [['north', 0, -1], ['northeast', 0.71, -0.71], ['east', 1, 0], ['southeast', 0.71, 0.71], ['south', 0, 1], ['southwest', -0.71, 0.71], ['west', -1, 0], ['northwest', -0.71, -0.71]];
+
+async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
+  const sz = Math.max(3, Math.min(40, args.size !== undefined ? int(args, 'size') : 9));
+  const radius = Math.max(32, Math.min(64, args.radius !== undefined ? int(args, 'radius') : 48));
+  const slopes = args.max_slope !== undefined ? [num(args.max_slope, 'max_slope')] : [2, 4];
+  const fixed = args.x !== undefined || args.z !== undefined;
+  const survival = a.gamemode !== 'creative';
+  const v = a.village();
+  const home = villageHome(v, a.memory);
+  const now = Date.now();
+  // In a village, stay off buildings (with a walkway around them), laid-out plots and ground other agents have reserved
+  const taken: Area[] = v
+    ? [...v.structures.map((st) => ({ x1: st.x1 - 2, z1: st.z1 - 2, x2: st.x2 + 2, z2: st.z2 + 2 })), ...(v.layouts ?? []).map((l) => ({ x1: l.x1 - 2, z1: l.z1 - 2, x2: l.x2 + 2, z2: l.z2 + 2 })),
+      ...v.reservations.filter((r) => r.by !== a.name && r.until > now)]
+    : [];
+  const logIds = survival ? a.world.registry.blocksArray.filter((b) => /^(?!stripped_).*_log$/.test(b.name)).map((b) => b.id) : [];
+  const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
+  const start = a.bot.entity.position.clone();
+  const surveyed: Array<{ x: number; z: number }> = [];
+  // The largest smaller site seen anywhere, in case nothing of the full size turns up
+  let fallback: { c: SiteCandidate; logs: Vec3[] } | null = null;
+  for (let leg = 0; ; leg++) {
+    const p = a.bot.entity.position;
+    const ox = fixed && args.x !== undefined ? int(args, 'x') : Math.floor(p.x);
+    const oz = fixed && args.z !== undefined ? int(args, 'z') : Math.floor(p.z);
+    surveyed.push({ x: ox, z: oz });
+    const g = await surveyGround(a, ox, oz, SITE_WIDE + Math.floor(sz / 2), taken, signal);
+    // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
+    const logs = survival ? nearestBlocks(a, logIds, 128, 4096) : [];
+    const woodNear = survival ? (x: number, z: number) => logs.filter((q) => Math.hypot(q.x - x, q.z - z) <= 48).length : null;
+    // Nearby level ground first, then rougher nearby ground (prepare_site cuts and fills it), then farther out
+    const tries: Array<[number, number]> = slopes.map((s) => [radius, s]);
+    tries.push([SITE_WIDE, slopes[slopes.length - 1]]);
+    for (const [r, s] of tries) {
+      const c = bestSite(g, sz, s, ox, oz, r, home, woodNear, why);
+      if (c) return siteFound(a, c, logs);
+    }
+    // Nothing that big: remember the largest that fits here
+    const maxSlope = slopes[slopes.length - 1];
+    for (let s = sz - 1; s >= Math.max(9, Math.floor(sz / 2)) && s > (fallback?.c.size ?? 0); s--) {
+      const c = bestSite(g, s, maxSlope, ox, oz, SITE_WIDE, home, woodNear, { wet: 0, steep: 0, occupied: 0, unloaded: 0 });
+      if (c) {
+        fallback = { c, logs };
+        break;
       }
     }
-  if (!best) {
-    const why = [wet && `${wet} over water`, steep && `${steep} too steep`, occupied && `${occupied} taken by buildings or other agents`, unloaded && `${unloaded} not loaded yet`].filter(Boolean).join(', ');
-    return { fail: `no dry, flat ${sz}x${sz} site within ${radius} blocks (candidates rejected: ${why}); explore in another direction and try again, or use a smaller size or larger max_slope` };
+    // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them)
+    if (fallback && fallback.c.size >= Math.ceil(sz * 0.8)) break;
+    if (fixed || leg >= SITE_LEGS || signal?.aborted) break;
+    // Walk a leg toward the most dry, loaded land beyond the part already searched, staying within reach of home
+    const dirs = COMPASS.map(([name, dx, dz]) => {
+      const tx = Math.floor(ox + dx * SITE_LEG), tz = Math.floor(oz + dz * SITE_LEG);
+      let land = 0;
+      for (let k = 0; k < g.n * g.n; k++) {
+        if (g.kind[k]) continue;
+        const x = g.x0 + (k % g.n) - ox, z = g.z0 + Math.floor(k / g.n) - oz, d = Math.hypot(x, z);
+        if (d > 50 && (x * dx + z * dz) / d > 0.92) land++;
+      }
+      return { name, tx, tz, land };
+    }).filter((d) => d.land > 0 && (!home || Math.hypot(d.tx - home.x, d.tz - home.z) <= VILLAGE_RANGE)
+      && !surveyed.some((q) => Math.hypot(d.tx - q.x, d.tz - q.z) < SITE_LEG * 0.75))
+      .sort((u, w) => w.land - u.land);
+    let moved = false;
+    for (const d of dirs.slice(0, 2)) {
+      const from = a.bot.entity.position.clone();
+      await walk(a, new goals.GoalNearXZ(d.tx, d.tz, 4), `${d.tx},${d.tz}`, signal ?? new AbortController().signal, 45000).catch(() => {});
+      if (a.bot.entity.position.distanceTo(from) >= 16) {
+        moved = true;
+        await a.bot.waitForChunksToLoad().catch(() => {});
+        break;
+      }
+    }
+    if (!moved) break;
   }
-  const b = best;
+  const walked = Math.round(Math.hypot(a.bot.entity.position.x - start.x, a.bot.entity.position.z - start.z));
+  const searched = `within ${SITE_WIDE} blocks${walked >= 16 ? ` of ${surveyed.length} spots (walked ${walked} blocks)` : ''}${home ? `, staying within ${VILLAGE_RANGE} of the village` : ''}`;
+  if (fallback) {
+    const s = fallback.c.size;
+    const rest = siteFound(a, fallback.c, fallback.logs).replace(/^site found: /, '');
+    if (s >= Math.ceil(sz * 0.6)) return `site found (${s}x${s}, the largest ${searched}; ${sz}x${sz} does not fit): ${rest} Plan the project to fit it: plan_layout lays out what fits and says what does not.`;
+    throw new Error(`no ${sz}x${sz} site ${searched}. The largest is smaller: ${rest} It is saved as the last site: plan the project to fit it (plan_layout lays out what fits), or use a smaller size`);
+  }
+  const reasons = [why.wet && `${why.wet} over water`, why.steep && `${why.steep} too steep`, why.occupied && `${why.occupied} taken by buildings, plots or other agents`, why.unloaded && `${why.unloaded} not loaded yet`].filter(Boolean).join(', ');
+  throw new Error(`no dry, flat site of ${Math.max(9, Math.floor(sz / 2))}x${Math.max(9, Math.floor(sz / 2))} or more ${searched} (candidates rejected: ${reasons}); try a smaller size${home ? '' : ', or explore in another direction and try again'}`);
+}
+
+/** Record a site as the agent's last site (prepare_site and plan_layout default to it) and describe it. */
+function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
+  const sz = b.size, half = Math.floor(sz / 2);
+  const survival = a.gamemode !== 'creative';
+  const v = a.village();
   // The commonest wood kind around it (where gatherers go): a village built from it gathers and builds in one kind
   const kinds: Counts = {};
   const reachable = (q: Vec3) => {
@@ -756,26 +925,9 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
   const onPlot = plots.some((q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + sz - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + sz - 1 <= q.z2);
   const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on a prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
   const woodNote = survival ? (b.wood ? ` ${b.wood} log blocks within 48 blocks${wood ? ` (mostly ${wood[0]})` : ''}.` : ' No trees within 48 blocks: wood will have to come from farther away.') : '';
-  return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${sz}x${sz}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${woodNote}${ready}` };
-}
-
-async function findSite(a: BotAgent, args: Record<string, unknown>): Promise<string> {
-  const sz = Math.max(3, Math.min(40, args.size !== undefined ? int(args, 'size') : 9));
-  const cache = new Map<string, Surface | null>();
-  const r = searchSite(a, args, sz, cache);
-  if ('done' in r) return r.done;
-  // Nothing that big: say what does fit, so the planner can scale the project instead of searching in circles.
-  // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them).
-  if (sz > 9)
-    for (let s = sz - 2; s >= Math.max(9, Math.floor(sz / 2)); s -= 2) {
-      const alt = searchSite(a, args, s, cache);
-      if ('done' in alt) {
-        const rest = alt.done.replace(/^site found: /, '');
-        if (s >= sz * 0.6) return `site found (${s}x${s}, the largest near here; ${sz}x${sz} does not fit): ${rest} Plan the project to fit it.`;
-        throw new Error(`${r.fail.split(';')[0]}. The largest nearby is smaller: ${rest} It is saved as the last site, so prepare_site defaults to it; plan the project to fit, or explore further`);
-      }
-    }
-  throw new Error(r.fail);
+  const p = a.bot.entity.position;
+  const level = b.range > 2 ? ' (prepare_site levels it)' : '';
+  return `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${sz}x${sz}, height range ${b.range}${level}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - p.x, b.z - p.z))} blocks away.${woodNote}${ready}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1140,7 +1292,7 @@ async function buildStructure(a: BotAgent, args: Record<string, unknown>, signal
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
-  find_site: { run: (a, args) => findSite(a, args) },
+  find_site: { run: findSite },
   prepare_site: { run: prepareSite },
   build_design: { check: (x) => (str(x.design, 'design'), num(x.x, 'x'), num(x.z, 'z')), run: buildDesign },
   build_box: { check: (x) => (box(x), str(x.block, 'block')), run: buildBox },

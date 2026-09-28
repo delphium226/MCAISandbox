@@ -96,7 +96,11 @@ def find_land(x, z, size):
         call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
         time.sleep(8)
         call("/agents/Mayor/act", {"action": "find_site", "size": size})
-        time.sleep(3)
+        # find_site takes a few seconds, more when it walks farther out
+        for _ in range(120):
+            time.sleep(1)
+            if [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]:
+                break
         site = call("/agents/Mayor/memory").get("lastSite")
         call("/agents/Mayor", method="DELETE")
         # find_site falls back to the largest site near by: that is too small for the layout
