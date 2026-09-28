@@ -22,7 +22,7 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 (2026-09-28, end of the first reliability session)
 
-- Uncommitted since `19b9b47`, by how far each is tested:
+- Fixes since `19b9b47`, by how far each is tested:
   - seen working in runs or targeted tests: run-as-written steps (Fourfold5: 11 executor calls in all), gather
     tasks covered by storage (Fourfold6), rescue only when the action got nowhere (box test), CPU limits (no stall
     since), `collect` off plots and water, crafting from the server's counts (Gus rebuilt Worker3's cottage), the
@@ -30,7 +30,8 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   - written and typechecked, not yet seen in a run: code-declared completion, failing ungatherable soft tasks at
     once, the dig retry, the stone pickaxe and second pickaxe, the placement retry, the player teleport in the watch
     scripts.
-  Commit once the next village run has exercised the second group (or split the commit).
+  All committed as a checkpoint (`b7908db`); the next village run should exercise the second group, and anything
+  that misbehaves becomes a finding.
 - Then step 1.2 (a site that fits), which Fourfold7 showed is the next blocker, and 1.3.
 - The Paper server now listens on the LAN (whitelist on) and the agent server is started with `MC_API_HOST=0.0.0.0`
   (panel at http://192.168.1.84:8766/panel). Time is frozen at day (`gamerule advance_time false`).
@@ -42,7 +43,7 @@ restarts or manual help. Standard setup: Mayor + Worker1, Worker2; mayor and arc
 executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:27b for the final runs.
 
 - [x] 1.0 Material estimate, collect fails fast, stuck rescue, quiet mayor (`19b9b47`; see findings F1-F9).
-- [x] 1.1 Fixes from the 4-worker runs (uncommitted at the end of 2026-09-28): code-posted steps run as written;
+- [x] 1.1 Fixes from the 4-worker runs (`b7908db`, partly tested; see the handover): code-posted steps run as written;
       gather tasks covered by storage are marked done; ungatherable soft tasks fail at once; completion declared by
       code when the mayor waits with everything built; dig retry; pickaxe fixes; rescue only when the failed action
       got nowhere; pathfinder CPU limits; `collect` avoids plots and water.
