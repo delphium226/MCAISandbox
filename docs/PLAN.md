@@ -163,6 +163,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept9 | oak woods -405,5 | **3/3 built**, declared complete by code | 14.6 min | 0 failed actions, no worker executor calls; one window short (fuel, F43) |
 | 09-28 | Accept10 | woods -462,-183 | **3/3 built**, declared complete by the mayor | 25.2 min | 9 failed actions (logs out of reach near jungle); hall got 1 of 4 windows (F43, fixed after) |
 | 09-28 | Accept11 | acacia woods -111,50 | **3/3 built**, declared complete by the mayor | 29.2 min | 3 failed actions; 7x7 and 9x9 designs (~530 blocks); every window glazed. **Accept9-11: three in a row with the gpt-oss worker planner** |
+| 09-28 | Accept12 | qwen3.8 worker planner, -51,-315 | stopped at 16.4 min | 16.4 min | sandstone roofs needed 247, the area had ~66 (F45); leftover collects gave up log tasks (F46) |
+| 09-28 | Accept13 | qwen3.8, -60,-170 | stopped at ~3 min | 3 min | wood check refused 115 of 131 logs; the mayor circled (F47) |
+| 09-28 | Accept14 | qwen3.8, same site | stopped at 15 min | 15 min | a worker explored to 180 blocks from the village and gave up the board (F48) |
+| 09-28 | Accept15 | qwen3.8, woods -590,-209 | **3/3 built**, declared complete by the mayor | 26.2 min | 23 failed actions (logs high on hills), every block placed, no wandering |
 
 ## Findings log
 
@@ -278,6 +282,17 @@ CLAUDE.md when a phase ends.
 - F43 fixed: smelting loaded only the first plank stack as fuel (a leftover of one or two planks) and gave up with
   more in hand; it now tops up from the furnace window's slots (the bot's own inventory view lagged and offered the
   plank already burning). Tested: 4 sand with fuel split 1 + 5 planks gave 4 glass; Accept11's windows all glazed.
+- F45 (Accept12) The material check passed a village needing 247 sandstone after finding one block, and counted
+  sandstone buried under sand that collect never goes for. It now counts up to the amount needed, as collect can
+  get it (near the surface; anything within 40 blocks of the site, only exposed blocks beyond).
+- F46 (Accept12) A queued sandstone collect left over from a given-up task failed again under each newly claimed log
+  task and gave three of them up. Only the held task whose material failed is given up, and the queue goes with it.
+- F47 (Accept13) 115 of 131 logs was refused, find_site returned the same site, the mayor circled and finally drew a
+  cottage named "two_cottages_and_hall". Wood may now be a quarter short (felled trees on the plot, unloaded ground),
+  and the refusal offers smaller buildings as well as another site.
+- F48 (Accept14) After failed log collects a worker's executor explored hop by hop to 180 blocks from the village
+  (F26 again), then gave up every gathering task it took. The 96-block guard covers every village member, a collect
+  far from home walks back first, and the failure message no longer suggests exploring.
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
