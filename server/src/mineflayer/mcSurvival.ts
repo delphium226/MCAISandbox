@@ -228,8 +228,12 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Never inside a village building (its footprint, from its floor up)
     // Nor in a prepared plot, down to a few blocks under its level (cobblestone gatherers dug the levelled stone of a
     // plot, and its buildings then found the ground uneven)
-    const built = [...(a.village()?.structures ?? []), ...(a.village()?.plots ?? []).map((pl) => ({ ...pl, y: pl.y - 3 }))];
-    const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96)
+    // (and the 2-block margin prepare_site levels around a plot: gatherers dug an 18-deep hole at a plot's edge, Accept8)
+    const vil = a.village();
+    const built = [...(vil?.structures ?? []), ...(vil?.plots ?? []).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: pl.y - 3 }))];
+    // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
+    const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
+    const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1);
     const dry = (p: Vec3) => !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '');
     const found = nearestBlocks(a, blocks, 48, 1024, (p) => near(p) && dry(p)).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
