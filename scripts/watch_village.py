@@ -7,7 +7,7 @@ Starts near X,Z: the Mayor (as an idle agent) first searches outward from there 
 WORKER_PLANNER defaults to gemma4:31b. Other models: MCAI_MAYOR_MODEL (the mayor's planner), MCAI_DESIGN_MODEL (the
 architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud.
 """
-import json, os, math, re, sys, time, urllib.error, urllib.request
+import json, os, math, re, subprocess, sys, time, urllib.error, urllib.request
 
 # Chat and model text can hold any character; the Windows console encoding cannot
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -26,8 +26,27 @@ BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruc
 def call(path, body=None, method=None):
     req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method=method)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read() or "null")
+    # A slow reply (the agent server busy for a few seconds) is retried rather than ending the run
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read() or "null")
+        except (TimeoutError, urllib.error.URLError) as e:
+            if isinstance(e, urllib.error.HTTPError) or attempt == 3:
+                raise
+            time.sleep(5)
+
+
+def bring_player(agent):
+    """If the watching player (MCAI_PLAYER, default SausageOfDoom4) is in the game, teleport them to the agent."""
+    player = os.environ.get("MCAI_PLAYER", "SausageOfDoom4")
+    rc = [sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mc", "rcon.py")]
+    try:
+        online = subprocess.run(rc + ["list"], capture_output=True, text=True, timeout=10).stdout
+        if player and player in online:
+            print(subprocess.run(rc + [f"tp {player} {agent}"], capture_output=True, text=True, timeout=10).stdout.strip(), flush=True)
+    except Exception as e:
+        print(f"could not bring {player} to {agent}: {e}", flush=True)
 
 
 def find_land(x, z):
@@ -62,6 +81,7 @@ for i, n in enumerate(names):
                          "position": {"x": x + 0.5 + 2 * i, "y": 90, "z": z + 0.5}, "memory": mem})
     except urllib.error.HTTPError as e:
         print(f"{n}: {e.code} {e.read()[:100]}")
+bring_player("Mayor")
 print(f"spawned {', '.join(names)} in village {village}; mayor plans with {mayor_planner}, workers with {worker_planner}, "
       f"designs by {BASE['designModel']}, executors {BASE['execModel']}, {gamemode}", flush=True)
 

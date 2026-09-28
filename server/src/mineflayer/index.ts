@@ -3,7 +3,8 @@
  * mc/setup.py) and serves the agent REST API, like the sandbox's, on its own port. Run with `npm run mc:agents`.
  *
  * Settings: MC_HOST (default 127.0.0.1), MC_PORT (25565), MC_VERSION (26.1, Mineflayer's name for the 26.1.x
- * protocol), MC_API_PORT (8766). The RCON port and password are read from mc/server/server.properties.
+ * protocol), MC_API_PORT (8766), MC_API_HOST (127.0.0.1; 0.0.0.0 serves the panel and API to the local network, with
+ * no login: anyone who can reach it can spawn and command agents). The RCON port and password are read from mc/server/server.properties.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -21,6 +22,7 @@ const HOST = process.env.MC_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.MC_PORT ?? 25565);
 const VERSION = process.env.MC_VERSION ?? '26.1';
 const API_PORT = Number(process.env.MC_API_PORT ?? 8766);
+const API_HOST = process.env.MC_API_HOST ?? '127.0.0.1';
 
 function serverProperties(): Record<string, string> {
   const file = path.join(SERVER_DIR, 'server.properties');
@@ -59,7 +61,7 @@ http
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     handleMcApi(world, req, res, url).catch((e: unknown) => sendJson(res, 500, { error: (e as Error).message }));
   })
-  .listen(API_PORT, '127.0.0.1', () => console.log(`MCAI agents for Minecraft ${VERSION} at ${HOST}:${PORT}; agent API on http://localhost:${API_PORT}/api`));
+  .listen(API_PORT, API_HOST, () => console.log(`MCAI agents for Minecraft ${VERSION} at ${HOST}:${PORT}; agent API on http://${API_HOST === '127.0.0.1' ? 'localhost' : API_HOST}:${API_PORT}/api`));
 
 const shutdown = () => {
   for (const a of [...world.agents.values()]) world.remove(a.name);

@@ -7,3 +7,4 @@ server/worlds
 .shots
 shot-*.png
 .playwright-mcp
+__pycache__/

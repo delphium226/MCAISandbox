@@ -42,6 +42,8 @@ const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skelet
 interface Running {
   status: ActionStatus;
   abort: AbortController;
+  /** Where the bot was when the action started (a failed walk that got somewhere is not being stuck). */
+  from?: Vec3;
 }
 
 export class BotAgent implements WorldAgent {
@@ -121,6 +123,9 @@ export class BotAgent implements WorldAgent {
       // All bots share this process: with four of them, 5 s (the default) ran out on paths 15 blocks long (set here:
       // the plugin is not attached yet when it is loaded)
       this.bot.pathfinder.thinkTimeout = 15000;
+      // ...but at most 15 ms of searching per tick each (40 by default: four bots searching at once starved the event
+      // loop, and the API stopped answering)
+      this.bot.pathfinder.tickTimeout = 15;
       m.allowParkour = false;
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
@@ -220,7 +225,7 @@ export class BotAgent implements WorldAgent {
     this.selfDefence();
     if (this.reflex || this.current || !this.queue.length) return;
     const status = this.queue.shift()!;
-    const run: Running = { status, abort: new AbortController() };
+    const run: Running = { status, abort: new AbortController(), from: this.bot.entity.position.clone() };
     this.current = run;
     status.state = 'running';
     status.startedTick = this.world.ticks;
@@ -297,7 +302,9 @@ export class BotAgent implements WorldAgent {
     if (this.history.length > 100) this.history.shift();
     this.current = null;
     this.halt();
-    if ('fail' in r && MOVE_FAILED.test(r.fail)) this.movedFailed();
+    // Stuck means the failed action got nowhere: a gatherer that walked 25 blocks to a tall tree and could not reach its
+    // top logs was "rescued"
+    if ('fail' in r && MOVE_FAILED.test(r.fail) && (!run.from || run.from.distanceTo(this.bot.entity.position) < 4)) this.movedFailed();
   }
 
   /**

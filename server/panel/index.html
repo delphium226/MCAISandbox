@@ -82,7 +82,27 @@
   .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
   .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
+  /* Simple mode: the village at a glance */
+  body.simple .detailed-only { display: none !important; }
+  body:not(.simple) .simple-only { display: none !important; }
+  .progress { height: 12px; background: var(--panel-2); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); margin: 6px 0 4px; }
+  .progress i { display: block; height: 100%; background: var(--good); }
+  .blist { margin: 6px 0 0; padding: 0; list-style: none; }
+  .blist li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .blist li:last-child { border-bottom: 0; }
+  .blist .bname { font-weight: 600; min-width: 130px; }
+  .who { width: 100%; border-collapse: collapse; }
+  .who td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 14px; }
+  .who tr:last-child td { border-bottom: 0; }
+  .who .nm { font-weight: 650; white-space: nowrap; }
+  .who .doing { width: 100%; }
+  .flag { font-size: 12px; border-radius: 4px; padding: 0 6px; margin-left: 6px; white-space: nowrap; border: 1px solid var(--warn); color: var(--warn); }
+  .flag.bad { border-color: var(--bad); color: var(--bad); }
+  .mats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .mats span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+  .vgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
   @media (max-width: 700px) {
+    .vgrid { grid-template-columns: 1fr; }
     .grid { grid-template-columns: 1fr; }
     main { padding: 12px 16px; }
     .feed li { grid-template-columns: 1fr; gap: 0; }
@@ -94,20 +114,24 @@
 <header>
   <h1>Agent control panel</h1>
   <span class="chip" id="world"><span class="dot"></span> connecting…</span>
-  <span id="models"></span>
+  <span id="models" class="detailed-only"></span>
   <span class="spacer"></span>
-  <span class="chip" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
+  <span class="chip detailed-only" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
+  <button id="mode" title="Switch between the simple and the detailed view">Detailed view</button>
   <button id="pause" title="Stop or resume refreshing">Pause</button>
   <button id="theme" title="Switch light and dark">Theme</button>
   <span class="chip" id="updated">–</span>
 </header>
 <main>
   <div id="error"></div>
-  <h2>Agents <span id="agentCount" class="sub"></span></h2>
-  <div class="grid" id="agents"></div>
-  <div id="villagesWrap"></div>
-  <h2>All recent events</h2>
-  <div class="card"><ul class="list feed mono" id="feed"></ul></div>
+  <div class="simple-only" id="simple"></div>
+  <div class="detailed-only">
+    <h2>Agents <span id="agentCount" class="sub"></span></h2>
+    <div class="grid" id="agents"></div>
+    <div id="villagesWrap"></div>
+    <h2>All recent events</h2>
+    <div class="card"><ul class="list feed mono" id="feed"></ul></div>
+  </div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -125,6 +149,20 @@ $('theme').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   store.set('panel.theme', next);
+};
+// Simple (the village at a glance, the default) or detailed (everything, for debugging); remembered per browser
+let simple = store.get('panel.mode', 'simple') === 'simple';
+const applyMode = () => {
+  document.body.classList.toggle('simple', simple);
+  $('mode').textContent = simple ? 'Detailed view' : 'Simple view';
+};
+applyMode();
+$('mode').onclick = () => {
+  simple = !simple;
+  store.set('panel.mode', simple ? 'simple' : 'detailed');
+  applyMode();
+  if (lastData) render(lastData);
+  if (!simple) refreshMaps();
 };
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
 $('player').value = store.get('panel.player', '');
@@ -370,12 +408,127 @@ function drawMaps() {
   }
 }
 async function refreshMaps() {
-  if (paused) return;
+  if (paused || simple) return;
   try { lastMaps = await api('/api/maps'); drawMaps(); } catch {}
+}
+
+// ---- the simple view ----
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const words = (s) => String(s ?? '').replace(/^minecraft:/, '').replace(/_/g, ' ');
+/** What an action is, in plain words ("Gathering 12 acacia logs"). */
+function actionWords(t, args = {}) {
+  const n = args.count ? `${args.count} ` : '';
+  const item = words(args.block ?? args.item ?? '');
+  switch (t) {
+    case 'collect': return `Gathering ${n}${item === 'logs' ? 'logs' : item}`;
+    case 'mine': return 'Mining';
+    case 'deposit': return 'Putting things in the storage chest';
+    case 'withdraw': return `Taking ${n}${item} from the storage`;
+    case 'build_design': return `Building the ${words(args.design ?? args.name ?? 'building')}`;
+    case 'build': case 'build_box': return 'Building';
+    case 'prepare_site': return 'Clearing and levelling the building plot';
+    case 'find_site': return 'Looking for building land';
+    case 'move_to': return 'Walking';
+    case 'explore': return 'Exploring';
+    case 'craft': return `Crafting ${n}${item}`;
+    case 'smelt': return `Smelting ${n}${item}`;
+    case 'place': return `Placing ${item}`;
+    case 'chat': return 'Talking';
+    case 'wait': return 'Waiting';
+    case 'eat': return 'Eating';
+    case 'follow': return `Following ${words(args.player)}`;
+    default: return words(t);
+  }
+}
+function doingWords(a) {
+  const st = a.status || {};
+  if (a.dead) return 'Dead';
+  if (a.currentAction) return actionWords(a.currentAction.type, a.currentAction.args);
+  if (st.state === 'planning') return 'Thinking about what to do next';
+  if (st.state === 'thinking') return 'Deciding the next step';
+  if (a.brain === 'idle' || !a.brain) return 'Idle (controlled by hand)';
+  if (a.villageRole === 'mayor') return a.plan && a.plan.steps && a.plan.steps.length ? 'Planning the village' : 'Overseeing the village: waiting for the workers';
+  if (a.task) return `Between steps of: ${a.task.title}`;
+  return 'Waiting for work';
+}
+/** Trouble worth a glance: rescued lately, or failing again and again. */
+function flags(a) {
+  const out = [];
+  const st = a.status || {};
+  // (events carry no time: a rescue among the last ten counts as lately)
+  const ev = (a.events || []).slice(-10);
+  if (ev.some((e) => e.type === 'system' && /^Rescue:/.test(e.text))) out.push('<span class="flag">got stuck (rescued)</span>');
+  if ((st.failuresSincePlan || 0) >= 3) out.push(`<span class="flag bad">${st.failuresSincePlan} failures lately</span>`);
+  if (a.health < 20 && !a.dead) out.push(`<span class="flag">health ${a.health}</span>`);
+  return out.join('');
+}
+function simpleAgents(agents) {
+  if (!agents.length) return '<div class="empty">No agents are running.</div>';
+  const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
+  return `<table class="who">${agents.slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name)).map((a) => {
+    const st = a.status || {};
+    const color = STATE_COLORS[st.state] || 'var(--idle)';
+    return `<tr>
+      <td><span class="dot" style="background:${color}" title="${esc(st.state || '')}"></span></td>
+      <td class="nm">${esc(a.name)}<div class="sub">${esc(a.villageRole || a.role)}</div></td>
+      <td class="doing">${esc(doingWords(a))}${flags(a)}${a.task && a.currentAction ? `<div class="sub">${esc(a.task.title)}</div>` : ''}</td>
+      <td class="sub" style="white-space:nowrap">${st.since ? ago(st.since) : ''}</td></tr>`;
+  }).join('')}</table>`;
+}
+/** Each building the village laid out, and where it stands. */
+function buildingStates(v) {
+  const byId = new Map(v.tasks.map((t) => [t.id, t]));
+  return v.tasks.filter((t) => /^Build /.test(t.title)).map((t) => {
+    const name = t.title.slice(6);
+    let state;
+    if (t.status === 'done') state = '<span style="color:var(--good)">built</span>';
+    else if (t.status === 'failed') state = '<span style="color:var(--bad)">failed: the mayor will look at it</span>';
+    else if (t.status === 'claimed') state = `<span style="color:var(--accent)">being built by ${esc(t.claimedBy)}</span>`;
+    else {
+      const pre = t.after.map((id) => byId.get(id)).filter((x) => x && /^Gather /.test(x.title));
+      const done = pre.filter((x) => x.status === 'done' || x.status === 'failed').length;
+      const land = t.after.map((id) => byId.get(id)).find((x) => x && /^Prepare /.test(x.title) && x.status !== 'done');
+      state = land ? 'waiting for the land to be levelled'
+        : pre.length && done < pre.length ? `gathering materials (${done} of ${plural(pre.length, 'task')} done)`
+        : 'ready to build';
+    }
+    return `<li><span class="bname">${esc(name)}</span><span>${state}</span></li>`;
+  }).join('');
+}
+const MATS = [['logs', (n) => /_log$/.test(n)], ['planks', (n) => /_planks$/.test(n)], ['cobblestone', (n) => n === 'cobblestone'], ['sand', (n) => n === 'sand'], ['glass', (n) => n === 'glass']];
+function simpleVillage(v, agents) {
+  const builds = v.tasks.filter((t) => /^Build /.test(t.title));
+  const built = builds.filter((t) => t.status === 'done').length;
+  const pct = builds.length ? Math.round((built / builds.length) * 100) : 0;
+  const sum = {};
+  for (const c of v.storage?.chests || []) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
+  const mats = MATS.map(([label, test]) => [label, Object.entries(sum).filter(([n]) => test(n)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0);
+  const tasksDone = v.tasks.filter((t) => t.status === 'done').length;
+  // What happened: the village log (tasks and buildings) and chat, newest first
+  const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 5).map((e) => `chat: ${e.text}`);
+  const happened = [...chat, ...v.log.slice(-10).reverse()].slice(0, 12);
+  return `<div class="card">
+    <div class="card-head"><span class="name">${esc(v.name)}</span><span class="spacer"></span>
+      ${v.complete ? '<span class="pill" style="background:var(--done)">complete</span>' : ''}</div>
+    <div class="detail">${esc(v.objective || 'no objective yet')}</div>
+    ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>
+      <div class="sub">${built} of ${plural(builds.length, 'building')} built · ${tasksDone} of ${plural(v.tasks.length, 'task')} done</div>
+      <ul class="blist">${buildingStates(v)}</ul>` : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
+    ${mats.length ? `<div class="section"><div class="label">In the storage</div><div class="mats">${mats.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>` : ''}
+    ${happened.length ? `<div class="section"><div class="label">What happened lately</div><ul class="list">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+  </div>`;
+}
+function renderSimple(d) {
+  const inVillage = (v) => d.agents.filter((a) => a.village === v.name);
+  const loose = d.agents.filter((a) => !a.village || !d.villages.some((v) => v.name === a.village));
+  $('simple').innerHTML = (d.villages.length
+    ? d.villages.map((v) => `<h2>${esc(v.name)}</h2><div class="vgrid">${simpleVillage(v, inVillage(v))}<div class="card"><div class="label">Who is doing what</div>${simpleAgents(inVillage(v))}</div></div>`).join('')
+    : '') + (loose.length || !d.villages.length ? `<h2>Agents</h2><div class="card">${simpleAgents(loose)}</div>` : '');
 }
 
 function render(d) {
   lastData = d;
+  if (simple) return renderSimple(d);
   $('agentCount').textContent = `(${d.agents.length})`;
   $('agents').innerHTML = d.agents.length ? d.agents.map(renderAgent).join('') : '<div class="empty">No agents are running.</div>';
   $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid" style="grid-template-columns:1fr">${d.villages.map(renderVillage).join('')}</div>` : '';

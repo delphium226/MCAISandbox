@@ -5,6 +5,10 @@ world (Project Sid-style experiments); the same agents also run in real Minecraf
 skills and the API, `docs/ARCHITECTURE.md` how the system fits together (with diagrams); this file records how to work
 on the project and what earlier sessions learned.
 
+**Current work is planned in `docs/PLAN.md`**: read its "Next session starts with" and the current phase at the start
+of every session, work step by step, and update it (steps, run record, findings, decisions, next-session notes) before
+the session ends. When a run teaches something new, the plan changes with it (its last section says how).
+
 ## Running and checking
 
 - `npm run dev` starts the game server (http://localhost:8765, REST API under `/api`) and the Vite client
@@ -14,7 +18,7 @@ on the project and what earlier sessions learned.
   by the user):
   1. `python mc/start.py` (Paper server; wait for "Done" in `mc/server/console.log`)
   2. `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
-  3. `MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" node_modules/.bin/tsx server/src/mineflayer/index.ts`
+  3. `MC_API_HOST=0.0.0.0 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" node_modules/.bin/tsx server/src/mineflayer/index.ts`
      (agent server + panel on 8766; restart it after editing server files: it does not watch)
   4. a test: first the staged one without models, `python scripts/stage_village.py <Village> -160 -100 --stage build`
      (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
@@ -44,6 +48,13 @@ on the project and what earlier sessions learned.
   `server/panel/index.html` (no build step) and `server/src/panel.ts` (`/api/overview`, `/api/models`, `/api/maps`).
   A live 3D view was considered: prismarine-viewer stops at 1.21.4 (last release 2025-02), so not for 26.1.
   On Windows, `curl localhost:...` adds ~0.2 s per request (IPv6 first); use 127.0.0.1 when timing.
+- **Network access (2026-09-28):** the Paper server listens on the LAN (`server-ip=` empty; firewall rule "MCAISandbox
+  Minecraft server (LAN)" allows TCP 25565 from the local subnet) with the **whitelist on**: SausageOfDoom4, Gus,
+  Mayor, Worker1-4. A new agent name must be whitelisted first (`python mc/rcon.py "whitelist add <name>"`) or its
+  bot is refused. RCON also listens on all addresses now but no firewall rule lets it in. The agent server serves the
+  panel to the LAN when started with `MC_API_HOST=0.0.0.0` (http://192.168.1.84:8766/panel; no login). Time is frozen
+  at day (`gamerule advance_time false`, 26.1's name for doDaylightCycle). The watch scripts teleport SausageOfDoom4 to
+  the Mayor (or the test agent) when the user is online.
 - `GET /api/block?x=&y=&z=` inspects the world; `loaded: false` means the chunk is not loaded (unloaded blocks used to read
   as air, which caused false conclusions).
 

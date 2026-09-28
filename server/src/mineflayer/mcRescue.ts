@@ -102,10 +102,11 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
 }
 
 /** Where a village member belongs: beside its storage chest, else its first plot, else the world spawn. */
-function home(a: BotAgent): { x: number; z: number; what: string } | null {
+function home(a: BotAgent): { x: number; y?: number; z: number; what: string } | null {
   const v = a.village();
   const c = v?.storage?.chests[0];
-  if (c) return { x: c.x + 2, z: c.z + 2, what: 'the village storage' };
+  // On top of the chest itself: spreadplayers puts a bot on the highest block, which in a jungle is the canopy
+  if (c) return { x: c.x, y: c.y + 1, z: c.z, what: 'the village storage' };
   const p = v?.plots[0];
   if (p) return { x: Math.floor((p.x1 + p.x2) / 2), z: p.z2 + 3, what: 'the village plot' };
   const sp = a.bot.spawnPoint;
@@ -132,7 +133,7 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
   // Last resort: a teleport, onto the surface beside home
   const h = home(a);
   if (!h) return { how: 'failed', text: `could not get out (${c.why ?? 'no way found'}) and has no home to go back to` };
-  await a.world.rcon.command(`spreadplayers ${h.x} ${h.z} 0 3 false ${a.name}`);
+  await a.world.rcon.command(h.y !== undefined ? `tp ${a.name} ${h.x + 0.5} ${h.y} ${h.z + 0.5}` : `spreadplayers ${h.x} ${h.z} 0 3 false ${a.name}`);
   await sleep(1000, signal);
   await bot.waitForChunksToLoad();
   return { how: 'teleported', text: `could not walk or climb out (${[...done, c.why].filter(Boolean).join('; ') || 'no way found'}): teleported to ${h.what} at ${at(bot.entity.position)} (last resort)` };

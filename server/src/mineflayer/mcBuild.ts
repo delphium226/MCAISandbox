@@ -736,8 +736,16 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
   const b = best;
   // The commonest wood kind around it (where gatherers go): a village built from it gathers and builds in one kind
   const kinds: Counts = {};
+  const reachable = (q: Vec3) => {
+    for (let d = 1; d <= 5; d++) {
+      const n = a.bot.blockAt(q.offset(0, -d, 0))?.name ?? '';
+      if (/_log$|_leaves$|^air$/.test(n)) continue;
+      return true;
+    }
+    return false;
+  };
   for (const q of logs) {
-    if (Math.hypot(q.x - b.x, q.z - b.z) > 64) continue;
+    if (Math.hypot(q.x - b.x, q.z - b.z) > 64 || !reachable(q)) continue;
     const k = /^(.*)_log$/.exec(a.bot.blockAt(q)?.name ?? '')?.[1];
     if (k && WOODS.includes(k)) kinds[k] = (kinds[k] ?? 0) + 1;
   }

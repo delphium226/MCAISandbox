@@ -223,9 +223,12 @@ export function resolveItem(a: BotAgent, raw: string): string | null {
 }
 
 /** A block the bot can stand next to and see: the first of `blocks` (nearest first) not in `skip`. */
-export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, count = 64): Vec3[] {
+export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, count = 64, keep?: (p: Vec3) => boolean): Vec3[] {
   const p = a.bot.entity.position;
-  return a.bot.findBlocks({ matching: ids, maxDistance, count }).sort((u, v) => u.distanceTo(p) - v.distanceTo(p));
+  // `keep` filters during the search, so `count` are all usable (filtering afterwards needed 4x the count for stone,
+  // and four bots scanning that much at once starved the event loop)
+  const found = keep ? a.bot.findBlocks({ matching: ids, maxDistance, count, useExtraInfo: (b) => keep(b.position) }) : a.bot.findBlocks({ matching: ids, maxDistance, count });
+  return found.sort((u, v) => u.distanceTo(p) - v.distanceTo(p));
 }
 
 /** A free spot next to the bot to put a block down (air with air above and solid ground below, not where it stands). */

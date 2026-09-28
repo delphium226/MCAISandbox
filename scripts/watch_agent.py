@@ -5,7 +5,7 @@ Usage: python scripts/watch_agent.py SPEC_JSON [MAX_MINUTES=6] [EXPECTED_BUILDS=
 Stops early when EXPECTED_BUILDS build/build_box/build_design actions have succeeded, after 5 failures in a row, or when the
 executor keeps retrying calls that are blocked.
 """
-import json, os, sys, time, urllib.error, urllib.request
+import json, os, subprocess, sys, time, urllib.error, urllib.request
 
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 spec = json.loads(sys.argv[1])
@@ -21,12 +21,25 @@ def call(path, body=None, method=None):
         return json.loads(r.read() or "null")
 
 
+def bring_player(agent):
+    """If the watching player (MCAI_PLAYER, default SausageOfDoom4) is in the game, teleport them to the agent."""
+    player = os.environ.get("MCAI_PLAYER", "SausageOfDoom4")
+    rc = [sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mc", "rcon.py")]
+    try:
+        online = subprocess.run(rc + ["list"], capture_output=True, text=True, timeout=10).stdout
+        if player and player in online:
+            print(subprocess.run(rc + [f"tp {player} {agent}"], capture_output=True, text=True, timeout=10).stdout.strip(), flush=True)
+    except Exception as e:
+        print(f"could not bring {player} to {agent}: {e}", flush=True)
+
+
 try:
     print(call("/agents", spec), flush=True)
 except urllib.error.HTTPError as e:
     if e.code != 409:
         raise
     print(f"attached to running agent {name}", flush=True)
+bring_player(name)
 
 t0, seen, builds, fails_in_row, reason = time.time(), 0, 0, 0, "time limit"
 while time.time() - t0 < minutes * 60:

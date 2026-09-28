@@ -76,6 +76,18 @@ def rcon(cmd):
     return subprocess.run([sys.executable, os.path.join(ROOT, "mc", "rcon.py"), cmd], capture_output=True, text=True).stdout.strip()
 
 
+def bring_player(agent):
+    """If the watching player (MCAI_PLAYER, default SausageOfDoom4) is in the game, teleport them to the agent."""
+    player = os.environ.get("MCAI_PLAYER", "SausageOfDoom4")
+    rc = [sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mc", "rcon.py")]
+    try:
+        online = subprocess.run(rc + ["list"], capture_output=True, text=True, timeout=10).stdout
+        if player and player in online:
+            print(subprocess.run(rc + [f"tp {player} {agent}"], capture_output=True, text=True, timeout=10).stdout.strip(), flush=True)
+    except Exception as e:
+        print(f"could not bring {player} to {agent}: {e}", flush=True)
+
+
 def find_land(x, z, size):
     """Search outward from x,z for room for the plot (an idle survival probe runs find_site, which prefers ground with trees near)."""
     points = [(x, z)] + [(x + r * math.cos(a * math.pi / 4), z + r * math.sin(a * math.pi / 4)) for r in (120, 240) for a in range(8)]
@@ -182,6 +194,7 @@ for i, n in enumerate(names):
     r = call("/agents", {"name": n, "role": "builder", "brain": args.brain, "gamemode": "survival", "reset": True,
                          "position": {"x": site["x"] + 0.5 + 2 * i, "z": site["z"] + 0.5 + 8}, "memory": mem})
     print(f"{n}: {r}", flush=True)
+bring_player(names[0])
 
 # ---- watch
 t0, seen, board, reason, last_done = time.time(), {n: 0 for n in names}, "", "time limit", time.time()

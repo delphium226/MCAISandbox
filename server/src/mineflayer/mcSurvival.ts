@@ -75,7 +75,18 @@ async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = fa
   const tool = bot.pathfinder.bestHarvestTool(block);
   if (tool) await bot.equip(tool, 'hand');
   const name = block.name;
-  await abortable(bot.dig(block, true), signal, () => bot.stopDigging());
+  // The pathfinder may still be finishing a dig of its own after a walk (stop() waits for it): its dig and this one
+  // cancelled each other ("Digging aborted", several times a run with four bots). Let it finish, then dig; once more
+  // if it was aborted anyway and the block is still there
+  bot.pathfinder.setGoal(null);
+  for (let i = 0; i < 30 && bot.pathfinder.isMining(); i++) await sleep(100, signal);
+  try {
+    await abortable(bot.dig(block, true), signal, () => bot.stopDigging());
+  } catch (e) {
+    if (!/Digging aborted/i.test((e as Error).message) || bot.blockAt(pos)?.name !== name) throw e;
+    await sleep(300, signal);
+    await abortable(bot.dig(bot.blockAt(pos)!, true), signal, () => bot.stopDigging());
+  }
   a.pushEvent('broke', `broke ${name} at ${at(pos)}`, { block: name, x: pos.x, y: pos.y, z: pos.z });
   await pickUpDrops(a, pos.offset(0.5, 0.5, 0.5), signal);
   return `mined ${name} at ${at(pos)}`;
@@ -140,15 +151,28 @@ function homeOf(a: BotAgent): { x: number; z: number } | null {
  * tables, sticks and planks (or tried to mine stone by hand again and again).
  */
 async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
+  // The inventory as the server has it (the bot's own view still showed logs it had deposited)
+  await syncInventory(a);
+  await sleep(300, signal);
+  // With 3 cobblestone in hand a stone pickaxe (131 blocks, a wooden one 59): its sticks take 2 planks
+  const stone = countItem(a, itemId(a, 'cobblestone')!) >= 3;
   // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
   const table = nearestBlockNamed(a, 'crafting_table', 16);
-  const want = 5 + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
+  const want = (stone ? 2 : 5) + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
   for (let i = 0; i < 3; i++) {
     const wood = bestPlanks(a)?.n ?? 0;
     if (wood >= want) break;
     await collect(a, { block: 'logs', count: Math.ceil((want - wood) / 4) }, signal);
+  }
+  if (stone) {
+    try {
+      await craft(a, { item: 'stone_pickaxe', count: 1 }, signal);
+      return;
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+    }
   }
   await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
 }
@@ -179,7 +203,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let mined = 0;
   const failed = new Set<string>();
   let lastError = '';
-  let toolTried = false;
+  // Pickaxes made during this call (a wooden one lasts 59 blocks: one broke halfway through gathering cobblestone)
+  let tools = 0;
   const t0 = Date.now();
   let failMs = 0, lastGot = 0, lastGain = Date.now();
   const from = a.bot.entity.position.clone();
@@ -206,7 +231,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const built = [...(a.village()?.structures ?? []), ...(a.village()?.plots ?? []).map((pl) => ({ ...pl, y: pl.y - 3 }))];
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1);
-    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p));
+    const dry = (p: Vec3) => !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '');
+    const found = nearestBlocks(a, blocks, 48, 1024, (p) => near(p) && dry(p)).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
     const me = a.bot.entity.position;
@@ -243,8 +269,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       const m = (e as Error).message;
       // Stone wants a pickaxe: make a wooden one (and the logs for it) rather than hand the chore to the model, which
       // churned for minutes over tables, sticks and planks
-      if (/^needs wooden_pickaxe/.test(m) && !toolTried && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
-        toolTried = true;
+      if (/^needs wooden_pickaxe/.test(m) && tools < 2 && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
+        tools++;
         await makePickaxe(a, signal);
         continue;
       }
@@ -286,12 +312,22 @@ export async function placeAt(a: BotAgent, item: string, pos: Vec3, signal: Abor
     await walk(a, new goals.GoalInvert(new goals.GoalNear(pos.x, pos.y, pos.z, 1.5)), 'a spot beside the target', signal, 10000);
   else if (bot.entity.position.offset(0, 1.62, 0).distanceTo(pos.offset(0.5, 0.5, 0.5)) > 4.2) await reach(a, pos, 3, signal);
   await bot.equip(id, 'hand');
-  try {
-    await abortable(bot.placeBlock(ref, face), signal);
-  } catch (e) {
-    const now = bot.blockAt(pos);
-    if (now && now.name !== target.name) return; // placed; the confirmation was just late
-    throw new Error(`placing ${item} at ${at(pos)} failed: ${(e as Error).message}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await abortable(bot.placeBlock(ref, face), signal);
+      return;
+    } catch (e) {
+      const now = bot.blockAt(pos);
+      if (now && now.name !== target.name) return; // placed; the confirmation was just late
+      if ((e as Error).message === 'cancelled') throw e;
+      // Refused once ("the block is still air"): look at it and try again
+      if (attempt === 0) {
+        await bot.lookAt(pos.offset(0.5, 0.5, 0.5)).catch(() => {});
+        await sleep(400, signal);
+        continue;
+      }
+      throw new Error(`placing ${item} at ${at(pos)} failed: ${(e as Error).message}`);
+    }
   }
 }
 

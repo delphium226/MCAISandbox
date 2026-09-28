@@ -558,6 +558,19 @@ export class TieredBrain implements AgentBrain {
         const f = this.failed.get(k);
         this.failed.set(k, { count: (f?.count ?? 0) + 1, at: Date.now(), why: String(e.data?.message ?? e.text) });
       }
+      // A gathering task whose material is not to be had near the village is failed at once (it is soft: the building
+      // goes without, e.g. windows left open). Workers kept retrying, one walked 200 blocks away looking for sand, and
+      // both cottages waited on them
+      const v = a.village();
+      const pl = this.plan(a);
+      const why = String(e.data?.message ?? e.text);
+      const held = v && pl?.taskId ? v.tasks.find((t) => t.id === pl.taskId && t.status === 'claimed' && t.claimedBy === a.name) : undefined;
+      if (v && pl && held?.soft && type === 'collect' && /cannot be gathered here|none left within 96 blocks/.test(why)) {
+        a.world.villages.fail(v, held.id, a.name, why);
+        pl.taskId = undefined;
+        pl.step = pl.steps.length;
+        a.pushEvent('system', `Gave up ${held.id} "${held.title}": ${why.slice(0, 120)}. What was gathered is yours to deposit; the building goes without the rest.`);
+      }
     }
     if (e.type === 'action_done') {
       this.stat(a, 'actionsDone');
@@ -632,8 +645,12 @@ export class TieredBrain implements AgentBrain {
       else if (free) why = 'you are free for a new task';
       else if (this.replanReason) why = this.replanReason;
       else if (this.failuresSincePlan >= 3) why = `${this.failuresSincePlan} actions failed since the plan was made`;
-      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || t.status === 'claimed'))
-        why = 'every posted task is finished or failed: review the village';
+      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || t.status === 'claimed')) {
+        const builds = v!.tasks.filter((t) => /^Build /.test(t.title));
+        why = builds.length && builds.every((t) => t.status === 'done')
+          ? `every building of your layout is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and no task is open: if that meets the objective, call declare_complete now`
+          : 'every posted task is finished or failed: review the village';
+      }
       // (a failed gathering task needs nothing: the build checks its materials and posts more gathering itself)
       else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && v!.tasks.some((t) => t.status === 'failed' && !t.soft && t.updated > this.lastPlan))
         why = `a task failed: ${v!.tasks.filter((t) => t.status === 'failed' && !t.soft && t.updated > this.lastPlan).map((t) => `${t.id} "${t.title}"${t.result ? ` (${t.result.slice(0, 160)})` : ''}`).join('; ')}`;
@@ -913,6 +930,16 @@ export class TieredBrain implements AgentBrain {
       // Nothing to do personally: wait for the board to change
       a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
       this.lastPlan = Date.now();
+      // Everything it laid out is built, nothing is open or failed, and it waits anyway: nothing would ever wake it again
+      // (gpt-oss did this with a finished village), so code declares the objective met
+      const builds = v ? v.tasks.filter((t) => /^Build /.test(t.title)) : [];
+      if (v && !v.complete && !acted && builds.length && builds.every((t) => t.status === 'done')
+        && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft))) {
+        v.complete = true;
+        reg.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
+        a.pushEvent('system', `The village is complete: every building you laid out is built (declared by code, as you waited).`);
+        console.log(`[tiered] ${a.name}: village ${v.name} declared complete by code`);
+      }
       if (!acted && !call) throw new Error(`the mayor returned no tasks or plan${reply.text ? `: ${reply.text.slice(0, 120)}` : ''}`);
       return;
     }

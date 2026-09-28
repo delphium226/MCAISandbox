@@ -1,0 +1,189 @@
+# Implementation plan
+
+The working plan for the real-Minecraft village agents, carried across coding sessions. CLAUDE.md says how to run
+and test things and what earlier sessions learned; this file says **what to do next, why, and how we know it is
+done**. It changes as we learn: see "Keeping this plan honest" at the end.
+
+## How to use this plan in a session
+
+1. **Start:** read CLAUDE.md, then this file's "Next session starts with" and the current phase. Bring the stack up
+   (CLAUDE.md, "Running and checking"). Check `git status` for uncommitted work left from the last session.
+2. **Pick one step** (or a few small ones). Work only on that; note anything else you find in the findings log below,
+   not in code.
+3. **Test up the ladder** (cheapest first, stop at the first failure): typecheck → targeted test of the change →
+   staged run (`scripts/stage_village.py`, scripted workers) → benchmark if a prompt changed (`scripts/bench/`) →
+   model-driven village run (`scripts/watch_village.py`). Never edit server files while a run is going.
+4. **Record:** tick the step, add a row to the run record, add findings and decisions with the date.
+5. **Commit** the tested step (CRLF preserved; `git diff --stat` vs `git diff --ignore-cr-at-eol --stat`). Ask the
+   user before pushing.
+6. **End:** rewrite "Next session starts with" so the next session can begin without this one's context.
+
+## Next session starts with
+
+(2026-09-28, end of the first reliability session)
+
+- Uncommitted since `19b9b47`, by how far each is tested:
+  - seen working in runs or targeted tests: run-as-written steps (Fourfold5: 11 executor calls in all), gather
+    tasks covered by storage (Fourfold6), rescue only when the action got nowhere (box test), CPU limits (no stall
+    since), `collect` off plots and water, crafting from the server's counts (Gus rebuilt Worker3's cottage), the
+    panel's simple mode (rendered from live data in Node; not yet seen in a browser by the user), `MC_API_HOST`;
+  - written and typechecked, not yet seen in a run: code-declared completion, failing ungatherable soft tasks at
+    once, the dig retry, the stone pickaxe and second pickaxe, the placement retry, the player teleport in the watch
+    scripts.
+  Commit once the next village run has exercised the second group (or split the commit).
+- Then step 1.2 (a site that fits), which Fourfold7 showed is the next blocker, and 1.3.
+- The Paper server now listens on the LAN (whitelist on) and the agent server is started with `MC_API_HOST=0.0.0.0`
+  (panel at http://192.168.1.84:8766/panel). Time is frozen at day (`gamerule advance_time false`).
+
+## Phase 1: reliability of the survival village (in progress)
+
+Goal (the user's): "two matching cottages and a meeting hall" succeeds from nothing 2-3 times in a row with no
+restarts or manual help. Standard setup: Mayor + Worker1, Worker2; mayor and architect gpt-oss:120b-cloud,
+executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:27b for the final runs.
+
+- [x] 1.0 Material estimate, collect fails fast, stuck rescue, quiet mayor (`19b9b47`; see findings F1-F9).
+- [x] 1.1 Fixes from the 4-worker runs (uncommitted at the end of 2026-09-28): code-posted steps run as written;
+      gather tasks covered by storage are marked done; ungatherable soft tasks fail at once; completion declared by
+      code when the mayor waits with everything built; dig retry; pickaxe fixes; rescue only when the failed action
+      got nowhere; pathfinder CPU limits; `collect` avoids plots and water.
+- [ ] 1.2 **A site that fits** (Fourfold7: land nearby was 17-18 blocks, the layout needed 19; after refused layouts
+      the mayor explored 500 blocks away while the workers waited).
+      - `find_site`: when nothing of the size is in view, search rings further out (in legs) before giving up.
+      - `plan_layout`: when the site is too small, say what fits ("two buildings fit; lay the hall on a second
+        site") or lay out on two plots in code.
+      - The mayor may not walk or explore more than ~96 blocks from its village (guard in code).
+      - Architect brief includes the largest footprint that fits the site found.
+      - Test: staged layout on a deliberately small site; mayorbench case "site too small".
+- [ ] 1.3 **Slow mayor start**: its first plan came 3 minutes after spawning in Fourfold7 (plans average 4.8 s).
+      Find where the time goes (server log timestamps, panel "what the planner saw").
+- [ ] 1.4 Small items: add `advance_time` to `mcRules.ts` WORLD_RULES (applied and checked at start); `explore`
+      reports "no path ... stopped at" its own target (arrival check against an estimated y); village log lines in
+      plain words for the panel ("Worker4 built cottage 2").
+- [ ] 1.5 **Acceptance runs**: 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
+      built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
+      Record each in the run record.
+- [ ] 1.6 Docs: CLAUDE.md (lessons of this phase, LAN access, `MC_API_HOST`, whitelist: new agent names must be
+      whitelisted), README, ARCHITECTURE.md (run-as-written, rescue, atlas when it exists).
+
+## Phase 2: shared village atlas (agreed 2026-09-28)
+
+Idea (the user's): agents share a map of what they have seen, so they find resources others located and help find
+sites. Code keeps and uses the atlas; models do not read it raw.
+
+- [ ] 2.1 **Record**: as bots move, summarise each chunk they have loaded (surface height and flatness, water,
+      reachable logs by kind, exposed sand, stone, clay) with a timestamp, in the village registry (saved to disk).
+      Show it on the panel as one village map (simple mode too). Test: walk Gus around, check the saved summary
+      against `/api/block`; measure the cost per chunk (target well under 1 ms; CPU is shared by all bots).
+- [ ] 2.2 **Gather from it**: `collect` with nothing in view goes to the nearest atlas entry for the material
+      (and fails fast if it is gone, updating the atlas). Test: staged full run on a site with sand out of view.
+- [ ] 2.3 **Sites from it**: `find_site` scores candidates over the atlas: level, dry, and trees, stone and sand
+      within reach. Test: staged runs in the places that went wrong (jungle hills at -560,-60; lake at -235,-53).
+- [ ] 2.4 **Scouting**: when the site search finds nothing good, code posts "scout" tasks for idle workers in
+      different directions (run as written, no model calls) while the mayor draws designs. Test: model-driven run
+      from a poor start point.
+
+## Phase 3: humans in the loop (part 2 of the user's goal)
+
+The user asks the mayor in chat ("build me a house by the river", "we need a bigger hall"); the village designs,
+lays out, gathers and builds it, and the mayor answers in chat.
+
+- [ ] 3.1 **Talking to the mayor in tests**: an API route that posts a player's message as chat the mayor hears
+      (`POST /api/village/:v/say {from, text}`), or a real player message over RCON if one can be made to arrive as
+      chat. Keep the 30 s chat limit and keep workers out of it (only the mayor answers players).
+- [ ] 3.2 **The mayor hears requests**: player chat naming the mayor or the village wakes its planner (today chat
+      only wakes the executor) with the request as a new objective or an addition to the current one.
+- [ ] 3.3 **Code places it**: "by the river", "next to the hall", "here" become a site search near a place (atlas:
+      water, forest), a building, or the player's position; a second plot when the first is full.
+- [ ] 3.4 **Code checks it can be built**: materials within reach (atlas), unobtainable blocks refused, rough time
+      estimate from the bill of materials.
+- [ ] 3.5 **The mayor answers**: what it will build, where, and roughly how long, in one chat line.
+- [ ] 3.6 mayorbench cases for chat requests; then runs with the user in the game.
+
+## Phase 4: speed and scale
+
+- [ ] 4.1 Gathering that finishes trees: fell a low tree completely rather than chasing canopy logs; choose trees by
+      reachable logs.
+- [ ] 4.2 The storage chest between the plot and the nearest trees and stone, not wherever the first deposit is.
+- [ ] 4.3 More workers where gathering allows (4 workers only paid off with enough trees apart; see F12).
+- [ ] 4.4 Executors on gpt-oss (benchmark with `scripts/bench/execbench.mts` first). Low value now: workers make
+      few model calls since run-as-written.
+
+## Backlog (not scheduled)
+
+- Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
+- Events carry no timestamp (the panel cannot say "2 min ago").
+- Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
+- Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
+
+## Run record
+
+One row per model-driven or staged run worth remembering. Time is to the last building (or the stop).
+
+| Date | Run | Setup | Result | Time | Notes |
+|---|---|---|---|---|---|
+| 09-27 | Meadowford2 | 2 workers, qwen3.8 planner | 3/3 built | 35.0 min | before this plan |
+| 09-28 | StageW2 | staged full, 2 scripted workers, testhut + testhall | 2/2 built | 11.1 min | 0 failures, one wood kind |
+| 09-28 | StageW4 | staged full, 4 scripted workers | 2/2 built | 10.4 min | trees shared: 4 workers barely faster (F12) |
+| 09-28 | Fourfold1 | model, 4 workers | stopped | 16 min | executors faked gathering (F13) |
+| 09-28 | Fourfold2 | model, 4 workers | stopped | 18 min | plot dug up by gatherers; hidden craft error (F15) |
+| 09-28 | Fourfold3 | model, 4 workers | stopped | 11 min | jungle logs out of reach, sand under water |
+| 09-28 | Fourfold4 | model, 4 workers | stopped | 7 min | agent server event loop saturated (F16) |
+| 09-28 | Fourfold5 | model, 4 workers | **3/3 built** | 21.6 min | 6 failures, 11 executor calls; mayor never declared complete (fixed) |
+| 09-28 | Fourfold6 | model, 4 workers | stopped | 17 min | hall built; cottages blocked by sand tasks (fixed) |
+| 09-28 | Fourfold7 | model, 4 workers | stopped | 16 min | site too small; mayor wandered (step 1.2) |
+
+## Findings log
+
+What runs showed, with the evidence, and what was done. Newest last. Keep entries short; move durable lessons to
+CLAUDE.md when a phase ends.
+
+- F1 (09-28) Builds came up short because gathering pooled wood kinds while builders put each part in one kind. Fix:
+  one village wood kind (only when enough grows near the site), parts split across kinds by layers.
+- F2 `collect` spent minutes on unreachable blocks (6 tries of up to 2 min each). Fix: 3 tries or 90 s, shared memory
+  of unreachable blocks, targets shared between bots.
+- F3 `move_to` reported "arrived" when boxed in: the pathfinder's goto can return without arriving. Fix: arrival check.
+- F4 A trapped bot was never moved. Fix: `mcRescue.ts` (swim, walk, climb, teleport onto the storage chest).
+- F5 The mayor re-posted work when woken on a timer. Fix: no timer once laid out; board status in its prompt. Prompt
+  wording alone did not help (mayorbench results vary run to run).
+- F6 Smelting stopped before the last item (8 sand gave 7 glass). Fix: wait while the furnace is cooking.
+- F7 "Storage is full" with 23 slots free: a failed deposit was reported as full. Fix: retry, honest message.
+- F8 Leaf litter and apples filled the chest. Fix: junk list.
+- F9 Two builders starting together each chose wood from a record the other was emptying. Fix: re-read the chests
+  and choose again before giving up (still happens rarely).
+- F10 A pickaxe from mixed plank kinds failed (3 birch + 2 oak planks). Fix: count one kind.
+- F11 `collect` counted blocks taken by another bot as unreachable. Fix: shared targets, gone blocks are no failure.
+- F12 4 workers were barely faster than 2 on the same trees (a 12-log task took 2.3 min instead of 1.2). Gathering,
+  not models, limits speed: see phase 4.
+- F13 Executors faked gather tasks (withdrew logs and deposited them again). Fix: code-posted steps run as written;
+  executor calls per worker fell from 13-52 to 0-6 per run.
+- F14 Gatherers dug stone out of the prepared plot, then builds found the ground uneven. Fix: plots are off limits.
+- F15 A build failed four times with everything needed carried: a crafting error was swallowed and the inventory view
+  was stale. Fix: error shown in the message; crafting falls back to the server's counts.
+- F16 The API stopped answering with 4 bots: pathfinder searches (15 s think time) and 4096-block scans saturated the
+  event loop. Fix: 15 ms per tick per bot, filtered block search, watcher retries.
+- F17 The mayor, woken with everything built, waited instead of declaring complete. Fix: code declares it.
+- F18 Gather tasks for sand where there is none kept buildings waiting for minutes. Fix: fail at once (soft).
+- F19 A site smaller than the layout sent the mayor exploring 500 blocks away. Open: step 1.2.
+- F20 Deposits leave 1-3 items behind "though there is room" (11 times in the 4-worker runs, every worker): the bot's
+  inventory view and the server's disagree by a few items. Harmless (the items stay with the worker), but a sign to
+  count deposits on the server as building already does. Backlog.
+
+## Decisions log
+
+- 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
+- 09-28 Scaling test with 4 workers (Worker3, Worker4); the standard stays 2 workers.
+- 09-28 Code-posted task steps run without the executor; the model handles only what follows a failure.
+- 09-28 The Paper server listens on the LAN with a whitelist; the panel on the LAN via `MC_API_HOST=0.0.0.0`.
+- 09-28 Shared atlas (phase 2) comes after the phase 1 acceptance runs and before the chat requests (phase 3 needs
+  it for "by the river").
+
+## Keeping this plan honest
+
+- **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it
+  blocks the current step; otherwise add it to the right phase or the backlog, and say why.
+- **When a finding invalidates a step** (wrong cause, better approach), edit the step and add a decision explaining
+  the change. Do not silently delete: strike through (`~~...~~`) and point to the replacement.
+- **Acceptance criteria are concrete** (what run, what counts as passing). If one turns out to be wrong, change it in
+  the decisions log, not quietly.
+- Keep the "Next session starts with" section current at the end of every session, including uncommitted work and
+  anything left running.

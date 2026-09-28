@@ -167,8 +167,42 @@ export class VillageRegistry {
     return v.tasks.find((t) => t.id === id);
   }
 
+  /**
+   * Gather tasks ("collect block=X count=N, then deposit") the storage already covers are marked done: when the storage
+   * holds as much of X as every gather task for the buildings not yet built asks for, done ones included (what they
+   * brought is in the storage too). prepare_site keeps the logs of the trees it fells: 287 jungle logs sat in the
+   * storage while four workers went on gathering jungle logs.
+   */
+  private coveredByStock(v: Village) {
+    const chests = v.storage?.chests ?? [];
+    if (!chests.length) return;
+    const stock = (item: string) => chests.reduce((s, c) => s + Object.entries(c.items)
+      .filter(([n]) => (item === 'logs' ? /_log$/.test(n) : n === item)).reduce((t, [, q]) => t + q, 0), 0);
+    const gather = (t: Task) => {
+      const m = /^collect block=(\S+) count=(\d+), then deposit/.exec(t.detail);
+      const label = / for (.+?)( \(\d+\/\d+\))?$/.exec(t.title)?.[1];
+      return m && label ? { item: m[1], n: Number(m[2]), label } : null;
+    };
+    const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
+    let changed = false;
+    for (const t of v.tasks) {
+      const g = t.status === 'open' ? gather(t) : null;
+      if (!g || !unbuilt.has(g.label)) continue;
+      const wanted = v.tasks.map(gather).filter((x) => x && x.item === g.item && unbuilt.has(x.label)).reduce((s, x) => s + x!.n, 0);
+      const have = stock(g.item);
+      if (have < wanted) continue;
+      t.status = 'done';
+      t.result = `the storage already holds enough ${g.item} (${have}, for ${wanted} wanted by the buildings still to build)`;
+      t.updated = Date.now();
+      this.note(v, `${t.id} "${t.title}" was not needed: ${t.result}`);
+      changed = true;
+    }
+    if (changed) this.save();
+  }
+
   /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
   claimable(v: Village): Task[] {
+    this.coveredByStock(v);
     const finished = (id: string) => {
       const p = this.task(v, id);
       return p?.status === 'done' || (p?.status === 'failed' && !!p.soft);
@@ -234,6 +268,16 @@ export class VillageRegistry {
     t.result = why.slice(0, 300);
     t.updated = Date.now();
     this.note(v, `${by} gave up ${t.id} "${t.title}"${t.status === 'failed' ? ' (failed)' : ''}: ${why.slice(0, 100)}`);
+  }
+
+  /** Mark a claimed task failed at once (its work cannot be done here). */
+  fail(v: Village, id: string, by: string, why: string) {
+    const t = this.task(v, id);
+    if (!t || t.claimedBy !== by || t.status !== 'claimed') return;
+    t.status = 'failed';
+    t.result = why.slice(0, 300);
+    t.updated = Date.now();
+    this.note(v, `${by} could not do ${t.id} "${t.title}": ${why.slice(0, 100)}`);
   }
 
   /** Close every task that is not finished (the objective is met, or the mayor is starting over). */
