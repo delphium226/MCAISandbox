@@ -200,6 +200,32 @@ tools; craft a wooden_pickaxe first if the task needs one and you have none). bu
 storage itself and crafts planks, doors and glass from what is there; if it says materials are short, those must be
 gathered first (hand the task back with request_replan rather than gathering for it yourself).`;
 
+/**
+ * What the board is doing, in a few lines for the mayor: who holds what, and what waits for what (a build put back
+ * behind gather tasks that code posted needs nothing from the mayor; it re-posted gathering when it could not tell).
+ */
+function boardStatus(a: WorldAgent): string {
+  const v = a.village();
+  if (!v?.tasks.length) return '';
+  const reg = a.world.villages;
+  const byId = new Map(v.tasks.map((t) => [t.id, t]));
+  const held = v.tasks.filter((t) => t.status === 'claimed').map((t) => `${t.claimedBy} is doing ${t.id} "${t.title}"`);
+  const ready = reg.claimable(v).map((t) => t.id);
+  const waiting = v.tasks.filter((t) => t.status === 'open' && !ready.includes(t.id)).map((t) => {
+    const on = t.after.map((id) => byId.get(id)).filter((p) => p && p.status !== 'done' && !(p.status === 'failed' && p.soft));
+    const blocked = on.filter((p) => p!.status === 'failed');
+    const byCode = on.length && on.every((p) => p!.postedBy !== a.name);
+    return `${t.id} waits for ${on.map((p) => `${p!.id} (${p!.status})`).join(', ') || 'a design'}${blocked.length ? ': BLOCKED, a task it needs failed' : byCode ? ' (materials were short; code posted these)' : ''}`;
+  });
+  const lines = [
+    held.length ? `Workers busy: ${held.join('; ')}.` : 'No worker holds a task.',
+    ready.length ? `Ready for the next free worker: ${ready.join(', ')}.` : '',
+    waiting.length ? `Waiting: ${waiting.slice(0, 8).join('; ')}.` : '',
+    !v.tasks.some((t) => t.status === 'failed' && !t.soft) && (held.length || ready.length) ? 'Nothing for you to do: the workers and code handle this; wait (set_plan with an empty list).' : '',
+  ];
+  return `Board status:\n${lines.filter(Boolean).join('\n')}`;
+}
+
 const MAYOR_ROLE = `
 You are the mayor. You coordinate; you do not build, gather or prepare land yourself. Workers claim tasks from the task
 board, one at a time in the order posted, and do the physical work.
@@ -438,6 +464,9 @@ export class TieredBrain implements AgentBrain {
   private replanReason: string | null = null;
   private failuresSincePlan = 0;
   private notes: string[] = [];
+  /** Steps of code-posted tasks already run as written (task:plan tick:step), and the action doing it now. */
+  private ranAsWritten = new Set<string>();
+  private asWritten: { id: number; step: number } | null = null;
   private progressKey = '';
   private lastProgress = 0;
   /** Calls (name + arguments) that failed, with when and why: repeating one that failed twice is refused for a while. */
@@ -447,6 +476,9 @@ export class TieredBrain implements AgentBrain {
   private recent: Array<{ key: string; at: number }> = [];
   /** Task board state the mayor last planned on. */
   private boardSeen = '';
+  /** The board as last seen by tick, and since when it has looked like that (a stuck board wakes the mayor). */
+  private boardLast = '';
+  private boardSince = Date.now();
   /** How often each held task has had to be replanned. */
   private taskReplans = new Map<string, number>();
   /** Task claimed for the plan being made (workers claim before asking the planner). */
@@ -529,6 +561,12 @@ export class TieredBrain implements AgentBrain {
     }
     if (e.type === 'action_done') {
       this.stat(a, 'actionsDone');
+      // A step run as written is done when its action is (move_to steps are not matched by name below)
+      const pl = this.plan(a);
+      if (this.asWritten && e.data?.action === this.asWritten.id && pl && pl.step <= this.asWritten.step) {
+        this.stat(a, 'stepsDone');
+        pl.step = this.asWritten.step + 1;
+      }
       // A step that names the skill that just succeeded is done (executors often forget step_done and redo the work)
       // (it may name a later step, when preparatory steps such as move_to were not marked done)
       const plan = this.plan(a);
@@ -578,6 +616,13 @@ export class TieredBrain implements AgentBrain {
       plan.step = plan.steps.length;
     }
     const boardKey = v ? v.tasks.map((t) => t.status[0]).join('') : '';
+    if (boardKey !== this.boardLast) {
+      this.boardLast = boardKey;
+      this.boardSince = now;
+    }
+    // Once plan_layout has posted the work, code runs it (builds short of materials go back on the board behind new
+    // gather tasks): the mayor is woken only for what code cannot handle, not on a timer (it re-posted work each time)
+    const laidOut = !!v && v.tasks.some((t) => t.postedBy === a.name && /\(on the village plot; footprint/.test(t.detail));
 
     if (PLAN && !this.planPending && now >= this.lastPlan && !v?.complete) {
       let why: string | null = null;
@@ -589,10 +634,15 @@ export class TieredBrain implements AgentBrain {
       else if (this.failuresSincePlan >= 3) why = `${this.failuresSincePlan} actions failed since the plan was made`;
       else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || t.status === 'claimed'))
         why = 'every posted task is finished or failed: review the village';
-      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && v!.tasks.some((t) => t.status === 'failed' && t.updated > this.lastPlan))
-        why = 'a task failed';
-      // (a waiting mayor is not reviewed on a timer while workers hold tasks: it only re-posted work already on the board)
-      else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS)
+      // (a failed gathering task needs nothing: the build checks its materials and posts more gathering itself)
+      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && v!.tasks.some((t) => t.status === 'failed' && !t.soft && t.updated > this.lastPlan))
+        why = `a task failed: ${v!.tasks.filter((t) => t.status === 'failed' && !t.soft && t.updated > this.lastPlan).map((t) => `${t.id} "${t.title}"${t.result ? ` (${t.result.slice(0, 160)})` : ''}`).join('; ')}`;
+      // Open tasks that nobody holds and nobody can take, for ten minutes: something they wait for will never finish
+      else if (role === 'mayor' && !plan.steps.length && laidOut && now - this.boardSince > 10 * 60000 && boardKey !== this.boardSeen
+        && v!.tasks.some((t) => t.status === 'open') && !v!.tasks.some((t) => t.status === 'claimed') && !a.world.villages.claimable(v!).length)
+        why = 'the task board is stuck: open tasks wait for tasks that will not finish (see the board status)';
+      // (a waiting mayor is not reviewed on a timer once the layout is posted: it only re-posted work already on the board)
+      else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !laidOut && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS)
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
       // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
       if (why && free) {
@@ -612,6 +662,25 @@ export class TieredBrain implements AgentBrain {
     if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
     if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !this.urgent) return; // waiting
     const idle = a.idle();
+    // A task code posted is run as written: its calls are exact ("collect block=cobblestone count=29, then deposit
+    // item=all"), and executors changed them (one withdrew 11 logs from storage and deposited them again, which counted
+    // as gathering; one collected 6 of 29). Each step runs once this way; after a failure the executor takes the step
+    // over (explore, try elsewhere), with the failure in its events.
+    if (plan?.by === 'task' && idle && !this.urgent && plan.step < plan.steps.length) {
+      const key = `${plan.taskId}:${plan.tick}:${plan.step}`;
+      const call = taskCalls(plan.steps[plan.step], new Set(a.world.skills.map((t) => t.name)))[0];
+      if (call && !this.ranAsWritten.has(key)) {
+        this.ranAsWritten.add(key);
+        try {
+          const st = a.enqueue(call.type, call.args);
+          this.asWritten = { id: st.id, step: plan.step };
+          this.notes.push(`t=${a.world.ticks}: ${plan.steps[plan.step]} (run as written)`);
+          return;
+        } catch {
+          // Bad arguments: the executor handles the step
+        }
+      }
+    }
     if (!idle && !this.urgent) return;
     if (now - this.lastExec < (this.urgent ? 1500 : EXEC_INTERVAL_MS)) return;
     this.urgent = false;
@@ -713,6 +782,7 @@ export class TieredBrain implements AgentBrain {
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       notes ? `Long-term notes:\n${notes}` : '',
       formatPlots(a),
+      villageRole(a) === 'mayor' ? boardStatus(a) : '',
       `Previous plan:\n${formatPlan(old)}`,
       `Events since the last plan:\n${formatEvents(events, 30)}`,
       `Observation:\n${JSON.stringify(compactObservation(a))}`,

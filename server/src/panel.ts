@@ -51,6 +51,7 @@ function agentOverview(a: WorldAgent) {
     villageRole: typeof m.villageRole === 'string' ? m.villageRole : null,
     notes: typeof m.notes === 'string' ? m.notes : null,
     stats: m.stats ?? null,
+    rescues: m.rescues ?? null,
     buildSpeed: m.buildSpeed ?? null,
     events: a.events.filter((e) => !NOISE.has(e.type)).slice(-30),
     nearby: o.nearbyEntities.slice(0, 25).map((e) => ({ kind: e.kind, name: e.name, x: e.x, z: e.z })),

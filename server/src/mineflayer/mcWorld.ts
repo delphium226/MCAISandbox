@@ -14,7 +14,7 @@ import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Design } from '../village';
-import { Materials, designBill, gatherTasks, hardToGather } from './mcMaterials';
+import { Materials, designBill, gatherTasks, hardToGather, inWood } from './mcMaterials';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 
@@ -61,17 +61,20 @@ export class MineflayerWorld implements WorldAdapter {
    * chain, with a furnace and fuel when something must be smelted), in chunks two workers can share. Builders craft
    * and smelt the rest from the village storage themselves (build_design does it).
    */
-  materialTasks(d: Design, label: string) {
-    let plan = this.materials.plan(designBill(d));
+  materialTasks(d: Design, label: string, wood?: string) {
+    // In the village's wood kind: its logs are what gets gathered
+    const bill = inWood(designBill(d), wood);
+    let plan = this.materials.plan(bill);
     // A crafting table for the doors and the like, and a furnace when something must be smelted
-    plan = this.materials.plan({ ...designBill(d), crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
+    plan = this.materials.plan({ ...bill, crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
     // Blocks that need iron ore, leather, clay or wool are too slow to gather for a village: a design using them is
     // sent back (a lantern meant mining raw iron with a stone pickaxe)
     const hard = hardToGather(plan.gather);
     const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. lanterns, bricks, wool, bookshelves)`] : [])];
-    // Two logs spare: gathered logs come in mixed kinds and a builder uses one kind (short by a log, twice)
-    plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + 2;
-    return { tasks: gatherTasks(plan.gather, label), problems };
+    // One log spare (a plank batch per wooden part rounds up; one kind, so no more than that)
+    plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + (wood ? 1 : 2);
+    const logs = Object.entries(plan.gather).filter(([n]) => /_log$|^any:logs$/.test(n)).reduce((s, [, q]) => s + q, 0);
+    return { tasks: gatherTasks(plan.gather, label, wood), problems, logs };
   }
 
   isAgent(name: string) {

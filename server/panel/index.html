@@ -178,6 +178,12 @@ function renderStats(s) {
   </dl>`;
 }
 
+// Getting a stuck bot out (real Minecraft): how often, and the last time
+function renderRescues(r) {
+  if (!r) return '';
+  return `<dl class="kv"><dt>rescues</dt><dd>${r.walked ?? 0} walked out, ${r.climbed ?? 0} climbed out, <span style="color:${r.teleported ? 'var(--bad)' : 'inherit'}">${r.teleported ?? 0} teleported</span>${r.failed ? `, ${r.failed} failed` : ''}${r.last ? `<div class="sub">${esc(r.last)}</div>` : ''}</dd></dl>`;
+}
+
 function renderAgent(a) {
   const st = a.status || { state: a.brain ? 'idle' : 'waiting', detail: a.brain ? '' : 'no brain: controlled through the API' };
   const color = STATE_COLORS[st.state] || 'var(--idle)';
@@ -239,7 +245,7 @@ function renderAgent(a) {
       ${det(k('decisions'), `Recent executor decisions (${(st.recentDecisions || []).length})`, decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>', true)}
       ${det(k('events'), 'Recent events', events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>', true)}
       ${det(k('inv'), `Inventory (${a.inventoryKinds} kinds)${a.holding ? `, holding ${esc(a.holding)}` : ''}`, inv || '<div class="empty">empty</div>')}
-      ${det(k('stats'), 'Model and action stats', renderStats(a.stats))}
+      ${det(k('stats'), 'Model and action stats', renderStats(a.stats) + renderRescues(a.rescues))}
       ${a.notes ? det(k('notes'), 'Long-term notes', `<div>${esc(a.notes)}</div>`) : ''}
     </div>
     <div class="section row">

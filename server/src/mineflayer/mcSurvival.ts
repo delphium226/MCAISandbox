@@ -47,7 +47,7 @@ async function pickUpDrops(a: BotAgent, pos: Vec3, signal: AbortSignal) {
 }
 
 /** Mine one block: walk into reach, pick the best tool, dig, collect the drops. */
-async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = false): Promise<string> {
+async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = false, walkMs = 60000): Promise<string> {
   const bot = a.bot;
   let block = bot.blockAt(pos);
   if (!block) throw new Error(`the block at ${at(pos)} is not loaded; move closer first`);
@@ -61,10 +61,10 @@ async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = fa
     const label = `${block.name} at ${at(pos)}`;
     try {
       // Somewhere it can be seen from; failing that (it is buried), dig through the terrain to it
-      await walk(a, new goals.GoalLookAtBlock(pos, bot.world, { reach: 4 }), label, signal, 60000);
+      await walk(a, new goals.GoalLookAtBlock(pos, bot.world, { reach: 4 }), label, signal, walkMs);
     } catch (e) {
       if (!/^no path/.test((e as Error).message)) throw e;
-      await walk(a, new goals.GoalNear(pos.x, pos.y, pos.z, 2), label, signal, 60000);
+      await walk(a, new goals.GoalNear(pos.x, pos.y, pos.z, 2), label, signal, walkMs);
     }
   }
   block = bot.blockAt(pos)!;
@@ -135,8 +135,43 @@ function homeOf(a: BotAgent): { x: number; z: number } | null {
   return p ? { x: (p.x1 + p.x2) / 2, z: (p.z1 + p.z2) / 2 } : null;
 }
 
+/**
+ * A wooden pickaxe made on the spot, with the logs for it: stone wants one, and the model churned for minutes over
+ * tables, sticks and planks (or tried to mine stone by hand again and again).
+ */
+async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
+  // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
+  const table = nearestBlockNamed(a, 'crafting_table', 16);
+  const want = 5 + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
+  // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
+  // logs may be of yet another kind: look again after collecting
+  for (let i = 0; i < 3; i++) {
+    const wood = bestPlanks(a)?.n ?? 0;
+    if (wood >= want) break;
+    await collect(a, { block: 'logs', count: Math.ceil((want - wood) / 4) }, signal);
+  }
+  await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
+}
+
+/** Blocks a bot could not get to, by position, until when (10 minutes): the next collect does not walk to them again. */
+const unreachable = new Map<string, number>();
+/**
+ * Blocks a gatherer is on its way to, by position: others pick another (four workers walked to the same logs, and one
+ * breaking a log first aborted the other's dig). All bots run in this process, so a map is enough.
+ */
+const targeted = new Map<string, { by: string; until: number }>();
+
+/**
+ * Gather `count` of a block. It gives up soon on blocks it cannot get to: after 3 of them, or 90 seconds spent on
+ * failed walks, or 2 minutes without collecting anything (six tries of up to two minutes each took five minutes).
+ */
 async function collect(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { blocks, items, label } = collectTargets(a, str(args.block, 'block'));
+  // Shared by every bot: a log another worker could not reach is usually out of reach for all (high in a canopy)
+  const bad = unreachable;
+  for (const [k, until] of bad) if (until < Date.now()) bad.delete(k);
+  for (const [k, t] of targeted) if (t.until < Date.now() || t.by === a.name) targeted.delete(k);
+  const takenByOther = (p: Vec3) => { const t = targeted.get(at(p)); return !!t && t.by !== a.name && t.until > Date.now(); };
   if (a.gamemode === 'creative') throw new Error(`in creative mode broken blocks drop nothing; use get_item ${label} instead`);
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
   const have = () => items.reduce((s, id) => s + countItem(a, id), 0);
@@ -146,33 +181,49 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let lastError = '';
   let toolTried = false;
   const t0 = Date.now();
+  let failMs = 0, lastGot = 0, lastGain = Date.now();
+  const from = a.bot.entity.position.clone();
+  const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}. ${got ? 'Deposit what you have, or c' : 'C'}ollect somewhere else: explore 30 blocks or more in another direction first`);
+  const fail = (p: Vec3, m: string, ms: number) => {
+    failed.add(at(p));
+    bad.set(at(p), Date.now() + 10 * 60000);
+    lastError = m;
+    failMs += ms;
+  };
   while (true) {
     checkAbort(signal);
     const got = items.length ? have() - start : mined;
     if (got >= want) return `collected ${got} ${label}`;
+    if (got > lastGot) { lastGot = got; lastGain = Date.now(); }
+    if (failed.size >= 3 || failMs > 90000 || (failed.size && Date.now() - lastGain > 2 * 60000)) throw giveUp(got);
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
     // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off. A village
     // member stays within 96 blocks of home (the storage chest or plot): gathering walk by walk it drifted 150 away
     const home = homeOf(a);
     // Never inside a village building (its footprint, from its floor up)
-    const built = a.village()?.structures ?? [];
+    // Nor in a prepared plot, down to a few blocks under its level (cobblestone gatherers dug the levelled stone of a
+    // plot, and its buildings then found the ground uneven)
+    const built = [...(a.village()?.structures ?? []), ...(a.village()?.plots ?? []).map((pl) => ({ ...pl, y: pl.y - 3 }))];
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1);
-    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)) && near(p));
+    const found = nearestBlocks(a, blocks, 48, 1024).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
     const me = a.bot.entity.position;
-    const effort = (p: Vec3) => p.distanceTo(me) + 2 * Math.max(0, me.y - p.y) - (exposed(a, p) ? 4 : 0);
-    let next: Vec3 | undefined = found.filter((p) => p.distanceTo(me) < 16 || exposed(a, p)).sort((u, w) => effort(u) - effort(w))[0];
+    // Logs high in a canopy cost too: the path search to them ran out of time again and again
+    const effort = (p: Vec3) => p.distanceTo(me) + 2 * Math.max(0, me.y - p.y) + 1.5 * Math.max(0, p.y - me.y - 2) - (exposed(a, p) ? 4 : 0);
+    let next: Vec3 | undefined = found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).sort((u, w) => effort(u) - effort(w))[0];
+    if (next) targeted.set(at(next), { by: a.name, until: Date.now() + 90000 });
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
-      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && near(p)).find((p) => exposed(a, p));
+      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
-        await reach(a, next.offset(0.5, 0, 0.5), 4, signal, Math.min(180000, 30000 + 1500 * far)).catch((e: Error) => {
+        const t1 = Date.now();
+        await reach(a, next.offset(0.5, 0, 0.5), 4, signal, Math.min(120000, 20000 + 1000 * far)).catch((e: Error) => {
           if (e.message === 'cancelled') throw e;
-          failed.add(at(next!));
+          fail(next!, e.message, Date.now() - t1);
         });
         continue;
       }
@@ -183,8 +234,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
         ? `no ${label} within 96 blocks of the village: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
         : `no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
+    const t1 = Date.now();
     try {
-      await mineBlock(a, next, signal);
+      // A walk of 20 seconds for a block close by, a little more for one farther off
+      await mineBlock(a, next, signal, false, 20000 + 500 * Math.round(next.distanceTo(me)));
       mined++;
     } catch (e) {
       const m = (e as Error).message;
@@ -192,18 +245,13 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       // churned for minutes over tables, sticks and planks
       if (/^needs wooden_pickaxe/.test(m) && !toolTried && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
         toolTried = true;
-        const wood = a.bot.inventory.items().reduce((s, it) => s + (/_log$/.test(it.name) ? it.count * 4 : /_planks$/.test(it.name) ? it.count : 0), 0);
-        // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
-        const table = nearestBlockNamed(a, 'crafting_table', 16);
-        const want = 5 + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
-        if (wood < want) await collect(a, { block: 'logs', count: Math.ceil((want - wood) / 4) }, signal);
-        await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
+        await makePickaxe(a, signal);
         continue;
       }
       if (m === 'cancelled' || m.startsWith('needs ')) throw e;
-      failed.add(at(next));
-      lastError = m;
-      if (failed.size >= 6) throw new Error(`could not reach ${label} (${failed.size} tried; last problem: ${m})`);
+      // Gone meanwhile (another worker took it): not a failure
+      if (!blocks.includes(a.bot.blockAt(next)?.type ?? -1)) continue;
+      fail(next, m, Date.now() - t1);
     }
   }
 }
@@ -286,13 +334,17 @@ function obtainable(a: BotAgent, id: number): number {
   return n;
 }
 
-/** Planks of any kind that could be had (for sticks and tables). */
-function bestPlanks(a: BotAgent): { name: string; n: number } | null {
+/**
+ * Planks of any kind that could be had (for sticks and tables): a kind already carried as enough planks first, so no
+ * logs are sawn (a builder's logs are kept for its log parts), then the kind with the most, counting logs.
+ */
+function bestPlanks(a: BotAgent, n = 0): { name: string; n: number } | null {
   let best: { name: string; n: number } | null = null;
   for (const it of a.world.registry.itemsArray) {
     if (!it.name.endsWith('_planks')) continue;
-    const n = obtainable(a, it.id);
-    if (n > 0 && (!best || n > best.n)) best = { name: it.name, n };
+    if (n && countItem(a, it.id) >= n) return { name: it.name, n: obtainable(a, it.id) };
+    const got = obtainable(a, it.id);
+    if (got > 0 && (!best || got > best.n)) best = { name: it.name, n: got };
   }
   return best;
 }
@@ -340,9 +392,25 @@ async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | nu
 /** Craft `times` of a recipe that needs no table (planks, sticks, the table itself). */
 async function craftSimple(a: BotAgent, name: string, times: number, signal: AbortSignal): Promise<void> {
   const id = itemId(a, name)!;
-  const r = a.bot.recipesFor(id, null, 1, null)[0];
-  if (!r) throw new Error(`cannot make ${name} from what is carried`);
-  await doCraft(a, r, times, null, signal);
+  let r = a.bot.recipesFor(id, null, 1, null)[0];
+  if (!r) {
+    // Mineflayer's view of the inventory lags behind (logs just collected were not in it): look again
+    await syncInventory(a);
+    r = a.bot.recipesFor(id, null, 1, null)[0];
+  }
+  if (r) return void (await doCraft(a, r, times, null, signal));
+  // Still none: try each variant on the server's counts (doCraft takes nothing unless everything is there)
+  let last = '';
+  for (const v of a.bot.recipesAll(id, null, false)) {
+    try {
+      await doCraft(a, v, times, null, signal);
+      return;
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      last = (e as Error).message;
+    }
+  }
+  throw new Error(`cannot make ${name} from what is carried${last ? ` (${last})` : ''}`);
 }
 
 /** Make sure at least n of a planks type are carried, sawing logs as needed. */
@@ -360,7 +428,7 @@ async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: 
   const short = n - countItem(a, id);
   if (short <= 0) return;
   const times = Math.ceil(short / 4);
-  const p = bestPlanks(a);
+  const p = bestPlanks(a, 2 * times);
   if (!p || p.n < 2 * times) throw new Error(`needs ${2 * times} planks for ${times * 4} sticks (have ${p?.n ?? 0}, counting logs)`);
   await ensurePlanks(a, p.name, 2 * times, signal, notes);
   await craftSimple(a, 'stick', times, signal);
@@ -373,7 +441,7 @@ async function ensureTable(a: BotAgent, signal: AbortSignal, notes: string[]): P
   const near = nearestBlockNamed(a, 'crafting_table', 16);
   if (near && Math.abs(near.position.y - a.bot.entity.position.y) <= 3) return near;
   if (!countItem(a, itemId(a, 'crafting_table')!)) {
-    const p = bestPlanks(a);
+    const p = bestPlanks(a, 4);
     if (!p || p.n < 4) throw new Error(`needs a crafting table: craft one from 4 planks (have ${p?.n ?? 0}, counting logs)`);
     await ensurePlanks(a, p.name, 4, signal, notes);
     await craftSimple(a, 'crafting_table', 1, signal);
@@ -430,15 +498,20 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     const made = countItem(a, id) - start;
     if (made >= want) break;
     // The recipe this inventory gets closest to (logs count as planks)
-    const scored = all.map((r) => ({ r, short: shortfall(a, r) })).sort((u, v) => u.short.length - v.short.length || exotic(a, u.r) - exotic(a, v.r));
+    // Ties go to the variant of what is carried (a pickaxe made of the acacia in hand, not "needs dark_oak_planks")
+    const held = (r: Recipe) => needs(r).reduce((s, { id }) => s + obtainable(a, id), 0);
+    const scored = all.map((r) => ({ r, short: shortfall(a, r) })).sort((u, v) => u.short.length - v.short.length || exotic(a, u.r) - exotic(a, v.r) || held(v.r) - held(u.r));
     const { r, short } = scored[0];
     if (short.length) {
-      const miss = short.map(([n, need, have]) => `${need}x ${n} (have ${have})`).join(', ');
+      // A recipe that takes any planks says so
+      const anyKind = (n: string) => /_planks$/.test(n) && all.some((x) => needs(x).some(({ id }) => /_planks$/.test(itemName(a, id)) && itemName(a, id) !== n));
+      const miss = short.map(([n, need, have]) => `${need}x ${anyKind(n) ? 'planks (any kind)' : n} (have ${have})`).join(', ');
       // Planks and sticks come from logs: say how many more logs would do it
       const wood = short.reduce((s, [n, need, have]) => s + (/_planks$/.test(n) ? need - have : n === 'stick' ? Math.ceil((need - have) / 4) * 2 : 0), 0);
       const hint = wood && wood === short.reduce((s, [n, need, have]) => s + (/_planks$|^stick$/.test(n) ? (/_planks$/.test(n) ? need - have : Math.ceil((need - have) / 4) * 2) : 1000), 0)
         ? `; collect ${Math.ceil(wood / 4)} more log${Math.ceil(wood / 4) > 1 ? 's' : ''} and craft again` : '';
-      throw new Error(`missing ingredients for ${name}: needs ${describe(a, r)}; short of ${miss}${made ? ` (made ${made} so far)` : ''}${hint}`);
+      const needsText = needs(r).map(({ id, count }) => `${count}x ${anyKind(itemName(a, id)) ? 'planks (any kind)' : itemName(a, id)}`).join(', ');
+      throw new Error(`missing ingredients for ${name}: needs ${needsText}; short of ${miss}${made ? ` (made ${made} so far)` : ''}${hint}`);
     }
     // The table first (it takes 4 planks), then sticks (they take planks), then the recipe's planks
     const table = r.requiresTable ? await ensureTable(a, signal, notes) : null;
@@ -490,9 +563,11 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   await reach(a, furnaceBlock.position.offset(0.5, 0, 0.5), 3.5, signal);
   const furnace = await abortable(bot.openFurnace(furnaceBlock), signal);
   try {
-    // Fuel: coal first, then wood (a plank or log smelts 1.5 items)
+    // Fuel: coal first, then planks, logs last (a plank or a log smelts 1.5 items, and a log makes 4 planks: burning
+    // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
     if (!furnace.fuelItem()) {
-      const fuel = bot.inventory.items().find((it) => FUELS.includes(it.name)) ?? bot.inventory.items().find((it) => /_planks$|_log$/.test(it.name));
+      const items = bot.inventory.items();
+      const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name));
       if (!fuel) throw new Error('no fuel: needs coal, charcoal, planks or logs');
       const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
       await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(count / perItem)));
@@ -504,7 +579,8 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       await sleep(2000, signal);
       const out = furnace.outputItem();
       if (out) got += (await furnace.takeOutput())?.count ?? 0;
-      if (!furnace.inputItem() && !furnace.outputItem()) break;
+      // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
+      if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
       if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem()) throw new Error(`ran out of fuel after ${got} of ${count}`);
     }
     return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
@@ -644,7 +720,17 @@ const xyz = (a: Record<string, unknown>) => ['x', 'y', 'z'].forEach((k) => num(a
 export const SURVIVAL_SKILLS: Record<string, McSkill> = {
   mine: {
     check: xyz,
-    run: (a, args, signal) => mineBlock(a, new Vec3(Math.floor(num(args.x, 'x')), Math.floor(num(args.y, 'y')), Math.floor(num(args.z, 'z'))), signal, args.force === true),
+    async run(a, args, signal) {
+      const pos = new Vec3(Math.floor(num(args.x, 'x')), Math.floor(num(args.y, 'y')), Math.floor(num(args.z, 'z')));
+      try {
+        return await mineBlock(a, pos, signal, args.force === true);
+      } catch (e) {
+        // Stone by hand drops nothing: make the pickaxe, as collect does
+        if (!/^needs wooden_pickaxe/.test((e as Error).message) || a.gamemode === 'creative' || a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) throw e;
+        await makePickaxe(a, signal);
+        return `${await mineBlock(a, pos, signal)} (made a wooden_pickaxe first)`;
+      }
+    },
   },
   collect: { check: (x) => void str(x.block, 'block'), run: collect },
   place: {

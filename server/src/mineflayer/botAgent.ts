@@ -12,7 +12,8 @@ import type { Village } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
-import { goals, walk } from './mcUtil';
+import { at, goals, walk } from './mcUtil';
+import { rescue } from './mcRescue';
 
 const { pathfinder, Movements } = pathfinderPkg;
 
@@ -28,6 +29,12 @@ const NATURAL = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|
  * (teleporting the bot back each tick), so it is stuck for good. A slightly wider client box avoids it.
  */
 const PLAYER_HALF_WIDTH = 0.3001;
+
+/**
+ * Failure messages of skills that could not get somewhere (collect's and explore's too, which quote the walk's). Not a
+ * slow path search or a walk that ran out of time: a gatherer next to a tall tree was "rescued" for those.
+ */
+const MOVE_FAILED = /stuck at|no path/;
 
 /** Mobs the self-defence reflex fights (creepers are fled from instead). */
 const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider', 'witch', 'pillager', 'vindicator', 'slime', 'silverfish', 'phantom', 'creaking']);
@@ -51,6 +58,8 @@ export class BotAgent implements WorldAgent {
   private movements: InstanceType<typeof Movements> | null = null;
   /** The self-defence reflex, while it runs: it pauses the queue. */
   private reflex: AbortController | null = null;
+  /** Where recent moves failed (a rescue starts when they keep failing from one spot). */
+  private moveFails: Array<{ p: Vec3; t: number }> = [];
   private lastHurt = 0;
 
   constructor(readonly world: MineflayerWorld, readonly name: string, readonly role: string) {
@@ -109,6 +118,9 @@ export class BotAgent implements WorldAgent {
   moves() {
     if (!this.movements) {
       const m = new Movements(this.bot);
+      // All bots share this process: with four of them, 5 s (the default) ran out on paths 15 blocks long (set here:
+      // the plugin is not attached yet when it is loaded)
+      this.bot.pathfinder.thinkTimeout = 15000;
       m.allowParkour = false;
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
@@ -285,6 +297,34 @@ export class BotAgent implements WorldAgent {
     if (this.history.length > 100) this.history.shift();
     this.current = null;
     this.halt();
+    if ('fail' in r && MOVE_FAILED.test(r.fail)) this.movedFailed();
+  }
+
+  /**
+   * A move failed. Two within 3 blocks of here in 6 minutes means stuck (a pit, a lake): get out before the next action
+   * (mcRescue.ts), in the reflex's slot so nothing else starts meanwhile, and tell the brain what happened.
+   */
+  private movedFailed() {
+    const p = this.bot.entity.position.clone();
+    const now = Date.now();
+    this.moveFails = [...this.moveFails.filter((f) => now - f.t < 6 * 60000 && f.p.distanceTo(p) < 3), { p, t: now }];
+    if (this.moveFails.length < 2 || this.reflex || this.gamemode === 'creative') return;
+    this.moveFails = [];
+    const ac = new AbortController();
+    this.reflex = ac;
+    const stats = ((this.memory.rescues ??= {}) as Record<string, number | string>);
+    rescue(this, ac.signal).then(
+      (r) => {
+        stats[r.how] = Number(stats[r.how] ?? 0) + 1;
+        stats.last = `${new Date().toISOString().slice(11, 19)} ${r.how}: ${r.text}`;
+        console.log(`[rescue] ${this.name} stuck at ${at(p)}: ${r.how}: ${r.text}`);
+        this.pushEvent('system', `Rescue: your moves kept failing at ${at(p)} (stuck); ${r.text}. Carry on from here.`);
+      },
+      (e: Error) => e.message !== 'cancelled' && this.pushEvent('system', `Rescue: stuck at ${at(p)}; getting out failed: ${e.message}`),
+    ).finally(() => {
+      if (this.reflex === ac) this.reflex = null;
+      this.halt();
+    });
   }
 
   observe(radius = 16): Observation {

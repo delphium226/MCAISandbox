@@ -77,6 +77,8 @@ export interface Village {
   log: string[];
   /** Shared storage (real Minecraft's village economy): chests and their contents as last seen. */
   storage?: { chests: StorageChest[]; updated: number };
+  /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
+  wood?: string;
 }
 
 const RESERVATION_MS = 3 * 60 * 1000;
@@ -248,6 +250,7 @@ export class VillageRegistry {
   /** A compact description for prompts. */
   summary(v: Village, forAgent?: string): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
+    if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     if (v.plots.length) lines.push('Prepared plots (level ground; build inside them):', ...v.plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
     if (v.structures.length) lines.push('Buildings (do not overlap them):', ...v.structures.map((s) => `- ${s.kind} at ${areaText(s)} by ${s.builtBy}`));
     const designs = Object.values(v.designs);

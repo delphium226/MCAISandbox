@@ -156,7 +156,15 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
       else if (Date.now() - t0 > timeoutMs) done(new Error(`timed out at ${at(p)} on the way to ${target}`));
     }, 500);
     signal.addEventListener('abort', onAbort, { once: true });
-    bot.pathfinder.goto(goal).then(() => done(), (e: Error) => done(pathError(e, target)));
+    // (the goal's test takes a path node; a position has what it reads)
+    const arrived = () => [bot.entity.position.floored(), bot.entity.position].some((p) => goal.isEnd(p as unknown as Parameters<typeof goal.isEnd>[0]));
+    // Resolving is not arriving: boxed in by built walls, goto returned at once and move_to said "arrived" where the bot
+    // stood (a trapped bot told it had succeeded never gets rescued)
+    bot.pathfinder.goto(goal).then(
+      () => done(arrived() ? undefined
+        : new Error(`no path to ${target} from here (stopped at ${at(bot.entity.position)}; blocked by terrain, water or buildings); try a nearer point or explore first`)),
+      (e: Error) => done(pathError(e, target)),
+    );
   });
 }
 

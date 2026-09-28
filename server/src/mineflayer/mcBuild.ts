@@ -18,7 +18,7 @@ import type { Area, Design, Reservation } from '../village';
 import { areaText, overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
+import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
@@ -56,9 +56,6 @@ const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|myceli
 /** Blocks that occur in the wild: preparing a site may remove these, never anything built. */
 const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
 const isLog = (n: string) => /_log$|_wood$|_stem$/.test(n);
-const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
-/** A wooden item: its wood kind and part ("acacia", "planks"). */
-const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -184,6 +181,10 @@ async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, 
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const plan = a.world.materials.plan(short, other);
   if (!Object.keys(plan.gather).length || plan.problems.length) return '';
+  // A log spare (a second requeue for one log happened), of any kind: the builder splits a part across kinds, and the
+  // village's own kind may be what ran short near here
+  const logKey = Object.keys(plan.gather).find((n) => /_log$|^any:logs$/.test(n));
+  if (logKey) plan.gather[logKey] += 1;
   const reg = a.world.villages;
   const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design!).map((t) => ({ ...t, soft: true })), a.name, 20);
   task.status = 'open';
@@ -220,16 +221,25 @@ async function carriedCounts(a: BotAgent, items: string[]): Promise<Counts> {
 
 const listCounts = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n}`).join(', ');
 
-/** Planks a wooden part costs per item (doors come three from six planks, slabs six from three). */
-const PLANK_COST: Record<string, number> = { planks: 1, door: 2, slab: 0.5, stairs: 1.5, fence: 5 / 3, fence_gate: 4, trapdoor: 2, pressure_plate: 2, button: 1 };
+/** Planks per crafting batch and items it makes, for a wooden part (6 planks make 3 doors; sticks at half a plank). */
+const PLANK_BATCH: Record<string, [number, number]> = {
+  planks: [1, 1], door: [6, 3], slab: [3, 6], stairs: [6, 4], fence: [5, 3], fence_gate: [4, 1], trapdoor: [6, 2], pressure_plate: [2, 1], button: [1, 1],
+};
+const plankUnits = (part: string, n: number) => { const [p, out] = PLANK_BATCH[part] ?? [1, 1]; return Math.ceil(n / out) * p; };
+/** How many of a part `units` planks make, in whole batches. */
+const partsFrom = (part: string, units: number) => { const [p, out] = PLANK_BATCH[part] ?? [1, 1]; return Math.floor(units / p) * out; };
+
+/** Wood kinds for one part, in placing order: "oak_planks" -> [{kind: acacia, n: 30}, {kind: oak, n: 10}]. */
+type WoodPlan = Map<string, Array<{ kind: string; n: number }>>;
 
 /**
- * Builders place the wood they can get, part by part: log parts go to the kind with enough real logs, plank parts
- * (planks, doors, slabs...) to the kind with enough planks or logs left for them. One kind for the whole building
- * left 11 oak logs unused while the acacia ran out (log corners had taken 8 of 22 acacia logs). The design's own kind
- * wins ties. Returns "kind_part" -> kind to build it in.
+ * Builders place the wood they can get, part by part: log parts first (planks cannot become logs), then plank parts
+ * (planks, doors, slabs...) biggest first. Each part goes to one kind when one has enough: the village's own kind,
+ * then the design's, then the most plentiful. When none has enough alone the part is split across kinds, in placing
+ * order (bottom up, so the change is a layer): one kind per part left a building 4 logs short with 6 oak and 6 acacia
+ * logs in stock. Costs are in whole crafting batches (a door takes 6 planks, not 2).
  */
-function chooseWood(place: Target[], have: Counts): Map<string, string> {
+function chooseWood(place: Target[], have: Counts, prefer?: string): WoodPlan {
   const need = new Map<string, number>(); // "oak_planks" -> how many
   for (const t of place) {
     const m = WOOD_ITEM.exec(baseName(t.block));
@@ -240,34 +250,57 @@ function chooseWood(place: Target[], have: Counts): Map<string, string> {
     logs[k] = (have[`${k}_log`] ?? 0) + (have[`${k}_wood`] ?? 0);
     planks[k] = have[`${k}_planks`] ?? 0;
   }
-  const out = new Map<string, string>();
+  const out: WoodPlan = new Map();
   const entries = [...need].map(([key, n]) => { const m = WOOD_ITEM.exec(key)!; return { key, kind: m[1], part: m[2], n }; });
-  // Real logs first (planks cannot become logs), then the plank parts, biggest first
-  for (const e of entries.filter((x) => x.part === 'log' || x.part === 'wood')) {
-    let best = e.kind;
-    for (const k of WOODS) if (logs[k] > logs[best] && (logs[best] < e.n)) best = k;
-    logs[best] = Math.max(0, logs[best] - e.n);
-    out.set(e.key, best);
-  }
-  for (const e of entries.filter((x) => x.part !== 'log' && x.part !== 'wood').sort((x, y) => y.n - x.n)) {
-    const units = Math.ceil(e.n * (PLANK_COST[e.part] ?? 1));
+  // Kinds to try for a part: the village's, the design's, then by what there is
+  const order = (own: string, amount: (k: string) => number) =>
+    [...new Set([...(prefer ? [prefer] : []), own, ...[...WOODS].sort((u, w) => amount(w) - amount(u))])];
+  const split = (e: { key: string; kind: string; n: number }, amount: (k: string) => number, can: (k: string, left: number) => number, use: (k: string, n: number) => void) => {
+    const kinds = order(e.kind, amount);
+    const whole = kinds.find((k) => can(k, e.n) >= e.n);
+    const parts: Array<{ kind: string; n: number }> = [];
+    if (whole) parts.push({ kind: whole, n: e.n });
+    else {
+      let left = e.n;
+      for (const k of kinds.filter((x) => can(x, left) > 0)) {
+        const n = Math.min(left, can(k, left));
+        parts.push({ kind: k, n });
+        left -= n;
+        if (!left) break;
+      }
+      // Not enough in any mix: the rest in the first choice (the shortage message names it)
+      if (left) parts.push({ kind: kinds[0], n: left });
+    }
+    for (const p of parts) use(p.kind, p.n);
+    out.set(e.key, parts);
+  };
+  for (const e of entries.filter((x) => x.part === 'log' || x.part === 'wood'))
+    split(e, (k) => logs[k], (k, left) => Math.min(left, logs[k]), (k, n) => { logs[k] = Math.max(0, logs[k] - n); });
+  for (const e of entries.filter((x) => x.part !== 'log' && x.part !== 'wood').sort((x, y) => plankUnits(y.part, y.n) - plankUnits(x.part, x.n))) {
     const supply = (k: string) => planks[k] + logs[k] * 4;
-    let best = e.kind;
-    for (const k of WOODS) if (supply(k) > supply(best) && supply(best) < units) best = k;
-    const fromPlanks = Math.min(planks[best], units);
-    planks[best] -= fromPlanks;
-    logs[best] = Math.max(0, logs[best] - Math.ceil((units - fromPlanks) / 4));
-    out.set(e.key, best);
+    split(e, supply, (k, left) => Math.min(left, partsFrom(e.part, supply(k))), (k, n) => {
+      const units = plankUnits(e.part, n);
+      const fromPlanks = Math.min(planks[k], units);
+      planks[k] -= fromPlanks;
+      logs[k] = Math.max(0, logs[k] - Math.ceil((units - fromPlanks) / 4));
+    });
   }
   return out;
 }
 
-function swapWood(block: string, woods: Map<string, string>): string {
-  const m = WOOD_ITEM.exec(baseName(block));
-  const k = m && woods.get(`${m[1]}_${m[2]}`);
-  if (!m || !k || k === m[1]) return block;
-  const i = block.indexOf('[');
-  return `${k}_${m[2]}${i >= 0 ? block.slice(i) : ''}`;
+/** The targets in the chosen wood kinds (a split part changes kind partway, in placing order). */
+function swapWood(place: Target[], woods: WoodPlan): Target[] {
+  const left = new Map([...woods].map(([key, parts]) => [key, parts.map((p) => ({ ...p }))]));
+  return place.map((t) => {
+    const m = WOOD_ITEM.exec(baseName(t.block));
+    const parts = m && left.get(`${m[1]}_${m[2]}`);
+    if (!m || !parts?.length) return t;
+    const p = parts[0];
+    if (--p.n <= 0 && parts.length > 1) parts.shift();
+    if (p.kind === m[1]) return t;
+    const i = t.block.indexOf('[');
+    return { ...t, block: `${p.kind}_${m[2]}${i >= 0 ? t.block.slice(i) : ''}` };
+  });
 }
 
 /** Items the placing costs (a door is one item; optional blocks are not counted). */
@@ -324,7 +357,14 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     const p = a.bot.entity.position;
     return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: 16, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
   };
-  const bill: Counts = { ...short };
+  // Only what can be made here: glass with no sand in reach must not stop the door and the chest being made (the
+  // builder then leaves the windows open)
+  const bill: Counts = {};
+  for (const [n, q] of Object.entries(short)) {
+    const p = a.world.materials.plan({ [n]: q }, other);
+    if (!Object.keys(p.gather).length && !p.problems.length) bill[n] = q;
+  }
+  if (!Object.keys(bill).length) return null;
   let plan = a.world.materials.plan(bill, other);
   if (plan.fuel.smelts && !other.furnace && !near('furnace')) bill.furnace = 1;
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) bill.crafting_table = 1;
@@ -349,10 +389,18 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   const station = (st: { item: string }) => Number(!/^(crafting_table|furnace)$/.test(st.item));
   const steps = [...plan.steps].sort((x, y) => station(x) - station(y));
   const made: string[] = [];
-  for (const st of steps) {
+  // "Any planks" (sticks, a chest, fuel) come from the kind with logs to spare: not the logs kept for log parts, nor
+  // those later steps saw into planks of their own kind
+  const spareKind = (from: number) => {
+    const inv = inventoryCounts(a);
+    const spare = (k: string) => (inv[`${k}_log`] ?? 0) - (need[`${k}_log`] ?? 0)
+      - steps.slice(from).reduce((s, st) => s + (st.do === 'craft' && st.item === `${k}_planks` ? st.runs : 0), 0);
+    return [...WOODS].sort((u, w) => spare(w) - spare(u))[0];
+  };
+  for (const [i, st] of steps.entries()) {
     checkAbort(signal);
     try {
-      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? 'planks' : st.item, count: st.makes }, signal);
+      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes }, signal);
       else {
         // "Any logs" (charcoal) is whichever kind is carried
         const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log' : st.input ?? '';
@@ -418,60 +466,74 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     let place = todo.filter((t) => t.block !== 'air').sort((u, w) => u.y - w.y || u.x - w.x || u.z - w.z);
     if (pay) {
       // Survival: have everything before starting, taking what is missing from the village storage
-      await syncInventory(a);
-      let store = v ? storageContents(v) : {};
-      // The record looks short: look in the chests first (items put in or taken out by hand are not in the record)
-      const rough = billOf(place);
-      if (v?.storage?.chests.length && Object.entries(rough).some(([n, q]) => (store[n] ?? 0) + (inventoryCounts(a)[n] ?? 0) < q)) {
-        await refreshStorage(a, v, signal);
-        store = storageContents(v);
-      }
-      const all = inventoryCounts(a);
-      for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
-      const woods = chooseWood(place, all);
-      place = place.map((t) => ({ ...t, block: swapWood(t.block, woods) }));
-      const swapped = [...woods].filter(([key, b]) => !key.startsWith(`${b}_`)).map(([key, b]) => `${b} for the ${key.replace(/_/g, ' ')}`);
-      if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
-      const need = billOf(place);
-      let inv = await carriedCounts(a, Object.keys(need));
-      const fetch: Counts = {};
-      for (const [n, q] of Object.entries(need)) {
-        const f = Math.min(q - (inv[n] ?? 0), store[n] ?? 0);
-        if (f > 0) fetch[n] = f;
-      }
-      if (v && Object.keys(fetch).length) {
-        const { got } = await withdrawItems(a, v, fetch, signal);
-        if (Object.keys(got).length) notes.push(`took ${listCounts(got)} from storage`);
-        await standBy(a, job, signal);
+      // Two passes: a builder that comes up short reads the chests again and chooses the wood again (two builders
+      // starting together each chose from a record the other was emptying, and one gave up with spruce left in storage)
+      const orig = place;
+      let woods: WoodPlan = new Map();
+      let need: Counts = {}, inv: Counts = {};
+      let why: string | null = null;
+      // Why making things from stock failed, for the failure message (it was lost, and a builder retried the same
+      // build again and again carrying everything it needed)
+      let makeError = '';
+      for (let pass = 0; pass < 2; pass++) {
+        await syncInventory(a);
+        let store = v ? storageContents(v) : {};
+        // The record looks short: look in the chests first (items put in or taken out by hand are not in the record)
+        const rough = billOf(orig);
+        if (v?.storage?.chests.length && (pass > 0 || Object.entries(rough).some(([n, q]) => (store[n] ?? 0) + (inventoryCounts(a)[n] ?? 0) < q))) {
+          await refreshStorage(a, v, signal);
+          store = storageContents(v);
+        }
+        const all = inventoryCounts(a);
+        for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
+        woods = chooseWood(orig, all, v?.wood);
+        place = swapWood(orig, woods);
+        need = billOf(place);
         inv = await carriedCounts(a, Object.keys(need));
-      }
-      let why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
-      if (why) {
-        // Short only of things that can be made from what is in hand and in storage: make them here
-        const short: Counts = {};
-        for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
-        // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
-        const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal).catch((e: Error) => {
-          if (e.message === 'cancelled') throw e;
-          notes.push(e.message);
-          return 'partly made';
-        });
-        if (made) {
-          notes.push(made);
-          // Crafting planks uses whatever logs are carried, the ones fetched for log parts too: top up from storage
-          inv = await carriedCounts(a, Object.keys(need));
-          const again: Counts = {};
-          const now = v ? storageContents(v) : {};
-          for (const [n, q] of Object.entries(need)) {
-            const f = Math.min(q - (inv[n] ?? 0), now[n] ?? 0);
-            if (f > 0) again[n] = f;
-          }
-          if (v && Object.keys(again).length) await withdrawItems(a, v, again, signal);
+        const fetch: Counts = {};
+        for (const [n, q] of Object.entries(need)) {
+          const f = Math.min(q - (inv[n] ?? 0), store[n] ?? 0);
+          if (f > 0) fetch[n] = f;
+        }
+        if (v && Object.keys(fetch).length) {
+          const { got } = await withdrawItems(a, v, fetch, signal);
+          if (Object.keys(got).length) notes.push(`took ${listCounts(got)} from storage`);
           await standBy(a, job, signal);
           inv = await carriedCounts(a, Object.keys(need));
-          why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
         }
+        why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+        if (why) {
+          // Short only of things that can be made from what is in hand and in storage: make them here
+          const short: Counts = {};
+          for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
+          // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
+          const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal).catch((e: Error) => {
+            if (e.message === 'cancelled') throw e;
+            notes.push(e.message);
+            makeError = e.message;
+            return 'partly made';
+          });
+          if (made) {
+            notes.push(made);
+            // Crafting planks uses whatever logs are carried, the ones fetched for log parts too: top up from storage
+            inv = await carriedCounts(a, Object.keys(need));
+            const again: Counts = {};
+            const now = v ? storageContents(v) : {};
+            for (const [n, q] of Object.entries(need)) {
+              const f = Math.min(q - (inv[n] ?? 0), now[n] ?? 0);
+              if (f > 0) again[n] = f;
+            }
+            if (v && Object.keys(again).length) await withdrawItems(a, v, again, signal);
+            await standBy(a, job, signal);
+            inv = await carriedCounts(a, Object.keys(need));
+            why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, v ? storageContents(v) : {});
+          }
+        }
+        if (!why || !v?.storage?.chests.length) break;
       }
+      const swapped = [...woods].filter(([key, parts]) => parts.some((p) => !key.startsWith(`${p.kind}_`)))
+        .map(([key, parts]) => `${parts.map((p) => (parts.length > 1 ? `${p.n} ${p.kind}` : p.kind)).join(' + ')} for the ${key.replace(/_/g, ' ')}`);
+      if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
       if (why) {
         const left: Counts = {};
         for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
@@ -479,7 +541,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         if (Object.keys(left).every((n) => /^glass(_pane)?$/.test(n))) {
           place = place.map((t) => (/^glass(_pane)?$/.test(chargedItem(t.block)) ? { ...t, optional: true } : t));
           notes.push(`left ${Object.values(left).reduce((s, q) => s + q, 0)} windows open (no glass: no sand to make it)`);
-        } else throw new Error(why + (await requeueBuild(a, job, need, left, signal)));
+        } else throw new Error(why + (makeError ? ` (making them here failed: ${makeError})` : '') + (await requeueBuild(a, job, need, left, signal)));
       }
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
@@ -671,13 +733,21 @@ function searchSite(a: BotAgent, args: Record<string, unknown>, sz: number, cach
     const why = [wet && `${wet} over water`, steep && `${steep} too steep`, occupied && `${occupied} taken by buildings or other agents`, unloaded && `${unloaded} not loaded yet`].filter(Boolean).join(', ');
     return { fail: `no dry, flat ${sz}x${sz} site within ${radius} blocks (candidates rejected: ${why}); explore in another direction and try again, or use a smaller size or larger max_slope` };
   }
-  a.memory.lastSite = { x: best.x, y: best.y, z: best.z, size: sz };
   const b = best;
+  // The commonest wood kind around it (where gatherers go): a village built from it gathers and builds in one kind
+  const kinds: Counts = {};
+  for (const q of logs) {
+    if (Math.hypot(q.x - b.x, q.z - b.z) > 64) continue;
+    const k = /^(.*)_log$/.exec(a.bot.blockAt(q)?.name ?? '')?.[1];
+    if (k && WOODS.includes(k)) kinds[k] = (kinds[k] ?? 0) + 1;
+  }
+  const wood = Object.entries(kinds).sort((u, w) => w[1] - u[1])[0];
+  a.memory.lastSite = { x: b.x, y: b.y, z: b.z, size: sz, ...(wood && wood[1] >= 12 ? { wood: wood[0], woodLogs: wood[1] } : {}) };
   if (v && a.memory.villageRole === 'mayor') a.world.villages.note(v, `${a.name} found a ${sz}x${sz} site centred at x=${b.x} z=${b.z} (ground y=${b.y})`);
   const plots = ((v ? v.plots : (a.memory.plots as Plot[] | undefined)) ?? []) as Plot[];
   const onPlot = plots.some((q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + sz - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + sz - 1 <= q.z2);
   const ready = onPlot && b.range === 0 && b.trees === 0 ? ' It is on a prepared plot and already level and clear: build there directly, no prepare_site needed.' : '';
-  const woodNote = survival ? (b.wood ? ` ${b.wood} log blocks within 48 blocks.` : ' No trees within 48 blocks: wood will have to come from farther away.') : '';
+  const woodNote = survival ? (b.wood ? ` ${b.wood} log blocks within 48 blocks${wood ? ` (mostly ${wood[0]})` : ''}.` : ' No trees within 48 blocks: wood will have to come from farther away.') : '';
   return { done: `site found: centre x=${b.x} z=${b.z}, ground y=${b.y}, ${sz}x${sz}, height range ${b.range}, ${b.trees} tree blocks to clear, ${Math.round(Math.hypot(b.x - ox, b.z - oz))} blocks away.${woodNote}${ready}` };
 }
 

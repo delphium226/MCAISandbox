@@ -8,7 +8,7 @@ import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
 import { TOOLS } from '../skills';
 import { handlePanel } from '../panel';
-import { describePlan, designBill, type Counts } from './mcMaterials';
+import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
 import { postLayout } from '../layout';
 import type { MineflayerWorld } from './mcWorld';
@@ -49,10 +49,10 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });
     }
-    // Lay buildings out and post their tasks, as the mayor's plan_layout does (tests): {buildings, x, y, z, size?, economy?}
+    // Lay buildings out and post their tasks, as the mayor's plan_layout does (tests): {buildings, x, y, z, size?, wood?, economy?}
     if (v && parts[3] === 'layout' && req.method === 'POST') {
       const b = await readJson(req);
-      const site = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y ?? 64)), z: Math.floor(Number(b.z)), size: b.size !== undefined ? Number(b.size) : undefined };
+      const site = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y ?? 64)), z: Math.floor(Number(b.z)), size: b.size !== undefined ? Number(b.size) : undefined, wood: typeof b.wood === 'string' && b.wood ? b.wood : undefined, woodLogs: Number(b.woodLogs) || undefined };
       if (!Number.isFinite(site.x) || !Number.isFinite(site.z)) return sendJson(res, 400, { error: 'x and z (the site centre) are required' });
       const result = postLayout(w, v, String(b.by ?? 'api'), site, b.buildings, b.economy !== false);
       return sendJson(res, result.startsWith('plan_layout:') ? 400 : 200, { result, tasks: v.tasks });
@@ -81,8 +81,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     if (v && parts[3] === 'designs' && parts[5] === 'bill') {
       const d = v.designs[decodeURIComponent(parts[4] ?? '')];
       if (!d) return sendJson(res, 404, { error: `no design "${parts[4]}" in ${v.name}: ${Object.keys(v.designs).join(', ') || 'none'}` });
-      const plan = w.materials.plan(designBill(d));
-      return sendJson(res, 200, { ...plan, text: describePlan(plan) });
+      const plan = w.materials.plan(inWood(designBill(d), v.wood));
+      return sendJson(res, 200, { ...plan, wood: v.wood ?? null, text: describePlan(plan) });
     }
     return sendJson(res, v ? 200 : 404, v ?? { error: 'no such village' });
   }

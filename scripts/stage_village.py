@@ -56,6 +56,7 @@ p.add_argument("--brain", choices=["tasks", "tiered"], default="tasks")
 p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
 p.add_argument("--workers", type=int, default=2)
 p.add_argument("--minutes", type=float, default=20)
+p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
 args = p.parse_args()
 buildings = [b.strip() for b in args.buildings.split(",") if b.strip()]
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
@@ -112,7 +113,7 @@ for name in set(buildings):
 biggest = max(max(designs[n]["width"], designs[n]["depth"]) for n in buildings)
 size = min(36, int(math.ceil(math.sqrt(len(buildings)))) * (biggest + 3) + 8)
 site = find_land(args.x, args.z, size)
-r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size)})
+r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs")})
 print(r.get("result") or r, flush=True)
 if "error" in r:
     raise SystemExit(1)
@@ -143,13 +144,23 @@ if storage_spot:
         raise SystemExit(f"could not find the ground at {sx},{sz} for the storage chest")
     print(rcon(f"setblock {sx} {y} {sz} chest"), flush=True)
     # Stock it with every building's raw materials, plus a crafting table's and a furnace's worth
+    # (logs in the village's wood kind; with --mixed-wood, half of them in another kind)
     need = {}
+    wood = None
     for n in buildings:
-        for item, q in call(f"/village/{args.village}/designs/{n}/bill").get("gather", {}).items():
-            item = "oak_log" if re.search(r"_log$|^any:logs$", item) else "cobblestone" if item == "any:cobblestone" else item.replace("any:", "")
+        bill = call(f"/village/{args.village}/designs/{n}/bill")
+        wood = bill.get("wood") or "oak"
+        for item, q in bill.get("gather", {}).items():
+            item = f"{wood}_log" if item == "any:logs" else "cobblestone" if item == "any:cobblestone" else item.replace("any:", "")
             need[item] = need.get(item, 0) + q
-    need["oak_log"] = need.get("oak_log", 0) + 4
+    need[f"{wood}_log"] = need.get(f"{wood}_log", 0) + 4
     need["cobblestone"] = need.get("cobblestone", 0) + 8
+    if args.mixed_wood:
+        other = "spruce" if wood != "spruce" else "birch"
+        for item in [i for i in need if i.endswith("_log")]:
+            half = need[item] // 2
+            need[item] -= half
+            need[f"{other}_log"] = need.get(f"{other}_log", 0) + half
     slot = 0
     for item, q in need.items():
         while q > 0 and slot < 27:

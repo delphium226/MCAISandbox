@@ -47,6 +47,25 @@ const UNOBTAINABLE: Record<string, string> = {
   spider_eye: 'dropped by spiders (none in peaceful)', rotten_flesh: 'dropped by zombies (none in peaceful)',
 };
 
+export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
+/** A wooden item: its wood kind and part ("acacia", "planks"). */
+export const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
+
+/**
+ * A bill in the village's wood kind (oak planks become acacia planks where acacia grows): a village gathers one kind,
+ * because a builder puts each wooden part in one kind and mixed logs came up a few short almost every build.
+ */
+export function inWood(bill: Counts, wood: string | undefined): Counts {
+  if (!wood) return bill;
+  const out: Counts = {};
+  for (const [n, q] of Object.entries(bill)) {
+    const m = WOOD_ITEM.exec(n);
+    const k = m ? `${wood}_${m[2]}` : n;
+    out[k] = (out[k] ?? 0) + q;
+  }
+  return out;
+}
+
 /** Placing one of these charges another item (grass needs silk touch to carry: charge dirt). */
 const CHARGE_AS: Record<string, string> = { grass_block: 'dirt' };
 
@@ -304,18 +323,19 @@ const PICKAXE = /^(cobblestone|stone|sandstone|red_sandstone|terracotta|coal|raw
 
 /**
  * Village tasks that gather raw materials into the storage (collect, then deposit everything), in even parts small
- * enough for two workers to share: at most 12 logs or 32 of anything else (57 cobblestone: 29 and 28).
+ * enough for two workers to share: at most 12 logs or 32 of anything else (57 cobblestone: 29 and 28). With the
+ * village's wood kind, logs are gathered in that kind; without it, any logs (builders swap wood kinds).
  */
-export function gatherTasks(gather: Counts, label: string): Array<{ title: string; detail: string }> {
+export function gatherTasks(gather: Counts, label: string, wood?: string): Array<{ title: string; detail: string }> {
   const merged: Counts = {};
   for (const [item, n] of Object.entries(gather)) {
-    // Logs of any kind will do (builders swap wood kinds); a furnace takes any cobblestone
-    const what = /_log$|^any:logs$/.test(item) ? 'logs' : item === 'any:cobblestone' ? 'cobblestone' : item.replace(/^any:/, '');
+    // A furnace takes any cobblestone
+    const what = /_log$|^any:logs$/.test(item) ? (wood ? `${wood}_log` : 'logs') : item === 'any:cobblestone' ? 'cobblestone' : item.replace(/^any:/, '');
     merged[what] = (merged[what] ?? 0) + n;
   }
   const tasks: Array<{ title: string; detail: string }> = [];
   for (const [what, n] of Object.entries(merged)) {
-    const parts = Math.ceil(n / (what === 'logs' ? 12 : 32));
+    const parts = Math.ceil(n / (/logs?$/.test(what) ? 12 : 32));
     for (let i = 0; i < parts; i++) {
       const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
       const tool = PICKAXE.test(what) ? ' (mining it needs a pickaxe: if you have none, craft a wooden_pickaxe first; keep your tools)' : '';

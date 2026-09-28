@@ -11,6 +11,10 @@ export interface Site {
   z: number;
   /** The find_site search size: the plot must fit in it. */
   size?: number;
+  /** The commonest wood kind near it (find_site): the village gathers and builds in it, if there is enough of it. */
+  wood?: string;
+  /** How many log blocks of that kind are within 64 blocks. */
+  woodLogs?: number;
 }
 
 /**
@@ -36,9 +40,17 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const laidOut = v.tasks.filter((t) => t.postedBy === by && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
     if (laidOut.length) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
     const materials = new Map<string, ReturnType<NonNullable<WorldAdapter['materialTasks']>>>();
+    // One wood kind for the whole village, chosen at its first layout, when there is enough of it near the site for
+    // these buildings with a margin (acacia chosen from 42 logs for ~80 needed sent gatherers 80 blocks away); otherwise
+    // any kind is gathered and builders mix kinds part by part
+    let wood = v.wood;
+    if (!wood && economy && site.wood) {
+      const logs = names.reduce((s, n) => s + (w.materialTasks!(v.designs[n], n).logs ?? 0), 0);
+      if ((site.woodLogs ?? 0) >= logs * 1.5) wood = site.wood;
+    }
     if (economy)
       for (const n of new Set(names)) {
-        const m = w.materialTasks!(v.designs[n], '{label}');
+        const m = w.materialTasks!(v.designs[n], '{label}', wood);
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
       }
@@ -75,6 +87,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}`,
         after: [0, ...gather],
       });
+    }
+    if (wood && !v.wood) {
+      v.wood = wood;
+      reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);
     }
     const made = reg.post(v, tasks, by, 100);
     reg.note(v, `${by} laid out ${names.join(', ')} on a ${lay.width}x${lay.depth} plot at x ${lay.plot.x1}..${lay.plot.x2}, z ${lay.plot.z1}..${lay.plot.z2}`);

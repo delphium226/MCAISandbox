@@ -133,7 +133,7 @@ export interface WorldAdapter {
    * in the village storage), and why it cannot be built here at all (materials not obtainable). Worlds without an
    * economy leave it out.
    */
-  materialTasks?(design: Design, label: string): { tasks: Array<{ title: string; detail: string }>; problems: string[] };
+  materialTasks?(design: Design, label: string, wood?: string): { tasks: Array<{ title: string; detail: string }>; problems: string[]; logs?: number };
 }
 
 /**

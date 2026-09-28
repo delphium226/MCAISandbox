@@ -12,14 +12,15 @@ import { overlaps } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt } from './mcSurvival';
-import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, standableY, str, syncInventory } from './mcUtil';
+import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
 /** Kept by deposit "all": the tools an agent works with. */
 const TOOL = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/;
 /** Left out of deposit "all": what gathering picks up by the way (a chest filled up with saplings, seeds and dirt). */
-const JUNK = /_sapling$|_seeds$|^(dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
+// (leaf litter and apples come from felling trees: 28 leaf litter filled a single-chest storage)
+const JUNK = /_sapling$|_seeds$|_leaves$|_petals$|^(leaf_litter|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
 /** Names that stand for any kind of an item. */
 const KINDS: Array<[RegExp, RegExp, string]> = [
   [/^(any[ _:]?)?(wood(en)?[ _])?planks?$/, /_planks$/, 'planks'],
@@ -214,8 +215,17 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     throw new Error('the village has no storage chest yet: craft a chest (8 planks) and deposit again; deposit puts it down near you, outside the plots');
   const notes: string[] = [];
   const moved: Record<string, number> = {};
+  let slipped = 0;
   for (let i = 0; left > 0 && want.size; i++) {
     checkAbort(signal);
+    // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
+    // first chest, not "storage is full" (four workers at one chest were told that with 23 slots free)
+    if (i >= (v.storage?.chests.length ?? 0) && slipped === 1 && v.storage?.chests.some((c) => slotsUsed(a, c) < 27)) {
+      slipped++;
+      await sleep(1000, signal);
+      i = -1;
+      continue;
+    }
     // Past the last chest (or none yet): a carried chest becomes the next one
     if (i >= (v.storage?.chests.length ?? 0)) {
       if (!countItem(a, chestId)) break;
@@ -239,6 +249,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
           left -= n;
         } catch (e) {
           if ((e as Error).message === 'cancelled') throw e;
+          if (!slipped) slipped = 1;
         }
       }
       c.items = chestItems(w);
@@ -254,8 +265,10 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const n = v.storage?.chests.length ?? 0;
   if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
   const rest = left > 0 ? [...want.values()] : [];
+  const roomLeft = v.storage?.chests.some((c) => slotsUsed(a, c) < 27);
   return `deposited ${got}${notes.length ? ` (${notes.join('; ')})` : ''}` +
-    (rest.length ? `; storage is full, still carrying ${rest.map((r) => `${r.count} ${r.name}`).join(', ')}: craft a chest (8 planks) and deposit again` : '') +
+    (rest.length && roomLeft ? `; could not put in ${rest.map((r) => `${r.count} ${r.name}`).join(', ')} though there is room (another worker at the chest?): deposit again` : '') +
+    (rest.length && !roomLeft ? `; storage is full, still carrying ${rest.map((r) => `${r.count} ${r.name}`).join(', ')}: craft a chest (8 planks) and deposit again` : '') +
     `. Storage now holds ${describeStorage(v, 12)}`;
 }
 
