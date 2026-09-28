@@ -89,43 +89,181 @@ Useful commands: `/gamemode creative|survival|spectator`, `/time set day|night`,
 
 ## AI agents
 
-(For how the agent system is built, with diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).)
+(For how the agent system is built in code, with diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).)
 
-Agents are **real players**: they have a body in the world, an inventory and health, and follow the same rules as
-humans. Everyone sees them move, mine, craft and chat. Instead of a browser client, a server-side controller drives
-the agent by running **skills** that you queue up.
+Agents are **real players**. Each has a body in the world, an inventory, health and hunger, and follows the same rules
+as a human player: it walks, digs, crafts and talks through the same game mechanics, and everyone sees it do so. There
+is no browser behind it. A server-side **brain** decides what it does, and the body carries that out as **skills**.
+The same agents, brains and REST API work in two worlds: this browser sandbox, and real Minecraft Java Edition (see
+[Real Minecraft](#real-minecraft-experimental)).
+
+### How an agent works
+
+An agent is made of four parts:
+
+- **The body** (`WorldAgent` in `server/src/world.ts`) is the player in the world. It can observe its surroundings and
+  run one skill at a time.
+- **The skill queue.** A skill is a small program with a clear goal and a clear result: `collect block=logs count=8`,
+  `craft item=wooden_pickaxe`, `build_design design=cottage x=120 z=-40`. Skills are queued and run in order; each one
+  ends with success ("collected 8 logs") or a failure message that says what is wrong and what to do about it
+  ("needs 3 planks (have 2)"; "the ground is not level here (heights 70..74); run prepare_site x=120 z=-40 first").
+- **Events.** Everything that happens to the agent is written to its event stream: chat it heard, damage, items picked
+  up or crafted, and every skill's result (`action_done` / `action_failed`, with the skill's arguments).
+- **Memory.** A free-form key-value store: the current plan, long-term notes, the village it belongs to, the models it
+  uses, statistics. Controllers and brains read and write it; it is exposed at `/api/agents/:name/memory`.
+
+The **brain** sits on top. On every server tick (20 per second) it can look at the events and the observation and queue
+skills. A scripted brain decides in code; an LLM brain asks a language model, which answers with tool calls, one per
+skill, that the brain queues. Anything outside the server can play the brain role too, through the REST API: observe,
+decide, queue skills, read the events, repeat.
+
+```mermaid
+flowchart LR
+  obs["observation<br/>(position, inventory,<br/>blocks and entities near)"] --> brain
+  events["events<br/>(chat, results of skills)"] --> brain
+  memory[("memory<br/>(plan, notes, village)")] <--> brain
+  brain["brain<br/>scripted or LLM"] -- "queues skills" --> queue["skill queue"]
+  queue --> body["body in the world"]
+  body -- "success / failure message" --> events
+```
+
+**What an observation holds:** position and biome, time of day, health and food, the inventory, what the agent is
+holding and wearing, the blocks around it (counted by type, with the nearest of each), the entities near it (players,
+agents, mobs, dropped items, with distance), and its current and queued actions. Language models get a trimmed version
+(about 2,000 tokens: plants and common stone left out, the nearest 20 block types) because prompt size dominates the
+speed of local models.
+
+### Skills
 
 | Skill | Arguments | What it does |
 |---|---|---|
-| `move_to` | x, y, z, range? | A* pathfinding: walks, jumps, swims and drops down ledges |
+| `move_to` | x, y, z, range? | Pathfinding: walks, jumps, swims and drops down ledges; far goals are walked in legs of ~40 blocks |
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
-| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `iron_ore`, ...) |
+| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first |
 | `place` | item, x, y, z | Places a block |
-| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries (in real Minecraft the recipe is carried out by server command, ingredients charged exactly) |
+| `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
 | `attack` | id \| kind | Fights an entity |
 | `follow` | player, distance?, seconds? | Follows a player |
 | `give` | player, item, count? | Walks to a player and tosses them items (for trading and economy experiments) |
-| `chat` | message | Talks. Agents only **hear** chat within 48 blocks, like people in the paper |
+| `chat` | message | Talks. Agents only **hear** chat within 48 blocks, as in Project Sid |
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
-| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off existing builds) and reports its centre |
-| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot in `memory.plots`; preparing next to it at the same `y` extends it |
-| `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: levels the site, clears it, places walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
+| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off existing builds; in survival, with trees within reach for wood) and reports its centre |
+| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it |
+| `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
 | `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise, with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
 | `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
+| `deposit`, `withdraw` | item?, count? | Real Minecraft: put items in, or take them from, the village storage chests (see [the village economy](#the-village-economy-real-minecraft)) |
 | `get_item` | item, count? | Creative mode only: takes items from the creative inventory |
 
-`MC_BUILD_SPEED` multiplies how fast `build`, `build_box` and `prepare_site` work (default `1`, about 10 blocks per second;
-walking speed is unchanged). Raise it to make experiments and tests faster. `buildSpeed` in an agent's memory overrides it
-for that agent.
+Skills do the arithmetic and the geometry so the brain does not have to: `craft` works out the planks and sticks a
+recipe needs, `find_site` scores every candidate area, `prepare_site` fells whole trees and levels to the most common
+height, and the building skills check the ground, orient doors and keep the way out clear.
 
-Building works best in creative mode, where blocks are unlimited and clearing is instant. In survival, `build` and
-`build_box` use blocks from the inventory and skip anything they would have to dig out. Spawn an agent in creative mode
-with `POST /api/agents {"name": "Mason", "gamemode": "creative"}`.
+`MC_BUILD_SPEED` multiplies how fast `build`, `build_box` and `prepare_site` work (default `1`, about 10 blocks per
+second; walking speed is unchanged); `buildSpeed` in an agent's memory overrides it for that agent. In the sandbox,
+building works best in creative mode, where blocks are unlimited and clearing is instant; in survival, `build` and
+`build_box` use blocks from the inventory and skip anything they would have to dig out. In real Minecraft, survival
+building is the village economy described below.
 
-### In-game
+### Brains
+
+Pick a brain when spawning an agent (`brain` in `POST /api/agents`, or the third word of `/agent spawn`):
+
+| Brain | World | Decides with | Use it for |
+|---|---|---|---|
+| `idle` | both | nothing: it only runs the skills you queue | driving an agent from outside, testing a skill |
+| `worker` | sandbox | a script | a baseline that works up the tech tree: wood → crafting table → wooden pickaxe → stone tools → furnace → coal and torches → iron → iron pickaxe; it also answers nearby players ("hi", "follow me", "come here", "give me oak planks", "what are you doing?", "stop") |
+| `companion` | sandbox | a script | follows the nearest human player around and chats now and then |
+| `llm` | both | Claude | one model that sees everything and calls skills directly |
+| `tiered` | both | a planner model and an executor model | local or mixed models; villages; the brain used for the experiments below |
+| `tasks` | Minecraft | a script | scripted village workers for tests: they run the skill calls each village task spells out |
+
+**LLM brain (Claude).** `server/src/llmBrain.ts` sends each agent's observation and recent events to Claude and runs
+the returned tool calls as skills. It needs Anthropic credentials (`ANTHROPIC_API_KEY` or an `ant auth login`
+profile). `MC_LLM_MODEL` sets the model (default `claude-opus-5`) and `MC_LLM_INTERVAL_MS` how often an idle agent asks
+for a decision (default `6000`). Requests use low effort, cache the system prompt, and opt into Anthropic's server-side
+refusal fallback (`fallbacks: "default"`).
+
+To write a brain in TypeScript, implement `AgentBrain` from `server/src/world.ts` (`tick`, `onEvent`) and register it
+(`BRAINS` in `server/src/brains.ts` for the sandbox, `MC_BRAINS` in `server/src/mineflayer/mcWorld.ts` for Minecraft).
+A brain written against `WorldAgent` uses only the world interface, so it runs in either world.
+`examples/agent_loop.py` is a small, dependency-free Python controller that runs an observe → decide → act loop over
+the REST API; its `decide()` function is where an LLM or a PIANO-style architecture goes.
+
+### The two-tier brain
+
+`server/src/tieredBrain.ts` splits the thinking between two models, the way a person might plan the afternoon and then
+just get on with it:
+
+- **The planner** is the slow, careful model. It sets a **goal** and **3-8 concrete steps** ("Collect 8 logs", "Craft
+  a wooden_pickaxe", "prepare_site x=120 z=-40 width=13 depth=13"), and may write long-term **notes** (where the base
+  is, where ore was seen, promises made to others).
+- **The executor** is the fast model. Each turn it gets the plan with the current step marked and answers with 1-3
+  skill calls for that step. It marks a step done with `step_done`, or asks for a new plan with `request_replan` when a
+  step is impossible.
+
+**What each model sees.** The planner's prompt has the agent's role, game mode and objective, its notes, the village
+summary (plots, buildings, the design library, the storage contents, the task board, recent village events, ground
+others are working on), the previous plan, the events since it last planned and a trimmed observation. The executor's
+prompt has the objective, the village summary, its task, the plan, its recent decisions, any calls that are blocked for
+repeating, the events since its last turn and a trimmed observation. The exact prompt and answer of each agent's last
+planner and executor call are on the [control panel](#control-panel).
+
+**When the planner runs:** when there is no plan; when a plan is complete; when the executor asks for a new plan; after
+3 failed actions; when no step has been completed for 3 minutes (`MC_PLAN_INTERVAL_MS`); and for village roles, when the
+task board changes (below). The executor runs whenever the agent is idle, at most every 6 seconds while working
+(`MC_LLM_INTERVAL_MS`), and at once when someone speaks to the agent by name.
+
+**Keeping the plan honest.** Executors forget to call `step_done` and redo finished work, so a step is also marked done
+when a skill it names succeeds with the item it names ("Collect 26 cobblestone" is not done by collecting logs for a
+pickaxe). Models write steps and tasks in their own formats (as objects, as skill calls, as JSON text instead of a
+tool call); the brain normalises them.
+
+**Settings** take `<provider>:<model>`, where the provider is `ollama` (local or `:cloud` models) or `anthropic`:
+- `MC_EXEC_MODEL` sets the executor (default `ollama:gemma4:31b`) and `MC_PLAN_MODEL` the planner (default: the
+  executor's model). `anthropic:claude-sonnet-5`, for example, pairs a local executor with a Claude planner. `none`
+  turns off automatic planning, so plans come only from `POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}`.
+- Per agent, `execModel`, `planModel` and `designModel` in its memory override them, so agents on different models share
+  a world: `POST /api/agents {"name":"Qwen","brain":"tiered","memory":{"execModel":"ollama:qwen3:30b-instruct"}}`.
+  `memory.stats` records call counts, average latency and how many actions succeeded or failed.
+- `MC_OLLAMA_URL` (default `http://localhost:11434`), `MC_OLLAMA_ROUTES` (models served by other Ollama instances, e.g.
+  `qwen3:30b-instruct=http://127.0.0.1:11435`), `MC_OLLAMA_CTX` (context length, default `8192`: on a 24 GB GPU this
+  keeps a ~20 GB model entirely on the GPU; at 16384 part of it spills to the CPU and it runs several times slower) and
+  `MC_OLLAMA_TIMEOUT` (seconds per call, default `300`).
+
+Set `objective` in the agent's memory (for example `"build a small village"`) to steer every plan toward it. The
+current plan and notes are in its memory (`GET /api/agents/:name/memory`).
+
+**Choosing local models.** Measured on RTX 3090s (24 GB each) with Ollama:
+
+| Model | Decision time | Notes |
+|---|---|---|
+| `gpt-oss:120b-cloud` | ~3.5 s a plan, ~9 s a design | Fastest planner and architect; runs on Ollama's cloud (prompts leave the machine) |
+| `qwen3.8:27b` (dense) | ~20 s a plan | The tightest worker plans (6/6 in a benchmark) |
+| `qwen3:30b-instruct` (MoE, ~3B active) | 1-2 s a turn | Fast and fine as executor; loose plans, poor designs |
+| `gemma4:31b` (dense) | 14-18 s | Reliable designs, but slow |
+
+Language models count badly and place things badly, so the skills and the brain do the arithmetic (see
+[Design principles](#design-principles)). `scripts/bench/` times models on the brain's real prompts.
+
+### Guards against loops and floods
+
+Agents left to themselves loop, repeat and talk over each other. These rules are in code:
+
+- **Repeats are refused.** The same failed call twice, or the same successful call twice within two minutes, is refused
+  for five minutes, and the executor is told which calls are blocked so it tries something else.
+- **The planner reviews** after 3 failures or 3 minutes without progress.
+- **Chat.** Chat from other agents only interrupts an agent that is addressed by name; each agent speaks at most once
+  every 30 seconds (before this rule, a village produced 553 messages in 10 minutes).
+- **No freelancing.** An agent without a plan can only talk: urgent chat used to send idle agents off building on their
+  own.
+- **Ground.** Agents reserve the ground they are working on (for 3 minutes, renewed while working), and never build
+  over another building.
+
+### In-game commands
 ```
-/agent spawn Alex farmer worker     # name, role, brain (worker | companion | idle)
+/agent spawn Alex farmer worker     # name, role, brain
 /agent do Alex collect block=logs count=8
 /agent do Alex give player=@me item=oak_log count=4
 /agent list
@@ -133,14 +271,10 @@ with `POST /api/agents {"name": "Mason", "gamemode": "creative"}`.
 /agent remove Alex
 ```
 
-The built-in `worker` brain is a scripted baseline and a working test of every skill. It works up the tech tree:
-wood → crafting table → wooden pickaxe → stone tools → furnace → coal and torches → iron → iron pickaxe. It also
-answers nearby players ("hi", "follow me", "come here", "give me oak planks", "what are you doing?", "stop").
-
 ### REST API (control agents from any language)
 | Method | Endpoint | Purpose |
 |---|---|---|
-| POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`) |
+| POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?, reset?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`; in Minecraft, `reset` clears its saved inventory and position) |
 | GET | `/api/agents` | List agents |
 | GET | `/api/agents/:name/observe?radius=16` | Observation: position, health, food, inventory, visible blocks (counts and nearest), nearby entities, current action, recent events |
 | POST | `/api/agents/:name/act` `{action, ...args, replace?}` (or an array) | Queue skills |
@@ -148,88 +282,57 @@ answers nearby players ("hi", "follow me", "come here", "give me oak planks", "w
 | GET | `/api/agents/:name/events?since=<id>` | Event stream: chat heard, damage, pickups, crafts, action done or failed, deaths |
 | GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
 | DELETE | `/api/agents/:name` | Remove the agent |
-| GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status |
-| GET | `/api/block?x=&y=&z=` | The block at a position (name and state bits) |
+| GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
+| GET | `/api/block?x=&y=&z=` | The block at a position (name and state; `loaded: false` when its chunk is not loaded) |
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
-| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, reservations and recent events |
-| GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
-| GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
+| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage, reservations and recent events |
 | POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
 | POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
-| GET | `/api/metrics` | Experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
+| GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
+| GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
+| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does |
+| POST | `/api/village/:name/storage` `{x, y, z}`, `/api/village/:name/tasks/:id` `{status}` | Minecraft, for tests: register an existing chest as storage; set a task's status |
+| GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
+| GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
-**Scale:** the per-tick pathfinding budget and fast block search keep the server at about 8 ms per tick with 30 autonomous
-agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
-
-`examples/agent_loop.py` is a small, dependency-free Python controller that runs an observe → decide → act loop. Its
-`decide()` function is where an LLM or PIANO-style architecture goes.
-
-To write a brain in TypeScript instead, implement `AgentBrain` from `server/src/world.ts` (`tick`, `onEvent`) and
-register it in `BRAINS` in `server/src/brains.ts`. A brain written against `WorldAgent` uses only the world interface,
-so it is not tied to this sandbox.
-
-**LLM brain (Claude).** `server/src/llmBrain.ts` is a ready-made brain that sends each agent's observation and recent
-events to Claude and runs the returned tool calls as skills. It needs Anthropic credentials (`ANTHROPIC_API_KEY` or an
-`ant auth login` profile). Spawn an agent with it using `/agent spawn Ada farmer llm` or `POST /api/agents {"name":"Ada","brain":"llm"}`.
-
-Settings:
-- `MC_LLM_MODEL` sets the model (default `claude-opus-5`).
-- `MC_LLM_INTERVAL_MS` sets how often an idle agent asks for a new decision (default `6000`).
-
-Requests use low effort, cache the system prompt, and opt into Anthropic's server-side refusal fallback (`fallbacks: "default"`).
-
-**Two-tier brain (local or mixed models).** `server/src/tieredBrain.ts` splits the work between a planner model, which sets
-a goal and 3-8 steps, and a faster executor model, which turns the current step and the latest observation into skill
-calls. The planner runs when there is no plan, when a plan finishes, when the executor asks for a new one, after 3 failed
-actions, after a death, or when no step has been completed for a while. Spawn an agent with it using
-`/agent spawn Ada farmer tiered`. It runs on [Ollama](https://ollama.com) by default, so it needs no API credentials.
-
-Settings take `<provider>:<model>`, where the provider is `ollama` (local or `:cloud` models) or `anthropic`:
-- `MC_EXEC_MODEL` sets the executor (default `ollama:gemma4:31b`).
-- `MC_PLAN_MODEL` sets the planner (default: the executor's model). For example, `anthropic:claude-sonnet-5` pairs a local
-  executor with a Claude planner. `none` turns off automatic planning, so plans come only from
-  `POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}`.
-- `MC_OLLAMA_URL` (default `http://localhost:11434`) and `MC_OLLAMA_CTX` (context length, default `8192`). On a 24 GB GPU,
-  8192 keeps a ~20 GB model like `gemma4:31b` entirely on the GPU. At 16384 part of it spills to the CPU and it runs
-  several times slower.
-- Per agent, `execModel` and `planModel` in its memory override the two settings above, so agents on different models
-  can share a world: `POST /api/agents {"name":"Qwen","brain":"tiered","memory":{"execModel":"ollama:qwen3:30b-instruct"}}`.
-  `memory.stats` records call counts, average latency and how many actions succeeded or failed.
-- `MC_PLAN_INTERVAL_MS` sets how long without a completed step before the planner reviews the plan (default `180000`).
-
-**Choosing local models.** Measured on RTX 3090s (24 GB each) with Ollama, 8-minute runs from an empty inventory:
-
-| Model | Decision time | Notes |
-|---|---|---|
-| `gemma4:31b` (dense) | 14-18 s | Plans well and gets quantities right; slow because every turn re-reads the prompt |
-| `qwen3:30b-instruct` (MoE, ~3B active) | 0.7-1.1 s | Very fast, clean once skills are forgiving, but a shallower planner |
-
-The best mix is Qwen as executor with Gemma as planner and architect. The two models (about 20 GB each) do not fit on
-one 24 GB card together, so swapping would cost 7-50 s per switch; with two GPUs Ollama keeps one on each. Prompt size
-dominates local latency, so observations are trimmed to about 2,000 tokens. Language models count badly, so skills
-do the arithmetic (craft makes missing planks and sticks, designs are drawn with spaced symbols, doors are fixed in code).
-
-Set `objective` in the agent's memory (for example `"build a small village"`) to steer every plan toward it. In
-creative mode the planner plans building projects like a player: `find_site`, then `prepare_site`, then `build` or
-`build_box` on the plot, extending the plot at the same level when the settlement grows.
-
-The current plan is stored in the agent's memory (`GET /api/agents/:name/memory`), along with any long-term notes the
-planner writes.
+**Scale:** in the sandbox, the per-tick pathfinding budget and fast block search keep the server at about 8 ms per
+tick with 30 autonomous agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
 
 ### Villages: agents building together
 
-Agents with the same `village` in their memory share one village, stored in `<world>/villages.json`:
+Agents with the same `village` in their memory share one village record (saved in `villages.json` next to the world):
+its plots, buildings, design library, task board, storage and a log of what happened.
 
-- **Plots and buildings.** `prepare_site` and the build skills record what they make. While they work they reserve their
-  ground, so two agents never work the same area, and building over another building is refused.
-- **Design library.** `design_building` asks the planner model to draw a building as layers of symbols (`L P P P L`, one
-  per block) with a palette. The design is checked (sizes, real blocks, a door on the outside, which is moved or added
-  if missing) and saved for anyone to build with `build_design`, so the village's buildings match.
-- **Task board and roles.** An agent with `villageRole: "mayor"` coordinates and does no building itself. It picks the
-  site, posts tasks with exact coordinates (design, prepare the plot, build X at x,z), reviews the board when it changes,
-  and declares the objective complete. Every other member is a worker: it takes the next open task whose prerequisites are
-  done, plans it, and the task is marked done when the plan finishes. Workers with nothing to do wait without calling
-  the model.
+**Roles.** An agent with `villageRole: "mayor"` coordinates and does no physical work itself; every other member is a
+worker.
+
+- **The mayor** finds the site (`find_site`), has each kind of building designed (`design_building`: the architect
+  model draws it), lays the buildings out (`plan_layout`), then waits. It reviews the board when every task is done or a
+  task fails, re-posts a failed task with a fix, and calls `declare_complete` when the objective is met. Its executor may
+  only look around, talk, find a site and design; plan steps that are workers' jobs (collecting, crafting, building)
+  are dropped with a note.
+- **Workers** take the next open task whose prerequisites are done, *before* planning (otherwise several would plan
+  the same one), do it, and take the next. A task that code posted spells out its own skill calls ("collect
+  block=logs count=12, then deposit item=all"), and those calls are the worker's plan: no planner call. Other tasks go
+  to the planner. A worker with nothing to claim waits without calling any model.
+
+**The task board.** A task is `open`, `claimed` by one worker, `done` or `failed`, and may wait for others (`after`).
+A worker that has to replan the same task three times hands it back; handed back twice, it fails, so the mayor can
+rethink it. Building tasks also wait until the design they name is in the library.
+
+**Designs.** `design_building` asks the architect model to draw a building as horizontal layers of symbols, one per
+block, spaced so the model can count them (`"L P P P L"`), with a palette (`{"L": "oak_log", "P": "oak_planks"}`). Code
+checks the design (sizes, real blocks, a door on the outside with room above it, moving or adding the door when the
+model puts it inside the wall) and sends the problems back once for a fix. A design is reused for every copy, so
+matching buildings match.
+
+**Layout.** `plan_layout` (`server/src/layout.ts`) takes the buildings by name (`["cottage", "cottage",
+"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot, 3-block streets apart,
+choosing the column count that gives the squarest plot, and centres the plot on the site the mayor found. It refuses
+designs that are not drawn yet, a site smaller than the plot, and ground that is taken, each with the reason. Then it
+posts the tasks in order: prepare the plot; set up the storage; the materials for each building; each building at its
+computed position. Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot
+and spent the rest of the run relocating it.
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -237,11 +340,9 @@ curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gam
 curl -X POST localhost:8765/api/agents -d '{"name":"Ada","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood"}}'
 ```
 
-With a mayor and three workers on `qwen3:30b-instruct` (executor) and `gemma4:31b` (planner and architect), that
-objective takes about four minutes at `buildSpeed: 4`; four cottages, a meeting hall and a wall took ten minutes with four
-workers in dense forest. `designModel` in an agent's memory sets the model that draws its designs (default: its planner),
-so workers can plan with a fast model (`planModel: "ollama:qwen3:30b-instruct"`, 6-10 s per plan instead of 20-60 s) while
-designs still come from a strong one.
+In creative mode, blocks are free and a village of two cottages and a hall takes about four minutes with three workers
+at `buildSpeed: 4`. In survival in real Minecraft, the agents first have to gather everything: see
+[the village economy](#the-village-economy-real-minecraft).
 
 **Importing schematics.** Builds shared on sites such as Planet Minecraft or Minecraft-Schematics.com can be added to a
 village's design library: `.schem` (WorldEdit/Sponge v1-v3), `.schematic` (MCEdit, pre-1.13 ids), `.litematic`
@@ -251,15 +352,31 @@ village's design library: `.schem` (WorldEdit/Sponge v1-v3), `.schematic` (MCEdi
 curl -X POST "localhost:8765/api/village/Birchwood/designs/import?name=tavern" --data-binary @tavern.schem
 ```
 
-Blocks this game lacks become the nearest match (dark oak planks become spruce planks, brick stairs become bricks, glass
-panes become glass); decorations with no counterpart (carpets, signs, trapdoors) are left out, and plants and water
-keep whatever is on site. The response lists the substitutions and any blocks with no match. Use `skip_bottom=N` to drop
-ground layers saved with the build. Stairs and logs lose their orientation; doors face outward. Check each build's
-licence before sharing it further.
+In the sandbox, blocks this game lacks become the nearest match (dark oak planks become spruce planks, brick stairs
+become bricks, glass panes become glass); decorations with no counterpart (carpets, signs, trapdoors) are left out, and
+plants and water keep whatever is on site. The response lists the substitutions and any blocks with no match. Use
+`skip_bottom=N` to drop ground layers saved with the build. Stairs and logs lose their orientation; doors face outward.
+Check each build's licence before sharing it further.
 
-To keep several agents from looping or flooding each other: chat from other agents only interrupts an agent that is
-addressed by name, each agent speaks at most once every 30 seconds, an agent without a plan can only talk, a step is
-marked done when the skill it names succeeds, and repeating the same call (failed, or twice in two minutes) is refused.
+### Design principles
+
+What building these agents taught, and what the code is built around:
+
+- **Models decide; code does arithmetic and geometry.** Models miscount crafting quantities and row lengths, place
+  doors inside walls, overlap buildings and invent item ids. So skills make the missing planks, designs use spaced
+  symbols, doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
+  counts every block. The weaker the model, the higher-level the skills should be.
+- **Failure messages are the model's eyes.** A failure says what is short or where the problem is, and what to do next
+  ("short of materials for the cottage: 35 acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log;
+  craft 36 acacia_planks"). Project Sid calls this action awareness.
+- **Agents loop unless stopped**, and several agents race for the same work: hence the guards above, claiming tasks
+  before planning, and reserving ground.
+- **Prepare land like a player:** find a site, fell whole trees and level the ground, then build. Building on unprepared
+  ground left pillars, floating canopies and trapped agents.
+- **Check a model's raw output before judging it.** Most "failures" of new models were format quirks (layers sent as a
+  string, tasks written as skill calls), now normalised in code.
+- **Test the code without the models.** Scripted workers (`tasks` brain) and staged villages check the economy in
+  minutes; model-driven runs then test behaviour.
 
 ### Testing agents
 
@@ -301,23 +418,69 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
-place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, deposit, withdraw, find_site, prepare_site,
-build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure messages.
-Agents build with `/setblock` and `/fill` (run over RCON, paced by `buildSpeed`): free in creative, while survival
-agents pay for every block from their inventory, fetch what is missing from the village storage first, and are told
-what is short and how to get it (gather, craft, smelt) if they cannot build. Wood kinds adapt to what the builder has
-(an oak design is built in acacia), and a build that ran out continues where it stopped. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise).
-The agent server makes the world peaceful when it starts (no hostile mobs, no fall, drowning, fire or freeze damage,
-keep-inventory; `mcRules.ts`), for the village economy: agents gather materials, then build with them, through
-shared village storage: `deposit` and `withdraw` use the village's chests (the first deposit puts a carried chest
-down), and their contents show in the planner's village summary and the panel. The mayor finds a site, has the
-buildings designed and calls `plan_layout`: code places them on one plot with streets and posts every task (prepare
-the plot, set up the storage, gather each building's raw materials, build). Builders craft planks, doors and glass
-from the storage themselves, and a build that is short posts gather tasks for what is missing. Workers run the
-tasks code posts as written (no planner call); gatherers stay near the village and never mine its buildings.
-Survival bots
-have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at
-`localhost` to watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
+place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, deposit, withdraw, find_site,
+prepare_site, build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure
+messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). Survival
+bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
+watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
+
+Some things work differently from the sandbox, because Mineflayer (the bot library) and the real server behave
+differently:
+
+- **Building** places blocks with `/setblock` and `/fill` over RCON (the server console), paced by `buildSpeed`, while
+  the bot stands by the site and watches. It is free in creative; in survival every block is paid for (below).
+- **Crafting** is carried out by server command, charged exactly: the ingredients are counted and taken (`/clear`) and
+  the result given (`/give`); a recipe that needs a table still needs one placed nearby. Mineflayer's own crafting
+  clicks worked from a stale view of the inventory on 26.1 and made oak buttons out of planks.
+- **Walking** uses mineflayer-pathfinder with a watchdog for stuck bots, digging only natural blocks, opening doors,
+  going around water (and swimming out of it), and splitting long walks into legs.
+
+### The village economy (real Minecraft)
+
+In real Minecraft, villages are built the way a group of players would: in survival, from materials they gather
+themselves. When the agent server starts it makes the world **peaceful and safe** (`mcRules.ts`): no hostile mobs, no
+fall, drowning, fire or freeze damage, keep-inventory, no fire spread. So the agents only gather, craft and build.
+
+**What a building costs.** Code works out the bill of materials of a design (`mcMaterials.ts`): every block, with a door
+counted once for its two cells, then the recipe chain down to raw materials using minecraft-data's recipes and a table
+of smelting recipes. Planks come from logs, doors and slabs from planks, glass from sand smelted with planks as fuel,
+stone bricks from stone smelted from cobblestone. Recipes that differ only by wood kind accept any wood; crafts round up
+to whole batches and leftovers are reused. Blocks that need Nether materials or hard-to-find ones (glowstone, iron for
+lanterns, wool, bricks) are refused at design time, and the architect is asked for cheap materials: planks, logs,
+cobblestone, sandstone, a few windows. `GET /api/village/:v/designs/:d/bill` shows the bill, for example:
+
+```
+needs 25 cobblestone, 54 oak_planks, 1 oak_door, 1 glass; gather 25 cobblestone, 1 sand, 15 oak_log, 1 logs (any kind);
+craft 4 planks (any kind), 60 oak_planks, 3 oak_door; smelt 1 glass (fuel: 1 planks, or 1 coal instead)
+```
+
+**Village storage.** A village keeps its materials in chests (`mcStorage.ts`). The first `deposit` puts a carried chest
+down beside the plot; when the chests are full, a carried chest goes down in a row beside them. `deposit item=all`
+keeps tools and leaves the junk that gathering picks up (saplings, seeds, dirt). What each chest holds is recorded
+whenever it is opened, and shown in every planner's village summary and on the control panel.
+
+**From objective to buildings.** For "two matching cottages and a meeting hall":
+
+1. The **mayor** runs `find_site`, has a `cottage` and a `meeting_hall` designed, and calls `plan_layout`.
+2. `plan_layout` places the buildings and posts the tasks, each as exact skill calls: prepare the plot; set up the
+   storage (collect 4 logs, craft a chest, deposit it beside the plot); for each building, gather its raw materials in
+   parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect block=cobblestone
+   count=29, then deposit item=all"); then build it at its coordinates.
+3. **Workers** claim the tasks in order. Gathering stays within 96 blocks of the village and never mines inside its
+   buildings; stone is mined for cobblestone, with a wooden pickaxe `collect` crafts itself when it has none.
+4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
+   smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
+   the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
+   design comes out in acacia where acacia grows).
+5. If materials are still short, the build posts gather tasks for exactly the shortfall, puts itself back on the board
+   behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
+   the windows are left open instead.
+6. When every building stands, the mayor declares the objective complete; code checks it first.
+
+In the test that passed, two workers and a mayor built two cottages (81 blocks each) and a hall (145 blocks) from
+nothing in 35 minutes: they gathered about 50 logs, 130 cobblestone, sand and sandstone, and crafted and smelted the
+rest from the storage. `scripts/stage_village.py` runs the same chain with scripted workers, in about a minute when
+the storage starts stocked.
 
 ### Models
 
@@ -365,8 +528,10 @@ The agent framework lives in `server/src`: `world.ts` (the world interface brain
 world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
-`designs.ts` (design format and checks) and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer
-adapter for real Minecraft is in `server/src/mineflayer/`, the local server's scripts in `mc/`; the control panel is
+`layout.ts` (plan_layout), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format and checks)
+and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
+`server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
+economy), the local server's scripts in `mc/`; the control panel is
 `server/panel/index.html` with `server/src/panel.ts`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 The protocol is JSON over WebSocket (`/ws`), plus a compact binary format for chunks (`shared/src/protocol.ts`).

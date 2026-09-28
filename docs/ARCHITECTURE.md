@@ -167,7 +167,7 @@ flowchart TB
 | Event | Data | Used for |
 |---|---|---|
 | `chat` | `{from, text, distance?}` | answering people; agent chatter only interrupts when it names the agent |
-| `action_done` | `{action, type}` | marking a plan step done when the skill it names succeeds |
+| `action_done` | `{action, type, args}` | marking a plan step done when the skill it names succeeds with the item it names |
 | `action_failed` | `{action, type, args, message}` | the loop guard (same call failed twice: refused for 5 minutes) |
 | `damage`, `death`, `pickup`, `crafted`, `broke`, `killed`, `system` | text | urgency, replanning, the panel |
 
@@ -182,8 +182,11 @@ role can use a different model, set per agent in memory (`planModel`, `execModel
 flowchart TD
   tick(["tick(agent), 20 times a second"]) --> planq{"Planner needed?<br/>no plan, plan complete,<br/>free worker, replan asked,<br/>3 failures, 3 min no progress,<br/>mayor: board changed"}
   planq -- "worker without a task" --> claim["Claim the next open task<br/>(before planning, so two workers<br/>never plan the same one)"]
-  claim --> planner
-  planq -- yes --> planner["Planner call (async)<br/>set_plan; mayor also post_tasks,<br/>declare_complete"]
+  claim --> codetask{"task posted by code?<br/>(skill calls with arguments)"}
+  codetask -- yes --> ownsteps["the task's own skill calls<br/>become the plan (no model)"]
+  ownsteps --> mem
+  codetask -- no --> planner
+  planq -- yes --> planner["Planner call (async)<br/>set_plan; mayor also plan_layout,<br/>post_tasks, declare_complete"]
   planq -- no --> execq
   planner --> mem[("memory.plan<br/>goal, steps, current step")]
   execq{"Executor due?<br/>idle, or urgent<br/>(chat, damage)"} -- no --> done(["wait for the next tick"])
@@ -202,42 +205,58 @@ What each model is shown, per call:
 
 | Role | Sees | Answers with | How often |
 |---|---|---|---|
-| Planner | role, objective, long-term notes, village summary (plots, buildings, designs, task board), previous plan, events since the last plan, observation; a worker also its claimed task | `set_plan`; the mayor also `post_tasks` and `declare_complete` | on the triggers above; for a worker about once per task |
+| Planner | role, objective, long-term notes, village summary (plots, buildings, designs, storage contents, task board, recent village events, ground others are working on), previous plan, events since the last plan, observation; a worker also its claimed task | `set_plan`; the mayor also `plan_layout`, `post_tasks` and `declare_complete` | on the triggers above; a worker only for tasks a model wrote (code-posted tasks carry their own steps) |
 | Executor | plan with the current step marked, the claimed task, recent decisions, blocked calls, events since its last turn, a trimmed observation (~2k tokens) | 1-3 skill calls, or `step_done`, `design_building`, `request_replan` | whenever the agent is idle, at least 6 s apart; 1.5 s when urgent |
 | Architect | the design rules and format, a brief, the existing designs | `submit_design` (layers of spaced symbols plus a palette) | when a `design_building` call is made |
 
 Code, not the model, does arithmetic and geometry and cleans up model output: `craft` makes missing planks and sticks,
-doors are moved onto an outside wall, `find_site` suggests the largest site that fits, design layers sent as JSON
-strings (even without their outer brackets) are parsed, tasks written as skill calls are turned into task text, plan
-steps given as objects are turned into text.
+doors are moved onto an outside wall, `find_site` suggests the largest site that fits, `plan_layout` places buildings,
+design layers sent as JSON strings (even without their outer brackets) are parsed, tasks written as skill calls are
+turned into task text, plan steps given as objects are turned into text (keeping arguments such as a design's name).
 
-### A village task, end to end
+Code also keeps the mayor on its job, because gpt-oss drifts back to doing the work itself:
+
+| Guard | What it catches |
+|---|---|
+| Plan steps that are workers' jobs are dropped | a mayor planning "collect 12 logs, craft a pickaxe" (its executor cannot do them) |
+| Hand-written building tasks before a layout are laid out by `plan_layout` | a mayor writing its own gather-craft-build chain |
+| Tasks duplicating the layout's are not posted | a mayor re-posting the whole village after one failure |
+| A re-posted failed building re-opens the layout task | "Build meeting hall" posted for the failed "Build meeting_hall" |
+| `declare_complete` is refused while a layout build is not done | a village declared complete with nothing built |
+| No timed review while workers hold tasks; a refused `plan_layout` replans at once | a waiting mayor re-posting gathering every 3 minutes; minutes lost after a refusal |
+
+### A village, end to end (the survival economy)
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant M as Mayor (planner: gpt-oss)
-  participant B as Task board (VillageRegistry)
-  participant W as Worker1 brain
-  participant P as Worker planner (qwen3.8)
+  participant L as plan_layout (code)
+  participant B as Task board
+  participant W as Worker brain
   participant E as Worker executor (qwen3:30b)
-  participant S as World skills
-  M->>S: find_site size 30 (via its executor)
-  S-->>M: site found: centre x=166 z=-10
-  M->>B: post_tasks: designs, prepare plot, build cottage x2, build hall
-  W->>B: claim next claimable task (prerequisites done, design drawn)
-  B-->>W: t22 "Prepare site for cottage 1"
-  W->>P: plan the claimed task
-  P-->>W: set_plan: 1. prepare_site x=115 z=3 width=7 depth=7
+  participant S as Skills (Minecraft)
+  participant C as Village storage
+  M->>S: find_site size 30, design_building cottage, meeting_hall (its executor)
+  M->>L: plan_layout ["cottage", "cottage", "meeting_hall"]
+  L->>B: prepare the plot; set up the storage; gather tasks per building; builds at x, z
+  W->>B: claim "Gather 12 logs for cottage 1"
+  B-->>W: its steps: collect block=logs count=12, deposit item=all (the plan, no planner call)
   loop every few seconds while idle
     W->>E: plan, events, observation
-    E-->>W: prepare_site(x=115, z=3, width=7, depth=7)
-    W->>S: enqueue prepare_site
-    S-->>W: action_done: plot ready (step auto-marked done)
+    E-->>W: collect(block=logs, count=12), then deposit(item=all)
+    W->>S: enqueue
+    S->>C: deposit: logs into the chest
   end
-  W->>B: finish t22 (plan complete)
-  B-->>M: board changed: review
-  M->>B: declare_complete (when the summary shows the objective)
+  W->>B: finish (plan complete); claim "Build cottage 1" when its gather tasks are done
+  W->>S: build_design cottage x, z
+  S->>C: withdraw what is missing; craft planks, doors, smelt glass
+  alt still short (gathered logs went elsewhere)
+    S->>B: post gather tasks for the shortfall, put the build back behind them
+  else everything in hand
+    S-->>W: action_done: cottage recorded, placed 81 blocks
+  end
+  M->>B: declare_complete (checked: every layout build done)
 ```
 
 ## 4. Villages
@@ -248,14 +267,16 @@ coordinates, everyone else in the village is a worker.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> open: mayor posts (post_tasks)
-  open --> claimable: prerequisites done and its design drawn
+  [*] --> open: plan_layout or the mayor posts
+  open --> claimable: prerequisites done (a failed "soft" gather task counts) and its design drawn
   claimable --> claimed: a free worker claims it (before planning)
   claimed --> done: the worker's plan completes
   claimed --> open: handed back (replanned 3 times, or the plan failed), 1st time
   claimed --> failed: handed back a 2nd time
   open --> failed: cancelled (objective declared complete)
+  failed --> open: the mayor re-posts it (a failed layout build is re-opened)
   failed --> [*]: the mayor reviews and may post a fix
+  claimed --> open: a short build puts itself back behind new gather tasks
   done --> [*]
 ```
 
@@ -264,7 +285,8 @@ stateDiagram-v2
 | Plots | `prepare_site` | Level ground, with its height, so buildings go on prepared land and plots can be extended at the same level. |
 | Structures | `build`, `build_design`, `build_box` | Footprints: nothing is built on top of them; "a cottage already stands here" ends duplicate work. |
 | Designs | the architect, the API, schematic import | The design library for `build_design`: layers of palette symbols, validated. |
-| Task board | the mayor | Tasks with prerequisites (`after`), claims, results, tries. |
+| Task board | `plan_layout`, the mayor, short builds | Tasks with prerequisites (`after`), claims, results, tries; gather tasks are `soft` (their failure does not block the build, which checks its materials itself). |
+| Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests and what each held when last opened; shown in the planners' village summary and the panel. |
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
 
 ## 5. Skills in each world
@@ -287,9 +309,9 @@ flowchart LR
 | Body | a sandbox `Player` driven by input each tick | a Mineflayer bot (client-side physics, half-width 0.3001 to stay in step with the server) |
 | Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog, digging natural blocks only, opening doors, avoiding water (and swimming out of it), diagonals only with both sides clear, legs of ~40 blocks for long walks, a retry with longer drops |
 | Crafting | recipes applied to the inventory | the recipe from minecraft-data, carried out by server command: ingredients counted and taken (`/clear`), the result given (`/give`); a table recipe still needs a table placed nearby |
-| Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), digs to buried blocks |
-| Crafting | sandbox recipes | minecraft-data recipes; table, sticks and planks made in order; each craft waits for the server |
-| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged; in survival each run is charged to the inventory (`/clear`) after a material check |
+| Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), picks the cheapest block to reach (near, not deep below, in the open), crafts a wooden pickaxe when stone needs one, stays within 96 blocks of the village and never mines inside its buildings |
+| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged; in survival each run is charged to the inventory (`/clear`) after a material check, with crafting from storage and a requeue when short |
+| Storage | none | `deposit` and `withdraw` against the village's chests (`mcStorage.ts`) |
 | Safety | none | reflex: fight back with a weapon, run when unarmed, hurt or near a creeper |
 | Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn |
 
@@ -309,9 +331,11 @@ sequenceDiagram
   J->>V: conflict check, reserve the footprint
   J->>B: walk south of the site, look at the blocks
   opt survival: materials
+    J->>J: choose the wood kind per part from what is carried and stored
     J->>R: count what the builder carries (clear name item 0)
     J->>B: withdraw what is missing from the village storage, walk back
-    J-->>E: action_failed "short of materials ... to get them: ..." if still short
+    J->>B: craft and smelt what can be made from the storage (table, furnace, planks, doors, glass), top up again
+    J-->>E: action_failed "short of materials ... to get them: ..." and a requeue if still short
   end
   loop paced by buildSpeed (x10 blocks a second)
     J->>R: survival: clear name item n (charge the run)
@@ -340,7 +364,7 @@ flowchart LR
 | Role | Model (as used in the Elmfield and Ashvale runs) | Why |
 |---|---|---|
 | Mayor's planner, architect | `gpt-oss:120b-cloud` | ~3.5 s per plan, ~9 s per design, valid designs; about 10x faster than gemma4:31b |
-| Workers' planner | `qwen3.8:27b` | tight one-step plans (6/6 against 2/6 for qwen3:30b); called about once per task, so its ~7-10 s is fine |
+| Workers' planner | `qwen3.8:27b` | tight one-step plans (6/6 against 2/6 for qwen3:30b); in the village economy it is rarely called, since tasks posted by code carry their own steps |
 | Executors | `qwen3:30b-instruct` | a mixture of experts (~3B active): ~2 s a turn, as accurate as larger models when the plan is clear |
 
 `scripts/ollama_exec.py start` runs the two local models on their own `ollama.exe serve` instances, pinned to a GPU
@@ -364,38 +388,57 @@ Each agent's card shows: the brain's state (planning, thinking, acting, waiting,
 and why), health and food, position and biome, objective and task, the plan as a checklist, the current action, blocked
 calls, a top-down map (terrain, facing, mobs, players, target, plots, buildings, reserved ground), what the executor and
 the planner last saw (the exact user prompt) and answered, recent decisions and events, inventory and model stats. The
-village section shows the task board, buildings, plots, designs, reservations and the village log.
+village section shows the task board, buildings, plots, designs, the storage contents, reservations and the village log.
 
 ## 8. Testing
 
 ```mermaid
 flowchart LR
-  script["watch_village.py / watch_agent.py /<br/>watch_survival.py<br/>(MCAI_API picks the world)"] -- "spawn (reset), memory,<br/>models" --> api["REST API<br/>8765 sandbox / 8766 Minecraft"]
+  stage["stage_village.py<br/>(layout through the API,<br/>storage stocked by RCON)"] -- "scripted workers<br/>(brain: tasks)" --> api["REST API<br/>8765 sandbox / 8766 Minecraft"]
+  script["watch_village.py / watch_agent.py /<br/>watch_survival.py<br/>(MCAI_API picks the world)"] -- "spawn (reset), memory,<br/>models" --> api
   script -- "poll events, board, stats" --> api
-  script -- "early stop: objective met,<br/>stuck, time limit" --> report["log: timeline, board,<br/>designs, plots, buildings, stats"]
+  script -- "early stop: objective met,<br/>same failure 3 times, stalled" --> report["log: timeline, board,<br/>designs, plots, buildings, storage, stats"]
+  bench["scripts/bench/*.mts"] -- "the brain's real prompts<br/>and tools" --> ollama["Ollama models"]
 ```
 
+Tests go from fast to slow. `stage_village.py` sets a village up at a stage and runs scripted workers (`taskBrain.ts`:
+they run the skill calls each task spells out), so the economy's code is checked in one to ten minutes with no model
+involved. The benches (`modelbench`, `execbench`, `planbench`, `mayorbench`) replay the brain's real prompts against a
+model in seconds per case. Only then do model-driven village runs test behaviour.
+
 Agent names are fixed (Gus for single-agent tests; Mayor, Worker1, Worker2 for villages) so they are easy to find in
-the world. There is no unit test suite: `npm run typecheck`, then agents are run. `scripts/bench/` compares models on
-the brain's real prompts and tools.
+the world. There is no unit test suite: `npm run typecheck`, then agents are run.
 
-## 9. Where this is going
+## 9. The village economy (real Minecraft)
 
-The peaceful village economy (see CLAUDE.md, "The peaceful village economy") replaces creative building with a safe
-survival economy in Minecraft: peaceful difficulty with no damage (`mcRules.ts`), a bill of materials per design
-worked back through the recipes to raw materials (`mcMaterials.ts`), shared village storage chests (`mcStorage.ts`),
-building that charges the builder's inventory and crafts what is short from the storage (`mcBuild.ts`), and a mayor
-whose `plan_layout` (`layout.ts`) places the buildings and posts the land, storage, gather and build tasks. Workers run
-those tasks' own skill calls (no planner call); a build short of materials posts gather tasks for exactly that.
-Staged tests with scripted workers (`taskBrain.ts`, `scripts/stage_village.py`) check the chain without models.
+Villages in real Minecraft are built in survival from materials the agents gather themselves, in a world made safe:
+the agent server applies peaceful difficulty and game rules for no damage and keep-inventory at every start
+(`mcRules.ts`).
 
 ```mermaid
 flowchart LR
-  design["design<br/>(architect)"] --> bom["bill of materials<br/>(code)"]
-  bom --> raw["raw materials<br/>logs, cobblestone, sand, fuel<br/>(recipe chain, code)"]
-  raw --> gather["gather tasks<br/>collect"]
-  gather --> craft["craft / smelt tasks"]
-  craft --> storage[("village chest<br/>deposit")]
-  storage --> build["build task<br/>withdraw, then /setblock<br/>charging the inventory"]
-  layout["plan_layout<br/>(code)"] --> build
+  design["design<br/>(architect)"] --> bom["bill of materials<br/>and recipe chain<br/>(mcMaterials.ts)"]
+  bom --> tasks["gather tasks per building<br/>(plan_layout, gatherTasks)"]
+  layout["plan_layout<br/>(layout.ts)"] --> tasks
+  layout --> buildtask["build tasks at x, z"]
+  tasks --> collect["collect, then deposit all"]
+  collect --> storage[("village chests<br/>(mcStorage.ts)")]
+  storage --> build["build_design (mcBuild.ts)<br/>withdraw, craft and smelt from storage,<br/>/setblock charging the inventory"]
+  buildtask --> build
+  build -- "still short" --> requeue["gather tasks for the shortfall;<br/>the build waits behind them"]
+  requeue --> collect
 ```
+
+| Part | File | What it does |
+|---|---|---|
+| World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
+| Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", a smelting table, whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
+| Storage | `mcStorage.ts` | chests placed by the first deposit and when full, registered as 1x1 structures, contents recorded at every opening |
+| Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
+| Survival building | `mcBuild.ts` | wood kind per part, server-side counting, withdrawing, crafting and smelting from storage, charging each run, requeueing a shortfall, open windows when there is no glass |
+| Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
+
+Results: one cottage from nothing in 9.3 minutes; "two matching cottages and a meeting hall" in 35 minutes with two
+workers (Meadowford2). Still open: builds often come up a few logs short (a quick requeue each time), gathering fails
+on poor terrain (no sand or trees within 96 blocks of the village), and a waiting mayor still tries to re-post work
+when woken, which the guards in section 3 catch.
