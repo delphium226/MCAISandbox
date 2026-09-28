@@ -605,13 +605,18 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   try {
     // Fuel: coal first, then planks, logs last (a plank or a log smelts 1.5 items, and a log makes 4 planks: burning
     // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
-    if (!furnace.fuelItem()) {
-      const items = bot.inventory.items();
+    // The first stack found can be a leftover of one or two planks: top up from the next when the fire goes out
+    // (four glass came out one: "ran out of fuel after 1 of 4" with planks still in hand, Accept9 and Accept10)
+    const addFuel = async (left: number) => {
+      // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
+      const items = furnace.items();
       const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name));
-      if (!fuel) throw new Error('no fuel: needs coal, charcoal, planks or logs');
+      if (!fuel) return false;
       const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
-      await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(count / perItem)));
-    }
+      await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(left / perItem)));
+      return true;
+    };
+    if (!furnace.fuelItem() && !(await addFuel(count))) throw new Error('no fuel: needs coal, charcoal, planks or logs');
     await furnace.putInput(inId, null, count);
     let got = 0;
     const deadline = Date.now() + count * 11000 + 15000;
@@ -621,7 +626,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       if (out) got += (await furnace.takeOutput())?.count ?? 0;
       // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
       if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
-      if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem()) throw new Error(`ran out of fuel after ${got} of ${count}`);
+      if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) throw new Error(`ran out of fuel after ${got} of ${count}`);
     }
     return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
   } finally {
