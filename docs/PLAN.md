@@ -155,6 +155,12 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept1 | model, 2 workers, gpt-oss worker planner, oak woods -335,-60 | **3/3 built**, declared complete by code | 10.6 min | 1 failed action; 13 trees felled on the plot (1200 blocks) supplied the wood; Worker1 made no executor calls |
 | 09-28 | Accept2 | same, fresh woods near -367,-2 | **3/3 built**, declared complete by the mayor | 10.2 min | 2 failed actions (a stuck move; the hall short of a furnace, healed); hall windows left open (F32) |
 | 09-28 | Accept3 | same, jungle near -448,7 | stopped (user's break) | ~10 min | nothing built; the hall's 81 sandstone given up at once, none within 96 blocks (F33) |
+| 09-28 | Accept4 | fresh series after F32-F35 fixes, -235,163 | stopped at 18.9 min | 18.9 min | agent server froze 30+ s at ~16 min, Paper timed out all three bots at once (F37); nothing built |
+| 09-28 | Accept5 | -410,164 | stalled at 17.3 min | 17.3 min | 11x11 and 13x13 designs, mossy cobblestone: workers sent 70 blocks down for moss (F38, F39) |
+| 09-28 | Accept6 | -195,251 | stalled at 9.7 min | 9.7 min | the executor model had spilled into system RAM: 2.7 tok/s, one turn 187 s (F40) |
+| 09-28 | Accept7 | desert -35,324 | stopped at ~18 min | 18 min | only buried wood near the site: storage chest never made (F41) |
+| 09-28 | Accept8 | -262,125 | stopped at 21 min | 21 min | 1 log within 48 blocks; wood gave out, a worker chased logs 45 blocks down; plot margin dug out (F42) |
+| 09-28 | Accept9 | oak woods -405,5 | **3/3 built**, declared complete by code | 14.6 min | 0 failed actions, no worker executor calls; one window short (fuel, F43) |
 
 ## Findings log
 
@@ -245,6 +251,30 @@ CLAUDE.md when a phase ends.
   decoration (Fourfold7's cottage had a chest and a table; checked in code, one retry; not yet seen in a run).
   find_site keeps off every village's buildings, layouts and other villages' plots: Gus in the middle of Accept1's
   plot got a site 45 blocks away. The watcher prints failures and finished builds in full.
+- F37 (Accept4) The agent server stopped answering for 30+ s at ~16 min and Paper disconnected all three bots at
+  once ("Timed out"); the workers never recovered. Memory was fine (255 MB). Cause unknown: the agent server now logs
+  every event-loop stall over 2 s with each agent's running action (`[lag]` lines). Seen since: 2-3.5 s at spawn
+  (three bots joining) and during find_site's log scan (up to ~2 s; the API's slowest reply 2.1 s), none long.
+- F38 (Accept4-5) A mayor plan step "plan_layout" went to the executor, which cannot call it and ran find_site
+  instead, replacing a 30x30 site with a 24x24 one. Fixed: such steps are dropped and the planner calls the tool; a
+  later search before any layout asks for no less than the site already found.
+- F39 (Accept5) Designs of 11x11 and 13x13 (~1,100 blocks for the village) with mossy cobblestone: moss comes from
+  lush caves, workers went to y=-4. Fixed: survival designs at most 9x9; raw materials whitelisted (logs, stone,
+  sand, sandstone, dirt, gravel, terracotta): of 97 stored designs only the 10 needing moss, iron, glowstone, wool,
+  sugar cane, leather or clay are refused.
+- F40 (Accept6) The executor model ran at 2.7 tok/s, one turn 187 s: Ollama reported it "20383 of 20383 MB in VRAM"
+  while nvidia-smi showed 1.3 GB on its card (Windows shared GPU memory counted as VRAM). `ollama_exec.py` now checks
+  each card holds its model (start and status). Probably slowed Accept4-5 too.
+- F41 (Accept7) Wood buried deep (y=34 under a desert at y=70) counted as wood near the site in find_site and the
+  materials check. Fixed: only blocks within 16 of the ground count; a site without trees makes find_site walk toward
+  trees and plan_layout refuse ("run find_site for a site with trees"); the watcher skips treeless land.
+- F42 (Accept8) The site had 1 log block within 48: a survival site now needs 30 (find_site walks toward trees and
+  prefers a smaller wooded site to a bigger bare one: from Accept8's spot it walked 52 blocks to a 25x25 with 38);
+  collect keeps within 16 blocks below the village and off a plot's 2-block margin (an 18-deep hole appeared there).
+- F43 (Accept9) One glass short: "could not smelt 2 glass (ran out of fuel after 1 of 2)". The fuel in the bill runs
+  short by a little; backlog.
+- F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
+  and during the land probe). Harmless so far; make them incremental if stalls grow.
 
 ## Decisions log
 
@@ -261,6 +291,8 @@ CLAUDE.md when a phase ends.
   (staged) or the test agent.
 - 09-28 A partial layout goes ahead when at least half the buildings fit (the workers start at once); fewer is
   refused in favour of a bigger site. The rest is laid out by code at the mayor's next successful find_site.
+- 09-28 (session 3) Survival designs are at most 9x9 and use only whitelisted raw materials; a survival site
+  needs 30 log blocks within 48; material and wood counts ignore anything more than 16 below ground level.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
 
