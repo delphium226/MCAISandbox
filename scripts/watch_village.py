@@ -72,7 +72,9 @@ def find_land(x, z):
         treeless = gamemode == "survival" and result and any(w in result[-1]["text"] for w in ("No trees within 48 blocks", "too few trees"))
         if result and result[-1]["type"] == "action_done" and site and not treeless:
             print(f"land found near {px:.0f},{pz:.0f}: {result[-1]['text'][:120]}", flush=True)
-            return px, pz
+            # The village starts at the site found, not at the probe point (Accept17's mayor spawned 100 blocks from the
+            # site, stuck in a hollow, and spent the run walking)
+            return site["x"], site["z"]
         print(f"no room near {px:.0f},{pz:.0f}: {result[-1]['text'][60:200] if result else 'no result'}", flush=True)
     raise SystemExit("no land found")
 

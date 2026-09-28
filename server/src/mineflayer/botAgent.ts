@@ -31,10 +31,11 @@ const NATURAL = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|
 const PLAYER_HALF_WIDTH = 0.3001;
 
 /**
- * Failure messages of skills that could not get somewhere (collect's and explore's too, which quote the walk's). Not a
- * slow path search or a walk that ran out of time: a gatherer next to a tall tree was "rescued" for those.
+ * Failure messages of skills that could not get somewhere (collect's and explore's too, which quote the walk's), a walk
+ * that ran out of time included (Accept17's mayor timed out twice at its spawn and was never rescued). Counted only when
+ * the action got nowhere: a gatherer next to a tall tree, after a long walk, was "rescued" before that check.
  */
-const MOVE_FAILED = /stuck at|no path/;
+const MOVE_FAILED = /stuck at|no path|timed out at/;
 
 /** Mobs the self-defence reflex fights (creepers are fled from instead). */
 const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider', 'witch', 'pillager', 'vindicator', 'slime', 'silverfish', 'phantom', 'creaking']);
