@@ -20,28 +20,25 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-09-28 at the end of the second reliability session)
+(written 2026-09-29 at the end of the third reliability session)
 
-- **Code:** committed and not pushed (ask first): `3b5627e` (step 1.2, a site that fits), `64786af` (1.3 mayor start,
-  first-site floor, 1.4 in part), and the docs commit with this handover. Working tree clean except the gitignored
-  `runs/`.
-- **Running when this session ended:** the Paper server (LAN, whitelist, always day), both pinned model servers, the
-  agent server (`MC_API_HOST=0.0.0.0`, log `runs/2026-09-28/agentserver-s2b.log`). No agents in the world.
-- **Where 1.5 stands:** Accept1 and Accept2 passed (3/3 built in 10.6 and 10.2 min); Accept3 (jungle, -448,7) was
-  stopped by the user's break at ~10 min with nothing built: the hall's design needs 81 sandstone and there is none
-  within 96 blocks (F33). The three-in-a-row count restarts after the fix. Do first:
-  1. **F33:** a design must not need a material that cannot be found near the site. Best in code at plan_layout
-     (probe the site's surroundings for sand/sandstone, as gathering does, and refuse the design with "no sandstone
-     near this site: draw it in planks, logs or cobblestone"), or give the architect the materials found near the
-     site. Then decide what a build does with a given-up material (today: short, requeued; check it does not loop).
-  2. **F32:** the architect puts furnaces in designs as decoration; the builder then has no furnace to smelt glass.
-     Either count a second furnace in the bill when a design needs glass and a furnace, or keep furnaces out of
-     designs (DESIGN_SURVIVAL).
-  3. **F34:** find_site keeps off its own village's buildings only: another village's ground is merely scored as
-     built. Keep off every village's structures and layouts.
-  4. Then the acceptance runs again: 3 in a row with gpt-oss as the workers' planner, then 2 with qwen3.8:27b.
-- **Still open in 1.4:** village log lines in plain words; ask the user whether the panel's simple mode reads well.
-- Run logs: `runs/2026-09-28/` (tight1, accept1-3, s2-* tests and bench logs).
+- **Code:** all committed on `tiered-brain-building`, nothing pushed (ask first); the last commits are `212a190`
+  (village spawns at the site; timed-out walks count as stuck) and the docs commit with this handover. Working tree
+  clean except the gitignored `runs/`.
+- **Running when this session ended:** Paper, the Ollama app, both pinned model servers (both on their own cards:
+  `python scripts/ollama_exec.py status` now warns when a card does not hold its model) and the agent server (log
+  `runs/2026-09-28/agentserver-s3p.log`). No agents in the world. The servers were started as background tasks of the
+  Claude session: a session restart can stop them (it stopped a watcher once).
+- **Step 1.5 (acceptance):** gpt-oss workers' planner: Accept9, 10, 11 passed in a row. qwen3.8:27b: Accept15 and
+  Accept18 passed; Accept12-14, 16, 17 failed on code bugs, each fixed (F45-F51). **The workers' planner was never
+  called in any of these runs** (`plan 0x0ms`: code-posted tasks run as written), so the model comparison the step
+  asked for says nothing about planners (F52). Only Accept18 ran on the final code. Suggested before ticking 1.5: ask
+  the user whether to run a confirmation series (3 in a row on the final code) or accept it as it stands.
+- **Next:** 1.6 docs (CLAUDE.md lessons of this phase, README, ARCHITECTURE.md), then phase 2. Open small items: the
+  panel's simple mode (ask the user), village log lines in plain words (1.4), F44 (synchronous scans, 2-3 s stalls),
+  F20 (deposits counted on the bot's view), collect failures on logs high on hills (the commonest failure left: 9-23
+  per run in hilly or jungle-edged woods).
+- Run logs: `runs/2026-09-28/` (accept1-18, tight1, s2-*/s3-* targeted tests, agentserver-*.log).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
   of every run when online; agent names Gus, Mayor, Worker1-4; commit tested batches, ask before pushing; never edit
   server files while a run is going (draft edits in the scratchpad and apply them between runs).
@@ -76,7 +73,8 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       day" in the summary); `explore` walks to an x/z goal (F23: the estimated y made it report "no path ... stopped
       at" the spot it reached). Left: village log lines in plain words for the panel ("Worker4 built cottage 2");
       confirm with the user that the panel's simple mode reads well in a browser.
-- [ ] 1.5 **Acceptance runs**: 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
+- [ ] 1.5 **Acceptance runs** (gpt-oss: Accept9-11 passed in a row; qwen3.8: Accept15 and Accept18 passed, with
+      five failed runs between them, each on a code bug since fixed; see the handover): 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
 - [ ] 1.6 Docs: CLAUDE.md (lessons of this phase, LAN access, `MC_API_HOST`, whitelist: new agent names must be
@@ -167,6 +165,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept13 | qwen3.8, -60,-170 | stopped at ~3 min | 3 min | wood check refused 115 of 131 logs; the mayor circled (F47) |
 | 09-28 | Accept14 | qwen3.8, same site | stopped at 15 min | 15 min | a worker explored to 180 blocks from the village and gave up the board (F48) |
 | 09-28 | Accept15 | qwen3.8, woods -590,-209 | **3/3 built**, declared complete by the mayor | 26.2 min | 23 failed actions (logs high on hills), every block placed, no wandering |
+| 09-28 | Accept16 | qwen3.8, hills -519,-382 (y 101) | all 3 built at 37.6 min, not declared complete | 42.6 min | the mayor re-posted gathering, the completion check never ran (F49); no sand: windows open |
+| 09-29 | Accept17 | qwen3.8, -330,150 | stalled at 8.2 min | 8.2 min | mayor spawned at the probe point 100 blocks from the site, stuck in a hollow; designs waited behind its walk (F50) |
+| 09-29 | Accept18 | qwen3.8, -416,49 | **3/3 built**, declared complete by code | 39.2 min | 13 failed actions (Worker2's collects), every block placed; log roofs made gathering slow |
 
 ## Findings log
 
@@ -293,6 +294,18 @@ CLAUDE.md when a phase ends.
 - F48 (Accept14) After failed log collects a worker's executor explored hop by hop to 180 blocks from the village
   (F26 again), then gave up every gathering task it took. The 96-block guard covers every village member, a collect
   far from home walks back first, and the failure message no longer suggests exploring.
+- F49 (Accept16) All three buildings stood at 37.6 min, but the mayor had just tried to re-post gathering (dropped as
+  duplicates), so the completion check after its "wait" never ran and nothing woke it. Completion is now checked by
+  code on every tick of the mayor's brain; Accept18 was declared complete this way.
+- F50 (Accept17) The watcher spawned the village at its probe point, 100 blocks from the site found, where the mayor
+  was stuck in a hollow: its explore and move_to timed out there, the rescue ignored timed-out walks, and its design
+  steps waited behind the walk until the run stalled. The watcher now spawns at the site; a timed-out walk that got
+  nowhere counts as stuck.
+- F51 Log roofs ("oak log roof", 81 logs for a 9x9 hall) make villages wood-heavy: Accept16 and 18 took 38-39 min.
+  A cap on logs per design, or a hint to the architect, would help; backlog.
+- F52 The workers' planner made no calls in any acceptance run (`plan 0x0ms` for every worker): tasks posted by code
+  run as written, and the executor handles failures. Comparing planner models on these runs measures nothing; phase
+  3 (chat requests) is where the workers' planner will matter.
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
@@ -313,6 +326,8 @@ CLAUDE.md when a phase ends.
   refused in favour of a bigger site. The rest is laid out by code at the mayor's next successful find_site.
 - 09-28 (session 3) Survival designs are at most 9x9 and use only whitelisted raw materials; a survival site
   needs 30 log blocks within 48; material and wood counts ignore anything more than 16 below ground level.
+- 09-29 Every village member stays within 96 blocks of its village (the guard covered only the mayor before
+  Accept14).
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
 
