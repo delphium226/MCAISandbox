@@ -20,32 +20,31 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-09-28 at the end of the first reliability session)
+(written 2026-09-28 at the end of the second reliability session)
 
-- **Code:** everything is committed (`b7908db`, `83bfe05`, plus the docs commit that added this handover); nothing
-  is pushed (ask first). Working tree clean except the gitignored `runs/`.
-- **Running:** the Paper server (listening on the LAN, whitelist on, time frozen at day), both pinned model servers,
-  and the agent server with `MC_API_HOST=0.0.0.0` (panel at http://192.168.1.84:8766/panel). No agents in the world.
-  After a reboot, start them as CLAUDE.md says (step 3 now includes `MC_API_HOST=0.0.0.0`).
-- **Not yet seen working in a run** (written and typechecked in `b7908db`): the village declared complete by code,
-  failing ungatherable soft gather tasks at once, the dig retry ("Digging aborted"), the block-placement retry, the
-  stone pickaxe and a second pickaxe per `collect`, the watch scripts teleporting SausageOfDoom4. The next village run
-  exercises most of them: look for "declared complete by code", "Gave up t", "stone_pickaxe" and the teleport line in
-  its log, and record what you see as findings.
-- **Next step: 1.2, a site that fits** (F19, F21). Where the code is:
-  - `searchSite` / `findSite` in `server/src/mineflayer/mcBuild.ts` (radius 32-64 around the bot, loaded chunks
-    only): add a wider search in legs when nothing of the size is in view;
-  - the size refusals in `postLayout`, `server/src/layout.ts` (the "find_site looked for only NxN" and "more than
-    32x32" messages): say what does fit, or lay out on two plots;
-  - the mayor's executor tools `MAYOR_EXEC` in `server/src/tieredBrain.ts` include `explore` and `move_to`: guard
-    distance from the village (Fourfold7's mayor went 500 blocks away);
-  - `design()` in `tieredBrain.ts`: give the architect the site's size.
-  Test: a staged layout on a small site, a mayorbench case "site too small", then a model-driven run.
-- **Then** 1.3 (slow mayor start), 1.4 (small items), and the 1.5 acceptance runs with 2 workers.
-- Run logs of this session are in `runs/2026-09-28/` (gitignored; the run record below summarises them).
+- **Code:** committed and not pushed (ask first): `3b5627e` (step 1.2, a site that fits), `64786af` (1.3 mayor start,
+  first-site floor, 1.4 in part), and the docs commit with this handover. Working tree clean except the gitignored
+  `runs/`.
+- **Running when this session ended:** the Paper server (LAN, whitelist, always day), both pinned model servers, the
+  agent server (`MC_API_HOST=0.0.0.0`, log `runs/2026-09-28/agentserver-s2b.log`). No agents in the world.
+- **Where 1.5 stands:** Accept1 and Accept2 passed (3/3 built in 10.6 and 10.2 min); Accept3 (jungle, -448,7) was
+  stopped by the user's break at ~10 min with nothing built: the hall's design needs 81 sandstone and there is none
+  within 96 blocks (F33). The three-in-a-row count restarts after the fix. Do first:
+  1. **F33:** a design must not need a material that cannot be found near the site. Best in code at plan_layout
+     (probe the site's surroundings for sand/sandstone, as gathering does, and refuse the design with "no sandstone
+     near this site: draw it in planks, logs or cobblestone"), or give the architect the materials found near the
+     site. Then decide what a build does with a given-up material (today: short, requeued; check it does not loop).
+  2. **F32:** the architect puts furnaces in designs as decoration; the builder then has no furnace to smelt glass.
+     Either count a second furnace in the bill when a design needs glass and a furnace, or keep furnaces out of
+     designs (DESIGN_SURVIVAL).
+  3. **F34:** find_site keeps off its own village's buildings only: another village's ground is merely scored as
+     built. Keep off every village's structures and layouts.
+  4. Then the acceptance runs again: 3 in a row with gpt-oss as the workers' planner, then 2 with qwen3.8:27b.
+- **Still open in 1.4:** village log lines in plain words; ask the user whether the panel's simple mode reads well.
+- Run logs: `runs/2026-09-28/` (tight1, accept1-3, s2-* tests and bench logs).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
   of every run when online; agent names Gus, Mayor, Worker1-4; commit tested batches, ask before pushing; never edit
-  server files while a run is going (broken twice on 2026-09-28: do the edits between runs).
+  server files while a run is going (draft edits in the scratchpad and apply them between runs).
 
 ## Phase 1: reliability of the survival village (in progress)
 
@@ -154,6 +153,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Fourfold7 | model, 4 workers | stopped | 16 min | site too small; mayor wandered (step 1.2) |
 | 09-28 | Tightfit1 | model, 2 workers, gpt-oss worker planner, Fourfold7's spot | **3/3 built**, mayor declared complete | 32.0 min | 11 failed actions (logs on hills, sand); 11x11 site, two cottages there, hall on a second site laid out by code; 3x3 cottages (F25) |
 | 09-28 | Accept1 | model, 2 workers, gpt-oss worker planner, oak woods -335,-60 | **3/3 built**, declared complete by code | 10.6 min | 1 failed action; 13 trees felled on the plot (1200 blocks) supplied the wood; Worker1 made no executor calls |
+| 09-28 | Accept2 | same, fresh woods near -367,-2 | **3/3 built**, declared complete by the mayor | 10.2 min | 2 failed actions (a stuck move; the hall short of a furnace, healed); hall windows left open (F32) |
+| 09-28 | Accept3 | same, jungle near -448,7 | stopped (user's break) | ~10 min | nothing built; the hall's 81 sandstone given up at once, none within 96 blocks (F33) |
 
 ## Findings log
 
@@ -224,6 +225,18 @@ CLAUDE.md when a phase ends.
   prepare_site felled 13 trees in 2.4 min and the logs fed the builds, so this is fine in woods. The watcher did not
   teleport SausageOfDoom4, who was offline (correct).
 - F31 "Declared complete by code" seen working (Accept1, the mayor waited with everything built).
+- F32 Accept2: both designs had a furnace as decoration ("a furnace for interior light"). The hall's build crafted one
+  and placed it, and its 4 glass windows stayed open (142 of 146 blocks), most likely for want of a furnace to smelt
+  the sand gathered for them. The watcher cuts event text at ~300 characters, so the exact reason is not in the log
+  (F35).
+- F33 Accept3: the architect drew the hall in sandstone in a jungle; all three sandstone tasks (81 blocks) were given
+  up at once ("no sandstone within 96 blocks": the F18 fix working), leaving the hall short. Designs need materials
+  that exist near the site: see the handover.
+- F34 find_site's "taken" ground is its own village's buildings, layouts and reservations; other villages' buildings
+  only count against a site as built-on ground. Accept2 started 100 blocks from Accept1 and was fine, but a new village
+  could be laid out over an old one.
+- F35 The watch script truncates event text (~300 characters), hiding the end of long failure messages. Print them
+  in full, or write the full events to a second file.
 
 ## Decisions log
 
