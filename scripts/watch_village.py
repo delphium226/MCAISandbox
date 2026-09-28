@@ -68,7 +68,9 @@ def find_land(x, z):
                 break
         site = call("/agents/Mayor/memory").get("lastSite")
         call("/agents/Mayor", method="DELETE")
-        if result and result[-1]["type"] == "action_done" and site:
+        # Survival villages need trees near them (Accept7's desert site had none within 112 blocks)
+        treeless = gamemode == "survival" and result and "No trees within 48 blocks" in result[-1]["text"]
+        if result and result[-1]["type"] == "action_done" and site and not treeless:
             print(f"land found near {px:.0f},{pz:.0f}: {result[-1]['text'][:120]}", flush=True)
             return px, pz
         print(f"no room near {px:.0f},{pz:.0f}: {result[-1]['text'][60:200] if result else 'no result'}", flush=True)

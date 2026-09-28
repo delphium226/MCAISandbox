@@ -406,9 +406,9 @@ function siteRoom(a: WorldAgent): string {
 
 /** Local materials the site lacks, for the architect's brief (plan_layout refuses designs that need them). */
 function siteMaterials(a: WorldAgent): string {
-  const site = a.memory.lastSite as { x: number; z: number } | undefined;
+  const site = a.memory.lastSite as { x: number; y: number; z: number } | undefined;
   if (!site || a.gamemode === 'creative' || !a.world.materialsNear) return '';
-  const found = a.world.materialsNear(a.name, ['sandstone', 'sand'], site.x, site.z, 96);
+  const found = a.world.materialsNear(a.name, ['sandstone', 'sand'], site.x, site.y, site.z, 96);
   if (!found) return '';
   const notes = [
     found.sandstone === 0 ? 'there is no sandstone within 96 blocks of the site: do not use sandstone' : '',

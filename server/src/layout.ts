@@ -72,8 +72,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
           const b = /collect block=(\S+)/.exec(t.detail)?.[1];
           if (b && !/^(red_)?sand$/.test(b)) want.set(b, [...new Set([...(want.get(b) ?? []), n])]);
         }
-      const found = want.size ? w.materialsNear(by, [...want.keys()], site.x, site.z, 96) : null;
+      const found = want.size ? w.materialsNear(by, [...want.keys()], site.x, site.y, site.z, 96) : null;
       const missing = found ? [...want.keys()].filter((b) => found[b] === 0) : [];
+      // No trees at all: every building needs planks, so the site is wrong, not the designs (Accept7's desert)
+      if (missing.some((b) => /(^|_)logs?$/.test(b))) return `plan_layout: there are no trees within 96 blocks of this site (only wood buried deep underground), and every building needs wood; run find_site again for a site with trees near it (it keeps to ground with trees), then plan_layout`;
       if (missing.length) {
         const designs = [...new Set(missing.flatMap((b) => want.get(b)!))];
         return `plan_layout: there is no ${missing.join(' or ')} within 96 blocks of this site, and ${designs.map((d) => `"${d}"`).join(', ')} ${designs.length > 1 ? 'need' : 'needs'} it; draw ${designs.length > 1 ? 'replacements' : 'a replacement'} without ${missing.join(' or ')} (planks, logs and cobblestone are found almost everywhere) under a new name, then call plan_layout with ${designs.length > 1 ? 'them' : 'it'}`;

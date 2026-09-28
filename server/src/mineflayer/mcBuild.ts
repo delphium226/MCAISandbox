@@ -837,6 +837,8 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const surveyed: Array<{ x: number; z: number }> = [];
   // The largest smaller site seen anywhere, in case nothing of the full size turns up
   let fallback: { c: SiteCandidate; logs: Vec3[] } | null = null;
+  // A site of the full size but with no trees near it (survival), kept in case nothing better turns up
+  let bare: { c: SiteCandidate; logs: Vec3[] } | null = null;
   for (let leg = 0; ; leg++) {
     const p = a.bot.entity.position;
     const ox = fixed && args.x !== undefined ? int(args, 'x') : Math.floor(p.x);
@@ -844,14 +846,23 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     surveyed.push({ x: ox, z: oz });
     const g = await surveyGround(a, ox, oz, SITE_WIDE + Math.floor(sz / 2), taken, signal);
     // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
-    const logs = survival ? nearestBlocks(a, logIds, 128, 4096) : [];
+    // Trees, not wood buried far below (mineshaft supports at y=34 under a desert site at y=70 counted as wood near it,
+    // and no one could get at them: Accept7)
+    const floorY = Math.floor(a.bot.entity.position.y) - 16;
+    const logs = survival ? nearestBlocks(a, logIds, 128, 4096, (q) => q.y >= floorY) : [];
     const woodNear = survival ? (x: number, z: number) => logs.filter((q) => Math.hypot(q.x - x, q.z - z) <= 48).length : null;
     // Nearby level ground first, then rougher nearby ground (prepare_site cuts and fills it), then farther out
     const tries: Array<[number, number]> = slopes.map((s) => [radius, s]);
     tries.push([SITE_WIDE, slopes[slopes.length - 1]]);
+    let treeless = false;
     for (const [r, s] of tries) {
       const c = bestSite(g, sz, s, ox, oz, r, home, woodNear, why);
-      if (c) return siteFound(a, c, logs);
+      if (!c) continue;
+      // In survival a site without trees near it is a last resort (every building needs wood): look further first
+      if (!survival || c.wood > 0 || fixed) return siteFound(a, c, logs);
+      bare ??= { c, logs };
+      treeless = true;
+      break;
     }
     // Nothing that big: remember the largest that fits here
     const maxSlope = slopes[slopes.length - 1];
@@ -863,17 +874,24 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
       }
     }
     // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them)
-    if (fallback && fallback.c.size >= Math.ceil(sz * 0.8)) break;
+    if (fallback && fallback.c.size >= Math.ceil(sz * 0.8) && !treeless) break;
     if (fixed || leg >= SITE_LEGS || signal?.aborted) break;
     // Walk a leg toward the most dry, loaded land beyond the part already searched, staying within reach of home
     const dirs = COMPASS.map(([name, dx, dz]) => {
       const tx = Math.floor(ox + dx * SITE_LEG), tz = Math.floor(oz + dz * SITE_LEG);
       let land = 0;
-      for (let k = 0; k < g.n * g.n; k++) {
-        if (g.kind[k]) continue;
-        const x = g.x0 + (k % g.n) - ox, z = g.z0 + Math.floor(k / g.n) - oz, d = Math.hypot(x, z);
-        if (d > 50 && (x * dx + z * dz) / d > 0.92) land++;
-      }
+      // Toward trees when the ground found so far has none near it, else toward dry land
+      if (treeless)
+        for (const q of logs) {
+          const x = q.x - ox, z = q.z - oz, d = Math.hypot(x, z);
+          if (d > 20 && (x * dx + z * dz) / d > 0.7) land++;
+        }
+      else
+        for (let k = 0; k < g.n * g.n; k++) {
+          if (g.kind[k]) continue;
+          const x = g.x0 + (k % g.n) - ox, z = g.z0 + Math.floor(k / g.n) - oz, d = Math.hypot(x, z);
+          if (d > 50 && (x * dx + z * dz) / d > 0.92) land++;
+        }
       return { name, tx, tz, land };
     }).filter((d) => d.land > 0 && (!home || Math.hypot(d.tx - home.x, d.tz - home.z) <= VILLAGE_RANGE)
       && !surveyed.some((q) => Math.hypot(d.tx - q.x, d.tz - q.z) < SITE_LEG * 0.75))
@@ -892,6 +910,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   }
   const walked = Math.round(Math.hypot(a.bot.entity.position.x - start.x, a.bot.entity.position.z - start.z));
   const searched = `within ${SITE_WIDE} blocks${walked >= 16 ? ` of ${surveyed.length} spots (walked ${walked} blocks)` : ''}${home ? `, staying within ${VILLAGE_RANGE} of the village` : ''}`;
+  if (bare) return `${siteFound(a, bare.c, bare.logs)} Searched ${searched} for ground with trees near it and found none: a village here needs wood from farther away.`;
   if (fallback) {
     const s = fallback.c.size;
     const rest = siteFound(a, fallback.c, fallback.logs).replace(/^site found: /, '');

@@ -58,14 +58,15 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages = VillageRegistry.forWorld(dataDir);
   }
 
-  /** How many blocks collect would gather for each name lie near x,z (the plan_layout check that a design's materials are there). */
-  materialsNear(by: string, names: string[], x: number, z: number, range: number) {
+  /** Whether blocks collect would gather for each name lie near x,y,z (plan_layout's check that a design's materials are there). */
+  materialsNear(by: string, names: string[], x: number, y: number, z: number, range: number) {
     const a = this.agents.get(by.toLowerCase());
     if (!a) return null;
     const out: Record<string, number> = {};
     for (const n of names) {
       try {
-        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, 32, (p) => Math.hypot(p.x - x, p.z - z) <= range).length;
+        // Near the surface only (wood 36 blocks down in a mineshaft could not be reached), and the first one found will do
+        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, 1, (p) => p.y >= y - 16 && Math.hypot(p.x - x, p.z - z) <= range).length;
       } catch {
         // An unknown name: not this check's business
       }
