@@ -79,10 +79,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         }
       }
       const found = want.size ? w.materialsNear(by, amount, site.x, site.y, site.z, 96) : null;
-      const missing = found ? [...want.keys()].filter((b) => found[b] !== undefined && found[b] < amount[b]) : [];
-      // No trees at all: every building needs planks, so the site is wrong, not the designs (Accept7's desert)
-      const wood = missing.find((b) => /(^|_)logs?$/.test(b));
-      if (wood) return `plan_layout: there are too few trees within 96 blocks of this site (${found![wood]} log blocks for the ${amount[wood]} the buildings need), and every building needs wood; run find_site again for a site with more trees near it, then plan_layout`;
+      // Wood may come up to a quarter short of the count: prepare_site's felled trees give logs too, and the count sees
+      // only the ground the mayor has loaded (Accept13: 115 of 131 refused, and the mayor went round in circles)
+      const isWood = (b: string) => /(^|_)logs?$/.test(b);
+      const missing = found ? [...want.keys()].filter((b) => found[b] !== undefined && found[b] < amount[b] * (isWood(b) ? 0.75 : 1)) : [];
+      // Too few trees: every building needs planks, so the site or the size is wrong (Accept7's desert)
+      const wood = missing.find(isWood);
+      if (wood) return `plan_layout: there are too few trees within 96 blocks of this site (${found![wood]} log blocks for the ${amount[wood]} these buildings need); either draw smaller buildings (5x5 cottages, a 7x7 hall) under new names and call plan_layout with them, or run find_site for a site with more trees near it`;
       if (missing.length) {
         const designs = [...new Set(missing.flatMap((b) => want.get(b)!))];
         return `plan_layout: there is not enough ${missing.map((b) => `${b} (${found![b]} of ${amount[b]})`).join(' or ')} within 96 blocks of this site, and ${designs.map((d) => `"${d}"`).join(', ')} ${designs.length > 1 ? 'need' : 'needs'} it; draw ${designs.length > 1 ? 'replacements' : 'a replacement'} without ${missing.join(' or ')} (planks, logs and cobblestone are found almost everywhere) under a new name, then call plan_layout with ${designs.length > 1 ? 'them' : 'it'}`;
