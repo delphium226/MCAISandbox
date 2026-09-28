@@ -16,8 +16,14 @@ on the project and what earlier sessions learned.
   2. `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
   3. `MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" node_modules/.bin/tsx server/src/mineflayer/index.ts`
      (agent server + panel on 8766; restart it after editing server files: it does not watch)
-  4. a watch script, e.g. `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud
-     MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud python scripts/watch_village.py <Village> 120 0 2 12 "<objective>" ollama:qwen3.8:27b`
+  4. a test: first the staged one without models, `python scripts/stage_village.py <Village> -160 -100 --stage build`
+     (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
+     `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud
+     MCAI_GAMEMODE=survival MCAI_STALL_MIN=5 MCAI_SAME_FAIL=6 python scripts/watch_village.py <Village> -160 -100 2 90
+     "two matching cottages and a meeting hall" ollama:qwen3.8:27b` (~35 min; one cottage ~10 min). Without
+     `MCAI_GAMEMODE` it runs in creative (free blocks, a few minutes).
+  To restart the agent server after a server edit: stop the process on port 8766
+  (`Get-NetTCPConnection -LocalPort 8766 -State Listen`), start step 3 again with `run_in_background`.
   Stop: `python mc/rcon.py stop` (saves the world), `python scripts/ollama_exec.py stop`, the agent server by PID.
   Watch scripts leave their agents in the world when they stop on the time limit: remove them (panel or `DELETE`).
 - `tsx watch` **restarts the server on every server-file edit**. That removes all agents (villages in
@@ -50,7 +56,14 @@ on the project and what earlier sessions learned.
   block is LF): preserve them. When editing with Python on Windows, `open(p).read()` then `open(p, 'w').write()` keeps
   CRLF; never write with `newline=''`. Check `git diff --stat` against `git diff --ignore-cr-at-eol --stat` before committing.
 - Long inline heredocs in the Bash tool sometimes fail to parse; write edit scripts to the scratchpad with the Write tool
-  and run them.
+  and run them. In edit scripts: open files with `encoding='utf-8'` (the panel HTML is not cp1252), and prefer the Edit
+  tool for lines with backslash escapes (``, `
+` in template strings came out wrong through Python twice). Check
+  `git ls-files --eol` after `sed -i` (it has turned CRLF files into LF).
+- Start long runs with the Bash tool's `run_in_background` (not `&`, which can die with the shell) and follow them with
+  a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ...`); stop old monitors, or events come twice.
+- Never edit server files while a test runs, even though the agent server does not reload them (the user's rule; it
+  was broken twice in the 2026-09-27 session without effect on the runs).
 - Write prose (README, comments) plainly; match the surrounding comment density.
 
 ## Local models (the user's machine)
@@ -71,6 +84,12 @@ on the project and what earlier sessions learned.
   ~9 s. In a village run executors took 6-11 s per turn on one shared model: benchmarks alone understate queueing.
 - Keep `num_ctx` at 8192 (`MC_OLLAMA_CTX`): at 16384 gemma spills to the CPU and runs ~7x slower. Two gemma instances do
   not fit, so `OLLAMA_NUM_PARALLEL` does not help it.
+- **Pinned models stay loaded** (the brain sends `keep_alive: -1` for routed models; the servers start with
+  `OLLAMA_KEEP_ALIVE=-1`): after an idle unload, qwen3.8 once reloaded partly into system RAM and every worker plan
+  timed out. `ollama_exec.py start` warms each model with a ~3k-token prompt: the first long prompt after loading
+  took qwen3.8 ~4 minutes (short prompts do not show it). Calls time out after `MC_OLLAMA_TIMEOUT` (default 300 s).
+  If plans time out, run `python scripts/ollama_exec.py status`: a model not fully in VRAM means stop and start.
+- qwen3.8 worker plans measured ~12-28 s on 2026-09-27 (not the 7-10 s benchmarked earlier), with GPU 0 nearly full.
 - Running the `ollama` CLI launches the Ollama app, which may auto-update itself.
 - Claude API calls are billed separately from the user's Claude subscription.
 
@@ -191,6 +210,8 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
     `ffcf9bd` movement, pickaxe, step-matching fixes; `8f2a8b9` workers run code-posted tasks as written, wood per
     part; `37d8a74` builds top up from storage, doors, buildings protected from gathering; `4fda71e` water, re-opened
     failed builds, verified completion (village economy steps 5-6, done)
+16. `114ef12`, `11eea1f` docs: README (how the agents work, in detail) and ARCHITECTURE.md; all pushed to origin
+    (`tiered-brain-building` only; `main` untouched)
 
 Backlog: import a real downloaded schematic (only generated test files so far); stairs and fence collision; the
 mayor still re-posts gathering when woken on a stall (the timed review is now off while workers hold tasks, and the
@@ -278,6 +299,9 @@ Things to expect:
 - Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
 - Gatherers stay within 96 blocks of the village (the chest); find_site prefers ground with trees within 48 blocks
   (a desert site had none within 128); walks over 64 blocks go in legs of ~40.
+- Where village tests went well: around -160,-100 (savanna with trees and sand: Riverbend6, Meadowford2 and 5).
+  Poor: 120,-160 (desert, no trees), 20..60,-120 (few trees), -200,-140 (a lake at -235,-53 trapped a worker). Earlier
+  test villages occupy much of the area near spawn; start new ones away from them.
 
 ## Real Minecraft
 
