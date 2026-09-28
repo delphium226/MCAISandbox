@@ -87,7 +87,7 @@ export class MineflayerWorld implements WorldAdapter {
     // Blocks that need iron ore, leather, clay or wool are too slow to gather for a village: a design using them is
     // sent back (a lantern meant mining raw iron with a stone pickaxe)
     const hard = hardToGather(plan.gather);
-    const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. lanterns, bricks, wool, bookshelves)`] : [])];
+    const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. mossy cobblestone, lanterns, bricks, wool, bookshelves; planks, logs, cobblestone and glass are gathered easily)`] : [])];
     // One log spare (a plank batch per wooden part rounds up; one kind, so no more than that)
     plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + (wood ? 1 : 2);
     const logs = Object.entries(plan.gather).filter(([n]) => /_log$|^any:logs$/.test(n)).reduce((s, [, q]) => s + q, 0);

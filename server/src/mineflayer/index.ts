@@ -56,6 +56,17 @@ void worldRules();
 // The brains and skill queues tick at the game's 20 Hz, like the sandbox's
 setInterval(() => world.tick(), 50);
 
+// A blocked event loop lets every bot miss the server's keep-alive (Accept4: all three timed out at once, and nothing
+// in this log said why): report each stall of over 2 s, with what every agent was running when it ended
+let lastBeat = Date.now();
+setInterval(() => {
+  const now = Date.now(), late = now - lastBeat - 1000;
+  lastBeat = now;
+  if (late <= 2000) return;
+  const doing = world.agentList().map((a) => `${a.name}: ${a.current ? `${a.current.status.type} ${JSON.stringify(a.current.status.args).slice(0, 80)}` : 'idle'}`).join('; ');
+  console.log(`[lag] ${new Date(now).toISOString().slice(11, 19)} event loop blocked for ~${late} ms; ${doing || 'no agents'}`);
+}, 1000);
+
 http
   .createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

@@ -231,7 +231,7 @@ You are the mayor. You coordinate; you do not build, gather or prepare land your
 board, one at a time in the order posted, and do the physical work.
 1. Site and designs: while the village has no plot and you have no find_site result, set_plan with a find_site step
    (size 30 fits three or four small buildings with streets) followed by one design_building step per kind of building
-   the objective needs (e.g. 'design_building name=cottage brief=...', size up to 11x11; matching buildings share one
+   the objective needs (e.g. 'design_building name=cottage brief=...', size up to 9x9; matching buildings share one
    design). Any dry, flat land will do, whatever the biome (desert, badlands, savanna): do not look for a better one.
 2. Layout: once the site is found and every design is in the library, call plan_layout with one design name per
    building (e.g. ["cottage", "cottage", "meeting_hall"]). Code places the buildings on one plot with streets and posts
@@ -266,6 +266,8 @@ const BRAIN_TOOLS: ToolDef[] = [
 ];
 
 /** What the mayor may do itself: look around, talk, design; building and land work are for workers. */
+/** The largest footprint of a survival design (every block is gathered by hand). */
+const SURVIVAL_MAX = 9;
 /** The smallest first site the mayor searches for (find_site reports the largest near by when this much is not there). */
 const MAYOR_FIRST_SITE = 24;
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
@@ -396,7 +398,8 @@ function siteLimit(a: WorldAgent): { size: number; one: number; fits: Array<[num
 function siteRoom(a: WorldAgent): string {
   const r = siteLimit(a);
   if (!r) return '';
-  const fits = r.fits.filter(([, f]) => f >= 5);
+  const max = a.gamemode !== 'creative' && a.world.materialTasks ? SURVIVAL_MAX : 99;
+  const fits = r.fits.filter(([, f]) => f >= 5).map(([n, f]): [number, number] => [n, Math.min(f, max)]);
   if (!fits.length) return '';
   return `The village site is ${r.size}x${r.size} of level ground; it holds, with streets: ${fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the objective fits if it can, but never smaller than 5x5: what does not fit goes on a second site.`;
 }
@@ -989,6 +992,12 @@ export class TieredBrain implements AgentBrain {
     }
     const call = reply.calls.find((c) => c.name === 'set_plan');
     let steps = Array.isArray(call?.input.steps) ? (call.input.steps as unknown[]).map(stepText).filter(Boolean) : [];
+    if (role === 'mayor' && steps.some((st) => /plan_layout/i.test(st))) {
+      // plan_layout is the planner's tool, not the executor's: as a plan step the executor ran find_site instead and
+      // replaced a 30x30 site with a 24x24 one (Accept4, Accept5). The planner calls it when the other steps are done
+      steps = steps.filter((st) => !/plan_layout/i.test(st));
+      if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason = 'the site and the designs are ready: call the plan_layout tool now (not as a plan step), with one design name per building';
+    }
     if (role === 'mayor' && steps.length) {
       // The mayor does not gather or build (its executor cannot): drop such steps, and without a site find one first
       const dropped = steps.filter((st) => WORKER_WORK.test(st) && !/design_building|find_site/i.test(st));
@@ -1117,8 +1126,10 @@ export class TieredBrain implements AgentBrain {
         const stations = design && a.gamemode !== 'creative' ? [...new Set(Object.values(design.palette).map((b) => b.replace(/\[.*$/, '')).filter((b) => /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anvil)$/.test(b)))] : [];
         if (stations.length) errors.push(`leave out the ${stations.join(', ')}: workstations and containers are not part of a building here`);
         const room = siteLimit(a);
-        const tooBig = !!design && !!room && Math.max(design.width, design.depth) > room.one;
-        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}, but the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; draw it smaller`);
+        // In survival every block is gathered by hand: an 11x11 cottage and a 13x13 hall made ~750 blocks (Accept5)
+        const cap = Math.min(room?.one ?? 99, a.gamemode !== 'creative' && a.world.materialTasks ? SURVIVAL_MAX : 99);
+        const tooBig = !!design && Math.max(design.width, design.depth) > cap;
+        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}; ${cap === SURVIVAL_MAX && (!room || room.one > cap) ? `buildings here are at most ${cap}x${cap} (every block is gathered by hand)` : `the village site is ${room!.size}x${room!.size}: one building can be at most ${cap}x${cap} there`}; draw it smaller`);
         if (design && !unobtainable.length && !tooBig && !stations.length) {
           if (v) {
             v.designs[design.name] = design;
@@ -1181,9 +1192,13 @@ export class TieredBrain implements AgentBrain {
       }
       // The first site must have room for a village: a vague step made the executor ask for 11x11 (Tightfit1), and the
       // architect then drew 3x3 cottages to fit it; later searches (a second site) may be small
-      if (villageRole(a) === 'mayor' && c.name === 'find_site' && !a.village()?.layouts?.length && !(Number(c.input.size) >= MAYOR_FIRST_SITE)) {
-        a.pushEvent('system', `find_site size raised to ${MAYOR_FIRST_SITE}: the first site needs room for the whole village`);
-        c.input.size = MAYOR_FIRST_SITE;
+      if (villageRole(a) === 'mayor' && c.name === 'find_site' && !a.village()?.layouts?.length) {
+        // Nor smaller than the site already found (a second search replaced a 30x30 with a 24x24, Accept5)
+        const floor = Math.max(MAYOR_FIRST_SITE, Number((a.memory.lastSite as { size?: number } | undefined)?.size) || 0);
+        if (!(Number(c.input.size) >= floor)) {
+          a.pushEvent('system', `find_site size raised to ${floor}: the first site needs room for the whole village${floor > MAYOR_FIRST_SITE ? ' (and no less than the site already found)' : ''}`);
+          c.input.size = floor;
+        }
       }
       if (villageRole(a) === 'mayor' && (c.name === 'move_to' || c.name === 'explore')) {
         const far = this.beyondRange(a, c);

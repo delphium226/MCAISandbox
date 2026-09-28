@@ -55,6 +55,15 @@ def gpus():
     return [tuple(int(v) for v in line.split(",")) for line in out.strip().splitlines()]
 
 
+def on_card(c, url):
+    """Whether the instance's own GPU really holds its model: Ollama counted Windows' shared GPU memory (system RAM) as
+    VRAM, reporting "20383 of 20383 MB in VRAM" while nvidia-smi showed 1.3 GB on that card and the model ran at 2.7
+    tok/s (2026-09-28). Checks the card holds at least 80% of the loaded size."""
+    m = next((x for x in loaded(url) if x["name"] == c["model"]), None)
+    used = next((u for i, u, _ in gpus() if i == c["gpu"]), 0)
+    return bool(m) and used >= 0.8 * m["size"] / 2**20
+
+
 def gpu_uuid(index):
     """The UUID of a GPU as nvidia-smi numbers it: CUDA's own numbering can differ, the UUID is unambiguous."""
     out = subprocess.run(["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"], capture_output=True, text=True, check=True).stdout
@@ -78,7 +87,8 @@ if cmd == "status":
     print(f"app ({MAIN}):", describe(MAIN) if up(MAIN) else "not running")
     for n, c in INSTANCES.items():
         url = f"http://127.0.0.1:{c['port']}"
-        print(f"{n} ({url}, GPU {c['gpu']}):", describe(url) if up(url) else "not running")
+        warn = "" if not up(url) or not loaded(url) or on_card(c, url) else "  WARNING: its GPU does not hold it (spilled into system RAM): stop and start"
+        print(f"{n} ({url}, GPU {c['gpu']}):", describe(url) if up(url) else "not running", warn)
     for i, used, total in gpus():
         print(f"GPU {i}: {used} / {total} MB used")
     print(f'MC_OLLAMA_ROUTES="{routes()}"')
@@ -127,7 +137,7 @@ elif cmd == "start":
             call(url, "/api/generate", {"model": c["model"], "keep_alive": 0}, timeout=60)
             time.sleep(5)
         tps = r.get("eval_count", 0) / max(1e-9, r.get("eval_duration", 1) / 1e9)
-        ok = m and m["size_vram"] >= m["size"] and tps >= c["min_tps"]
+        ok = m and m["size_vram"] >= m["size"] and tps >= c["min_tps"] and on_card(c, url)
         # Warm up with a prompt the size of an agent's (~3k tokens): the first long prompt after loading took qwen3.8
         # about 4 minutes (short ones do not show it), which timed out the first worker plans of a run
         t = time.time()
