@@ -185,7 +185,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
-  results with the events stream and `/api/block`.
+  results with the events stream and `/api/block`. `move_to` needs x, y and z.
+- `scripts/test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue (pit: the pathfinder climbs
+  out with dirt by itself; box: teleport; pool: swim, then teleport).
 - **Test the village economy in stages before model-driven runs** (the user asked for faster tests; almost every bug
   of the economy work was in code, not in model behaviour): `python scripts/stage_village.py VILLAGE X Z [--stage
   full|build] [--buildings testhut,testhut,testhall] [--brain tasks|tiered]` lays a village out through the API and
@@ -223,12 +225,12 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
     failed builds, verified completion (village economy steps 5-6, done)
 16. `114ef12`, `11eea1f` docs: README (how the agents work, in detail) and ARCHITECTURE.md; all pushed to origin
     (`tiered-brain-building` only; `main` untouched)
+17. `0c6c2aa` session lessons; `19b9b47` reliability (one wood kind, fast-failing collect, stuck rescue, quiet
+    mayor); `b7908db` fixes from the 4-worker runs, panel simple mode, LAN access, `docs/PLAN.md`; `83bfe05` plan
+    handover. Not pushed (ask first). From here on, progress is tracked in `docs/PLAN.md`.
 
-Backlog: import a real downloaded schematic (only generated test files so far); stairs and fence collision; the
-mayor still re-posts gathering when woken on a stall (the timed review is now off while workers hold tasks, and the
-duplicate guard drops its posts); gather tasks fail on poor terrain (no sand, far trees; windows are left open);
-builds often come up a few logs short (a quick requeue each time); `collect` can take 5 minutes to give up on
-unreachable blocks.
+Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
+(re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 
 ## The peaceful village economy (agreed 2026-09-27; done 2026-09-28)
 
@@ -310,9 +312,13 @@ Things to expect:
 - Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
 - Gatherers stay within 96 blocks of the village (the chest); find_site prefers ground with trees within 48 blocks
   (a desert site had none within 128); walks over 64 blocks go in legs of ~40.
-- Where village tests went well: around -160,-100 (savanna with trees and sand: Riverbend6, Meadowford2 and 5).
-  Poor: 120,-160 (desert, no trees), 20..60,-120 (few trees), -200,-140 (a lake at -235,-53 trapped a worker). Earlier
-  test villages occupy much of the area near spawn; start new ones away from them.
+- Where village tests went well: around -160,-100 (savanna with trees and sand: Riverbend6, Meadowford2 and 5), but
+  that area is now full of test villages (the staged land search found nothing free there on 2026-09-28); the oak and
+  birch woods around -360..-430, -80..-105 (StageW2-W4); -428,-200 (Fourfold5, all built in 21.6 min).
+  Poor: 120,-160 (desert, no trees), 20..60,-120 (few trees), -200,-140 (a lake at -235,-53 trapped a worker),
+  -560,-60 (jungle hills: logs out of reach, sand under water), 4..60,-232..-194 (few trees), -494,-336 (hills at
+  y 95, no sand within 96), -195,-97 (only 18x18 of level land). Test villages of 2026-09-28: StageW1-W4, Fourfold1-7
+  (all in `mc/server/villages.json`); start new ones away from them. Run logs are kept in `runs/<date>/` (gitignored).
 
 ## Real Minecraft
 
@@ -354,10 +360,11 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left from the 2026-09-27/28 session: no agents in the world; the Paper server, the pinned model servers and the agent
-server were left running. Test buildings and storage chests stand near spawn and at the test villages (Depot, Stage*,
-Sunhollow*, Riverbend*, Meadowford*; all in `mc/server/villages.json`): build elsewhere or clear them. `/api/maps` and
-the "what the model saw" panel sections have not yet been viewed in a browser by the user.
+Left from the 2026-09-28 sessions: no agents in the world; the Paper server (on the LAN, whitelisted, time frozen
+at day), the pinned model servers and the agent server (`MC_API_HOST=0.0.0.0`) were left running. Test buildings and
+storage chests stand near spawn and at the test villages (Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*,
+Fourfold*; all in `mc/server/villages.json`): build elsewhere or clear them. The user has watched runs in the game
+from another PC; the panel's simple mode has not been confirmed in a browser yet.
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
@@ -404,6 +411,23 @@ Lessons from the adapter:
    storage before requeueing; windows stay open when there is no sand for glass; paths avoid water (`liquidCost`) and
    a walk stuck in water swims out; `declare_complete` is refused while a layout build is not done; a mayor re-posting
    a failed building re-opens the layout task; the watch scripts write UTF-8 (a chat message with U+2011 crashed one).
+16. **Several bots share one Node event loop.** The pathfinder searches up to `tickTimeout` ms per bot per tick (40 by
+   default) and `findBlocks` with a large count scans synchronously: with four bots the API stopped answering and the
+   watcher died. `moves()` sets `tickTimeout` 15 and `thinkTimeout` 15 s; filter inside the search
+   (`nearestBlocks(..., keep)`, `useExtraInfo`) rather than asking for thousands and filtering after. Set pathfinder
+   options in `moves()`: the plugin is not attached yet when `loadPlugin` returns (setting it there broke every spawn).
+17. **The pathfinder's `goto` can resolve without arriving** (boxed in by built walls: `move_to` said "arrived" where
+   the bot stood, so a trapped bot was never rescued); `walkOnce` checks `goal.isEnd`. And `pathfinder.stop()` lets a
+   dig in progress finish: `bot.dig` right after a walk collided with it ("Digging aborted"); clear the goal and wait
+   for `!isMining()` first.
+18. **Executors change code-posted calls.** qwen3:30b withdrew logs from storage and deposited them again (counted as
+   gathering) and collected 6 of 29; code now runs such steps as written and asks the model only after a failure.
+   Rule of thumb: whatever code can spell out exactly, code should run.
+19. 26.1 details: the daylight game rule is `advance_time` (was `doDaylightCycle`); `time set day` works;
+   `spreadplayers` lands on the jungle canopy (teleport onto a known block instead); the whitelist matches names in
+   offline mode.
+20. **Judge prompt changes on more than three samples**: `mayorbench` gave 3/3 and 0/3 for the same prompt and case.
+   Prompt wording did not stop gpt-oss re-posting work; fewer wake-ups and code guards did.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

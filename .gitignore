@@ -8,3 +8,5 @@ server/worlds
 shot-*.png
 .playwright-mcp
 __pycache__/
+# Run logs kept for comparison (docs/PLAN.md run record)
+runs/

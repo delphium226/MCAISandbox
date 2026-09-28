@@ -20,21 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(2026-09-28, end of the first reliability session)
+(written 2026-09-28 at the end of the first reliability session)
 
-- Fixes since `19b9b47`, by how far each is tested:
-  - seen working in runs or targeted tests: run-as-written steps (Fourfold5: 11 executor calls in all), gather
-    tasks covered by storage (Fourfold6), rescue only when the action got nowhere (box test), CPU limits (no stall
-    since), `collect` off plots and water, crafting from the server's counts (Gus rebuilt Worker3's cottage), the
-    panel's simple mode (rendered from live data in Node; not yet seen in a browser by the user), `MC_API_HOST`;
-  - written and typechecked, not yet seen in a run: code-declared completion, failing ungatherable soft tasks at
-    once, the dig retry, the stone pickaxe and second pickaxe, the placement retry, the player teleport in the watch
-    scripts.
-  All committed as a checkpoint (`b7908db`); the next village run should exercise the second group, and anything
-  that misbehaves becomes a finding.
-- Then step 1.2 (a site that fits), which Fourfold7 showed is the next blocker, and 1.3.
-- The Paper server now listens on the LAN (whitelist on) and the agent server is started with `MC_API_HOST=0.0.0.0`
-  (panel at http://192.168.1.84:8766/panel). Time is frozen at day (`gamerule advance_time false`).
+- **Code:** everything is committed (`b7908db`, `83bfe05`, plus the docs commit that added this handover); nothing
+  is pushed (ask first). Working tree clean except the gitignored `runs/`.
+- **Running:** the Paper server (listening on the LAN, whitelist on, time frozen at day), both pinned model servers,
+  and the agent server with `MC_API_HOST=0.0.0.0` (panel at http://192.168.1.84:8766/panel). No agents in the world.
+  After a reboot, start them as CLAUDE.md says (step 3 now includes `MC_API_HOST=0.0.0.0`).
+- **Not yet seen working in a run** (written and typechecked in `b7908db`): the village declared complete by code,
+  failing ungatherable soft gather tasks at once, the dig retry ("Digging aborted"), the block-placement retry, the
+  stone pickaxe and a second pickaxe per `collect`, the watch scripts teleporting SausageOfDoom4. The next village run
+  exercises most of them: look for "declared complete by code", "Gave up t", "stone_pickaxe" and the teleport line in
+  its log, and record what you see as findings.
+- **Next step: 1.2, a site that fits** (F19, F21). Where the code is:
+  - `searchSite` / `findSite` in `server/src/mineflayer/mcBuild.ts` (radius 32-64 around the bot, loaded chunks
+    only): add a wider search in legs when nothing of the size is in view;
+  - the size refusals in `postLayout`, `server/src/layout.ts` (the "find_site looked for only NxN" and "more than
+    32x32" messages): say what does fit, or lay out on two plots;
+  - the mayor's executor tools `MAYOR_EXEC` in `server/src/tieredBrain.ts` include `explore` and `move_to`: guard
+    distance from the village (Fourfold7's mayor went 500 blocks away);
+  - `design()` in `tieredBrain.ts`: give the architect the site's size.
+  Test: a staged layout on a small site, a mayorbench case "site too small", then a model-driven run.
+- **Then** 1.3 (slow mayor start), 1.4 (small items), and the 1.5 acceptance runs with 2 workers.
+- Run logs of this session are in `runs/2026-09-28/` (gitignored; the run record below summarises them).
+- **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
+  of every run when online; agent names Gus, Mayor, Worker1-4; commit tested batches, ask before pushing; never edit
+  server files while a run is going (broken twice on 2026-09-28: do the edits between runs).
 
 ## Phase 1: reliability of the survival village (in progress)
 
@@ -58,8 +69,9 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
 - [ ] 1.3 **Slow mayor start**: its first plan came 3 minutes after spawning in Fourfold7 (plans average 4.8 s).
       Find where the time goes (server log timestamps, panel "what the planner saw").
 - [ ] 1.4 Small items: add `advance_time` to `mcRules.ts` WORLD_RULES (applied and checked at start); `explore`
-      reports "no path ... stopped at" its own target (arrival check against an estimated y); village log lines in
-      plain words for the panel ("Worker4 built cottage 2").
+      reports "no path ... stopped at" its own target (arrival check against an estimated y, F23); village log lines in
+      plain words for the panel ("Worker4 built cottage 2"); confirm with the user that the panel's simple mode reads
+      well in a browser.
 - [ ] 1.5 **Acceptance runs**: 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
@@ -123,7 +135,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | Date | Run | Setup | Result | Time | Notes |
 |---|---|---|---|---|---|
 | 09-27 | Meadowford2 | 2 workers, qwen3.8 planner | 3/3 built | 35.0 min | before this plan |
+| 09-28 | StageW1 | staged build, 2 scripted workers, stock half acacia half spruce | 3/3 built | 2.5 min | parts split across kinds; 2 short starts from racing builders (F9) |
+| 09-28 | rescue tests | Gus in a cobblestone box, a pit, a walled pool | box, pool rescued | 2-4 s | pit: pathfinder climbed out with dirt; found F3 |
 | 09-28 | StageW2 | staged full, 2 scripted workers, testhut + testhall | 2/2 built | 11.1 min | 0 failures, one wood kind |
+| 09-28 | StageW3 | staged full, 4 scripted workers | stopped | 8 min | 11 failures: shared trees, slow path searches (F11) |
 | 09-28 | StageW4 | staged full, 4 scripted workers | 2/2 built | 10.4 min | trees shared: 4 workers barely faster (F12) |
 | 09-28 | Fourfold1 | model, 4 workers | stopped | 16 min | executors faked gathering (F13) |
 | 09-28 | Fourfold2 | model, 4 workers | stopped | 18 min | plot dug up by gatherers; hidden craft error (F15) |
@@ -165,6 +180,12 @@ CLAUDE.md when a phase ends.
 - F17 The mayor, woken with everything built, waited instead of declaring complete. Fix: code declares it.
 - F18 Gather tasks for sand where there is none kept buildings waiting for minutes. Fix: fail at once (soft).
 - F19 A site smaller than the layout sent the mayor exploring 500 blocks away. Open: step 1.2.
+- F21 The mayor draws designs before it knows how much land there is (Fourfold7: designs for a 19x19 layout, land
+  17-18 blocks). Step 1.2 gives the architect the site size.
+- F22 "Digging aborted" on stone, 5 times in the 4-worker runs and never before: most likely the pathfinder finishing
+  its own dig after a walk. Fix in `b7908db` (clear the goal, wait, retry once), not yet seen in a run.
+- F23 `explore` reported "no path ... stopped at" the point it had reached: the arrival check compares with a goal
+  whose y was estimated. Cosmetic; step 1.4.
 - F20 Deposits leave 1-3 items behind "though there is room" (11 times in the 4-worker runs, every worker): the bot's
   inventory view and the server's disagree by a few items. Harmless (the items stay with the worker), but a sign to
   count deposits on the server as building already does. Backlog.
@@ -177,6 +198,11 @@ CLAUDE.md when a phase ends.
 - 09-28 The Paper server listens on the LAN with a whitelist; the panel on the LAN via `MC_API_HOST=0.0.0.0`.
 - 09-28 Shared atlas (phase 2) comes after the phase 1 acceptance runs and before the chat requests (phase 3 needs
   it for "by the river").
+- 09-28 The panel opens in simple mode by default (detailed one click away, remembered per browser).
+- 09-28 Time frozen at day (`advance_time false`); random ticks (growth) and animals are unaffected as far as known
+  (not tested in 26.1: offer to check a sapling grows if it matters).
+- 09-28 The watch scripts teleport the watching player (MCAI_PLAYER, default SausageOfDoom4) to the Mayor, Worker1
+  (staged) or the test agent.
 
 ## Keeping this plan honest
 
