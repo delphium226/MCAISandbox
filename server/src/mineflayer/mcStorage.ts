@@ -466,7 +466,15 @@ async function ensureChest(a: BotAgent, v: Village, signal: AbortSignal, notes: 
   const chestId = itemId(a, 'chest')!;
   if (countItem(a, chestId)) return true;
   const logs = KINDS[1][1];
-  const wood = () => a.bot.inventory.items().reduce((s, it) => s + (/_planks$/.test(it.name) ? it.count : logs.test(it.name) ? 4 * it.count : 0), 0);
+  // Planks of one kind (a recipe takes one: 6 oak and 2 birch planks made no chest, StageH8), counting logs as 4
+  const wood = () => {
+    const by: Record<string, number> = {};
+    for (const it of a.bot.inventory.items()) {
+      const kind = /_planks$/.test(it.name) ? it.name.replace(/_planks$/, '') : logs.test(it.name) ? it.name.replace(/^stripped_/, '').replace(/_(log|wood|stem|hyphae)$/, '') : null;
+      if (kind) by[kind] = (by[kind] ?? 0) + (/_planks$/.test(it.name) ? it.count : 4 * it.count);
+    }
+    return Math.max(0, ...Object.values(by));
+  };
   // 8 planks for the chest and 4 for a crafting table, if none is near
   if (wood() < 12) await take(a, v, [{ test: (n) => logs.test(n), left: 3 }], signal);
   if (wood() < 8) return false;

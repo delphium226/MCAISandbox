@@ -266,7 +266,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 - **Stuck rescue** (real Minecraft, survival). Two moves that fail within 3 blocks of the same spot in 6 minutes (a pit,
   a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
   up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage (in
-  front of the storage hut's door, when the village has one). The brain is told what happened.
+  the storage hut's doorway, when the village has one). The brain is told what happened.
 
 ### In-game commands
 ```
@@ -496,11 +496,14 @@ craft 4 planks (any kind), 60 oak_planks, 3 oak_door; smelt 1 glass (fuel: 1 pla
 
 **Village storage.** A village keeps its materials in chests (`mcStorage.ts`), in a **storage hut** that code draws
 and lays out with the village's first layout (`huts.ts`): 7 wide, 9 deep and 4 high, a cobblestone floor, plank walls
-with log corners, a plank roof, an oak door in the middle of the south wall and no windows. Inside are nine chest spots,
+with log corners, a plank roof, an open doorway in the middle of the south wall (no door: bots caught on an open door's
+panel) and no windows. Inside are nine chest spots,
 four along each side wall and one at the back, none side by side (two chests side by side would join into a double
 chest). The design marks them `_`, cells the build leaves as they are, so the hut is built around chests already
 standing: `build_design` lets the village's chests stand there, and refuses to build when one is not at the level of
-the hut's floor (it would be buried under the floor layer).
+the hut's floor (it would be buried under the floor layer). The village's crafting table and furnace stand in the
+middle of the hut: within 32 blocks of it every craft and smelt happens there (one smelter at a time), so no tables
+and furnaces are left about the village; farther out a table is put down as before, never on village ground.
 
 The storage is **sorted**: each chest holds one material group (logs, planks, cobblestone, sand, glass, terracotta,
 misc), given at its first use. `deposit` puts each item into its group's chest; when that is full or missing it takes a

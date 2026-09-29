@@ -156,7 +156,7 @@ the hut down to stone, then straight branch tunnels at one level.
         record in the summary, API and panel, rescue to the hut door. Passed: StageH2 and H5 (build stage + deposit
         check), StageH4 and H6 (full, 3/3 built), and the model-driven Hutvale2 (4/4 in 18.8 min, 0 failed actions).
 - [x] V.2 (see V.1).
-- [ ] V.2b **Workstations in the storage hut** (the user's, 09-29): the village's crafting table and furnace stand
+- [x] V.2b **Workstations in the storage hut** (the user's, 09-29; done the same day: StageH9-H11): the village's crafting table and furnace stand
       inside the storage hut, and every craft and smelt in the village uses them, instead of a table or furnace put
       down wherever the crafter stands (F59: a gatherer's table inside the future hut; F68: a second furnace, and one
       refused on wildflowers). Proposed: two cells of the hut's design, off the aisle and off the chests' stand cells,
@@ -165,6 +165,9 @@ the hut down to stone, then straight branch tunnels at one level.
       8 cobblestone). Crafting and smelting then walk to the hut (`ensureTable`, `smelt`, the builders' `near`); the
       carried or put-down table stays as the fallback away from home (gatherers' pickaxes far out, villages without a
       hut). Test: staged full run: no table or furnace outside the hut, one furnace in the village, smelting in it.
+      Built: `villageStation()` (within 32 blocks and 4 up or down), smelting in turns at the village furnace, the
+      hut's doorway instead of a door (F69), doors made passable/openable for every bot. StageH10 (full): no furnace
+      put down anywhere, the only table outside the storage task's before the hut stood.
 - [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
       (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
@@ -266,6 +269,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | Hutvale1 | model, 2 workers, qwen3.8 worker planner, jungle -798,247 (next to StageH5) | stopped at ~5 min | 5 min | laid out hut + hall + 2 cottages on 23x23 at 1.4 min; storage chests in the hut; then "no cobblestone within 96 blocks" from the middle of the plot (F64) and a gather task marked done by the storage task's deposit (F65). Left a shaft in its plot at -795,247 (from the collect checks after, F66) |
 | 09-29 | StageH6 | staged full after F64-F66 fixes (plots protected from digging, collect steps off), testhut + testhall + hut, birch woods -874,292 | **3/3 built** | 16.9 min | 0 failed actions, 0 lag lines, every window glazed; cobblestone mined beside the plot |
 | 09-29 | Hutvale2 | model, 2 workers, qwen3.8 worker planner, birch woods with sand -959,359 | **4/4 built** (storage hut, hall, 2 cottages), declared complete by code | 18.8 min | 0 failed actions; hut built at 11.4 min, around 4 chests; storage sorted throughout; every window glazed; the workers' planner never called. **V.1/V.2 accepted** |
+| 09-29 | StageH7 | staged build, V.2b (table and furnace in the hut), -944,331 | stopped at 3.1 min | 3.1 min | hut built with both stations; the builders could not get into the hut to smelt: no bot can pass a door (F69) |
+| 09-29 | StageH8 | same, pathfinder opens doors, hut with an open doorway, -1103,260 | **3/3 built** | 3.3 min | glass smelted in the hut's furnace; deposit check failed: a chest for planks not made from 6 oak + 2 birch planks (F70) |
+| 09-29 | StageH9 | same after F70, -919,240 | **3/3 built**, deposit check passed | 3.2 min | 3 chests crafted at the hut's table; no furnace put down outside |
+| 09-29 | StageH10 | staged full, V.2b, -1053,112 | **3/3 built** | 22.6 min | no furnace put down, 1 table (the storage task's, before the hut); Worker1's deposit stuck twice in a 1-deep pocket south of the plot, ~5 min lost (F71) |
+| 09-29 | StageH11 | staged build after the fourth review's fixes (F72), -1133,246 | **3/3 built**, deposit check passed | 3.1 min | no table or furnace put down outside the hut |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -499,6 +507,25 @@ CLAUDE.md when a phase ends.
   hall and a cottage, though both then smelted and used their glass; two furnaces were made for three smelting
   builds. `freeSpotNearby` takes a cell holding wildflowers as free and the placement is refused. Backlog: treat
   replaceable plants as occupied (or clear them) and word the message after the retry.
+- F69 (09-29, V.2b, StageH7) No bot could ever walk through a door: mineflayer-pathfinder's `canOpenDoors` opens fence
+  gates only (its "openable" set is built from blocks named *gate*), and a door, open or closed, is a solid block to
+  it (`physical` is `boundingBox === 'block'`). Until the hut's furnace, nothing needed to go inside a building (chests
+  by the walls open from outside; crafting needs a table only nearby), so CLAUDE.md's lesson 15 ("the pathfinder
+  opens doors") was wrong unnoticed. Now open doors and closed doors' upper halves are passable and closed lower halves
+  "openable" (`moves()` wraps `getBlock`): a bot walked in through the closed hut door, but leaving through the open
+  door it stuck in the doorway twice (the open panel leaves ~0.01 block). The storage hut therefore has an open
+  doorway instead of a door (decision below).
+- F70 (09-29, StageH8) A chest for a new group was not crafted from 6 oak and 2 birch planks: `ensureChest` counted
+  planks of all kinds, a recipe takes one kind. It counts per kind now.
+- F71 (09-29, StageH10) Worker1's deposit failed twice "stuck at -1055,66,128 on the way to" a hut chest, in a 1-deep
+  pocket just south of the plot (ground at 66 around it, headroom clear), its x 0.3 from the block edge beside it; it
+  walked off fine for the next collect and deposited 2 minutes later. ~5 minutes lost. Cause not found (lesson 1's
+  wall overlap is a suspect); watch for it.
+- F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
+  fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
+  table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
+  (the pathfinder's "blocks left" went to -1); the door click shut doors already open (it now skips them); the rescue
+  into the hut went in front of a doorway that may not be levelled (now the aisle just inside).
 
 ## Decisions log
 
@@ -536,6 +563,8 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
   moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
+- 09-29 (fifth session) The storage hut has an open doorway, not the oak door of the agreed design (F69: a bot
+  leaving through the open door stuck in the doorway). Peaceful worlds have no mobs to keep out.
 - 09-29 (fifth session) New step V.2b (the user's): the crafting table and furnace go inside the storage hut and the
   village crafts and smelts there.
 - 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the

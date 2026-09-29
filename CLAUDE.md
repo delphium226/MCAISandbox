@@ -469,8 +469,8 @@ Lessons from the adapter:
    the action's item matches (action_done carries args); gathering stays within 96 blocks of the village and never
    mines inside a village building (a gatherer mined the hall's cobblestone floor; cobblestone now comes from stone);
    collect weighs candidates by effort (exposed stone deep in caves had no path); walks over 64 blocks go in legs;
-   builders step out of the footprint first (one walled itself in) and the pathfinder opens doors (`canOpenDoors`,
-   off by default); wood kinds are chosen per part; crafting planks eats any carried logs, so builders top up from
+   builders step out of the footprint first (one walled itself in); the pathfinder's `canOpenDoors` opens fence
+   gates only, doors were solid to it until `moves()` taught it (F69, 2026-09-29); wood kinds are chosen per part; crafting planks eats any carried logs, so builders top up from
    storage before requeueing; windows stay open when there is no sand for glass; paths avoid water (`liquidCost`) and
    a walk stuck in water swims out; `declare_complete` is refused while a layout build is not done; a mayor re-posting
    a failed building re-opens the layout task; the watch scripts write UTF-8 (a chat message with U+2011 crashed one).

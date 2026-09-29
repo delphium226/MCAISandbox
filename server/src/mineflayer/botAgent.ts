@@ -164,6 +164,39 @@ export class BotAgent implements WorldAgent {
       // Doors open (off by default in the pathfinder, "probably due to non-Paper servers"; this is Paper): a builder
       // left inside a finished cottage had no path out
       m.canOpenDoors = true;
+      // ...but it opens fence gates only: a door (open or closed) is a solid block to it, so no bot ever walked into a
+      // building (the storage hut's furnace was out of reach, StageH7). Open wooden doors, and the upper half of a
+      // closed one, are passable; a closed lower half is "openable", which the pathfinder right-clicks open on its way
+      const doors = new Set(this.world.registry.blocksArray.filter((b) => /_door$/.test(b.name) && b.name !== 'iron_door').map((b) => b.id));
+      const getBlock = m.getBlock.bind(m);
+      m.getBlock = (pos, dx, dy, dz) => {
+        const b = getBlock(pos, dx, dy, dz) as ReturnType<typeof getBlock> & { type?: number; safe: boolean; physical: boolean; openable: boolean };
+        if (b?.type !== undefined && doors.has(b.type)) {
+          const p = (b as unknown as { getProperties?: () => Record<string, unknown> }).getProperties?.() ?? {};
+          if (p.open === true || p.open === 'true' || p.half === 'upper') {
+            b.safe = true;
+            b.physical = false;
+            b.openable = false;
+          } else b.openable = true;
+        }
+        return b;
+      };
+      // The pathfinder counts opening a door as placing a block: without dirt it went to -1 blocks left and its "none
+      // left" checks stopped holding
+      const forward = m.getMoveForward.bind(m);
+      m.getMoveForward = (node, dir, neighbors) => {
+        const n = neighbors.length;
+        forward(node, dir, neighbors);
+        for (const mv of neighbors.slice(n) as unknown as Array<{ remainingBlocks: number; toPlace: Array<{ useOne?: boolean }> }>)
+          mv.remainingBlocks += mv.toPlace.filter((t) => t.useOne).length;
+      };
+      // Its door click does not look whether the door is open: a second bot following a first would shut it again
+      const activate = this.bot.activateBlock.bind(this.bot);
+      this.bot.activateBlock = (async (block: Parameters<typeof activate>[0], ...rest: unknown[]) => {
+        const p = (block as unknown as { getProperties?: () => Record<string, unknown> })?.getProperties?.() ?? {};
+        if (block && doors.has(block.type) && (p.open === true || p.open === 'true')) return;
+        return (activate as (...x: unknown[]) => Promise<void>)(block, ...rest);
+      }) as typeof this.bot.activateBlock;
       // Never dig into any village's ground on the way somewhere: a cobblestone gatherer standing on a prepared plot dug
       // a shaft from its surface to the stone 5 blocks under it, beside the storage hut (Hutvale1, 2026-09-29)
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [

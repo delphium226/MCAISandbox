@@ -20,7 +20,7 @@ import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
-import { SURVIVAL_SKILLS, STATION_REACH } from './mcSurvival';
+import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
 
 type Pos = [number, number, number];
@@ -355,6 +355,7 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const near = (n: string) => {
     const p = a.bot.entity.position;
+    if ((n === 'crafting_table' || n === 'furnace') && villageStation(a, n)) return true;
     return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: STATION_REACH, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
   };
   // Only what can be made here: glass with no sand in reach must not stop the door and the chest being made (the
@@ -366,8 +367,8 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   }
   if (!Object.keys(bill).length) return null;
   let plan = a.world.materials.plan(bill, other);
-  if (plan.fuel.smelts && !other.furnace && !near('furnace')) bill.furnace = 1;
-  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) bill.crafting_table = 1;
+  if (plan.fuel.smelts && !other.furnace && !near('furnace')) bill.furnace = (bill.furnace ?? 0) + 1;
+  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) bill.crafting_table = (bill.crafting_table ?? 0) + 1;
   plan = a.world.materials.plan(bill, other);
   if (Object.keys(plan.gather).length || plan.problems.length) return null;
   // Ingredients kept in storage come to hand first

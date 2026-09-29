@@ -7,6 +7,7 @@ import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
+import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
@@ -157,7 +158,7 @@ async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
   // With 3 cobblestone in hand a stone pickaxe (131 blocks, a wooden one 59): its sticks take 2 planks
   const stone = countItem(a, itemId(a, 'cobblestone')!) >= 3;
   // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
-  const table = nearestBlockNamed(a, 'crafting_table', STATION_REACH);
+  const table = villageStation(a, 'crafting_table') ?? nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   const want = (stone ? 2 : 5) + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
@@ -688,6 +689,26 @@ async function placeNearby(a: BotAgent, item: string, signal: AbortSignal): Prom
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * The village's own crafting table or furnace, in its storage hut (V.2b), when the bot is within 32 blocks of it: the
+ * village crafts and smelts there instead of putting tables and furnaces down wherever it stands (a gatherer's table
+ * inside the future hut raised its floor, F59; a second furnace was made and one refused on wildflowers, F68). Farther
+ * out or more than 4 blocks up or down (a gatherer's pickaxe in the woods or a cave) a table is put down as before, off
+ * village ground.
+ */
+export function villageStation(a: BotAgent, name: 'crafting_table' | 'furnace'): Block | null {
+  const v = a.village();
+  const h = v?.storageHut;
+  const built = h && v.structures.find((s) => s.kind === STORAGE_HUT && s.x1 === h.x1 && s.z1 === h.z1);
+  if (!h || !built) return null;
+  const [dx, dz] = STORAGE_HUT_STATIONS[name];
+  const pos = new Vec3(h.x1 + dx, built.y + 1, h.z1 + dz);
+  const me = a.bot.entity.position;
+  if (me.distanceTo(pos) > 32 || Math.abs(me.y - pos.y) > 4) return null;
+  const b = a.bot.blockAt(pos);
+  return b?.name === name ? b : null;
+}
+
+/**
  * How far a crafting table or furnace already standing is used rather than a new one put down: they stand off the
  * village plots (placeNearby), up to ~18 blocks from a builder in the middle of a 30x30 plot.
  */
@@ -821,6 +842,8 @@ async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: 
 
 /** A crafting table within reach of use: a nearby one, or one carried or made and put down. */
 async function ensureTable(a: BotAgent, signal: AbortSignal, notes: string[]): Promise<Block> {
+  const home = villageStation(a, 'crafting_table');
+  if (home) return home;
   // A table far above or below may be out of reach (one on a ledge 4 blocks up had no path to it)
   const near = nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   if (near && Math.abs(near.position.y - a.bot.entity.position.y) <= 3) return near;
@@ -922,6 +945,28 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
 
 const FUELS = ['coal', 'charcoal', 'coal_block'];
 
+/** Furnaces in use, by position: smelting at the village's furnace goes in turns. */
+const furnaceLocks = new Map<string, Promise<void>>();
+
+/** Wait until the furnace at `key` is free, then hold it; returns the release. */
+async function furnaceLock(key: string, signal: AbortSignal): Promise<() => void> {
+  const prev = furnaceLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const mine = new Promise<void>((r) => (release = r));
+  const chain = prev.then(() => mine);
+  furnaceLocks.set(key, chain);
+  void chain.then(() => {
+    if (furnaceLocks.get(key) === chain) furnaceLocks.delete(key);
+  });
+  try {
+    await abortable(prev, signal);
+  } catch (e) {
+    release();
+    throw e;
+  }
+  return release;
+}
+
 async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const bot = a.bot;
   let input = resolveItem(a, str(args.item, 'item'));
@@ -936,45 +981,56 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const have = countItem(a, inId);
   if (!have) throw new Error(`no ${input} in inventory`);
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
-  let furnaceBlock = nearestBlockNamed(a, 'furnace', STATION_REACH);
-  if (furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;
-  const notes: string[] = [];
-  if (!furnaceBlock) {
-    if (!countItem(a, itemId(a, 'furnace')!)) throw new Error('needs a furnace: craft one from 8 cobblestone');
-    furnaceBlock = await placeNearby(a, 'furnace', signal);
-    notes.push(`put a furnace down at ${at(furnaceBlock.position)}`);
-  }
-  await reach(a, furnaceBlock.position.offset(0.5, 0, 0.5), 3.5, signal);
-  const furnace = await abortable(bot.openFurnace(furnaceBlock), signal);
+  const home = villageStation(a, 'furnace');
+  // One smelter at a time at the village's furnace: two builders' inputs, fuel and glass got mixed up there
+  const release = home ? await furnaceLock(at(home.position), signal) : () => undefined;
   try {
-    // Fuel: coal first, then planks, logs last (a plank or a log smelts 1.5 items, and a log makes 4 planks: burning
-    // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
-    // The first stack found can be a leftover of one or two planks: top up from the next when the fire goes out
-    // (four glass came out one: "ran out of fuel after 1 of 4" with planks still in hand, Accept9 and Accept10)
-    const addFuel = async (left: number) => {
-      // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
-      const items = furnace.items();
-      const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name));
-      if (!fuel) return false;
-      const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
-      await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(left / perItem)));
-      return true;
-    };
-    if (!furnace.fuelItem() && !(await addFuel(count))) throw new Error('no fuel: needs coal, charcoal, planks or logs');
-    await furnace.putInput(inId, null, count);
-    let got = 0;
-    const deadline = Date.now() + count * 11000 + 15000;
-    while (got < count && Date.now() < deadline) {
-      await sleep(2000, signal);
-      const out = furnace.outputItem();
-      if (out) got += (await furnace.takeOutput())?.count ?? 0;
-      // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
-      if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
-      if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) throw new Error(`ran out of fuel after ${got} of ${count}`);
+    let furnaceBlock = home ?? nearestBlockNamed(a, 'furnace', STATION_REACH);
+    if (!home && furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;
+    const notes: string[] = [];
+    if (!furnaceBlock) {
+      if (!countItem(a, itemId(a, 'furnace')!)) throw new Error('needs a furnace: craft one from 8 cobblestone');
+      furnaceBlock = await placeNearby(a, 'furnace', signal);
+      notes.push(`put a furnace down at ${at(furnaceBlock.position)}`);
     }
-    return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    // Into the hut for its furnace (3.5 blocks can be outside its wall)
+    await reach(a, furnaceBlock.position.offset(0.5, 0, 0.5), home ? 1.8 : 3.5, signal);
+    const furnace = await abortable(bot.openFurnace(furnaceBlock), signal);
+    try {
+      // Fuel: coal first, then planks, logs last (a plank or a log smelts 1.5 items, and a log makes 4 planks: burning
+      // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
+      // The first stack found can be a leftover of one or two planks: top up from the next when the fire goes out
+      // (four glass came out one: "ran out of fuel after 1 of 4" with planks still in hand, Accept9 and Accept10)
+      const addFuel = async (left: number) => {
+        // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
+        const items = furnace.items();
+        const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name));
+        if (!fuel) return false;
+        const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
+        await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(left / perItem)));
+        return true;
+      };
+      // What another smelt left (a cancelled one) comes out first: a different input would refuse this one
+      if (furnace.inputItem() && furnace.inputItem()!.type !== inId) await furnace.takeInput();
+      if (furnace.outputItem()) await furnace.takeOutput();
+      if (!furnace.fuelItem() && !(await addFuel(count))) throw new Error('no fuel: needs coal, charcoal, planks or logs');
+      await furnace.putInput(inId, null, count);
+      let got = 0;
+      const deadline = Date.now() + count * 11000 + 15000;
+      while (got < count && Date.now() < deadline) {
+        await sleep(2000, signal);
+        const out = furnace.outputItem();
+        if (out) got += (await furnace.takeOutput())?.count ?? 0;
+        // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
+        if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
+        if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) throw new Error(`ran out of fuel after ${got} of ${count}`);
+      }
+      return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    } finally {
+      furnace.close();
+    }
   } finally {
-    furnace.close();
+    release();
   }
 }
 
