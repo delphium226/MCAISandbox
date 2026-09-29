@@ -42,3 +42,49 @@ export function storageHutDesign(): Design {
 
 /** A storage hut's chest spots in the world, for a hut whose footprint starts at x1, z1 (not rotated). */
 export const hutSpots = (x1: number, z1: number) => STORAGE_HUT_SPOTS.map(([x, z]) => ({ x: x1 + x, z: z1 + z }));
+
+export const MINING_HUT = 'mining_hut';
+
+/**
+ * The mining hut (plan step V.5): 5x5, 4 high, wood only (planks, log corners, an open doorway in the middle of the south
+ * wall), so it goes up before the village has any cobblestone. Inside, the top of the mine's staircase: three floor cells
+ * in a line from the middle toward the north wall are open ('.'), the last one under the wall, and the stairs go on
+ * down northward from there, one block down per step, three blocks of headroom. The layout turns the hut so that the
+ * stairs face the nearest edge of the plot: the mine runs out from under the village, not beneath it.
+ */
+const MINING_LAYERS = [
+  ['PP.PP', 'PP.PP', 'PP.PP', 'PPPPP', 'PPPPP'],
+  ['LPPPL', 'P...P', 'P...P', 'P...P', 'LP.PL'],
+  ['LPPPL', 'P...P', 'P...P', 'P...P', 'LP.PL'],
+  Array(5).fill('PPPPP'),
+];
+
+export function miningHutDesign(): Design {
+  const palette = { P: 'oak_planks', L: 'oak_log' };
+  const blocks = MINING_LAYERS.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
+  return {
+    name: MINING_HUT,
+    description: 'the village mining hut over the mine stairs, built by code: plan_layout adds it by itself (not a design to build or copy)',
+    palette, layers: MINING_LAYERS.map((l) => [...l]), width: 5, depth: 5, height: MINING_LAYERS.length, blocks, by: 'code',
+  };
+}
+
+/** A 5x5 hut cell turned clockwise `rot` times, as build_design turns designs. */
+function turn5(i: number, j: number, rot: number): [number, number] {
+  let [u, v] = [i, j];
+  for (let r = 0; r < rot; r++) [u, v] = [4 - v, u];
+  return [u, v];
+}
+
+/** The mine's first step (hut cell (2,2)) and its direction in the world, for a mining hut at x1, z1 turned `rot` times. */
+export function miningStairs(x1: number, z1: number, rot: number): { x: number; z: number; dir: [number, number] } {
+  const [tx, tz] = turn5(2, 2, rot);
+  const [nx, nz] = turn5(2, 1, rot);
+  return { x: x1 + tx, z: z1 + tz, dir: [nx - tx, nz - tz] };
+}
+
+/** How many quarter turns make the stairs (north in the design) face the nearest edge of the plot. */
+export function miningHutTurn(hut: { x1: number; z1: number; x2: number; z2: number }, plot: { x1: number; z1: number; x2: number; z2: number }): number {
+  const room = [hut.z1 - plot.z1, plot.x2 - hut.x2, plot.z2 - hut.z2, hut.x1 - plot.x1];
+  return room.indexOf(Math.min(...room));
+}

@@ -38,6 +38,26 @@ export interface StorageChest {
   /** The material group it holds, in a sorted storage (the storage hut): logs, planks, cobblestone, ..., misc. */
   group?: string;
 }
+/**
+ * The village mine (plan step V.5): stairs from inside the mining hut down to stone, then a main tunnel with branches at
+ * that level. `level` is set once the stairs reach it (the height a bot stands at in the tunnels); `dug` counts tunnel
+ * columns done in their fixed order; `ended` the branches cut short (water, lava, a cave, something built).
+ */
+export interface Mine {
+  hut: Area;
+  /** The first step (inside the hut) and the stairs' direction. */
+  top: { x: number; z: number };
+  dir: [number, number];
+  steps: number;
+  level?: number;
+  dug: number;
+  ended: number[];
+  /** What the tunnels have given, and ores seen in their walls. */
+  got: Record<string, number>;
+  /** Why the stairs stopped short, if they did. */
+  stopped?: string;
+}
+
 /** A building drawn as layers (bottom-up) of rows (north to south) of palette characters (west to east). */
 export interface Design {
   name: string;
@@ -94,6 +114,8 @@ export interface Village {
    * not built or being built yet and of `needs`, less the storage and what the village's agents carry.
    */
   needed?: { items: Record<string, number>; for: string[]; updated: number };
+  /** The village mine (V.5). */
+  mine?: Mine;
 }
 
 /** How far a village's mayor and its site searches may go from home. */
@@ -350,6 +372,14 @@ export class VillageRegistry {
       lines.push(items.length
         ? `Materials still to gather (for ${v.needed.for.join(', ') || 'the stock the mayor asked for'}, less the storage and what workers carry; code posts gathering for them): ${items.map(([n, q]) => `${q} ${n}`).join(', ')}`
         : 'Materials still to gather: none (the storage and the workers hold everything the unbuilt buildings need)');
+    }
+    if (v.mine) {
+      const m = v.mine;
+      const got = Object.entries(m.got).filter(([n, q]) => q > 0 && !n.startsWith('seen ')).map(([n, q]) => `${q} ${n}`).join(', ');
+      const ores = Object.entries(m.got).filter(([n]) => n.startsWith('seen ')).map(([n, q]) => `${q} ${n.slice(5)}`).join(', ');
+      lines.push(m.level !== undefined && !m.stopped
+        ? `Mine: stairs ${m.steps} steps down to y=${m.level}, ${m.dug} tunnel cells dug${got ? `; it gave ${got}` : ''}${ores ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
+        : m.stopped ? `Mine: stopped (${m.stopped}) after ${m.steps} steps${m.dug ? ` and ${m.dug} tunnel cells` : ''}; cobblestone is gathered outside` : 'Mine: not dug yet (the mining hut and "Dig the village mine" come first)');
     }
     if (v.storage?.chests.length) {
       const where = v.storage.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ');

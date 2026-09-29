@@ -26,6 +26,7 @@ export const TOOLS: ToolDef[] = [
   { name: 'follow', description: 'Follow a player for some seconds.', input_schema: obj({ player: s, distance: n, seconds: n }, ['player']) },
   { name: 'give', description: 'Walk to a player and give them items (trading, helping).', input_schema: obj({ player: s, item: s, count: n }, ['player', 'item']) },
   { name: 'deposit', description: "Put items in the village storage chest (walks there). item: an item id, 'logs' or 'planks' for any kind, or 'all' (the default: everything except tools). count: how many (default all of them). The village's first chest: carry one (craft chest, 8 planks) and deposit puts it down near you, outside the plots; when storage is full, a carried chest is put down beside the others.", input_schema: obj({ item: s, count: n }) },
+  { name: 'dig_mine', description: 'Dig the village mine: the stairs from inside the mining hut down to stone (then collect cobblestone digs its tunnels). max_depth: how far down at most (default 24).', input_schema: obj({ max_depth: n }) },
   { name: 'withdraw', description: "Take items from the village storage chest (walks there). item: an item id, or 'logs' / 'planks' for any kind; count defaults to 64.", input_schema: obj({ item: s, count: n }, ['item']) },
   { name: 'chat', description: 'Say something out loud. Only players within ~48 blocks hear it.', input_schema: obj({ message: s }, ['message']) },
   { name: 'eat', description: 'Eat food from the inventory.', input_schema: obj({ item: s }) },

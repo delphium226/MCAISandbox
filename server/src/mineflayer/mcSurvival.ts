@@ -8,6 +8,7 @@ import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
+import { mineCanGive, mineFor } from './mcMine';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
@@ -48,7 +49,7 @@ async function pickUpDrops(a: BotAgent, pos: Vec3, signal: AbortSignal) {
 }
 
 /** Mine one block: walk into reach, pick the best tool, dig, collect the drops. */
-async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = false, walkMs = 60000): Promise<string> {
+export async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = false, walkMs = 60000, pickup = true): Promise<string> {
   const bot = a.bot;
   let block = bot.blockAt(pos);
   if (!block) throw new Error(`the block at ${at(pos)} is not loaded; move closer first`);
@@ -89,7 +90,7 @@ async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, force = fa
     await abortable(bot.dig(bot.blockAt(pos)!, true), signal, () => bot.stopDigging());
   }
   a.pushEvent('broke', `broke ${name} at ${at(pos)}`, { block: name, x: pos.x, y: pos.y, z: pos.z });
-  await pickUpDrops(a, pos.offset(0.5, 0.5, 0.5), signal);
+  if (pickup) await pickUpDrops(a, pos.offset(0.5, 0.5, 0.5), signal);
   return `mined ${name} at ${at(pos)}`;
 }
 
@@ -151,7 +152,7 @@ function homeOf(a: BotAgent): { x: number; z: number } | null {
  * A wooden pickaxe made on the spot, with the logs for it: stone wants one, and the model churned for minutes over
  * tables, sticks and planks (or tried to mine stone by hand again and again).
  */
-async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
+export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
   // The inventory as the server has it (the bot's own view still showed logs it had deposited)
   await syncInventory(a);
   await sleep(300, signal);
@@ -502,6 +503,16 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
   const have = () => items.reduce((s, id) => s + countItem(a, id), 0);
   const start = have();
+  // A village with a mine digs its stone there (V.5), not in pits around the plot; what the mine cannot give at all
+  // (its tunnels ended) is looked for outside as before
+  const home = a.village();
+  if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
+    const got = await mineFor(a, home, want, have, signal);
+    if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;
+    // Not outside while the mine still gives: pits and tunnels around the village were the trouble (F75, F76). What is
+    // still short comes at the next collect (the needs list and a short build post it)
+    if (got > 0 && mineCanGive(home, label.replace(/s$/, ''))) return `collected ${got} of ${want} ${label} in the village mine before the time was up (${home.mine!.dug} tunnel cells dug); deposit them, the mine goes on where it stopped`;
+  }
   let mined = 0;
   const failed = new Set<string>();
   let lastError = '';

@@ -187,6 +187,16 @@ the hut down to stone, then straight branch tunnels at one level.
 - [ ] V.5 **Mining hut and mine**: a fixed hut over a staircase down to stone, then branch tunnels at one level;
       `collect` stone, cobblestone and ores goes to the mine and extends the tunnels instead of digging at the
       surface; the tunnels are recorded in the village. Test: staged runs; no surface holes around the village.
+      Built 09-29 (fifth session; the worktree agent was blocked by the permission classifier, so the main thread did
+      it): `huts.ts` mining hut (5x5, wood only, open doorway, stairs cells open in the floor), turned by `plan_layout`
+      so the stairs face the nearest plot edge; `mcMine.ts`: `dig_mine` (a code-posted soft task after the hut, before
+      any cobblestone task) digs 1-wide stairs with 3 blocks of headroom until the cells a tunnel would dig are stone,
+      at least 7 steps down; `collect cobblestone` in such a village extends a main tunnel with 12-long branches every
+      3 cells (`mineFor`), ending a branch at water, lava, a cave, a missing ceiling (hillside, sand, gravel), village
+      ground, anything not natural, or the 96-block range; a partial result instead of digging outside; the mine's
+      area is kept from the pathfinder's digging; ores seen in the walls are counted (`v.mine.got`, V.6 later).
+      StageH16-H18: stairs in 0.6-1.3 min; 18-32 cobblestone a trip in about a minute (outside: 30 in 3-5 min);
+      StageH18 built mining hut, storage hut, hall and testhut in 13.6 min.
 - [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
       surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
       `/api/block`.
@@ -290,6 +300,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | Hutvale3 | model, 2 workers, qwen3.8 worker planner, oak woods -1138,379, with V.2b and V.3 | stopped at 23.6 min | 23.6 min | layout only at 5.7 min (the mayor copied the hut's workstations into its hall brief: 3 designs refused, F74); hut built at 16.1; then Worker1 looped on stone beside a water pocket east of the plot (rescued by teleport once, 5 failed collects, F75) |
 | 09-29 | StageH14 | staged full, V.4 (side pickups), hills -1274,-133 (y 87, birch) | 2/3 built, stopped at 12.4 min | 12.4 min | hut at 6.6 min (fastest yet), hall at 10.5; the testhut's ground held a bee nest left floating at y 92 by the plot's felling (F76); no sand here and no side pickups (V.4 not exercised) |
 | 09-29 | StageH15 | staged full, V.4, acacia -43,46 (near spawn) | **3/3 built** | 23.2 min | 1 failed action; no side pickups; 29 andesite deposited (dug by the pathfinder tunnelling under the plot below its protected 4 layers: a bot at y 60 under the hut) |
+| 09-29 | StageH16 | staged build with the mine, -1243,252 | **4/4 built** | 4.0 min | stairs 5 steps to stone in 0.6 min; then collect in the mine: 19 cells, 36 dirt and 10 cobblestone (tunnel in the dirt over the stone), and a fallback outside got stuck: stairs now go on until the tunnel cells are stone, no outside fallback |
+| 09-29 | StageH17 | same after that, -1328,204 | **4/4 built** | 3.2 min | collect 20 cobblestone in the mine: 21 in 26 s (11 cells); walked out and deposited |
+| 09-29 | StageH18 | staged full with the mine, -1344,15 | **4/4 built** | 13.6 min | every cobblestone task from the mine (209 cobblestone, 131 cells, 12 coal and 12 copper ore seen); 1 failure: copper ore needs a stone pickaxe (now dug through) |
+| 09-29 | StageH19 | staged full after the mine review (7 steps, village ground, ceilings), -1399,-61 | **4/4 built** | 20.8 min | stairs 7 steps in 2 min; 80 cobblestone from 45 cells, then the main tunnel met a hillside (no ceiling) and the whole mine stopped: later cobblestone outside again (F77) |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -555,6 +569,12 @@ CLAUDE.md when a phase ends.
 - F76 (09-29, StageH14) A bee nest left floating at y 92 on a plot levelled at 90 (from a felled birch; its block
   entity reads "beehive"): not in `NATURAL`, so prepare_site kept its column as built, and the testhut's site was
   "not level (heights 90..92)" three times. Added `bee_nest` (like cocoa, F61).
+- F77 (09-29, V.5, StageH19) The main tunnel met a hillside 12 cells out ("no solid ceiling") and that ended the whole
+  mine after 80 cobblestone; the rest was gathered outside (20.8 min against StageH18's 13.6). Next: a main tunnel that
+  ends should turn, or the stairs go on down to a second level, rather than the mine stopping. The review of V.5 found
+  before any run: tunnels could break built blocks or run out of range (now refused), the pathfinder could dig shafts
+  into the mine (its area is kept from digging now), sand or gravel could fall in (a solid ceiling is required),
+  stairs without stone still started tunnels (now stopped).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

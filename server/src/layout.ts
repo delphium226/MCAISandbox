@@ -4,7 +4,7 @@
  */
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
-import { hutSpots, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
+import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
   x: number;
@@ -35,8 +35,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const o = b && typeof b === 'object' ? (b as Record<string, unknown>) : null;
       const n = String(o ? o.design ?? o.name ?? '' : b).trim().toLowerCase().replace(/^"|"$/g, '');
       const count = o && Number(o.count) > 1 ? Math.min(8, Math.floor(Number(o.count))) : 1;
-      // The storage hut is code's to add, not the mayor's
-      if (n && n !== STORAGE_HUT) for (let i = 0; i < count; i++) names.push(n);
+      // The storage and mining huts are code's to add, not the mayor's
+      if (n && n !== STORAGE_HUT && n !== MINING_HUT) for (let i = 0; i < count; i++) names.push(n);
     }
     if (!names.length) return 'plan_layout needs buildings: a list of design names, one per building (repeat a name for each copy)';
     const missing = [...new Set(names.filter((n) => !v.designs[n]))];
@@ -57,7 +57,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const withHut = economy && !v.storageHut && !v.storage?.chests.length && !v.layouts?.length;
     if (withHut) {
       v.designs[STORAGE_HUT] = storageHutDesign();
-      names.unshift(STORAGE_HUT);
+      v.designs[MINING_HUT] = miningHutDesign();
+      names.unshift(MINING_HUT, STORAGE_HUT);
     }
     const materials = new Map<string, ReturnType<NonNullable<WorldAdapter['materialTasks']>>>();
     // One wood kind for the whole village, chosen at its first layout, when there is enough of it near the site for
@@ -126,7 +127,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       let best: { list: string[]; lay: Layout; area: number } | null = null;
       for (let mask = 1; mask < 1 << Math.min(names.length, 12); mask++) {
         const list = names.filter((_, i) => mask & (1 << i));
-        if (withHut && !list.includes(STORAGE_HUT)) continue;
+        if (withHut && !(list.includes(STORAGE_HUT) && list.includes(MINING_HUT))) continue;
         const area = list.reduce((s, n) => s + v.designs[n].width * v.designs[n].depth, 0);
         if (best && (list.length < best.list.length || (list.length === best.list.length && area <= best.area))) continue;
         const l = fit(list);
@@ -171,27 +172,43 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // The other buildings wait for the storage hut (this layout's, or one still being built)
     const hutTask = v.tasks.find((t) => t.title === `Build ${STORAGE_HUT}` && t.status !== 'done' && t.status !== 'failed');
     let hutBuild: string | number | undefined = hutTask?.id;
+    // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
+    const mining = withHut ? lay.places.find((p) => p.name === MINING_HUT) : undefined;
+    const mineTurn = mining ? miningHutTurn(mining, plot) : 0;
+    if (mining) {
+      const top = miningStairs(mining.x1, mining.z1, mineTurn);
+      v.mine = { hut: { x1: mining.x1, z1: mining.z1, x2: mining.x2, z2: mining.z2 }, top: { x: top.x, z: top.z }, dir: top.dir, steps: 0, dug: 0, ended: [], got: {} };
+    }
+    // Cobblestone is gathered in the mine once it is dug (a soft task: without it, outside as before)
+    let dig: number | undefined;
     const copies = new Map<string, number>();
     // Copies are numbered across layouts (a second cottage on a second site is "cottage 2")
     const before = new Map(placed.map((n) => [n, v.tasks.filter((t) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${n}"`)).length]));
     const total = (n: string) => placed.filter((x) => x === n).length + (before.get(n) ?? 0);
-    // The hut first: its gathering and build are claimed before the others'
-    for (const p of [...lay.places].sort((x, y) => Number(y.name === STORAGE_HUT) - Number(x.name === STORAGE_HUT))) {
+    // The mining hut first (wood only), then the storage hut: their gathering and builds are claimed before the others'
+    const first = (n: string) => (n === MINING_HUT ? 0 : n === STORAGE_HUT ? 1 : 2);
+    for (const p of [...lay.places].sort((x, y) => first(x.name) - first(y.name))) {
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
       const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
       const gather: number[] = [];
       for (const t of materials.get(p.name)?.tasks ?? []) {
         gather.push(tasks.length);
-        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: storage !== undefined ? [storage] : [], soft: true });
+        const stone = dig !== undefined && /^collect block=cobblestone /.test(t.detail);
+        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined ? [storage] : []), ...(stone ? [dig!] : [])], soft: true });
       }
-      const isHut = p.name === STORAGE_HUT;
+      const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
       if (isHut) hutBuild = tasks.length;
+      const build = tasks.length;
       tasks.push({
         title: `Build ${label}`,
-        detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
-        after: [0, ...(isHut && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && hutBuild !== undefined ? [hutBuild] : [])],
+        detail: `build_design "${p.name}" x=${p.x} z=${p.z}${isMine && mineTurn ? ` rotate=${mineTurn * 90}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
+        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && hutBuild !== undefined ? [hutBuild] : [])],
       });
+      if (isMine) {
+        dig = tasks.length;
+        tasks.push({ title: 'Dig the village mine', detail: 'dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)', after: [build], soft: true });
+      }
     }
     if (wood && !v.wood) {
       v.wood = wood;

@@ -513,6 +513,13 @@ the junk that gathering picks up (saplings, seeds, dirt, cocoa beans). Villages 
 chests: the first `deposit` puts a carried chest down beside the plot, and when the chests are full, another goes down
 in a row beside them. What each chest holds is recorded whenever it is opened, and shown chest by chest in every
 planner's village summary, in `/api/village/:v` and in the panel's detailed view ("chest 1 (logs): 64 oak_log, ...").
+**The mine.** With the storage hut, a new village's first layout gets a **mining hut** (`huts.ts`, 5x5, wood only),
+turned so that stairs inside it face the nearest edge of the plot. The code-posted task "Dig the village mine"
+(`dig_mine`, `mcMine.ts`) digs the stairs down to stone, at least 7 steps; from then on `collect cobblestone` in that
+village extends a main tunnel with branches (18-32 cobblestone a trip, about a minute) instead of digging pits around
+the village. The mine digs only natural ground, never village ground or anything built, and ends a tunnel at water,
+lava, a cave or a missing ceiling; the pathfinder may not dig into its area. Ores seen in its walls are counted.
+
 **Materials still to gather.** Code keeps a list of what the village still needs gathered (`refreshNeeds` in
 `mcWorld.ts`): the raw materials of every laid-out building not built or being built yet, plus anything the mayor asked
 to keep in stock (`add_need`), less the storage and what each worker carries for its gather task. Every village summary,

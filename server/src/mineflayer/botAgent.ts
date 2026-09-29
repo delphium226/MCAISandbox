@@ -13,6 +13,7 @@ import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
 import { at, goals, walk } from './mcUtil';
+import { mineArea } from './mcMine';
 import { rescue } from './mcRescue';
 
 const { pathfinder, Movements } = pathfinderPkg;
@@ -141,6 +142,9 @@ export class BotAgent implements WorldAgent {
         if (y !== undefined) boxes.push({ x1: l.x1 - 2, z1: l.z1 - 2, x2: l.x2 + 2, z2: l.z2 + 2, y: y - 4 });
       }
       for (const s of v.structures) boxes.push({ x1: s.x1 - 1, z1: s.z1 - 1, x2: s.x2 + 1, z2: s.z2 + 1, y: s.y - 1 });
+      // The mine, from its tunnel floor up: no shafts dug down into it from the surface, nor up out of it (V.5)
+      const mine = v.mine && mineArea(v.mine);
+      if (mine) boxes.push(mine);
     }
     const near = p ? boxes.filter((q) => Math.max(q.x1 - p.x, p.x - q.x2, q.z1 - p.z, p.z - q.z2) < 160) : boxes;
     this.protectedCache = { at: now, boxes: near };
