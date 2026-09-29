@@ -239,10 +239,14 @@ async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
   const feet = bot.entity.position.floored();
   const below = bot.blockAt(feet.offset(0, -1, 0));
   if (below?.boundingBox !== 'block') throw new Error(`nothing solid under ${at(feet)} to build up from`);
-  // Room to jump: leaves over the head are cleared, anything else stops the climb
-  const over = bot.blockAt(feet.offset(0, 2, 0));
-  if (over && over.boundingBox !== 'empty') {
-    if (!over.name.endsWith('_leaves')) throw new Error(`${over.name} above ${at(feet)}`);
+  // Room to jump: two blocks over the head (a jump lifts the feet 1.25, the head to feet + 3.05). Leaves are cleared,
+  // anything else stops the climb; with only one free block the bot rose to 75.42 over a block at 75 and every
+  // placement was refused (Fell1)
+  for (const dy of [2, 3]) {
+    const over = bot.blockAt(feet.offset(0, dy, 0));
+    if (!over || over.boundingBox === 'empty') continue;
+    // (a log right over the pillar is the tree's, missed by the log search: Fell1 stopped under one)
+    if (!over.name.endsWith('_leaves') && !isTreeLog(over.name)) throw new Error(`${over.name} above ${at(feet)}`);
     await abortable(bot.dig(over, true), signal, () => bot.stopDigging());
   }
   const dirt = bot.inventory.items().find((it) => it.name === 'dirt');
@@ -260,6 +264,8 @@ async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
     try {
       for (let i = 0; i < 20 && bot.entity.position.y < feet.y + 1; i++) await sleep(50, signal);
       await sleep(50, signal);
+      // Still in the block: placing would be refused (and has been, and then placed later: StageT4)
+      if (bot.entity.position.y < feet.y + 1) throw new Error(`jumped only to ${bot.entity.position.y.toFixed(2)}`);
       await abortable(bot.placeBlock(below, new Vec3(0, 1, 0)), signal);
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
@@ -268,6 +274,7 @@ async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
       bot.setControlState('jump', false);
     }
     placed = await placedOnServer();
+    if (problem || !placed) console.log(`[trees] ${a.name} pillar at ${at(feet)}, try ${attempt + 1}: ${placed ? 'placed on the server' : 'not placed'}${problem ? `; Mineflayer said: ${problem.slice(0, 120)}` : ''}; view ${bot.blockAt(feet)?.name}, feet y ${bot.entity.position.y.toFixed(2)}`);
     if (placed && bot.blockAt(feet)?.name !== 'dirt') {
       const dirt = a.world.registry.blocksByName.dirt;
       (bot.world as unknown as { setBlockStateId(p: Vec3, id: number): void }).setBlockStateId(feet, dirt.defaultState ?? dirt.minStateId!);

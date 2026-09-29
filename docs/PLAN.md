@@ -124,6 +124,33 @@ sites. Code keeps and uses the atlas; models do not read it raw.
       different directions (run as written, no model calls) while the mayor draws designs. Test: model-driven run
       from a poor start point.
 
+## Phase 2A: village infrastructure (the user's, 2026-09-29; before 2.3)
+
+The first buildings of every village are a storage hut and a mining hut; storage is sorted and inventoried; the
+mayor plans from stock against needs; workers gather several needed materials per trip; mining happens in one mine,
+not in holes everywhere, and what it finds goes into the atlas. Decisions (the user's, 09-29): fixed designs in code
+for the two huts; the needs list is computed by code (the mayor can add to it); the mine is a staircase from inside
+the hut down to stone, then straight branch tunnels at one level.
+
+- [ ] V.1 **Storage hut**: a fixed design with 9 chest spots inside, laid out first by `plan_layout` and built
+      before the other buildings. The first chest goes into spot 1 (the hut is built around it: chest cells are kept),
+      later chests into spots 2-9; an existing chest outside is moved in once the hut stands. Test: staged build stage.
+- [ ] V.2 **Sorted storage**: each chest holds one material (assigned at its first deposit); `deposit` puts each
+      item in its material's chest, a new chest spot when there is none; the storage record reads "chest 3: 64 oak_log"
+      for agents, the panel and `/api/village/:v`. Test: deposits of mixed loads into a stocked hut.
+- [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
+      storage minus what workers carry) and shows it in every village summary; the mayor can add items
+      (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
+- [ ] V.4 **Several materials per trip**: a worker gathering X also takes other needed materials it passes (open
+      blocks a few steps off its path, up to what is needed). Test: staged full run, trips and time against StageT5.
+- [ ] V.5 **Mining hut and mine**: a fixed hut over a staircase down to stone, then branch tunnels at one level;
+      `collect` stone, cobblestone and ores goes to the mine and extends the tunnels instead of digging at the
+      surface; the tunnels are recorded in the village. Test: staged runs; no surface holes around the village.
+- [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
+      surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
+      `/api/block`.
+- [ ] V.7 Model-driven village runs with all of it.
+
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
 The user asks the mayor in chat ("build me a house by the river", "we need a bigger hall"); the village designs,
@@ -200,6 +227,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageT2 | same, MCAI_STALL_MIN=5, beside Accept15 | **2/2 built** | 18.0 min | 0 failed actions, 0 "could not reach logs", 26 trees felled, Accept15 untouched; slower than StageW2 (11.1): the drop sweep chased saplings |
 | 09-29 | StageT3, T4 | same, hills -769,-384; oak woods -443,-22 | stopped at 3.6 / 6.1 min | | the runner stopped on "no sand" three times (a soft failure by design; the runner now ignores it) |
 | 09-29 | StageT5 | same, oak woods -447,-60 | **2/2 built** | 13.0 min | only soft sand failures (windows open); logs-only sweep |
+| 09-29 | Fell1 | model, 2 workers, qwen3.8 worker planner, jungle-edged woods -664,-169 | **3/3 built**, declared complete by code | 23.1 min | 4 failed actions: 3 soft sand (windows open), 1 "could not reach logs" (a capped jump, F57); 1 worker executor call; 4 log tasks covered by storage surplus |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -373,6 +401,12 @@ CLAUDE.md when a phase ends.
   from one of its holes, and the check then broke the refilled hole: 5 holes, filled by hand). Whole trees cost time:
   StageT2 18.0 min against StageW2's 11.1 for the same buildings, mostly the drop sweep walking after saplings; with
   logs and dirt only, StageT5 13.0 min. Whole trees also gather surplus (43 logs left in StageT2's storage).
+- F57 (09-29, Fell1) Pillar placements refused with the bot's feet at 75.42-76.50 over a block at 75-76: a jump
+  needs two free blocks over the head (feet + 2 and + 3), and a leaf or log at + 3 capped it. The climb now clears
+  leaves and the tree's logs at both, and does not place until the feet are above the block. The 2 pillar blocks
+  once left with no climb recorded were most likely the pathfinder's own scaffolding while sweeping drops (backlog:
+  the pathfinder's pillars); the server check removed them. Deposits carry cocoa beans (27 in Fell1's chest): add
+  them to the junk list (backlog).
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
@@ -399,6 +433,10 @@ CLAUDE.md when a phase ends.
 - 09-29 The atlas is one shared map for every agent and village (the user's choice over per-village knowledge), kept
   in its own file (`mc/server/atlas.json`, saved at most every 30 s) rather than `villages.json`, which is written on
   every change and returned whole by `/api/village/:v`.
+- 09-29 New phase 2A, village infrastructure (the user's requirements): storage hut with 9 chests, sorted storage
+  and a readable inventory, a code-computed materials-needed list the mayor plans from and can add to, several
+  materials per trip, a mining hut with a staircase mine, underground finds in the atlas. It comes before 2.3.
+  Fixed designs in code for both huts; mine = staircase then branch tunnels (the user's choices).
 - 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
   moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
