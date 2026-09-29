@@ -139,7 +139,7 @@ speed of local models.
 |---|---|---|
 | `move_to` | x, y, z, range? | Pathfinding: walks, jumps, swims and drops down ledges; far goals are walked in legs of ~40 blocks |
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
-| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first |
+| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), never inside a plot or its 2-block margin, and no more than 16 blocks below the village |
 | `place` | item, x, y, z | Places a block |
 | `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
@@ -148,7 +148,7 @@ speed of local models.
 | `give` | player, item, count? | Walks to a player and tosses them items (for trading and economy experiments) |
 | `chat` | message | Talks. Agents only **hear** chat within 48 blocks, as in Project Sid |
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
-| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off existing builds; in survival, with trees within reach for wood) and reports its centre |
+| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (wood buried more than 16 below the ground does not count), and a smaller wooded site beats a bigger bare one |
 | `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
 | `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise, with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
@@ -260,6 +260,13 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
   own.
 - **Ground.** Agents reserve the ground they are working on (for 3 minutes, renewed while working), and never build
   over another building.
+- **Range.** Every village member stays within 96 blocks of its village's home (the first plot, else the storage, else
+  where the mayor started): `move_to` and `explore` beyond it are refused or shortened. Before this, a worker's
+  executor explored hop by hop to 180 blocks out and then gave up every gathering task as "none within 96 blocks".
+- **Stuck rescue** (real Minecraft, survival). Two moves that fail within 3 blocks of the same spot in 6 minutes (a pit,
+  a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
+  up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage. The
+  brain is told what happened.
 
 ### In-game commands
 ```
@@ -310,7 +317,11 @@ worker.
   model draws it), lays the buildings out (`plan_layout`), then waits. It reviews the board when every task is done or a
   task fails, re-posts a failed task with a fix, and calls `declare_complete` when the objective is met. Its executor may
   only look around, talk, find a site and design; plan steps that are workers' jobs (collecting, crafting, building)
-  are dropped with a note.
+  are dropped with a note, and so are steps naming a planner tool such as `plan_layout` (the executor cannot call it
+  and improvised a new, smaller site instead). A mayor with nothing laid out that answers with an empty plan gets
+  `find_site` added by code, or is asked again 10 seconds later if it already has a site. Whether the village is
+  complete is checked by code on every tick of the mayor's brain: when every building of the layout stands and no task
+  is open, code declares it, whatever the mayor last did.
 - **Workers** take the next open task whose prerequisites are done, *before* planning (otherwise several would plan
   the same one), do it, and take the next. A task that code posted spells out its own skill calls ("collect
   block=logs count=12, then deposit item=all"), and those calls are the worker's plan: no planner call. Other tasks go
@@ -324,15 +335,27 @@ rethink it. Building tasks also wait until the design they name is in the librar
 block, spaced so the model can count them (`"L P P P L"`), with a palette (`{"L": "oak_log", "P": "oak_planks"}`). Code
 checks the design (sizes, real blocks, a door on the outside with room above it, moving or adding the door when the
 model puts it inside the wall) and sends the problems back once for a fix. A design is reused for every copy, so
-matching buildings match.
+matching buildings match. The architect's brief says how much room the site has (never below 5x5: what does not fit
+goes on a second site). In survival, code also limits what may be drawn, because every block has to be gathered:
+at most 9x9, raw materials from a short list (logs, stone, sand, sandstone, dirt, gravel, terracotta, and what is
+crafted or smelted from them) and no furnaces, crafting tables or chests as decoration; the brief says when the site
+has no sand or sandstone. Before these limits, the architect drew 13x13 halls in mossy cobblestone, and workers
+went 70 blocks down to lush caves for the moss.
 
 **Layout.** `plan_layout` (`server/src/layout.ts`) takes the buildings by name (`["cottage", "cottage",
-"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot, 3-block streets apart,
-choosing the column count that gives the squarest plot, and centres the plot on the site the mayor found. It refuses
-designs that are not drawn yet, a site smaller than the plot, and ground that is taken, each with the reason. Then it
-posts the tasks in order: prepare the plot; set up the storage; the materials for each building; each building at its
-computed position. Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot
-and spent the rest of the run relocating it.
+"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot, 3-block streets apart
+(2-block streets and a 1-block margin when that is what fits), choosing the column count that gives the squarest plot,
+and centres the plot on the site the mayor found. It refuses designs that are not drawn yet and ground that is taken,
+each with the reason. When the site is too small for everything, it lays out the largest set that fits if that is at
+least half the buildings, so the workers can start, and keeps the rest as unplaced; the mayor's next successful
+`find_site` gets them laid out there by code (the model managed that step 1-2 times in 10). Fewer than half is
+refused with the size the whole village needs. In survival it also asks the world whether the materials are near the
+site in the amounts needed, counted the way `collect` would reach them (anything within 40 blocks, only exposed blocks
+farther out, nothing more than 16 below the ground; wood may be a quarter short, since felled trees and ground not yet
+loaded add some), and refuses with the choice of smaller buildings or another site. Then it posts the tasks in order:
+prepare the plot; set up the storage; the materials for each building; each building at its computed position.
+Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot and spent the
+rest of the run relocating it.
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -391,7 +414,15 @@ What building these agents taught, and what the code is built around:
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
-  storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft).
+  storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft); the land probe then
+  also skips ground with too few trees, and the village spawns at the site it found, not at X,Z.
+- `attach_village.py VILLAGE MINUTES_SO_FAR` follows a village whose agents are already running (when a watcher was
+  stopped mid-run): it prints their new events until the village is complete or nothing succeeds for 5 minutes.
+- `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
+  running): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs), `layout_small_sites.py VILLAGE`
+  (partial layouts and second sites), `materials_near_site.py` (plan_layout's material counts), `treeless_site.py` and
+  `smelt_fuel.py`. Run the relevant one after changing find_site, layout.ts or smelting.
+- `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
 - `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered]` (real
   Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
   places and stocks the storage chest, and the default workers are scripted (brain `tasks`: they run the skill calls
@@ -433,7 +464,12 @@ differently:
   the result given (`/give`); a recipe that needs a table still needs one placed nearby. Mineflayer's own crafting
   clicks worked from a stale view of the inventory on 26.1 and made oak buttons out of planks.
 - **Walking** uses mineflayer-pathfinder with a watchdog for stuck bots, digging only natural blocks, opening doors,
-  going around water (and swimming out of it), and splitting long walks into legs.
+  going around water (and swimming out of it), and splitting long walks into legs. A bot that stays stuck is rescued
+  (see the guards above).
+- **One event loop for every bot.** All bots share the agent server's Node process, so path searches are capped per
+  tick and block scans filter as they search. The server logs any stall of the event loop over 2 seconds as a `[lag]`
+  line with what each agent was doing: 2-3.5 s while bots join or during a site search's log scan is normal; a stall
+  over ~30 s makes Paper disconnect every bot at once.
 
 ### The village economy (real Minecraft)
 
@@ -461,26 +497,36 @@ whenever it is opened, and shown in every planner's village summary and on the c
 
 **From objective to buildings.** For "two matching cottages and a meeting hall":
 
-1. The **mayor** runs `find_site`, has a `cottage` and a `meeting_hall` designed, and calls `plan_layout`.
+1. The **mayor** runs `find_site` (a site with enough trees near it), has a `cottage` and a `meeting_hall` designed
+   within the survival limits, and calls `plan_layout`, which checks the materials are near the site.
 2. `plan_layout` places the buildings and posts the tasks, each as exact skill calls: prepare the plot; set up the
    storage (collect 4 logs, craft a chest, deposit it beside the plot); for each building, gather its raw materials in
    parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect block=cobblestone
    count=29, then deposit item=all"); then build it at its coordinates.
-3. **Workers** claim the tasks in order. Gathering stays within 96 blocks of the village and never mines inside its
-   buildings; stone is mined for cobblestone, with a wooden pickaxe `collect` crafts itself when it has none.
+3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
+   asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
+   Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
+   with a wooden pickaxe `collect` crafts itself when it has none. A gather task for a material that is not within
+   reach is given up at once (it is "soft": the build checks its own materials), and only that task: the queue goes
+   with it.
 4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
    smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
    the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
    design comes out in acacia where acacia grows).
 5. If materials are still short, the build posts gather tasks for exactly the shortfall, puts itself back on the board
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
-   the windows are left open instead.
-6. When every building stands, the mayor declares the objective complete; code checks it first.
+   the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand.
+6. When every building stands, the mayor declares the objective complete (code checks it first), or code declares it:
+   the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
+   village running.
 
-In the test that passed, two workers and a mayor built two cottages (81 blocks each) and a hall (145 blocks) from
-nothing in 35 minutes: they gathered about 50 logs, 130 cobblestone, sand and sandstone, and crafted and smelted the
-rest from the storage. `scripts/stage_village.py` runs the same chain with scripted workers, in about a minute when
-the storage starts stocked.
+Acceptance runs (2026-09-28/29, "two matching cottages and a meeting hall" from nothing, a mayor and two workers, no
+manual help): with gpt-oss as the workers' planner, five runs built everything in 10.2-29.2 minutes, three of them in
+a row (14.6, 25.2 and 29.2); with qwen3.8, two passed in 26.2 and 39.2 minutes. The runs that failed on the way each
+found a code bug, since fixed. What decides the time is gathering: oak woods took 10-15 minutes;
+logs high on hills (up to 23 failed collects a run) and designs with log roofs (a 9x9 log roof is 81 logs) took 25-40.
+`scripts/stage_village.py` runs the same chain with scripted workers, in about a minute when the storage starts
+stocked.
 
 ### Models
 
@@ -493,8 +539,15 @@ Each brain role can use its own model (`"<provider>:<model>"`, per agent in memo
 | Workers' planner | `ollama:qwen3.8:27b` | local, GPU 0 |
 | Executors | `ollama:qwen3:30b-instruct` | local, GPU 1, three requests at once |
 
+In village runs the workers' planner is not called at all (tasks posted by code carry their own steps) and the
+executors only step in after a failure, so the choice of those models shows little there; it will matter for tasks
+players ask for in chat.
+
 `scripts/ollama_exec.py start` runs the two local models on their own Ollama servers (ports 11435 and 11436), each
-pinned to one GPU, and checks they fit; the Ollama app keeps relaying cloud models. Then point the agents at them:
+pinned to one GPU, and checks they fit; the Ollama app keeps relaying cloud models. Run `python scripts/ollama_exec.py
+status` before a series of runs: Ollama can report a model as fully in VRAM when Windows has moved most of it into
+shared system memory (an executor ran at 2.7 tokens a second, one turn took 187 s), so the script compares each card's
+memory with its model and prints a WARNING; then stop and start them. Then point the agents at them:
 
 ```bash
 python scripts/ollama_exec.py start
