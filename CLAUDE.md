@@ -269,6 +269,10 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
     panel's village map); whole-tree felling and every village's buildings kept off (`9494d3d`, step 2.2), jump room
     for the climb and the Fell1 run (`bd68f12`); phase 2A (village infrastructure, the user's requirements) planned
     in PLAN.md with V.1/V.2 designed.
+20. 2026-09-29 (fifth session; local, not pushed: ask first): storage hut and sorted storage (`d77313d`, V.1 + V.2:
+    `huts.ts`, sorted `deposit`, chests crafted per material group); village ground protected from digging, collect
+    steps off a plot for buried stone, plan-bound step credit (`d4aa32d`); the panel's world map of the whole atlas and
+    Hutvale2 (4/4 built with the hut in 18.8 min, `b54cc99`). Next: V.3, V.4; V.5/V.6 (mine) may go to a worktree agent.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.

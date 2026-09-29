@@ -20,33 +20,41 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-09-29 at the end of the fourth session: docs 1.6, atlas 2.1, tree felling 2.2, phase 2A planned)
+(written 2026-09-29 at the end of the fifth session: V.1 + V.2 storage hut and sorted storage, world map)
 
 - **Code:** everything committed on `tiered-brain-building`; origin has up to `aeb78dc`; local only (ask before
-  pushing): `8e257f8` handover, `d63d314` README/ARCHITECTURE (1.6), `5c24e5b`, `7cc1f9d` atlas (2.1), `9494d3d`
-  felling (2.2), `bd68f12` jump fix + Fell1 + phase 2A, and this handover. Working tree clean except `runs/`.
+  pushing): the fourth session's 8 commits up to `32eff33`, then `d77313d` storage hut and sorted storage, `d4aa32d`
+  village ground kept from digging / collect steps off it / plan-bound step credit, `b54cc99` world map + Hutvale2,
+  and this handover. Working tree clean except `runs/`.
 - **Running when this session ended:** Paper, the Ollama app, both pinned model servers, the agent server
-  (`runs/2026-09-29/agentserver-fell2.log`), all background tasks of this Claude session: check ports 25565, 8766,
-  11435, 11436 and `python scripts/ollama_exec.py status` first. No agents in the world.
-- **Where things stand:** phase 1 done (1.6 docs in `d63d314`). Phase 2: 2.1 shared atlas done (F53; `mcAtlas.ts`,
-  `mc/server/atlas.json`, `/api/atlas`, village map on the panel); 2.2 whole-tree felling done and confirmed in a
-  model-driven run (Fell1: 3/3 built in 23.1 min, 1 log failure; F54-F57); 2.2b and 2.3-2.4 wait. **Next: phase 2A
-  (village infrastructure, the user's requirements), starting with V.1 and V.2 together** as designed below; the
-  user asked for them in a new session. Do not re-ask the design questions: the user chose fixed designs in code,
-  a code-computed needs list, a staircase mine, and 2A before 2.3.
-- **V.1 + V.2:** the design proposed to the user is written out under those steps in phase 2A (the user said to
-  build it next session: confirm briefly, then build).
-- **Testing notes from this session:** staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task
-  with a pickaxe to make takes over 3 min); `stage_village.py` no longer stops on soft "cannot be gathered here"
-  failures. New checks: `scripts/checks/atlas.py`, `scripts/checks/fell_trees.py`; `scripts/bench/atlasbench.mts`.
-  The panel can be checked without a browser: headless Edge (`msedge --headless=new --screenshot=... --window-size=
-  1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
-- Run logs: `runs/2026-09-29/` (atlas-check*, trees-check1-9, stageT1-T5, fell1, agentserver-*.log).
+  (`runs/2026-09-29/agentserver-v9.log`, `MC_API_HOST=0.0.0.0`), all background tasks of this Claude session: check
+  ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py status` first. No agents in the world.
+- **Where things stand:** V.1 + V.2 done and accepted (Hutvale2: storage hut, hall and two cottages in 18.8 min, no
+  failed actions). Every new village's first layout now carries the storage hut; storage is sorted by material
+  group. Fixed on the way (F58-F66): deposit counts from the open window, crafting tables and furnaces kept off
+  village ground, the pathfinder never digs into any village's plots or buildings, collect steps off a plot to find
+  buried stone, an action's success counts only toward its own plan. The panel has one world map of the whole atlas
+  (the user's request; the per-village maps are gone).
+- **Next:** V.3 (materials needed, computed by code) and V.4 (several materials per trip), in order. **V.5/V.6 (the
+  mine) may now go to a second agent in a git worktree** (the storage record is settled): tell the user before
+  starting it; its tests wait for the world between the main thread's runs. The hut makes cobblestone the critical
+  path (63 for its floor: 8.5 of Hutvale2's 11 minutes before the hut went up), which is V.5's reason to exist.
+- **Open findings to weigh:** F62 (felling a 2x2 jungle tree for a 10-log task, >5 min), F67 (the timed review
+  re-plans mid-collect and the executor queues more collects: 61 cobblestone for a 31 task), F68 (a furnace refused
+  on wildflowers, a misleading "could not smelt" and a second furnace). The known risk from the hut chain (a failed
+  prepare or hut build blocks the rest until the mayor steps in) is in the decisions log.
+- **Testing notes:** `stage_village.py --stage build` in a hut village prepares the plot with a worker, then puts
+  chests in the hut spots by group, and at the end checks a mixed deposit is sorted (`--no-deposit-check` skips it);
+  staged full runs with felling need `MCAI_STALL_MIN=8` (jungle trees); fresh land is scarce within 160 blocks of
+  the 96 villages: scoring `mc/server/atlas.json` (logs, sand and water over 5x5 chunks, distance to every
+  village) found -984,336 (Hutvale2). New test villages: StageH1-H6,
+  Hutvale1 (stopped; a shaft in its plot at -795,247), Hutvale2.
+- Run logs: `runs/2026-09-29/` (stageH1-H6, hutvale1-2, agentserver-v1..v9.log).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
   of every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
   pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
   run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes; show the approach
-  before changing code at the start of a new piece of work.
+  before changing code at the start of a new piece of work; subagents for log reading, diff review, docs and checks.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -474,6 +482,14 @@ CLAUDE.md when a phase ends.
   margins (from 4 under the level up) or beside its buildings (pathfinder `exclusionAreasBreak`, cached every 5 s),
   and collect takes nothing in the columns under a plot. Old damage stays: Hutvale1's plot at -795,247. V.5's mine is
   the real answer to cobblestone.
+- F67 (09-29, Hutvale2) The timed review ("no step completed for 3 minutes") re-planned both workers in the middle of
+  their 31- and 32-cobblestone collects; Worker1's executor then queued collects of 16 and 14 behind the running one:
+  61 cobblestone for t2197, about 4 minutes on the hut's critical path (the surplus later closed 3 cobblestone tasks).
+  Backlog: no timed review while a code-posted step's action is still running.
+- F68 (09-29, Hutvale2) "could not smelt N glass (placing furnace at ... failed: block is still wildflowers)" at the
+  hall and a cottage, though both then smelted and used their glass; two furnaces were made for three smelting
+  builds. `freeSpotNearby` takes a cell holding wildflowers as free and the placement is refused. Backlog: treat
+  replaceable plants as occupied (or clear them) and word the message after the retry.
 
 ## Decisions log
 
