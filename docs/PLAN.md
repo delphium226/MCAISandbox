@@ -30,7 +30,8 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   session and may have stopped with it: check ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py
   status` (a WARNING means a model spilled: stop and start) before anything else.
 - **Phase 1 status:** 1.0-1.5 done (acceptance: Accept9-11 with gpt-oss, Accept15 and 18 with qwen3.8; the user
-  counted 1.5 as passed on 09-29). **Next step: 1.6, README and ARCHITECTURE.md**, then phase 2.
+  counted 1.5 as passed on 09-29). Step 1.6 (README and ARCHITECTURE.md) done in `d63d314` on 09-29 by the
+  following session, which then started phase 2; the notes on 1.6 below are kept for reference.
   - README: describe the survival village as it now works: find_site (112 blocks, walking legs, 30 logs within 48,
     other villages kept off), plan_layout (narrow streets, partial layouts and second sites, material counts near
     the site, wood may be 25% short), design limits (9x9, whitelisted raw materials, no workstations), the range rule
@@ -56,7 +57,7 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
   run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes.
 
-## Phase 1: reliability of the survival village (in progress)
+## Phase 1: reliability of the survival village (done 2026-09-29)
 
 Goal (the user's): "two matching cottages and a meeting hall" succeeds from nothing 2-3 times in a row with no
 restarts or manual help. Standard setup: Mayor + Worker1, Worker2; mayor and architect gpt-oss:120b-cloud,
@@ -89,9 +90,11 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       five failed runs between them, each on a code bug since fixed; see the handover): 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
-- [ ] 1.6 Docs. Done (2026-09-29): CLAUDE.md (lessons 21-28 of the adapter, the model-spill trap, test sites,
+- [x] 1.6 Docs. CLAUDE.md (lessons 21-28 of the adapter, the model-spill trap, test sites,
       `scripts/checks/`, `scripts/attach_village.py`, session-restart and Monitor practices; LAN access, `MC_API_HOST`
-      and the whitelist were already there). Left: README and ARCHITECTURE.md (below).
+      and the whitelist were already there). README and ARCHITECTURE.md (`d63d314`, 2026-09-29): site search, layout,
+      design limits, range, run-as-written, rescue, completion by code, spill check, checks; diagrams updated.
+      **Phase 1 done.**
 
 ## Phase 2: shared village atlas (agreed 2026-09-28)
 
@@ -342,6 +345,7 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 1.5 counted as passed (the user), and the branch pushed.
 - 09-29 Every village member stays within 96 blocks of its village (the guard covered only the mayor before
   Accept14).
+- 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
 
