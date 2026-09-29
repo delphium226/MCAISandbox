@@ -517,6 +517,20 @@ export class TieredBrain implements AgentBrain {
   /** Steps of code-posted tasks already run as written (task:plan tick:step), and the action doing it now. */
   private ranAsWritten = new Set<string>();
   private asWritten: { id: number; step: number } | null = null;
+  /**
+   * The plan each action was started under (its tick and task): a success counts only toward that plan, or a replan of
+   * the same task (a collect started before a timed review still counts after it).
+   */
+  private actionPlan = new Map<number, { tick: number; taskId?: string }>();
+  private started(a: WorldAgent, id: number) {
+    const pl = this.plan(a);
+    this.actionPlan.set(id, { tick: pl?.tick ?? -1, taskId: pl?.taskId });
+    if (this.actionPlan.size > 200) this.actionPlan.delete(this.actionPlan.keys().next().value!);
+  }
+  private startedUnder(action: unknown, plan: Plan): boolean {
+    const r = typeof action === 'number' ? this.actionPlan.get(action) : undefined;
+    return !r || r.tick === plan.tick || (!!r.taskId && r.taskId === plan.taskId);
+  }
   private progressKey = '';
   private lastProgress = 0;
   /** Calls (name + arguments) that failed, with when and why: repeating one that failed twice is refused for a while. */
@@ -630,7 +644,7 @@ export class TieredBrain implements AgentBrain {
       this.stat(a, 'actionsDone');
       // A step run as written is done when its action is (move_to steps are not matched by name below)
       const pl = this.plan(a);
-      if (this.asWritten && e.data?.action === this.asWritten.id && pl && pl.step <= this.asWritten.step) {
+      if (this.asWritten && e.data?.action === this.asWritten.id && pl && pl.step <= this.asWritten.step && this.startedUnder(e.data?.action, pl)) {
         this.stat(a, 'stepsDone');
         pl.step = this.asWritten.step + 1;
       }
@@ -644,7 +658,7 @@ export class TieredBrain implements AgentBrain {
       const item = String(args.block ?? args.item ?? '').toLowerCase().replace(/^minecraft:/, '');
       const names = (st: string) => !item || item === 'all' || !/^(collect|craft|withdraw|deposit|smelt)$/.test(type)
         || st.toLowerCase().replace(/_/g, ' ').includes(item.replace(/_/g, ' ').replace(/s$/, ''));
-      if (plan && type && type !== 'move_to') {
+      if (plan && type && type !== 'move_to' && this.startedUnder(e.data?.action, plan)) {
         const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st) && names(st));
         if (i >= 0) {
           this.stat(a, 'stepsDone', i + 1 - plan.step);
@@ -773,6 +787,7 @@ export class TieredBrain implements AgentBrain {
         this.ranAsWritten.add(key);
         try {
           const st = a.enqueue(call.type, call.args);
+          this.started(a, st.id);
           this.asWritten = { id: st.id, step: plan.step };
           this.notes.push(`t=${a.world.ticks}: ${plan.steps[plan.step]} (run as written)`);
           return;
@@ -1253,7 +1268,7 @@ export class TieredBrain implements AgentBrain {
       if (c.name === 'chat') this.lastChat = now;
       this.recent.push({ key: ck, at: now });
       try {
-        a.enqueue(c.name, c.input);
+        this.started(a, a.enqueue(c.name, c.input).id);
         done.push(`${c.name}(${JSON.stringify(c.input)})`);
       } catch (e) {
         a.pushEvent('action_failed', `${c.name} rejected: ${(e as Error).message}`);

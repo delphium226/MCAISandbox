@@ -9,7 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import {
-  abortable, at, checkAbort, countItem, freeSpotNearby, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
+  abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
   sleep, str, syncInventory, walk,
 } from './mcUtil';
 
@@ -525,6 +525,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     lastError = m;
     failMs += ms;
   };
+  // Stepped off village ground once to look for buried blocks beside it
+  let steppedOff = false;
   while (true) {
     checkAbort(signal);
     const got = items.length ? have() - start : mined;
@@ -543,7 +545,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // as trees (2026-09-29)
     const vil = a.village();
     const all = [...a.world.villages.villages.values()];
-    const built = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: pl.y - 3 }))];
+    // (the whole column under a plot: stone 5 blocks under one was reached by a shaft dug from its surface, Hutvale1)
+    const built = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 }))];
     // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
@@ -570,6 +573,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
         });
         continue;
       }
+    }
+    if (!next && !steppedOff && onVillageGround(a, Math.floor(a.bot.entity.position.x), Math.floor(a.bot.entity.position.z), Math.floor(a.bot.entity.position.y))) {
+      steppedOff = true;
+      if (await stepOffVillageGround(a, signal)) continue;
     }
     if (!next) {
       if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);

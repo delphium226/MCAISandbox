@@ -246,6 +246,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageH3 | staged full, testhut + testhall + hut, -656,190 | stopped at 11.4 min | 11.4 min | a gatherer's crafting table inside the hut footprint raised its floor; the new guard refused to build over the chests (F59); a fifth chest tried (F60); 1 cobblestone into the last free chest (F58) |
 | 09-29 | StageH4 | same after F58-F60 fixes, -744,72 | **3/3 built** | 14.7 min | runner stopped at 10.2 min (two 2x2 jungle trees felled for 9-10-log tasks, 81 and 105 logs, >5 min each: F62), followed on to the end; only soft sand failures; hut interior clean |
 | 09-29 | StageH5 | staged build after the third review's fixes (tables and furnaces reused within 32 blocks, village ground by height), testhut + testhall + hut, -795,277 | **3/3 built**, deposit check passed | 4.2 min | 1 self-healed shortage (8 cobblestone: two builders' furnaces at once, as F9) |
+| 09-29 | Hutvale1 | model, 2 workers, qwen3.8 worker planner, jungle -798,247 (next to StageH5) | stopped at ~5 min | 5 min | laid out hut + hall + 2 cottages on 23x23 at 1.4 min; storage chests in the hut; then "no cobblestone within 96 blocks" from the middle of the plot (F64) and a gather task marked done by the storage task's deposit (F65). Left a shaft in its plot at -795,247 (from the collect checks after, F66) |
+| 09-29 | StageH6 | staged full after F64-F66 fixes (plots protected from digging, collect steps off), testhut + testhall + hut, birch woods -874,292 | **3/3 built** | 16.9 min | 0 failed actions, 0 lag lines, every window glazed; cobblestone mined beside the plot |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -454,6 +456,23 @@ CLAUDE.md when a phase ends.
   replaced the code's design (refused now); the stuck rescue teleported onto chest 1, which inside the hut puts the
   head in the roof (now the door walkway); a re-posted storage task used the old text and the hut build kept waiting
   on the failed one; a refusal over the hut's materials asked the mayor to redraw it.
+- F64 (09-29, Hutvale1) "no cobblestone within 96 blocks of the village" at the first cobblestone task, on a site
+  plan_layout had passed: collect takes buried blocks only within 16 blocks of the bot and none under a plot, and a
+  worker starts from the middle of a 23x23 plot; this jungle had no exposed stone within 128. The material check ran
+  before the plot existed and counted the stone under it (lesson 21 again). With the hut, cobblestone is needed by
+  every village (63 for its floor), and a village whose hut cannot be built is stuck. Fixed: collect with nothing to
+  be had steps off village ground once and looks again (then found 10 in a minute, 3 blocks past the plot's margin).
+- F65 (09-29, Hutvale1) t2114 "Gather 31 cobblestone for storage_hut" was marked done with nothing gathered: the first
+  chest put down finishes the storage task while its deposit is still running; the worker took t2114, and the
+  deposit's success then matched t2114's "deposit" step (a success may match a later step; `item=all` matches any).
+  Fixed: an action's success counts only toward the plan it was started under, or a replan of the same task
+  (`actionPlan` in tieredBrain; the review found the run-as-written path needed it too).
+- F66 (09-29, checks after Hutvale1) The pathfinder dug a shaft from a prepared plot's surface (y 70) to stone 5 blocks
+  down beside the storage hut: collect's target was allowed (plots were protected 4 blocks down) and the pathfinder
+  breaks any natural block on the way. Every bot now refuses to dig into any village's plots, laid-out plots and
+  margins (from 4 under the level up) or beside its buildings (pathfinder `exclusionAreasBreak`, cached every 5 s),
+  and collect takes nothing in the columns under a plot. Old damage stays: Hutvale1's plot at -795,247. V.5's mine is
+  the real answer to cobblestone.
 
 ## Decisions log
 
