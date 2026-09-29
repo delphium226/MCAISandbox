@@ -374,10 +374,10 @@ function compactObservation(a: WorldAgent) {
 const formatEvents = (events: AgentEvent[], max: number) =>
   events.slice(-max).map((e) => `- [${e.type}] ${e.text}`).join('\n') || '- none';
 
-/** Prepared building plots (from prepare_site), so plans can build on and extend them. */
-function formatPlots(a: WorldAgent): string {
+/** Prepared building plots (from prepare_site), so plans can build on and extend them; `compact` for workers' prompts. */
+function formatPlots(a: WorldAgent, compact = false): string {
   const v = a.village();
-  if (v) return a.world.villages.summary(v, a.name);
+  if (v) return a.world.villages.summary(v, a.name, compact);
   const plots = a.memory.plots as Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> | undefined;
   if (!plots?.length) return '';
   return 'Prepared plots (level ground):\n' + plots.map((p) => `- x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2}, ground y=${p.y}`).join('\n');
@@ -904,7 +904,7 @@ export class TieredBrain implements AgentBrain {
       `You are planning for ${a.name}, role: ${a.role}, game mode: ${a.gamemode}. Replanning because ${why}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       notes ? `Long-term notes:\n${notes}` : '',
-      formatPlots(a),
+      formatPlots(a, villageRole(a) !== 'mayor'),
       villageRole(a) === 'mayor' ? boardStatus(a) : '',
       `Previous plan:\n${formatPlan(old)}`,
       `Events since the last plan:\n${formatEvents(events, 30)}`,
@@ -1210,7 +1210,7 @@ export class TieredBrain implements AgentBrain {
     const user = [
       `You are ${a.name}, role: ${a.role}, game mode: ${a.gamemode}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
-      formatPlots(a),
+      formatPlots(a, true),
       formatTask(a.village(), plan),
       `Plan:\n${formatPlan(plan)}`,
       this.notes.length ? `Your recent decisions:\n${this.notes.slice(-6).join('\n')}` : '',

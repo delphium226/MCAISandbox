@@ -290,7 +290,8 @@ export function freeSpotNearby(a: BotAgent): { ground: Block; pos: Vec3 } | null
     const here = bot.blockAt(pos), above = bot.blockAt(pos.offset(0, 1, 0));
     // Not on a block that opens when clicked (placing against a crafting table opens it: the server refused a furnace)
     const clickable = !!ground && /chest|barrel|furnace|smoker|crafting_table|door|trapdoor|gate|bed$|shulker|anvil|table$|lectern|hopper|dispenser|dropper/.test(ground.name);
-    if (ground?.boundingBox === 'block' && !clickable && here?.boundingBox === 'empty' && here.name !== 'water' && here.name !== 'lava' && above?.boundingBox === 'empty' && !onVillageGround(a, pos.x, pos.z, pos.y)) return { ground, pos };
+    // Air only: a cell with wildflowers or grass in it refused the crafting table ("the block is still wildflowers", F68)
+    if (ground?.boundingBox === 'block' && !clickable && /^(cave_)?air$/.test(here?.name ?? '') && above?.boundingBox === 'empty' && !onVillageGround(a, pos.x, pos.z, pos.y)) return { ground, pos };
   }
   return null;
 }

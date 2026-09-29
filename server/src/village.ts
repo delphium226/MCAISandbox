@@ -347,16 +347,28 @@ export class VillageRegistry {
     this.save();
   }
 
-  /** A compact description for prompts. */
-  summary(v: Village, forAgent?: string): string {
+  /**
+   * A compact description for prompts. `compact` (workers' prompts on local models with an 8k context: Hutvale4's
+   * executor prompts reached 8,391 tokens with 41 tasks, per-chest storage and the needs and mine lines): the agent's own
+   * task in full, at most 10 other open tasks by title, no finished ones, designs by name, no chests as buildings.
+   */
+  summary(v: Village, forAgent?: string, compact = false): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     if (v.plots.length) lines.push('Prepared plots (level ground; build inside them):', ...v.plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
-    if (v.structures.length) lines.push('Buildings (do not overlap them):', ...v.structures.map((s) => `- ${s.kind} at ${areaText(s)} by ${s.builtBy}`));
+    const built = compact ? v.structures.filter((s) => s.kind !== 'storage') : v.structures;
+    if (built.length) lines.push('Buildings (do not overlap them):', ...built.map((s) => `- ${s.kind} at ${areaText(s)}${compact ? '' : ` by ${s.builtBy}`}`));
     if (v.unplaced?.length) lines.push(`Not laid out yet (no room on the first site; they need a second site, then plan_layout): ${v.unplaced.join(', ')}`);
     const designs = Object.values(v.designs);
-    if (designs.length) lines.push('Design library (build with build_design):', ...designs.map((d) => `- "${d.name}": ${d.width}x${d.depth}, ${d.height} high, ${d.description}`));
-    if (v.tasks.length) {
+    if (designs.length) lines.push(compact ? `Design library: ${designs.map((d) => `"${d.name}" ${d.width}x${d.depth}`).join(', ')}` : 'Design library (build with build_design):', ...(compact ? [] : designs.map((d) => `- "${d.name}": ${d.width}x${d.depth}, ${d.height} high, ${d.description}`)));
+    if (v.tasks.length && compact) {
+      const mine = v.tasks.filter((t) => t.status === 'claimed' && t.claimedBy === forAgent);
+      const others = v.tasks.filter((t) => (t.status === 'open' || t.status === 'claimed') && !mine.includes(t));
+      lines.push('Task board (open and held tasks):',
+        ...mine.map((t) => `- ${t.id} [yours] ${t.title}: ${t.detail}`),
+        ...others.slice(0, 10).map((t) => `- ${t.id} [${t.status}${t.claimedBy ? ` by ${t.claimedBy}` : ''}] ${t.title}`),
+        ...(others.length > 10 ? [`- and ${others.length - 10} more`] : []));
+    } else if (v.tasks.length) {
       const shown = [...v.tasks.filter((t) => t.status !== 'done'), ...v.tasks.filter((t) => t.status === 'done').slice(-6)];
       lines.push('Task board:', ...shown.map((t) => {
         const who = t.claimedBy ? ` by ${t.claimedBy}` : '';
@@ -387,7 +399,7 @@ export class VillageRegistry {
         ? `Village storage, in the storage hut (deposit sorts each item into its material's chest; withdraw finds it): ${storageText(v)}`
         : `Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${storageText(v)}`);
     }
-    if (v.log.length) lines.push('Recent village events:', ...v.log.slice(-6).map((l) => `- ${l}`));
+    if (v.log.length) lines.push('Recent village events:', ...v.log.slice(compact ? -3 : -6).map((l) => `- ${l.slice(0, compact ? 160 : 400)}`));
     const now = Date.now();
     const res = v.reservations.filter((r) => r.until > now && r.by !== forAgent);
     if (res.length) lines.push('Ground others are working on:', ...res.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));

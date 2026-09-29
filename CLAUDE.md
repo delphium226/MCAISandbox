@@ -272,7 +272,10 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 20. 2026-09-29 (fifth session; local, not pushed: ask first): storage hut and sorted storage (`d77313d`, V.1 + V.2:
     `huts.ts`, sorted `deposit`, chests crafted per material group); village ground protected from digging, collect
     steps off a plot for buried stone, plan-bound step credit (`d4aa32d`); the panel's world map of the whole atlas and
-    Hutvale2 (4/4 built with the hut in 18.8 min, `b54cc99`). Next: V.3, V.4; V.5/V.6 (mine) may go to a worktree agent.
+    Hutvale2 (4/4 built with the hut in 18.8 min, `b54cc99`); then V.2b workstations in the hut and doors passable
+    (`5710a15`), V.3 materials still to gather (`3a53548`), V.4 side pickups (`dafe26f`), V.5 the village mine
+    (`832a3be`), compact worker prompts (F78) and Hutvale4 (5/5 in 19.2 min). Pushing was blocked by the permission
+    classifier: all local. Next: F77 (mine at hillsides), V.6, V.7.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
