@@ -32,10 +32,9 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 - **Step 1.5 (acceptance):** gpt-oss workers' planner: Accept9, 10, 11 passed in a row. qwen3.8:27b: Accept15 and
   Accept18 passed; Accept12-14, 16, 17 failed on code bugs, each fixed (F45-F51). **The workers' planner was never
   called in any of these runs** (`plan 0x0ms`: code-posted tasks run as written), so the model comparison the step
-  asked for says nothing about planners (F52). Only Accept18 ran on the final code. Suggested before ticking 1.5: ask
-  the user whether to run a confirmation series (3 in a row on the final code) or accept it as it stands.
-- **Next:** 1.6 docs (CLAUDE.md lessons of this phase, README, ARCHITECTURE.md), then phase 2. Open small items: the
-  panel's simple mode (ask the user), village log lines in plain words (1.4), F44 (synchronous scans, 2-3 s stalls),
+  asked for says nothing about planners (F52). Only Accept18 ran on the final code; the user counted 1.5 as passed.
+- **Next:** 1.6 docs (CLAUDE.md lessons of this phase, README, ARCHITECTURE.md), then phase 2. Open small items:
+  village log lines in plain words, F44 (synchronous scans, 2-3 s stalls),
   F20 (deposits counted on the bot's view), collect failures on logs high on hills (the commonest failure left: 9-23
   per run in hilly or jungle-edged woods).
 - Run logs: `runs/2026-09-28/` (accept1-18, tight1, s2-*/s3-* targeted tests, agentserver-*.log).
@@ -69,11 +68,10 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       was accepted silently; with nothing laid out only the 3-minute stall review woke it. Now a mayor with nothing
       laid out that returns no steps gets `find_site` added by code (without a site) or is asked again after 10 s
       (with one), and every mayor wait is logged. Accept1: first plan at 0.1 min, layout at 1.7 min.
-- [ ] 1.4 Small items. Done: `advance_time false` in `mcRules.ts` WORLD_RULES (11 rules checked at start, "always
+- [x] 1.4 Small items (the user confirmed the panel's simple mode reads well, 09-29). Done: `advance_time false` in `mcRules.ts` WORLD_RULES (11 rules checked at start, "always
       day" in the summary); `explore` walks to an x/z goal (F23: the estimated y made it report "no path ... stopped
-      at" the spot it reached). Left: village log lines in plain words for the panel ("Worker4 built cottage 2");
-      confirm with the user that the panel's simple mode reads well in a browser.
-- [ ] 1.5 **Acceptance runs** (gpt-oss: Accept9-11 passed in a row; qwen3.8: Accept15 and Accept18 passed, with
+      at" the spot it reached). Moved to the backlog: village log lines in plain words for the panel.
+- [x] 1.5 **Acceptance runs**, counted as passed by the user on 09-29 (gpt-oss: Accept9-11 passed in a row; qwen3.8: Accept15 and Accept18 passed, with
       five failed runs between them, each on a code bug since fixed; see the handover): 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
@@ -326,6 +324,7 @@ CLAUDE.md when a phase ends.
   refused in favour of a bigger site. The rest is laid out by code at the mayor's next successful find_site.
 - 09-28 (session 3) Survival designs are at most 9x9 and use only whitelisted raw materials; a survival site
   needs 30 log blocks within 48; material and wood counts ignore anything more than 16 below ground level.
+- 09-29 Step 1.5 counted as passed (the user), and the branch pushed.
 - 09-29 Every village member stays within 96 blocks of its village (the guard covered only the mayor before
   Accept14).
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
