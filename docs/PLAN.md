@@ -22,10 +22,9 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 (written 2026-09-29 at the end of the fifth session: V.1-V.5 of phase 2A, the world map)
 
-- **Code:** everything committed on `tiered-brain-building`; origin has up to `aeb78dc`: pushing was blocked by the
-  permission classifier in this session, so ~20 commits are local (the fourth session's 8, then `d77313d` ..
-  this handover). The user decides about pushing (`git push origin tiered-brain-building`; `main` untouched).
-  Working tree clean except `runs/`.
+- **Code:** everything committed on `tiered-brain-building` and pushed to origin (up to `1a1e2f5` and this note;
+  the user added a `Bash(git push *)` allow rule after auto mode had blocked the push). `main` untouched. Working
+  tree clean except `runs/`.
 - **Running when this session ended:** Paper, the Ollama app, both pinned model servers, the agent server
   (`runs/2026-09-29/agentserver-v22.log`, `MC_API_HOST=0.0.0.0`), all background tasks of this Claude session: check
   ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py status` first. No agents in the world.
