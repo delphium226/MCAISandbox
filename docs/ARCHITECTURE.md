@@ -426,7 +426,7 @@ flowchart LR
   page["/panel (server/panel/index.html)<br/>browser, refreshes every 2 s"]
   page -- "GET /api/overview (2 s)" --> overview["panel.ts overview()<br/>for each agent: observe(4), memory,<br/>brain.status(), events, village"]
   page -- "GET /api/maps (2 s)" --> maps["mapAround(24) per agent<br/>top block + height per column,<br/>cached 1.5 s (~2 ms each)"]
-  page -- "GET /api/atlas?village= (10 s)" --> atlas["the shared atlas (mcAtlas.ts)<br/>chunk summaries around the village,<br/>4x4-block cells"]
+  page -- "GET /api/atlas?all=1 (30 s)" --> atlas["the shared atlas (mcAtlas.ts)<br/>every chunk summary and every village's ground,<br/>4x4-block cells: the world map"]
   page -- "GET /api/models (5 s)" --> models["/api/ps on every Ollama<br/>in use (app + routes)"]
   page -- "GET /api/status" --> status["world, version, server"]
   page -- "POST stop, DELETE,<br/>POST /api/watch" --> actions["stop actions, remove,<br/>spectate an agent (Minecraft: RCON tp)"]

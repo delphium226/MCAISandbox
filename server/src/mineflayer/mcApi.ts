@@ -34,6 +34,16 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   }
   // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
   if (parts[1] === 'atlas') {
+    // ?all=1: every chunk and every village's ground, compact (~0.6 MB for 2,600 chunks): the panel's world map
+    if (url.searchParams.get('all') === '1') {
+      const villages = [...w.villages.villages.values()].map((v) => ({
+        name: v.name, layouts: v.layouts ?? [], plots: v.plots, structures: v.structures,
+        storage: { chests: (v.storage?.chests ?? []).map(({ x, y, z }) => ({ x, y, z })) },
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: w.atlas.status(), all: true, chunks: [...w.atlas.chunks.values()], villages }));
+      return;
+    }
     const radius = Math.min(400, Math.max(16, Number(url.searchParams.get('radius') ?? 200) || 200));
     const v = url.searchParams.get('village') ? w.villages.get(url.searchParams.get('village')!) : undefined;
     const members = v ? w.agentList().filter((a) => a.memory.village === v.name) : w.agentList();

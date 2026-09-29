@@ -300,7 +300,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does |
 | POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
 | GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
-| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials), and what a summary costs |
+| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map |
 | GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** in the sandbox, the per-tick pathfinding budget and fast block search keep the server at about 8 ms per
@@ -583,9 +583,11 @@ doing (planning, thinking, acting, waiting: since when and why), its plan as a c
 a live top-down map (terrain, facing, mobs, players, the target, village plots and buildings), the exact prompt its
 executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
 plus the village task board and the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
-In Minecraft each village also gets a map of everything the bots have seen around it (the shared atlas,
+In Minecraft the panel shows one world map of everything the bots have seen (the shared atlas,
 `mcAtlas.ts`): every chunk a bot receives is summarised in about 0.1 ms, again a minute after its blocks change, and
-kept in `mc/server/atlas.json`. Agents do not use it yet; finding materials and sites from it is the next step.
+kept in `mc/server/atlas.json`), with every village's plots, buildings and storage chests and the agents drawn on it;
+drag to pan, wheel to zoom, and the pointer shows the ground and the logs and sand of the chunk under it. Agents do
+not use the atlas yet; finding materials and sites from it is a later step.
 
 ## Project layout
 

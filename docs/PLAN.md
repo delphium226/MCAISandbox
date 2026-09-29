@@ -121,8 +121,8 @@ not in holes everywhere, and what it finds goes into the atlas. Decisions (the u
 for the two huts; the needs list is computed by code (the mayor can add to it); the mine is a staircase from inside
 the hut down to stone, then straight branch tunnels at one level.
 
-- [ ] V.1 **Storage hut** and V.2 **sorted storage** (done together; designed 09-29, proposed to the user, to be
-      built next session):
+- [x] V.1 **Storage hut** and V.2 **sorted storage** (done together; designed 09-29, built and passed 09-29 in the fifth
+      session: Hutvale2):
       - Storage hut, fixed design in code: 7 wide x 9 deep x 4 high; cobblestone floor, plank walls, log corners, plank
         roof, oak door at the front middle, no windows (no sand needed); inside 5x7 with 9 chest spots, 4 along each
         side wall (x 0 and 4, z 0/2/4/6 of the interior) and 1 at the back middle (2,6), an aisle from the door. No two
@@ -146,8 +146,8 @@ the hut down to stone, then straight branch tunnels at one level.
         `mcStorage.ts` (groups, `depositSorted`, chests crafted for new groups), `mcBuild.ts` (chests on "_" cells kept,
         refused when not at the hut's level), tables and furnaces kept off village ground (`mcUtil.ts`), per-chest
         record in the summary, API and panel, rescue to the hut door. Passed: StageH2 and H5 (build stage + deposit
-        check), StageH4 (full, 3/3 built). Left: the model-driven run.
-- [ ] V.2 (see V.1).
+        check), StageH4 and H6 (full, 3/3 built), and the model-driven Hutvale2 (4/4 in 18.8 min, 0 failed actions).
+- [x] V.2 (see V.1).
 - [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
       (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
@@ -248,6 +248,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageH5 | staged build after the third review's fixes (tables and furnaces reused within 32 blocks, village ground by height), testhut + testhall + hut, -795,277 | **3/3 built**, deposit check passed | 4.2 min | 1 self-healed shortage (8 cobblestone: two builders' furnaces at once, as F9) |
 | 09-29 | Hutvale1 | model, 2 workers, qwen3.8 worker planner, jungle -798,247 (next to StageH5) | stopped at ~5 min | 5 min | laid out hut + hall + 2 cottages on 23x23 at 1.4 min; storage chests in the hut; then "no cobblestone within 96 blocks" from the middle of the plot (F64) and a gather task marked done by the storage task's deposit (F65). Left a shaft in its plot at -795,247 (from the collect checks after, F66) |
 | 09-29 | StageH6 | staged full after F64-F66 fixes (plots protected from digging, collect steps off), testhut + testhall + hut, birch woods -874,292 | **3/3 built** | 16.9 min | 0 failed actions, 0 lag lines, every window glazed; cobblestone mined beside the plot |
+| 09-29 | Hutvale2 | model, 2 workers, qwen3.8 worker planner, birch woods with sand -959,359 | **4/4 built** (storage hut, hall, 2 cottages), declared complete by code | 18.8 min | 0 failed actions; hut built at 11.4 min, around 4 chests; storage sorted throughout; every window glazed; the workers' planner never called. **V.1/V.2 accepted** |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -510,6 +511,9 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
   moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
+- 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the
+  user's request): drag, zoom, every village's ground and chests, the agents, and what is under the pointer
+  (`/api/atlas?all=1`, fetched every 30 s).
 - 09-29 (fifth session) V.1/V.2 as designed; details decided in code: the storage task crafts 4 chests at once
   (collect 10 logs) so crafting happens in the woods, and a deposit crafts another chest only when a group needs one;
   groups are logs, planks, cobblestone (with stone kinds), sand (with sandstone), glass, terracotta, misc; the hut's

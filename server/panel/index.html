@@ -81,7 +81,11 @@
   canvas.map { width: 196px; height: 196px; border-radius: 6px; border: 1px solid var(--line); image-rendering: pixelated; background: var(--panel-2); }
   .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
   .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
-  canvas.atlas { width: 300px; height: 300px; max-width: 100%; border-radius: 6px; border: 1px solid var(--line); image-rendering: pixelated; background: #1e1e24; }
+  .wm-bar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
+  .wm-box { position: relative; }
+  canvas.world { display: block; width: 100%; height: 560px; border-radius: 6px; border: 1px solid var(--line); background: #1e1e24; cursor: grab; touch-action: none; }
+  canvas.world.dragging { cursor: grabbing; }
+  .wm-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; max-width: 340px; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
   .atlas-keys { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--muted); margin-top: 4px; }
   .atlas-keys i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
@@ -110,6 +114,7 @@
     main { padding: 12px 16px; }
     .feed li { grid-template-columns: 1fr; gap: 0; }
     input[type=text] { width: 120px; }
+    canvas.world { height: min(560px, 70vh); }
   }
 </style>
 </head>
@@ -128,10 +133,30 @@
 <main>
   <div id="error"></div>
   <div class="simple-only" id="simple"></div>
+  <div id="wmSlotSimple">
+    <section id="worldmap" hidden>
+      <h2>World map <span class="sub" id="wmInfo" style="text-transform:none;letter-spacing:0"></span></h2>
+      <div class="card">
+        <div class="wm-bar">
+          <button id="wmFit" title="Show every chunk the bots have seen">Fit</button>
+          <button id="wmHome" title="Centre on the running agents' village">Agents</button>
+          <button id="wmIn" title="Zoom in">+</button>
+          <button id="wmOut" title="Zoom out">&minus;</button>
+          <span class="sub">drag to pan, wheel to zoom; north is up</span>
+        </div>
+        <div class="wm-box">
+          <canvas class="world" id="wmCanvas" aria-label="Map of every chunk the bots have seen, with the villages and agents"></canvas>
+          <div class="wm-tip" id="wmTip" hidden></div>
+        </div>
+        <div class="atlas-keys" id="wmKeys"></div>
+      </div>
+    </section>
+  </div>
   <div class="detailed-only">
     <h2>Agents <span id="agentCount" class="sub"></span></h2>
     <div class="grid" id="agents"></div>
     <div id="villagesWrap"></div>
+    <div id="wmSlotDetailed"></div>
     <h2>All recent events</h2>
     <div class="card"><ul class="list feed mono" id="feed"></ul></div>
   </div>
@@ -158,6 +183,7 @@ let simple = store.get('panel.mode', 'simple') === 'simple';
 const applyMode = () => {
   document.body.classList.toggle('simple', simple);
   $('mode').textContent = simple ? 'Detailed view' : 'Simple view';
+  $(simple ? 'wmSlotSimple' : 'wmSlotDetailed').appendChild($('worldmap')); // the world map follows the village cards
 };
 applyMode();
 $('mode').onclick = () => {
@@ -333,77 +359,244 @@ function renderVillage(v) {
       <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height} <span class="sub">${esc(d.description)}</span>`)}</div>
       <div><div class="label">Ground being worked</div>${list(v.reservations.filter((r) => r.until > now), (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)}</div>
     </div>
-    <div class="section"><div class="label">Village map <span class="sub">(what the bots have seen)</span></div>${atlasBlock(v)}</div>
     <div class="section"><div class="label">Village log</div>${list(v.log.slice(-10).reverse(), (l) => esc(l))}</div>
   </div>`;
 }
 
-// ---- the village map (the shared atlas: 4x4-block cells of every chunk a bot has seen) ----
-let lastAtlas = {};
+// ---- the world map (the shared atlas: 4x4-block cells of every chunk a bot has seen, with every village) ----
 const CELL_RGB = {
   s: [217, 201, 140], r: [192, 122, 58], d: [224, 210, 150], D: [186, 99, 40], x: [138, 138, 138], g: [130, 125, 120],
   c: [160, 166, 179], t: [156, 91, 59], o: [90, 161, 66], n: [238, 243, 246], b: [150, 110, 160], '~': [58, 111, 216],
   '^': [224, 98, 42], T: [38, 100, 44],
 };
+const CELL_NAMES = {
+  s: 'sand', r: 'red sand', d: 'sandstone', D: 'red sandstone', x: 'stone', g: 'gravel', c: 'clay', t: 'terracotta',
+  o: 'grass, dirt', n: 'snow, ice', '~': 'water', '^': 'lava', T: 'trees', b: 'built, other',
+};
 const ATLAS_KEYS = [['T', 'trees'], ['o', 'grass, dirt'], ['s', 'sand'], ['x', 'stone'], ['t', 'terracotta'], ['~', 'water'], ['b', 'built, other']];
-function atlasBlock(v) {
-  if (!world || world.kind !== 'minecraft') return '<div class="empty">only in Minecraft</div>';
-  const a = lastAtlas[v.name];
-  const st = a && a.status;
-  return `<canvas class="atlas" width="300" height="300" data-atlas="${esc(v.name)}" title="North up; 4 blocks a pixel-cell; plots green, buildings brown, storage yellow, agents white"></canvas>
-    <div class="atlas-keys">${ATLAS_KEYS.map(([k, n]) => `<span><i style="background:rgb(${CELL_RGB[k].join(',')})"></i>${n}</span>`).join('')}</div>
-    ${st ? `<div class="sub">${a.chunks.length} of ${st.chunks} chunks seen shown (${a.radius} blocks around ${a.centre ? `${a.centre.x}, ${a.centre.z}` : '?'}); a summary takes ${st.ms.median} ms (max ${st.ms.max})${st.queued ? `; ${st.queued} waiting` : ''}</div>` : ''}`;
+const WM_ZOOM = { min: 0.05, max: 16, home: 3 }; // screen px per block
+// The atlas as one image (a pixel per cell, north-west corner at x0, z0), the villages from the last atlas fetch, the view
+const wm = { chunks: new Map(), villages: [], status: null, fallback: false, img: null, x0: 0, z0: 0, view: null, drag: null };
+const chunkKey = (cx, cz) => `${cx},${cz}`;
+/** Where a village is: its layout or first plot, else its first chest (villageHome on the server). */
+function homeOf(v) {
+  const p = (v.layouts && v.layouts[0]) || (v.plots && v.plots[0]);
+  if (p) return { x: Math.floor((p.x1 + p.x2) / 2), z: Math.floor((p.z1 + p.z2) / 2) };
+  const c = v.storage && v.storage.chests && v.storage.chests[0];
+  return c ? { x: c.x, z: c.z } : null;
 }
-function drawAtlases() {
-  for (const cv of document.querySelectorAll('canvas[data-atlas]')) {
-    const a = lastAtlas[cv.dataset.atlas];
-    const g = cv.getContext('2d');
-    g.clearRect(0, 0, cv.width, cv.height);
-    if (!a || !a.centre) continue;
-    const n = Math.ceil((2 * a.radius) / 4), x0 = a.centre.x - a.radius, z0 = a.centre.z - a.radius;
-    const meds = a.chunks.filter((s) => s.y).map((s) => s.y[1]).sort((p, q) => p - q);
-    const ref = meds.length ? meds[meds.length >> 1] : 64;
-    const img = g.createImageData(n, n);
-    for (const s of a.chunks)
-      for (let c = 0; c < 16; c++) {
-        const i = Math.floor((s.cx * 16 + (c % 4) * 4 - x0) / 4), j = Math.floor((s.cz * 16 + Math.floor(c / 4) * 4 - z0) / 4);
-        if (i < 0 || j < 0 || i >= n || j >= n || s.s[c] === ' ') continue;
-        let rgb = CELL_RGB[s.s[c]] || [110, 110, 120];
-        if (s.h[c] !== null) { const f = Math.max(-0.4, Math.min(0.4, (s.h[c] - ref) / 25)); rgb = rgb.map((u) => Math.max(0, Math.min(255, u * (1 + f)))); }
-        img.data.set([rgb[0], rgb[1], rgb[2], 255], (j * n + i) * 4);
-      }
-    const tmp = document.createElement('canvas'); tmp.width = n; tmp.height = n;
-    tmp.getContext('2d').putImageData(img, 0, 0);
-    g.imageSmoothingEnabled = false;
-    g.drawImage(tmp, 0, 0, cv.width, cv.height);
-    const px = cv.width / (2 * a.radius), X = (x) => (x - x0) * px, Z = (z) => (z - z0) * px;
-    const v = (lastData && lastData.villages || []).find((u) => u.name === cv.dataset.atlas);
-    const rect = (r, style, fill, dash) => {
-      g.save(); g.setLineDash(dash || []); g.lineWidth = 1.5; g.strokeStyle = style;
-      const w = (r.x2 - r.x1 + 1) * px, h = (r.z2 - r.z1 + 1) * px;
-      if (fill) { g.fillStyle = fill; g.fillRect(X(r.x1), Z(r.z1), w, h); }
-      g.strokeRect(X(r.x1), Z(r.z1), w, h); g.restore();
-    };
-    if (v) {
-      for (const l of v.layouts || []) rect(l, '#4cc27f', null, [3, 2]);
-      for (const p of v.plots) rect(p, '#4cc27f');
-      for (const s of v.structures) if (s.kind !== 'storage') rect(s, '#8c5a28', 'rgba(140,90,40,.8)');
-      for (const c of (v.storage && v.storage.chests) || []) { g.fillStyle = '#f2c14e'; g.fillRect(X(c.x) - 2, Z(c.z) - 2, 4, 4); }
+function setAtlas(chunks) {
+  wm.chunks = new Map(chunks.map((s) => [chunkKey(s.cx, s.cz), s]));
+  wm.img = null;
+  if (!chunks.length) return;
+  let cx0 = Infinity, cz0 = Infinity, cx1 = -Infinity, cz1 = -Infinity;
+  for (const s of chunks) { cx0 = Math.min(cx0, s.cx); cz0 = Math.min(cz0, s.cz); cx1 = Math.max(cx1, s.cx); cz1 = Math.max(cz1, s.cz); }
+  // Shaded by height against the median ground (lighter is higher)
+  const meds = chunks.filter((s) => s.y).map((s) => s.y[1]).sort((p, q) => p - q);
+  const ref = meds.length ? meds[meds.length >> 1] : 64;
+  const n = (cx1 - cx0 + 1) * 4, m = (cz1 - cz0 + 1) * 4;
+  const cv = document.createElement('canvas'); cv.width = n; cv.height = m;
+  const g = cv.getContext('2d'), img = g.createImageData(n, m);
+  for (const s of chunks)
+    for (let c = 0; c < 16; c++) {
+      if (!s.s[c] || s.s[c] === ' ') continue;
+      let rgb = CELL_RGB[s.s[c]] || [110, 110, 120];
+      if (s.h[c] !== null) { const f = Math.max(-0.4, Math.min(0.4, (s.h[c] - ref) / 25)); rgb = rgb.map((u) => Math.max(0, Math.min(255, u * (1 + f)))); }
+      img.data.set([rgb[0], rgb[1], rgb[2], 255], (((s.cz - cz0) * 4 + (c >> 2)) * n + (s.cx - cx0) * 4 + (c & 3)) * 4);
     }
-    for (const ag of (lastData && lastData.agents) || []) {
-      if (ag.village !== cv.dataset.atlas || !ag.position) continue;
-      g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1;
-      g.beginPath(); g.arc(X(ag.position.x), Z(ag.position.z), 3.5, 0, Math.PI * 2); g.fill(); g.stroke();
-      g.font = '10px sans-serif'; g.fillText(ag.name, X(ag.position.x) + 5, Z(ag.position.z) - 4);
-    }
-  }
+  g.putImageData(img, 0, 0);
+  Object.assign(wm, { img: cv, x0: cx0 * 16, z0: cz0 * 16 });
 }
-async function refreshAtlas() {
-  if (paused || !lastData || !world || world.kind !== 'minecraft') return;
-  for (const v of lastData.villages || []) {
-    try { lastAtlas[v.name] = await api(`/api/atlas?village=${encodeURIComponent(v.name)}`); } catch {}
+/** Every village: all of them from the atlas fetch, the running agents' ones fresh from the 2 s overview. */
+function mapVillages() {
+  const all = new Map(wm.villages.map((v) => [v.name, v]));
+  for (const v of (lastData && lastData.villages) || []) all.set(v.name, v);
+  return [...all.values()];
+}
+const clampK = (k) => Math.max(WM_ZOOM.min, Math.min(WM_ZOOM.max, k));
+/** Every chunk seen and every village in view. */
+function fitView() {
+  const homes = mapVillages().map(homeOf).filter(Boolean);
+  if (!wm.img && !homes.length) return null;
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  if (wm.img) { x0 = wm.x0; z0 = wm.z0; x1 = wm.x0 + wm.img.width * 4; z1 = wm.z0 + wm.img.height * 4; }
+  // Villages count only without an atlas: a test village laid out through the API far from any explored land
+  // (LayoutTest1) squeezed the whole map into a corner
+  else for (const c of homes) { x0 = Math.min(x0, c.x - 16); z0 = Math.min(z0, c.z - 16); x1 = Math.max(x1, c.x + 16); z1 = Math.max(z1, c.z + 16); }
+  const cv = $('wmCanvas'), w = cv.clientWidth || 800, h = cv.clientHeight || 560;
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, k: clampK(Math.min(w / (x1 - x0), h / (z1 - z0)) * 0.95) };
+}
+/** Centred on the running agents' village (the first agent in one), else on the first agent. */
+function homeView() {
+  const agents = (lastData && lastData.agents) || [], vs = mapVillages();
+  for (const a of agents) {
+    const v = a.village && vs.find((u) => u.name === a.village), c = v && homeOf(v);
+    if (c) return { x: c.x, z: c.z, k: WM_ZOOM.home };
   }
-  render(lastData);
+  const a = agents.find((x) => x.position);
+  return a ? { x: a.position.x, z: a.position.z, k: WM_ZOOM.home } : null;
+}
+function drawWorld() {
+  const cv = $('wmCanvas');
+  if ($('worldmap').hidden || !cv.clientWidth) return;
+  const w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (!wm.view && lastData) wm.view = homeView() || fitView(); // (once the agents are known, so it can centre on them)
+  const v = wm.view;
+  if (!v) return;
+  const X = (x) => (x - v.x) * v.k + w / 2, Z = (z) => (z - v.z) * v.k + h / 2;
+  if (wm.img) { g.imageSmoothingEnabled = false; g.drawImage(wm.img, X(wm.x0), Z(wm.z0), wm.img.width * 4 * v.k, wm.img.height * 4 * v.k); }
+  const onScreen = (r) => X(r.x2 + 1) >= 0 && X(r.x1) <= w && Z(r.z2 + 1) >= 0 && Z(r.z1) <= h;
+  const rect = (r, style, fill, dash) => {
+    const rw = Math.max(1, (r.x2 - r.x1 + 1) * v.k), rh = Math.max(1, (r.z2 - r.z1 + 1) * v.k);
+    g.save(); g.setLineDash(dash || []); g.lineWidth = 1.5; g.strokeStyle = style;
+    if (fill) { g.fillStyle = fill; g.fillRect(X(r.x1), Z(r.z1), rw, rh); }
+    g.strokeRect(X(r.x1), Z(r.z1), rw, rh); g.restore();
+  };
+  // Labels: white on a dark outline; village names give way to agents' names and to each other
+  g.font = '600 11px system-ui, sans-serif';
+  const boxes = [];
+  const paint = (text, x, y) => { g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.8)'; g.strokeText(text, x, y); g.fillStyle = '#fff'; g.fillText(text, x, y); };
+  /** Room for a label at x, y (shifted up or down a line if `shift`), or null when it would overlap one placed. */
+  const place = (text, x, y, shift) => {
+    for (const dy of shift ? [0, 12, -12, 24, -24] : [0]) {
+      const b = [x - 2, y + dy - 11, x + g.measureText(text).width + 2, y + dy + 3];
+      if (!boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1])) { boxes.push(b); return y + dy; }
+    }
+    return shift ? y : null;
+  };
+  const label = (text, x, y) => { const at = place(text, x, y, false); if (at !== null) paint(text, x, at); };
+  // Agents' names are placed first (they always show), painted last
+  const agents = ((lastData && lastData.agents) || []).filter((a) => a.position).map((a) => ({ a, x: X(a.position.x), z: Z(a.position.z) }));
+  for (const t of agents) t.ly = place(t.a.name, t.x + 6, t.z - 4, true);
+  const running = new Set(agents.map((t) => t.a.village).filter(Boolean));
+  const villages = mapVillages().sort((p, q) => running.has(q.name) - running.has(p.name));
+  for (const vg of villages) {
+    for (const l of vg.layouts || []) if (onScreen(l)) rect(l, '#4cc27f', null, [3, 2]);
+    for (const p of vg.plots || []) if (onScreen(p)) rect(p, '#4cc27f');
+    for (const s of vg.structures || []) if (s.kind !== 'storage' && onScreen(s)) rect(s, '#8c5a28', 'rgba(140,90,40,.8)');
+    const d = Math.max(3, Math.min(8, v.k));
+    g.fillStyle = '#f2c14e'; g.strokeStyle = '#000'; g.lineWidth = 1;
+    for (const c of (vg.storage && vg.storage.chests) || []) { g.fillRect(X(c.x + 0.5) - d / 2, Z(c.z + 0.5) - d / 2, d, d); g.strokeRect(X(c.x + 0.5) - d / 2, Z(c.z + 0.5) - d / 2, d, d); }
+  }
+  // Names above each village's ground (the running ones first)
+  for (const vg of villages) {
+    const a = (vg.layouts && vg.layouts[0]) || (vg.plots && vg.plots[0]), c = homeOf(vg);
+    if (!c) continue;
+    const x = a ? X(a.x1) : X(c.x), y = a ? Z(a.z1) - 4 : Z(c.z) - 6;
+    if (x > -120 && x < w && y > 0 && y < h + 12) label(vg.name, x, y);
+  }
+  for (const t of agents) {
+    g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1;
+    g.beginPath(); g.arc(t.x, t.z, 4, 0, Math.PI * 2); g.fill(); g.stroke();
+    paint(t.a.name, t.x + 6, t.ly);
+  }
+  // A scale bar (a round number of blocks) and north
+  const len = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find((b) => b * v.k >= 70) || 10000;
+  const sx = 12, sy = h - 14, sw = len * v.k;
+  g.strokeStyle = '#fff'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(sx, sy - 5); g.lineTo(sx, sy); g.lineTo(sx + sw, sy); g.lineTo(sx + sw, sy - 5); g.stroke();
+  paint(`${len} blocks`, sx + sw + 6, sy + 1);
+  paint('N ↑', w - 30, 18);
+}
+/** What is under the pointer: the block's column, its chunk's wood and sand, and any village building there. */
+function worldTip(e) {
+  const cv = $('wmCanvas'), tip = $('wmTip'), v = wm.view;
+  if (!v || wm.drag) { tip.hidden = true; return; }
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const x = Math.floor(v.x + (px - r.width / 2) / v.k), z = Math.floor(v.z + (py - r.height / 2) / v.k);
+  const s = wm.chunks.get(chunkKey(x >> 4, z >> 4));
+  const lines = [`<b>x ${x}, z ${z}</b>`];
+  if (!s) lines.push('<span class="sub">not seen by any bot yet</span>');
+  else {
+    const c = ((z & 15) >> 2) * 4 + ((x & 15) >> 2), letter = s.s[c];
+    lines.push(letter && letter !== ' ' ? `${CELL_NAMES[letter] || 'other'}${s.h[c] !== null ? ` at y ${s.h[c]}` : ''}` : 'surface not seen');
+    const logs = Object.entries(s.logs || {}).sort((p, q) => q[1] - p[1]);
+    const total = logs.reduce((t, [, q]) => t + q, 0), low = Object.values(s.low || {}).reduce((t, q) => t + q, 0);
+    const sand = (s.surface && s.surface.sand) || 0, red = (s.surface && s.surface.red_sand) || 0;
+    lines.push(`<span class="sub">chunk ${s.cx}, ${s.cz}: ${total ? `${total} logs (${esc(logs.map(([k, q]) => `${q} ${words(k)}`).join(', '))}; ${low} low)` : 'no logs'}, ${sand} sand${red ? `, ${red} red sand` : ''}${s.t ? `; seen ${ago(s.t)} ago` : ''}</span>`);
+  }
+  const inside = (a) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
+  for (const vg of mapVillages()) {
+    const st = (vg.structures || []).find(inside);
+    if (st) lines.push(`${esc(vg.name)}: ${esc(words(st.kind))}`);
+    else if ([...(vg.layouts || []), ...(vg.plots || [])].some(inside)) lines.push(`${esc(vg.name)}: village ground`);
+  }
+  tip.innerHTML = lines.join('<br>');
+  tip.hidden = false;
+  tip.style.left = `${Math.max(4, Math.min(px + 14, r.width - tip.offsetWidth - 4))}px`;
+  tip.style.top = `${py + 16 + tip.offsetHeight > r.height ? py - tip.offsetHeight - 10 : py + 16}px`;
+}
+/** Zoom by a factor, keeping the block at screen point px, py (the canvas centre by default) where it is. */
+function zoomWorld(f, px, py) {
+  const cv = $('wmCanvas'), v = wm.view;
+  if (!v) return;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (px === undefined) { px = w / 2; py = h / 2; }
+  const bx = v.x + (px - w / 2) / v.k, bz = v.z + (py - h / 2) / v.k;
+  v.k = clampK(v.k * f);
+  v.x = bx - (px - w / 2) / v.k; v.z = bz - (py - h / 2) / v.k;
+  drawWorld();
+}
+{
+  const cv = $('wmCanvas');
+  $('wmKeys').innerHTML = ATLAS_KEYS.map(([k, n]) => `<span><i style="background:rgb(${CELL_RGB[k].join(',')})"></i>${n}</span>`).join('') +
+    '<span><i style="border:2px dashed #4cc27f"></i>laid out</span><span><i style="border:2px solid #4cc27f"></i>prepared plot</span>' +
+    '<span><i style="background:rgba(140,90,40,.8);border:1px solid #8c5a28"></i>building</span><span><i style="background:#f2c14e;border:1px solid #000"></i>storage chest</span>' +
+    '<span><i style="background:#fff;border:1px solid #000;border-radius:50%"></i>agent</span>';
+  cv.addEventListener('pointerdown', (e) => {
+    if (!wm.view || e.button !== 0) return;
+    wm.drag = { x: e.clientX, y: e.clientY, vx: wm.view.x, vz: wm.view.z };
+    cv.setPointerCapture(e.pointerId); cv.classList.add('dragging'); $('wmTip').hidden = true;
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!wm.drag) return worldTip(e);
+    wm.view.x = wm.drag.vx - (e.clientX - wm.drag.x) / wm.view.k;
+    wm.view.z = wm.drag.vz - (e.clientY - wm.drag.y) / wm.view.k;
+    drawWorld();
+  });
+  const end = () => { wm.drag = null; cv.classList.remove('dragging'); };
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+  cv.addEventListener('pointerleave', () => { if (!wm.drag) $('wmTip').hidden = true; });
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    zoomWorld(Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.002), e.clientX - r.left, e.clientY - r.top);
+    worldTip(e);
+  }, { passive: false });
+  $('wmFit').onclick = () => { wm.view = fitView() || wm.view; drawWorld(); };
+  $('wmHome').onclick = () => { wm.view = homeView() || wm.view; drawWorld(); };
+  $('wmIn').onclick = () => zoomWorld(1.5);
+  $('wmOut').onclick = () => zoomWorld(1 / 1.5);
+  if (window.ResizeObserver) new ResizeObserver(() => drawWorld()).observe(cv);
+}
+async function refreshWorldAtlas() {
+  if (paused || !world || world.kind !== 'minecraft') return;
+  try {
+    const a = await api('/api/atlas?all=1');
+    let chunks = a.chunks || [], villages = a.villages || [];
+    wm.fallback = !a.all;
+    if (wm.fallback) {
+      // An agent server without ?all=1 (see NOTES): windows of 400 blocks around the villages, merged
+      villages = await api('/api/village');
+      const seen = new Map(chunks.map((s) => [chunkKey(s.cx, s.cz), s])), centres = [];
+      for (const v of villages) { const c = homeOf(v); if (c && !centres.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < 400)) centres.push(c); }
+      for (const c of centres.slice(0, 12))
+        try { for (const s of (await api(`/api/atlas?x=${c.x}&z=${c.z}&radius=400`)).chunks) seen.set(chunkKey(s.cx, s.cz), s); } catch {}
+      chunks = [...seen.values()];
+    }
+    wm.villages = villages; wm.status = a.status;
+    setAtlas(chunks);
+    const st = a.status;
+    $('wmInfo').textContent = `${chunks.length}${st ? ` of ${st.chunks}` : ''} chunks seen, ${villages.length} villages` +
+      (st ? `; a summary takes ${st.ms.median} ms (max ${st.ms.max})${st.queued ? `, ${st.queued} waiting` : ''}` : '') +
+      (wm.fallback ? '; windows around the villages (the server has no ?all=1)' : '');
+    drawWorld();
+  } catch {}
 }
 
 // ---- maps ----
@@ -592,7 +785,6 @@ function simpleVillage(v, agents) {
       <div class="sub">${built} of ${plural(builds.length, 'building')} built · ${tasksDone} of ${plural(v.tasks.length, 'task')} done</div>
       <ul class="blist">${buildingStates(v)}</ul>` : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
     ${mats.length ? `<div class="section"><div class="label">In the storage</div><div class="mats">${mats.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>` : ''}
-    ${world && world.kind === 'minecraft' ? `<div class="section"><div class="label">Village map</div>${atlasBlock(v)}</div>` : ''}
     ${happened.length ? `<div class="section"><div class="label">What happened lately</div><ul class="list">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
 }
@@ -608,7 +800,7 @@ function render(d) {
   lastData = d;
   if (simple) {
     renderSimple(d);
-    return drawAtlases();
+    return drawWorld();
   }
   $('agentCount').textContent = `(${d.agents.length})`;
   $('agents').innerHTML = d.agents.length ? d.agents.map(renderAgent).join('') : '<div class="empty">No agents are running.</div>';
@@ -617,7 +809,7 @@ function render(d) {
   $('feed').innerHTML = all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>';
   $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
   drawMaps();
-  drawAtlases();
+  drawWorld();
 }
 
 document.addEventListener('toggle', (e) => {
@@ -666,6 +858,7 @@ async function refreshHeader() {
         (s.worldRules ? ` <span class="sub" style="color:${s.worldRules.ok ? 'inherit' : 'var(--bad)'}" title="${esc(s.worldRules.problems.join('; '))}">${esc(s.worldRules.ok ? 'peaceful, no damage' : s.worldRules.summary)}</span>` : '')
       : `<span class="dot" style="background:var(--good)"></span> <b>Sandbox</b> seed ${esc(s.seed)}, ${Math.round(s.mspt * 10) / 10} ms/tick`;
     $('mcWatch').hidden = world.kind !== 'minecraft';
+    $('worldmap').hidden = world.kind !== 'minecraft';
   } catch {
     $('world').innerHTML = '<span class="dot" style="background:var(--bad)"></span> agent server not answering';
   }
@@ -683,8 +876,8 @@ setInterval(refresh, 2000);
 setInterval(refreshHeader, 5000);
 refreshMaps();
 setInterval(refreshMaps, 2000);
-setTimeout(refreshAtlas, 1500);
-setInterval(refreshAtlas, 10000);
+setTimeout(refreshWorldAtlas, 1500);
+setInterval(refreshWorldAtlas, 30000); // the atlas changes slowly: every 30 s (agents and villages come with the 2 s refresh)
 setInterval(() => { if (lastData && !paused) render(lastData); }, 1000); // keep the "for N s" timers moving
 </script>
 </body>
