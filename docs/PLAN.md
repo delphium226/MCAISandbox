@@ -156,6 +156,15 @@ the hut down to stone, then straight branch tunnels at one level.
         record in the summary, API and panel, rescue to the hut door. Passed: StageH2 and H5 (build stage + deposit
         check), StageH4 and H6 (full, 3/3 built), and the model-driven Hutvale2 (4/4 in 18.8 min, 0 failed actions).
 - [x] V.2 (see V.1).
+- [ ] V.2b **Workstations in the storage hut** (the user's, 09-29): the village's crafting table and furnace stand
+      inside the storage hut, and every craft and smelt in the village uses them, instead of a table or furnace put
+      down wherever the crafter stands (F59: a gatherer's table inside the future hut; F68: a second furnace, and one
+      refused on wildflowers). Proposed: two cells of the hut's design, off the aisle and off the chests' stand cells,
+      e.g. hut cells (2,4) table and (4,4) furnace (the chest spots stand at x 1/5 on odd z and are reached from x 2/4
+      on the same z; the aisle x 3 stays clear to the back chest); drawn as blocks the builder pays for (4 planks,
+      8 cobblestone). Crafting and smelting then walk to the hut (`ensureTable`, `smelt`, the builders' `near`); the
+      carried or put-down table stays as the fallback away from home (gatherers' pickaxes far out, villages without a
+      hut). Test: staged full run: no table or furnace outside the hut, one furnace in the village, smelting in it.
 - [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
       (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
@@ -527,6 +536,8 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
   moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
+- 09-29 (fifth session) New step V.2b (the user's): the crafting table and furnace go inside the storage hut and the
+  village crafts and smelts there.
 - 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the
   user's request): drag, zoom, every village's ground and chests, the agents, and what is under the pointer
   (`/api/atlas?all=1`, fetched every 30 s).
