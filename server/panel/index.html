@@ -81,6 +81,9 @@
   canvas.map { width: 196px; height: 196px; border-radius: 6px; border: 1px solid var(--line); image-rendering: pixelated; background: var(--panel-2); }
   .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
   .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
+  canvas.atlas { width: 300px; height: 300px; max-width: 100%; border-radius: 6px; border: 1px solid var(--line); image-rendering: pixelated; background: #1e1e24; }
+  .atlas-keys { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .atlas-keys i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
   /* Simple mode: the village at a glance */
   body.simple .detailed-only { display: none !important; }
@@ -325,8 +328,77 @@ function renderVillage(v) {
       <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height} <span class="sub">${esc(d.description)}</span>`)}</div>
       <div><div class="label">Ground being worked</div>${list(v.reservations.filter((r) => r.until > now), (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)}</div>
     </div>
+    <div class="section"><div class="label">Village map <span class="sub">(what the bots have seen)</span></div>${atlasBlock(v)}</div>
     <div class="section"><div class="label">Village log</div>${list(v.log.slice(-10).reverse(), (l) => esc(l))}</div>
   </div>`;
+}
+
+// ---- the village map (the shared atlas: 4x4-block cells of every chunk a bot has seen) ----
+let lastAtlas = {};
+const CELL_RGB = {
+  s: [217, 201, 140], r: [192, 122, 58], d: [224, 210, 150], D: [186, 99, 40], x: [138, 138, 138], g: [130, 125, 120],
+  c: [160, 166, 179], t: [156, 91, 59], o: [90, 161, 66], n: [238, 243, 246], b: [150, 110, 160], '~': [58, 111, 216],
+  '^': [224, 98, 42], T: [38, 100, 44],
+};
+const ATLAS_KEYS = [['T', 'trees'], ['o', 'grass, dirt'], ['s', 'sand'], ['x', 'stone'], ['t', 'terracotta'], ['~', 'water'], ['b', 'built, other']];
+function atlasBlock(v) {
+  if (!world || world.kind !== 'minecraft') return '<div class="empty">only in Minecraft</div>';
+  const a = lastAtlas[v.name];
+  const st = a && a.status;
+  return `<canvas class="atlas" width="300" height="300" data-atlas="${esc(v.name)}" title="North up; 4 blocks a pixel-cell; plots green, buildings brown, storage yellow, agents white"></canvas>
+    <div class="atlas-keys">${ATLAS_KEYS.map(([k, n]) => `<span><i style="background:rgb(${CELL_RGB[k].join(',')})"></i>${n}</span>`).join('')}</div>
+    ${st ? `<div class="sub">${a.chunks.length} of ${st.chunks} chunks seen shown (${a.radius} blocks around ${a.centre ? `${a.centre.x}, ${a.centre.z}` : '?'}); a summary takes ${st.ms.median} ms (max ${st.ms.max})${st.queued ? `; ${st.queued} waiting` : ''}</div>` : ''}`;
+}
+function drawAtlases() {
+  for (const cv of document.querySelectorAll('canvas[data-atlas]')) {
+    const a = lastAtlas[cv.dataset.atlas];
+    const g = cv.getContext('2d');
+    g.clearRect(0, 0, cv.width, cv.height);
+    if (!a || !a.centre) continue;
+    const n = Math.ceil((2 * a.radius) / 4), x0 = a.centre.x - a.radius, z0 = a.centre.z - a.radius;
+    const meds = a.chunks.filter((s) => s.y).map((s) => s.y[1]).sort((p, q) => p - q);
+    const ref = meds.length ? meds[meds.length >> 1] : 64;
+    const img = g.createImageData(n, n);
+    for (const s of a.chunks)
+      for (let c = 0; c < 16; c++) {
+        const i = Math.floor((s.cx * 16 + (c % 4) * 4 - x0) / 4), j = Math.floor((s.cz * 16 + Math.floor(c / 4) * 4 - z0) / 4);
+        if (i < 0 || j < 0 || i >= n || j >= n || s.s[c] === ' ') continue;
+        let rgb = CELL_RGB[s.s[c]] || [110, 110, 120];
+        if (s.h[c] !== null) { const f = Math.max(-0.4, Math.min(0.4, (s.h[c] - ref) / 25)); rgb = rgb.map((u) => Math.max(0, Math.min(255, u * (1 + f)))); }
+        img.data.set([rgb[0], rgb[1], rgb[2], 255], (j * n + i) * 4);
+      }
+    const tmp = document.createElement('canvas'); tmp.width = n; tmp.height = n;
+    tmp.getContext('2d').putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(tmp, 0, 0, cv.width, cv.height);
+    const px = cv.width / (2 * a.radius), X = (x) => (x - x0) * px, Z = (z) => (z - z0) * px;
+    const v = (lastData && lastData.villages || []).find((u) => u.name === cv.dataset.atlas);
+    const rect = (r, style, fill, dash) => {
+      g.save(); g.setLineDash(dash || []); g.lineWidth = 1.5; g.strokeStyle = style;
+      const w = (r.x2 - r.x1 + 1) * px, h = (r.z2 - r.z1 + 1) * px;
+      if (fill) { g.fillStyle = fill; g.fillRect(X(r.x1), Z(r.z1), w, h); }
+      g.strokeRect(X(r.x1), Z(r.z1), w, h); g.restore();
+    };
+    if (v) {
+      for (const l of v.layouts || []) rect(l, '#4cc27f', null, [3, 2]);
+      for (const p of v.plots) rect(p, '#4cc27f');
+      for (const s of v.structures) if (s.kind !== 'storage') rect(s, '#8c5a28', 'rgba(140,90,40,.8)');
+      for (const c of (v.storage && v.storage.chests) || []) { g.fillStyle = '#f2c14e'; g.fillRect(X(c.x) - 2, Z(c.z) - 2, 4, 4); }
+    }
+    for (const ag of (lastData && lastData.agents) || []) {
+      if (ag.village !== cv.dataset.atlas || !ag.position) continue;
+      g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1;
+      g.beginPath(); g.arc(X(ag.position.x), Z(ag.position.z), 3.5, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.font = '10px sans-serif'; g.fillText(ag.name, X(ag.position.x) + 5, Z(ag.position.z) - 4);
+    }
+  }
+}
+async function refreshAtlas() {
+  if (paused || !lastData || !world || world.kind !== 'minecraft') return;
+  for (const v of lastData.villages || []) {
+    try { lastAtlas[v.name] = await api(`/api/atlas?village=${encodeURIComponent(v.name)}`); } catch {}
+  }
+  render(lastData);
 }
 
 // ---- maps ----
@@ -515,6 +587,7 @@ function simpleVillage(v, agents) {
       <div class="sub">${built} of ${plural(builds.length, 'building')} built · ${tasksDone} of ${plural(v.tasks.length, 'task')} done</div>
       <ul class="blist">${buildingStates(v)}</ul>` : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
     ${mats.length ? `<div class="section"><div class="label">In the storage</div><div class="mats">${mats.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>` : ''}
+    ${world && world.kind === 'minecraft' ? `<div class="section"><div class="label">Village map</div>${atlasBlock(v)}</div>` : ''}
     ${happened.length ? `<div class="section"><div class="label">What happened lately</div><ul class="list">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
 }
@@ -528,7 +601,10 @@ function renderSimple(d) {
 
 function render(d) {
   lastData = d;
-  if (simple) return renderSimple(d);
+  if (simple) {
+    renderSimple(d);
+    return drawAtlases();
+  }
   $('agentCount').textContent = `(${d.agents.length})`;
   $('agents').innerHTML = d.agents.length ? d.agents.map(renderAgent).join('') : '<div class="empty">No agents are running.</div>';
   $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid" style="grid-template-columns:1fr">${d.villages.map(renderVillage).join('')}</div>` : '';
@@ -536,6 +612,7 @@ function render(d) {
   $('feed').innerHTML = all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>';
   $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
   drawMaps();
+  drawAtlases();
 }
 
 document.addEventListener('toggle', (e) => {
@@ -601,6 +678,8 @@ setInterval(refresh, 2000);
 setInterval(refreshHeader, 5000);
 refreshMaps();
 setInterval(refreshMaps, 2000);
+setTimeout(refreshAtlas, 1500);
+setInterval(refreshAtlas, 10000);
 setInterval(() => { if (lastData && !paused) render(lastData); }, 1000); // keep the "for N s" timers moving
 </script>
 </body>

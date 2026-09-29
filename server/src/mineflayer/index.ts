@@ -76,6 +76,7 @@ http
 
 const shutdown = () => {
   for (const a of [...world.agents.values()]) world.remove(a.name);
+  world.atlas.save();
   rcon.close();
   setTimeout(() => process.exit(0), 500);
 };

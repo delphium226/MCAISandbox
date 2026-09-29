@@ -423,6 +423,7 @@ flowchart LR
   page["/panel (server/panel/index.html)<br/>browser, refreshes every 2 s"]
   page -- "GET /api/overview (2 s)" --> overview["panel.ts overview()<br/>for each agent: observe(4), memory,<br/>brain.status(), events, village"]
   page -- "GET /api/maps (2 s)" --> maps["mapAround(24) per agent<br/>top block + height per column,<br/>cached 1.5 s (~2 ms each)"]
+  page -- "GET /api/atlas?village= (10 s)" --> atlas["the shared atlas (mcAtlas.ts)<br/>chunk summaries around the village,<br/>4x4-block cells"]
   page -- "GET /api/models (5 s)" --> models["/api/ps on every Ollama<br/>in use (app + routes)"]
   page -- "GET /api/status" --> status["world, version, server"]
   page -- "POST stop, DELETE,<br/>POST /api/watch" --> actions["stop actions, remove,<br/>spectate an agent (Minecraft: RCON tp)"]
@@ -433,6 +434,16 @@ and why), health and food, position and biome, objective and task, the plan as a
 calls, a top-down map (terrain, facing, mobs, players, target, plots, buildings, reserved ground), what the executor and
 the planner last saw (the exact user prompt) and answered, recent decisions and events, inventory and model stats. The
 village section shows the task board, buildings, plots, designs, the storage contents, reservations and the village log.
+
+In Minecraft, every village (in the simple view too) has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
+chunk any bot has received, shared by every agent and village and saved to `mc/server/atlas.json` at most every 30 s.
+A summary holds the ground's lowest, median and highest height and how flat it is, water and lava columns, log blocks
+by wood kind (and how many stand within 5 blocks of the ground), the surface materials, and a 4x4-block grid of heights
+and covers for the map. Bots report chunks as they arrive (`chunkColumnLoad`) and changed blocks (`blockUpdate`,
+summarised again after a minute); the world's tick works the queue off within 3 ms per tick. The scan reads block
+state ids straight from the chunk through a lookup table per state, starting at the highest section that is not all
+air: ~0.1 ms a chunk (99th percentile ~0.6 ms), against ~7 ms with `bot.blockAt`. Nothing reads the atlas yet;
+`collect` and `find_site` are its planned users (`docs/PLAN.md`, phase 2).
 
 ## 8. Testing
 

@@ -31,7 +31,8 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   status` (a WARNING means a model spilled: stop and start) before anything else.
 - **Phase 1 status:** 1.0-1.5 done (acceptance: Accept9-11 with gpt-oss, Accept15 and 18 with qwen3.8; the user
   counted 1.5 as passed on 09-29). Step 1.6 (README and ARCHITECTURE.md) done in `d63d314` on 09-29 by the
-  following session, which then started phase 2; the notes on 1.6 below are kept for reference.
+  following session, which then started phase 2; the notes on 1.6 below are kept for reference. **Step 2.1 (the
+  shared atlas) is done too (09-29, F53); next is 2.2, collect going to the nearest atlas entry.**
   - README: describe the survival village as it now works: find_site (112 blocks, walking legs, 30 logs within 48,
     other villages kept off), plan_layout (narrow streets, partial layouts and second sites, material counts near
     the site, wood may be 25% short), design limits (9x9, whitelisted raw materials, no workstations), the range rule
@@ -101,10 +102,11 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
 Idea (the user's): agents share a map of what they have seen, so they find resources others located and help find
 sites. Code keeps and uses the atlas; models do not read it raw.
 
-- [ ] 2.1 **Record**: as bots move, summarise each chunk they have loaded (surface height and flatness, water,
-      reachable logs by kind, exposed sand, stone, clay) with a timestamp, in the village registry (saved to disk).
-      Show it on the panel as one village map (simple mode too). Test: walk Gus around, check the saved summary
-      against `/api/block`; measure the cost per chunk (target well under 1 ms; CPU is shared by all bots).
+- [x] 2.1 **Record**: as bots move, summarise each chunk they have loaded (surface height and flatness, water,
+      reachable logs by kind, exposed sand, stone, clay) with a timestamp, ~~in the village registry~~ in one shared
+      atlas, `mc/server/atlas.json` (decision 09-29). Show it on the panel as one village map (simple mode too). Test:
+      walk Gus around, check the saved summary against `/api/block`; measure the cost per chunk (target well under
+      1 ms; CPU is shared by all bots). Done 09-29 (`mcAtlas.ts`, `/api/atlas`, `scripts/checks/atlas.py`; F53).
 - [ ] 2.2 **Gather from it**: `collect` with nothing in view goes to the nearest atlas entry for the material
       (and fails fast if it is gone, updating the atlas). Test: staged full run on a site with sand out of view.
 - [ ] 2.3 **Sites from it**: `find_site` scores candidates over the atlas: level, dry, and trees, stone and sand
@@ -184,6 +186,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept16 | qwen3.8, hills -519,-382 (y 101) | all 3 built at 37.6 min, not declared complete | 42.6 min | the mayor re-posted gathering, the completion check never ran (F49); no sand: windows open |
 | 09-29 | Accept17 | qwen3.8, -330,150 | stalled at 8.2 min | 8.2 min | mayor spawned at the probe point 100 blocks from the site, stuck in a hollow; designs waited behind its walk (F50) |
 | 09-29 | Accept18 | qwen3.8, -416,49 | **3/3 built**, declared complete by code | 39.2 min | 13 failed actions (Worker2's collects), every block placed; log roofs made gathering slow |
+| 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
 
@@ -322,6 +325,14 @@ CLAUDE.md when a phase ends.
 - F52 The workers' planner made no calls in any acceptance run (`plan 0x0ms` for every worker): tasks posted by code
   run as written, and the executor handles failures. Comparing planner models on these runs measures nothing; phase
   3 (chat requests) is where the workers' planner will matter.
+- F53 (09-29, step 2.1) The atlas scan reads block state ids from the chunk column through a per-state lookup table,
+  from the highest non-empty section down: 0.085 ms a chunk (99th percentile 0.14) in `scripts/bench/atlasbench.mts`
+  on jungle-edge chunks, against 6.4-11.8 ms a chunk the `bot.blockAt` way (`surfaceAt` in find_site): ~80x. In the
+  agent server: 329 chunks within 10 s of Gus spawning, median 0.1 ms, p99 0.6, max 1.0 (early, JIT warm-up); no
+  `[lag]` lines. `scripts/checks/atlas.py` matched 12 chunks column by column against `/api/block` (oak woods, the
+  lake at -235,-53: water, logs high and low, stone, gravel), after fixing the check's own rounding. "Other" ground
+  is almost always built (Accept9's cottage); cocoa pods counted as ground, now passed over. 700 chunks are 158 KB
+  on disk (~225 bytes each). find_site's `surfaceAt` could use the same reading (2.3).
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
@@ -345,6 +356,9 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 1.5 counted as passed (the user), and the branch pushed.
 - 09-29 Every village member stays within 96 blocks of its village (the guard covered only the mayor before
   Accept14).
+- 09-29 The atlas is one shared map for every agent and village (the user's choice over per-village knowledge), kept
+  in its own file (`mc/server/atlas.json`, saved at most every 30 s) rather than `villages.json`, which is written on
+  every change and returned whole by `/api/village/:v`.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.

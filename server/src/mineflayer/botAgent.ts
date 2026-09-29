@@ -84,6 +84,9 @@ export class BotAgent implements WorldAgent {
       (this.bot.physics as unknown as { playerHalfWidth: number }).playerHalfWidth = PLAYER_HALF_WIDTH;
       this.lastHealth = this.bot.health ?? 20;
     });
+    // The shared atlas: every chunk this bot receives is summarised, and chunks whose blocks change are again later
+    this.bot.on('chunkColumnLoad', (p) => world.atlas.loaded(p.x >> 4, p.z >> 4));
+    this.bot.on('blockUpdate', (_old, b) => b && world.atlas.touched(b.position.x, b.position.z));
     this.listen();
   }
 

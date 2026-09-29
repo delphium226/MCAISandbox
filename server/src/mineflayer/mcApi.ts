@@ -11,6 +11,7 @@ import { handlePanel } from '../panel';
 import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
 import { postLayout } from '../layout';
+import { villageHome } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -30,6 +31,19 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, agents: [...w.agents.values()].map((a) => a.name) });
+  }
+  // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
+  if (parts[1] === 'atlas') {
+    const radius = Math.min(400, Math.max(16, Number(url.searchParams.get('radius') ?? 200) || 200));
+    const v = url.searchParams.get('village') ? w.villages.get(url.searchParams.get('village')!) : undefined;
+    const members = v ? w.agentList().filter((a) => a.memory.village === v.name) : w.agentList();
+    const pos = (a: (typeof members)[number]) => a.bot.entity?.position;
+    let centre: { x: number; z: number } | null = v ? villageHome(v, members.find((a) => a.memory.origin)?.memory) : null;
+    const qx = Number(url.searchParams.get('x')), qz = Number(url.searchParams.get('z'));
+    if (!centre && url.searchParams.has('x') && Number.isFinite(qx) && Number.isFinite(qz)) centre = { x: Math.floor(qx), z: Math.floor(qz) };
+    const p = members.map(pos).find(Boolean);
+    if (!centre && p) centre = { x: Math.floor(p.x), z: Math.floor(p.z) };
+    return sendJson(res, 200, { status: w.atlas.status(), centre, radius, chunks: centre ? w.atlas.near(centre.x, centre.z, radius) : [] });
   }
   if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(TOOLS.filter((t) => w.skills.includes(t)).map((t) => [t.name, t.description])));
 

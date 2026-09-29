@@ -3,6 +3,7 @@
  * what bots cannot do themselves (game modes, teleports). Villages are kept in their own registry next to the server's
  * world, since their coordinates belong to that world.
  */
+import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { VillageRegistry } from '../village';
 import type { ToolDef, WorldAdapter } from '../world';
@@ -20,6 +21,7 @@ import type { Design } from '../village';
 import { Materials, designBill, gatherTasks, hardToGather, inWood } from './mcMaterials';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
+import { Atlas } from './mcAtlas';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -52,11 +54,20 @@ export class MineflayerWorld implements WorldAdapter {
   ticks = 0;
   /** Peaceful and no-damage settings (mcRules.ts), applied when the agent server starts. */
   worldRules: WorldRulesStatus | null = null;
+  /** What the bots have seen, one summary per chunk, shared by every agent (mcAtlas.ts). */
+  readonly atlas: Atlas;
 
   constructor(readonly host: string, readonly port: number, readonly version: string, readonly rcon: Rcon, dataDir: string) {
     this.registry = minecraftData(version);
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
+    this.atlas = new Atlas(this.registry, path.join(dataDir, 'atlas.json'), (cx, cz) => {
+      for (const a of this.agents.values()) {
+        const column = (a.bot.world as unknown as { getColumn(x: number, z: number): unknown }).getColumn(cx, cz);
+        if (column) return { by: a.name, column: column as Parameters<Atlas['summarise']>[0] };
+      }
+      return null;
+    });
   }
 
   /** How many blocks collect would gather for each name lie near x,y,z, up to the number wanted (plan_layout's check). */
@@ -174,6 +185,11 @@ export class MineflayerWorld implements WorldAdapter {
       } catch (e) {
         console.error(`[mc] ${a.name} tick failed:`, e);
       }
+    }
+    try {
+      this.atlas.tick();
+    } catch (e) {
+      console.error('[atlas] tick failed:', e);
     }
   }
 }

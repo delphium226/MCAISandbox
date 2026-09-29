@@ -203,7 +203,8 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 - **Targeted checks without models** (`scripts/checks/`, 2026-09-28; need the agent server, some use villages from this
   machine's `mc/server/villages.json`): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs),
   `layout_small_sites.py NAME` (partial layouts, second site), `materials_near_site.py` (plan_layout's material
-  counts), `treeless_site.py`, `smelt_fuel.py`. Run the relevant one after changing find_site, layout.ts or smelting.
+  counts), `treeless_site.py`, `smelt_fuel.py`, `atlas.py [X Z [DIRECTION DISTANCE]]` (walks Gus, compares chunk summaries
+  with `/api/block`, ~15 s a chunk). Run the relevant one after changing find_site, layout.ts, smelting or the atlas.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
   **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
@@ -380,7 +381,7 @@ creative, block-by-block placement in survival; not built yet).
 - `mcWorld.ts` (`MineflayerWorld`: WorldAdapter, spawn via bots + RCON gamemode/teleport, `reset` for a fresh start,
   villages in `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation,
   self-defence reflex), `mcSkills.ts` (registry; skills as async functions with an AbortSignal, same names and
-  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcRules.ts` (peaceful world settings), `mcMaterials.ts` (bills of
+  arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcRules.ts` (peaceful world settings), `mcAtlas.ts` (the shared atlas: chunk summaries, `mc/server/atlas.json`, `/api/atlas`), `mcMaterials.ts` (bills of
   materials, recipe chains), `mcUtil.ts` (walk
   with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
