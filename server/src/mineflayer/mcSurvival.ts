@@ -9,7 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import {
-  abortable, at, checkAbort, countItem, freeSpotNearby, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
+  abortable, at, checkAbort, countItem, freeSpotNearby, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
   sleep, str, syncInventory, walk,
 } from './mcUtil';
 
@@ -157,7 +157,7 @@ async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<void> {
   // With 3 cobblestone in hand a stone pickaxe (131 blocks, a wooden one 59): its sticks take 2 planks
   const stone = countItem(a, itemId(a, 'cobblestone')!) >= 3;
   // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
-  const table = nearestBlockNamed(a, 'crafting_table', 16);
+  const table = nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   const want = (stone ? 2 : 5) + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
@@ -666,8 +666,10 @@ export async function placeAt(a: BotAgent, item: string, pos: Vec3, signal: Abor
 
 /** Put a carried block (crafting table, furnace) down next to the bot; returns the placed block. */
 async function placeNearby(a: BotAgent, item: string, signal: AbortSignal): Promise<Block> {
-  const spot = freeSpotNearby(a);
-  if (!spot) throw new Error(`no free spot nearby to put down the ${item}; move to open ground`);
+  // Never on village ground (plots, buildings): off it first when there is no spot beside it
+  let spot = freeSpotNearby(a);
+  if (!spot && (await stepOffVillageGround(a, signal))) spot = freeSpotNearby(a);
+  if (!spot) throw new Error(`no free spot nearby to put down the ${item} (not on a village's plots or beside its buildings); move to open ground`);
   await placeAt(a, item, spot.pos, signal);
   const b = a.bot.blockAt(spot.pos);
   if (!b || b.name !== item) throw new Error(`the ${item} did not appear at ${at(spot.pos)}`);
@@ -677,6 +679,12 @@ async function placeNearby(a: BotAgent, item: string, signal: AbortSignal): Prom
 // ---------------------------------------------------------------------------------------------
 // Crafting
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * How far a crafting table or furnace already standing is used rather than a new one put down: they stand off the
+ * village plots (placeNearby), up to ~18 blocks from a builder in the middle of a 30x30 plot.
+ */
+export const STATION_REACH = 32;
 
 function nearestBlockNamed(a: BotAgent, name: string, maxDistance: number): Block | null {
   const id = a.world.registry.blocksByName[name]?.id;
@@ -807,7 +815,7 @@ async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: 
 /** A crafting table within reach of use: a nearby one, or one carried or made and put down. */
 async function ensureTable(a: BotAgent, signal: AbortSignal, notes: string[]): Promise<Block> {
   // A table far above or below may be out of reach (one on a ledge 4 blocks up had no path to it)
-  const near = nearestBlockNamed(a, 'crafting_table', 16);
+  const near = nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   if (near && Math.abs(near.position.y - a.bot.entity.position.y) <= 3) return near;
   if (!countItem(a, itemId(a, 'crafting_table')!)) {
     const p = bestPlanks(a, 4);
@@ -921,7 +929,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const have = countItem(a, inId);
   if (!have) throw new Error(`no ${input} in inventory`);
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
-  let furnaceBlock = nearestBlockNamed(a, 'furnace', 16);
+  let furnaceBlock = nearestBlockNamed(a, 'furnace', STATION_REACH);
   if (furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;
   const notes: string[] = [];
   if (!furnaceBlock) {

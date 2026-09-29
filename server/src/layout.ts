@@ -4,6 +4,7 @@
  */
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
+import { hutSpots, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
   x: number;
@@ -20,7 +21,10 @@ export interface Site {
 /**
  * Place the buildings (design names, one per building, or {design, count}) on one plot around the site and post, in
  * order: prepare the plot, set up the storage and gather materials (the survival economy, when `economy`), then each
- * building at its computed position. Returns what happened, or why not ("plan_layout: ..."), for the poster's events.
+ * building at its computed position. In the economy a village's first layout adds the storage hut by itself (the mayor
+ * does not name it): the first chest goes into the hut's first chest spot, the hut is built around it, and the other
+ * buildings wait for the hut (their gathering does not). Returns what happened, or why not ("plan_layout: ..."), for
+ * the poster's events.
  */
 export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean): string {
     const reg = w.villages;
@@ -31,7 +35,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const o = b && typeof b === 'object' ? (b as Record<string, unknown>) : null;
       const n = String(o ? o.design ?? o.name ?? '' : b).trim().toLowerCase().replace(/^"|"$/g, '');
       const count = o && Number(o.count) > 1 ? Math.min(8, Math.floor(Number(o.count))) : 1;
-      if (n) for (let i = 0; i < count; i++) names.push(n);
+      // The storage hut is code's to add, not the mayor's
+      if (n && n !== STORAGE_HUT) for (let i = 0; i < count; i++) names.push(n);
     }
     if (!names.length) return 'plan_layout needs buildings: a list of design names, one per building (repeat a name for each copy)';
     const missing = [...new Set(names.filter((n) => !v.designs[n]))];
@@ -48,6 +53,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (!second.length) return `plan_layout: ${names.join(', ')} ${names.length > 1 ? 'are' : 'is'} already laid out; still waiting for a site: ${v.unplaced.join(', ')} (run find_site, then plan_layout with ${v.unplaced.length > 1 ? 'those names' : 'that name'})`;
       names.splice(0, names.length, ...second);
     } else if (laidOut.length) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
+    // A new village's first layout gets the storage hut (villages laid out before it keep their loose chests)
+    const withHut = economy && !v.storageHut && !v.storage?.chests.length && !v.layouts?.length;
+    if (withHut) {
+      v.designs[STORAGE_HUT] = storageHutDesign();
+      names.unshift(STORAGE_HUT);
+    }
     const materials = new Map<string, ReturnType<NonNullable<WorldAdapter['materialTasks']>>>();
     // One wood kind for the whole village, chosen at its first layout, when there is enough of it near the site for
     // these buildings with a margin (acacia chosen from 42 logs for ~80 needed sent gatherers 80 blocks away); otherwise
@@ -87,7 +98,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const wood = missing.find(isWood);
       if (wood) return `plan_layout: there are too few trees within 96 blocks of this site (${found![wood]} log blocks for the ${amount[wood]} these buildings need); either draw smaller buildings (5x5 cottages, a 7x7 hall) under new names and call plan_layout with them, or run find_site for a site with more trees near it`;
       if (missing.length) {
-        const designs = [...new Set(missing.flatMap((b) => want.get(b)!))];
+        const designs = [...new Set(missing.flatMap((b) => want.get(b)!))].filter((d) => d !== STORAGE_HUT);
+        if (!designs.length) return `plan_layout: there is not enough ${missing.map((b) => `${b} (${found![b]} of ${amount[b]})`).join(' or ')} within 96 blocks of this site for the village's storage hut; run find_site for another site, then plan_layout again`;
         return `plan_layout: there is not enough ${missing.map((b) => `${b} (${found![b]} of ${amount[b]})`).join(' or ')} within 96 blocks of this site, and ${designs.map((d) => `"${d}"`).join(', ')} ${designs.length > 1 ? 'need' : 'needs'} it; draw ${designs.length > 1 ? 'replacements' : 'a replacement'} without ${missing.join(' or ')} (planks, logs and cobblestone are found almost everywhere) under a new name, then call plan_layout with ${designs.length > 1 ? 'them' : 'it'}`;
       }
     }
@@ -114,6 +126,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       let best: { list: string[]; lay: Layout; area: number } | null = null;
       for (let mask = 1; mask < 1 << Math.min(names.length, 12); mask++) {
         const list = names.filter((_, i) => mask & (1 << i));
+        if (withHut && !list.includes(STORAGE_HUT)) continue;
         const area = list.reduce((s, n) => s + v.designs[n].width * v.designs[n].depth, 0);
         if (best && (list.length < best.list.length || (list.length === best.list.length && area <= best.area))) continue;
         const l = fit(list);
@@ -138,16 +151,32 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // One storage for the village: a later layout waits for the storage task already posted
     const storageTask = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
     let storage: string | number | undefined = storageTask && storageTask.status !== 'done' ? storageTask.id : undefined;
+    const laid = withHut ? lay.places.find((p) => p.name === STORAGE_HUT) : undefined;
+    if (laid) v.storageHut = { x1: laid.x1, z1: laid.z1, x2: laid.x2, z2: laid.z2, spots: hutSpots(laid.x1, laid.z1) };
+    // A storage task posted again later (the first failed) goes to the hut laid out before
+    const hut = v.storageHut;
     if (economy && !v.storage?.chests.length && !storageTask) {
       storage = tasks.length;
-      const sx = lay.x, sz = plot.z2 + 4;
-      tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
+      if (hut) {
+        // In the hut's first chest spot, on the prepared plot: the hut is then built around the chest
+        const [sx, sz] = [hut.x1 + STORAGE_HUT_STAND[0], hut.z1 + STORAGE_HUT_STAND[1]];
+        const [cx, cz] = [hut.x1 + STORAGE_HUT_SPOTS[0][0], hut.z1 + STORAGE_HUT_SPOTS[0][1]];
+        // Four chests at once (logs, cobblestone, sand, misc...): deposits later craft more only when a group needs one
+        tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chests in the storage hut's chest spots (the first at ${cx} ${cz}), and the hut is built around them`, after: laid ? [0] : [] });
+      } else {
+        const sx = lay.x, sz = plot.z2 + 4;
+        tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
+      }
     }
+    // The other buildings wait for the storage hut (this layout's, or one still being built)
+    const hutTask = v.tasks.find((t) => t.title === `Build ${STORAGE_HUT}` && t.status !== 'done' && t.status !== 'failed');
+    let hutBuild: string | number | undefined = hutTask?.id;
     const copies = new Map<string, number>();
     // Copies are numbered across layouts (a second cottage on a second site is "cottage 2")
     const before = new Map(placed.map((n) => [n, v.tasks.filter((t) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${n}"`)).length]));
     const total = (n: string) => placed.filter((x) => x === n).length + (before.get(n) ?? 0);
-    for (const p of lay.places) {
+    // The hut first: its gathering and build are claimed before the others'
+    for (const p of [...lay.places].sort((x, y) => Number(y.name === STORAGE_HUT) - Number(x.name === STORAGE_HUT))) {
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
       const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
@@ -156,10 +185,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         gather.push(tasks.length);
         tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: storage !== undefined ? [storage] : [], soft: true });
       }
+      const isHut = p.name === STORAGE_HUT;
+      if (isHut) hutBuild = tasks.length;
       tasks.push({
         title: `Build ${label}`,
-        detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}`,
-        after: [0, ...gather],
+        detail: `build_design "${p.name}" x=${p.x} z=${p.z} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
+        after: [0, ...(isHut && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && hutBuild !== undefined ? [hutBuild] : [])],
       });
     }
     if (wood && !v.wood) {
@@ -167,6 +198,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);
     }
     const made = reg.post(v, tasks, by, 100);
+    // The storage task posted again (the first failed): everything still waiting for the failed one (the hut build,
+    // the first plot's gathering) waits for this one
+    if (typeof storage === 'number') {
+      const failed = new Set(v.tasks.filter((t) => t.title === 'Set up the village storage' && t.status === 'failed').map((t) => t.id));
+      for (const t of v.tasks)
+        if (t.status === 'open' && t.after.some((id) => failed.has(id))) t.after = t.after.map((id) => (failed.has(id) ? made[storage as number].id : id));
+    }
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);

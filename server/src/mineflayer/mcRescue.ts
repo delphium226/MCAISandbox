@@ -105,6 +105,10 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
 function home(a: BotAgent): { x: number; y?: number; z: number; what: string } | null {
   const v = a.village();
   const c = v?.storage?.chests[0];
+  // In front of the storage hut's door (on the walkway the build keeps clear; chests stand at floor level + 1): onto a
+  // chest inside the hut would put the bot's head in the roof
+  const h = v?.storageHut;
+  if (c && h && c.x >= h.x1 && c.x <= h.x2 && c.z >= h.z1 && c.z <= h.z2) return { x: h.x1 + 3, y: c.y, z: h.z2 + 2, what: 'the storage hut' };
   // On top of the chest itself: spreadplayers puts a bot on the highest block, which in a jungle is the canopy
   if (c) return { x: c.x, y: c.y + 1, z: c.z, what: 'the village storage' };
   const p = v?.plots[0];

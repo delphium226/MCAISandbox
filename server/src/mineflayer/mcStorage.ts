@@ -5,13 +5,18 @@
  * it). When the chests are full, a carried chest goes down in a row beside the others, one block apart so chests never
  * join into double chests (each is read once). The contents of each chest are cached in the village record whenever an
  * agent opens it, for the planners' village summary and the control panel.
+ *
+ * A village laid out with a storage hut (huts.ts) keeps sorted storage instead: its chests stand in the hut's chest
+ * spots, each holds one material group (given at its first use), and deposit puts each item into its group's chest,
+ * with a new chest in the next free spot when that one is full or missing. Old villages keep their loose chests.
  */
 import { Vec3 } from 'vec3';
 import type { Village, StorageChest } from '../village';
-import { overlaps } from '../village';
+import { overlaps, storageText } from '../village';
+import { STORAGE_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { placeAt } from './mcSurvival';
+import { placeAt, SURVIVAL_SKILLS } from './mcSurvival';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
@@ -20,7 +25,7 @@ type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 const TOOL = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/;
 /** Left out of deposit "all": what gathering picks up by the way (a chest filled up with saplings, seeds and dirt). */
 // (leaf litter and apples come from felling trees: 28 leaf litter filled a single-chest storage)
-const JUNK = /_sapling$|_seeds$|_leaves$|_petals$|^(leaf_litter|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
+const JUNK = /_sapling$|_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
 /** Names that stand for any kind of an item. */
 const KINDS: Array<[RegExp, RegExp, string]> = [
   [/^(any[ _:]?)?(wood(en)?[ _])?planks?$/, /_planks$/, 'planks'],
@@ -37,6 +42,31 @@ function matcher(a: BotAgent, raw: string): { test: (name: string) => boolean; l
 
 const total = (items: Record<string, number>) => Object.values(items).reduce((s, q) => s + q, 0);
 
+/** Material groups of a sorted storage: each chest in the storage hut holds one; anything else goes to "misc". */
+const GROUPS: Array<[string, RegExp]> = [
+  ['logs', /_(log|wood|stem|hyphae)$/],
+  ['planks', /_planks$/],
+  ['cobblestone', /^(cobblestone|cobbled_deepslate|stone|smooth_stone|deepslate|andesite|diorite|granite|tuff)$/],
+  ['sand', /^(red_)?(sand|sandstone)$/],
+  ['glass', /^glass(_pane)?$/],
+  ['terracotta', /terracotta$/],
+];
+export const groupOf = (name: string) => GROUPS.find(([, re]) => re.test(name))?.[0] ?? 'misc';
+
+/** Hut chest spots that hold no chest yet, in the order chests go down. */
+const freeSpots = (v: Village) => (v.storageHut?.spots ?? []).filter((s) => !(v.storage?.chests ?? []).some((c) => c.x === s.x && c.z === s.z));
+
+/** The level chests stand at in the storage hut: on its floor once built, else on the prepared plot; null before that. */
+function hutY(v: Village): number | null {
+  const h = v.storageHut!;
+  const built = v.structures.find((s) => s.kind === STORAGE_HUT && overlaps(s, h));
+  if (built) return built.y + 1;
+  const placed = (v.storage?.chests ?? []).find((c) => h.spots.some((s) => s.x === c.x && s.z === c.z));
+  if (placed) return placed.y;
+  const plot = v.plots.find((p) => p.x1 <= h.x1 && p.x2 >= h.x2 && p.z1 <= h.z1 && p.z2 >= h.z2);
+  return plot ? plot.y + 1 : null;
+}
+
 /** Everything in a village's storage, summed over its chests. */
 export function storageContents(v: Village): Record<string, number> {
   const out: Record<string, number> = {};
@@ -44,11 +74,9 @@ export function storageContents(v: Village): Record<string, number> {
   return out;
 }
 
-/** One line for summaries and messages: "40 cobblestone, 12 oak_log, ..." (most first). */
+/** One line for summaries and messages: "40 cobblestone, 12 oak_log, ..." (most first), chest by chest when sorted. */
 export function describeStorage(v: Village, max = 20): string {
-  const items = Object.entries(storageContents(v)).sort((x, y) => y[1] - x[1]);
-  if (!items.length) return 'empty';
-  return items.slice(0, max).map(([n, q]) => `${q} ${n}`).join(', ') + (items.length > max ? `, and ${items.length - max} more kinds` : '');
+  return storageText(v, max);
 }
 
 /** Free room for an item in a window's slots [from, to): empty slots and partial stacks of the same item. */
@@ -126,8 +154,11 @@ async function openChest(a: BotAgent, v: Village, c: StorageChest, signal: Abort
   return w;
 }
 
-/** Whether a spot can take a chest: air with air above, solid ground, clear of plots, buildings and others' ground. */
-function chestSpotOk(a: BotAgent, v: Village, pos: Vec3): boolean {
+/**
+ * Whether a spot can take a chest: air with air above, solid ground, clear of plots, buildings and others' ground (a
+ * storage hut's chest spots are on the plot and inside the hut: only the blocks count there).
+ */
+function chestSpotOk(a: BotAgent, v: Village, pos: Vec3, inHut = false): boolean {
   const bot = a.bot;
   const here = bot.blockAt(pos), above = bot.blockAt(pos.offset(0, 1, 0)), ground = bot.blockAt(pos.offset(0, -1, 0));
   if (!here || !above || !ground) return false;
@@ -135,16 +166,26 @@ function chestSpotOk(a: BotAgent, v: Village, pos: Vec3): boolean {
   // Not on a block that opens when clicked (placing against a chest opens it instead: the server refused the chest)
   if (/chest|barrel|furnace|smoker|crafting_table|door|trapdoor|gate|bed$|shulker|anvil|table$|lectern|hopper|dispenser|dropper/.test(ground.name)) return false;
   const cell = { x1: pos.x, z1: pos.z, x2: pos.x, z2: pos.z };
-  if (v.plots.some((p) => overlaps(cell, p, 1))) return false;
-  if (a.world.villages.conflict(v, { x1: pos.x - 1, z1: pos.z - 1, x2: pos.x + 1, z2: pos.z + 1 }, a.name)) return false;
+  if (!inHut && v.plots.some((p) => overlaps(cell, p, 1))) return false;
+  if (!inHut && a.world.villages.conflict(v, { x1: pos.x - 1, z1: pos.z - 1, x2: pos.x + 1, z2: pos.z + 1 }, a.name)) return false;
   // Not beside another chest (they would join into a double chest)
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (bot.blockAt(pos.offset(dx, 0, dz))?.name === 'chest') return false;
   const feet = bot.entity.position.floored();
   return !(feet.x === pos.x && feet.z === pos.z);
 }
 
-/** Where the next chest goes: in a row beside the last one (two blocks apart), or near the agent for the first. */
+/** Where the next chest goes: the storage hut's next free spot; else in a row beside the last one, or near the agent. */
 function nextChestSpot(a: BotAgent, v: Village): Vec3 | null {
+  if (v.storageHut) {
+    const y = hutY(v);
+    if (y === null) return null;
+    // At the hut's level only: a chest a block higher or lower would be in the floor or roof the build sets
+    for (const s of freeSpots(v)) {
+      const p = new Vec3(s.x, y, s.z);
+      if (chestSpotOk(a, v, p, true)) return p;
+    }
+    return null;
+  }
   const chests = v.storage?.chests ?? [];
   const last = chests[chests.length - 1];
   const tries: Vec3[] = [];
@@ -162,23 +203,36 @@ function nextChestSpot(a: BotAgent, v: Village): Vec3 | null {
 /** Put a carried chest down as village storage and register it. */
 async function placeChest(a: BotAgent, v: Village, signal: AbortSignal): Promise<StorageChest> {
   const first = !v.storage?.chests.length;
-  if (!first) {
+  if (v.storageHut) {
+    const y = hutY(v), free = freeSpots(v);
+    if (y === null) throw new Error("the storage hut's ground is not prepared yet: the village plot is prepared first, then deposit again");
+    if (!free.length) throw new Error('the storage hut is full (all 9 chest spots taken)');
+    // Stand in the aisle beside the spot (inside the hut once it is built, through the door)
+    const h = v.storageHut, mid = h.x1 + 3, s = free[0];
+    const ax = s.x < mid ? s.x + 1 : s.x > mid ? s.x - 1 : s.x, az = s.x === mid ? s.z + 1 : s.z;
+    await reach(a, new Vec3(ax + 0.5, y, az + 0.5), 0.5, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  } else if (!first) {
     // Stand near the row so the next spot is loaded and in reach
     const last = v.storage!.chests[v.storage!.chests.length - 1];
     await reach(a, new Vec3(last.x + 0.5, last.y, last.z + 0.5), 3, signal);
   }
   const spot = nextChestSpot(a, v);
-  if (!spot) throw new Error(first
+  if (!spot) throw new Error(v.storageHut
+    ? `no free chest spot in the storage hut can take a chest (spots ${freeSpots(v).map((s) => `${s.x},${s.z}`).join('; ')}: something stands there, or the ground is missing)`
+    : first
     ? 'no free spot within 8 blocks to put the storage chest (it goes on open, solid ground outside the plots); move to open ground beside the plots and deposit again'
     : 'no free spot beside the storage chests for another one; clear the ground next to them');
   await placeAt(a, 'chest', spot, signal);
-  const b = a.bot.blockAt(spot);
-  if (b?.name !== 'chest') throw new Error(`the chest did not appear at ${at(spot)}`);
+  // The bot is often not sent its own placement (lesson 29): ask the server before calling it a failure
+  if (a.bot.blockAt(spot)?.name !== 'chest' && !/passed/i.test(await a.world.rcon.command(`execute if block ${spot.x} ${spot.y} ${spot.z} minecraft:chest`).catch(() => '')))
+    throw new Error(`the chest did not appear at ${at(spot)}`);
   const c: StorageChest = { x: spot.x, y: spot.y, z: spot.z, items: {} };
   v.storage ??= { chests: [], updated: Date.now() };
   v.storage.chests.push(c);
   v.structures.push({ id: a.world.villages.id('s'), kind: 'storage', x1: spot.x, z1: spot.z, x2: spot.x, z2: spot.z, y: spot.y, builtBy: a.name });
-  a.world.villages.note(v, `${a.name} put ${first ? 'the storage chest' : 'another storage chest'} at ${at(spot)}`);
+  a.world.villages.note(v, `${a.name} put ${first ? 'the storage chest' : 'another storage chest'} at ${at(spot)}${v.storageHut ? ' (in the storage hut)' : ''}`);
   // That was the storage task (whatever steps were left of it)
   if (first)
     for (const t of v.tasks)
@@ -212,11 +266,12 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   if (!want.size) throw new Error(`not carrying ${m.label} (carrying ${a.bot.inventory.items().map((it) => `${it.count} ${it.name}`).join(', ') || 'nothing'})`);
   const chestId = itemId(a, 'chest')!;
   if (!v.storage?.chests.length && !countItem(a, chestId))
-    throw new Error('the village has no storage chest yet: craft a chest (8 planks) and deposit again; deposit puts it down near you, outside the plots');
+    throw new Error(`the village has no storage chest yet: craft a chest (8 planks) and deposit again; deposit puts it down ${v.storageHut ? "in the storage hut's first chest spot" : 'near you, outside the plots'}`);
   const notes: string[] = [];
   const moved: Record<string, number> = {};
   let slipped = 0;
-  for (let i = 0; left > 0 && want.size; i++) {
+  if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal);
+  for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
     checkAbort(signal);
     // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
     // first chest, not "storage is full" (four workers at one chest were told that with 23 slots free)
@@ -261,15 +316,164 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     a.world.villages.save();
     want = carried();
   }
+  want = carried();
   const got = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
   const n = v.storage?.chests.length ?? 0;
+  if (!got && v.storageHut) throw new Error(`could not put anything in the storage hut${notes.length ? ` (${notes.join('; ')})` : ''}: craft a chest (8 planks) and deposit again`);
   if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
   const rest = left > 0 ? [...want.values()] : [];
   const roomLeft = v.storage?.chests.some((c) => slotsUsed(a, c) < 27);
   return `deposited ${got}${notes.length ? ` (${notes.join('; ')})` : ''}` +
-    (rest.length && roomLeft ? `; could not put in ${rest.map((r) => `${r.count} ${r.name}`).join(', ')} though there is room (another worker at the chest?): deposit again` : '') +
+    (rest.length && roomLeft ? `; could not put in ${rest.map((r) => `${r.count} ${r.name}`).join(', ')} though there is room${v.storageHut ? '' : ' (another worker at the chest?)'}: deposit again` : '') +
     (rest.length && !roomLeft ? `; storage is full, still carrying ${rest.map((r) => `${r.count} ${r.name}`).join(', ')}: craft a chest (8 planks) and deposit again` : '') +
     `. Storage now holds ${describeStorage(v, 12)}`;
+}
+
+/**
+ * Sorted storage (a village with a storage hut): each item goes to the chest of its material group. Carried chests go
+ * into the free hut spots first (the storage task brings several). A group without a chest with room takes a free one
+ * (empty, no group yet), else a new chest in the next free spot (crafted from wood carried or in storage), else any
+ * chest with room. Returns how many of `left` are still to put in.
+ */
+async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal): Promise<number> {
+  const chestId = itemId(a, 'chest')!;
+  const chests = () => v.storage?.chests ?? [];
+  // A chest holding something but with no group yet (registered by a test, say) takes the group of what it holds most of
+  for (const c of chests())
+    if (!c.group) {
+      const top = Object.entries(c.items).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1])[0];
+      if (top) c.group = groupOf(top[0]);
+    }
+  // As many as were carried at the start: the bot's view of its inventory lags its placements (StageH3: a fifth of
+  // four chests was tried, and the deposit failed with "no chest in inventory")
+  let placed = 0;
+  const carriedChests = countItem(a, chestId);
+  while (placed < carriedChests && freeSpots(v).length && (hutY(v) !== null || !chests().length)) {
+    try {
+      await placeChest(a, v, signal);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled' || !chests().length) throw e;
+      notes.push((e as Error).message);
+      break;
+    }
+    placed++;
+  }
+  if (placed) notes.push(`put ${placed > 1 ? `${placed} chests` : 'a chest'} in the storage hut`);
+  // Groups that have a chest go first, so a chest crafted for a new group is made from logs in storage rather than the
+  // ones being deposited. Crafting can leave a log or planks over (StageH1, H2: one log of three taken, a table being
+  // near): a group is visited a second time when more of it turns up
+  const visits = new Map<string, number>();
+  const nextGroup = () => {
+    const gs = [...new Set(a.bot.inventory.items().filter((it) => test(it.name)).map((it) => groupOf(it.name)))].filter((g) => (visits.get(g) ?? 0) < 2);
+    const fresh = gs.filter((g) => !visits.has(g));
+    const pool = fresh.length ? fresh : gs;
+    return pool.find((g) => chests().some((c) => c.group === g && slotsUsed(a, c) < 27)) ?? pool[0];
+  };
+  // A put that fails with room left (Mineflayer's view of the slots drifts) gets that chest once more (StageH1: one log
+  // of eight was refused, then went in at the next deposit)
+  const slips = new Set<StorageChest>();
+  // Groups no new chest could be had for: their second visit goes to another chest with room
+  const noChest = new Set<string>();
+  for (let g = nextGroup(); g && left > 0; g = nextGroup()) {
+    visits.set(g, (visits.get(g) ?? 0) + 1);
+    const tried = new Set<StorageChest>();
+    for (let round = 0; round < 6 && left > 0; round++) {
+      checkAbort(signal);
+      const items = new Map<number, { name: string; count: number }>();
+      for (const it of a.bot.inventory.items()) {
+        if (!test(it.name) || groupOf(it.name) !== g) continue;
+        const e = items.get(it.type) ?? { name: it.name, count: 0 };
+        e.count += it.count;
+        items.set(it.type, e);
+      }
+      if (!items.size) break;
+      const open = chests().filter((c) => !tried.has(c));
+      // A free chest only when the group has no chest with room (StageH3: one cobblestone the view lost track of went
+      // into the last free chest while the cobblestone chest had 25 slots free)
+      const own = chests().some((x) => x.group === g && slotsUsed(a, x) < 27);
+      let c = open.find((x) => x.group === g && slotsUsed(a, x) < 27) ?? (own ? undefined : open.find((x) => !x.group && !total(x.items)));
+      if (!c && own) break;
+      if (!c) {
+        const made = noChest.has(g) ? null : await newChest(a, v, signal, notes);
+        if (!made) noChest.add(g);
+        c = made ?? open.find((x) => x.group === 'misc' && slotsUsed(a, x) < 27) ?? open.find((x) => slotsUsed(a, x) < 27);
+        if (!c) break;
+        if (c.group && c.group !== g) notes.push(`${g} went into chest ${chests().indexOf(c) + 1} (${c.group}): no chest for ${g} could be had`);
+      }
+      tried.add(c);
+      const w = await openChest(a, v, c, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(e.message);
+        return null;
+      });
+      if (!w) continue;
+      let slipped = false;
+      try {
+        // What is carried as the open window sees it: the inventory view lags inside windows (lesson 24)
+        const held = new Map<number, { name: string; count: number }>();
+        for (let i = w.inventoryStart; i < w.slots.length; i++) {
+          const it = w.slots[i];
+          if (!it || !test(it.name) || groupOf(it.name) !== g) continue;
+          const e = held.get(it.type) ?? { name: it.name, count: 0 };
+          e.count += it.count;
+          held.set(it.type, e);
+        }
+        for (const [type, { name, count }] of held) {
+          const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
+          if (n <= 0) continue;
+          try {
+            await abortable(w.deposit(type, null, n), signal);
+            moved[name] = (moved[name] ?? 0) + n;
+            left -= n;
+            c.group ??= g;
+          } catch (e) {
+            if ((e as Error).message === 'cancelled') throw e;
+            slipped = true;
+          }
+        }
+        c.items = chestItems(w);
+      } finally {
+        w.close();
+      }
+      if (slipped && !slips.has(c)) {
+        slips.add(c);
+        tried.delete(c);
+        await sleep(1000, signal);
+      }
+      await syncInventory(a);
+      v.storage!.updated = Date.now();
+      a.world.villages.save();
+    }
+  }
+  return left;
+}
+
+/** A new chest in the storage hut's next free spot, carried or crafted for it; null if there is no spot or no wood. */
+async function newChest(a: BotAgent, v: Village, signal: AbortSignal, notes: string[]): Promise<StorageChest | null> {
+  if (!freeSpots(v).length) return null;
+  try {
+    if (!(await ensureChest(a, v, signal, notes))) return null;
+    return await placeChest(a, v, signal);
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    notes.push((e as Error).message);
+    return null;
+  }
+}
+
+/** Have a chest to put down: carried, or crafted from carried wood, or from 3 logs taken from the storage. */
+async function ensureChest(a: BotAgent, v: Village, signal: AbortSignal, notes: string[]): Promise<boolean> {
+  const chestId = itemId(a, 'chest')!;
+  if (countItem(a, chestId)) return true;
+  const logs = KINDS[1][1];
+  const wood = () => a.bot.inventory.items().reduce((s, it) => s + (/_planks$/.test(it.name) ? it.count : logs.test(it.name) ? 4 * it.count : 0), 0);
+  // 8 planks for the chest and 4 for a crafting table, if none is near
+  if (wood() < 12) await take(a, v, [{ test: (n) => logs.test(n), left: 3 }], signal);
+  if (wood() < 8) return false;
+  // (the crafting table craft may put down stays off village ground: placeNearby)
+  await SURVIVAL_SKILLS.craft.run(a, { item: 'chest', count: 1 }, signal);
+  notes.push('crafted a chest for it');
+  return countItem(a, chestId) > 0;
 }
 
 /**
@@ -346,11 +550,11 @@ async function withdraw(a: BotAgent, args: Record<string, unknown>, signal: Abor
   return `withdrew ${taken}${short}`;
 }
 
-/** Register a chest that is already in the world (API, tests). */
-export function registerChest(a: { name: string }, v: Village, pos: { x: number; y: number; z: number }, reg: { id(p: string): string; note(v: Village, t: string): void }): string {
+/** Register a chest that is already in the world (API, tests), with its material group in a sorted storage. */
+export function registerChest(a: { name: string }, v: Village, pos: { x: number; y: number; z: number }, reg: { id(p: string): string; note(v: Village, t: string): void }, group?: string): string {
   v.storage ??= { chests: [], updated: Date.now() };
   if (v.storage.chests.some((c) => c.x === pos.x && c.y === pos.y && c.z === pos.z)) return `already registered: ${pos.x},${pos.y},${pos.z}`;
-  v.storage.chests.push({ ...pos, items: {} });
+  v.storage.chests.push({ ...pos, items: {}, ...(group ? { group } : {}) });
   v.structures.push({ id: reg.id('s'), kind: 'storage', x1: pos.x, z1: pos.z, x2: pos.x, z2: pos.z, y: pos.y, builtBy: a.name });
   reg.note(v, `storage chest at ${pos.x},${pos.y},${pos.z} registered by ${a.name}`);
   return `registered ${pos.x},${pos.y},${pos.z}`;

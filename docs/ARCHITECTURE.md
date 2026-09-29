@@ -137,6 +137,7 @@ flowchart TB
     tiered["tieredBrain.ts"]
     llm["llmBrain.ts"]
     layoutts["layout.ts<br/>(plan_layout)"]
+    huts["huts.ts<br/>(storage hut design)"]
     taskb["taskBrain.ts<br/>(scripted worker, tests)"]
     village["village.ts"]
     designs["designs.ts"]
@@ -153,7 +154,7 @@ flowchart TB
     mcworld["mcWorld.ts"]
     bot["botAgent.ts"]
     mcskills["mcSkills.ts, mcSurvival.ts,<br/>mcBuild.ts, mcUtil.ts"]
-    mcecon["mcRules.ts (peaceful settings),<br/>mcMaterials.ts (bills, recipe chains),<br/>mcStorage.ts (village chests)"]
+    mcecon["mcRules.ts (peaceful settings),<br/>mcMaterials.ts (bills, recipe chains),<br/>mcStorage.ts (village chests, sorted)"]
     mcapi["mcApi.ts, rcon.ts, index.ts"]
   end
   neutral --> world
@@ -258,7 +259,8 @@ sequenceDiagram
   M->>S: find_site size 24+ (with 30 logs near), design_building cottage, meeting_hall (its executor)
   M->>L: plan_layout ["cottage", "cottage", "meeting_hall"]
   L->>S: materialsNear: are the materials near the site, as collect reaches them?
-  L->>B: prepare the plot; set up the storage; gather tasks per building; builds at x, z
+  L->>B: prepare the plot; set up the storage (4 chests into the storage hut's spots); gather for the hut, build it
+  L->>B: gather tasks per building (after the storage); builds at x, z (after the hut)
   opt the site holds only some of the buildings
     L->>B: lay out the ones that fit (at least half); the rest wait as unplaced
     M->>S: find_site again
@@ -267,13 +269,13 @@ sequenceDiagram
   W->>B: claim "Gather 12 logs for cottage 1"
   B-->>W: its steps: collect block=logs count=12, deposit item=all (the plan, no planner call)
   W->>S: collect(block=logs, count=12), then deposit(item=all), queued as written (no model call)
-  S->>C: deposit: logs into the chest
+  S->>C: deposit: logs into the logs chest (sorted by material group)
   opt a step fails (logs out of reach)
     W->>E: plan, the failure, observation
     E-->>W: another way (e.g. collect elsewhere within 96 blocks)
     W->>S: enqueue
   end
-  W->>B: finish (plan complete); claim "Build cottage 1" when its gather tasks are done
+  W->>B: finish (plan complete); claim "Build cottage 1" when its gather tasks and the hut are done
   W->>S: build_design cottage x, z
   S->>C: withdraw what is missing; craft planks, doors, smelt glass
   alt still short (gathered logs went elsewhere)
@@ -315,7 +317,8 @@ stateDiagram-v2
 | Structures | `build`, `build_design`, `build_box` | Footprints: nothing is built on top of them; "a cottage already stands here" ends duplicate work. |
 | Designs | the architect, the API, schematic import | The design library for `build_design`: layers of palette symbols, validated. |
 | Task board | `plan_layout`, the mayor, short builds | Tasks with prerequisites (`after`), claims, results, tries; gather tasks are `soft` (their failure does not block the build, which checks its materials itself). |
-| Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests and what each held when last opened; shown in the planners' village summary and the panel. |
+| Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests, each one's material group in a sorted storage, and what each held when last opened; shown chest by chest in the planners' village summary and the panel. |
+| Storage hut (`storageHut`) | `plan_layout` (a new village's first economy layout) | The hut's footprint and its nine chest spots in the order chests go down; `deposit` fills them, the stuck rescue teleports to its door. |
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
 | Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. |
 | Unplaced (`unplaced`) | `plan_layout` | Buildings that did not fit on the site: shown in the village summary, laid out by code at the mayor's next successful `find_site`; completion waits for them. |
@@ -347,9 +350,9 @@ flowchart LR
 | Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog, digging natural blocks only, opening doors, avoiding water (and swimming out of it), diagonals only with both sides clear, legs of ~40 blocks for long walks, a retry with longer drops |
 | Crafting | recipes applied to the inventory | the recipe from minecraft-data, carried out by server command: ingredients counted and taken (`/clear`), the result given (`/give`); a table recipe still needs a table placed nearby |
 | Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), picks the cheapest block to reach (near, not deep below, in the open, away from water), crafts a wooden pickaxe when stone needs one, stays within 96 blocks of the village and no more than 16 below it, and never mines inside any village's buildings or plots (2-block margin); a log fells its whole tree (`fellTree`: the logs in reach from the ground, then a dirt pillar under the feet, dug back down, with the pillar checked on the server afterwards; logs without leaves are builds and left alone); it gives up after 3 tries (one per tree) or 90 s and shares unreachable blocks and targets between bots |
-| Stuck rescue | none | `mcRescue.ts`: two failed moves within 3 blocks in 6 minutes (including a timed-out walk that got nowhere; `BotAgent.movedFailed`) run in the reflex's slot: swim up, walk out, climb out through natural blocks (pillaring with dirt or stone), and last, teleport beside the village storage; survival only |
+| Stuck rescue | none | `mcRescue.ts`: two failed moves within 3 blocks in 6 minutes (including a timed-out walk that got nowhere; `BotAgent.movedFailed`) run in the reflex's slot: swim up, walk out, climb out through natural blocks (pillaring with dirt or stone), and last, teleport beside the village storage (in front of the storage hut's door when there is one); survival only |
 | Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged; in survival each run is charged to the inventory (`/clear`) after a material check, with crafting from storage and a requeue when short |
-| Storage | none | `deposit` and `withdraw` against the village's chests (`mcStorage.ts`) |
+| Storage | none | `deposit` and `withdraw` against the village's chests (`mcStorage.ts`), sorted by material group in a storage hut |
 | Safety | none | reflex: fight back with a weapon, run when unarmed, hurt or near a creeper |
 | Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn |
 
@@ -365,7 +368,7 @@ sequenceDiagram
   participant P as Paper server
   E->>B: build_design(design=cottage, x=115, z=3)
   B->>J: plan targets from the design (rotated, doors facing out)
-  J->>J: readySite: loaded, dry, level, nothing in the way?
+  J->>J: readySite: loaded, dry, level, nothing in the way? (storage chests on the design's "_" cells may stand)
   J->>V: conflict check, reserve the footprint
   J->>B: walk south of the site, look at the blocks
   opt survival: materials
@@ -433,7 +436,8 @@ Each agent's card shows: the brain's state (planning, thinking, acting, waiting,
 and why), health and food, position and biome, objective and task, the plan as a checklist, the current action, blocked
 calls, a top-down map (terrain, facing, mobs, players, target, plots, buildings, reserved ground), what the executor and
 the planner last saw (the exact user prompt) and answered, recent decisions and events, inventory and model stats. The
-village section shows the task board, buildings, plots, designs, the storage contents, reservations and the village log.
+village section shows the task board, buildings, plots, designs, the storage contents (chest by chest with each one's
+material group, "chest 1 (logs): 64 oak_log, ...", when the chests are sorted), reservations and the village log.
 
 In Minecraft, every village (in the simple view too) has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
 chunk any bot has received, shared by every agent and village and saved to `mc/server/atlas.json` at most every 30 s.
@@ -492,7 +496,10 @@ flowchart LR
   layout["plan_layout<br/>(layout.ts)"] --> near
   layout --> buildtask["build tasks at x, z"]
   tasks --> collect["collect, then deposit all"]
-  collect --> storage[("village chests<br/>(mcStorage.ts)")]
+  collect --> storage[("village chests, sorted:<br/>one material group each<br/>(mcStorage.ts)")]
+  layout -- "first layout" --> hut["storage hut (huts.ts)<br/>storage task: 4 chests into its spots,<br/>then the hut built around them"]
+  hut --> storage
+  hut -- "the other builds wait for it" --> buildtask
   storage --> build["build_design (mcBuild.ts)<br/>withdraw, craft and smelt from storage,<br/>/setblock charging the inventory"]
   buildtask --> build
   build -- "still short" --> requeue["gather tasks for the shortfall;<br/>the build waits behind them"]
@@ -503,12 +510,13 @@ flowchart LR
 |---|---|---|
 | World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
 | Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", a smelting table, whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
-| Storage | `mcStorage.ts` | chests placed by the first deposit and when full, registered as 1x1 structures, contents recorded at every opening |
+| Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an oak door in the middle of the south wall, no windows) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots), gather for the hut, build it around the chests; other buildings' gathering waits only for the storage, their builds for the hut |
+| Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item. Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max, every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (none deeper than 16 below ground), walking up to two 40-block legs toward land or trees |
 | Design limits | `tieredBrain.ts` (design checks) | survival designs at most 9x9, raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration; one retry with the problems |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
 | Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets (narrower when that fits), partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
-| Survival building | `mcBuild.ts` | wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
+| Survival building | `mcBuild.ts` | registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings (`onVillageGround`, `stepOffVillageGround` in `mcUtil.ts`), wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
 
 Results: the acceptance runs of 2026-09-28/29 built "two matching cottages and a meeting hall" from nothing with a

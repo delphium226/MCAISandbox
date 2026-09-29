@@ -142,6 +142,11 @@ the hut down to stone, then straight branch tunnels at one level.
         loose chests.
       - Tests: typecheck; staged `--stage build` with the hut (chest ends up inside, hut built around it, mixed deposits
         sorted); staged full run; then a model-driven run.
+      - Built 09-29 (fifth session): `huts.ts` (design, spots), `layout.ts` (hut in the first layout, task order),
+        `mcStorage.ts` (groups, `depositSorted`, chests crafted for new groups), `mcBuild.ts` (chests on "_" cells kept,
+        refused when not at the hut's level), tables and furnaces kept off village ground (`mcUtil.ts`), per-chest
+        record in the summary, API and panel, rescue to the hut door. Passed: StageH2 and H5 (build stage + deposit
+        check), StageH4 (full, 3/3 built). Left: the model-driven run.
 - [ ] V.2 (see V.1).
 - [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
@@ -236,6 +241,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageT3, T4 | same, hills -769,-384; oak woods -443,-22 | stopped at 3.6 / 6.1 min | | the runner stopped on "no sand" three times (a soft failure by design; the runner now ignores it) |
 | 09-29 | StageT5 | same, oak woods -447,-60 | **2/2 built** | 13.0 min | only soft sand failures (windows open); logs-only sweep |
 | 09-29 | Fell1 | model, 2 workers, qwen3.8 worker planner, jungle-edged woods -664,-169 | **3/3 built**, declared complete by code | 23.1 min | 4 failed actions: 3 soft sand (windows open), 1 "could not reach logs" (a capped jump, F57); 1 worker executor call; 4 log tasks covered by storage surplus |
+| 09-29 | StageH1 | staged build, testhut + storage hut, -593,178 (jungle, fresh) | **2/2 built**, hut around 3 stocked chests | 1.1 min | deposit check: 8 kinds sorted into 6 chests (3 crafted), 1 log left over (F58); the check itself misread `/api/block` |
+| 09-29 | StageH2 | same after the first review's fixes, -598,154 | **2/2 built**, deposit check passed | 2.0 min | the same 1 log left over: taken for a chest, its group already done (F58) |
+| 09-29 | StageH3 | staged full, testhut + testhall + hut, -656,190 | stopped at 11.4 min | 11.4 min | a gatherer's crafting table inside the hut footprint raised its floor; the new guard refused to build over the chests (F59); a fifth chest tried (F60); 1 cobblestone into the last free chest (F58) |
+| 09-29 | StageH4 | same after F58-F60 fixes, -744,72 | **3/3 built** | 14.7 min | runner stopped at 10.2 min (two 2x2 jungle trees felled for 9-10-log tasks, 81 and 105 logs, >5 min each: F62), followed on to the end; only soft sand failures; hut interior clean |
+| 09-29 | StageH5 | staged build after the third review's fixes (tables and furnaces reused within 32 blocks, village ground by height), testhut + testhall + hut, -795,277 | **3/3 built**, deposit check passed | 4.2 min | 1 self-healed shortage (8 cobblestone: two builders' furnaces at once, as F9) |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -419,6 +429,31 @@ CLAUDE.md when a phase ends.
   nothing left).
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
+- F58 (09-29, V.2) Sorted deposits lost track of one item now and then: StageH1 and H2 left 1 jungle_log with the
+  depositor ("could not put in ... though there is room"; the next deposit took it), StageH3 put 1 cobblestone in the
+  last free chest while the cobblestone chest had 25 slots free. Causes: a chest crafted for a new group took 3 logs
+  from storage and used 2 after the logs group was done; counts read from `bot.inventory` while a chest was open (lesson
+  24). Fixed: counts from the window's slots, a group visited again when more of it turns up, a slipped put retried
+  once, no free chest for a group whose own chest has room.
+- F59 (09-29, V.1, StageH3) A gatherer crafting a pickaxe right after putting the chests down placed its crafting table
+  at -652,64,184, inside the future hut: the hut's floor came out a block higher, and the build would have set the
+  floor layer on the chests (a `/setblock` empties a chest). The first review had found that path; the guard added
+  for it refused the build instead. Fixed at the cause: crafting tables and furnaces never go down on a village's
+  plots, laid-out plots or within 2 blocks of its buildings (`placeNearby` steps off first). This was possible before
+  the hut (any gatherer's table on a plot), just unlikely.
+- F60 (09-29, V.1, StageH3) The storage task's deposit put the 4 carried chests in the hut, then tried a fifth: the
+  bot's view still showed a chest the server had placed ("no chest in inventory"). Placement is now capped at the
+  count carried at the start.
+- F61 (09-29) prepare_site left "columns with existing buildings" on fresh jungle ground (StageH2: 2, StageH3: 4):
+  cocoa pods were not in `NATURAL`. Added cocoa, glow lichen, hanging roots, berry bushes (all breakable by bots).
+- F62 (09-29, StageH4) Whole-tree felling (2.2) on 2x2 jungle trees overshoots small tasks: 81 and 105 logs for
+  10- and 9-log tasks, over 5 minutes each, while storage already held enough. A claimed gather task is not closed
+  when storage covers it (only open ones are). Backlog: prefer small trees for small counts, or close covered tasks
+  mid-collect.
+- F63 (09-29, reviews) Found by the review subagents before any run hit them: a mayor-drawn "storage_hut" would have
+  replaced the code's design (refused now); the stuck rescue teleported onto chest 1, which inside the hut puts the
+  head in the roof (now the door walkway); a re-posted storage task used the old text and the hut build kept waiting
+  on the failed one; a refusal over the hut's materials asked the mayor to redraw it.
 
 ## Decisions log
 
@@ -456,6 +491,12 @@ CLAUDE.md when a phase ends.
 - 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
   moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
+- 09-29 (fifth session) V.1/V.2 as designed; details decided in code: the storage task crafts 4 chests at once
+  (collect 10 logs) so crafting happens in the woods, and a deposit crafts another chest only when a group needs one;
+  groups are logs, planks, cobblestone (with stone kinds), sand (with sandstone), glass, terracotta, misc; the hut's
+  door faces south, spot 1 is just inside it and the back-middle spot is last. Known risk, left as agreed: the hut
+  chains the village (prepare -> storage -> every gather; the hut build -> every other build), so a failed prepare or
+  hut build blocks the rest until the mayor steps in (review finding).
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
 

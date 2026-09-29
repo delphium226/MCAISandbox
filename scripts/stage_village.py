@@ -5,7 +5,11 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
   --stage full|build            full: layout only, workers do storage, gathering and building;
                                 build: the storage chest is placed and stocked with the raw materials, so workers
-                                only prepare the plot and build (tests building from storage, crafting included)
+                                only prepare the plot and build (tests building from storage, crafting included).
+                                With a storage hut (new villages), the chests go into the hut's chest spots once the
+                                plot is prepared, one per material group, and the hut is built around them; when every
+                                building stands, Worker1 deposits mixed items and the chests are checked for sorting
+  --no-deposit-check            skip that check
   --brain tasks|tiered          tasks (default): scripted workers that run each task's skill calls, no model;
                                 tiered: model-driven workers (MCAI_EXEC_MODEL, --planner)
   --planner MODEL               the tiered workers' planner (default ollama:gpt-oss:120b-cloud)
@@ -57,6 +61,7 @@ p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
 p.add_argument("--workers", type=int, default=2)
 p.add_argument("--minutes", type=float, default=20)
 p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
+p.add_argument("--no-deposit-check", action="store_true")
 args = p.parse_args()
 buildings = [b.strip() for b in args.buildings.split(",") if b.strip()]
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
@@ -125,24 +130,131 @@ for name in set(buildings):
     r = call(f"/village/{args.village}/designs", designs[name])
     print(f"design {name}: {r}", flush=True)
 
-# ---- site and layout (the size covers the plot plus prepare_site's margin)
-biggest = max(max(designs[n]["width"], designs[n]["depth"]) for n in buildings)
-size = min(36, int(math.ceil(math.sqrt(len(buildings)))) * (biggest + 3) + 8)
+# ---- site and layout (the size covers the plot plus prepare_site's margin; a new village gets a 7x9 storage hut too)
+biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildings))
+size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
 site = find_land(args.x, args.z, size)
 r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs")})
 print(r.get("result") or r, flush=True)
 if "error" in r:
     raise SystemExit(1)
 tasks = r["tasks"]
+hut = call(f"/village/{args.village}").get("storageHut")
+# Every design the layout builds (the storage hut included)
+built_designs = [m.group(1) for t in tasks if t["title"].startswith("Build ") for m in [re.search(r'build_design "([^"]+)"', t["detail"])] if m]
+GROUPS = [("logs", r"_(log|wood|stem|hyphae)$"), ("planks", r"_planks$"),
+          ("cobblestone", r"^(cobblestone|cobbled_deepslate|stone|smooth_stone|deepslate|andesite|diorite|granite|tuff)$"),
+          ("sand", r"^(red_)?(sand|sandstone)$"), ("glass", r"^glass(_pane)?$"), ("terracotta", r"terracotta$")]
+
+
+def group_of(item):
+    """The storage group an item is sorted into (mcStorage.ts groupOf)."""
+    return next((g for g, rx in GROUPS if re.search(rx, item)), "misc")
+
+
+def stock_needed():
+    """Every building's raw materials, plus a crafting table's and a furnace's worth (logs in the village's wood kind;
+    with --mixed-wood, half of them in another kind)."""
+    need = {}
+    wood = None
+    for n in built_designs:
+        bill = call(f"/village/{args.village}/designs/{n}/bill")
+        wood = bill.get("wood") or "oak"
+        for item, q in bill.get("gather", {}).items():
+            item = f"{wood}_log" if item == "any:logs" else "cobblestone" if item == "any:cobblestone" else item.replace("any:", "")
+            need[item] = need.get(item, 0) + q
+    # (and in a hut village, for the chests the deposit check crafts: 3 logs each)
+    need[f"{wood}_log"] = need.get(f"{wood}_log", 0) + (13 if hut else 4)
+    need["cobblestone"] = need.get("cobblestone", 0) + 8
+    if args.mixed_wood:
+        other = "spruce" if wood != "spruce" else "birch"
+        for item in [i for i in need if i.endswith("_log")]:
+            half = need[item] // 2
+            need[item] -= half
+            need[f"{other}_log"] = need.get(f"{other}_log", 0) + half
+    return need
+
+
+def fill_chest(x, y, z, items):
+    slot = 0
+    for item, q in items.items():
+        while q > 0 and slot < 27:
+            n = min(64, q)
+            rcon(f"item replace block {x} {y} {z} container.{slot} with minecraft:{item} {n}")
+            q -= n
+            slot += 1
+
+
+def stock_hut():
+    """Put chests into the storage hut's spots on the prepared plot, one per material group, stocked, registered."""
+    v = call(f"/village/{args.village}")
+    plot = next((q for q in v["plots"] if q["x1"] <= hut["x1"] and q["x2"] >= hut["x2"] and q["z1"] <= hut["z1"] and q["z2"] >= hut["z2"]), None)
+    if not plot:
+        raise SystemExit(f"no prepared plot covers the storage hut {hut}")
+    y = plot["y"] + 1
+    by_group = {}
+    for item, q in stock_needed().items():
+        by_group.setdefault(group_of(item), {})[item] = q
+    for spot, (group, items) in zip(hut["spots"], by_group.items()):
+        sx, sz = spot["x"], spot["z"]
+        rcon(f"forceload add {sx} {sz}")
+        time.sleep(1)
+        print(rcon(f"setblock {sx} {y} {sz} chest"), flush=True)
+        fill_chest(sx, y, sz, items)
+        print(call(f"/village/{args.village}/storage", {"x": sx, "y": y, "z": sz, "group": group}).get("result"), group, items, flush=True)
+        rcon(f"forceload remove {sx} {sz}")
+
+
+def deposit_check(worker):
+    """Give the worker mixed items, have it deposit everything, and check each chest holds only its own group, in the hut."""
+    gift = {"cobblestone": 5, "oak_log": 7, "sand": 3, "glass": 4, "oak_planks": 6, "torch": 2, "cocoa_beans": 3}
+    for item, q in gift.items():
+        rcon(f"give {worker} minecraft:{item} {q}")
+    time.sleep(2)
+    events = call(f"/agents/{worker}/events?since=0")
+    seen = max([e["id"] for e in events] + [0]) if isinstance(events, list) else 0
+    call(f"/agents/{worker}/act", {"action": "deposit", "item": "all"})
+    result = None
+    for _ in range(200):
+        time.sleep(3)
+        events = call(f"/agents/{worker}/events?since={seen}")
+        for e in events if isinstance(events, list) else []:
+            seen = e["id"]
+            if e["type"] in ("action_done", "action_failed") and ((e.get("data") or {}).get("type") == "deposit" or "deposit" in e["text"][:60].lower()):
+                result = e
+        if result:
+            break
+    print(f"DEPOSIT {result and result['type']}: {result and result['text'][:400]}", flush=True)
+    v = call(f"/village/{args.village}")
+    h = v.get("storageHut") or {}
+    ok = bool(result and result["type"] == "action_done")
+    for i, c in enumerate(v["storage"]["chests"]):
+        wrong = [n for n, q in c["items"].items() if q > 0 and group_of(n) != c.get("group")]
+        inside = h and h["x1"] < c["x"] < h["x2"] and h["z1"] < c["z"] < h["z2"]
+        block = call(f"/block?x={c['x']}&y={c['y']}&z={c['z']}")
+        print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}"
+              f"{'' if inside else ' NOT INSIDE THE HUT'}{' WRONG: ' + ', '.join(wrong) if wrong else ''}; block: {block.get('block', block)}", flush=True)
+        ok = ok and inside and not wrong and block.get("block") == "chest"
+    print(f"DEPOSIT CHECK {'PASSED' if ok else 'FAILED'}", flush=True)
+    return ok
+
 
 # ---- stage build: storage placed and stocked, gathering done
 storage_spot = None
+hut_storage = None
 if args.stage == "build":
     for t in tasks:
-        if t["status"] == "open" and (t["title"].startswith("Gather") or t["title"].startswith("Set up the village storage")):
+        if t["status"] == "open" and t["title"].startswith("Gather"):
             call(f"/village/{args.village}/tasks/{t['id']}", {"status": "done"})
+        if t["status"] == "open" and t["title"].startswith("Set up the village storage"):
+            if hut:
+                # Held back from the workers: the chests go in by command once the plot is prepared
+                call(f"/village/{args.village}/tasks/{t['id']}", {"status": "claimed", "by": "stage"})
+                hut_storage = t["id"]
+            else:
+                call(f"/village/{args.village}/tasks/{t['id']}", {"status": "done"})
         m = re.search(r"move_to x=(-?\d+) y=(-?\d+) z=(-?\d+)", t["detail"])
-        if t["title"].startswith("Set up the village storage") and m:
+        if t["title"].startswith("Set up the village storage") and m and not hut:
             storage_spot = tuple(int(v) for v in m.groups())
 
 if storage_spot:
@@ -159,31 +271,8 @@ if storage_spot:
     if y is None:
         raise SystemExit(f"could not find the ground at {sx},{sz} for the storage chest")
     print(rcon(f"setblock {sx} {y} {sz} chest"), flush=True)
-    # Stock it with every building's raw materials, plus a crafting table's and a furnace's worth
-    # (logs in the village's wood kind; with --mixed-wood, half of them in another kind)
-    need = {}
-    wood = None
-    for n in buildings:
-        bill = call(f"/village/{args.village}/designs/{n}/bill")
-        wood = bill.get("wood") or "oak"
-        for item, q in bill.get("gather", {}).items():
-            item = f"{wood}_log" if item == "any:logs" else "cobblestone" if item == "any:cobblestone" else item.replace("any:", "")
-            need[item] = need.get(item, 0) + q
-    need[f"{wood}_log"] = need.get(f"{wood}_log", 0) + 4
-    need["cobblestone"] = need.get("cobblestone", 0) + 8
-    if args.mixed_wood:
-        other = "spruce" if wood != "spruce" else "birch"
-        for item in [i for i in need if i.endswith("_log")]:
-            half = need[item] // 2
-            need[item] -= half
-            need[f"{other}_log"] = need.get(f"{other}_log", 0) + half
-    slot = 0
-    for item, q in need.items():
-        while q > 0 and slot < 27:
-            n = min(64, q)
-            rcon(f"item replace block {sx} {y} {sz} container.{slot} with minecraft:{item} {n}")
-            q -= n
-            slot += 1
+    need = stock_needed()
+    fill_chest(sx, y, sz, need)
     print(call(f"/village/{args.village}/storage", {"x": sx, "y": y, "z": sz}).get("result"), flush=True)
     rcon(f"forceload remove {sx} {sz}")
     print(f"storage at {sx},{y},{sz} stocked with {need}", flush=True)
@@ -224,6 +313,12 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
                 if fails[k] >= 3:
                     reason = f"{n} failed the same way 3 times: {e['text'][:160]}"
     v = call(f"/village/{args.village}")
+    if hut_storage and all(t["status"] == "done" for t in v["tasks"] if t["title"].startswith("Prepare")):
+        stock_hut()
+        call(f"/village/{args.village}/tasks/{hut_storage}", {"status": "done"})
+        hut_storage = None
+        last_done = time.time()
+        v = call(f"/village/{args.village}")
     b = " ".join(f"{t['id']}:{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}" for t in v["tasks"])
     if b != board:
         board = b
@@ -234,6 +329,8 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     elif time.time() - last_done > stall_minutes * 60:
         reason = f"stalled: no successful action for {stall_minutes:g} minutes"
 
+if reason == "every building is done" and hut and args.stage == "build" and not args.no_deposit_check:
+    deposit_check(names[0])
 v = call(f"/village/{args.village}")
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason})")
 for t in v["tasks"]:
@@ -243,4 +340,6 @@ for c in (v.get("storage") or {}).get("chests", []):
     for k, q in c["items"].items():
         storage[k] = storage.get(k, 0) + q
 print("STORAGE", storage)
+for i, c in enumerate((v.get("storage") or {}).get("chests", [])):
+    print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}")
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])

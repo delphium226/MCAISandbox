@@ -71,25 +71,28 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       const result = postLayout(w, v, String(b.by ?? 'api'), site, b.buildings, b.economy !== false);
       return sendJson(res, result.startsWith('plan_layout:') ? 400 : 200, { result, tasks: v.tasks });
     }
-    // Set a task's status (tests skipping a stage): {status: "done" | "open" | "failed"}
+    // Set a task's status (tests skipping a stage): {status: "done" | "open" | "failed" | "claimed", by?}
+    // ("claimed" by the test holds a task back from the workers while the test does it itself)
     if (v && parts[3] === 'tasks' && parts[4] && req.method === 'POST') {
       const t = v.tasks.find((x) => x.id === parts[4]);
-      const status = String((await readJson(req)).status ?? '');
-      if (!t || !['open', 'done', 'failed'].includes(status)) return sendJson(res, 400, { error: 'unknown task or status (open, done, failed)' });
+      const body = await readJson(req);
+      const status = String(body.status ?? '');
+      if (!t || !['open', 'done', 'failed', 'claimed'].includes(status)) return sendJson(res, 400, { error: 'unknown task or status (open, done, failed, claimed)' });
       t.status = status as typeof t.status;
       if (status === 'open') t.claimedBy = undefined;
+      if (status === 'claimed') t.claimedBy = String(body.by ?? 'api');
       t.updated = Date.now();
       w.villages.save();
       return sendJson(res, 200, t);
     }
-    // Register a chest already in the world as village storage (tests): {x, y, z}
+    // Register a chest already in the world as village storage (tests): {x, y, z, group?}
     if (v && parts[3] === 'storage' && req.method === 'POST') {
       const b = await readJson(req);
       const pos = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y)), z: Math.floor(Number(b.z)) };
       if (![pos.x, pos.y, pos.z].every(Number.isFinite)) return sendJson(res, 400, { error: 'x, y and z are required' });
       const block = (await w.rcon.command(`execute if block ${pos.x} ${pos.y} ${pos.z} chest`)).trim();
       if (!/passed/i.test(block)) return sendJson(res, 400, { error: `no chest at ${pos.x},${pos.y},${pos.z} (${block})` });
-      return sendJson(res, 200, { result: registerChest({ name: 'api' }, v, pos, w.villages), storage: v.storage });
+      return sendJson(res, 200, { result: registerChest({ name: 'api' }, v, pos, w.villages, typeof b.group === 'string' ? b.group : undefined), storage: v.storage });
     }
     // What a design needs and what getting it takes
     if (v && parts[3] === 'designs' && parts[5] === 'bill') {

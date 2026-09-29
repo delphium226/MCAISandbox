@@ -307,6 +307,11 @@ function renderVillage(v) {
         <td><b>${esc(t.title)}</b><div class="sub">${esc(t.detail)}</div>${t.result ? `<div class="sub">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
     : '<div class="empty">no tasks posted yet</div>';
   const storageList = (st) => {
+    // Sorted storage (the storage hut): chest by chest, with each one's material group
+    if (st.chests.some((c) => c.group) || v.storageHut) return `<ul class="list">${st.chests.map((c, i) => {
+      const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+      return `<li><b>chest ${i + 1}</b> (${esc(c.group || (e.length ? 'not sorted' : 'free'))}): ${e.length ? e.map(([n, q]) => `${q} ${esc(n)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
+    }).join('')}</ul>`;
     const sum = {};
     for (const c of st.chests) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
     const rows = Object.entries(sum).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);

@@ -265,8 +265,8 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
   executor explored hop by hop to 180 blocks out and then gave up every gathering task as "none within 96 blocks".
 - **Stuck rescue** (real Minecraft, survival). Two moves that fail within 3 blocks of the same spot in 6 minutes (a pit,
   a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
-  up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage. The
-  brain is told what happened.
+  up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage (in
+  front of the storage hut's door, when the village has one). The brain is told what happened.
 
 ### In-game commands
 ```
@@ -292,13 +292,13 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
 | GET | `/api/block?x=&y=&z=` | The block at a position (name and state; `loaded: false` when its chunk is not loaded) |
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
-| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage, reservations and recent events |
+| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage (chest by chest, with each one's material group in a storage hut), reservations and recent events |
 | POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
 | POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
 | GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
 | GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
 | POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does |
-| POST | `/api/village/:name/storage` `{x, y, z}`, `/api/village/:name/tasks/:id` `{status}` | Minecraft, for tests: register an existing chest as storage; set a task's status |
+| POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
 | GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
 | GET | `/api/atlas?village=` (or `?x=&z=`), `radius=` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials), and what a summary costs |
 | GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
@@ -354,8 +354,9 @@ refused with the size the whole village needs. In survival it also asks the worl
 site in the amounts needed, counted the way `collect` would reach them (anything within 40 blocks, only exposed blocks
 farther out, nothing more than 16 below the ground; wood may be a quarter short, since felled trees and ground not yet
 loaded add some), and refuses with the choice of smaller buildings or another site. Then it posts the tasks in order:
-prepare the plot; set up the storage; the materials for each building; each building at its computed position.
-Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot and spent the
+prepare the plot; set up the storage; the materials for each building; each building at its computed position. In
+survival, a new village's first layout also gets a storage hut, added by code (the mayor does not name it, and
+`design_building` refuses the name): see [the village economy](#the-village-economy-real-minecraft). Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot and spent the
 rest of the run relocating it.
 
 ```sh
@@ -426,8 +427,10 @@ What building these agents taught, and what the code is built around:
 - `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
 - `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered]` (real
   Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
-  places and stocks the storage chest, and the default workers are scripted (brain `tasks`: they run the skill calls
-  each task spells out, no model), so the economy's code is tested in one to ten minutes.
+  places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
+  plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
+  workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
+  is tested in one to ten minutes.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong.
 - `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
   stuck. `bench_agent.py` compares models on survival progression.
@@ -491,19 +494,35 @@ needs 25 cobblestone, 54 oak_planks, 1 oak_door, 1 glass; gather 25 cobblestone,
 craft 4 planks (any kind), 60 oak_planks, 3 oak_door; smelt 1 glass (fuel: 1 planks, or 1 coal instead)
 ```
 
-**Village storage.** A village keeps its materials in chests (`mcStorage.ts`). The first `deposit` puts a carried chest
-down beside the plot; when the chests are full, a carried chest goes down in a row beside them. `deposit item=all`
-keeps tools and leaves the junk that gathering picks up (saplings, seeds, dirt). What each chest holds is recorded
-whenever it is opened, and shown in every planner's village summary and on the control panel.
+**Village storage.** A village keeps its materials in chests (`mcStorage.ts`), in a **storage hut** that code draws
+and lays out with the village's first layout (`huts.ts`): 7 wide, 9 deep and 4 high, a cobblestone floor, plank walls
+with log corners, a plank roof, an oak door in the middle of the south wall and no windows. Inside are nine chest spots,
+four along each side wall and one at the back, none side by side (two chests side by side would join into a double
+chest). The design marks them `_`, cells the build leaves as they are, so the hut is built around chests already
+standing: `build_design` lets the village's chests stand there, and refuses to build when one is not at the level of
+the hut's floor (it would be buried under the floor layer).
+
+The storage is **sorted**: each chest holds one material group (logs, planks, cobblestone, sand, glass, terracotta,
+misc), given at its first use. `deposit` puts each item into its group's chest; when that is full or missing it takes a
+free chest, else puts a new chest in the next free spot (carried, or crafted from logs carried or taken from storage),
+else any chest with room. `withdraw` goes to the chests that hold the item. `deposit item=all` keeps tools and leaves
+the junk that gathering picks up (saplings, seeds, dirt, cocoa beans). Villages laid out before the hut keep their loose
+chests: the first `deposit` puts a carried chest down beside the plot, and when the chests are full, another goes down
+in a row beside them. What each chest holds is recorded whenever it is opened, and shown chest by chest in every
+planner's village summary, in `/api/village/:v` and in the panel's detailed view ("chest 1 (logs): 64 oak_log, ...").
+Crafting tables and furnaces are never put down on a village's plots or next to its buildings (a table a gatherer put
+down stood inside the future hut and raised its floor).
 
 **From objective to buildings.** For "two matching cottages and a meeting hall":
 
 1. The **mayor** runs `find_site` (a site with enough trees near it), has a `cottage` and a `meeting_hall` designed
    within the survival limits, and calls `plan_layout`, which checks the materials are near the site.
-2. `plan_layout` places the buildings and posts the tasks, each as exact skill calls: prepare the plot; set up the
-   storage (collect 4 logs, craft a chest, deposit it beside the plot); for each building, gather its raw materials in
-   parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect block=cobblestone
-   count=29, then deposit item=all"); then build it at its coordinates.
+2. `plan_layout` places the buildings, with the storage hut, and posts the tasks, each as exact skill calls: prepare
+   the plot; set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
+   the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
+   raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
+   block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
+   gathering waits only for the storage, their builds for the hut.
 3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
    asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
    Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
@@ -585,7 +604,7 @@ The agent framework lives in `server/src`: `world.ts` (the world interface brain
 world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
-`layout.ts` (plan_layout), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format and checks)
+`layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format and checks)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
 economy), the local server's scripts in `mc/`; the control panel is

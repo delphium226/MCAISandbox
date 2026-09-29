@@ -25,6 +25,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
+import { STORAGE_HUT } from './huts';
 import { VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { taskCalls } from './taskBrain';
@@ -1143,12 +1144,14 @@ export class TieredBrain implements AgentBrain {
         // without one to smelt its glass (Accept2): not in survival designs
         const stations = design && a.gamemode !== 'creative' ? [...new Set(Object.values(design.palette).map((b) => b.replace(/\[.*$/, '')).filter((b) => /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anvil)$/.test(b)))] : [];
         if (stations.length) errors.push(`leave out the ${stations.join(', ')}: workstations and containers are not part of a building here`);
+        // The storage hut is drawn by code (its chest spots are fixed); plan_layout adds it by itself
+        if (design?.name === STORAGE_HUT) errors.push(`"${STORAGE_HUT}" is the village storage hut, which code draws and lays out by itself; name your building something else`);
         const room = siteLimit(a);
         // In survival every block is gathered by hand: an 11x11 cottage and a 13x13 hall made ~750 blocks (Accept5)
         const cap = Math.min(room?.one ?? 99, a.gamemode !== 'creative' && a.world.materialTasks ? SURVIVAL_MAX : 99);
         const tooBig = !!design && Math.max(design.width, design.depth) > cap;
         if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}; ${cap === SURVIVAL_MAX && (!room || room.one > cap) ? `buildings here are at most ${cap}x${cap} (every block is gathered by hand)` : `the village site is ${room!.size}x${room!.size}: one building can be at most ${cap}x${cap} there`}; draw it smaller`);
-        if (design && !unobtainable.length && !tooBig && !stations.length) {
+        if (design && !unobtainable.length && !tooBig && !stations.length && design.name !== STORAGE_HUT) {
           if (v) {
             v.designs[design.name] = design;
             a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);

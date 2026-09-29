@@ -14,13 +14,13 @@
  * in survival (tests).
  */
 import { Vec3 } from 'vec3';
-import type { Area, Design, Reservation } from '../village';
+import type { Area, Design, Reservation, Structure } from '../village';
 import { VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
-import { SURVIVAL_SKILLS } from './mcSurvival';
+import { SURVIVAL_SKILLS, STATION_REACH } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
 
 type Pos = [number, number, number];
@@ -54,7 +54,7 @@ const NON_GROUND = /leaves|_log$|_wood$|_stem$|grass$|fern|flower|dandelion|popp
 /** Ground as nature makes it (find_site counts anything else as built on). */
 const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/;
 /** Blocks that occur in the wild: preparing a site may remove these, never anything built. */
-const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
+const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|cocoa|glow_lichen|hanging_roots|sweet_berry_bush|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
 const isLog = (n: string) => /_log$|_wood$|_stem$/.test(n);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
@@ -152,7 +152,7 @@ function treeAt(a: BotAgent, x: number, y: number, z: number): Pos[] {
 interface Job {
   targets: Target[];
   /** Ground reserved in the village while working (checked for conflicts first). */
-  claim?: { area: Area; purpose: string; avoidStructures: boolean };
+  claim?: { area: Area; purpose: string; avoidStructures: boolean; ignore?: (s: Structure) => boolean };
   /** Where to stand: the area worked on. */
   area: Area;
   y: number;
@@ -355,7 +355,7 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const near = (n: string) => {
     const p = a.bot.entity.position;
-    return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: 16, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
+    return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: STATION_REACH, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
   };
   // Only what can be made here: glass with no sand in reach must not stop the door and the chest being made (the
   // builder then leaves the windows open)
@@ -453,7 +453,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
   const reg = a.world.villages;
   let reservation: Reservation | undefined;
   if (job.claim && v) {
-    const why = reg.conflict(v, job.claim.area, a.name, job.claim.avoidStructures);
+    const why = reg.conflict(v, job.claim.area, a.name, job.claim.avoidStructures, job.claim.ignore);
     if (why) throw new Error(`cannot work at ${areaText(job.claim.area)}: ${why}; pick another spot (find_site avoids taken ground)`);
     reservation = reg.reserve(v, job.claim.area, a.name, job.claim.purpose);
   }
@@ -1077,13 +1077,14 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
 
 /**
  * Ground level for a building footprint, or throws why the site is not ready: unloaded, water, not level, trees or
- * rocks in the way (prepare it), or another building (go elsewhere).
+ * rocks in the way (prepare it), or another building (go elsewhere). `leave` holds what the design leaves as it is
+ * ("_" cells, as "x,layer,z") and the storage chests standing on them ("x,z": the storage hut is built around them).
  */
-function readySite(a: BotAgent, area: Area, height: number, what: string): number {
+function readySite(a: BotAgent, area: Area, height: number, what: string, leave?: { cells: Set<string>; chests: Set<string> }): number {
   const w = area.x2 - area.x1 + 1, d = area.z2 - area.z1 + 1;
   const cx = area.x1 + Math.floor(w / 2), cz = area.z1 + Math.floor(d / 2);
   const prep = `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
-  const there = a.village()?.structures.find((st) => overlaps(area, st));
+  const there = a.village()?.structures.find((st) => overlaps(area, st) && !(st.kind === 'storage' && leave?.chests.has(`${st.x1},${st.z1}`)));
   if (there) {
     const same = there.kind === what.replace(/"/g, '') ? ' (the same design: if building it here was your task, it is already done)' : '';
     throw new Error(`a ${there.kind} built by ${there.builtBy} already stands at ${areaText(there)}${same}; otherwise pick a free spot on the plot`);
@@ -1093,6 +1094,7 @@ function readySite(a: BotAgent, area: Area, height: number, what: string): numbe
   let wet = 0;
   for (let x = area.x1; x <= area.x2; x++)
     for (let z = area.z1; z <= area.z2; z++) {
+      if (leave?.chests.has(`${x},${z}`)) continue;
       const c = surfaceAt(a, x, z, py);
       if (!c) throw new Error(`the site is not loaded; walk closer to x=${cx} z=${cz}`);
       if (c.liquid) wet++;
@@ -1107,6 +1109,7 @@ function readySite(a: BotAgent, area: Area, height: number, what: string): numbe
   for (let x = area.x1; x <= area.x2; x++)
     for (let z = area.z1; z <= area.z2; z++)
       for (let y = y0 + 1; y < y0 + height; y++) {
+        if (leave?.cells.has(`${x},${y - y0},${z}`)) continue;
         const b = a.bot.blockAt(new Vec3(x, y, z));
         if (!b || b.name === 'air' || b.boundingBox === 'empty') continue;
         blocked++;
@@ -1137,13 +1140,30 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   // A build stopped part-way (out of materials) continues at the same level: its own walls would fail the site checks
   const key = `${d.name}@${cx},${cz},${rot}`;
   const pending = (a.memory.pendingBuilds ?? {}) as Record<string, number>;
-  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`);
   // Design column i (west to east) and row j (north to south), turned clockwise rot times
   const turn = (i: number, j: number): [number, number] => {
     let [u, v, w, h] = [i, j, d.width, d.depth];
     for (let r = 0; r < rot; r++) [u, v, w, h] = [h - 1 - v, u, h, w];
     return [u, v];
   };
+  // What the design leaves as it is ("_"), and the village's storage chests standing there: the storage hut is built
+  // around its chests (their 1x1 storage records would otherwise make the site "taken")
+  const cells = new Set<string>(), columns = new Set<string>();
+  d.layers.forEach((layer, li) => layer.forEach((row, j) => {
+    for (let i = 0; i < row.length; i++) if (row[i] === '_') {
+      const [ox, oz] = turn(i, j);
+      cells.add(`${area.x1 + ox},${li},${area.z1 + oz}`);
+      columns.add(`${area.x1 + ox},${area.z1 + oz}`);
+    }
+  }));
+  const chests = new Set((a.village()?.storage?.chests ?? []).map((c) => `${c.x},${c.z}`).filter((k) => columns.has(k)));
+  const kept = (s: Structure) => s.kind === 'storage' && chests.has(`${s.x1},${s.z1}`);
+  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`, { cells, chests });
+  // A chest the design leaves must be on a "_" cell at its own level: with the floor worked out a block higher (a bump
+  // elsewhere in the footprint), the floor layer would be set on top of the chests and empty them
+  for (const c of a.village()?.storage?.chests ?? [])
+    if (chests.has(`${c.x},${c.z}`) && !cells.has(`${c.x},${c.y - y0},${c.z}`))
+      throw new Error(`the storage chest at ${c.x},${c.y},${c.z} is not where the ${d.name} leaves room for it (its floor would be at y=${y0}, the chest at y=${y0 + 1}); level the ground around it (prepare_site keeps off the chests), then build again`);
   const targets: Target[] = [];
   const doors: Array<[number, number, [number, number]]> = [];
   d.layers.forEach((layer, li) =>
@@ -1179,7 +1199,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   a.memory.pendingBuilds = { ...pending, [key]: y0 };
   const summary = await runJob(a, {
     targets: work, area, y: y0, what: `the ${d.name}`, design: d.name,
-    claim: { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true },
+    claim: { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true, ignore: kept },
   }, signal).catch((e: Error) => {
     // A fresh build that placed nothing (short of materials, site taken) gets the site checks again next time
     if (pending[key] === undefined && !/^ran out of/.test(e.message)) delete (a.memory.pendingBuilds as Record<string, number>)[key];

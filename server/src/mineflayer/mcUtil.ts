@@ -6,6 +6,7 @@ import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { BotAgent } from './botAgent';
+import { overlaps } from '../village';
 
 const { goals } = pathfinderPkg;
 export { goals };
@@ -232,6 +233,50 @@ export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, c
 }
 
 /** A free spot next to the bot to put a block down (air with air above and solid ground below, not where it stands). */
+/**
+ * Whether x, z is on any village's ground: a prepared or laid-out plot, or within 2 blocks of a building. A crafting
+ * table a gatherer put down there (for its pickaxe) stood inside the future storage hut and raised its floor (StageH3).
+ */
+export function onVillageGround(a: BotAgent, x: number, z: number, y?: number): boolean {
+  const cell = { x1: x, z1: z, x2: x, z2: z };
+  // With a height, only near the ground's level: a gatherer mining under a plot may still put its table down there
+  const level = (g: number) => y === undefined || (y >= g - 3 && y <= g + 12);
+  for (const v of a.world.villages.villages.values()) {
+    if (v.plots.some((p) => overlaps(cell, p) && level(p.y + 1)) || v.structures.some((s) => overlaps(cell, s, 2) && level(s.y + 1))) return true;
+    // A laid-out plot not yet prepared has no level: any height counts
+    if ((v.layouts ?? []).some((l) => overlaps(cell, l) && !v.plots.some((p) => overlaps(p, l) && !level(p.y + 1)))) return true;
+  }
+  return false;
+}
+
+/** Walk off village ground: to a dry spot 3 blocks past the edge of the ground the bot stands on. False if it could not. */
+export async function stepOffVillageGround(a: BotAgent, signal: AbortSignal): Promise<boolean> {
+  const p = a.bot.entity.position.floored();
+  if (!onVillageGround(a, p.x, p.z, p.y)) return true;
+  // The ground it stands on, as one box (a plot and the buildings on it)
+  const cell = { x1: p.x, z1: p.z, x2: p.x, z2: p.z };
+  const areas = [...a.world.villages.villages.values()].flatMap((v) => [...v.plots, ...(v.layouts ?? []), ...v.structures.map((s) => ({ x1: s.x1 - 2, z1: s.z1 - 2, x2: s.x2 + 2, z2: s.z2 + 2 }))]).filter((q) => overlaps(cell, q));
+  const box = { x1: Math.min(...areas.map((q) => q.x1)), z1: Math.min(...areas.map((q) => q.z1)), x2: Math.max(...areas.map((q) => q.x2)), z2: Math.max(...areas.map((q) => q.z2)) };
+  const spots = [[box.x1 - 3, p.z], [box.x2 + 3, p.z], [p.x, box.z1 - 3], [p.x, box.z2 + 3]]
+    .sort(([x1, z1], [x2, z2]) => Math.abs(x1 - p.x) + Math.abs(z1 - p.z) - Math.abs(x2 - p.x) - Math.abs(z2 - p.z));
+  for (const [x, z] of spots) {
+    if (onVillageGround(a, x, z)) continue;
+    const y = standableY(a, x, p.y, z);
+    // Within 3 blocks up or down: a table or furnace much higher or lower is not reused (ensureTable, smelt)
+    if (y === null || Math.abs(y - p.y) > 3) continue;
+    const here = a.bot.blockAt(new Vec3(x, y, z)), under = a.bot.blockAt(new Vec3(x, y - 1, z));
+    if (!under || /^(water|lava)$/.test(under.name) || here?.name === 'water') continue;
+    try {
+      await reach(a, new Vec3(x + 0.5, y, z + 0.5), 1.5, signal, 30000);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+    }
+    const now = a.bot.entity.position.floored();
+    if (!onVillageGround(a, now.x, now.z, now.y)) return true;
+  }
+  return false;
+}
+
 export function freeSpotNearby(a: BotAgent): { ground: Block; pos: Vec3 } | null {
   const bot = a.bot;
   const base = bot.entity.position.floored();
@@ -245,7 +290,7 @@ export function freeSpotNearby(a: BotAgent): { ground: Block; pos: Vec3 } | null
     const here = bot.blockAt(pos), above = bot.blockAt(pos.offset(0, 1, 0));
     // Not on a block that opens when clicked (placing against a crafting table opens it: the server refused a furnace)
     const clickable = !!ground && /chest|barrel|furnace|smoker|crafting_table|door|trapdoor|gate|bed$|shulker|anvil|table$|lectern|hopper|dispenser|dropper/.test(ground.name);
-    if (ground?.boundingBox === 'block' && !clickable && here?.boundingBox === 'empty' && here.name !== 'water' && here.name !== 'lava' && above?.boundingBox === 'empty') return { ground, pos };
+    if (ground?.boundingBox === 'block' && !clickable && here?.boundingBox === 'empty' && here.name !== 'water' && here.name !== 'lava' && above?.boundingBox === 'empty' && !onVillageGround(a, pos.x, pos.z, pos.y)) return { ground, pos };
   }
   return null;
 }

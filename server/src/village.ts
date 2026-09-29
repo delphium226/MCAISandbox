@@ -35,6 +35,8 @@ export interface StorageChest {
   y: number;
   z: number;
   items: Record<string, number>;
+  /** The material group it holds, in a sorted storage (the storage hut): logs, planks, cobblestone, ..., misc. */
+  group?: string;
 }
 /** A building drawn as layers (bottom-up) of rows (north to south) of palette characters (west to east). */
 export interface Design {
@@ -77,6 +79,8 @@ export interface Village {
   log: string[];
   /** Shared storage (real Minecraft's village economy): chests and their contents as last seen. */
   storage?: { chests: StorageChest[]; updated: number };
+  /** The storage hut laid out for the village (footprint and chest spots, in the order chests go down). */
+  storageHut?: Area & { spots: Array<{ x: number; z: number }> };
   /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
   wood?: string;
   /** Plots plan_layout has laid buildings out on (kept off by later site searches and layouts). */
@@ -150,12 +154,15 @@ export class VillageRegistry {
     this.save();
   }
 
-  /** Why `area` cannot be used by `by` (an existing structure, or ground someone else reserved), or null if it can. */
-  conflict(v: Village, area: Area, by: string, avoidStructures = true): string | null {
+  /**
+   * Why `area` cannot be used by `by` (an existing structure, or ground someone else reserved), or null if it can.
+   * `ignore` lets structures through (storage chests a storage hut is built around).
+   */
+  conflict(v: Village, area: Area, by: string, avoidStructures = true, ignore?: (s: Structure) => boolean): string | null {
     const now = Date.now();
     v.reservations = v.reservations.filter((r) => r.until > now);
     if (avoidStructures)
-      for (const s of v.structures) if (overlaps(area, s)) return `it overlaps ${s.builtBy}'s ${s.kind} (${areaText(s)})`;
+      for (const s of v.structures) if (overlaps(area, s) && !ignore?.(s)) return `it overlaps ${s.builtBy}'s ${s.kind} (${areaText(s)})`;
     for (const r of v.reservations)
       if (r.by !== by && overlaps(area, r)) return `${r.by} has reserved ${areaText(r)} to ${r.purpose}`;
     return null;
@@ -328,11 +335,10 @@ export class VillageRegistry {
       }));
     }
     if (v.storage?.chests.length) {
-      const sum: Record<string, number> = {};
-      for (const c of v.storage.chests) for (const [n, q] of Object.entries(c.items)) sum[n] = (sum[n] ?? 0) + q;
-      const items = Object.entries(sum).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       const where = v.storage.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ');
-      lines.push(`Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${items.length ? items.slice(0, 24).map(([n, q]) => `${q} ${n}`).join(', ') : 'empty'}`);
+      lines.push(v.storageHut
+        ? `Village storage, in the storage hut (deposit sorts each item into its material's chest; withdraw finds it): ${storageText(v)}`
+        : `Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${storageText(v)}`);
     }
     if (v.log.length) lines.push('Recent village events:', ...v.log.slice(-6).map((l) => `- ${l}`));
     const now = Date.now();
@@ -340,6 +346,24 @@ export class VillageRegistry {
     if (res.length) lines.push('Ground others are working on:', ...res.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));
     return lines.join('\n');
   }
+}
+
+/**
+ * What the village storage holds, for summaries and messages: chest by chest when the chests are sorted ("chest 1
+ * (logs): 64 oak_log, 12 birch_log; chest 2 (cobblestone): 40 cobblestone"), else summed ("40 cobblestone, 12 oak_log").
+ */
+export function storageText(v: Village, max = 24): string {
+  const total = (items: Record<string, number>) => Object.values(items).reduce((s, q) => s + q, 0);
+  const chests = v.storage?.chests ?? [];
+  const list = (items: Record<string, number>, n: number) => {
+    const e = Object.entries(items).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+    return e.length ? e.slice(0, n).map(([k, q]) => `${q} ${k}`).join(', ') + (e.length > n ? `, and ${e.length - n} more kinds` : '') : 'empty';
+  };
+  if (chests.some((c) => c.group) || v.storageHut)
+    return chests.map((c, i) => `chest ${i + 1} (${c.group ?? (total(c.items) ? 'not sorted' : 'free')}): ${list(c.items, 8)}`).join('; ') || 'no chest yet';
+  const sum: Record<string, number> = {};
+  for (const c of chests) for (const [n, q] of Object.entries(c.items)) sum[n] = (sum[n] ?? 0) + q;
+  return list(sum, max);
 }
 
 /** A building to lay out: its design name and footprint. */
