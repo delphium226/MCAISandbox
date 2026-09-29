@@ -24,12 +24,22 @@ the session ends. When a run teaches something new, the plan changes with it (it
      (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
      `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud
      MCAI_GAMEMODE=survival MCAI_STALL_MIN=5 MCAI_SAME_FAIL=6 python scripts/watch_village.py <Village> -160 -100 2 90
-     "two matching cottages and a meeting hall" ollama:qwen3.8:27b` (~35 min; one cottage ~10 min). Without
-     `MCAI_GAMEMODE` it runs in creative (free blocks, a few minutes).
+     "two matching cottages and a meeting hall" ollama:qwen3.8:27b` (10-40 min: ~300-block villages 10-15 min,
+     500+ blocks or log roofs 25-40). Without `MCAI_GAMEMODE` it runs in creative (free blocks, a few minutes). The
+     watcher probes for land (in survival it skips ground with too few trees) and spawns the village at the site
+     it found, not at X Z.
   To restart the agent server after a server edit: stop the process on port 8766
   (`Get-NetTCPConnection -LocalPort 8766 -State Listen`), start step 3 again with `run_in_background`.
   Stop: `python mc/rcon.py stop` (saves the world), `python scripts/ollama_exec.py stop`, the agent server by PID.
-  Watch scripts leave their agents in the world when they stop on the time limit: remove them (panel or `DELETE`).
+  Watch scripts leave their agents in the world when they stop (time limit or stall): remove them (panel or
+  `DELETE`). If a session restart kills a watcher mid-run, `python scripts/attach_village.py VILLAGE MINUTES_SO_FAR`
+  follows the running agents instead.
+- **Background tasks die with the Claude session**: servers and watchers started with `run_in_background` stopped when
+  a session restarted (a watcher mid-run on 2026-09-28). At every session start check ports 25565, 8766, 11435,
+  11436 and restart what is missing.
+- The agent server logs event-loop stalls over 2 s as `[lag] ... blocked for ~N ms; <each agent's action>`. 2-3.5 s
+  when bots spawn and during find_site's log scan are normal; a stall over ~30 s makes Paper time out every bot at
+  once (Accept4, cause never found).
 - `tsx watch` **restarts the server on every server-file edit**. That removes all agents (villages in
   `world/villages.json` and players' inventories persist). Do not edit server files while a test run is in progress.
 - **World saving:** chunks are written to disk only when they unload (30 s after no player or agent needs them) or on a
@@ -72,7 +82,11 @@ the session ends. When a run teaches something new, the plan changes with it (it
 ` in template strings came out wrong through Python twice). Check
   `git ls-files --eol` after `sed -i` (it has turned CRLF files into LF).
 - Start long runs with the Bash tool's `run_in_background` (not `&`, which can die with the shell) and follow them with
-  a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ...`); stop old monitors, or events come twice.
+  a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ... | awk '{print substr($0,1,280); fflush()}'`):
+  `cut` at the end of the pipe buffers and delivers nothing. Stop old monitors (two tailing one log report every event
+  twice) and re-arm when one expires (30 min) during a long run.
+- Python edit scripts inside a Bash heredoc mangle backslashes (`\n`, `\S`, Windows paths): write the script with
+  the Write tool and run the file, or use the Edit tool.
 - Never edit server files while a test runs, even though the agent server does not reload them (the user's rule; it
   was broken twice in the 2026-09-27 session without effect on the runs).
 - Write prose (README, comments) plainly; match the surrounding comment density.
@@ -100,6 +114,10 @@ the session ends. When a run teaches something new, the plan changes with it (it
   timed out. `ollama_exec.py start` warms each model with a ~3k-token prompt: the first long prompt after loading
   took qwen3.8 ~4 minutes (short prompts do not show it). Calls time out after `MC_OLLAMA_TIMEOUT` (default 300 s).
   If plans time out, run `python scripts/ollama_exec.py status`: a model not fully in VRAM means stop and start.
+- **Ollama can report a spilled model as fully in VRAM** (2026-09-28): "20383 of 20383 MB in VRAM" while nvidia-smi
+  showed 1.3 GB on that card and the executor ran at 2.7 tok/s (one turn took 187 s and stalled a village). It was
+  fast at start-up and degraded later. `ollama_exec.py start` and `status` now compare each card's memory with its
+  model and print a WARNING: then stop and start. Check `status` before every run series.
 - qwen3.8 worker plans measured ~12-28 s on 2026-09-27 (not the 7-10 s benchmarked earlier), with GPU 0 nearly full.
 - Running the `ollama` CLI launches the Ollama app, which may auto-update itself.
 - Claude API calls are billed separately from the user's Claude subscription.
@@ -179,8 +197,13 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 - Use `scripts/watch_village.py` (village runs) or `scripts/watch_agent.py` (one agent). They stop early when the
   objective is met or the agent is stuck; the user prefers fast iterations over fixed long waits, so always use an early
   stop, `buildSpeed: 4`, and background runs with a notification.
-- A typical village run (mayor + 3-4 workers, qwen executors, gemma mayor/designs) takes 4-10 minutes. Spawn on land
-  (the village watcher searches for it); read the log for failures, loops and duplicate work, not just the outcome.
+- A survival village run (mayor + 2 workers) takes 10-40 minutes; creative runs 4-10. The village watcher finds land
+  itself; read the log for failures, loops and duplicate work, not just the outcome (most failures on 2026-09-28 were
+  code bugs visible in the log, not model behaviour).
+- **Targeted checks without models** (`scripts/checks/`, 2026-09-28; need the agent server, some use villages from this
+  machine's `mc/server/villages.json`): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs),
+  `layout_small_sites.py NAME` (partial layouts, second site), `materials_near_site.py` (plan_layout's material
+  counts), `treeless_site.py`, `smelt_fuel.py`. Run the relevant one after changing find_site, layout.ts or smelting.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
   **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
@@ -198,7 +221,8 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
 - While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
-  user); the final runs use qwen3.8:27b.
+  user); the final runs use qwen3.8:27b. In village runs the workers' planner is no longer called at all (`plan 0x0ms`:
+  code-posted tasks run as written, the executor handles failures), so planner choice does not show in them.
 
 ## State of the work
 
@@ -228,6 +252,11 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
 17. `0c6c2aa` session lessons; `19b9b47` reliability (one wood kind, fast-failing collect, stuck rescue, quiet
     mayor); `b7908db` fixes from the 4-worker runs, panel simple mode, LAN access, `docs/PLAN.md`; `83bfe05` plan
     handover. Not pushed (ask first). From here on, progress is tracked in `docs/PLAN.md`.
+
+18. 2026-09-28/29 (phase 1 steps 1.2-1.5, all pushed to origin `tiered-brain-building`, `main` untouched): a site
+    that fits (`3b5627e`), mayor start and small items (`64786af`), then fixes from 18 acceptance runs
+    (`ad7edda`..`212a190`, see PLAN.md F24-F52). Acceptance passed: Accept9-11 (gpt-oss workers' planner) and
+    Accept15, 18 (qwen3.8).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -310,8 +339,14 @@ Things to expect:
 - Survival skills that exist and work (`collect`, `craft`, `smelt`, `mine`, `place`, `explore`): see the lessons below
   (crafting desync, buried stone, leaves). The self-defence reflex stays but should never fire in peaceful.
 - Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
-- Gatherers stay within 96 blocks of the village (the chest); find_site prefers ground with trees within 48 blocks
-  (a desert site had none within 128); walks over 64 blocks go in legs of ~40.
+- Every village member stays within 96 blocks of the village (move_to and explore are refused or shortened beyond;
+  collect walks back first). find_site searches up to 112 blocks and walks up to two 40-block legs; in survival a
+  site needs 30 log blocks within 48 (only wood within 16 of the ground counts). plan_layout refuses designs whose
+  materials are not near the site in the amounts needed (as collect can reach them; wood may be 25% short).
+  Survival designs are at most 9x9 and use only logs, stone, sand, sandstone, dirt, gravel or terracotta.
+- **Log roofs make villages slow** (a 9x9 hall with an oak log roof needs 81 logs; Accept16 and 18 took 38-39 min).
+  The commonest failure left is collect not reaching logs high on hills (9-23 failed collects per run in hilly or
+  jungle-edged woods).
 - Where village tests went well: around -160,-100 (savanna with trees and sand: Riverbend6, Meadowford2 and 5), but
   that area is now full of test villages (the staged land search found nothing free there on 2026-09-28); the oak and
   birch woods around -360..-430, -80..-105 (StageW2-W4); -428,-200 (Fourfold5, all built in 21.6 min).
@@ -319,6 +354,12 @@ Things to expect:
   -560,-60 (jungle hills: logs out of reach, sand under water), 4..60,-232..-194 (few trees), -494,-336 (hills at
   y 95, no sand within 96), -195,-97 (only 18x18 of level land). Test villages of 2026-09-28: StageW1-W4, Fourfold1-7
   (all in `mc/server/villages.json`); start new ones away from them. Run logs are kept in `runs/<date>/` (gitignored).
+- Acceptance runs of 2026-09-28/29 (Accept1-18, Tightfit1; also test villages LayoutTest*, MatTest*, DesertTest):
+  good: -349,-114 and -405,5 (oak woods, Accept1 and 9), -367,-2 (Accept2), -462,-183 (Accept10), -111,50 (acacia,
+  Accept11), -590,-209 (Accept15), -416,49 (Accept18). Poor: -35,324 (desert, only buried wood), -262,125 (1 log
+  near), -51,-315 (little sandstone), -519,-382 (hills at y 101, no sand), -330,150 (the probe point is a hollow; the
+  site found is at -382,105). find_site keeps off every village's ground now, so reusing an area only shares its
+  trees.
 
 ## Real Minecraft
 
@@ -360,11 +401,11 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left from the 2026-09-28 sessions: no agents in the world; the Paper server (on the LAN, whitelisted, time frozen
-at day), the pinned model servers and the agent server (`MC_API_HOST=0.0.0.0`) were left running. Test buildings and
-storage chests stand near spawn and at the test villages (Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*,
-Fourfold*; all in `mc/server/villages.json`): build elsewhere or clear them. The user has watched runs in the game
-from another PC; the panel's simple mode has not been confirmed in a browser yet.
+Left from the 2026-09-29 session: no agents in the world; the Paper server (on the LAN, whitelisted, always day),
+the pinned model servers and the agent server (`MC_API_HOST=0.0.0.0`) were left running, but as background tasks of
+that Claude session (check them). Test buildings and storage chests stand near spawn and at the test villages
+(Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1; all in `mc/server/villages.json`):
+build elsewhere or clear them. The user confirmed the panel's simple mode reads well (2026-09-29).
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
@@ -428,6 +469,26 @@ Lessons from the adapter:
    offline mode.
 20. **Judge prompt changes on more than three samples**: `mayorbench` gave 3/3 and 0/3 for the same prompt and case.
    Prompt wording did not stop gpt-oss re-posting work; fewer wake-ups and code guards did.
+21. **Checks must count what the skills can actually do** (2026-09-28): the material check first passed a village
+   needing 247 sandstone on finding one block, then counted sandstone buried under sand that collect never digs for;
+   wood 36 blocks down a mineshaft counted as trees near a desert site. Count near the surface, in the amounts
+   needed, and as collect reaches blocks (anything close, only exposed blocks farther out).
+22. **Range limits must cover every agent**: the 96-block guard covered only the mayor, and a worker's executor
+   explored hop by hop to 180 blocks away, then gave up every gathering task it took ("none within 96 blocks of the
+   village", judged from where it stood).
+23. **A failure handler must check the failure is about the current task**: a queued sandstone collect left over from
+   a given-up task failed again under each newly claimed log task and gave three of them up.
+24. **Mineflayer's inventory view lags inside windows too**: smelting's fuel top-up offered the plank already burning;
+   while a furnace or chest is open, read `window.items()` (the window's slots), not `bot.inventory`.
+25. **Completion and other "nothing else will wake it" checks belong in the tick**, not after a particular model
+   reply: all three buildings stood while the mayor, which had just tried to re-post work, was never woken again.
+26. **Model steps that name a planner tool go to the executor**, which cannot call it and improvises (a "plan_layout"
+   step made it run find_site and replace a 30x30 site with a 24x24). Drop such steps in code.
+27. **Designs need limits in code, not prompts**: 11x11 and 13x13 buildings of mossy cobblestone (moss from lush caves
+   at y=-4), furnaces and chests as decoration, sandstone roofs where there is no sandstone. Survival designs are
+   capped at 9x9, raw materials are whitelisted, workstations refused, and materials checked against the site.
+28. **Where the watcher spawns matters**: it spawned villages at its probe point, 100 blocks from the site it found,
+   and the mayor started stuck in a hollow; a timed-out walk that got nowhere was not counted as stuck either.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

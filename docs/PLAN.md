@@ -22,25 +22,39 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 (written 2026-09-29 at the end of the third reliability session)
 
-- **Code:** all committed on `tiered-brain-building`, nothing pushed (ask first); the last commits are `212a190`
-  (village spawns at the site; timed-out walks count as stuck) and the docs commit with this handover. Working tree
-  clean except the gitignored `runs/`.
-- **Running when this session ended:** Paper, the Ollama app, both pinned model servers (both on their own cards:
-  `python scripts/ollama_exec.py status` now warns when a card does not hold its model) and the agent server (log
-  `runs/2026-09-28/agentserver-s3p.log`). No agents in the world. The servers were started as background tasks of the
-  Claude session: a session restart can stop them (it stopped a watcher once).
-- **Step 1.5 (acceptance):** gpt-oss workers' planner: Accept9, 10, 11 passed in a row. qwen3.8:27b: Accept15 and
-  Accept18 passed; Accept12-14, 16, 17 failed on code bugs, each fixed (F45-F51). **The workers' planner was never
-  called in any of these runs** (`plan 0x0ms`: code-posted tasks run as written), so the model comparison the step
-  asked for says nothing about planners (F52). Only Accept18 ran on the final code; the user counted 1.5 as passed.
-- **Next:** 1.6 docs (CLAUDE.md lessons of this phase, README, ARCHITECTURE.md), then phase 2. Open small items:
-  village log lines in plain words, F44 (synchronous scans, 2-3 s stalls),
-  F20 (deposits counted on the bot's view), collect failures on logs high on hills (the commonest failure left: 9-23
-  per run in hilly or jungle-edged woods).
+- **Code:** everything committed on `tiered-brain-building`; pushed to origin up to `aeb78dc` (the user agreed);
+  the docs commit with this handover (CLAUDE.md, PLAN.md, `scripts/checks/`, `scripts/attach_village.py`) is local
+  unless the user agreed to push it. Working tree clean except the gitignored `runs/`. Ask before every push.
+- **Running when this session ended:** Paper, the Ollama app, both pinned model servers (on their own cards), the agent
+  server (`runs/2026-09-28/agentserver-s3p.log`). No agents in the world. They were background tasks of the Claude
+  session and may have stopped with it: check ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py
+  status` (a WARNING means a model spilled: stop and start) before anything else.
+- **Phase 1 status:** 1.0-1.5 done (acceptance: Accept9-11 with gpt-oss, Accept15 and 18 with qwen3.8; the user
+  counted 1.5 as passed on 09-29). **Next step: 1.6, README and ARCHITECTURE.md**, then phase 2.
+  - README: describe the survival village as it now works: find_site (112 blocks, walking legs, 30 logs within 48,
+    other villages kept off), plan_layout (narrow streets, partial layouts and second sites, material counts near
+    the site, wood may be 25% short), design limits (9x9, whitelisted raw materials, no workstations), the range rule
+    (every village member within 96 blocks; collect walks back first), completion by code on every tick, the stuck
+    rescue counting timed-out walks, smelting fuel top-up, the watchdog `[lag]` lines, `ollama_exec.py` spill check,
+    `scripts/checks/`, `scripts/attach_village.py`. Keep the README's existing tone and structure (it already explains
+    how the agents work in detail; update, do not rewrite).
+  - ARCHITECTURE.md: run-as-written tasks (the workers' planner is not called in village runs, F52), the rescue
+    (`mcRescue.ts`, trigger in `botAgent.ts` `movedFailed`), `WorldAdapter.materialsNear`, `village.layouts` /
+    `village.unplaced`, `villageHome`/`VILLAGE_RANGE`, the tick-level completion check; keep its diagrams current.
+  - Sources for both: this file's findings F24-F52 and decisions, CLAUDE.md lessons 15-28, the commit messages
+    `3b5627e`..`212a190` (`git log --oneline a8ea00d..HEAD`). No code changes are needed for 1.6; typecheck after any
+    doc-only change is not required, but check CRLF (`git diff --stat` vs `--ignore-cr-at-eol`).
+- **Then phase 2 (shared village atlas)**, starting with 2.1 (record chunk summaries as bots move). Useful context
+  from phase 1: find_site already builds a height grid with prefix sums (`surveyGround`, `bestSite` in `mcBuild.ts`)
+  and `materialsNear` counts reachable materials (`mcWorld.ts`): both are natural consumers of an atlas. The
+  commonest failure left is collect not reaching logs high on hills (9-23 per run) and log-heavy designs (F51); the
+  atlas (2.2) and a log cap for designs are the likely answers. Synchronous scans cause 2-3 s event-loop stalls
+  (F44): the atlas must not add to them (target well under 1 ms per chunk, as 2.1 says).
 - Run logs: `runs/2026-09-28/` (accept1-18, tight1, s2-*/s3-* targeted tests, agentserver-*.log).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
-  of every run when online; agent names Gus, Mayor, Worker1-4; commit tested batches, ask before pushing; never edit
-  server files while a run is going (draft edits in the scratchpad and apply them between runs).
+  of every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
+  pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
+  run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes.
 
 ## Phase 1: reliability of the survival village (in progress)
 
@@ -75,8 +89,9 @@ executors qwen3:30b-instruct; workers' planner gpt-oss while iterating, qwen3.8:
       five failed runs between them, each on a code bug since fixed; see the handover): 3 model-driven runs in a row, 2 workers, gpt-oss worker planner, all three buildings
       built and the village declared complete, no manual help. Then 2 runs with qwen3.8:27b as the workers' planner.
       Record each in the run record.
-- [ ] 1.6 Docs: CLAUDE.md (lessons of this phase, LAN access, `MC_API_HOST`, whitelist: new agent names must be
-      whitelisted), README, ARCHITECTURE.md (run-as-written, rescue, atlas when it exists).
+- [ ] 1.6 Docs. Done (2026-09-29): CLAUDE.md (lessons 21-28 of the adapter, the model-spill trap, test sites,
+      `scripts/checks/`, `scripts/attach_village.py`, session-restart and Monitor practices; LAN access, `MC_API_HOST`
+      and the whitelist were already there). Left: README and ARCHITECTURE.md (below).
 
 ## Phase 2: shared village atlas (agreed 2026-09-28)
 
