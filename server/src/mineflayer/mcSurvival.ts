@@ -185,6 +185,300 @@ const unreachable = new Map<string, number>();
  */
 const targeted = new Map<string, { by: string; until: number }>();
 
+// ---------------------------------------------------------------------------------------------
+// Felling trees
+// ---------------------------------------------------------------------------------------------
+
+const isTreeLog = (name: string | undefined) => !!name && name.endsWith('_log') && !name.startsWith('stripped_');
+/** How high above the ground a tree may reach to be felled (giant jungle and spruce trees are left standing). */
+const TREE_MAX_HEIGHT = 30;
+/** How far up a log can be cut from where the bot stands (its eyes are 1.62 above its feet; reach ~4.3). */
+const CUT_REACH = 4.3;
+
+/**
+ * The logs of the tree a log belongs to: the logs connected to it, diagonals included (acacia branches, 2x2 trunks),
+ * within 4 blocks sideways, up to 160. `keep` leaves out logs that are not the tree's (a building's log walls).
+ */
+function treeLogs(a: BotAgent, start: Vec3, keep: (p: Vec3) => boolean): Vec3[] {
+  const seen = new Set<string>([at(start)]);
+  const out: Vec3[] = [];
+  let frontier = [start];
+  while (frontier.length && out.length < 160) {
+    const next: Vec3[] = [];
+    for (const p of frontier) {
+      if (!isTreeLog(a.bot.blockAt(p)?.name) || !keep(p)) continue;
+      out.push(p);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++) {
+            const q = p.offset(dx, dy, dz);
+            if (Math.abs(q.x - start.x) > 4 || Math.abs(q.z - start.z) > 4 || seen.has(at(q))) continue;
+            seen.add(at(q));
+            next.push(q);
+          }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+/** The first solid ground under x, z below y (logs and leaves do not count); null if not loaded or none within 40. */
+function groundBelow(a: BotAgent, x: number, y: number, z: number): number | null {
+  const v = new Vec3(x, 0, z);
+  for (let yy = y - 1; yy > y - 40; yy--) {
+    const b = a.bot.blockAt(v.set(x, yy, z));
+    if (!b) return null;
+    if (b.boundingBox === 'block' && !isTreeLog(b.name) && !b.name.endsWith('_leaves')) return yy;
+  }
+  return null;
+}
+
+/** Jump and put a block of dirt under the feet: one block up. Returns where the block went. */
+async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
+  const bot = a.bot;
+  const feet = bot.entity.position.floored();
+  const below = bot.blockAt(feet.offset(0, -1, 0));
+  if (below?.boundingBox !== 'block') throw new Error(`nothing solid under ${at(feet)} to build up from`);
+  // Room to jump: leaves over the head are cleared, anything else stops the climb
+  const over = bot.blockAt(feet.offset(0, 2, 0));
+  if (over && over.boundingBox !== 'empty') {
+    if (!over.name.endsWith('_leaves')) throw new Error(`${over.name} above ${at(feet)}`);
+    await abortable(bot.dig(over, true), signal, () => bot.stopDigging());
+  }
+  const dirt = bot.inventory.items().find((it) => it.name === 'dirt');
+  if (!dirt) throw new Error('no dirt left to build up with');
+  await bot.equip(dirt, 'hand');
+  bot.pathfinder.setGoal(null);
+  // Whether the dirt is there is the server's word: on 26.1 the placer is often not sent the block update, so
+  // Mineflayer reports "the block is still air" (and its physics stands on nothing) when the dirt was placed; a retry
+  // then put a second block on top (StageT2). Placed on the server means placed, and the bot's view is told so
+  const placedOnServer = async () => /passed/i.test(await a.world.rcon.command(`execute if block ${feet.x} ${feet.y} ${feet.z} minecraft:dirt`).catch(() => ''));
+  let placed = false;
+  for (let attempt = 0; attempt < 2 && !placed; attempt++) {
+    bot.setControlState('jump', true);
+    let problem = '';
+    try {
+      for (let i = 0; i < 20 && bot.entity.position.y < feet.y + 1; i++) await sleep(50, signal);
+      await sleep(50, signal);
+      await abortable(bot.placeBlock(below, new Vec3(0, 1, 0)), signal);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      problem = (e as Error).message;
+    } finally {
+      bot.setControlState('jump', false);
+    }
+    placed = await placedOnServer();
+    if (placed && bot.blockAt(feet)?.name !== 'dirt') {
+      const dirt = a.world.registry.blocksByName.dirt;
+      (bot.world as unknown as { setBlockStateId(p: Vec3, id: number): void }).setBlockStateId(feet, dirt.defaultState ?? dirt.minStateId!);
+    }
+    if (!placed && attempt === 1) throw new Error(`could not put dirt under the feet at ${at(feet)}${problem ? ` (${problem})` : ''}`);
+    for (let i = 0; i < 30 && !bot.entity.onGround; i++) await sleep(50, signal);
+  }
+  for (let i = 0; i < 20 && !(bot.entity.onGround && bot.entity.position.y >= feet.y + 0.99); i++) await sleep(50, signal);
+  return feet;
+}
+
+/**
+ * Dig a pillar back down while standing on it, top first, taking only the blocks it placed; what is left after that
+ * (the bot's view lags the server's after digs: a check found the bottom block still there) is taken in a second and
+ * third pass, walking to it if need be. Returns the blocks still there.
+ */
+async function pillarDown(a: BotAgent, placed: Vec3[], signal: AbortSignal): Promise<Vec3[]> {
+  const bot = a.bot;
+  const left = () => placed.filter((p) => bot.blockAt(p)?.name === 'dirt');
+  for (let pass = 0; pass < 3 && left().length; pass++) {
+    for (const p of left().reverse()) {
+      const b = bot.blockAt(p);
+      if (b?.name !== 'dirt') continue;
+      try {
+        if (bot.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) <= CUT_REACH) await abortable(bot.dig(b, true), signal, () => bot.stopDigging());
+        else await mineBlock(a, p, signal, false, 15000);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+      }
+      for (let i = 0; i < 30 && !(bot.entity.onGround && bot.entity.position.y < p.y + 0.5); i++) await sleep(50, signal);
+    }
+    await sleep(400, signal);
+  }
+  return left();
+}
+
+/**
+ * Dirt for the climb: what the bot carries, or dug from the ground beside the tree (the holes are filled again after).
+ * Returns the holes.
+ */
+async function dirtForClimb(a: BotAgent, need: number, foot: Vec3, keep: (p: Vec3) => boolean, signal: AbortSignal): Promise<Vec3[]> {
+  const reg = a.world.registry;
+  const dirtId = itemId(a, 'dirt')!;
+  const holes: Vec3[] = [];
+  if (countItem(a, dirtId) >= need) return holes;
+  const ids = ['dirt', 'grass_block', 'podzol'].map((n) => reg.blocksByName[n]?.id).filter((n): n is number => n !== undefined);
+  // Ground at the tree's foot, open above, not under the tree itself
+  const spots = nearestBlocks(a, ids, 8, 32, (p) => keep(p) && Math.abs(p.y - (foot.y - 1)) <= 1 && (p.x !== foot.x || p.z !== foot.z)
+    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? ''));
+  for (const p of spots) {
+    if (countItem(a, dirtId) >= need) break;
+    await mineBlock(a, p, signal, false, 15000);
+    holes.push(p);
+  }
+  if (countItem(a, dirtId) < need) throw new Error(`needs ${need} dirt to climb the tree (has ${countItem(a, dirtId)}) and found too little ground to dig beside it`);
+  return holes;
+}
+
+/**
+ * Pick up the logs and dirt lying within `radius` of pos, nearest first, for up to `ms`: a felled tree drops its logs
+ * around its foot (the first test kept 24 of 54 logs with pickUpDrops' 6 seconds and 4 blocks). An item out of reach is
+ * skipped, not the end of it; saplings and sticks falling from the decaying leaves are left (walking after them made a
+ * staged village 60% slower).
+ */
+async function sweepDrops(a: BotAgent, pos: Vec3, radius: number, ms: number, signal: AbortSignal) {
+  const bot = a.bot;
+  const t0 = Date.now();
+  const skip = new Set<number>();
+  const wanted = (d: Entity) => /_log$|^dirt$/.test(itemName(a, (d.getDroppedItem?.() as { type?: number } | null)?.type ?? -1));
+  await sleep(500, signal);
+  while (Date.now() - t0 < ms) {
+    const e = Object.values(bot.entities)
+      .filter((d) => d.name === 'item' && !skip.has(d.id) && d.position.distanceTo(pos) < radius && wanted(d))
+      .sort((u, v) => u.position.distanceTo(bot.entity.position) - v.position.distanceTo(bot.entity.position))[0];
+    if (!e) return;
+    try {
+      await walk(a, new goals.GoalNear(e.position.x, e.position.y, e.position.z, 0.5), 'the dropped item', signal, 6000);
+      await sleep(250, signal);
+    } catch (err) {
+      if ((err as Error).message === 'cancelled') throw err;
+    }
+    if (bot.entities[e.id]) skip.add(e.id);
+  }
+}
+
+/**
+ * Fell the whole tree `log` belongs to, as a player would: from the ground under its lowest log, cut what is in reach,
+ * then build up with dirt under the feet, cutting as it goes, and dig that pillar back down; the leaves decay by
+ * themselves once the logs are gone. Before this, collect cut the logs it could reach and left the rest floating: 39
+ * of 61 "could not reach logs" failures in the acceptance runs were bots standing under such a trunk (F54).
+ * Returns the logs cut; logs it could not get to are returned in `left`.
+ */
+async function fellTree(a: BotAgent, log: Vec3, keep: (p: Vec3) => boolean, signal: AbortSignal, walkMs: number): Promise<{ cut: number; left: Vec3[]; text: string }> {
+  const b = a.bot;
+  const logs = treeLogs(a, log, keep);
+  if (!logs.length) return { cut: 0, left: [], text: 'no tree' };
+  // A tree has leaves on its logs; logs without are built (a frame of log posts and beams, a player's cabin)
+  const leafy = logs.some((p) => FACES.some((f) => b.blockAt(p.plus(f))?.name.endsWith('_leaves')));
+  if (!leafy) throw new Error(`the logs at ${at(log)} have no leaves: built by someone, not a tree`);
+  const lowest = logs.reduce((m, p) => (p.y < m.y ? p : m));
+  const top = logs.reduce((m, p) => Math.max(m, p.y), lowest.y);
+  const groundY = groundBelow(a, lowest.x, lowest.y, lowest.z);
+  if (groundY === null) throw new Error(`no ground under the tree at ${at(lowest)}`);
+  if (top - groundY > TREE_MAX_HEIGHT) throw new Error(`the tree at ${at(lowest)} is ${top - groundY} blocks tall (more than ${TREE_MAX_HEIGHT})`);
+  for (const p of logs) targeted.set(at(p), { by: a.name, until: Date.now() + 5 * 60000 });
+  const foot = new Vec3(lowest.x, groundY + 1, lowest.z);
+  const standing = () => logs.filter((p) => isTreeLog(b.blockAt(p)?.name));
+  let cut = 0;
+  const cutInReach = async () => {
+    const before = cut;
+    for (const p of standing().sort((u, w) => u.y - w.y)) {
+      const blk = b.blockAt(p)!;
+      if (b.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) > CUT_REACH) continue;
+      const tool = b.pathfinder.bestHarvestTool(blk);
+      if (tool) await b.equip(tool, 'hand');
+      b.pathfinder.setGoal(null);
+      for (let i = 0; i < 30 && b.pathfinder.isMining(); i++) await sleep(100, signal);
+      await abortable(b.dig(blk, true), signal, () => b.stopDigging());
+      a.pushEvent('broke', `broke ${blk.name} at ${at(p)}`, { block: blk.name, x: p.x, y: p.y, z: p.z });
+      cut++;
+    }
+    return cut - before;
+  };
+  // To the tree's foot, cutting what can be reached from the ground; then into the column of its lowest log, where each
+  // log cut above falls onto the bot (a floating trunk's column is free already)
+  await walk(a, new goals.GoalNear(foot.x, foot.y, foot.z, 2), `the tree at ${at(lowest)}`, signal, walkMs).catch((e: Error) => {
+    if (e.message !== 'cancelled') console.log(`[trees] ${a.name} at ${at(b.entity.position)} could not walk to the tree at ${at(foot)}: ${e.message.slice(0, 160)}`);
+    throw e;
+  });
+  await cutInReach();
+  // Logs that can be cut from the ground elsewhere around the tree (a second trunk joined by a branch, low branches):
+  // walked to one by one. Climbing is only for what stands too high (the first test climbed for logs 4 blocks to the
+  // side and ran out of dirt)
+  for (const p of standing().filter((q) => q.y <= groundY + 5)) {
+    if (!isTreeLog(b.blockAt(p)?.name)) continue;
+    try {
+      await mineBlock(a, p, signal, false, 20000);
+      cut++;
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      console.log(`[trees] ${a.name} could not cut ${at(p)} from the ground: ${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+  await walk(a, new goals.GoalBlock(foot.x, foot.y, foot.z), `the foot of the tree at ${at(foot)}`, signal, 15000).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+    // Built up from where it stands instead
+  });
+  await cutInReach();
+  const need = Math.max(0, top - groundY - 5) + 1;
+  const placed: Vec3[] = [];
+  let holes: Vec3[] = [];
+  let problem = '';
+  let climbFrom: Vec3 | null = null;
+  // Worth climbing while logs stand above what can be cut from here (the feet + 5)
+  const high = () => standing().some((p) => p.y > b.entity.position.y + 4);
+  // ...and only from beside the trunk at its foot: a bot whose walk into the column failed stood 4 blocks lower, over
+  // nothing solid, and tried to build up from there
+  const me = b.entity.position.floored();
+  const atFoot = Math.abs(me.x - foot.x) <= 2 && Math.abs(me.z - foot.z) <= 2 && Math.abs(me.y - foot.y) <= 1;
+  try {
+    if (high() && !atFoot) throw new Error(`could not get to the foot of the tree at ${at(foot)} (stood at ${at(me)})`);
+    if (high()) {
+      holes = await dirtForClimb(a, need, b.entity.position.floored(), keep, signal);
+      // Back to where it stood: digging the dirt can leave it in one of those holes, and a climb from there filled the
+      // hole with its first pillar block
+      if (holes.length) await walk(a, new goals.GoalBlock(me.x, me.y, me.z), 'the foot of the tree', signal, 15000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      const now = b.entity.position.floored();
+      if (now.y !== me.y || Math.abs(now.x - me.x) > 1 || Math.abs(now.z - me.z) > 1) throw new Error(`could not get back to the foot of the tree at ${at(me)} after digging dirt`);
+    }
+    // Up one block at a time, cutting as it goes; three climbs that cut nothing end it
+    let idle = 0;
+    climbFrom = b.entity.position.floored();
+    while (high() && idle < 3 && placed.length <= TREE_MAX_HEIGHT) {
+      placed.push(await pillarUp(a, signal));
+      idle = (await cutInReach()) ? 0 : idle + 1;
+    }
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    problem = (e as Error).message;
+  } finally {
+    if (!signal.aborted) {
+      await pillarDown(a, placed, signal);
+      for (const h of holes) await placeAt(a, 'dirt', h, signal).catch(() => undefined);
+    }
+  }
+  await sweepDrops(a, foot, 8, 20000, signal);
+  const left = standing();
+  // The pillar as the server has it: the bot's view lags after placing and digging, and bottom blocks were left standing
+  // (twice in the first tests) or reported left when gone. Anything left is broken by command (it drops like dug dirt)
+  if (climbFrom) {
+    const gone: string[] = [];
+    for (let y = climbFrom.y; y <= climbFrom.y + placed.length + 1; y++) {
+      // (a hole it dug for dirt and filled again is ground, not pillar)
+      if (holes.some((h) => h.x === climbFrom!.x && h.y === y && h.z === climbFrom!.z)) continue;
+      const r = await a.world.rcon.command(`execute if block ${climbFrom.x} ${y} ${climbFrom.z} minecraft:dirt`).catch(() => '');
+      if (!/passed/i.test(r)) continue;
+      await a.world.rcon.command(`setblock ${climbFrom.x} ${y} ${climbFrom.z} air destroy`).catch(() => '');
+      gone.push(`${climbFrom.x},${y},${climbFrom.z}`);
+    }
+    if (gone.length) {
+      console.log(`[trees] ${a.name} left pillar blocks at ${gone.join('; ')}: broken by command`);
+      await sweepDrops(a, climbFrom, 4, 5000, signal);
+    }
+  }
+  const text = `felled the tree at ${at(foot)}: ${cut} logs${placed.length ? `, climbed ${placed.length}` : ''}${left.length ? `; ${left.length} out of reach left${problem ? ` (${problem})` : ''}` : ''}`;
+  console.log(`[trees] ${a.name} ${text}`);
+  return { cut, left, text };
+}
+
 /**
  * Gather `count` of a block. It gives up soon on blocks it cannot get to: after 3 of them, or 90 seconds spent on
  * failed walks, or 2 minutes without collecting anything (six tries of up to two minutes each took five minutes).
@@ -238,8 +532,11 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Nor in a prepared plot, down to a few blocks under its level (cobblestone gatherers dug the levelled stone of a
     // plot, and its buildings then found the ground uneven)
     // (and the 2-block margin prepare_site levels around a plot: gatherers dug an 18-deep hole at a plot's edge, Accept8)
+    // Every village's, not only its own: Gus, in no village, felled the jungle-log frames of Accept15's cottages and hall
+    // as trees (2026-09-29)
     const vil = a.village();
-    const built = [...(vil?.structures ?? []), ...(vil?.plots ?? []).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: pl.y - 3 }))];
+    const all = [...a.world.villages.villages.values()];
+    const built = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: pl.y - 3 }))];
     // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
@@ -274,6 +571,22 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
         : `no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     const t1 = Date.now();
+    // A log: its whole tree is felled, so no trunk is left floating out of reach (F54)
+    if (isTreeLog(a.bot.blockAt(next)?.name)) {
+      try {
+        const r = await fellTree(a, next, near, signal, 20000 + 500 * Math.round(next.distanceTo(me)));
+        mined += r.cut;
+        // What it could not get to is out of reach for every bot (one failure for the tree, not one per log)
+        for (const p of r.left) bad.set(at(p), Date.now() + 10 * 60000);
+        if (!r.cut) fail(next, r.text, Date.now() - t1);
+      } catch (e) {
+        const m = (e as Error).message;
+        if (m === 'cancelled') throw e;
+        for (const p of treeLogs(a, next, near)) bad.set(at(p), Date.now() + 10 * 60000);
+        fail(next, m, Date.now() - t1);
+      }
+      continue;
+    }
     try {
       // A walk of 20 seconds for a block close by, a little more for one farther off
       await mineBlock(a, next, signal, false, 20000 + 500 * Math.round(next.distanceTo(me)));

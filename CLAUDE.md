@@ -204,7 +204,8 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   machine's `mc/server/villages.json`): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs),
   `layout_small_sites.py NAME` (partial layouts, second site), `materials_near_site.py` (plan_layout's material
   counts), `treeless_site.py`, `smelt_fuel.py`, `atlas.py [X Z [DIRECTION DISTANCE]]` (walks Gus, compares chunk summaries
-  with `/api/block`, ~15 s a chunk). Run the relevant one after changing find_site, layout.ts, smelting or the atlas.
+  with `/api/block`, ~15 s a chunk), `fell_trees.py [X Z [COUNT [ROUNDS]]]` (Gus collects logs; logs, pillar dirt and
+  drops left around each felled tree). Run the relevant one after changing find_site, layout.ts, smelting or the atlas.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
   **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
@@ -490,6 +491,13 @@ Lessons from the adapter:
    capped at 9x9, raw materials are whitelisted, workstations refused, and materials checked against the site.
 28. **Where the watcher spawns matters**: it spawned villages at its probe point, 100 blocks from the site it found,
    and the mayor started stuck in a hollow; a timed-out walk that got nowhere was not counted as stuck either.
+29. **On 26.1 a bot is often not sent the block update for its own placement** (2026-09-29): Mineflayer said "the
+   block is still air" and its physics stood on nothing where the server had placed the dirt; a retry stacked a
+   second block. Ask the server (`execute if block` over RCON) and write the block into the bot's view
+   (`bot.world.setBlockStateId`); check what must be gone on the server too (felling's pillar check).
+30. **Keep off every village's work, not only the agent's own** (2026-09-29): Gus, in no village, felled the jungle-log
+   frames and roofs of Accept15's cottages and hall as trees (~101 logs, restored by command). Any skill that breaks
+   blocks must exclude all villages' structures and plots, and treat logs without leaves as built.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

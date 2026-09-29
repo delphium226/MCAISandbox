@@ -216,7 +216,9 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:240]}", flush=True)
             if e["type"] == "action_done":
                 last_done = time.time()
-            if e["type"] == "action_failed":
+            # A material that is not within reach is given up by design (soft gather tasks; the build goes without):
+            # not a stuck agent (StageT3 and T4 were stopped on sand)
+            if e["type"] == "action_failed" and "cannot be gathered here" not in e["text"]:
                 k = (n, e["text"][:80])
                 fails[k] = fails.get(k, 0) + 1
                 if fails[k] >= 3:

@@ -31,8 +31,9 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   status` (a WARNING means a model spilled: stop and start) before anything else.
 - **Phase 1 status:** 1.0-1.5 done (acceptance: Accept9-11 with gpt-oss, Accept15 and 18 with qwen3.8; the user
   counted 1.5 as passed on 09-29). Step 1.6 (README and ARCHITECTURE.md) done in `d63d314` on 09-29 by the
-  following session, which then started phase 2; the notes on 1.6 below are kept for reference. **Step 2.1 (the
-  shared atlas) is done too (09-29, F53); next is 2.2, collect going to the nearest atlas entry.**
+  following session, which then started phase 2; the notes on 1.6 below are kept for reference. **Steps 2.1 (the
+  shared atlas, F53) and 2.2 (finishing trees, F54-F56) are done too (09-29, staged runs only); next: a model-driven
+  village run to confirm 2.2 in the full loop, then 2.3 (sites from the atlas; 2.2b is low value, F54).**
   - README: describe the survival village as it now works: find_site (112 blocks, walking legs, 30 logs within 48,
     other villages kept off), plan_layout (narrow streets, partial layouts and second sites, material counts near
     the site, wood may be 25% short), design limits (9x9, whitelisted raw materials, no workstations), the range rule
@@ -107,8 +108,16 @@ sites. Code keeps and uses the atlas; models do not read it raw.
       atlas, `mc/server/atlas.json` (decision 09-29). Show it on the panel as one village map (simple mode too). Test:
       walk Gus around, check the saved summary against `/api/block`; measure the cost per chunk (target well under
       1 ms; CPU is shared by all bots). Done 09-29 (`mcAtlas.ts`, `/api/atlas`, `scripts/checks/atlas.py`; F53).
-- [ ] 2.2 **Gather from it**: `collect` with nothing in view goes to the nearest atlas entry for the material
-      (and fails fast if it is gone, updating the atlas). Test: staged full run on a site with sand out of view.
+- [x] 2.2 **Finish trees** (replaces the atlas-guided collect here; decision 09-29, F54): `collect` fells a trunk
+      it has started completely, like a player: pillar up beside or under it with dirt, cut each log in reach, then
+      dig its own pillar back down (only the blocks it placed; the dirt comes back), so no floating trunk or pillar is
+      left and the canopy decays by itself. One failure on a trunk marks the whole trunk, not one log. Dirt: carried,
+      or dug beside the tree and put back. Test: Gus on tall oak and jungle trees (count logs left, pillar blocks
+      left), then a staged full run; watch the "could not reach logs" count (39 of 61 were floating trunks).
+      Done 09-29 (F55, F56): StageT5 built testhall + testhut in 13.0 min with no failures but soft sand ones.
+- [ ] 2.2b **Gather from the atlas**: `collect` with nothing in view goes to the nearest atlas entry for the material
+      (and fails fast if it is gone, updating the atlas). Low value while the view distance (8 chunks) covers the
+      96-block range (F54); mainly a CPU saving. Test: staged full run on a site with sand out of view.
 - [ ] 2.3 **Sites from it**: `find_site` scores candidates over the atlas: level, dry, and trees, stone and sand
       within reach. Test: staged runs in the places that went wrong (jungle hills at -560,-60; lake at -235,-53).
 - [ ] 2.4 **Scouting**: when the site search finds nothing good, code posts "scout" tasks for idle workers in
@@ -134,8 +143,7 @@ lays out, gathers and builds it, and the mayor answers in chat.
 
 ## Phase 4: speed and scale
 
-- [ ] 4.1 Gathering that finishes trees: fell a low tree completely rather than chasing canopy logs; choose trees by
-      reachable logs.
+- [ ] 4.1 ~~Gathering that finishes trees~~ (moved to 2.2); choose trees by reachable logs (atlas `low` counts).
 - [ ] 4.2 The storage chest between the plot and the nearest trees and stone, not wherever the first deposit is.
 - [ ] 4.3 More workers where gathering allows (4 workers only paid off with enough trees apart; see F12).
 - [ ] 4.4 Executors on gpt-oss (benchmark with `scripts/bench/execbench.mts` first). Low value now: workers make
@@ -146,6 +154,7 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
 - Events carry no timestamp (the panel cannot say "2 min ago").
 - Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
+- The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them.
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -186,6 +195,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-28 | Accept16 | qwen3.8, hills -519,-382 (y 101) | all 3 built at 37.6 min, not declared complete | 42.6 min | the mayor re-posted gathering, the completion check never ran (F49); no sand: windows open |
 | 09-29 | Accept17 | qwen3.8, -330,150 | stalled at 8.2 min | 8.2 min | mayor spawned at the probe point 100 blocks from the site, stuck in a hollow; designs waited behind its walk (F50) |
 | 09-29 | Accept18 | qwen3.8, -416,49 | **3/3 built**, declared complete by code | 39.2 min | 13 failed actions (Worker2's collects), every block placed; log roofs made gathering slow |
+| 09-29 | felling checks 1-8 | Gus collects logs 3x12 (`fell_trees.py`): jungle edge -580,-200, oak/birch -380,20 and -400,45, fresh woods -620,-240 and -660,-280 | from 27-log trunks half cut to every tree whole | 1-2 min a round | F55, F56; check 1-5 also felled Accept15's log frames (restored) |
+| 09-29 | StageT1 | staged full, testhut + testhall, felling | stopped at 3.6 min | 3.6 min | the runner's 3-minute stall rule: a 30-cobblestone task with a pickaxe to make took longer |
+| 09-29 | StageT2 | same, MCAI_STALL_MIN=5, beside Accept15 | **2/2 built** | 18.0 min | 0 failed actions, 0 "could not reach logs", 26 trees felled, Accept15 untouched; slower than StageW2 (11.1): the drop sweep chased saplings |
+| 09-29 | StageT3, T4 | same, hills -769,-384; oak woods -443,-22 | stopped at 3.6 / 6.1 min | | the runner stopped on "no sand" three times (a soft failure by design; the runner now ignores it) |
+| 09-29 | StageT5 | same, oak woods -447,-60 | **2/2 built** | 13.0 min | only soft sand failures (windows open); logs-only sweep |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -333,6 +347,32 @@ CLAUDE.md when a phase ends.
   lake at -235,-53: water, logs high and low, stone, gravel), after fixing the check's own rounding. "Other" ground
   is almost always built (Accept9's cottage); cocoa pods counted as ground, now passed over. 700 chunks are 158 KB
   on disk (~225 bytes each). find_site's `surfaceAt` could use the same reading (2.3).
+- F54 (09-29) What collect failures were in Accept1-18 (103): 61 "could not reach" logs, of which 39 had the bot
+  standing right under the target 5-9 blocks up (a trunk left floating after its lower logs were cut; the unreachable
+  memory is per block, so each log of one trunk failed again: -571,-195 and -571,-220 in Accept15 over and over); 22
+  unclear (the log keeps the last of three problems). All 13 "no logs within 96 blocks" came from Accept7, 8 and 14,
+  whose causes are fixed. With view distance 8 (~128 blocks) a worker near home has the whole 96-block range loaded,
+  so an atlas-guided collect would rarely find anything the local search misses.
+- F55 (09-29, step 2.2) Felling tests with Gus (`scripts/checks/fell_trees.py`, `runs/2026-09-29/trees-check*.log`):
+  in oak and birch woods (-380,20 and -400,45) about 24 trees came down, all but one with nothing left, 88 logs cut and 84 in hand
+  (server count), climbs of 2-3 on tall birches, and the climbs' dirt came back. Found and fixed on the way: climbing
+  for logs off to the side (a second trunk joined by a branch: now cut from the ground first, climbs only for logs
+  above reach), drops lost (24 of 54 kept: a 20 s sweep within 8 blocks instead of 6 s within 4), a refused
+  placement (retried once), a climb started 4 blocks below the foot (climbs only beside the trunk), pillar bottoms
+  left or wrongly reported left (the bot's view lags placing and digging: the server is asked after the sweep and
+  leftovers broken by command). **And Gus, in no village, felled about 101 jungle logs from Accept15's cottages
+  and hall** (their log frames and log roofs read as trees): `collect` kept off only its own village's buildings,
+  which let any agent take another village's logs one by one before, and whole frames with felling. Fixed: collect
+  keeps off every village's buildings and plots, and a tree must have leaves on its logs (protects unrecorded log
+  builds too). The logs were restored by command (the user agreed; each design's log cells that were air).
+- F56 (09-29, step 2.2) On 26.1 the placer is often not sent the block update for its own placement: Mineflayer
+  reports "the block is still air" (and its physics stands on nothing) when the server placed the dirt, and a retry
+  put a second block on top. Pillar placements now ask the server (`execute if block`) and write the block into the
+  bot's view. After each felling the climb column is checked on the server and leftovers are broken by command
+  (`setblock ... air destroy`); a bot that dug dirt beside the tree walks back to the foot before climbing (it climbed
+  from one of its holes, and the check then broke the refilled hole: 5 holes, filled by hand). Whole trees cost time:
+  StageT2 18.0 min against StageW2's 11.1 for the same buildings, mostly the drop sweep walking after saplings; with
+  logs and dirt only, StageT5 13.0 min. Whole trees also gather surplus (43 logs left in StageT2's storage).
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 
@@ -359,6 +399,8 @@ CLAUDE.md when a phase ends.
 - 09-29 The atlas is one shared map for every agent and village (the user's choice over per-village knowledge), kept
   in its own file (`mc/server/atlas.json`, saved at most every 30 s) rather than `villages.json`, which is written on
   every change and returned whole by `/api/village/:v`.
+- 09-29 Step 2.2 becomes "finish trees" with pillar removal (the user's choice, after F54); the atlas-guided collect
+  moves to 2.2b.
 - 09-29 Phase 1 closed with step 1.6 (README and ARCHITECTURE.md brought up to date); phase 2 starts with 2.1.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
