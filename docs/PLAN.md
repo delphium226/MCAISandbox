@@ -20,44 +20,33 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-09-29 at the end of the third reliability session)
+(written 2026-09-29 at the end of the fourth session: docs 1.6, atlas 2.1, tree felling 2.2, phase 2A planned)
 
-- **Code:** everything committed on `tiered-brain-building`; pushed to origin up to `aeb78dc` (the user agreed);
-  the docs commit with this handover (CLAUDE.md, PLAN.md, `scripts/checks/`, `scripts/attach_village.py`) is local
-  unless the user agreed to push it. Working tree clean except the gitignored `runs/`. Ask before every push.
-- **Running when this session ended:** Paper, the Ollama app, both pinned model servers (on their own cards), the agent
-  server (`runs/2026-09-28/agentserver-s3p.log`). No agents in the world. They were background tasks of the Claude
-  session and may have stopped with it: check ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py
-  status` (a WARNING means a model spilled: stop and start) before anything else.
-- **Phase 1 status:** 1.0-1.5 done (acceptance: Accept9-11 with gpt-oss, Accept15 and 18 with qwen3.8; the user
-  counted 1.5 as passed on 09-29). Step 1.6 (README and ARCHITECTURE.md) done in `d63d314` on 09-29 by the
-  following session, which then started phase 2; the notes on 1.6 below are kept for reference. **Steps 2.1 (the
-  shared atlas, F53) and 2.2 (finishing trees, F54-F56) are done too (09-29, staged runs only); next: a model-driven
-  village run to confirm 2.2 in the full loop, then 2.3 (sites from the atlas; 2.2b is low value, F54).**
-  - README: describe the survival village as it now works: find_site (112 blocks, walking legs, 30 logs within 48,
-    other villages kept off), plan_layout (narrow streets, partial layouts and second sites, material counts near
-    the site, wood may be 25% short), design limits (9x9, whitelisted raw materials, no workstations), the range rule
-    (every village member within 96 blocks; collect walks back first), completion by code on every tick, the stuck
-    rescue counting timed-out walks, smelting fuel top-up, the watchdog `[lag]` lines, `ollama_exec.py` spill check,
-    `scripts/checks/`, `scripts/attach_village.py`. Keep the README's existing tone and structure (it already explains
-    how the agents work in detail; update, do not rewrite).
-  - ARCHITECTURE.md: run-as-written tasks (the workers' planner is not called in village runs, F52), the rescue
-    (`mcRescue.ts`, trigger in `botAgent.ts` `movedFailed`), `WorldAdapter.materialsNear`, `village.layouts` /
-    `village.unplaced`, `villageHome`/`VILLAGE_RANGE`, the tick-level completion check; keep its diagrams current.
-  - Sources for both: this file's findings F24-F52 and decisions, CLAUDE.md lessons 15-28, the commit messages
-    `3b5627e`..`212a190` (`git log --oneline a8ea00d..HEAD`). No code changes are needed for 1.6; typecheck after any
-    doc-only change is not required, but check CRLF (`git diff --stat` vs `--ignore-cr-at-eol`).
-- **Then phase 2 (shared village atlas)**, starting with 2.1 (record chunk summaries as bots move). Useful context
-  from phase 1: find_site already builds a height grid with prefix sums (`surveyGround`, `bestSite` in `mcBuild.ts`)
-  and `materialsNear` counts reachable materials (`mcWorld.ts`): both are natural consumers of an atlas. The
-  commonest failure left is collect not reaching logs high on hills (9-23 per run) and log-heavy designs (F51); the
-  atlas (2.2) and a log cap for designs are the likely answers. Synchronous scans cause 2-3 s event-loop stalls
-  (F44): the atlas must not add to them (target well under 1 ms per chunk, as 2.1 says).
-- Run logs: `runs/2026-09-28/` (accept1-18, tight1, s2-*/s3-* targeted tests, agentserver-*.log).
+- **Code:** everything committed on `tiered-brain-building`; origin has up to `aeb78dc`; local only (ask before
+  pushing): `8e257f8` handover, `d63d314` README/ARCHITECTURE (1.6), `5c24e5b`, `7cc1f9d` atlas (2.1), `9494d3d`
+  felling (2.2), `bd68f12` jump fix + Fell1 + phase 2A, and this handover. Working tree clean except `runs/`.
+- **Running when this session ended:** Paper, the Ollama app, both pinned model servers, the agent server
+  (`runs/2026-09-29/agentserver-fell2.log`), all background tasks of this Claude session: check ports 25565, 8766,
+  11435, 11436 and `python scripts/ollama_exec.py status` first. No agents in the world.
+- **Where things stand:** phase 1 done (1.6 docs in `d63d314`). Phase 2: 2.1 shared atlas done (F53; `mcAtlas.ts`,
+  `mc/server/atlas.json`, `/api/atlas`, village map on the panel); 2.2 whole-tree felling done and confirmed in a
+  model-driven run (Fell1: 3/3 built in 23.1 min, 1 log failure; F54-F57); 2.2b and 2.3-2.4 wait. **Next: phase 2A
+  (village infrastructure, the user's requirements), starting with V.1 and V.2 together** as designed below; the
+  user asked for them in a new session. Do not re-ask the design questions: the user chose fixed designs in code,
+  a code-computed needs list, a staircase mine, and 2A before 2.3.
+- **V.1 + V.2:** the design proposed to the user is written out under those steps in phase 2A (the user said to
+  build it next session: confirm briefly, then build).
+- **Testing notes from this session:** staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task
+  with a pickaxe to make takes over 3 min); `stage_village.py` no longer stops on soft "cannot be gathered here"
+  failures. New checks: `scripts/checks/atlas.py`, `scripts/checks/fell_trees.py`; `scripts/bench/atlasbench.mts`.
+  The panel can be checked without a browser: headless Edge (`msedge --headless=new --screenshot=... --window-size=
+  1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
+- Run logs: `runs/2026-09-29/` (atlas-check*, trees-check1-9, stageT1-T5, fell1, agentserver-*.log).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
   of every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
   pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
-  run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes.
+  run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes; show the approach
+  before changing code at the start of a new piece of work.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -132,12 +121,28 @@ not in holes everywhere, and what it finds goes into the atlas. Decisions (the u
 for the two huts; the needs list is computed by code (the mayor can add to it); the mine is a staircase from inside
 the hut down to stone, then straight branch tunnels at one level.
 
-- [ ] V.1 **Storage hut**: a fixed design with 9 chest spots inside, laid out first by `plan_layout` and built
-      before the other buildings. The first chest goes into spot 1 (the hut is built around it: chest cells are kept),
-      later chests into spots 2-9; an existing chest outside is moved in once the hut stands. Test: staged build stage.
-- [ ] V.2 **Sorted storage**: each chest holds one material (assigned at its first deposit); `deposit` puts each
-      item in its material's chest, a new chest spot when there is none; the storage record reads "chest 3: 64 oak_log"
-      for agents, the panel and `/api/village/:v`. Test: deposits of mixed loads into a stocked hut.
+- [ ] V.1 **Storage hut** and V.2 **sorted storage** (done together; designed 09-29, proposed to the user, to be
+      built next session):
+      - Storage hut, fixed design in code: 7 wide x 9 deep x 4 high; cobblestone floor, plank walls, log corners, plank
+        roof, oak door at the front middle, no windows (no sand needed); inside 5x7 with 9 chest spots, 4 along each
+        side wall (x 0 and 4, z 0/2/4/6 of the interior) and 1 at the back middle (2,6), an aisle from the door. No two
+        chests orthogonally adjacent (they would join into a double chest). Chest cells are `_` in the design (keep what
+        is there), so the hut is built around chests already placed. About 150 blocks, mostly planks.
+      - `plan_layout` (`layout.ts`, around the storage task at line ~138) adds the storage hut to a village's first
+        layout by itself (the mayor does not name it); order: prepare the plot; set up the storage with the first chest
+        in chest spot 1 of the laid-out hut (not beside the plot: `nextChestSpot`/`chestSpotOk` in `mcStorage.ts` refuse
+        plots today, so designated spots need an exception); gather for the hut; build it. Gathering for the other
+        buildings may start at once (deposits into chest 1); their build tasks wait for the storage hut (the mining hut
+        joins that "first buildings" group in V.5).
+      - Sorted storage: each chest gets a material group at its first use (logs of any kind, planks, cobblestone, sand,
+        glass, ...; leftovers such as doors and coal share a misc chest); `deposit` routes each item to its group's
+        chest, a new chest into the next free hut spot when that one is full or missing; `withdraw` goes to the right
+        chest. The record reads "chest 1 (logs): 64 oak_log, 12 birch_log; chest 2 (cobblestone): ..." in the village
+        summary, `/api/village/:v` and the panel. Cocoa beans go on the junk list (F57). Old villages keep their
+        loose chests.
+      - Tests: typecheck; staged `--stage build` with the hut (chest ends up inside, hut built around it, mixed deposits
+        sorted); staged full run; then a model-driven run.
+- [ ] V.2 (see V.1).
 - [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
       (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
@@ -181,7 +186,10 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
 - Events carry no timestamp (the panel cannot say "2 min ago").
 - Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
-- The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them.
+- The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them
+  (felling's server check removes those in a climb column, F57).
+- Cocoa beans (and other drops of jungle trees) go into the chest with `deposit item=all`: add them to the junk list
+  (27 in Fell1's chest; planned with V.2).
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -406,7 +414,9 @@ CLAUDE.md when a phase ends.
   leaves and the tree's logs at both, and does not place until the feet are above the block. The 2 pillar blocks
   once left with no climb recorded were most likely the pathfinder's own scaffolding while sweeping drops (backlog:
   the pathfinder's pillars); the server check removed them. Deposits carry cocoa beans (27 in Fell1's chest): add
-  them to the junk list (backlog).
+  them to the junk list (backlog). A first placement try is still refused now and then with the feet above the block
+  (the server's copy of the bot's position is a tick behind); the retry places it (trees-check9: climbs of 4-5 with
+  nothing left).
 - F44 The materials check and find_site's log scan run synchronously (2-2.7 s stalls with agents idle, at layout
   and during the land probe). Harmless so far; make them incremental if stalls grow.
 

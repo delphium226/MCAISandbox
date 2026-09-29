@@ -80,7 +80,8 @@ the session ends. When a run teaches something new, the plan changes with it (it
   and run them. In edit scripts: open files with `encoding='utf-8'` (the panel HTML is not cp1252), and prefer the Edit
   tool for lines with backslash escapes (``, `
 ` in template strings came out wrong through Python twice). Check
-  `git ls-files --eol` after `sed -i` (it has turned CRLF files into LF).
+  `git ls-files --eol` after any shell edit. **Never use `sed -i` on repo files**: Git Bash's sed writes LF and has
+  turned CRLF files into LF three times (twice on 2026-09-29); use the Edit tool or a Python script.
 - Start long runs with the Bash tool's `run_in_background` (not `&`, which can die with the shell) and follow them with
   a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ... | awk '{print substr($0,1,280); fflush()}'`):
   `cut` at the end of the pipe buffers and delivers nothing. Stop old monitors (two tailing one log report every event
@@ -205,7 +206,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   `layout_small_sites.py NAME` (partial layouts, second site), `materials_near_site.py` (plan_layout's material
   counts), `treeless_site.py`, `smelt_fuel.py`, `atlas.py [X Z [DIRECTION DISTANCE]]` (walks Gus, compares chunk summaries
   with `/api/block`, ~15 s a chunk), `fell_trees.py [X Z [COUNT [ROUNDS]]]` (Gus collects logs; logs, pillar dirt and
-  drops left around each felled tree). Run the relevant one after changing find_site, layout.ts, smelting or the atlas.
+  drops left around each felled tree). Run the relevant one after changing find_site, layout.ts, smelting, the atlas or
+  felling. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
+  3 minutes); `stage_village.py` ignores soft "cannot be gathered here" failures. To see the panel without a browser:
+  headless Edge (`"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --screenshot=<png>
+  --window-size=1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
   **Mayor, Worker1, Worker2** for villages (2 workers, the user's choice: `watch_village.py ... 2 ...`). In real Minecraft a name keeps its inventory and position, so
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
@@ -259,6 +264,11 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
     that fits (`3b5627e`), mayor start and small items (`64786af`), then fixes from 18 acceptance runs
     (`ad7edda`..`212a190`, see PLAN.md F24-F52). Acceptance passed: Accept9-11 (gpt-oss workers' planner) and
     Accept15, 18 (qwen3.8).
+19. 2026-09-29 (fourth session; local, not pushed: ask first): README and ARCHITECTURE.md brought up to date
+    (`d63d314`, step 1.6, phase 1 closed); the shared atlas (`7cc1f9d`, step 2.1: `mcAtlas.ts`, `/api/atlas`, the
+    panel's village map); whole-tree felling and every village's buildings kept off (`9494d3d`, step 2.2), jump room
+    for the climb and the Fell1 run (`bd68f12`); phase 2A (village infrastructure, the user's requirements) planned
+    in PLAN.md with V.1/V.2 designed.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -362,6 +372,11 @@ Things to expect:
   near), -51,-315 (little sandstone), -519,-382 (hills at y 101, no sand), -330,150 (the probe point is a hollow; the
   site found is at -382,105). find_site keeps off every village's ground now, so reusing an area only shares its
   trees.
+- 2026-09-29 test villages: AtlasTest (atlas checks, no buildings), StageT1-T5 (staged felling runs), Fell1
+  (model-driven, -664,-169: jungle-edged woods, good, but no sand within 96 blocks, so windows stay open). Poor for
+  glass: -769,-384 (hills at y 111, no sand: StageT3) and the oak woods at -443,-22 / -447,-60 (4 sand in a watery
+  hollow 80 blocks off: StageT4/T5). Trees were felled around -560..-700, -90..-290 and -360..-440, 20..70 by the
+  felling checks. Accept15's log frames were cut by the first felling checks and restored by command (F55).
 
 ## Real Minecraft
 
@@ -403,11 +418,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left from the 2026-09-29 session: no agents in the world; the Paper server (on the LAN, whitelisted, always day),
+Left from the 2026-09-29 sessions: no agents in the world; the Paper server (on the LAN, whitelisted, always day),
 the pinned model servers and the agent server (`MC_API_HOST=0.0.0.0`) were left running, but as background tasks of
 that Claude session (check them). Test buildings and storage chests stand near spawn and at the test villages
-(Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1; all in `mc/server/villages.json`):
-build elsewhere or clear them. The user confirmed the panel's simple mode reads well (2026-09-29).
+(Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1; all in
+`mc/server/villages.json`): build elsewhere or clear them. The atlas (`mc/server/atlas.json`) holds ~1,650 chunks
+seen so far. The user confirmed the panel's simple mode reads well (2026-09-29).
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
