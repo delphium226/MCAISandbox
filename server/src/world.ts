@@ -128,6 +128,8 @@ export interface WorldAdapter {
   agentList(): WorldAgent[];
   /** Whether a design may use this block (design validation). */
   isPlaceable(block: string): boolean;
+  /** Whether an item id exists (the mayor's add_need), where the world can tell. */
+  isItem?(name: string): boolean;
   /**
    * The survival economy (real Minecraft): the gather tasks building a design needs (collect raw materials, deposit them
    * in the village storage), and why it cannot be built here at all (materials not obtainable). Worlds without an

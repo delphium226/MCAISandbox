@@ -87,6 +87,13 @@ export interface Village {
   layouts?: Array<Area & { buildings: string[] }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
+  /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
+  needs?: Record<string, number>;
+  /**
+   * What still has to be gathered (computed by the world, real Minecraft): the raw materials of the laid-out buildings
+   * not built or being built yet and of `needs`, less the storage and what the village's agents carry.
+   */
+  needed?: { items: Record<string, number>; for: string[]; updated: number };
 }
 
 /** How far a village's mayor and its site searches may go from home. */
@@ -111,6 +118,8 @@ export const areaText = (a: Area) => `x ${a.x1}..${a.x2}, z ${a.z1}..${a.z2}`;
 export class VillageRegistry {
   villages = new Map<string, Village>();
   private nextId = 1;
+  /** Set by a world that computes what a village still needs (real Minecraft); run before claims and summaries. */
+  refreshNeeds?: (v: Village) => void;
 
   constructor(private file: string) {
     try {
@@ -226,6 +235,7 @@ export class VillageRegistry {
 
   /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
   claimable(v: Village): Task[] {
+    this.refreshNeeds?.(v);
     this.coveredByStock(v);
     const finished = (id: string) => {
       const p = this.task(v, id);
@@ -333,6 +343,13 @@ export class VillageRegistry {
         const result = t.result && t.status !== 'open' ? ` -> ${t.result.slice(0, 120)}` : '';
         return `- ${t.id} [${t.status}${who}] ${t.title}${after}${t.status === 'done' ? '' : `: ${t.detail}`}${result}`;
       }));
+    }
+    this.refreshNeeds?.(v);
+    if (!v.complete && v.needed && (v.needed.for.length || Object.keys(v.needs ?? {}).length)) {
+      const items = Object.entries(v.needed.items).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+      lines.push(items.length
+        ? `Materials still to gather (for ${v.needed.for.join(', ') || 'the stock the mayor asked for'}, less the storage and what workers carry; code posts gathering for them): ${items.map(([n, q]) => `${q} ${n}`).join(', ')}`
+        : 'Materials still to gather: none (the storage and the workers hold everything the unbuilt buildings need)');
     }
     if (v.storage?.chests.length) {
       const where = v.storage.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ');

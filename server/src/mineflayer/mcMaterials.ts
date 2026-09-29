@@ -326,18 +326,24 @@ export function describePlan(p: MaterialPlan): string {
 
 const PICKAXE = /^(cobblestone|stone|sandstone|red_sandstone|terracotta|coal|raw_iron)$/;
 
-/**
- * Village tasks that gather raw materials into the storage (collect, then deposit everything), in even parts small
- * enough for two workers to share: at most 12 logs or 32 of anything else (57 cobblestone: 29 and 28). With the
- * village's wood kind, logs are gathered in that kind; without it, any logs (builders swap wood kinds).
- */
-export function gatherTasks(gather: Counts, label: string, wood?: string): Array<{ title: string; detail: string }> {
+/** A plan's raw materials under the names collect takes: logs in the village's wood kind (or "logs"), cobblestone. */
+export function gatherNames(gather: Counts, wood?: string): Counts {
   const merged: Counts = {};
   for (const [item, n] of Object.entries(gather)) {
     // A furnace takes any cobblestone
     const what = /_log$|^any:logs$/.test(item) ? (wood ? `${wood}_log` : 'logs') : item === 'any:cobblestone' ? 'cobblestone' : item.replace(/^any:/, '');
     merged[what] = (merged[what] ?? 0) + n;
   }
+  return merged;
+}
+
+/**
+ * Village tasks that gather raw materials into the storage (collect, then deposit everything), in even parts small
+ * enough for two workers to share: at most 12 logs or 32 of anything else (57 cobblestone: 29 and 28). With the
+ * village's wood kind, logs are gathered in that kind; without it, any logs (builders swap wood kinds).
+ */
+export function gatherTasks(gather: Counts, label: string, wood?: string): Array<{ title: string; detail: string }> {
+  const merged = gatherNames(gather, wood);
   const tasks: Array<{ title: string; detail: string }> = [];
   for (const [what, n] of Object.entries(merged)) {
     const parts = Math.ceil(n / (/logs?$/.test(what) ? 12 : 32));

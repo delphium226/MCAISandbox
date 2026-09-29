@@ -168,9 +168,15 @@ the hut down to stone, then straight branch tunnels at one level.
       Built: `villageStation()` (within 32 blocks and 4 up or down), smelting in turns at the village furnace, the
       hut's doorway instead of a door (F69), doors made passable/openable for every bot. StageH10 (full): no furnace
       put down anywhere, the only table outside the storage task's before the hut stood.
-- [ ] V.3 **Materials needed**: code computes what the laid-out, unbuilt buildings still need (their bills minus
+- [x] V.3 **Materials needed** (done 09-29, StageH13): code computes what the laid-out, unbuilt buildings still need (their bills minus
       storage minus what workers carry) and shows it in every village summary; the mayor can add items
       (`add_need`); gather tasks come from it. Test: the list after each deposit in a staged run.
+      Built: `MineflayerWorld.refreshNeeds` (via `VillageRegistry.refreshNeeds`, before claims and summaries, every 3 s
+      at most) fills `v.needed`: the open builds' bills and the mayor's items in one wood kind, less the storage and
+      what each worker carries of the material its task is for; a claimed build counts with neither. The summary,
+      `/api/village/:v` and the panel show it; `stage_village.py` prints it (NEEDED). `syncGather` posts gathering
+      for what no open or held task covers (not for a material that could not be gathered) and closes only what it
+      posted (F73). The mayor's `add_need` tool (survival only). Not yet exercised: `add_need` and a posted shortfall.
 - [ ] V.4 **Several materials per trip**: a worker gathering X also takes other needed materials it passes (open
       blocks a few steps off its path, up to what is needed). Test: staged full run, trips and time against StageT5.
 - [ ] V.5 **Mining hut and mine**: a fixed hut over a staircase down to stone, then branch tunnels at one level;
@@ -274,6 +280,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageH9 | same after F70, -919,240 | **3/3 built**, deposit check passed | 3.2 min | 3 chests crafted at the hut's table; no furnace put down outside |
 | 09-29 | StageH10 | staged full, V.2b, -1053,112 | **3/3 built** | 22.6 min | no furnace put down, 1 table (the storage task's, before the hut); Worker1's deposit stuck twice in a 1-deep pocket south of the plot, ~5 min lost (F71) |
 | 09-29 | StageH11 | staged build after the fourth review's fixes (F72), -1133,246 | **3/3 built**, deposit check passed | 3.1 min | no table or furnace put down outside the hut |
+| 09-29 | StageH12 | staged full, V.3 first version, -1035,61 | **3/3 built** | 16.2 min | needs listed from 110 logs / 177 cobblestone / 9 sand down; closing tasks village-wide released the hut and the hall short (2 self-healed shortfalls, F73) |
+| 09-29 | StageH13 | same after the V.3 review's fixes, -1047,33 | **3/3 built** | 16.1 min | 0 failed actions; the list only went down (177 cobblestone to none); no task posted or closed by code (none short); every window glazed |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -521,6 +529,13 @@ CLAUDE.md when a phase ends.
   pocket just south of the plot (ground at 66 around it, headroom clear), its x 0.3 from the block edge beside it; it
   walked off fine for the next collect and deposited 2 minutes later. ~5 minutes lost. Cause not found (lesson 1's
   wall overlap is a suspect); watch for it.
+- F73 (09-29, V.3, StageH12) Closing gather tasks against the village-wide need released builds early: the storage
+  hut's own cobblestone task (t2446) was closed because the hall's tasks covered the total, the hut started 15 short,
+  used cobblestone gathered for the hall, and the hall started 43 short (both healed by requeue). The review had also
+  found: carried items counted twice (whole held task plus hand), the preparer's felled logs closing log tasks,
+  "logs" in add_need posting and closing every 3 s, and no-wood villages never lowering an oak need. Now only tasks the
+  sync posted itself are closed (per-building ones stay with coveredByStock), held tasks cover what is left to
+  collect, only a gatherer's own material counts in hand, one wood kind throughout, and no sync while a build runs.
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

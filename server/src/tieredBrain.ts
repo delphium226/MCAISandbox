@@ -188,6 +188,13 @@ const MAYOR_PLAN_TOOLS: ToolDef[] = [
   { name: 'declare_complete', description: 'Declare the village objective achieved (only when the village summary shows it).', input_schema: obj({ summary: { type: 'string' } }, ['summary']) },
 ];
 
+/** The mayor's addition to the materials list in the survival economy (plan step V.3). */
+const ADD_NEED: ToolDef = {
+  name: 'add_need',
+  description: 'Ask for items the village should keep in its storage besides the buildings\' materials (e.g. coal for smelting, extra logs): they join the "materials still to gather" list and code posts gathering for them. count 0 removes the item.',
+  input_schema: obj({ item: { type: 'string', description: 'an item id, e.g. coal, oak_log, cobblestone' }, count: { type: 'number' } }, ['item', 'count']),
+};
+
 const WORKER_ROLE = `
 You are a worker in a village building project, doing the task you have claimed from the village task board. The task is
 marked done when your plan's steps are all complete, so the steps must fully accomplish it (usually 1-3 steps, e.g.
@@ -250,7 +257,8 @@ board, one at a time in the order posted, and do the physical work.
 const MAYOR_SURVIVAL = `
 Materials are gathered by hand: brief the designs with cheap materials (planks, logs, cobblestone or sandstone, at most
 a few glass windows; no bricks, stone bricks, wool, bookshelves, glowstone or lanterns). Gathering takes a while: wait
-for it.`;
+for it. The village summary lists the materials still to gather; code keeps the gathering tasks in step with it. To
+keep something else in stock, add_need.`;
 
 /** Architect's note in the survival economy. */
 const DESIGN_SURVIVAL = 'Materials are gathered by hand in survival: use only planks, logs, cobblestone, sandstone and at most 4 glass (no bricks, stone bricks, wool, bookshelves, glowstone, lanterns or smooth stone).';
@@ -327,7 +335,7 @@ For building, prefer one build or build_box call over many place calls; their re
 /** The planner's system prompt and tools for a role (exported for scripts/bench/mayorbench.mts). */
 export function plannerPrompt(role: 'mayor' | 'worker' | null, skills: ToolDef[], economy: boolean) {
   const system = toolsFor(skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
-  return { system, tools: role === 'mayor' ? MAYOR_PLAN_TOOLS : PLAN_TOOLS };
+  return { system, tools: role === 'mayor' ? (economy ? [...MAYOR_PLAN_TOOLS, ADD_NEED] : MAYOR_PLAN_TOOLS) : PLAN_TOOLS };
 }
 
 /** Blocks that rarely matter for decisions; dropping them keeps prompts short (prompt size dominates local-model latency). */
@@ -1006,6 +1014,18 @@ export class TieredBrain implements AgentBrain {
         // Laid out only part of it: the rest needs a second site now, while the workers start on the first
         else if (v.unplaced?.length) this.replanReason = `plan_layout placed only part of the village; ${v.unplaced.join(', ')} ${v.unplaced.length > 1 ? 'need' : 'needs'} a second site: ${out.slice(out.indexOf('Find a second site'), out.length)}`;
         console.log(`[tiered] ${a.name} plan_layout: ${out}`);
+      }
+      if (c.name === 'add_need') {
+        const item = String(c.input.item ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_');
+        const count = Math.max(0, Math.min(640, Math.floor(Number(c.input.count) || 0)));
+        if (!/^[a-z0-9_]+$/.test(item) || (!/^(logs|planks)$/.test(item) && a.world.isItem?.(item) === false)) a.pushEvent('system', `add_need: "${item}" is not an item id (e.g. coal, logs, cobblestone, oak_planks)`);
+        else {
+          v.needs ??= {};
+          if (count) v.needs[item] = count;
+          else delete v.needs[item];
+          reg.note(v, `${a.name} ${count ? `asked for ${count} ${item} in stock` : `no longer needs ${item}`}`);
+          a.pushEvent('system', count ? `The village now keeps ${count} ${item} in stock: gathering for it is posted by code` : `${item} removed from the village's needs`);
+        }
       }
       if (c.name === 'declare_complete') {
         // Checked in code: gpt-oss once declared the village complete with nothing built

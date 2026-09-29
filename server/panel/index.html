@@ -774,6 +774,8 @@ function simpleVillage(v, agents) {
   for (const c of v.storage?.chests || []) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
   const mats = MATS.map(([label, test]) => [label, Object.entries(sum).filter(([n]) => test(n)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0);
   const tasksDone = v.tasks.filter((t) => t.status === 'done').length;
+  // What the village still needs gathered (computed by the agent server, plan step V.3)
+  const needed = Object.entries((v.needed && v.needed.items) || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
   // What happened: the village log (tasks and buildings) and chat, newest first
   const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 5).map((e) => `chat: ${e.text}`);
   const happened = [...chat, ...v.log.slice(-10).reverse()].slice(0, 12);
@@ -785,6 +787,7 @@ function simpleVillage(v, agents) {
       <div class="sub">${built} of ${plural(builds.length, 'building')} built · ${tasksDone} of ${plural(v.tasks.length, 'task')} done</div>
       <ul class="blist">${buildingStates(v)}</ul>` : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
     ${mats.length ? `<div class="section"><div class="label">In the storage</div><div class="mats">${mats.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>` : ''}
+    ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(n)}</span>`).join('')}</div></div>` : ''}
     ${happened.length ? `<div class="section"><div class="label">What happened lately</div><ul class="list">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
   </div>`;
 }

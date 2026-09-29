@@ -292,6 +292,7 @@ bring_player(names[0])
 # ---- watch
 t0, seen, board, reason, last_done = time.time(), {n: 0 for n in names}, "", "time limit", time.time()
 fails = {}
+last_need = None
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     time.sleep(3)
@@ -313,6 +314,10 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
                 if fails[k] >= 3:
                     reason = f"{n} failed the same way 3 times: {e['text'][:160]}"
     v = call(f"/village/{args.village}")
+    need = " ".join(f"{q} {n}" for n, q in sorted(((v.get("needed") or {}).get("items") or {}).items()))
+    if need != last_need:
+        last_need = need
+        print(f"{stamp()} NEEDED {need or 'nothing'}", flush=True)
     if hut_storage and all(t["status"] == "done" for t in v["tasks"] if t["title"].startswith("Prepare")):
         stock_hut()
         call(f"/village/{args.village}/tasks/{hut_storage}", {"status": "done"})

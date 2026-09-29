@@ -513,6 +513,10 @@ the junk that gathering picks up (saplings, seeds, dirt, cocoa beans). Villages 
 chests: the first `deposit` puts a carried chest down beside the plot, and when the chests are full, another goes down
 in a row beside them. What each chest holds is recorded whenever it is opened, and shown chest by chest in every
 planner's village summary, in `/api/village/:v` and in the panel's detailed view ("chest 1 (logs): 64 oak_log, ...").
+**Materials still to gather.** Code keeps a list of what the village still needs gathered (`refreshNeeds` in
+`mcWorld.ts`): the raw materials of every laid-out building not built or being built yet, plus anything the mayor asked
+to keep in stock (`add_need`), less the storage and what each worker carries for its gather task. Every village summary,
+`/api/village/:v` and the panel show it, and code posts gather tasks for whatever no task covers.
 Crafting tables and furnaces are never put down on a village's plots or next to its buildings (a table a gatherer put
 down stood inside the future hut and raised its floor).
 
