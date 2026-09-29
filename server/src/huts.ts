@@ -35,7 +35,7 @@ export function storageHutDesign(): Design {
   const blocks = LAYERS.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
   return {
     name: STORAGE_HUT,
-    description: 'the village storage: nine chests inside, sorted by material, and the village crafting table and furnace (built by code, not the architect)',
+    description: 'the village storage hut, built by code: plan_layout adds it by itself (not a design to build or copy)',
     palette, layers: LAYERS.map((l) => [...l]), width: 7, depth: 9, height: LAYERS.length, blocks, by: 'code',
   };
 }

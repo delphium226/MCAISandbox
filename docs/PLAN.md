@@ -177,8 +177,13 @@ the hut down to stone, then straight branch tunnels at one level.
       `/api/village/:v` and the panel show it; `stage_village.py` prints it (NEEDED). `syncGather` posts gathering
       for what no open or held task covers (not for a material that could not be gathered) and closes only what it
       posted (F73). The mayor's `add_need` tool (survival only). Not yet exercised: `add_need` and a posted shortfall.
-- [ ] V.4 **Several materials per trip**: a worker gathering X also takes other needed materials it passes (open
+- [x] V.4 **Several materials per trip** (built 09-29; rarely triggers, see below): a worker gathering X also takes other needed materials it passes (open
       blocks a few steps off its path, up to what is needed). Test: staged full run, trips and time against StageT5.
+      Built: `sideGather` in collect: after each block or tree, open blocks of other needed materials (the V.3 list)
+      within 4 blocks and 2 up or down, never logs, stone only with a pickaxe in hand, up to the need less what is
+      carried; the result names them. StageH14 and H15 (3/3 in 23.2 min): no side pickup happened: what villages need
+      is logs (excluded: a tree is minutes of work), stone and a little sand, rarely within 4 blocks of each other.
+      Its value comes with the mine (ores and stone in tunnel walls) or wider radii; not worth more now.
 - [ ] V.5 **Mining hut and mine**: a fixed hut over a staircase down to stone, then branch tunnels at one level;
       `collect` stone, cobblestone and ores goes to the mine and extends the tunnels instead of digging at the
       surface; the tunnels are recorded in the village. Test: staged runs; no surface holes around the village.
@@ -282,6 +287,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | StageH11 | staged build after the fourth review's fixes (F72), -1133,246 | **3/3 built**, deposit check passed | 3.1 min | no table or furnace put down outside the hut |
 | 09-29 | StageH12 | staged full, V.3 first version, -1035,61 | **3/3 built** | 16.2 min | needs listed from 110 logs / 177 cobblestone / 9 sand down; closing tasks village-wide released the hut and the hall short (2 self-healed shortfalls, F73) |
 | 09-29 | StageH13 | same after the V.3 review's fixes, -1047,33 | **3/3 built** | 16.1 min | 0 failed actions; the list only went down (177 cobblestone to none); no task posted or closed by code (none short); every window glazed |
+| 09-29 | Hutvale3 | model, 2 workers, qwen3.8 worker planner, oak woods -1138,379, with V.2b and V.3 | stopped at 23.6 min | 23.6 min | layout only at 5.7 min (the mayor copied the hut's workstations into its hall brief: 3 designs refused, F74); hut built at 16.1; then Worker1 looped on stone beside a water pocket east of the plot (rescued by teleport once, 5 failed collects, F75) |
+| 09-29 | StageH14 | staged full, V.4 (side pickups), hills -1274,-133 (y 87, birch) | 2/3 built, stopped at 12.4 min | 12.4 min | hut at 6.6 min (fastest yet), hall at 10.5; the testhut's ground held a bee nest left floating at y 92 by the plot's felling (F76); no sand here and no side pickups (V.4 not exercised) |
+| 09-29 | StageH15 | staged full, V.4, acacia -43,46 (near spawn) | **3/3 built** | 23.2 min | 1 failed action; no side pickups; 29 andesite deposited (dug by the pathfinder tunnelling under the plot below its protected 4 layers: a bot at y 60 under the hut) |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
 
 ## Findings log
@@ -536,6 +544,17 @@ CLAUDE.md when a phase ends.
   "logs" in add_need posting and closing every 3 s, and no-wood villages never lowering an oak need. Now only tasks the
   sync posted itself are closed (per-building ones stay with coveredByStock), held tasks cover what is left to
   collect, only a gatherer's own material counts in hand, one wood kind throughout, and no sync while a build runs.
+- F74 (09-29, Hutvale3) The mayor's hall briefs asked for "interior includes a crafting table" three times (refused:
+  no workstations in designs) and layout came at 5.7 min instead of ~1.4: the storage hut's library entry read "...and
+  the village crafting table and furnace". Reworded ("built by code: plan_layout adds it by itself; not a design to
+  build or copy").
+- F75 (09-29, Hutvale3) Buried stone dug beside the plot (F64's step-off) left a hole at -1119,60,375, one block high
+  (dirt above) next to water at y 58-59; Worker1 was rescued out of it by teleport, then collect chose stone around
+  it again and again (5 failed collects, 4 of 26 cobblestone). Digging for cobblestone around the village makes traps:
+  the mine (V.5) is the answer; until then the step-off holds for villages that have no open stone.
+- F76 (09-29, StageH14) A bee nest left floating at y 92 on a plot levelled at 90 (from a felled birch; its block
+  entity reads "beehive"): not in `NATURAL`, so prepare_site kept its column as built, and the testhut's site was
+  "not level (heights 90..92)" three times. Added `bee_nest` (like cocoa, F61).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

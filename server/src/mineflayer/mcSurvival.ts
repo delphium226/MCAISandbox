@@ -528,10 +528,16 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   };
   // Stepped off village ground once to look for buried blocks beside it
   let steppedOff = false;
+  // Other materials the village needs, taken on the way (V.4)
+  const extras: Record<string, number> = {};
+  const alsoTook = () => {
+    const e = Object.entries(extras).filter(([, q]) => q > 0);
+    return e.length ? ` (and on the way ${e.map(([n, q]) => `${q} ${n}`).join(', ')} the village needs)` : '';
+  };
   while (true) {
     checkAbort(signal);
     const got = items.length ? have() - start : mined;
-    if (got >= want) return `collected ${got} ${label}`;
+    if (got >= want) return `collected ${got} ${label}${alsoTook()}`;
     if (got > lastGot) { lastGot = got; lastGain = Date.now(); }
     if (failed.size >= 3 || failMs > 90000 || (failed.size && Date.now() - lastGain > 2 * 60000)) throw giveUp(got);
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
@@ -591,6 +597,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       try {
         const r = await fellTree(a, next, near, signal, 20000 + 500 * Math.round(next.distanceTo(me)));
         mined += r.cut;
+        if (r.cut) await sideGather(a, blocks, near, extras, signal);
         // What it could not get to is out of reach for every bot (one failure for the tree, not one per log)
         for (const p of r.left) bad.set(at(p), Date.now() + 10 * 60000);
         if (!r.cut) fail(next, r.text, Date.now() - t1);
@@ -606,6 +613,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       // A walk of 20 seconds for a block close by, a little more for one farther off
       await mineBlock(a, next, signal, false, 20000 + 500 * Math.round(next.distanceTo(me)));
       mined++;
+      await sideGather(a, blocks, near, extras, signal);
     } catch (e) {
       const m = (e as Error).message;
       // Stone wants a pickaxe: make a wooden one (and the logs for it) rather than hand the chore to the model, which
@@ -619,6 +627,45 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       // Gone meanwhile (another worker took it): not a failure
       if (!blocks.includes(a.bot.blockAt(next)?.type ?? -1)) continue;
       fail(next, m, Date.now() - t1);
+    }
+  }
+}
+
+/**
+ * Several materials per trip (plan step V.4): open blocks of other materials the village still needs (its needs list,
+ * V.3), within 4 blocks and 2 up or down of where the bot stands, are taken as it passes, up to what the list asks for
+ * less what it already carries. Never logs (a tree is a job of its own: felling it whole takes minutes) and never
+ * stone without a pickaxe in hand (no tool is made for a side trip). A failure just ends the side trip.
+ */
+async function sideGather(a: BotAgent, own: number[], near: (p: Vec3) => boolean, extras: Record<string, number>, signal: AbortSignal) {
+  const need = a.village()?.needed?.items;
+  if (!need) return;
+  const me = a.bot.entity.position;
+  for (const [item, n] of Object.entries(need)) {
+    if (n <= 0 || /_log$|^logs$/.test(item)) continue;
+    let t: ReturnType<typeof collectTargets>;
+    try {
+      t = collectTargets(a, item);
+    } catch {
+      continue;
+    }
+    // Not the material this collect is for
+    if (t.blocks.some((b) => own.includes(b))) continue;
+    const carried = t.items.reduce((s, id) => s + countItem(a, id), 0);
+    let left = Math.min(8, n - carried);
+    if (left <= 0) continue;
+    const found = nearestBlocks(a, t.blocks, 5, 12, (p) => p.distanceTo(me) <= 4 && Math.abs(p.y - me.y) <= 2 && near(p) && exposed(a, p));
+    for (const p of found) {
+      if (left <= 0) break;
+      checkAbort(signal);
+      try {
+        await mineBlock(a, p, signal, false, 8000);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        break;
+      }
+      extras[item] = (extras[item] ?? 0) + 1;
+      left--;
     }
   }
 }
