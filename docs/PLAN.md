@@ -443,6 +443,12 @@ CLAUDE.md when a phase ends.
 - 09-29 The atlas is one shared map for every agent and village (the user's choice over per-village knowledge), kept
   in its own file (`mc/server/atlas.json`, saved at most every 30 s) rather than `villages.json`, which is written on
   every change and returned whole by `/api/village/:v`.
+- 09-29 Working method for phase 2A (the user agreed): one main thread does V.1-V.4 in order (they depend on each
+  other and on the one test world); subagents do side work that does not touch the world: reading run logs after
+  each run, reviewing each diff before it is committed (bugs, and blocks broken outside the agent's own work, cf.
+  F55), writing check scripts, docs. Once V.2 has settled the storage record, a second agent may build V.5/V.6 (the
+  mine) in a git worktree; its tests wait for the world between the main thread's runs. No second Paper instance
+  unless waiting for the world becomes the bottleneck. No orchestrated workflow unless the user asks for one.
 - 09-29 New phase 2A, village infrastructure (the user's requirements): storage hut with 9 chests, sorted storage
   and a readable inventory, a code-computed materials-needed list the mayor plans from and can add to, several
   materials per trip, a mining hut with a staircase mine, underground finds in the atlas. It comes before 2.3.
