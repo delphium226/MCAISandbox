@@ -98,7 +98,8 @@ def find_land(x, z, size):
     points = [(x, z)] + [(x + r * math.cos(a * math.pi / 4), z + r * math.sin(a * math.pi / 4)) for r in (120, 240) for a in range(8)]
     for px, pz in points:
         call("/agents/Mayor", method="DELETE")
-        call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "y": 90, "z": pz + 0.5}})
+        # No height: the server puts it on the surface (y 90 put agents inside hills, F84)
+        call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "z": pz + 0.5}})
         time.sleep(8)
         call("/agents/Mayor/act", {"action": "find_site", "size": size})
         # find_site takes a few seconds, more when it walks farther out

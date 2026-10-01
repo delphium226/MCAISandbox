@@ -9,6 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import { mineAreas, mineCanGive, mineFor } from './mcMine';
+import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
@@ -156,11 +157,29 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
   // The inventory as the server has it (the bot's own view still showed logs it had deposited)
   await syncInventory(a);
   await sleep(300, signal);
+  // From the village storage first: miners felled a tree outside for every new pickaxe, and made wooden ones, while the
+  // storage held 100+ logs and the mine's cobblestone (Minevale2: five remakes of 1.7-3.2 minutes, F85)
+  const v = a.village();
+  const fromStock = async (want: Record<string, number>) => {
+    if (v?.storage?.chests.length) await withdrawItems(a, v, want, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  };
+  const stock = v ? storageContents(v) : {};
+  const getStone = countItem(a, itemId(a, 'cobblestone')!) < 3 && (stock.cobblestone ?? 0) >= 3;
   // With 3 cobblestone in hand a stone pickaxe (131 blocks, a wooden one 59): its sticks take 2 planks
-  const stone = countItem(a, itemId(a, 'cobblestone')!) >= 3;
+  const stone = getStone || countItem(a, itemId(a, 'cobblestone')!) >= 3;
   // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
   const table = villageStation(a, 'crafting_table') ?? nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   const want = (stone ? 2 : 5) + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
+  // Logs of the storage's commonest kind for all of the wood (planks of another kind carried make no pickaxe with them)
+  const log = Object.entries(stock).filter(([n, q]) => /_log$/.test(n) && q > 0).sort((p, q) => q[1] - p[1])[0];
+  const kindHave = log ? obtainable(a, itemId(a, log[0].replace(/_log$/, '_planks')) ?? -1) : 0;
+  const fetch: Record<string, number> = {
+    ...(getStone ? { cobblestone: 3 } : {}),
+    ...(log && (bestPlanks(a)?.n ?? 0) < want && kindHave < want ? { [log[0]]: Math.min(log[1], Math.ceil((want - kindHave) / 4)) } : {}),
+  };
+  if (Object.keys(fetch).length) await fromStock(fetch);
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
   for (let i = 0; i < 3; i++) {

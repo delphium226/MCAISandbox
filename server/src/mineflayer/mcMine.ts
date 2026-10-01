@@ -179,9 +179,13 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
   const there = () => !stand || (a.bot.entity.position.distanceTo(stand) <= 1.5 && a.bot.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) <= 4.2);
   const away = () => Object.assign(new Error(`could not get to the mine at ${p.x},${p.y},${p.z} (stuck at ${a.bot.entity.position.floored()})`), { away: true, inMine: inMine(a, m) });
   const back = async () => {
-    if (stand && !there()) await walkMine(a, stand, 1.2, signal, 30000).catch((e: Error) => {
+    const go = (to: Vec3, range: number) => walkMine(a, to, range, signal, 45000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
+    // From outside, first to the top of the stairs: one search from a tree 20 blocks off down to the face found no way
+    // (Minevale2, after a pickaxe was made outside, F85)
+    if (stand && !there() && !inMine(a, m) && m.level !== undefined) await go(new Vec3(m.top.x + 0.5, m.level + m.steps - 1, m.top.z + 0.5), 1.5);
+    if (stand && !there()) await go(stand, 1.2);
     if (!there()) throw away();
   };
   await back();

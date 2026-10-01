@@ -669,13 +669,16 @@ CLAUDE.md when a phase ends.
 - F84 (10-01, Minevale2, log analysis) The watcher spawned the village at y 90 (`tp x 90 z`) where the ground was at
   y 100: both workers spawned in stone, suffocated (paper-start.log "Worker1 suffocated in a wall") and respawned at the
   world spawn ~900 blocks away; the Mayor landed in a cave at y 84 and its executor chased the workers' "I'm under
-  attack" chat (follow, move_to) instead of designing. ~15 worker-minutes and the Mayor's first 5 minutes lost. Fix next:
-  spawn at the site's ground (lesson 12: spreadplayers or a known block), and keep the Mayor's executor off workers'
-  distress chat.
+  attack" chat (follow, move_to) instead of designing. ~15 worker-minutes and the Mayor's first 5 minutes lost. Fixed:
+  the probe spawns on the surface (no height), and the village's agents spawn one above the ground the probe read in each
+  spawn column (`spawn_heights`, `/api/blocks`; leaves, logs and plants passed over; the server's surface spawn when
+  unknown). Open: the Mayor's executor answering workers' distress chat.
 - F85 (10-01, Minevale2, StageM6-M8) Every miner's first pickaxe is wooden (59 blocks) and its replacements are made
   from a tree felled outside the mine while the storage holds 100+ logs: 5 remakes in Minevale2, trips with one took
-  1.7-3.2 min against 0.2-0.9 without; one remake's walk back left Worker2 at the tree (the 33.2 min "away"). Fix next:
-  a miner takes logs (or a stone pickaxe) from storage, and makes a stone pickaxe once the mine has given cobblestone.
+  1.7-3.2 min against 0.2-0.9 without; one remake's walk back left Worker2 at the tree (the 33.2 min "away"). Fixed:
+  makePickaxe takes 3 cobblestone (a stone pickaxe) and logs of one kind from the village storage before felling a
+  tree, and the walk back into the mine goes by the top of the stairs. Mine check on StageM8 with no pickaxe given:
+  stone pickaxe from storage, 24 cobblestone in 52 s.
 - F86 (10-01, Minevale2) prepare_site roofed a natural gully under the plot (2-3 blocks of lid over air at y 91-93)
   instead of filling it; the storage hut and hall stand over it, and tunnels open into it. 58 jungle logs from the
   plot's felling were never used in an oak village. Backlog.
