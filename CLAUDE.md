@@ -214,8 +214,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   `layout_small_sites.py NAME` (partial layouts, second site), `materials_near_site.py` (plan_layout's material
   counts), `treeless_site.py`, `smelt_fuel.py`, `atlas.py [X Z [DIRECTION DISTANCE]]` (walks Gus, compares chunk summaries
   with `/api/block`, ~15 s a chunk), `fell_trees.py [X Z [COUNT [ROUNDS]]]` (Gus collects logs; logs, pillar dirt and
-  drops left around each felled tree). Run the relevant one after changing find_site, layout.ts, smelting, the atlas or
-  felling. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
+  drops left around each felled tree), `mine.py VILLAGE [ROUNDS [COUNT]]` (Gus collects cobblestone in a village's mine;
+  every round must come from the planned tunnel cells with nothing else changed; it prints the RCON line to give him a
+  pickaxe, `PICKAXE_WAIT=0` makes him make his own) and `atlas_ores.py VILLAGE` (the atlas's exposed ores against the
+  blocks; spawn an idle Gus at the mine first so its chunks are loaded). Run the relevant one after changing find_site,
+  layout.ts, smelting, the atlas, felling or the mine. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
   3 minutes; since the huts, use 8); `stage_village.py` ignores soft "cannot be gathered here" failures.
   `fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas, away from every village (no server needed);
   `follow_workers.py VILLAGE MINUTES` follows the workers on after a stage run's stall rule stopped it. To see the panel without a browser:
@@ -287,8 +290,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     Hutvale2 (4/4 built with the hut in 18.8 min, `b54cc99`); then V.2b workstations in the hut and doors passable
     (`5710a15`), V.3 materials still to gather (`3a53548`), V.4 side pickups (`dafe26f`), V.5 the village mine
     (`832a3be`), compact worker prompts (F78) and Hutvale4 (5/5 in 19.2 min); all pushed to origin
-    (`tiered-brain-building`, 2026-09-29), and the tracker brought up to date on 2026-10-01. Next: V.5b (the mine at
-    hillsides, F77), V.6, V.7.
+    (`tiered-brain-building`, 2026-09-29), and the tracker brought up to date on 2026-10-01.
+21. 2026-10-01 (sixth session; not pushed, ask first): V.5b, a mine that goes on (`813703a`, `9ad3a42`: turned
+    tunnels, levels down, stone only, one miner a tunnel, no-dig walks; F79-F82); V.6, exposed ores in the atlas
+    (`d34ed76`, with README and ARCHITECTURE.md); spawns on the ground and pickaxes from storage (`abfd90c`, F84, F85).
+    V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions); Minevale5 lost to find_site
+    (F88). Next: F88, one more V.7 pass.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -439,11 +446,11 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the fifth session (2026-10-01): nothing running but the Ollama app (start the stack as above); no agents
-in the world. Test buildings, storage chests and now mines stand near spawn and at the test villages (Depot, Stage*,
-Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4; all in
-`mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`) or clear them. The atlas
-(`mc/server/atlas.json`) holds ~4,100 chunks, shown on the panel's world map. The user confirmed the panel's simple
+Left after the sixth session (2026-10-01): nothing running but the Ollama app (start the stack as above); no agents
+in the world. Test buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
+Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
+Minevale1-5; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`) or clear them. The atlas
+(`mc/server/atlas.json`) holds ~5,900 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
 
 Lessons from the adapter:
@@ -549,6 +556,19 @@ Lessons from the adapter:
 34. **What counts as natural decides what prepare_site clears** (F61, F76): cocoa pods and bee nests were missing from
    `NATURAL`, so their columns were kept as "built" and a plot stayed uneven. When a plot is left uneven on fresh
    ground, look for a block missing from that list.
+35. **A walk free to dig takes the shortest way through natural ground** (F80, 2026-10-01): protected boxes only make
+   planned cells dearer, so the pathfinder cut its own corridor from the mining hut to the face. Walks in the mine run
+   with `canDig` false (`walkMine`), and `mineBlock` must not be left to walk to a far cell (its walk digs): dig from a
+   known approach or not at all.
+36. **Two bots on one work plan race** (F82): both read the same next cell, and the second went for cells whose approach
+   the first had not dug. Hold work per bot (the mine's `holders`), and give a second worker its own piece.
+37. **Never spawn at a fixed height** (F84): `y 90` put a village's agents inside a hill at y 100; they suffocated (one
+   damage the game rules do not turn off) and respawned 900 blocks away. Spawn on ground read from the world, or give no
+   height (the server's surface spawn).
+38. **"height range 0, 0 tree blocks" on wooded hills is a warning** (F88): find_site reported a flat, treeless site
+   where the ground was 18 blocks higher with a ravine at its edge; prepare_site then refused it again and again.
+39. **Check scripts that compare the world** (`scripts/checks/mine.py`, `atlas_ores.py`, `GET /api/blocks`) found
+   every mine bug of 2026-10-01 that a run would have taken minutes to show; write one with a new skill that digs.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

@@ -20,42 +20,30 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-01 at the close of the fifth session: phase 2A V.1-V.5 done, the world map; nothing left uncommitted)
+(written 2026-10-01 at the close of the sixth session: V.5b and V.6 done, V.7 two of three)
 
-- **Code:** everything committed on `tiered-brain-building` and pushed to origin (`55e993e` and this tracker update);
-  `main` untouched. Working tree clean except `runs/` (gitignored logs).
-- **Nothing is running:** the servers were background tasks of the fifth session and stopped with it (on 2026-10-01
-  only the Ollama app was up). Start the stack in CLAUDE.md's order: Paper (`python mc/start.py`), then
-  `python scripts/ollama_exec.py start` (check its spill WARNINGs), then the agent server (step 3, with
-  `MC_API_HOST=0.0.0.0`). No agents are in the world; `villages.json` keeps every test village.
-- **Where things stand:** phase 2A steps V.1 (storage hut), V.2 (sorted storage), V.2b (table and furnace in the hut;
-  the user's addition), V.3 (materials still to gather, `add_need`), V.4 (side pickups; rarely triggers) and V.5
-  (mining hut, stairs, tunnels) are done. A new village's first layout now brings a mining hut and a storage hut, and
-  cobblestone comes from the mine. Hutvale4 (model-driven, everything): 5/5 in 19.2 min, 2 failed actions, no
-  cobblestone gathered outside. The panel shows one world map of the whole atlas (the user's request). Also fixed on
-  the way: bots can pass doors (the pathfinder only opened gates, F69), village ground kept from any digging (F66),
-  collect steps off a plot (F64), plan-bound step credit (F65), compact worker prompts (F78).
-- **Next:** V.5b (F77: a main tunnel meeting a hillside stops the whole mine; turn it or dig a second level), then
-  V.6 (ores seen in the tunnel walls into the atlas; `v.mine.got` already counts them), then V.7 (2-3 model-driven
-  runs in a row with everything). Open items are in the backlog (F62, F67, F71, the hut chain, `add_need` untested).
-- **Working method:** subagents for reviews, log reading, docs and drafting: every diff was reviewed before its commit
-  and each review found real bugs (keep doing it). A worktree subagent (V.5/V.6 in parallel) was blocked by auto
-  mode's classifier ("Out-of-Place Publication"); so were `git push` (the user then added a `Bash(git push *)` allow
-  rule to `~/.claude/settings.json`) and editing Claude's own settings ("Self-Modification", not to be worked around).
-  If parallel work is wanted, ask the user to switch out of auto mode or to request the worktree agent explicitly.
-- **Testing notes:** `stage_village.py --stage build` in a new village runs the mining hut and the stairs too
-  (~3-4 min) and ends with a mixed-deposit sorting check; staged full runs take ~14-21 min (`MCAI_STALL_MIN=8`).
-  `scripts/checks/fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas (fresh land is scarce within reach of
-  the explored area); `scripts/checks/follow_workers.py VILLAGE MINUTES` follows workers after a stage run's stall
-  rule stopped it. Monitors with two greps need `--line-buffered` on both. Test villages of the fifth session:
-  StageH1-H20, Hutvale1-4 (Hutvale1 has a shaft in its plot at -795,247; StageH3's storage hut is unbuilt; StageH14's
-  testhut is unbuilt).
-- Run logs: `runs/2026-09-29/` (stageH1-H20, hutvale1-4, agentserver-v1..v22.log).
-- **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
-  of every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
-  pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
-  run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes; show the approach
-  before changing code at the start of a new piece of work.
+- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e` (the user asked to be asked before pushing;
+  this session's commits `545003b`..HEAD are not pushed). `main` untouched. Working tree clean except `runs/`.
+- **Nothing is running after the session** (background tasks die with it): start the stack in CLAUDE.md's order. Run
+  `python scripts/ollama_exec.py status` first: on 10-01 the first start reported qwen3:30b "in VRAM" with GPU 1 at
+  1.2 GB (the known false report); a stop and start fixed it.
+- **Where things stand:** V.5b (a mine that goes on: turned tunnels, levels down, stone-only, one miner a tunnel, no-dig
+  walks) and V.6 (exposed ores per chunk in the atlas) are done; F84 (spawns inside hills) and F85 (pickaxes from the
+  storage) fixed. V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions, all cobblestone
+  from the mine); Minevale5 was lost to find_site (F88).
+- **Next:** F88 (find_site's heights where chunks are missing; then prepare_site and plan_layout's margin, F83), then one
+  more model-driven pass to close V.7; then the open items: the Mayor's executor answering workers' distress chat (F84),
+  prepare_site roofing gullies (F86), two miners on crossing tunnels (backlog), 2.3 (sites from the atlas).
+- **Tools added:** `GET /api/blocks` (a box of blocks), `scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]]` (Gus mines;
+  checks the cells; `PICKAXE_WAIT=0` makes him make his own pickaxe), `scripts/checks/atlas_ores.py VILLAGE` (the atlas's
+  ores against the blocks). Test edits in `villages.json`: StageM1's and Hutvale4's first tunnels marked ended (backups in
+  `runs/2026-10-01/`). Test villages of the session: StageM1-M8, Minevale1-5.
+- **Working method** as before (subagents for reviews, log analysis, docs, drafts; every review found real bugs). Run
+  logs: `runs/2026-10-01/`.
+- **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start of
+  every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
+  pushing; never edit server files while a run is going; stop a run as soon as it is clearly lost; report findings from
+  logs and the panel; show the approach before changing code at the start of a new piece of work.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -216,7 +204,8 @@ the hut down to stone, then straight branch tunnels at one level.
       panel's map pointer shows them; the mine's "seen" counts no longer count an ore twice. Drafted by a subagent in the
       scratchpad during V.5b, reviewed, checked with `scripts/checks/atlas_ores.py` (the atlas against `/api/blocks`).
       Not done: collect going to the atlas for ores (2.2b), and the check reads the bots' view, not the server.
-- [ ] V.7 Model-driven village runs with all of it. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
+- [ ] V.7 Model-driven village runs with all of it. 10-01: Minevale3 (14.4 min) and Minevale4 (12.2 min) passed in a row,
+      0 failed actions each, every cobblestone from the mine; Minevale5 lost to find_site (F88). One more pass after F88. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
       cobblestone from the mine. More runs, and F77 (a main tunnel that ends should turn or go a level down), next.
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
@@ -356,6 +345,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | Minevale1 | model, 2 workers, qwen3.8 worker planner, -840,136 (site -829,257, jungle edge) | stopped | 3.1 min | prepare_site refused a ravine at the layout's margin; the executor prepared a plot 43 blocks away and the task counted done (F83); no mine reached |
 | 10-01 | Minevale2 | model, same, -888,-456 (site -828,-348, hills at y 95) | **5/5 built** (mining hut, storage hut, hall, 2 cottages), declared complete by code | 37.8 min | every cobblestone from the mine (none outside); the first tunnel met a hillside after 28 cells ("open air beside", a hillside) and the mine turned; one 2-minute "mine is busy" wait; slow elsewhere (log analysis): the watcher spawned everyone at y 90 inside the hill (ground y 100): both workers suffocated and respawned at the world spawn ~900 blocks away (F84), the Mayor landed in a cave and chased their "under attack" chat, layout at 7.0 min; the plot "not loaded" and Worker2's "0 of 10 logs" were their walks back; 5 pickaxe remakes felled trees outside while storage held 100+ logs (F85); 10 failed actions, no sand within 96 |
 | 10-01 | mine check M8 + V.6 | `mine.py StageM8 2 24`, then `scripts/checks/atlas_ores.py StageM8` (V.6 applied) | **PASS**, 5/5 chunks match | 1.6 min | the atlas's exposed ores (kinds, counts, y ranges) equal the blocks in all 5 of the mine's chunks; summary cost median 0.40 ms, p99 1.24-1.36, max 2.94 (was 0.1 surface only); `?all=1` 1.40 MB for 5,920 chunks (ores add ~53 bytes a summarised chunk); rechecked after the review's fix (marks before a chunk's first summary) |
+| 10-01 | mine check M8c/d | no pickaxe given (F85 fix): makePickaxe from the storage | **PASS** | 1.0-2.2 min | a stone pickaxe from 3 cobblestone and oak logs withdrawn, crafted at the hut's table; 24 cobblestone in 52-81 s |
+| 10-01 | Minevale3 | V.7 run 1: model, 2 workers, qwen3.8 worker planner, oak and birch woods -1544,8 (site -1600,-35) | **5/5 built**, declared complete by code | **14.4 min** | **0 failed actions**; layout at 1.5 min; every cobblestone from the mine (11 trips, 16-30 each, ~0.5 min); agents spawned on the ground (F84 fix); fastest village yet |
+| 10-01 | Minevale4 | V.7 run 2: same, -1576,168 (site -1596,181) | **5/5 built**, declared complete by code | **12.2 min** | **0 failed actions**; 8 cobblestone trips, all from the mine |
+| 10-01 | Minevale5 | V.7 run 3: same, -1208,-296 (Mayor's site -1176,-360) | stopped | 8.8 min | find_site reported "ground y=101, height range 0, 0 tree blocks" where the ground is at y 119 with a 9-block drop at the edge: prepare_site refused 4 times, the executor looped on find_site (F88); slow layout (7.0 min: hall design with a furnace refused, an Ollama 500) |
 
 ## Findings log
 
@@ -684,6 +677,11 @@ CLAUDE.md when a phase ends.
   plot's felling were never used in an oak village. Backlog.
 - F87 (10-01, review of V.6) The atlas check reads the bots' view (`/api/blocks`), as the atlas does: a stale view
   (lesson 29) would pass both. A few cells checked over RCON (`execute if block`) would close it. Noted.
+- F88 (10-01, Minevale5) find_site reported a 30x30 site at -1176,-360 as "ground y=101, height range 0, 0 tree blocks
+  to clear" where the ground is at y 119 with a 9-block drop at its edge (the watcher's probe nearby said the same: "y=97,
+  height range 0, 0 tree blocks"); prepare_site then refused the drop four times and the executor looped on find_site.
+  "height range 0" with no trees on hilly woodland suggests columns read from chunks not (yet) loaded. Next: check
+  find_site's height grid where chunks are missing, and prepare_site/plan_layout against F83.
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
