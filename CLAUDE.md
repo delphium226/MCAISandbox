@@ -16,10 +16,20 @@ the session ends. When a run teaches something new, the plan changes with it (it
   running agents (see Testing).
 - **Starting the real-Minecraft stack** (in this order; after a reboot nothing is running, and the Ollama app is started
   by the user):
-  1. `python mc/start.py` (Paper server; wait for "Done" in `mc/server/console.log`)
+  1. `python scripts/detach.py runs/<date>/paper.log python mc/start.py` (Paper server; wait for "Done (" in
+     `mc/server/logs/latest.log`; `mc/server/console.log` is stale). **Start servers with `scripts/detach.py`, not the
+     Bash tool's `run_in_background`**: a background task is stopped at its 30-minute limit, and Paper was killed
+     unsaved that way (F90).
   2. `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
-  3. `MC_API_HOST=0.0.0.0 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" node_modules/.bin/tsx server/src/mineflayer/index.ts`
-     (agent server + panel on 8766; restart it after editing server files: it does not watch)
+  3. `MC_API_HOST=0.0.0.0 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" python scripts/detach.py runs/<date>/agentserver-N.log node node_modules/tsx/dist/cli.mjs server/src/mineflayer/index.ts`
+     (agent server + panel on 8766; restart it after editing server files: it does not watch; add `MC_TIME_SCALE=2`
+     for staged runs and checks at double speed, never for model-driven acceptance runs)
+  The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own
+  agent server on 8767, generated from the same seed; `MCAI_API=http://127.0.0.1:8767/api python
+  scripts/reset_site.py SITE` (add `MC_TIME_SCALE=2` and/or `MC_OLLAMA_ROUTES` as needed) restores a site from the
+  snapshot in `mc/testworld` and starts both servers detached; then `MCAI_API=http://127.0.0.1:8767/api
+  MC_SERVER_DIR=mc/testserver python scripts/stage_village.py V --site SITE` (or watch_village.py with the same two
+  settings and the site's probe point). Sites: `scripts/test_sites.json`.
   4. a test: first the staged one without models, `python scripts/stage_village.py <Village> -160 -100 --stage build`
      (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
      `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud
@@ -34,9 +44,11 @@ the session ends. When a run teaches something new, the plan changes with it (it
   Watch scripts leave their agents in the world when they stop (time limit or stall): remove them (panel or
   `DELETE`). If a session restart kills a watcher mid-run, `python scripts/attach_village.py VILLAGE MINUTES_SO_FAR`
   follows the running agents instead.
-- **Background tasks die with the Claude session**: servers and watchers started with `run_in_background` stopped when
-  a session restarted (a watcher mid-run on 2026-09-28). At every session start check ports 25565, 8766, 11435,
-  11436 and restart what is missing.
+- **Background tasks die with the Claude session and at their time limit** (30 minutes by default): servers and
+  watchers started with `run_in_background` stopped when a session restarted (a watcher mid-run on 2026-09-28), and
+  Paper was stopped unsaved at the limit (2026-10-01). Servers go through `scripts/detach.py`; watchers of long runs
+  get a `timeout` above their length. At every session start check ports 25565, 8766, 11435, 11436 (and 25566, 8767
+  for the test world) and restart what is missing.
 - The agent server logs event-loop stalls over 2 s as `[lag] ... blocked for ~N ms; <each agent's action>`. 2-3.5 s
   when bots spawn and during find_site's log scan are normal; a stall over ~30 s makes Paper time out every bot at
   once (Accept4, cause never found).
@@ -298,6 +310,10 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     (`d34ed76`, with README and ARCHITECTURE.md); spawns on the ground and pickaxes from storage (`abfd90c`, F84, F85).
     V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions); Minevale5 lost to find_site
     (F88). Next (decided at the close): phase T, faster tests (PLAN.md), then F88 and one more V.7 pass.
+22. 2026-10-01 (seventh session; not pushed, ask first): phase T, faster tests: `MC_TIME_SCALE` (`2a782fd`, T.1), the
+    fixed test world `mc/testserver` with `reset_site.py` (`ae77c36`, T.2), `site.py` and the F88/F83 fixes
+    (`b8c1e6b`, T.3), parallel staged runs and docs (`58d68bb`, T.4); Ollama's Vulkan default fixed (F89). V.7 passed:
+    Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Next: the open items in PLAN.md.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -448,10 +464,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the sixth session (2026-10-01): nothing running but the Ollama app (start the stack as above); no agents
-in the world. Test buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
+Left after the seventh session (2026-10-01): the servers were started detached and may still run (both Papers, both
+agent servers, the pinned Ollama servers: check the ports); no agents in either world. In the main world, test
+buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
-Minevale1-5; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`) or clear them. The atlas
+Minevale1-5, StageS1, Par1; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
+them, or test on the test world (`mc/testserver`, restored per site; Minevale6 stands there until the next reset). The atlas
 (`mc/server/atlas.json`) holds ~5,900 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
 
@@ -571,6 +589,18 @@ Lessons from the adapter:
    where the ground was 18 blocks higher with a ravine at its edge; prepare_site then refused it again and again.
 39. **Check scripts that compare the world** (`scripts/checks/mine.py`, `atlas_ores.py`, `GET /api/blocks`) found
    every mine bug of 2026-10-01 that a run would have taken minutes to show; write one with a new skill that digs.
+40. **Paper times digs by the wall clock** (F91, 2026-10-01): its lag-compensated tick is (nanoTime - start) / 50 ms,
+   unconditional. A faster tick rate speeds walking, furnaces, pickups and leaf decay but not digging, and a dig
+   finished early is refused while Mineflayer shows the block as air. Never shorten `digTime`.
+41. **A scan window tied to the bot's height hides terrain** (F88/F93): find_site read every column from bot y + 32
+   down, so a hill above that read as flat, treeless ground at exactly that height and was chosen as the best site.
+   A survey must find each column's real top; `scripts/checks/site.py` compares find_site's report with the blocks.
+   (find_site's wood count still has such a window: backlog.)
+42. **Ollama turned Vulkan on by default** (F89, ~2026-09): the Vulkan backend ignores `CUDA_VISIBLE_DEVICES` and
+   put the executor on the planner's card; `ollama_exec.py` starts the pinned servers with `OLLAMA_VULKAN=0`. If
+   `status` warns again, look for `OLLAMA_VULKAN:true` or `library=Vulkan` in `%TEMP%\ollama_exec.log`.
+43. **A fixed test world beats searching for land** (phase T): two staged runs on a restored site gave the same plot,
+   mine and time; land luck had lost more runs than code. Test fixes on a restored site of `scripts/test_sites.json`.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

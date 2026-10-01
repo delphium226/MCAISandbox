@@ -20,31 +20,36 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-01 at the close of the sixth session: V.5b and V.6 done, V.7 two of three)
+(written 2026-10-01 at the close of the seventh session: phase T done, V.7 passed)
 
-- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e`. The sixth session's commits (`545003b`
-  onward, nine with this handover) are **not pushed**: the user was asked at the close and has not answered; ask again before pushing. `main` untouched. Working tree clean except `runs/`.
-- **Nothing is running after the session** (background tasks die with it): start the stack in CLAUDE.md's order. Run
-  `python scripts/ollama_exec.py status` first: on 10-01 the first start reported qwen3:30b "in VRAM" with GPU 1 at
-  1.2 GB (the known false report); a stop and start fixed it.
-- **Where things stand:** V.5b (a mine that goes on: turned tunnels, levels down, stone-only, one miner a tunnel, no-dig
-  walks) and V.6 (exposed ores per chunk in the atlas) are done; F84 (spawns inside hills) and F85 (pickaxes from the
-  storage) fixed. V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions, all cobblestone
-  from the mine); Minevale5 was lost to find_site (F88).
-- **Next (the user's request, decided 10-01): phase T, faster tests**, in order: T.1 time scale (server `tick rate` and
-  Mineflayer's physics clock together, a one-hour go/no-go), T.2 a fixed test world (known sites restored before each
-  staged run), T.3 a site check with the F88 fix (find_site's heights where chunks are missing; plan_layout's margin,
-  F83), T.4 parallel staged runs. Then one more model-driven pass to close V.7 (at 1x); then the open items: the Mayor's executor answering workers' distress chat (F84),
-  prepare_site roofing gullies (F86), two miners on crossing tunnels (backlog), 2.3 (sites from the atlas).
-- **Tools added:** `GET /api/blocks` (a box of blocks), `scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]]` (Gus mines;
-  checks the cells; `PICKAXE_WAIT=0` makes him make his own pickaxe), `scripts/checks/atlas_ores.py VILLAGE` (the atlas's
-  ores against the blocks), `scripts/checks/region_blocks.py X Y Z [X2 Y2 Z2]` (blocks from the saved region files, no
-  server: offline analysis and T.2's snapshot check; sees only saved chunks), `scripts/checks/hilly_land.py [DROP]`
-  (fresh land beside a drop, from the atlas). The sixth session's scratchpad (V.6's offline ore benchmark
-  `oretest.mts`/`underbench.cjs`, edit scripts) is not kept; everything it held that matters is in the repo or here. Test edits in `villages.json`: StageM1's and Hutvale4's first tunnels marked ended (backups in
-  `runs/2026-10-01/`). Test villages of the session: StageM1-M8, Minevale1-5.
-- **Working method** as before (subagents for reviews, log analysis, docs, drafts; every review found real bugs). Run
-  logs: `runs/2026-10-01/`.
+- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e`. Not pushed: the sixth session's nine
+  commits (`545003b`..`162fb45`) and the seventh's (`2a782fd` T.1, `ae77c36` T.2, `b8c1e6b` T.3, `58d68bb` T.4 and docs,
+  and the close). Ask before pushing. `main` untouched. Working tree clean except `runs/`.
+- **What may still be running** (servers are now started detached, so they outlive the session): the main Paper
+  (25565) and its agent server (8766, 1x), the test world's Paper (25566) and agent server (8767, 1x, model routes
+  set), the two pinned Ollama servers (11435, 11436). Check the ports first; restart what is missing (CLAUDE.md,
+  "Running and checking", now with `scripts/detach.py`). No agents in either world.
+- **Where things stand:** phase T is done. `MC_TIME_SCALE=2` (walking 1.94x, staged build ~1.5x, mining 1x: Paper
+  times digs by the wall clock, F91); the fixed test world (`mc/testserver`, `scripts/reset_site.py SITE`,
+  `scripts/test_sites.json` with minevale3, minevale4 and drop recorded); `scripts/checks/site.py`; parallel staged runs
+  (main + test world). F88 found and fixed (find_site's scan window tied to the bot's height, F93) with F83 (the
+  margin over a drop). V.7 passed: Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Phase 2A
+  (V.1-V.7) is complete.
+- **Next, to decide with the user:** the open items: fallen trees read as built (F94), find_site's wood-count window
+  (backlog), the Mayor's executor answering workers' distress chat (F84), prepare_site roofing gullies (F86), two miners
+  on crossing tunnels, a real "drop" test site (record one on the y 95 shelf near -1656,-152 by hand); then 2.3 (sites
+  from the atlas) or phase 3 (talking to the mayor). Test each fix on a restored test site first (staged at 2x, then a
+  model-driven run at 1x).
+- **How to test now:** `MC_TIME_SCALE=2 MCAI_API=http://127.0.0.1:8767/api python scripts/reset_site.py minevale3`, then
+  `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver MCAI_STALL_MIN=8 python scripts/stage_village.py V
+  --site minevale3 --stage full` (~7 min; 1x baseline 9-12). A model-driven run on the test world: reset without
+  `MC_TIME_SCALE` but with `MC_OLLAMA_ROUTES`, then watch_village.py with the same `MCAI_API` and `MC_SERVER_DIR` from
+  the site's probe point. Parallel: one run per world at a time, the main world and the test world at once.
+- **Stack notes:** Ollama turned Vulkan on by default; `ollama_exec.py` now starts with `OLLAMA_VULKAN=0` (F89, the
+  likely cause of the old "in VRAM" false reports): `status` showed no warning after that. Paper's "Done" is in
+  `<server>/logs/latest.log`.
+- **Working method** as before (subagents for design and diff reviews, log analysis, check scripts, docs; every review
+  found something real again). Run logs: `runs/2026-10-01/s7/` (and `runs/2026-10-01/test*.log` from reset_site.py).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start of
   every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
   pushing; never edit server files while a run is going; stop a run as soon as it is clearly lost; report findings from
@@ -212,7 +217,8 @@ the hut down to stone, then straight branch tunnels at one level.
       summary's p99 grows past ~1.5 ms (it was 1.24-1.36 on 10-01; tall mountain chunks read ~70k states): map each
       section's palette to ore kinds once and read the raw BitArray, or scan only 64 below the surface (V.6 review and
       draft, 10-01).
-- [ ] V.7 Model-driven village runs with all of it. 10-01: Minevale3 (14.4 min) and Minevale4 (12.2 min) passed in a row,
+- [x] V.7 Model-driven village runs with all of it (done 10-01, seventh session: Minevale6, after F88's fix, 5/5 in
+      12.3 min with 0 failed actions on the test world's restored minevale3 land at 1x). 10-01: Minevale3 (14.4 min) and Minevale4 (12.2 min) passed in a row,
       0 failed actions each, every cobblestone from the mine; Minevale5 lost to find_site (F88). One more pass after F88. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
       cobblestone from the mine. More runs, and F77 (a main tunnel that ends should turn or go a level down), next.
 
@@ -275,7 +281,8 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
       settings if missing); the scripts take `MCAI_API`. Two staged runs at once (no models: the GPUs are not shared).
       Watch CPU and `[lag]` in both servers.
 
-Then F88's fix is checked with T.3, and V.7's last model-driven pass runs at 1x.
+Then F88's fix is checked with T.3, and V.7's last model-driven pass runs at 1x. (Done 10-01: phase T closed, V.7
+passed with Minevale6.)
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
@@ -439,6 +446,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 (s7) | site check M1 | T.3: `site.py -840 136 30` (after the fix) | **PASS** (a WARN: 2 margin columns 5-6 down) | 17 s | site -772,51, y 70, range 4, 1445 tree blocks, all equal |
 | 10-01 (s7) | Drop1 | staged full at 2x on the test world's "drop" site (probe -1656,-152; site -1706,-194, y 64) with the F88/F83 fixes | **3/3 built** | 11.0 min | 2 soft collect failures (birch scarce; a fallen tree read as built, F94); mine east, legs 25 and 32; the probe settled on the low ground, so no drop met; first pillar tries refused 3 of 4 trees, all placed on the retry (F92) |
 | 10-01 (s7) | Par1 + Par2 | T.4: two staged full runs at once at 2x: Par1 in the main world (probe -1624,360; plot -1639..-1621, 377..397), Par2 on the test world's restored minevale4 (site -1578,161 recorded) | **3/3 and 3/3 built** | **6.6 and 5.9 min** | 0 failed actions in either; CPU mean ~10%, peak 47% (two Papers, two agent servers, four bots); `[lag]` 2.9 s and 4.8 s at the two probes' spawns only; Par2's mine east, legs 57 and 36 |
+| 10-01 (s7) | Minevale6 | V.7 run 4 (after F88's fix): model-driven at 1x on the test world's restored minevale3 land (probe -1544,8; the Mayor's find_site chose -1564,-35, as the staged runs), gpt-oss Mayor and architect, qwen3.8 workers' planner, qwen3:30b executor | **5/5 built**, declared complete by code | **12.3 min** | **0 failed actions**; layout at 1.8 min (the hall design retried twice, plan_layout once refused before the cottage design); stairs at 8.2 min (7 steps to y 58); all 5 cobblestone trips from the mine; workers' planner never called; no `[lag]` |
 | 10-01 (s7) | StageS1 | staged build at 2x, -1480,-248 (site -1495,-248, oak) | **3/3 built**, deposit check passed | **1.5 min** (1x: 2.2-2.3, StageM2/M3) | 0 failures; no rejected moves in Paper's log; one 2.3 s `[lag]` at the probe's spawn (normal); the last minutes may be missing from the world (Paper killed, F90) |
 
 ## Findings log
