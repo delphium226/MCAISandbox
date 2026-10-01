@@ -337,6 +337,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | StageM2 | staged build, -1160,488 (site -1202,500) | **3/3 built**, deposit check passed | 2.2 min | stairs 7 steps to y=57 |
 | 10-01 | mine check Hutvale4 | after the second review (digCell never walks, stairs-down strikes and deadline); Hutvale4's 139-cell tunnel marked ended (test edit) | **PASS** 3/3 | 1.8 min | stairs down 6 steps under the dug tunnel, y 57 -> 51; 72 cobblestone in 92 s |
 | 10-01 | StageM3 | staged build on the final code, -1176,520 (site -1190,564) | **3/3 built**, deposit check passed | 2.3 min | stairs 7 steps to y=57 |
+| 10-01 | StageM4 | staged full, hills -1144,-168 (site -1164,-125) | stopped, 0/3 built besides the mining hut | 7.9 min | dig_mine failed once out of reach (F81); then two workers mined one tunnel at once and the second went for cells the first had not dug: "no path" three times (F82) |
+| 10-01 | StageM5 | staged full after one-miner-a-tunnel, -1304,-248 (site -1348,-230) | stopped | 4.2 min | dig_mine failed three times: the walk onto the step under the hut's wall fell short and the bot stood on the ground above it (F81) |
+| 10-01 | StageM6 | staged full after approach and holding fixes, hills -648,-328 (site -740,-391, y 111) | **3/3 built** | 9.5 min | every cobblestone from the mine (5 trips, 107), none outside; the second miner turned its own tunnel off the busy first one; no main tunnel met a hillside |
+| 10-01 | StageM7 | same, valley edge -824,-504 (site -695,-402, y 102) | **3/3 built** | 11.7 min | all cobblestone from the mine (131 and 44 diorite), none outside; one wait of 2 min for the busy first tunnel ("the mine is busy"; fixed after: a second face at the stairs' bottom); no main tunnel met a hillside |
+| 10-01 | mine check H19e | regression after the last review fixes | **PASS** 2/2 | 1.3 min | |
 
 ## Findings log
 
@@ -629,6 +634,17 @@ CLAUDE.md when a phase ends.
   (`walkMine`); the tunnels and stairs are open from the hut down. The second review found `mineBlock`'s own walk could
   still do it (digCell now refuses a cell out of reach) and that a bot that never got into the mine counted as an empty
   trip (it no longer does).
+- F81 (10-01, StageM4, M5) With mineBlock no longer walking (F80), `dig_mine` depended on the pathfinder getting onto
+  each stair step; onto step 3 (under the mining hut's wall) it sometimes did not, and the bot stood on the ground above
+  the step (StageM5: three failures in a second, the stage run stopped). The stairs from the hut keep mineBlock's own walk
+  (they lie on the plot, which no walk may dig); tunnels and the stairs down are dug only from their approach (the cell
+  before, the step above).
+- F82 (10-01, StageM4) Two workers mined one tunnel at once: both read the same next cell, and the second went for
+  cells whose approach the first had not dug yet ("no path", three times). Now a bot holds the tunnel it digs (in memory,
+  per trip); a second miner turns its own tunnel off the busy one at a finished junction (or at the stairs' bottom while
+  the first has none), else waits up to 2 minutes; one bot digs the stairs down. Turned tunnels' branches can still cross
+  the busy one's later branches (a cell found open is passed; a dig aborted by the other bot counts as an empty trip).
+  Only trips that stopped inside the mine count toward ending a tunnel (a bot stuck outside ended none).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

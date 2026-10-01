@@ -164,14 +164,24 @@ export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
  * Dig one planned cell (a pickaxe made if stone needs one); records what it gave. The drop is left where it fell: the
  * bot steps into the cell next and picks it up (walking to each drop took seconds a block).
  */
-async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal) {
+async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand?: Vec3) {
   const b = a.bot.blockAt(p);
   if (!b || b.boundingBox === 'empty') return;
   const name = b.name;
-  // Within reach, or not at all: mineBlock would walk there free to dig, through ground the mine has not planned
-  const near = () => a.bot.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) <= 4.2;
-  const away = () => Object.assign(new Error(`could not get to the mine at ${p.x},${p.y},${p.z} (stuck at ${a.bot.entity.position.floored()})`), { away: true });
-  if (!near()) throw away();
+  // Tunnels and the stairs down: dug standing on their approach (`stand`: the cell before, the step above), or not at
+  // all. mineBlock's own walk is free to dig, through ground the mine has not planned (F80), and a bot anywhere within
+  // reach would dig through the rock from a parallel branch. The stairs from the hut keep mineBlock's walk: they lie on
+  // the plot (kept from digging), and the pathfinder does not always find its way onto the step under the hut's wall
+  // (StageM4, M5: it stopped on the ground above, F81)
+  const there = () => !stand || (a.bot.entity.position.distanceTo(stand) <= 1.5 && a.bot.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) <= 4.2);
+  const away = () => Object.assign(new Error(`could not get to the mine at ${p.x},${p.y},${p.z} (stuck at ${a.bot.entity.position.floored()})`), { away: true, inMine: inMine(a, m) });
+  const back = async () => {
+    if (stand && !there()) await walkMine(a, stand, 1.2, signal, 30000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    if (!there()) throw away();
+  };
+  await back();
   try {
     await mineBlock(a, p, signal, false, 20000, false);
   } catch (e) {
@@ -185,10 +195,7 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal) {
         throw e.message === 'cancelled' ? e : Object.assign(new Error(`no pickaxe for the mine (${e.message.slice(0, 120)}): withdraw or make one`), { tool: true });
       });
       // Back from wherever making it took the bot, by the mine's own ways
-      await walkMine(a, p, 3, signal, 60000).catch((e: Error) => {
-        if (e.message === 'cancelled') throw e;
-      });
-      if (!near()) throw away();
+      await back();
       await mineBlock(a, p, signal, false, 20000, false);
     } else await mineBlock(a, p, signal, true, 20000, false);
   }
@@ -199,6 +206,12 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal) {
     const n = a.bot.blockAt(p.offset(d[0], d[1], d[2]));
     if (n && /_ore$/.test(n.name)) m.got[`seen ${n.name}`] = (m.got[`seen ${n.name}`] ?? 0) + 1;
   }
+}
+
+/** Whether the bot stands in the mine: in one of its boxes, between the floor and the ceiling. */
+function inMine(a: BotAgent, m: Mine): boolean {
+  const p = a.bot.entity.position.floored();
+  return mineAreas(m).some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2 + 1);
 }
 
 /** The floor level of the mining hut (its structure's y), once built. */
@@ -331,7 +344,7 @@ async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, un
         if (!above) return UNLOADED;
         if (above.boundingBox !== 'block' || FALLING.test(above.name)) return stopDown(v, m, d, `${above.name} over ${x},${up - 1},${z} (no solid ceiling)`);
       }
-      await digCell(a, m, p, signal);
+      await digCell(a, m, p, signal, new Vec3(x - dx + 0.5, floor + 2, z - dz + 0.5));
     }
     await walkMine(a, new Vec3(x + 0.5, floor + 1, z + 0.5), 0.6, signal, 20000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
@@ -385,24 +398,47 @@ function turnFrom(l: MineLeg, side: 1 | 2, first: boolean): MineLeg | null {
  * The main tunnel to dig on, at the deepest level: the newest one still going, else a new turn from one that ended (the
  * oldest first: they lie closer to the stairs); null when none is left there.
  */
-function nextLeg(a: BotAgent, v: Village, m: Mine): MineLeg | null {
+function nextLeg(a: BotAgent, v: Village, m: Mine): MineLeg | 'busy' | null {
   // The deepest level's tunnels (a level is left for the next only when none of its tunnels can go on)
   const y = Math.min(...m.legs!.map((l) => l.y));
   const legs = m.legs!.filter((l) => l.y === y);
-  for (let i = legs.length - 1; i >= 0; i--) if (!legs[i].end) return legs[i];
-  if (legs.length >= MAX_LEGS) return null;
+  const free = (l: MineLeg) => (holders.get(l) ?? a.name) === a.name;
+  // The one it holds first (else, once another bot's trip ended, it took that bot's tunnel as well)
+  const own = legs.find((l) => !l.end && holders.get(l) === a.name);
+  if (own) return own;
+  for (let i = legs.length - 1; i >= 0; i--) if (!legs[i].end && free(legs[i])) return hold(a, legs[i]);
+  // Every tunnel still going is another bot's: this one turns off one of them (or off one that ended) at a finished
+  // junction, so that two never dig the same cells (StageM4: the second went for cells the first had not dug yet)
+  const busy = legs.some((l) => !l.end) ? 'busy' : null;
+  if (legs.length >= MAX_LEGS) return busy;
   for (const [i, l] of legs.entries()) {
     for (const side of [1, 2] as const) {
       if ((l.turned ?? 0) & side) continue;
+      // (at the bottom of the stairs once the level's first tunnel has ended, or for a second miner while it has no
+      // finished junction yet: a second face then rather than a wait, StageM7)
+      const t = turnFrom(l, side, i === 0 && (!!l.end || l.dug < PER));
+      // A tunnel still going may yet finish a junction to turn at; one that ended will not
+      if (!t && !l.end) continue;
       l.turned = (l.turned ?? 0) | side;
-      const t = turnFrom(l, side, i === 0);
       if (!t) continue;
       m.legs!.push(t);
-      a.world.villages.note(v, `${a.name} turned the mine ${compass(t.dir)} at ${t.x},${t.y},${t.z} (the ${compass(l.dir)} tunnel met ${l.end})`);
-      return t;
+      a.world.villages.note(v, `${a.name} turned the mine ${compass(t.dir)} at ${t.x},${t.y},${t.z} (${l.end ? `the ${compass(l.dir)} tunnel met ${l.end}` : `the ${compass(l.dir)} tunnel is another miner's`})`);
+      return hold(a, t);
     }
   }
-  return null;
+  return busy;
+}
+
+/** Who digs which tunnel, and the stairs down, right now: one bot each (released when its trip ends). */
+const holders = new Map<MineLeg, string>(), downHolders = new Map<string, string>();
+function hold(a: BotAgent, l: MineLeg) {
+  for (const [k, n] of holders) if (n === a.name && k !== l) holders.delete(k);
+  holders.set(l, a.name);
+  return l;
+}
+function release(a: BotAgent, v: Village) {
+  for (const [l, n] of holders) if (n === a.name) holders.delete(l);
+  if (downHolders.get(v.name) === a.name) downHolders.delete(v.name);
 }
 
 /**
@@ -413,6 +449,15 @@ function nextLeg(a: BotAgent, v: Village, m: Mine): MineLeg | null {
  * `want`, why.
  */
 export async function mineFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string }> {
+  release(a, v);
+  try {
+    return await mineTrip(a, v, want, have, signal);
+  } finally {
+    release(a, v);
+  }
+}
+
+async function mineTrip(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string }> {
   const m = v.mine!;
   upgradeMine(m);
   const reg = a.world.villages;
@@ -420,15 +465,27 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
   const t0 = Date.now();
   let skipped = 0, why = '';
   // The cell it worked on last, and whether it stopped for want of a pickaxe (not the cell's fault)
-  let last: { leg: MineLeg; c: ReturnType<typeof tunnelCell> } | null = null, tool = false, away = false;
+  let last: { leg: MineLeg; c: ReturnType<typeof tunnelCell> } | null = null, tool = false, away = false, stuckIn = false;
+  let waited = 0;
   while (have() - start < want) {
     if (Date.now() - t0 > 6 * 60000) { why = 'the time was up'; break; }
     if (skipped >= 200) { why = 'too many cells passed without digging'; break; }
     checkAbort(signal);
-    const leg = m.dug < MAX_CELLS ? nextLeg(a, v, m) : null;
+    const next = m.dug < MAX_CELLS ? nextLeg(a, v, m) : null;
     const downs = m.down ?? [];
+    const downBy = downHolders.get(v.name);
+    // Another bot holds every tunnel there is to dig, or digs the stairs down: wait for it (up to 2 minutes a trip)
+    if (next === 'busy' || (!next && downBy && downBy !== a.name)) {
+      if (m.stopped) { why = m.stopped; break; }
+      if (waited >= 120000) { why = `the mine is busy (${next === 'busy' ? 'its tunnels are being dug' : `${downBy} digs the stairs down`}); collect again later`; away = true; break; }
+      await new Promise((r) => setTimeout(r, 5000));
+      waited += 5000;
+      continue;
+    }
+    const leg = next;
     let down = '';
     if (!leg && m.dug < MAX_CELLS && !downs.some((d) => d.stopped) && (downs.some((d) => d.level === undefined) || downs.length < MAX_LEVELS - 1)) {
+      downHolders.set(v.name, a.name);
       // No tunnel at this level can go on: the stairs go on down to the next level (which then has its first tunnel)
       try {
         down = await digDown(a, v, m, signal, t0 + 6 * 60000);
@@ -436,12 +493,12 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
         if ((e as Error).message === 'cancelled') throw e;
         down = (e as Error).message;
         tool = !!(e as { tool?: boolean }).tool;
-        away = !!(e as { away?: boolean }).away;
+        away = !!(e as { away?: boolean }).away && !(e as { inMine?: boolean }).inMine;
         if (tool || away) { why = down; break; }
         down = down === UNLOADED ? down : `could not dig the stairs down: ${down}`;
       }
       if (down === TIME_UP) { why = 'the time was up on the stairs down'; break; }
-      if (!down) { downFails.delete(v.name); continue; }
+      if (!down) { downFails.delete(v.name); downHolders.delete(v.name); continue; }
       // Not loaded, or a dig that failed: twice in a row ends the stairs down (else every trip would fail on them)
       if (down === UNLOADED || down.startsWith('could not dig')) {
         const n = (downFails.get(v.name) ?? 0) + 1;
@@ -500,12 +557,13 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
     if (open) skipped++;
     else {
       try {
-        for (const p of cells) await digCell(a, m, p, signal);
+        for (const p of cells) await digCell(a, m, p, signal, new Vec3(c.from.x + 0.5, L, c.from.z + 0.5));
       } catch (e) {
         if ((e as Error).message === 'cancelled') throw e;
         why = `could not dig at ${c.x},${L},${c.z}: ${(e as Error).message}${walked ? ` (${walked})` : ''}`;
         tool = !!(e as { tool?: boolean }).tool;
         away = !!(e as { away?: boolean }).away;
+        stuckIn = !!(e as { inMine?: boolean }).inMine;
         break;
       }
       // Into the cell: its drops are picked up there, and it is where the next one is dug from
@@ -522,7 +580,21 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
   // worked on ends there and the next goes on; else every collect would fail on it, and none may dig outside while the
   // mine still gives. Not for want of a pickaxe, nor once the mine has stopped; and a bot that never got into the mine
   // (stuck on the way: the rescue's business) changes nothing
-  if (away && got === 0) return { got, why };
+  if (away && got === 0) {
+    // ...unless it stood in the mine and could not get on, at the same cell trip after trip: then that tunnel or branch
+    // ends there like any cell not dug (a bot stuck outside counts for nothing: it would end every tunnel in turn)
+    const at = last && stuckIn ? `${last.c.x},${last.leg.y},${last.c.z}` : '';
+    const n = at && awayAt.get(v.name)?.at === at ? awayAt.get(v.name)!.n + 1 : 1;
+    awayAt.set(v.name, { at, n });
+    if (!last || !at || n < 3) return { got, why };
+    awayAt.delete(v.name);
+    if (last.c.branch % 3 === 0) last.leg.end = short(`${at}, not reached in three trips (${why})`);
+    else if (!last.leg.ended.includes(last.c.branch)) last.leg.ended.push(last.c.branch);
+    reg.note(v, `the mine's ${last.c.branch % 3 === 0 ? 'tunnel' : 'branch'} ends at ${at}: not reached in three trips`);
+    reg.save();
+    return { got, why };
+  }
+  awayAt.delete(v.name);
   if (got > 0 || tool || m.stopped || !last) emptyTrips.delete(v.name);
   else if ((emptyTrips.get(v.name) ?? 0) < 1) emptyTrips.set(v.name, 1);
   else {
@@ -539,6 +611,8 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
 
 /** Per village: trips into the mine in a row that gathered nothing, and that failed on the stairs down. */
 const emptyTrips = new Map<string, number>(), downFails = new Map<string, number>();
+/** Per village: the cell trips stopped short of (the bot never got there), and how many in a row. */
+const awayAt = new Map<string, { at: string; n: number }>();
 /** digDown's answer when the trip's time ran out on the way down (it goes on at the next trip). */
 const TIME_UP = 'time up';
 
