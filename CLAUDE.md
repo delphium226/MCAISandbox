@@ -84,8 +84,13 @@ the session ends. When a run teaches something new, the plan changes with it (it
   turned CRLF files into LF three times (twice on 2026-09-29); use the Edit tool or a Python script.
 - Start long runs with the Bash tool's `run_in_background` (not `&`, which can die with the shell) and follow them with
   a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ... | awk '{print substr($0,1,280); fflush()}'`):
-  `cut` at the end of the pipe buffers and delivers nothing. Stop old monitors (two tailing one log report every event
-  twice) and re-arm when one expires (30 min) during a long run.
+  `cut` at the end of the pipe buffers and delivers nothing, and so does a second `grep` without `--line-buffered`
+  (a monitor stayed silent through a whole run). Stop old monitors (two tailing one log report every event twice) and
+  re-arm when one expires (30 min) during a long run.
+- **Auto mode's classifier** (2026-09-29) blocked `git push` ("Out-of-Place Publication"; the user then added a
+  `Bash(git push *)` allow rule to `~/.claude/settings.json`; still ask before pushing), an Agent call with
+  `isolation: "worktree"` (same reason) and editing Claude's own settings ("Self-Modification"). Do not work around
+  these: ask the user to switch out of auto mode or to request the action explicitly.
 - Python edit scripts inside a Bash heredoc mangle backslashes (`\n`, `\S`, Windows paths): write the script with
   the Write tool and run the file, or use the Edit tool.
 - Never edit server files while a test runs, even though the agent server does not reload them (the user's rule; it
@@ -145,6 +150,9 @@ the session ends. When a run teaches something new, the plan changes with it (it
 - `schematic.ts` + `nbt.ts`: import `.schem` / `.schematic` / `.litematic` / `.nbt` as designs, with block mapping
   onto the sandbox's blocks (sandbox-only; real Minecraft needs no mapping).
 - `llmBrain.ts`: the Claude brain.
+- `huts.ts`: the buildings code draws itself (2026-09-29): the storage hut (7x9, nine chest spots, the village's crafting
+  table and furnace) and the mining hut (5x5, wood only, the mine's stairs); `plan_layout` adds both to a new village's
+  first layout in survival.
 - `layout.ts`: plan_layout (`postLayout`), used by the mayor and the API. `taskBrain.ts`: the scripted village worker
   for tests (runs the skill calls a task spells out).
 - `brains.ts`: the brain registry and the scripted brains (worker, companion), which use the sandbox `Agent` directly.
@@ -208,7 +216,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   with `/api/block`, ~15 s a chunk), `fell_trees.py [X Z [COUNT [ROUNDS]]]` (Gus collects logs; logs, pillar dirt and
   drops left around each felled tree). Run the relevant one after changing find_site, layout.ts, smelting, the atlas or
   felling. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
-  3 minutes); `stage_village.py` ignores soft "cannot be gathered here" failures. To see the panel without a browser:
+  3 minutes; since the huts, use 8); `stage_village.py` ignores soft "cannot be gathered here" failures.
+  `fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas, away from every village (no server needed);
+  `follow_workers.py VILLAGE MINUTES` follows the workers on after a stage run's stall rule stopped it. To see the panel without a browser:
   headless Edge (`"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --screenshot=<png>
   --window-size=1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
@@ -222,8 +232,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   of the economy work was in code, not in model behaviour): `python scripts/stage_village.py VILLAGE X Z [--stage
   full|build] [--buildings testhut,testhut,testhall] [--brain tasks|tiered]` lays a village out through the API and
   runs **scripted workers** (brain `tasks`, `taskBrain.ts`: they run the skill calls each task spells out, no model).
-  `--stage build` places and stocks the storage chest first, so only building from storage is tested (~1 min);
-  `--stage full` runs storage, gathering and building (~8 min for a testhut). It stops when every building is done,
+  `--stage build` places and stocks the storage chest first, so only building from storage is tested (~1 min;
+  in a new village with the huts ~3-4 min: a worker prepares the plot, the chests go into the storage hut's spots by
+  material group, the mining hut and its stairs are built and dug, and a mixed deposit is checked for sorting at the
+  end, `--no-deposit-check` skips it); `--stage full` runs storage, gathering and building (~14-21 min with the huts). It stops when every building is done,
   when an agent fails the same way 3 times, or after 3 minutes without progress. Then run the model-driven village.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
@@ -233,7 +245,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 
 ## State of the work
 
-Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
+Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchanged):
 1. `182a934` two-tier brain, building skills, door and pathfinding fixes
 2. `8c79b1f` villages: registry, model-designed buildings, mayor and workers
 3. `c661150` village robustness (fast worker planning, walls, stuck tasks, site search)
@@ -264,18 +276,19 @@ Branch `tiered-brain-building`, not merged or pushed (`main` is unchanged):
     that fits (`3b5627e`), mayor start and small items (`64786af`), then fixes from 18 acceptance runs
     (`ad7edda`..`212a190`, see PLAN.md F24-F52). Acceptance passed: Accept9-11 (gpt-oss workers' planner) and
     Accept15, 18 (qwen3.8).
-19. 2026-09-29 (fourth session; local, not pushed: ask first): README and ARCHITECTURE.md brought up to date
+19. 2026-09-29 (fourth session; pushed with the fifth's): README and ARCHITECTURE.md brought up to date
     (`d63d314`, step 1.6, phase 1 closed); the shared atlas (`7cc1f9d`, step 2.1: `mcAtlas.ts`, `/api/atlas`, the
     panel's village map); whole-tree felling and every village's buildings kept off (`9494d3d`, step 2.2), jump room
     for the climb and the Fell1 run (`bd68f12`); phase 2A (village infrastructure, the user's requirements) planned
     in PLAN.md with V.1/V.2 designed.
-20. 2026-09-29 (fifth session; local, not pushed: ask first): storage hut and sorted storage (`d77313d`, V.1 + V.2:
+20. 2026-09-29 (fifth session): storage hut and sorted storage (`d77313d`, V.1 + V.2:
     `huts.ts`, sorted `deposit`, chests crafted per material group); village ground protected from digging, collect
     steps off a plot for buried stone, plan-bound step credit (`d4aa32d`); the panel's world map of the whole atlas and
     Hutvale2 (4/4 built with the hut in 18.8 min, `b54cc99`); then V.2b workstations in the hut and doors passable
     (`5710a15`), V.3 materials still to gather (`3a53548`), V.4 side pickups (`dafe26f`), V.5 the village mine
     (`832a3be`), compact worker prompts (F78) and Hutvale4 (5/5 in 19.2 min); all pushed to origin
-    (`tiered-brain-building`, 2026-09-29). Next: F77 (mine at hillsides), V.6, V.7.
+    (`tiered-brain-building`, 2026-09-29), and the tracker brought up to date on 2026-10-01. Next: V.5b (the mine at
+    hillsides, F77), V.6, V.7.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -405,12 +418,13 @@ creative, block-by-block placement in survival; not built yet).
   villages in `mc/server/villages.json`), `botAgent.ts` (`BotAgent`: WorldAgent, skill queue, events, observation,
   self-defence reflex), `mcSkills.ts` (registry; skills as async functions with an AbortSignal, same names and
   arguments as the sandbox), `mcSurvival.ts` (survival skills), `mcBuild.ts` (building skills), `mcRules.ts` (peaceful world settings), `mcAtlas.ts` (the shared atlas: chunk summaries, `mc/server/atlas.json`, `/api/atlas`), `mcMaterials.ts` (bills of
-  materials, recipe chains), `mcUtil.ts` (walk
+  materials, recipe chains), `mcStorage.ts` (village storage, sorted in the storage hut), `mcMine.ts` (the village
+  mine: `dig_mine`, tunnels for `collect cobblestone`), `mcUtil.ts` (walk
   with watchdog, helpers),
   `mcApi.ts`, `rcon.ts`.
 - Skills: move_to, chat (refuses "/" commands), wait, look_at, mine, collect, place, craft, smelt, eat,
   attack, explore, follow, give, equip, drop, get_item, find_site, prepare_site, build_design, build_box, build, deposit,
-  withdraw. Written on the pathfinder directly (collectblock and pvp were
+  withdraw, dig_mine. Written on the pathfinder directly (collectblock and pvp were
   dropped: less control over failure messages and cancelling, and pvp pulls in mineflayer 2.x). Brains: idle,
   tiered, llm.
 - `collect` resolves names in code: "logs" is any log, an item means the blocks that drop it (cobblestone -> stone),
@@ -425,12 +439,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left from the 2026-09-29 sessions: no agents in the world; the Paper server (on the LAN, whitelisted, always day),
-the pinned model servers and the agent server (`MC_API_HOST=0.0.0.0`) were left running, but as background tasks of
-that Claude session (check them). Test buildings and storage chests stand near spawn and at the test villages
-(Depot, Stage*, Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1; all in
-`mc/server/villages.json`): build elsewhere or clear them. The atlas (`mc/server/atlas.json`) holds ~1,650 chunks
-seen so far. The user confirmed the panel's simple mode reads well (2026-09-29).
+Left after the fifth session (2026-10-01): nothing running but the Ollama app (start the stack as above); no agents
+in the world. Test buildings, storage chests and now mines stand near spawn and at the test villages (Depot, Stage*,
+Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4; all in
+`mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`) or clear them. The atlas
+(`mc/server/atlas.json`) holds ~4,100 chunks, shown on the panel's world map. The user confirmed the panel's simple
+mode reads well (2026-09-29).
 
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
@@ -521,6 +535,20 @@ Lessons from the adapter:
 30. **Keep off every village's work, not only the agent's own** (2026-09-29): Gus, in no village, felled the jungle-log
    frames and roofs of Accept15's cottages and hall as trees (~101 logs, restored by command). Any skill that breaks
    blocks must exclude all villages' structures and plots, and treat logs without leaves as built.
+31. **The pathfinder digs whatever is natural on its way** (2026-09-29): a cobblestone gatherer dug a shaft from a
+   prepared plot's surface to stone below it (F66). Every bot's movements now refuse to break blocks on any village's
+   plots and margins (from 4 below the level up), beside its buildings and in its mine (`protectedGround` +
+   `exclusionAreasBreak` in `moves()`); a skill's own planned digging uses `bot.dig` directly. Collect takes nothing
+   in the columns under a plot, and steps off village ground to find buried stone beside it (F64).
+32. **Local models have an 8k context and prompts grow quietly** (F78): the village summary reached ~2,200 tokens
+   (41 tasks, per-chest storage, the needs and mine lines) and workers' executor prompts 8,391 tokens: every call
+   failed. Workers get a compact summary now; check prompt size whenever something is added to the summary.
+33. **A `/setblock` over a chest empties it, and stray blocks raise a floor** (F59): a gatherer's crafting table
+   inside the future storage hut made its floor a block higher, and the floor layer would have been set on the
+   chests. Tables and furnaces never go on village ground; builds refuse when a kept chest is not at their level.
+34. **What counts as natural decides what prepare_site clears** (F61, F76): cocoa pods and bee nests were missing from
+   `NATURAL`, so their columns were kept as "built" and a plot stayed uneven. When a plot is left uneven on fresh
+   ground, look for a block missing from that list.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

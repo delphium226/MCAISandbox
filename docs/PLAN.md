@@ -20,41 +20,42 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-09-29 at the end of the fifth session: V.1-V.5 of phase 2A, the world map)
+(written 2026-10-01 at the close of the fifth session: phase 2A V.1-V.5 done, the world map; nothing left uncommitted)
 
-- **Code:** everything committed on `tiered-brain-building` and pushed to origin (up to `1a1e2f5` and this note;
-  the user added a `Bash(git push *)` allow rule after auto mode had blocked the push). `main` untouched. Working
-  tree clean except `runs/`.
-- **Running when this session ended:** Paper, the Ollama app, both pinned model servers, the agent server
-  (`runs/2026-09-29/agentserver-v22.log`, `MC_API_HOST=0.0.0.0`), all background tasks of this Claude session: check
-  ports 25565, 8766, 11435, 11436 and `python scripts/ollama_exec.py status` first. No agents in the world.
-- **Where things stand:** phase 2A steps V.1 (storage hut), V.2 (sorted storage), V.2b (table and furnace in the
-  hut; the user's addition), V.3 (materials still to gather, `add_need`), V.4 (side pickups; rarely triggers) and V.5
-  (mining hut, stairs, tunnels) are done. A new village's first layout now brings a mining hut and a storage hut;
-  cobblestone comes from the mine. Hutvale4 (model-driven, everything): 5/5 in 19.2 min, 2 failed actions. The panel
-  shows one world map of the whole atlas (the user's request). Also fixed on the way: bots can pass doors (the
-  pathfinder only opened gates, F69), village ground kept from any digging (F66), collect steps off a plot (F64),
-  plan-bound step credit (F65), compact worker prompts (F78).
-- **Next:** F77 first (the main tunnel ending at a hillside stops the whole mine: turn it or dig a second level), then
-  V.6 (ores seen in the tunnel walls into the atlas; `v.mine.got` already counts them), then V.7 (more model-driven
-  runs with everything, 2-3 in a row). Open: F62 (2x2 jungle trees felled for small tasks), F67 (timed review
-  re-plans mid-collect), F71 (a bot stuck in a 1-deep pocket), the hut chain risk (decisions log). `add_need` and a
-  code-posted shortfall are not yet exercised in a run.
-- **Worktree agent:** a second agent for V.5/V.6 in a git worktree was blocked by the permission classifier; the main
-  thread built V.5 itself. Subagents for reviews, log reading and drafting worked well: every diff was reviewed
-  before its commit and each review found real bugs.
+- **Code:** everything committed on `tiered-brain-building` and pushed to origin (`55e993e` and this tracker update);
+  `main` untouched. Working tree clean except `runs/` (gitignored logs).
+- **Nothing is running:** the servers were background tasks of the fifth session and stopped with it (on 2026-10-01
+  only the Ollama app was up). Start the stack in CLAUDE.md's order: Paper (`python mc/start.py`), then
+  `python scripts/ollama_exec.py start` (check its spill WARNINGs), then the agent server (step 3, with
+  `MC_API_HOST=0.0.0.0`). No agents are in the world; `villages.json` keeps every test village.
+- **Where things stand:** phase 2A steps V.1 (storage hut), V.2 (sorted storage), V.2b (table and furnace in the hut;
+  the user's addition), V.3 (materials still to gather, `add_need`), V.4 (side pickups; rarely triggers) and V.5
+  (mining hut, stairs, tunnels) are done. A new village's first layout now brings a mining hut and a storage hut, and
+  cobblestone comes from the mine. Hutvale4 (model-driven, everything): 5/5 in 19.2 min, 2 failed actions, no
+  cobblestone gathered outside. The panel shows one world map of the whole atlas (the user's request). Also fixed on
+  the way: bots can pass doors (the pathfinder only opened gates, F69), village ground kept from any digging (F66),
+  collect steps off a plot (F64), plan-bound step credit (F65), compact worker prompts (F78).
+- **Next:** V.5b (F77: a main tunnel meeting a hillside stops the whole mine; turn it or dig a second level), then
+  V.6 (ores seen in the tunnel walls into the atlas; `v.mine.got` already counts them), then V.7 (2-3 model-driven
+  runs in a row with everything). Open items are in the backlog (F62, F67, F71, the hut chain, `add_need` untested).
+- **Working method:** subagents for reviews, log reading, docs and drafting: every diff was reviewed before its commit
+  and each review found real bugs (keep doing it). A worktree subagent (V.5/V.6 in parallel) was blocked by auto
+  mode's classifier ("Out-of-Place Publication"); so were `git push` (the user then added a `Bash(git push *)` allow
+  rule to `~/.claude/settings.json`) and editing Claude's own settings ("Self-Modification", not to be worked around).
+  If parallel work is wanted, ask the user to switch out of auto mode or to request the worktree agent explicitly.
 - **Testing notes:** `stage_village.py --stage build` in a new village runs the mining hut and the stairs too
-  (~3-4 min); staged full runs ~14-21 min (`MCAI_STALL_MIN=8`). Monitors with two greps need `--line-buffered` on
-  both (a silent monitor was the second grep buffering). Fresh land within reach of the atlas is scarce: score
-  `mc/server/atlas.json` (logs, sand, water over 5x5 chunks, 110+ blocks from any village). New test villages:
-  StageH1-H20, Hutvale1-4 (Hutvale1 has a shaft in its plot at -795,247; StageH3's hut is unbuilt).
+  (~3-4 min) and ends with a mixed-deposit sorting check; staged full runs take ~14-21 min (`MCAI_STALL_MIN=8`).
+  `scripts/checks/fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas (fresh land is scarce within reach of
+  the explored area); `scripts/checks/follow_workers.py VILLAGE MINUTES` follows workers after a stage run's stall
+  rule stopped it. Monitors with two greps need `--line-buffered` on both. Test villages of the fifth session:
+  StageH1-H20, Hutvale1-4 (Hutvale1 has a shaft in its plot at -795,247; StageH3's storage hut is unbuilt; StageH14's
+  testhut is unbuilt).
 - Run logs: `runs/2026-09-29/` (stageH1-H20, hutvale1-4, agentserver-v1..v22.log).
 - **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start
   of every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
   pushing; never edit server files while a run is going (draft edits in the scratchpad, apply between runs); stop a
   run as soon as it is clearly lost; report findings from logs and the panel, not just outcomes; show the approach
-  before changing code at the start of a new piece of work (the user said "decide for yourself and proceed" for the
-  rest of this session).
+  before changing code at the start of a new piece of work.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -184,7 +185,7 @@ the hut down to stone, then straight branch tunnels at one level.
       carried; the result names them. StageH14 and H15 (3/3 in 23.2 min): no side pickup happened: what villages need
       is logs (excluded: a tree is minutes of work), stone and a little sand, rarely within 4 blocks of each other.
       Its value comes with the mine (ores and stone in tunnel walls) or wider radii; not worth more now.
-- [ ] V.5 **Mining hut and mine**: a fixed hut over a staircase down to stone, then branch tunnels at one level;
+- [x] V.5 **Mining hut and mine** (done 09-29: StageH18, Hutvale4): a fixed hut over a staircase down to stone, then branch tunnels at one level;
       `collect` stone, cobblestone and ores goes to the mine and extends the tunnels instead of digging at the
       surface; the tunnels are recorded in the village. Test: staged runs; no surface holes around the village.
       Built 09-29 (fifth session; the worktree agent was blocked by the permission classifier, so the main thread did
@@ -197,6 +198,11 @@ the hut down to stone, then straight branch tunnels at one level.
       area is kept from the pathfinder's digging; ores seen in the walls are counted (`v.mine.got`, V.6 later).
       StageH16-H18: stairs in 0.6-1.3 min; 18-32 cobblestone a trip in about a minute (outside: 30 in 3-5 min);
       StageH18 built mining hut, storage hut, hall and testhut in 13.6 min.
+- [ ] V.5b **A mine that goes on** (F77, next): when the main tunnel meets a hillside, water, a cave or village ground,
+      the whole mine stops today and cobblestone goes back to the surface (StageH19: stopped after 80 cobblestone, 20.8
+      min against StageH18's 13.6). Turn the main tunnel (left or right of the blocked direction), or dig the stairs on
+      to a second level, before giving up. Test: staged full runs where the main tunnel meets a hillside (StageH19's
+      site, -1399,-61, did); count cobblestone gathered outside (should be none).
 - [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
       surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
       `/api/block`.
@@ -235,8 +241,19 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
 - The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them
   (felling's server check removes those in a climb column, F57).
-- Cocoa beans (and other drops of jungle trees) go into the chest with `deposit item=all`: add them to the junk list
-  (27 in Fell1's chest; planned with V.2).
+- Whole-tree felling overshoots small tasks on 2x2 jungle trees (81 and 105 logs for 9-10-log tasks, over 5 min
+  each), and a held gather task is not closed when storage covers it (F62).
+- The timed review ("no step completed for 3 minutes") re-plans workers in the middle of long collects; the executor
+  then queues more collects (61 cobblestone for a 31 task, F67). No timed review while a code-posted step's action
+  is still running.
+- A bot stuck twice in a 1-deep pocket beside a plot on its way to a chest (F71; lesson 1's wall overlap suspected).
+- The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
+  a bot at y 60 under the storage hut); harmless to buildings so far.
+- The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
+  log, 09-29).
+- Not yet exercised in a run: the mayor's `add_need`, and a gather task code posts for a shortfall (V.3).
+- Side pickups (V.4) rarely trigger: logs are excluded and what villages need seldom lies within 4 blocks of the
+  material being gathered. Worth more with ores in the mine walls (V.6) or wider radii.
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -631,6 +648,8 @@ CLAUDE.md when a phase ends.
   leaving through the open door stuck in the doorway). Peaceful worlds have no mobs to keep out.
 - 09-29 (fifth session) New step V.2b (the user's): the crafting table and furnace go inside the storage hut and the
   village crafts and smelts there.
+- 10-01 V.5 counted done (StageH18 and Hutvale4); the mine stopping at a hillside (F77) becomes its own step, V.5b,
+  before V.6.
 - 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the
   user's request): drag, zoom, every village's ground and chests, the agents, and what is under the pointer
   (`/api/atlas?all=1`, fetched every 30 s).

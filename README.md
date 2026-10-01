@@ -423,7 +423,10 @@ What building these agents taught, and what the code is built around:
 - `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
   running): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs), `layout_small_sites.py VILLAGE`
   (partial layouts and second sites), `materials_near_site.py` (plan_layout's material counts), `treeless_site.py` and
-  `smelt_fuel.py`. Run the relevant one after changing find_site, layout.ts or smelting.
+  `smelt_fuel.py`, `atlas.py` and `fell_trees.py`. Run the relevant one after changing find_site, layout.ts, smelting,
+  the atlas or felling. Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
+  the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
+  village's workers on after the stage runner's stall rule stopped it.
 - `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
 - `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered]` (real
   Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
