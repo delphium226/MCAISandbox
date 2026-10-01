@@ -244,8 +244,13 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
         its tick rate, drop T.1 and say why in the decisions log.
       - Use: iterating and staged runs only; acceptance runs (model-driven) stay at 1x, since timing quirks (lesson 29,
         inventory drift) may behave differently at another speed.
-- [ ] T.2 **A fixed test world**: known sites restored before each staged run, so runs repeat and land stops deciding
-      them.
+- [x] T.2 **A fixed test world** (done 10-01, seventh session, as option (b) of the decisions log: a second world from
+      the seed in `mc/testserver`, snapshot in `mc/testworld`; Fixed1 and Fixed2 identical, 7.1 min each at 2x). Use:
+      `python mc/testserver.py init|snapshot|status|regions`, `MC_TIME_SCALE=2 MCAI_API=http://127.0.0.1:8767/api
+      python scripts/reset_site.py SITE` (stops the test servers, restores the site's regions, villages and atlas,
+      starts both detached), then `python scripts/stage_village.py VILLAGE --site SITE ...` (no land probe once the
+      site is recorded in `scripts/test_sites.json`). The steps as planned (snapshot of today's world) are below.
+      Known sites restored before each staged run, so runs repeat and land stops deciding them.
       - Choose 4-6 sites in today's world and record them in `scripts/test_sites.json`: wooded with sand near
         (Minevale3's -1600,-35 and Minevale4's -1596,181 passed with 0 failed actions), one where the mine's main tunnel
         meets a hillside (StageH19's ground -1403,-42 shows the shape; find or make one where the stairs point at a
@@ -258,7 +263,7 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
         `scripts/checks/region_blocks.py` against the snapshot (no server needed) and with `/api/blocks` once it runs.
       - `stage_village.py --site NAME` uses a site from the file directly (no land probe).
       - Test: one staged full run twice on the same restored site: same plot, same mine direction, similar times.
-- [ ] T.3 **A site check** (with F88, which is next after T.1-T.2): `scripts/checks/site.py X Z SIZE` runs find_site
+- [x] T.3 **A site check** (done 10-01, seventh session: `scripts/checks/site.py X Z SIZE`; F88 and F83 fixed, F93): `scripts/checks/site.py X Z SIZE` runs find_site
       with Gus and compares its reported ground, height range and trees with `/api/blocks` over the site and its
       layout margin (F83: the margin reached past the measured site into a ravine; F88: "y=101, height range 0, 0 trees"
       where the ground was at 119). Then fix find_site (unloaded columns?) and plan_layout's margin; run the check on
@@ -323,6 +328,13 @@ lays out, gathers and builds it, and the mayor answers in chat.
   cobblestone (StageM7: 43 diorite); a second miner waits up to 2 minutes when the busy tunnel has no finished junction
   and both stairs-bottom turns are used (Minevale2, 28.3-30.4 min); it could take an unfinished branch instead.
 - The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
+- Fallen trees (26.1's lying logs without leaves) count as built: collect gives up on them after minutes (F94).
+- find_site's wood count has a window tied to the bot's height like F88's (`floorY = bot y - 16`, mcBuild.ts ~866): a
+  bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).
+- Kelp reaching the water's surface makes `surfaceAt` pass down to the seabed and read a lake as dry ground (T.3
+  review; site.py treats kelp as water).
+- A "drop" test site: the probe at -1656,-152 settled on the low ground, so no staged run has yet met a plot against a
+  drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand.
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -419,6 +431,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 (s7) | T.1 mine check, 1x | `PICKAXE_WAIT=0 mine.py StageM8 2 24` | **PASS** | 92 s | round 1 55 s (stone pickaxe from storage), round 2 28 s (20 cells) |
 | 10-01 (s7) | T.1 mine check, 2x | same, `MC_TIME_SCALE=2` (tick rate 40) | **PASS** | 99 s | round 1 58 s, round 2 32 s (38 cells); no faster: mining is digging, and digs stay in real time (F91); no rejected moves or digs, no `[lag]` |
 | 10-01 (s7) | T.1 walk check | Gus walks 14 fixed legs on StageM8's plot (scratchpad `walk_speed.py`) | 1.94x | 48.8 s at 1x, 25.1 s at 2x | every leg arrived; ~10 blocks/s sprinting at 2x |
+| 10-01 (s7) | Fixed1 | T.2: staged full at 2x on the test world's restored site minevale3 (probe -1544,8; site -1563,-36, birch) | **3/3 built** | **7.1 min** (1x: 9-12, StageM6-M8) | 0 failed actions; plot x -1572..-1554, z -46..-26, y 64; stairs 7 steps to y 58 at 4.9 min; mine east, legs 26 and 33 cells |
+| 10-01 (s7) | Fixed2 | T.2: the same after `reset_site.py minevale3`, the site from test_sites.json | **3/3 built** | **7.1 min** | **identical**: the same plot, 18 trees felled, stairs at 4.9 min, mine east with legs 26 and 33; then a restore without start: 0 of 264,191 blocks differ from the snapshot (`region_blocks.py --compare`) |
+| 10-01 (s7) | site check M5 | T.3: `site.py -1208 -296 30` before and after the F88 fix (main world, 1x) | FAIL, then **PASS** | 15 s | before: "ground y=100, range 0" (Gus at y 68 + 32), real 123, range 14, 90 columns below the level; after: site -1109,-259, y 65, range 4, 344 tree blocks, all equal to the blocks |
+| 10-01 (s7) | site check M1 | T.3: `site.py -840 136 30` (after the fix) | **PASS** (a WARN: 2 margin columns 5-6 down) | 17 s | site -772,51, y 70, range 4, 1445 tree blocks, all equal |
+| 10-01 (s7) | Drop1 | staged full at 2x on the test world's "drop" site (probe -1656,-152; site -1706,-194, y 64) with the F88/F83 fixes | **3/3 built** | 11.0 min | 2 soft collect failures (birch scarce; a fallen tree read as built, F94); mine east, legs 25 and 32; the probe settled on the low ground, so no drop met; first pillar tries refused 3 of 4 trees, all placed on the retry (F92) |
 | 10-01 (s7) | StageS1 | staged build at 2x, -1480,-248 (site -1495,-248, oak) | **3/3 built**, deposit check passed | **1.5 min** (1x: 2.2-2.3, StageM2/M3) | 0 failures; no rejected moves in Paper's log; one 2.3 s `[lag]` at the probe's spawn (normal); the last minutes may be missing from the world (Paper killed, F90) |
 
 ## Findings log
@@ -772,6 +789,26 @@ CLAUDE.md when a phase ends.
   and mining does not speed up (mine check 92 s at 1x, 99 s at 2x). Walking, furnaces, item pickup and leaf decay
   follow the tick rate. Not taken: finishing digs at 0.7 of their time plus a tick (the server's tolerance), ~1.3x on
   long digs at any speed, but it changes 1x behaviour.
+- F92 (10-01, T.2 runs at 2x) The felling pillar's first dirt placement is refused more often at 2x: 8 first tries
+  in 20 felled trees (Fixed1, Fixed2, Drop1) against ~10 in 116 at 1x (the sixth session's logs); every second try
+  placed it, no felling failed. The jump's time above the block is half as long in real time while the poll, the extra
+  tick and the placement's round trip are not (the T.1 review predicted it). Left: costs a retry only, in 2x runs only.
+  If it starts failing: place on the first `physicsTick` with the feet a block up instead of polling.
+- F93 (10-01, T.3) F88's cause: find_site's column scan (`surfaceAt`) ran from the surveying bot's y + 32 down, so
+  ground higher than that read as solid at the window's top: level, treeless ground at exactly bot y + 32. Minevale5's
+  Mayor stood at y 69 and reported "ground y=101"; `site.py -1208 -296 30` reproduced it (Gus at y 68: "ground y=100,
+  height range 0", real median 123, range 14). Not unloaded chunks (those are rejected, never flat). Fixed: the scan
+  climbs in 16-block steps while the window's top is not air, then scans down (prepare_site and readySite use the same
+  function). After: the check passes there (a real site at -1109,-259, every figure equal to the blocks). F83's cause:
+  prepare_site judged plot + 2-block margin while find_site had measured the plot's square only. Fixed: a margin column
+  more than 8 below the level is left as it is and reported; only plot columns refuse, saying to run find_site again.
+  `site.py -840 136 30` (Minevale1's probe): every figure matches; two margin columns 5-6 below the level (filled).
+- F94 (10-01, Drop1, test world) collect spent 175 s on a birch log at -1711,67,-210 and gave up: "no leaves: built by
+  someone, not a tree". It is a fallen tree (26.1 generates them: a row of logs lying on the ground, -1711,67,-210..-207
+  in the untouched snapshot, no leaves). Leafless logs count as built since lesson 30; a lying log outside every
+  village is natural. Backlog. (The site, "drop", had 191 birch logs; after the plot's 116 a collect found none left
+  within 96 blocks: Drop1 took 11.0 min against minevale3's 7.1, and its probe chose the low ground at y 64, not the
+  shelf at y 95, so it did not test a plot against a drop.)
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

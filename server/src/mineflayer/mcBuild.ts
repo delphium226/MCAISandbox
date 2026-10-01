@@ -76,7 +76,18 @@ const LIQUID = /^(water|lava|bubble_column)$/;
 function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
   const v = new Vec3(x, 0, z);
   let trees = 0;
-  for (let y = yHint + 32; y > yHint - 48; y--) {
+  // Ground higher than the window read as solid at its top cell: flat, treeless ground at yHint + 32 (F88: "ground
+  // y=101, height range 0, 0 tree blocks" on a wooded hill at y 119). Start above the column's top instead
+  const game = a.bot.game as unknown as { minY?: number; height?: number };
+  const top = (game.minY ?? -64) + (game.height ?? 384) - 1;
+  let start = yHint + 32;
+  for (;;) {
+    const b = a.bot.blockAt(v.set(x, start, z));
+    if (!b) return null; // not loaded
+    if (b.name === 'air' || start >= top) break;
+    start = Math.min(top, start + 16);
+  }
+  for (let y = start; y > yHint - 48; y--) {
     const b = a.bot.blockAt(v.set(x, y, z));
     if (!b) return null; // not loaded
     if (b.name === 'air' || b.name === 'cave_air') continue;
@@ -1004,8 +1015,26 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   };
   let columns = 0, protectedCols = 0, felled = 0;
   const treeLogs = new Set<string>();
+  const drops: string[] = [];
   for (let x = x0 - m; x <= x1 + m; x++)
     next: for (let z = z0 - m; z <= z1 + m; z++) {
+      // How far down the ground is (under shallow water: its bottom)
+      const c = surf.get(`${x},${z}`)!;
+      let g = c.y;
+      if (c.liquid) {
+        const box = (yy: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox;
+        while (g > y - 10 && box(g) !== 'block') g--;
+      }
+      if (y - g > 8) {
+        // The margin is only a walkway: where it runs over a drop it is left as it is (F83: a ravine 2 blocks past the
+        // site find_site measured refused the whole plot)
+        if (x < x0 || x > x1 || z < z0 || z > z1) {
+          drops.push(`${x},${z}`);
+          continue;
+        }
+        // Not "find another site": an executor did, and prepared a plot 43 blocks off the village's layout (F83)
+        throw new Error(`the ground at ${x},${z} on the plot is ${y - g} blocks below the level y=${y} (deep water or a ravine): this plot cannot be prepared here; do not prepare a plot anywhere else, the village's buildings are laid out on this one`);
+      }
       // Everything above the level goes, but columns with anything built in them are left alone
       const cut: number[] = [];
       for (let yy = y + 1; yy <= y + 32; yy++) {
@@ -1032,13 +1061,6 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
         add(x, yy, z, 'air');
       }
       // Fill low ground and shallow water up to the level
-      const c = surf.get(`${x},${z}`)!;
-      let g = c.y;
-      if (c.liquid) {
-        const box = (yy: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox;
-        while (g > y - 10 && box(g) !== 'block') g--;
-      }
-      if (y - g > 8) throw new Error(`the ground at ${x},${z} is ${y - g} blocks below the level (deep water or a ravine); choose a flatter site with find_site`);
       for (let yy = g + 1; yy < y; yy++) add(x, yy, z, 'dirt');
       const top = blockName(a, x, y, z) ?? 'air';
       const solidTop = a.bot.blockAt(new Vec3(x, y, z))?.boundingBox === 'block';
@@ -1070,7 +1092,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name });
     reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
-  return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}; ${summary}`;
+  return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
 }
 
 // ---------------------------------------------------------------------------------------------
