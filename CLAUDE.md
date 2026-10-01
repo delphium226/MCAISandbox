@@ -310,12 +310,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     (`5710a15`), V.3 materials still to gather (`3a53548`), V.4 side pickups (`dafe26f`), V.5 the village mine
     (`832a3be`), compact worker prompts (F78) and Hutvale4 (5/5 in 19.2 min); all pushed to origin
     (`tiered-brain-building`, 2026-09-29), and the tracker brought up to date on 2026-10-01.
-21. 2026-10-01 (sixth session; not pushed, ask first): V.5b, a mine that goes on (`813703a`, `9ad3a42`: turned
+21. 2026-10-01 (sixth session; pushed at the seventh's close): V.5b, a mine that goes on (`813703a`, `9ad3a42`: turned
     tunnels, levels down, stone only, one miner a tunnel, no-dig walks; F79-F82); V.6, exposed ores in the atlas
     (`d34ed76`, with README and ARCHITECTURE.md); spawns on the ground and pickaxes from storage (`abfd90c`, F84, F85).
     V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions); Minevale5 lost to find_site
     (F88). Next (decided at the close): phase T, faster tests (PLAN.md), then F88 and one more V.7 pass.
-22. 2026-10-01 (seventh session; not pushed, ask first): phase T, faster tests: `MC_TIME_SCALE` (`2a782fd`, T.1), the
+22. 2026-10-01 (seventh session; pushed with the sixth's at the close, `main` untouched): phase T, faster tests: `MC_TIME_SCALE` (`2a782fd`, T.1), the
     fixed test world `mc/testserver` with `reset_site.py` (`ae77c36`, T.2), `site.py` and the F88/F83 fixes
     (`b8c1e6b`, T.3), parallel staged runs and docs (`58d68bb`, T.4); Ollama's Vulkan default fixed (F89). V.7 passed:
     Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Next: the open items in PLAN.md.
@@ -473,8 +473,8 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the seventh session (2026-10-01): the servers were started detached and may still run (both Papers, both
-agent servers, the pinned Ollama servers: check the ports); no agents in either world. In the main world, test
+Left after the seventh session (2026-10-01): nothing running but the Ollama app (all servers stopped cleanly at the
+close; start the stack as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear

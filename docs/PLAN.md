@@ -22,13 +22,12 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 (written 2026-10-01 at the close of the seventh session: phase T done, V.7 passed)
 
-- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e`. Not pushed: the sixth session's nine
-  commits (`545003b`..`162fb45`) and the seventh's (`2a782fd` T.1, `ae77c36` T.2, `b8c1e6b` T.3, `58d68bb` T.4 and docs,
-  and the close). Ask before pushing. `main` untouched. Working tree clean except `runs/`.
-- **What may still be running** (servers are now started detached, so they outlive the session): the main Paper
-  (25565) and its agent server (8766, 1x), the test world's Paper (25566) and agent server (8767, 1x, model routes
-  set), the two pinned Ollama servers (11435, 11436). Check the ports first; restart what is missing (CLAUDE.md,
-  "Running and checking", now with `scripts/detach.py`). No agents in either world.
+- **Code:** committed on `tiered-brain-building` and **pushed** to origin (the user agreed at the close; origin at
+  `acb96bf` and the commit that recorded it). `main` untouched. Working tree clean except `runs/`.
+- **Nothing is running:** at the close both agent servers were stopped, both Papers stopped with `stop` (each logged
+  "All dimensions are saved") and the pinned Ollama servers stopped; only the Ollama app, which the user starts. Start
+  the stack in CLAUDE.md's order (with `scripts/detach.py`); for the test world, `reset_site.py` starts its two servers.
+  Run `python scripts/ollama_exec.py status` after starting the model servers. No agents in either world.
 - **Where things stand:** phase T is done. `MC_TIME_SCALE=2` (walking 1.94x, staged build ~1.5x, mining 1x: Paper
   times digs by the wall clock, F91); the fixed test world (`mc/testserver`, `scripts/reset_site.py SITE`,
   `scripts/test_sites.json` with minevale3, minevale4 and drop recorded); `scripts/checks/site.py`; parallel staged runs
@@ -45,8 +44,6 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   Left for later: F84 (the Mayor's executor chasing distress chat), F86 (gullies roofed), two miners on crossing
   tunnels, the rest of the backlog. Test each fix on a restored test site first: staged at 2x, then one model-driven
   run at 1x.
-- **Asked at the close, not yet answered:** push the 14 unpushed commits (the sixth session's nine and this session's
-  five or more) to origin `tiered-brain-building`; stop the detached servers or leave them up.
 - **Test world state:** Minevale6 stands on minevale3's land (reset before using that site); the snapshot
   (`mc/testworld`, 2026-10-01 15:18) holds the six sites untouched. `scripts/test_sites.json` has minevale3,
   minevale4 and drop recorded; hills, woods-sand and woods-sand2 still probe (their first run prints the site to record).
