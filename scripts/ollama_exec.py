@@ -115,7 +115,10 @@ elif cmd == "start":
             continue
         env = {**os.environ, "OLLAMA_HOST": f"127.0.0.1:{c['port']}", "CUDA_VISIBLE_DEVICES": gpu_uuid(c["gpu"]),
                "OLLAMA_NUM_PARALLEL": str(c["parallel"]),
-               "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_KEEP_ALIVE": "-1"}
+               "OLLAMA_MAX_LOADED_MODELS": "1", "OLLAMA_KEEP_ALIVE": "-1",
+               # Ollama turns Vulkan on by default since ~2026-09; Vulkan ignores CUDA_VISIBLE_DEVICES and put the
+               # executor on the other card (2026-10-01).
+               "OLLAMA_VULKAN": "0"}
         flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
         log = TMP / f"ollama_{n}.log"
         proc = subprocess.Popen([str(EXE), "serve"], env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT, creationflags=flags)

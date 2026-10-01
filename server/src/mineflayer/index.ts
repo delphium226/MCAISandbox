@@ -4,7 +4,9 @@
  *
  * Settings: MC_HOST (default 127.0.0.1), MC_PORT (25565), MC_VERSION (26.1, Mineflayer's name for the 26.1.x
  * protocol), MC_API_PORT (8766), MC_API_HOST (127.0.0.1; 0.0.0.0 serves the panel and API to the local network, with
- * no login: anyone who can reach it can spawn and command agents). The RCON port and password are read from mc/server/server.properties.
+ * no login: anyone who can reach it can spawn and command agents), MC_SERVER_DIR (mc/server; the test world is
+ * mc/testserver), MC_TIME_SCALE (1; 2 runs the server and the bots at 2x for tests, mcRules.ts). The RCON port and
+ * password are read from the server folder's server.properties.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -17,7 +19,8 @@ import { MineflayerWorld } from './mcWorld';
 import { Rcon } from './rcon';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const SERVER_DIR = path.join(ROOT, 'mc', 'server');
+// The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json
+const SERVER_DIR = path.resolve(ROOT, process.env.MC_SERVER_DIR ?? path.join('mc', 'server'));
 const HOST = process.env.MC_HOST ?? '127.0.0.1';
 const PORT = Number(process.env.MC_PORT ?? 25565);
 const VERSION = process.env.MC_VERSION ?? '26.1';
@@ -36,7 +39,7 @@ function serverProperties(): Record<string, string> {
 }
 
 const props = serverProperties();
-if (props['enable-rcon'] !== 'true' || !props['rcon.password']) throw new Error('RCON is off in mc/server/server.properties (enable-rcon, rcon.password)');
+if (props['enable-rcon'] !== 'true' || !props['rcon.password']) throw new Error(`RCON is off in ${path.join(SERVER_DIR, 'server.properties')} (enable-rcon, rcon.password)`);
 const rcon = new Rcon(HOST, Number(props['rcon.port'] ?? 25575), props['rcon.password']);
 const world = new MineflayerWorld(HOST, PORT, VERSION, rcon, SERVER_DIR);
 

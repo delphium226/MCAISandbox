@@ -7,6 +7,7 @@
 import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
+import { timeScale } from './mcRules';
 
 /** Blocks the climb may dig through: natural terrain only, never anything built. */
 const DIGGABLE = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|sandstone|red_sandstone|terracotta|.*_terracotta|netherrack|moss_block|.*_leaves|.*_ore)$/;
@@ -90,7 +91,7 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
     if (!below || below.boundingBox !== 'block') return { rose: feet.y - start.y, why: 'no ground underfoot to build on' };
     bot.setControlState('jump', true);
     try {
-      for (let t = 0; t < 10 && bot.entity.position.y < feet.y + 1.05; t++) await sleep(50, signal);
+      for (let t = 0; t < 10 && bot.entity.position.y < feet.y + 1.05; t++) await sleep(50 / timeScale(), signal);
       await bot.placeBlock(below, new Vec3(0, 1, 0)).catch(() => undefined);
     } finally {
       bot.setControlState('jump', false);

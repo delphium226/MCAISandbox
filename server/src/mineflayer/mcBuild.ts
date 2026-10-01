@@ -22,6 +22,7 @@ import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts }
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
+import { timeScale } from './mcRules';
 
 type Pos = [number, number, number];
 
@@ -581,8 +582,8 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     };
     columns(clear, true);
     columns(place, false);
-    // Pace: memory.buildSpeed x 10 blocks a second, like the sandbox
-    const speed = Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1));
+    // Pace: memory.buildSpeed x 10 blocks a second, like the sandbox (and the game's speed, MC_TIME_SCALE)
+    const speed = Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1)) * timeScale();
     let placed = 0, cleared = 0, budget = 0;
     const skipped = new Map<string, number>();
     const spent: Counts = {};

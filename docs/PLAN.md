@@ -225,7 +225,10 @@ bug of the sixth session lived in Minecraft or Mineflayer behaviour the sandbox 
 stairs under a wall, suffocation, block-update desync), and the economy, storage and mine exist only for Minecraft.
 **Not** RCON fast travel either (it hides the pathfinding bugs the tests are for). Instead, in this order:
 
-- [ ] T.1 **Time scale** (cheap; go/no-go after one hour): run the server and the bots at the same higher speed.
+- [x] T.1 **Time scale** (done 10-01, seventh session: go; walking 1.94x, staged build 1.5 vs 2.2 min, mining
+      unchanged because Paper times digs by the wall clock, F91; no rejected moves; see the decisions log). Use:
+      `MC_TIME_SCALE=2` on the agent server, which sets the tick rate at start (20 again without it).
+      Run the server and the bots at the same higher speed.
       - Server: `tick rate 40` over RCON at agent-server start when `MC_TIME_SCALE=2` (as `mcRules.ts` applies the
         world rules; read it back with `tick query`; reset to 20 when unset). Smelting, leaf decay and pickups follow.
       - Bots: Mineflayer 4.39's physics (`node_modules/mineflayer/lib/plugins/physics.js`) steps an accumulator of
@@ -413,6 +416,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | Minevale3 | V.7 run 1: model, 2 workers, qwen3.8 worker planner, oak and birch woods -1544,8 (site -1600,-35) | **5/5 built**, declared complete by code | **14.4 min** | **0 failed actions**; layout at 1.5 min; every cobblestone from the mine (11 trips, 16-30 each, ~0.5 min); agents spawned on the ground (F84 fix); fastest village yet |
 | 10-01 | Minevale4 | V.7 run 2: same, -1576,168 (site -1596,181) | **5/5 built**, declared complete by code | **12.2 min** | **0 failed actions**; 8 cobblestone trips, all from the mine |
 | 10-01 | Minevale5 | V.7 run 3: same, -1208,-296 (Mayor's site -1176,-360) | stopped | 8.8 min | find_site reported "ground y=101, height range 0, 0 tree blocks" where the ground is at y 119 with a 9-block drop at the edge: prepare_site refused 4 times, the executor looped on find_site (F88); slow layout (7.0 min: hall design with a furnace refused, an Ollama 500) |
+| 10-01 (s7) | T.1 mine check, 1x | `PICKAXE_WAIT=0 mine.py StageM8 2 24` | **PASS** | 92 s | round 1 55 s (stone pickaxe from storage), round 2 28 s (20 cells) |
+| 10-01 (s7) | T.1 mine check, 2x | same, `MC_TIME_SCALE=2` (tick rate 40) | **PASS** | 99 s | round 1 58 s, round 2 32 s (38 cells); no faster: mining is digging, and digs stay in real time (F91); no rejected moves or digs, no `[lag]` |
+| 10-01 (s7) | T.1 walk check | Gus walks 14 fixed legs on StageM8's plot (scratchpad `walk_speed.py`) | 1.94x | 48.8 s at 1x, 25.1 s at 2x | every leg arrived; ~10 blocks/s sprinting at 2x |
+| 10-01 (s7) | StageS1 | staged build at 2x, -1480,-248 (site -1495,-248, oak) | **3/3 built**, deposit check passed | **1.5 min** (1x: 2.2-2.3, StageM2/M3) | 0 failures; no rejected moves in Paper's log; one 2.3 s `[lag]` at the probe's spawn (normal); the last minutes may be missing from the world (Paper killed, F90) |
 
 ## Findings log
 
@@ -747,6 +754,24 @@ CLAUDE.md when a phase ends.
   height range 0, 0 tree blocks"); prepare_site then refused the drop four times and the executor looped on find_site.
   "height range 0" with no trees on hilly woodland suggests columns read from chunks not (yet) loaded. Next: check
   find_site's height grid where chunks are missing, and prepare_site/plan_layout against F83.
+- F89 (10-01, seventh session, stack start) `ollama_exec.py start` warned twice that qwen3:30b was not in GPU 1's
+  memory (GPU 1 at 1.0 GB, GPU 0 at 24.2 GB with both models), although each start ran at ~170 tok/s. Cause: this
+  Ollama build turns Vulkan on by default (`OLLAMA_VULKAN:true` in the server log, set by no variable), and the Vulkan
+  backend ignores `CUDA_VISIBLE_DEVICES`: the executor's server chose Vulkan device PCI 02:00.0, the planner's card.
+  Fixed: the pinned servers start with `OLLAMA_VULKAN=0` (both cards then held their own model, no warning). This is
+  probably also the cause of the earlier "fully in VRAM" false reports.
+- F90 (10-01, seventh session) Paper, started with the Bash tool's `run_in_background`, was killed at the task's
+  default 30-minute limit (15:03, right after StageS1); the agent servers started that way would have died the same
+  way. Not a session restart: a time limit. Servers now start detached from the session (`Popen` with
+  `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, as `ollama_exec.py` does; a scratchpad `detach.py` this session).
+  A detached Paper's stdout stays empty: wait for "Done (" in `mc/server/logs/latest.log`.
+- F91 (10-01, T.1 design review) Paper 26.1 judges a dig by the wall clock: `ServerPlayerGameMode` counts ticks
+  with `level.getLagCompensationTick()` ((nanoTime - start) / 50 ms, unconditional, no setting). A dig finished in
+  half the time is refused (it becomes a "delayed destroy" needing full progress, one slot only), while Mineflayer
+  sets the block to air in its own view anyway: phantom air and lost drops. So at 2x digs keep their real-time length
+  and mining does not speed up (mine check 92 s at 1x, 99 s at 2x). Walking, furnaces, item pickup and leaf decay
+  follow the tick rate. Not taken: finishing digs at 0.7 of their time plus a tick (the server's tolerance), ~1.3x on
+  long digs at any speed, but it changes 1x behaviour.
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
@@ -806,6 +831,16 @@ CLAUDE.md when a phase ends.
   stays free for other bots), and every walk in the mine digs nothing (F80). New `GET /api/blocks` (a box of blocks) and
   `scripts/checks/mine.py` for checks. Test edits: StageM1's and Hutvale4's first tunnels were marked ended in
   `villages.json` to test the stairs down (backups in `runs/2026-10-01/`).
+- 10-01 (seventh session) T.1 goes ahead (go): `MC_TIME_SCALE=2` runs the server at tick rate 40 and the bots'
+  physics at 40 (a patch-package patch on Mineflayer 4.39.0's physics clock, pinned); digs stay in real time (F91);
+  build pacing, smelt polling, the jump-and-place waits and the pathfinder's per-tick search budget scale with it.
+  Walking 1.94x, staged build ~1.5x, mining 1x. For staged runs and checks only; model-driven acceptance runs stay at 1x.
+- 10-01 (seventh session) T.2 takes option (b), a separate test world generated from seed 1793578865 in
+  `mc/testserver` (ports 25566, RCON 25576, agent server 8767), not snapshots of today's world: a region file is
+  512x512 blocks, and the test regions of today's world hold up to 14 villages each that a restore would wipe while
+  `villages.json` still listed them; the proven sites of Minevale3 and Minevale4 are built over with no backup, and a
+  fresh world from the same jar regenerates them untouched. The agent server takes `MC_SERVER_DIR` (its world's
+  `server.properties`, `villages.json`, `atlas.json`). The test world is also T.4's second instance.
 - 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the
   user's request): drag, zoom, every village's ground and chests, the agents, and what is under the pointer
   (`/api/atlas?all=1`, fetched every 30 s).

@@ -1,0 +1,34 @@
+diff --git a/node_modules/mineflayer/lib/plugins/physics.js b/node_modules/mineflayer/lib/plugins/physics.js
+index bd36f96..f2697b7 100644
+--- a/node_modules/mineflayer/lib/plugins/physics.js
++++ b/node_modules/mineflayer/lib/plugins/physics.js
+@@ -14,8 +14,10 @@ const PI_2 = Math.PI * 2
+ const PHYSICS_INTERVAL_MS = 50
+ const PHYSICS_TIMESTEP = PHYSICS_INTERVAL_MS / 1000 // 0.05
+ 
+-function inject (bot, { physicsEnabled, maxCatchupTicks }) {
++function inject (bot, { physicsEnabled, maxCatchupTicks, timeScale }) {
+   const PHYSICS_CATCHUP_TICKS = maxCatchupTicks ?? 4
++  // MCAISandbox: game speed against 20 ticks a second (the server's `tick rate` / 20); ticks are simulated this much faster
++  const TIME_SCALE = timeScale > 0 ? timeScale : 1
+   const world = { getBlock: (pos) => { return bot.blockAt(pos, false) } }
+   const physics = Physics(bot.registry, world)
+ 
+@@ -66,7 +68,7 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
+     const deltaSeconds = (now - lastPhysicsFrameTime) / 1000
+     lastPhysicsFrameTime = now
+ 
+-    timeAccumulator += deltaSeconds
++    timeAccumulator += deltaSeconds * TIME_SCALE
+     catchupTicks = 0
+     while (timeAccumulator >= PHYSICS_TIMESTEP) {
+       tickPhysics(now)
+@@ -486,7 +488,7 @@ function inject (bot, { physicsEnabled, maxCatchupTicks }) {
+     shouldUsePhysics = false
+     if (doPhysicsTimer === null) {
+       lastPhysicsFrameTime = performance.now()
+-      doPhysicsTimer = setInterval(doPhysics, PHYSICS_INTERVAL_MS)
++      doPhysicsTimer = setInterval(doPhysics, PHYSICS_INTERVAL_MS / TIME_SCALE)
+     }
+   })
+   // A proxy (e.g. Velocity) transferring us to another server makes the client

@@ -15,8 +15,16 @@ import { attack } from './mcSurvival';
 import { at, goals, walk } from './mcUtil';
 import { mineAreas } from './mcMine';
 import { rescue } from './mcRescue';
+import { timeScale } from './mcRules';
 
 const { pathfinder, Movements } = pathfinderPkg;
+
+// Our Mineflayer patch (patches/mineflayer+4.39.0.patch) runs the physics clock this many times faster (T.1)
+declare module 'mineflayer' {
+  interface BotOptions {
+    timeScale?: number;
+  }
+}
 
 let nextEventId = 1;
 let nextActionId = 1;
@@ -67,8 +75,15 @@ export class BotAgent implements WorldAgent {
   private lastHurt = 0;
 
   constructor(readonly world: MineflayerWorld, readonly name: string, readonly role: string) {
-    this.bot = mineflayer.createBot({ host: world.host, port: world.port, username: name, version: world.version, auth: 'offline' });
+    // At MC_TIME_SCALE 2 the bot's physics runs at the server's 40 ticks a second. Digging stays in real time: Paper
+    // times block breaking by the wall clock, not by ticks, and refuses a dig finished early (T.1 review)
+    this.bot = mineflayer.createBot({ host: world.host, port: world.port, username: name, version: world.version, auth: 'offline', timeScale: timeScale() });
     this.bot.loadPlugin(pathfinder);
+    // A server not running at our speed (restarted at 20 while we expect 40, say) would make every walk wrong
+    this.bot._client.on('set_ticking_state', (p: { tick_rate?: number }) => {
+      if (p.tick_rate !== undefined && Math.abs(p.tick_rate - 20 * timeScale()) > 0.01)
+        console.log(`[speed] ${name}: the server ticks ${p.tick_rate} a second, the bots ${20 * timeScale()} (MC_TIME_SCALE ${timeScale()})`);
+    });
     this.ready = new Promise((ok, fail) => {
       const t = setTimeout(() => fail(new Error(`${name} did not spawn within 30 s`)), 30000);
       // Ready once the chunks around the bot have arrived, so the first skills see the terrain
@@ -158,8 +173,8 @@ export class BotAgent implements WorldAgent {
       // the plugin is not attached yet when it is loaded)
       this.bot.pathfinder.thinkTimeout = 15000;
       // ...but at most 15 ms of searching per tick each (40 by default: four bots searching at once starved the event
-      // loop, and the API stopped answering)
-      this.bot.pathfinder.tickTimeout = 15;
+      // loop, and the API stopped answering); at 2x there are twice the ticks, so half each
+      this.bot.pathfinder.tickTimeout = 15 / timeScale();
       m.allowParkour = false;
       m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy

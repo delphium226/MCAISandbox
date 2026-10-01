@@ -11,6 +11,7 @@ import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import { mineAreas, mineCanGive, mineFor } from './mcMine';
 import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
+import { timeScale } from './mcRules';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
   sleep, str, syncInventory, walk,
@@ -283,8 +284,10 @@ async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
     bot.setControlState('jump', true);
     let problem = '';
     try {
-      for (let i = 0; i < 20 && bot.entity.position.y < feet.y + 1; i++) await sleep(50, signal);
-      await sleep(50, signal);
+      // A game tick each: at 2x the jump's top is half as long in real time
+      const tick = 50 / timeScale();
+      for (let i = 0; i < 20 && bot.entity.position.y < feet.y + 1; i++) await sleep(tick, signal);
+      await sleep(tick, signal);
       // Still in the block: placing would be refused (and has been, and then placed later: StageT4)
       if (bot.entity.position.y < feet.y + 1) throw new Error(`jumped only to ${bot.entity.position.y.toFixed(2)}`);
       await abortable(bot.placeBlock(below, new Vec3(0, 1, 0)), signal);
@@ -1099,7 +1102,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       let got = 0;
       const deadline = Date.now() + count * 11000 + 15000;
       while (got < count && Date.now() < deadline) {
-        await sleep(2000, signal);
+        await sleep(2000 / timeScale(), signal);
         const out = furnace.outputItem();
         if (out) got += (await furnace.takeOutput())?.count ?? 0;
         // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)

@@ -23,8 +23,20 @@ export const WORLD_RULES: Record<string, string> = {
   advance_time: 'false',
 };
 
+/**
+ * Game speed for tests (MC_TIME_SCALE, plan step T.1): the server runs at 20 x this many ticks a second and the bots'
+ * physics follows (botAgent.ts, the Mineflayer patch in patches/); digs keep their real-time length (Paper times them by
+ * the wall clock). 1 when unset; acceptance runs stay at 1.
+ */
+export function timeScale(): number {
+  const s = Number(process.env.MC_TIME_SCALE ?? 1);
+  return Number.isFinite(s) && s >= 1 && s <= 4 ? s : 1;
+}
+
 export interface WorldRulesStatus {
   ok: boolean;
+  /** The server's target tick rate as `tick query` reads it back (20 at normal speed). */
+  tickRate?: number;
   /** One line for the log and the panel. */
   summary: string;
   problems: string[];
@@ -43,9 +55,16 @@ export async function applyWorldRules(rcon: Rcon): Promise<WorldRulesStatus> {
     const now = /set to:\s*(\S+)/.exec(reply)?.[1];
     if (now !== value) problems.push(`${rule}: wanted ${value}, server says ${reply.trim() || 'nothing'}`);
   }
+  // Every start sets the tick rate, so a test at 2x never leaves the server fast for the next run
+  const rate = Math.round(20 * timeScale());
+  await rcon.command(`tick rate ${rate}`);
+  const query = await rcon.command('tick query');
+  const tickRate = Number(/target tick rate:\s*([\d.]+)/i.exec(query)?.[1]);
+  if (tickRate !== rate) problems.push(`tick rate: wanted ${rate}, server says ${query.trim() || 'nothing'}`);
   const ok = problems.length === 0;
+  const speed = rate === 20 ? '' : `, tick rate ${rate} (${timeScale()}x)`;
   const summary = ok
-    ? `peaceful, no damage, keep_inventory, always day (${Object.keys(WORLD_RULES).length} game rules checked)`
+    ? `peaceful, no damage, keep_inventory, always day${speed} (${Object.keys(WORLD_RULES).length} game rules checked)`
     : `world settings NOT applied: ${problems.join('; ')}`;
-  return { ok, summary, problems, checkedAt: Date.now() };
+  return { ok, tickRate: Number.isFinite(tickRate) ? tickRate : undefined, summary, problems, checkedAt: Date.now() };
 }

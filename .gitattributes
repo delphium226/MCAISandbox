@@ -1,0 +1,2 @@
+# patch-package patches apply to LF files in node_modules: keep them LF in every checkout
+patches/*.patch text eol=lf
