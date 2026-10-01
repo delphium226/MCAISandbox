@@ -31,8 +31,10 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   walks) and V.6 (exposed ores per chunk in the atlas) are done; F84 (spawns inside hills) and F85 (pickaxes from the
   storage) fixed. V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions, all cobblestone
   from the mine); Minevale5 was lost to find_site (F88).
-- **Next:** F88 (find_site's heights where chunks are missing; then prepare_site and plan_layout's margin, F83), then one
-  more model-driven pass to close V.7; then the open items: the Mayor's executor answering workers' distress chat (F84),
+- **Next (the user's request, decided 10-01): phase T, faster tests**, in order: T.1 time scale (server `tick rate` and
+  Mineflayer's physics clock together, a one-hour go/no-go), T.2 a fixed test world (known sites restored before each
+  staged run), T.3 a site check with the F88 fix (find_site's heights where chunks are missing; plan_layout's margin,
+  F83), T.4 parallel staged runs. Then one more model-driven pass to close V.7 (at 1x); then the open items: the Mayor's executor answering workers' distress chat (F84),
   prepare_site roofing gullies (F86), two miners on crossing tunnels (backlog), 2.3 (sites from the atlas).
 - **Tools added:** `GET /api/blocks` (a box of blocks), `scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]]` (Gus mines;
   checks the cells; `PICKAXE_WAIT=0` makes him make his own pickaxe), `scripts/checks/atlas_ores.py VILLAGE` (the atlas's
@@ -207,6 +209,57 @@ the hut down to stone, then straight branch tunnels at one level.
 - [ ] V.7 Model-driven village runs with all of it. 10-01: Minevale3 (14.4 min) and Minevale4 (12.2 min) passed in a row,
       0 failed actions each, every cobblestone from the mine; Minevale5 lost to find_site (F88). One more pass after F88. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
       cobblestone from the mine. More runs, and F77 (a main tunnel that ends should turn or go a level down), next.
+
+## Phase T: faster tests (decided 2026-10-01, the user's request; first in the seventh session)
+
+Why: a staged full run takes 9-12 min and a model-driven one 12-40, almost all of it game time (walking, digging,
+felling, building at 20 ticks a second); and runs were lost to land, not code (Minevale1 and 5 on bad sites, F83/F88;
+StageM6-M8 never met the hillside they were meant to test). Decisions (10-01): **not** the sandbox engine: nearly every
+bug of the sixth session lived in Minecraft or Mineflayer behaviour the sandbox does not have (pathfinder digging,
+stairs under a wall, suffocation, block-update desync), and the economy, storage and mine exist only for Minecraft.
+**Not** RCON fast travel either (it hides the pathfinding bugs the tests are for). Instead, in this order:
+
+- [ ] T.1 **Time scale** (cheap; go/no-go after one hour): run the server and the bots at the same higher speed.
+      - Server: `tick rate 40` over RCON at agent-server start when `MC_TIME_SCALE=2` (as `mcRules.ts` applies the
+        world rules; read it back with `tick query`; reset to 20 when unset). Smelting, leaf decay and pickups follow.
+      - Bots: Mineflayer 4.39's physics (`node_modules/mineflayer/lib/plugins/physics.js`) steps an accumulator of
+        real elapsed time by `PHYSICS_TIMESTEP` (line 71; `PHYSICS_INTERVAL_MS = 50`, line 14): changing the interval
+        alone changes nothing. Scale the elapsed time added to the accumulator by `MC_TIME_SCALE` (a `patch-package`
+        patch, committed with `package-lock.json`; the closure's constants cannot be reached from outside), and wrap
+        `bot.digTime` (exposed, `digging.js` line 262) to divide by it. Our own timeouts (walk watchdog, 6-minute trips,
+        2-minute waits) stay in real time: generous at 2x, not wrong.
+      - Test: `mine.py StageM8 2 24` and a staged build at 1x and 2x; compare times (10-01 at 1x: 40-80 s a mine round,
+        staged build ~2.2 min); grep the Paper console for "moved too quickly", "moved wrongly" and refused digs; watch
+        `[lag]` lines (four bots doubling physics and pathfinding on one event loop, lesson 16). Pass: about 2x faster,
+        no rejected moves or digs, no new failures in either check. If Paper's movement or dig checks do not scale with
+        its tick rate, drop T.1 and say why in the decisions log.
+      - Use: iterating and staged runs only; acceptance runs (model-driven) stay at 1x, since timing quirks (lesson 29,
+        inventory drift) may behave differently at another speed.
+- [ ] T.2 **A fixed test world**: known sites restored before each staged run, so runs repeat and land stops deciding
+      them.
+      - Choose 4-6 sites in today's world and record them in `scripts/test_sites.json`: wooded with sand near
+        (Minevale3's -1600,-35 and Minevale4's -1596,181 passed with 0 failed actions), one where the mine's main tunnel
+        meets a hillside (StageH19's ground -1403,-42 shows the shape; find or make one where the stairs point at a
+        drop), one in hills (StageM6, -740,-391).
+      - Snapshot: with Paper stopped (`python mc/rcon.py stop` saves), copy the region files covering each site (r.X.Z.mca
+        under `mc/server/world/region`, and `entities/`, `poi/`) to `mc/testworld/` (gitignored), and the matching
+        `villages.json`/`atlas.json` entries (none: the sites must be outside every village).
+      - Restore: `scripts/reset_site.py NAME` stops Paper, copies the site's region files back, removes villages the
+        test created there from `villages.json` (and their atlas marks), starts Paper. Check it with `/api/blocks`
+        against the snapshot.
+      - `stage_village.py --site NAME` uses a site from the file directly (no land probe).
+      - Test: one staged full run twice on the same restored site: same plot, same mine direction, similar times.
+- [ ] T.3 **A site check** (with F88, which is next after T.1-T.2): `scripts/checks/site.py X Z SIZE` runs find_site
+      with Gus and compares its reported ground, height range and trees with `/api/blocks` over the site and its
+      layout margin (F83: the margin reached past the measured site into a ravine; F88: "y=101, height range 0, 0 trees"
+      where the ground was at 119). Then fix find_site (unloaded columns?) and plan_layout's margin; run the check on
+      Minevale1's and Minevale5's places.
+- [ ] T.4 **Parallel staged runs** (after T.2 settles): a second Paper instance from the test world (`mc/server2`,
+      port 25566, RCON 25576, whitelist and rules copied) and a second agent server (port 8767; `MC_PORT`/`MC_API_PORT`
+      settings if missing); the scripts take `MCAI_API`. Two staged runs at once (no models: the GPUs are not shared).
+      Watch CPU and `[lag]` in both servers.
+
+Then F88's fix is checked with T.3, and V.7's last model-driven pass runs at 1x.
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
@@ -730,6 +783,9 @@ CLAUDE.md when a phase ends.
   village crafts and smelts there.
 - 10-01 V.5 counted done (StageH18 and Hutvale4); the mine stopping at a hillside (F77) becomes its own step, V.5b,
   before V.6.
+- 10-01 (sixth session) Faster tests become phase T, before F88 and V.7's last pass (the user asked for it): time scale
+  first, then a fixed test world, a site check, parallel runs. Not the sandbox engine (the bugs live in Minecraft and
+  Mineflayer behaviour) and not RCON fast travel (it hides pathfinding bugs).
 - 10-01 (sixth session) V.5b does both, in the plan's order: main tunnels turn left, then right, at a junction of one
   that ended (`legs`, at most 12 a level, breadth-first, the turned tunnel's first stretch is a finished branch), and when
   no tunnel at a level can go on the stairs go on down from its bottom step, under its first tunnel (nothing goes there
