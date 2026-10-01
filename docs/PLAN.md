@@ -203,6 +203,9 @@ the hut down to stone, then straight branch tunnels at one level.
       min against StageH18's 13.6). Turn the main tunnel (left or right of the blocked direction), or dig the stairs on
       to a second level, before giving up. Test: staged full runs where the main tunnel meets a hillside (StageH19's
       site, -1399,-61, did); count cobblestone gathered outside (should be none).
+      Built 10-01 (both: turns, then levels; decisions log): typecheck, `scripts/checks/mine.py` on StageH19 (resumed,
+      turned, 0 cells changed outside the plan), the stairs down on StageM1 and under Hutvale4's dug tunnel, staged
+      builds StageM2-M3. Still to pass: a staged full run at a hillside and a model-driven run.
 - [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
       surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
       `/api/block`.
@@ -325,6 +328,15 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 09-29 | Hutvale4 | model, 2 workers, qwen3.8 worker planner, birch woods -1256,19, everything (storage hut with stations, needs list, side pickups, mine) | **5/5 built** (mining hut, storage hut, hall, 2 cottages 7x7), declared complete by code | 19.2 min | 2 failed actions (the storage task's table refused on wildflowers, F68; recovered); mine: 7 steps to y=57, 250 cobblestone from 139 cells, none gathered outside; 1 side pickup (sand); executor prompts over the 8k context 3 times (F78) |
 | 09-29 | StageH20 | staged build after F68 and F78 fixes, -1457,250 | **4/4 built**, deposit check passed | 3.1 min | stairs in 0.8 min |
 | 09-29 | atlas checks | Gus walks 150 blocks (oak woods -405,5; the lake at -235,-53), `scripts/checks/atlas.py` | 12/12 chunks match `/api/block` | 1-3 min each | 0.1 ms a summary; F53 |
+| 10-01 | mine check H19 | `scripts/checks/mine.py StageH19 3 24` (V.5b: StageH19's mine, stopped at a hillside, resumes) | **PASS** 3/3 rounds | 4.3 min | 24-25 cobblestone a round in 79/38/125 s, all in the mine; the east turn ended 2 cells in (no ceiling), the west one dug 163 cells, then a south turn at its first junction; 0 cells changed outside the planned ones (30,276 compared); 203 dirt against 157 cobblestone (F79) |
+| 10-01 | StageM1 | staged build with V.5b, -1176,104 (site found at -1103,232) | **3/3 built** | 2.1 min | stairs 7 steps to y=64, leg 0 recorded; the deposit check failed on a race in the script (the mine task's own deposit took the gift and sorted it right); the check now waits for the worker's task |
+| 10-01 | mine check H19b | after the first review (empty trips, short reasons, open air beside a cell), 3 rounds | **PASS** | 8.3 min | round 1: 17 cobblestone in 361 s, a south tunnel ran 280 cells through dirt (Gus carried 412 dirt): F79 is worse than it looked; rounds 2-3 24 each in 48-75 s |
+| 10-01 | mine check H19c | with "no stone ends a tunnel" and the stairs down, 4 rounds | FAIL round 1, rounds 2-4 PASS | 4.1 min | round 1 (from the hut): the pathfinder cut a 2-high shortcut from the hut to the face through unplanned ground (F80); 103 cobblestone for 9 dirt in four rounds |
+| 10-01 | mine check M1 | StageM1's only tunnel marked ended (test edit in villages.json): the stairs down | **PASS** 3/3 | 1.7 min | stairs 6 steps on down, y 64 -> 58, then a level-2 tunnel; from the hut with the no-dig walk (`walkMine`) |
+| 10-01 | mine check H19d | with `walkMine`, 2 rounds from the hut | **PASS** | 1.2 min | round 1 in 36 s (155 s with the shortcut), no dirt |
+| 10-01 | StageM2 | staged build, -1160,488 (site -1202,500) | **3/3 built**, deposit check passed | 2.2 min | stairs 7 steps to y=57 |
+| 10-01 | mine check Hutvale4 | after the second review (digCell never walks, stairs-down strikes and deadline); Hutvale4's 139-cell tunnel marked ended (test edit) | **PASS** 3/3 | 1.8 min | stairs down 6 steps under the dug tunnel, y 57 -> 51; 72 cobblestone in 92 s |
+| 10-01 | StageM3 | staged build on the final code, -1176,520 (site -1190,564) | **3/3 built**, deposit check passed | 2.3 min | stairs 7 steps to y=57 |
 
 ## Findings log
 
@@ -602,6 +614,21 @@ CLAUDE.md when a phase ends.
   summary (~540 tokens: their own task in full, 10 other open tasks by title, no finished ones, designs by name, no
   chests as buildings); the mayor's cloud planner keeps the full one. F68 (a table refused on wildflowers) fixed too:
   only air cells take a crafting table or furnace.
+- F79 (10-01, V.5b, mine check on StageH19) At a hillside the mine's level (y 63, the plot at 69) runs close under the
+  surface (65-66 there) and the tunnels are partly dirt: 203 dirt against 157 cobblestone in three trips (Gus carried
+  165 dirt at the end); the tunnel floors turn to grass where daylight comes in from the hillside. Still far quicker
+  than outside (24 cobblestone in 38-125 s against 30 in 3-5 min), so left as it is; if dirt fills the storage, end a
+  branch or tunnel at a stretch with no stone, or drop the dirt in the mine. The next check (H19b) was worse: a turned
+  tunnel ran 280 cells through dirt, 17 cobblestone in 6 minutes and 412 dirt carried. Fixed: a cell to dig with no stone
+  in it ends its branch or tunnel, and a level with no tunnel left goes a level down (the stairs on down, 6+ steps, into
+  stone). Four rounds after it: 103 cobblestone for 9 dirt.
+- F80 (10-01, V.5b, mine check H19c) The pathfinder cut a 2-high corridor from the hut toward the face (z -60, outside
+  the tunnel's protected box, which ends a block past the stretch being dug) and dug the surface over a junction (the
+  boxes now stop at the ceiling, y2). Any walk free to dig takes the shortest way through natural ground, and the mine's
+  boxes only make the planned cells dearer. Every walk in the mine now runs without digging, scaffolding or pillaring
+  (`walkMine`); the tunnels and stairs are open from the hut down. The second review found `mineBlock`'s own walk could
+  still do it (digCell now refuses a cell out of reach) and that a bot that never got into the mine counted as an empty
+  trip (it no longer does).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
@@ -650,6 +677,14 @@ CLAUDE.md when a phase ends.
   village crafts and smelts there.
 - 10-01 V.5 counted done (StageH18 and Hutvale4); the mine stopping at a hillside (F77) becomes its own step, V.5b,
   before V.6.
+- 10-01 (sixth session) V.5b does both, in the plan's order: main tunnels turn left, then right, at a junction of one
+  that ended (`legs`, at most 12 a level, breadth-first, the turned tunnel's first stretch is a finished branch), and when
+  no tunnel at a level can go on the stairs go on down from its bottom step, under its first tunnel (nothing goes there
+  any more), 6-10 steps into stone (at most 3 levels). A cell with no stone ends its tunnel (F79). Old mines load as one
+  leg; a mine stopped by its main tunnel resumes (StageH19 did). Mine boxes stop at the tunnel ceiling (the ground above
+  stays free for other bots), and every walk in the mine digs nothing (F80). New `GET /api/blocks` (a box of blocks) and
+  `scripts/checks/mine.py` for checks. Test edits: StageM1's and Hutvale4's first tunnels were marked ended in
+  `villages.json` to test the stairs down (backups in `runs/2026-10-01/`).
 - 09-29 (fifth session) The panel's per-village atlas maps are replaced by one world map of the whole atlas (the
   user's request): drag, zoom, every village's ground and chests, the agents, and what is under the pointer
   (`/api/atlas?all=1`, fetched every 30 s).

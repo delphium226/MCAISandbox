@@ -13,7 +13,7 @@ import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
 import { at, goals, walk } from './mcUtil';
-import { mineArea } from './mcMine';
+import { mineAreas } from './mcMine';
 import { rescue } from './mcRescue';
 
 const { pathfinder, Movements } = pathfinderPkg;
@@ -121,18 +121,18 @@ export class BotAgent implements WorldAgent {
     });
   }
 
-  private protectedCache: { at: number; boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> } = { at: 0, boxes: [] };
+  private protectedCache: { at: number; boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> } = { at: 0, boxes: [] };
 
   /**
    * Village ground the pathfinder may not dig into, near this bot (every village's, refreshed every 5 s): plots, laid-out
    * plots and prepare_site's 2-block margin from 4 blocks under the level up; buildings and a block around them from
-   * their floor up.
+   * their floor up; the mine, floor to ceiling.
    */
   protectedGround() {
     const now = Date.now();
     if (now - this.protectedCache.at < 5000) return this.protectedCache.boxes;
     const p = this.bot.entity?.position;
-    const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> = [];
+    const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [];
     for (const v of this.world.villages.villages.values()) {
       const level = (a: { x1: number; z1: number; x2: number; z2: number }) => v.plots.find((q) => q.x1 <= a.x2 && q.x2 >= a.x1 && q.z1 <= a.z2 && q.z2 >= a.z1)?.y;
       for (const q of v.plots) boxes.push({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2, y: q.y - 4 });
@@ -143,8 +143,7 @@ export class BotAgent implements WorldAgent {
       }
       for (const s of v.structures) boxes.push({ x1: s.x1 - 1, z1: s.z1 - 1, x2: s.x2 + 1, z2: s.z2 + 1, y: s.y - 1 });
       // The mine, from its tunnel floor up: no shafts dug down into it from the surface, nor up out of it (V.5)
-      const mine = v.mine && mineArea(v.mine);
-      if (mine) boxes.push(mine);
+      if (v.mine) boxes.push(...mineAreas(v.mine));
     }
     const near = p ? boxes.filter((q) => Math.max(q.x1 - p.x, p.x - q.x2, q.z1 - p.z, p.z - q.z2) < 160) : boxes;
     this.protectedCache = { at: now, boxes: near };
@@ -204,7 +203,7 @@ export class BotAgent implements WorldAgent {
       // Never dig into any village's ground on the way somewhere: a cobblestone gatherer standing on a prepared plot dug
       // a shaft from its surface to the stone 5 blocks under it, beside the storage hut (Hutvale1, 2026-09-29)
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [
-        (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y) ? 100 : 0),
+        (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
       ];
       // Around water rather than through it: a gatherer that walked into a lake stayed stuck in it for ten minutes
       (m as unknown as { liquidCost: number }).liquidCost = 20; // (missing from the typings)

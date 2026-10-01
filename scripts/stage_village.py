@@ -208,6 +208,12 @@ def stock_hut():
 def deposit_check(worker):
     """Give the worker mixed items, have it deposit everything, and check each chest holds only its own group, in the hut."""
     gift = {"cobblestone": 5, "oak_log": 7, "sand": 3, "glass": 4, "oak_planks": 6, "torch": 2, "cocoa_beans": 3}
+    # Not while it still holds a task: the mine task ends with its own deposit, which took the gift (StageM1)
+    for _ in range(60):
+        v = call(f"/village/{args.village}")
+        if not any(t["status"] == "claimed" and t.get("claimedBy") == worker for t in v["tasks"]):
+            break
+        time.sleep(3)
     for item, q in gift.items():
         rcon(f"give {worker} minecraft:{item} {q}")
     time.sleep(2)

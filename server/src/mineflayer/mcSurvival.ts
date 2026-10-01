@@ -8,7 +8,7 @@ import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
-import { mineCanGive, mineFor } from './mcMine';
+import { mineAreas, mineCanGive, mineFor } from './mcMine';
 import type { McSkill } from './mcSkills';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
@@ -507,11 +507,14 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // (its tunnels ended) is looked for outside as before
   const home = a.village();
   if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
-    const got = await mineFor(a, home, want, have, signal);
+    const { got, why } = await mineFor(a, home, want, have, signal);
     if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;
     // Not outside while the mine still gives: pits and tunnels around the village were the trouble (F75, F76). What is
     // still short comes at the next collect (the needs list and a short build post it)
-    if (got > 0 && mineCanGive(home, label.replace(/s$/, ''))) return `collected ${got} of ${want} ${label} in the village mine before the time was up (${home.mine!.dug} tunnel cells dug); deposit them, the mine goes on where it stopped`;
+    if (mineCanGive(home, label.replace(/s$/, ''))) {
+      if (got > 0) return `collected ${got} of ${want} ${label} in the village mine before it stopped (${why}; ${home.mine!.dug} tunnel cells dug); deposit them, the mine goes on where it stopped`;
+      throw new Error(`the village mine gave no ${label} this time (${why}); collect again: the mine goes on where it stopped`);
+    }
   }
   let mined = 0;
   const failed = new Set<string>();
@@ -564,11 +567,12 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const vil = a.village();
     const all = [...a.world.villages.villages.values()];
     // (the whole column under a plot: stone 5 blocks under one was reached by a shaft dug from its surface, Hutvale1)
-    const built = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 }))];
+    // (and every village's mine, floor to ceiling: its tunnels reach under the countryside, V.5b)
+    const built: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 })), ...all.flatMap((v) => (v.mine ? mineAreas(v.mine) : []))];
     // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
-      && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1);
+      && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
     const dry = (p: Vec3) => !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '');
     const found = nearestBlocks(a, blocks, 48, 1024, (p) => near(p) && dry(p)).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in

@@ -5,8 +5,8 @@
  * stair or a branch at water, lava, a cave or anything built.
  */
 import { Vec3 } from 'vec3';
-import type { Area, Mine, Village } from '../village';
-import { villageHome } from '../village';
+import type { Area, Mine, MineLeg, Village } from '../village';
+import { upgradeMine, villageHome } from '../village';
 import { MINING_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
@@ -23,15 +23,19 @@ const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*_con
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
 
-/** Main tunnel columns between branches, and each branch's length. */
-const MAIN_STEP = 3, BRANCH = 12;
+/** Main tunnel columns between branches, each branch's length, and the cells of one stretch (main, left, right). */
+const MAIN_STEP = 3, BRANCH = 12, PER = MAIN_STEP + 2 * BRANCH;
+/** Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most. */
+const MAX_LEGS = 12, MAX_CELLS = 40 * PER;
+/** Levels at most, and steps down from one to the next at least (three solid layers between their tunnels) and at most. */
+const MAX_LEVELS = 3, DOWN_STEPS = 6, DOWN_MAX = 10;
 
-/** Cell k (0-based) of the tunnels, in digging order, with the cell to stand on and its branch (for skipping). */
-function tunnelCell(m: Mine, k: number): { x: number; z: number; from: { x: number; z: number }; branch: number } {
-  const [dx, dz] = m.dir;
-  // The last step of the stairs, where the main tunnel starts
-  const sx = m.top.x + dx * (m.steps - 1), sz = m.top.z + dz * (m.steps - 1);
-  const per = MAIN_STEP + 2 * BRANCH;
+/** Cell k (0-based) of a main tunnel and its branches, in digging order, with the cell to stand on and its branch (for skipping). */
+function tunnelCell(l: MineLeg, k: number): { x: number; z: number; from: { x: number; z: number }; branch: number } {
+  const [dx, dz] = l.dir;
+  // Where the main tunnel starts: the bottom of the stairs, or the junction it turned at
+  const sx = l.x, sz = l.z;
+  const per = PER;
   const seg = Math.floor(k / per), r = k % per;
   const main = (i: number) => ({ x: sx + dx * i, z: sz + dz * i });
   const base = main(MAIN_STEP * (seg + 1));
@@ -50,10 +54,12 @@ function tunnelCell(m: Mine, k: number): { x: number; z: number; from: { x: numb
 /**
  * Why a cell may not be dug (null if it may; UNLOADED if its chunk is not loaded): beyond the village's range; any
  * village's plot and its margin down to 4 below its level (not for the stairs: they start inside the mining hut on the
- * plot), or a building and a block around it (the mining hut excepted); anything not natural ground; water or lava next to it; and, with `ceiling`, no solid ceiling over it
+ * plot), or a building and a block around it (the mining hut excepted); another village's mine; the stairs and the
+ * cells beside them (for tunnels); open air beside it under the sky (not for the first stairs); anything not natural ground; water or lava next to it; and, with `ceiling`, no solid ceiling over it
  * (a tunnel coming out on a hillside, or sand and gravel that would fall in: suffocation hurts even here).
  */
-function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, stairs = false): string | null {
+function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, mode: 'stairs' | 'down' | 'tunnel' = 'tunnel', from?: { x: number; z: number }): string | null {
+  const stairs = mode === 'stairs';
   const b = a.bot.blockAt(p);
   if (!b) return UNLOADED;
   const where = `${p.x},${p.y},${p.z}`;
@@ -63,12 +69,35 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, sta
     if (!stairs && o.plots.some((q) => p.x >= q.x1 - 2 && p.x <= q.x2 + 2 && p.z >= q.z1 - 2 && p.z <= q.z2 + 2 && p.y >= q.y - 4)) return `${where} is under ${o.name}'s plot`;
     const built = o.structures.find((s) => !(s.kind === MINING_HUT && s.x1 === m.hut.x1 && s.z1 === m.hut.z1) && p.x >= s.x1 - 1 && p.x <= s.x2 + 1 && p.z >= s.z1 - 1 && p.z <= s.z2 + 1 && p.y >= s.y - 2);
     if (built) return `${where} is at ${o.name}'s ${built.kind}`;
+    // A laid-out plot: like a plot at the level of the prepared plot over it; at any height before it is prepared (its
+    // level is not known yet, and levelling it could cut into a tunnel)
+    for (const l of stairs ? [] : o.layouts ?? []) {
+      if (p.x < l.x1 - 2 || p.x > l.x2 + 2 || p.z < l.z1 - 2 || p.z > l.z2 + 2) continue;
+      const over = o.plots.find((q) => q.x1 <= l.x2 && q.x2 >= l.x1 && q.z1 <= l.z2 && q.z2 >= l.z1);
+      if (!over || p.y >= over.y - 4) return `${where} is under ${o.name}'s laid-out plot`;
+    }
+    // Another village's mine: its tunnels are not this one's to cross
+    if (o !== v && o.mine && mineAreas(o.mine).some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2)) return `${where} is at ${o.name}'s mine`;
   }
+  // A tunnel (a turned one could pass under them) keeps off the stairs but the bottom step, where the first one starts
+  if (mode === 'tunnel' && keptStairs(m).some((s) => Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 1)) return `${where} is at the mine stairs`;
   if (LIQUID.test(b.name)) return `${b.name} at ${where}`;
   if (b.boundingBox !== 'empty' && !DIGGABLE.test(b.name)) return `${b.name} at ${where} (not natural ground)`;
   for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
     const n = a.bot.blockAt(p.offset(d[0], d[1], d[2]));
     if (n && LIQUID.test(n.name)) return `${n.name} next to ${where}`;
+  }
+  // Open air beside it under the open sky: the tunnel would come out on a hillside (the floors of StageH19's tunnels
+  // turned to grass where they had). Not on the side it is dug from
+  for (const [dx, dz] of stairs ? [] : [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (from && p.x + dx === from.x && p.z + dz === from.z) continue;
+    const side = p.offset(dx, 0, dz);
+    let open = true;
+    for (let up = 0; up <= 8 && open; up++) {
+      const s = a.bot.blockAt(side.offset(0, up, 0));
+      open = !!s && s.boundingBox === 'empty' && !LIQUID.test(s.name);
+    }
+    if (open) return `open air beside ${where} (a hillside)`;
   }
   if (ceiling) {
     const up = a.bot.blockAt(p.offset(0, 1, 0));
@@ -78,20 +107,57 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, sta
   return null;
 }
 
-/** The ground the mine takes up (the hut, the stairs and the tunnels' reach), from the tunnel floor up: kept from other digging. */
-export function mineArea(m: Mine): (Area & { y: number }) | null {
-  if (m.level === undefined || m.stopped) return null;
-  const [dx, dz] = m.dir;
-  const main = m.steps - 1 + MAIN_STEP * (Math.floor(m.dug / (MAIN_STEP + 2 * BRANCH)) + 1);
-  const ends = [
-    { x: m.top.x - dx * 2 + dz * (BRANCH + 1), z: m.top.z - dz * 2 - dx * (BRANCH + 1) },
-    { x: m.top.x + dx * main - dz * (BRANCH + 1), z: m.top.z + dz * main + dx * (BRANCH + 1) },
-  ];
-  return {
-    x1: Math.min(m.hut.x1, ...ends.map((e) => e.x)), z1: Math.min(m.hut.z1, ...ends.map((e) => e.z)),
-    x2: Math.max(m.hut.x2, ...ends.map((e) => e.x)), z2: Math.max(m.hut.z2, ...ends.map((e) => e.z)),
-    y: m.level - 1,
-  };
+/** The columns of the stairs, from the first step (inside the hut) to the bottom one. */
+function stairColumns(m: Mine) {
+  return Array.from({ length: m.steps }, (_, i) => ({ x: m.top.x + m.dir[0] * i, z: m.top.z + m.dir[1] * i }));
+}
+
+/** The columns of the stairs down to a deeper level, from its first step to its last. */
+function downColumns(m: Mine, d: { x: number; z: number; steps: number }) {
+  return Array.from({ length: d.steps }, (_, i) => ({ x: d.x + m.dir[0] * (i + 1), z: d.z + m.dir[1] * (i + 1) }));
+}
+
+/** Stair columns no tunnel may dig in or beside: all but each bottom step a level's first tunnel starts from. */
+function keptStairs(m: Mine) {
+  return [...stairColumns(m).slice(0, -1), ...(m.down ?? []).flatMap((d) => downColumns(m, d).slice(0, d.level !== undefined ? -1 : undefined))];
+}
+
+/**
+ * The ground the mine takes up, kept from other digging: the hut and the stairs (from the tunnel floor to the hut's
+ * floor), the stairs down to deeper levels, and each main tunnel's reach (its branches and a block around, to the end of the stretch being dug; floor to
+ * ceiling, so no shaft is dug into it, while the ground above stays free). One box per tunnel: a box around turned
+ * tunnels together would cover far more ground than they do.
+ */
+export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
+  if (m.level === undefined) return [];
+  const cols = stairColumns(m);
+  const out = [{
+    x1: Math.min(m.hut.x1, ...cols.map((c) => c.x - 1)), z1: Math.min(m.hut.z1, ...cols.map((c) => c.z - 1)),
+    x2: Math.max(m.hut.x2, ...cols.map((c) => c.x + 1)), z2: Math.max(m.hut.z2, ...cols.map((c) => c.z + 1)),
+    y: m.level - 1, y2: m.level + m.steps + 2,
+  }];
+  for (const d of m.down ?? []) {
+    const cols = [{ x: d.x, z: d.z }, ...downColumns(m, d)];
+    out.push({
+      x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
+      x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
+      y: d.y - d.steps - 2, y2: d.y + 2,
+    });
+  }
+  for (const l of m.legs ?? []) {
+    const [dx, dz] = l.dir;
+    const len = MAIN_STEP * (Math.floor(l.dug / PER) + 1) + 1;
+    const ends = [
+      { x: l.x - dx + dz * (BRANCH + 1), z: l.z - dz - dx * (BRANCH + 1) },
+      { x: l.x + dx * len - dz * (BRANCH + 1), z: l.z + dz * len + dx * (BRANCH + 1) },
+    ];
+    out.push({
+      x1: Math.min(...ends.map((e) => e.x)), z1: Math.min(...ends.map((e) => e.z)),
+      x2: Math.max(...ends.map((e) => e.x)), z2: Math.max(...ends.map((e) => e.z)),
+      y: l.y - 1, y2: l.y + 2,
+    });
+  }
+  return out;
 }
 
 /**
@@ -102,6 +168,10 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal) {
   const b = a.bot.blockAt(p);
   if (!b || b.boundingBox === 'empty') return;
   const name = b.name;
+  // Within reach, or not at all: mineBlock would walk there free to dig, through ground the mine has not planned
+  const near = () => a.bot.entity.position.offset(0, 1.62, 0).distanceTo(p.offset(0.5, 0.5, 0.5)) <= 4.2;
+  const away = () => Object.assign(new Error(`could not get to the mine at ${p.x},${p.y},${p.z} (stuck at ${a.bot.entity.position.floored()})`), { away: true });
+  if (!near()) throw away();
   try {
     await mineBlock(a, p, signal, false, 20000, false);
   } catch (e) {
@@ -110,7 +180,15 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal) {
     // Stone with no pickaxe at all: make one. An ore this pickaxe cannot harvest (copper with a wooden one, StageH18):
     // dug through anyway, its drop lost, rather than the tunnel stopping there
     if (/^needs wooden_pickaxe/.test(m2) && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
-      await makePickaxe(a, signal);
+      // Not the cell's fault when this fails (logs out of reach): the mine must not end a tunnel for it
+      await makePickaxe(a, signal).catch((e: Error) => {
+        throw e.message === 'cancelled' ? e : Object.assign(new Error(`no pickaxe for the mine (${e.message.slice(0, 120)}): withdraw or make one`), { tool: true });
+      });
+      // Back from wherever making it took the bot, by the mine's own ways
+      await walkMine(a, p, 3, signal, 60000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      if (!near()) throw away();
       await mineBlock(a, p, signal, false, 20000, false);
     } else await mineBlock(a, p, signal, true, 20000, false);
   }
@@ -165,7 +243,7 @@ async function digMine(a: BotAgent, args: Record<string, unknown>, signal: Abort
     for (const dy of [3, 2, 1]) {
       const p = new Vec3(x, floor + dy, z);
       // Outside the hut (from the fourth step) the top cell needs a solid ceiling
-      const why = unsafe(a, v, m, p, dy === 3 && i >= 4, true);
+      const why = unsafe(a, v, m, p, dy === 3 && i >= 4, 'stairs');
       if (why === UNLOADED) throw new Error(`the mine stairs at ${x},${z} are not loaded; move closer and dig_mine again`);
       if (why) return stop(why);
       await digCell(a, m, p, signal);
@@ -182,6 +260,7 @@ async function digMine(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Seven steps at least: the tunnels then run 5 or more below the plot, under the ground kept from digging
     if (i >= 7 && STONE.test(under.name) && inStone) {
       m.level = floor + 1;
+      upgradeMine(m);
       reg.note(v, `${a.name} dug the mine stairs ${i} steps down to stone at y=${m.level}`);
       reg.save();
       return `the mine stairs are dug: ${i} steps down to stone at y=${m.level}; collect cobblestone now digs its tunnels${minedText(m)}`;
@@ -196,62 +275,275 @@ const minedText = (m: Mine) => {
   return got ? `; it gave ${got}` : '';
 };
 
+/**
+ * Walk within the mine without digging, building or pillaring on the way: the stairs and tunnels are open from the hut
+ * down. A path search free to dig cut a shortcut from the hut to the face through ground the mine had not planned
+ * (mine check on StageH19, F80); the cells themselves are dug with bot.dig.
+ */
+async function walkMine(a: BotAgent, pos: Vec3, range: number, signal: AbortSignal, timeoutMs: number) {
+  const mv = a.moves();
+  const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers };
+  Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false });
+  try {
+    await reach(a, pos, range, signal, timeoutMs);
+  } finally {
+    Object.assign(mv, saved);
+  }
+}
+
+/**
+ * The stairs on down to the next level: from the bottom step of the deepest level, on in the stairs' direction, one
+ * block down per step with three blocks of headroom, under that level's first tunnel (nothing goes there any more), at
+ * least DOWN_STEPS steps (three solid layers between the levels' tunnels) and until the new level's cells are stone.
+ * Then the new level's first tunnel starts from the bottom step. Returns '' when the new level is ready, UNLOADED, or
+ * why the stairs stopped (a reason like unsafe()'s; that ends the mine).
+ */
+async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, until: number): Promise<string> {
+  const reg = a.world.villages;
+  m.down ??= [];
+  let d = m.down.find((x) => x.level === undefined && !x.stopped);
+  if (!d) {
+    // From the bottom step of the deepest level: the first stairs' bottom, or the last stairs down's
+    const last = m.down[m.down.length - 1];
+    const from = last ? downColumns(m, last)[last.steps - 1] : stairColumns(m)[m.steps - 1];
+    d = { x: from.x, z: from.z, y: last ? last.level! : m.level!, steps: 0 };
+    m.down.push(d);
+    reg.note(v, `${a.name} goes on down from the mine's level at y=${d.y}: no tunnel there can go on`);
+  }
+  const [dx, dz] = m.dir;
+  for (let k = d.steps + 1; k <= DOWN_MAX; k++) {
+    checkAbort(signal);
+    if (Date.now() > until) return TIME_UP;
+    const x = d.x + dx * k, z = d.z + dz * k, floor = d.y - 1 - k;
+    // Stand on the step above (the level's bottom step for the first) and dig the three cells over this step, top first
+    await walkMine(a, new Vec3(x - dx + 0.5, floor + 2, z - dz + 0.5), 1.2, signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const inStone = [1, 2].every((dy) => STONE.test(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
+    for (const dy of [3, 2, 1]) {
+      const p = new Vec3(x, floor + dy, z);
+      const why = unsafe(a, v, m, p, false, 'down', { x: x - dx, z: z - dz });
+      if (why) return stopDown(v, m, d, why);
+      // Over the top cell: a solid ceiling, or the tunnel above (open) with its own ceiling, up to that level's
+      if (dy === 3) {
+        let up = p.y + 1, above = a.bot.blockAt(new Vec3(x, up, z));
+        while (above && above.boundingBox === 'empty' && !LIQUID.test(above.name) && up < d.y + 2) above = a.bot.blockAt(new Vec3(x, ++up, z));
+        if (!above) return UNLOADED;
+        if (above.boundingBox !== 'block' || FALLING.test(above.name)) return stopDown(v, m, d, `${above.name} over ${x},${up - 1},${z} (no solid ceiling)`);
+      }
+      await digCell(a, m, p, signal);
+    }
+    await walkMine(a, new Vec3(x + 0.5, floor + 1, z + 0.5), 0.6, signal, 20000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const under = a.bot.blockAt(new Vec3(x, floor, z));
+    if (!under) return UNLOADED;
+    if (under.boundingBox !== 'block' || LIQUID.test(under.name)) return stopDown(v, m, d, `no floor under ${x},${floor + 1},${z}`);
+    d.steps = k;
+    reg.save();
+    if (k >= DOWN_STEPS && inStone && STONE.test(under.name)) {
+      d.level = floor + 1;
+      m.legs!.push({ x, z, y: d.level, dir: [dx, dz], dug: 0, ended: [] });
+      reg.note(v, `${a.name} dug the mine's stairs ${k} steps on down to a new level at y=${d.level}`);
+      reg.save();
+      return '';
+    }
+  }
+  return stopDown(v, m, d, `no stone within ${DOWN_MAX} steps down`);
+}
+
+function stopDown(v: Village, m: Mine, d: { stopped?: string }, why: string): string {
+  if (why === UNLOADED) return why;
+  d.stopped = short(why);
+  return why;
+}
+
 /** Whether a village's mine can give this (cobblestone, from stone), once its stairs reached stone and while it goes on. */
 export function mineCanGive(v: Village | undefined, item: string): boolean {
   const m = v?.mine;
-  return !!m && m.level !== undefined && !m.stopped && /^(cobblestone|stone)$/.test(item) && m.dug < 40 * (MAIN_STEP + 2 * BRANCH);
+  return !!m && m.level !== undefined && !m.stopped && /^(cobblestone|stone)$/.test(item) && m.dug < MAX_CELLS;
+}
+
+const compass = ([dx, dz]: [number, number]) => (dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 0 ? 'south' : 'north');
+
+/**
+ * A main tunnel turned left (side 1) or right (2) of one that ended: at its latest junction whose branch on that side
+ * ran its full length, so the new tunnel's first stretch is that branch, already dug. The first tunnel may also turn
+ * at the bottom of the stairs (its sides are untouched there); a turned one's start lies on the tunnel it turned from.
+ */
+function turnFrom(l: MineLeg, side: 1 | 2, first: boolean): MineLeg | null {
+  const [dx, dz] = l.dir;
+  const dir: [number, number] = side === 1 ? [dz, -dx] : [-dz, dx];
+  // Junction s (main cell MAIN_STEP * s) carries the branches of stretch s - 1, all done before the main cell that ended
+  for (let s = Math.floor(l.dug / PER); s >= 1; s--) {
+    if (!l.ended.includes(3 * (s - 1) + side)) return { x: l.x + dx * MAIN_STEP * s, z: l.z + dz * MAIN_STEP * s, y: l.y, dir, dug: 0, ended: [] };
+  }
+  return first ? { x: l.x, z: l.z, y: l.y, dir, dug: 0, ended: [] } : null;
+}
+
+/**
+ * The main tunnel to dig on, at the deepest level: the newest one still going, else a new turn from one that ended (the
+ * oldest first: they lie closer to the stairs); null when none is left there.
+ */
+function nextLeg(a: BotAgent, v: Village, m: Mine): MineLeg | null {
+  // The deepest level's tunnels (a level is left for the next only when none of its tunnels can go on)
+  const y = Math.min(...m.legs!.map((l) => l.y));
+  const legs = m.legs!.filter((l) => l.y === y);
+  for (let i = legs.length - 1; i >= 0; i--) if (!legs[i].end) return legs[i];
+  if (legs.length >= MAX_LEGS) return null;
+  for (const [i, l] of legs.entries()) {
+    for (const side of [1, 2] as const) {
+      if ((l.turned ?? 0) & side) continue;
+      l.turned = (l.turned ?? 0) | side;
+      const t = turnFrom(l, side, i === 0);
+      if (!t) continue;
+      m.legs!.push(t);
+      a.world.villages.note(v, `${a.name} turned the mine ${compass(t.dir)} at ${t.x},${t.y},${t.z} (the ${compass(l.dir)} tunnel met ${l.end})`);
+      return t;
+    }
+  }
+  return null;
 }
 
 /**
  * collect in the mine: extend the tunnels cell by cell (two blocks each, standing in the cell before) until `want` more
  * cobblestone are carried or 6 minutes pass. A branch that meets water, lava, a cave, village ground or a hillside
- * (no ceiling) ends there; the main tunnel meeting one ends the mine. Returns how many were collected.
+ * (no ceiling) ends there; a main tunnel meeting one ends, and the next turns left or right at one of its junctions
+ * (V.5b). Only when no tunnel can go on does the mine stop. Returns how many were collected and, if it stopped short of
+ * `want`, why.
  */
-export async function mineFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<number> {
+export async function mineFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string }> {
   const m = v.mine!;
+  upgradeMine(m);
   const reg = a.world.villages;
   const start = have();
   const t0 = Date.now();
-  let skipped = 0;
-  while (have() - start < want && Date.now() - t0 < 6 * 60000 && skipped < 200) {
+  let skipped = 0, why = '';
+  // The cell it worked on last, and whether it stopped for want of a pickaxe (not the cell's fault)
+  let last: { leg: MineLeg; c: ReturnType<typeof tunnelCell> } | null = null, tool = false, away = false;
+  while (have() - start < want) {
+    if (Date.now() - t0 > 6 * 60000) { why = 'the time was up'; break; }
+    if (skipped >= 200) { why = 'too many cells passed without digging'; break; }
     checkAbort(signal);
-    const c = tunnelCell(m, m.dug);
-    if (m.ended.includes(c.branch)) {
-      m.dug++;
+    const leg = m.dug < MAX_CELLS ? nextLeg(a, v, m) : null;
+    const downs = m.down ?? [];
+    let down = '';
+    if (!leg && m.dug < MAX_CELLS && !downs.some((d) => d.stopped) && (downs.some((d) => d.level === undefined) || downs.length < MAX_LEVELS - 1)) {
+      // No tunnel at this level can go on: the stairs go on down to the next level (which then has its first tunnel)
+      try {
+        down = await digDown(a, v, m, signal, t0 + 6 * 60000);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        down = (e as Error).message;
+        tool = !!(e as { tool?: boolean }).tool;
+        away = !!(e as { away?: boolean }).away;
+        if (tool || away) { why = down; break; }
+        down = down === UNLOADED ? down : `could not dig the stairs down: ${down}`;
+      }
+      if (down === TIME_UP) { why = 'the time was up on the stairs down'; break; }
+      if (!down) { downFails.delete(v.name); continue; }
+      // Not loaded, or a dig that failed: twice in a row ends the stairs down (else every trip would fail on them)
+      if (down === UNLOADED || down.startsWith('could not dig')) {
+        const n = (downFails.get(v.name) ?? 0) + 1;
+        why = down === UNLOADED ? 'the stairs down to the next level are not loaded' : down;
+        if (n < 2) { downFails.set(v.name, n); break; }
+        downFails.delete(v.name);
+        const d = m.down!.find((x) => x.level === undefined && !x.stopped);
+        if (d) d.stopped = short(why);
+        down = why;
+      }
+    }
+    if (!leg) {
+      const end = short(m.legs![m.legs!.length - 1].end ?? '');
+      m.stopped = short(`${m.dug >= MAX_CELLS ? `the mine reached its size limit (${m.dug} tunnel cells)`
+        : m.legs!.length >= MAX_LEGS ? `${m.legs!.length} main tunnels dug, the last ended at ${end}` : `every tunnel ended; the last met ${end}`}${down ? `; the stairs down stopped: ${down}` : ''}`);
+      reg.note(v, `the mine has no tunnel left to dig: ${m.stopped}`);
+      reg.save();
+      why = m.stopped;
+      break;
+    }
+    const c = tunnelCell(leg, leg.dug);
+    if (leg.ended.includes(c.branch)) {
+      leg.dug++;
       skipped++;
       continue;
     }
-    const L = m.level!;
+    const L = leg.y;
+    last = { leg, c };
     const cells = [new Vec3(c.x, L + 1, c.z), new Vec3(c.x, L, c.z)];
-    await reach(a, new Vec3(c.from.x + 0.5, L, c.from.z + 0.5), 1.2, signal, 60000).catch((e: Error) => {
+    // Cells open already (a turned tunnel's first stretch is a branch of the one it turned from) are checked like the
+    // others but neither walked to nor dug
+    const open = cells.every((p) => a.bot.blockAt(p)?.boundingBox === 'empty');
+    let walked = '';
+    if (!open) await walkMine(a, new Vec3(c.from.x + 0.5, L, c.from.z + 0.5), 1.2, signal, 60000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
+      walked = e.message;
     });
     const floor = a.bot.blockAt(new Vec3(c.x, L - 1, c.z));
-    const why = cells.map((p, i) => unsafe(a, v, m, p, i === 0)).find(Boolean) ?? (!floor || floor.boundingBox !== 'block' ? `no floor at ${c.x},${L - 1},${c.z}` : null);
+    const bad = cells.map((p, i) => unsafe(a, v, m, p, i === 0, 'tunnel', c.from)).find(Boolean) ?? (!floor ? UNLOADED : floor.boundingBox !== 'block' ? `no floor at ${c.x},${L - 1},${c.z}` : null)
+      // A tunnel through dirt gives no cobblestone (StageH19's hillside: 412 dirt carried for 67 cobblestone, F79)
+      ?? (!open && !cells.some((p) => STONE.test(a.bot.blockAt(p)?.name ?? '')) ? `no stone at ${c.x},${L},${c.z} (${cells.map((p) => a.bot.blockAt(p)?.name).join(', ')})` : null);
     // Not loaded (it walked short): stop here for now, the next collect goes on
-    if (why === UNLOADED) break;
-    if (why) {
-      // The main tunnel ending ends the mine; a branch just ends
+    if (bad === UNLOADED) {
+      why = `the mine at ${c.x},${L},${c.z} is not loaded`;
+      break;
+    }
+    if (bad) {
+      // A main tunnel ending: the next one turns; a branch just ends
       if (c.branch % 3 === 0) {
-        m.stopped = `the main tunnel met ${why}`;
-        reg.note(v, `the mine's main tunnel ended: ${why}`);
-        reg.save();
-        break;
-      }
-      m.ended.push(c.branch);
+        leg.end = short(bad);
+        reg.note(v, `the mine's ${compass(leg.dir)} tunnel from ${leg.x},${leg.y},${leg.z} ended: ${bad}`);
+      } else leg.ended.push(c.branch);
       reg.save();
       continue;
     }
-    for (const p of cells) await digCell(a, m, p, signal);
-    // Into the cell: its drops are picked up there, and it is where the next one is dug from
-    await reach(a, new Vec3(c.x + 0.5, L, c.z + 0.5), 0.6, signal, 20000).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
-    });
-    m.dug++;
+    if (open) skipped++;
+    else {
+      try {
+        for (const p of cells) await digCell(a, m, p, signal);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        why = `could not dig at ${c.x},${L},${c.z}: ${(e as Error).message}${walked ? ` (${walked})` : ''}`;
+        tool = !!(e as { tool?: boolean }).tool;
+        away = !!(e as { away?: boolean }).away;
+        break;
+      }
+      // Into the cell: its drops are picked up there, and it is where the next one is dug from
+      await walkMine(a, new Vec3(c.x + 0.5, L, c.z + 0.5), 0.6, signal, 20000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      m.dug++;
+    }
+    leg.dug++;
     reg.save();
   }
-  return have() - start;
+  const got = have() - start;
+  // Two trips in a row with nothing gathered (a cell not loaded or not dug, a tunnel in dirt): the tunnel or branch it
+  // worked on ends there and the next goes on; else every collect would fail on it, and none may dig outside while the
+  // mine still gives. Not for want of a pickaxe, nor once the mine has stopped; and a bot that never got into the mine
+  // (stuck on the way: the rescue's business) changes nothing
+  if (away && got === 0) return { got, why };
+  if (got > 0 || tool || m.stopped || !last) emptyTrips.delete(v.name);
+  else if ((emptyTrips.get(v.name) ?? 0) < 1) emptyTrips.set(v.name, 1);
+  else {
+    emptyTrips.delete(v.name);
+    const end = short(`${last.c.x},${last.leg.y},${last.c.z}, nothing gathered in two trips (${why})`);
+    if (last.c.branch % 3 === 0) last.leg.end = end;
+    else if (!last.leg.ended.includes(last.c.branch)) last.leg.ended.push(last.c.branch);
+    reg.note(v, `the mine's ${last.c.branch % 3 === 0 ? 'tunnel' : 'branch'} ends at ${end}`);
+    reg.save();
+    why += '; that tunnel ends there and the next collect digs on elsewhere';
+  }
+  return { got, why };
 }
+
+/** Per village: trips into the mine in a row that gathered nothing, and that failed on the stairs down. */
+const emptyTrips = new Map<string, number>(), downFails = new Map<string, number>();
+/** digDown's answer when the trip's time ran out on the way down (it goes on at the next trip). */
+const TIME_UP = 'time up';
+
+/** Reasons kept in the record and the village summary stay short (the workers' prompts have little room, F78). */
+const short = (s: string) => (s.length > 100 ? `${s.slice(0, 97)}...` : s);
 
 export const MINE_SKILLS: Record<string, McSkill> = {
   dig_mine: { check: (x) => x.max_depth !== undefined && void num(x.max_depth, 'max_depth'), run: digMine },

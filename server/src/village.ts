@@ -54,8 +54,50 @@ export interface Mine {
   ended: number[];
   /** What the tunnels have given, and ores seen in their walls. */
   got: Record<string, number>;
-  /** Why the stairs stopped short, if they did. */
+  /** Why the stairs stopped short, or why no tunnel can go on, if so. */
   stopped?: string;
+  /**
+   * The main tunnels (V.5b), set once the stairs reach stone: the first runs on from the bottom step; when a main tunnel
+   * meets a hillside, water or village ground, the next turns left or right at one of its junctions. `dug` and `ended`
+   * above are the first one's in records from before (kept for old readers); `dug` counts the cells dug in every tunnel.
+   */
+  legs?: MineLeg[];
+  /**
+   * Stairs on down to deeper levels (V.5b), dug when no tunnel at the level above can go on: each starts at the bottom
+   * step above it (x, z; that level is y) and runs on in `dir`, one block down per step; `level` once it is dug, or why
+   * it stopped short (no level is tried after that).
+   */
+  down?: Array<{ x: number; z: number; y: number; steps: number; level?: number; stopped?: string }>;
+}
+
+/** One main tunnel of the mine and its branches, dug in a fixed order (V.5b). */
+export interface MineLeg {
+  /** The cell it starts from (dug already), the level a bot stands at in it, and its direction. */
+  x: number;
+  z: number;
+  y: number;
+  dir: [number, number];
+  /** Cells done in its digging order, and its branches cut short. */
+  dug: number;
+  ended: number[];
+  /** Why its main tunnel ended. */
+  end?: string;
+  /** Turns tried from it: 1 left, 2 right. */
+  turned?: number;
+}
+
+/**
+ * A mine from before V.5b as its first main tunnel, starting at the bottom step. A mine stopped because its main tunnel
+ * met something goes on: that tunnel ends there and the next turns.
+ */
+export function upgradeMine(m: Mine) {
+  if (m.level === undefined || m.legs) return;
+  m.legs = [{ x: m.top.x + m.dir[0] * (m.steps - 1), z: m.top.z + m.dir[1] * (m.steps - 1), y: m.level, dir: [m.dir[0], m.dir[1]], dug: m.dug, ended: [...m.ended] }];
+  const met = 'the main tunnel met ';
+  if (m.stopped?.startsWith(met)) {
+    m.legs[0].end = m.stopped.slice(met.length);
+    delete m.stopped;
+  }
 }
 
 /** A building drawn as layers (bottom-up) of rows (north to south) of palette characters (west to east). */
@@ -147,7 +189,10 @@ export class VillageRegistry {
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8')) as { nextId: number; villages: Village[] };
       this.nextId = data.nextId ?? 1;
-      for (const v of data.villages ?? []) this.villages.set(v.name.toLowerCase(), v);
+      for (const v of data.villages ?? []) {
+        if (v.mine) upgradeMine(v.mine);
+        this.villages.set(v.name.toLowerCase(), v);
+      }
     } catch {
       /* no villages yet */
     }
@@ -390,7 +435,7 @@ export class VillageRegistry {
       const got = Object.entries(m.got).filter(([n, q]) => q > 0 && !n.startsWith('seen ')).map(([n, q]) => `${q} ${n}`).join(', ');
       const ores = Object.entries(m.got).filter(([n]) => n.startsWith('seen ')).map(([n, q]) => `${q} ${n.slice(5)}`).join(', ');
       lines.push(m.level !== undefined && !m.stopped
-        ? `Mine: stairs ${m.steps} steps down to y=${m.level}, ${m.dug} tunnel cells dug${got ? `; it gave ${got}` : ''}${ores ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
+        ? `Mine: stairs ${m.steps} steps down to y=${m.level}${(m.down ?? []).map((d) => (d.level !== undefined ? ` and on to y=${d.level}` : '')).join('')}, ${m.dug} tunnel cells dug${(m.legs?.length ?? 0) > 1 ? ` in ${m.legs!.length} main tunnels` : ''}${got ? `; it gave ${got}` : ''}${ores ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
         : m.stopped ? `Mine: stopped (${m.stopped}) after ${m.steps} steps${m.dug ? ` and ${m.dug} tunnel cells` : ''}; cobblestone is gathered outside` : 'Mine: not dug yet (the mining hut and "Dig the village mine" come first)');
     }
     if (v.storage?.chests.length) {

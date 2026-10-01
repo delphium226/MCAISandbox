@@ -132,6 +132,27 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     }
     return sendJson(res, 200, { x: c[0], y: c[1], z: c[2], loaded: false });
   }
+  // A box of blocks (checks compare before and after): names by index into `names`, x fastest, then z, then y; -1 where
+  // no agent has the chunk loaded. At most 65536 blocks.
+  if (parts[1] === 'blocks') {
+    const k = ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].map((n) => (url.searchParams.get(n) ? Math.floor(Number(url.searchParams.get(n))) : NaN));
+    if (k.some((n) => !Number.isFinite(n))) return sendJson(res, 400, { error: 'x1, y1, z1, x2, y2 and z2 are required' });
+    const [x1, x2] = [Math.min(k[0], k[3]), Math.max(k[0], k[3])], [y1, y2] = [Math.min(k[1], k[4]), Math.max(k[1], k[4])], [z1, z2] = [Math.min(k[2], k[5]), Math.max(k[2], k[5])];
+    if ((x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1) > 65536) return sendJson(res, 400, { error: 'at most 65536 blocks' });
+    const bots = [...w.agents.values()].filter((a) => a.bot.entity).map((a) => a.bot);
+    const names: string[] = [], index = new Map<string, number>(), cells: number[] = [];
+    for (let y = y1; y <= y2; y++) for (let z = z1; z <= z2; z++) for (let x = x1; x <= x2; x++) {
+      let name: string | undefined;
+      for (const bot of bots) {
+        const b = bot.blockAt(new Vec3(x, y, z));
+        if (b) { name = b.name; break; }
+      }
+      if (name === undefined) { cells.push(-1); continue; }
+      if (!index.has(name)) { index.set(name, names.length); names.push(name); }
+      cells.push(index.get(name)!);
+    }
+    return sendJson(res, 200, { x1, y1, z1, x2, y2, z2, names, cells });
+  }
 
   if (parts[1] === 'chat' && req.method === 'POST') {
     const body = await readJson(req);
