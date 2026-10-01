@@ -198,14 +198,16 @@ the hut down to stone, then straight branch tunnels at one level.
       area is kept from the pathfinder's digging; ores seen in the walls are counted (`v.mine.got`, V.6 later).
       StageH16-H18: stairs in 0.6-1.3 min; 18-32 cobblestone a trip in about a minute (outside: 30 in 3-5 min);
       StageH18 built mining hut, storage hut, hall and testhut in 13.6 min.
-- [ ] V.5b **A mine that goes on** (F77, next): when the main tunnel meets a hillside, water, a cave or village ground,
+- [x] V.5b **A mine that goes on** (F77, next): when the main tunnel meets a hillside, water, a cave or village ground,
       the whole mine stops today and cobblestone goes back to the surface (StageH19: stopped after 80 cobblestone, 20.8
       min against StageH18's 13.6). Turn the main tunnel (left or right of the blocked direction), or dig the stairs on
       to a second level, before giving up. Test: staged full runs where the main tunnel meets a hillside (StageH19's
       site, -1399,-61, did); count cobblestone gathered outside (should be none).
       Built 10-01 (both: turns, then levels; decisions log): typecheck, `scripts/checks/mine.py` on StageH19 (resumed,
       turned, 0 cells changed outside the plan), the stairs down on StageM1 and under Hutvale4's dug tunnel, staged
-      builds StageM2-M3. Still to pass: a staged full run at a hillside and a model-driven run.
+      builds StageM2-M3; staged full StageM6-M8 (3/3 each, all cobblestone from the mine, two miners on separate tunnels;
+      no main tunnel met a hillside on three hilly sites); model-driven Minevale2 (5/5, the first tunnel met a hillside and
+      turned, no cobblestone from outside). Done 10-01.
 - [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
       surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
       `/api/block`.
@@ -257,6 +259,9 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Not yet exercised in a run: the mayor's `add_need`, and a gather task code posts for a shortfall (V.3).
 - Side pickups (V.4) rarely trigger: logs are excluded and what villages need seldom lies within 4 blocks of the
   material being gathered. Worth more with ores in the mine walls (V.6) or wider radii.
+- F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure); plan_layout's margin
+  reaching past the measured site into a ravine.
+- Two miners on crossing tunnels (F82): a dig aborted by the other bot counts toward an empty trip.
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -342,6 +347,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | StageM6 | staged full after approach and holding fixes, hills -648,-328 (site -740,-391, y 111) | **3/3 built** | 9.5 min | every cobblestone from the mine (5 trips, 107), none outside; the second miner turned its own tunnel off the busy first one; no main tunnel met a hillside |
 | 10-01 | StageM7 | same, valley edge -824,-504 (site -695,-402, y 102) | **3/3 built** | 11.7 min | all cobblestone from the mine (131 and 44 diorite), none outside; one wait of 2 min for the busy first tunnel ("the mine is busy"; fixed after: a second face at the stairs' bottom); no main tunnel met a hillside |
 | 10-01 | mine check H19e | regression after the last review fixes | **PASS** 2/2 | 1.3 min | |
+| 10-01 | StageM8 | staged full, -1512,360 (site -1475,334) | **3/3 built** | 9.0 min | all cobblestone from the mine (117); the second miner turned north at the stairs' bottom at once ("the east tunnel is another miner's"), no wait; no main tunnel met a hillside (three hilly sites tried, M6-M8: the stairs face the nearest plot edge, where the ground rarely drops) |
+| 10-01 | Minevale1 | model, 2 workers, qwen3.8 worker planner, -840,136 (site -829,257, jungle edge) | stopped | 3.1 min | prepare_site refused a ravine at the layout's margin; the executor prepared a plot 43 blocks away and the task counted done (F83); no mine reached |
+| 10-01 | Minevale2 | model, same, -888,-456 (site -828,-348, hills at y 95) | **5/5 built** (mining hut, storage hut, hall, 2 cottages), declared complete by code | 37.8 min | every cobblestone from the mine (none outside); the first tunnel met a hillside after 28 cells ("open air beside", a hillside) and the mine turned; one 2-minute "mine is busy" wait; slow elsewhere: layout at 7.0 min (hall design refused twice, the Mayor stuck in hollows), the plot "not loaded" for 3 min (workers spawned 70 blocks off), Worker2's log collects 0 of 10 for 8 min; 10 failed actions, no sand within 96 |
 
 ## Findings log
 
@@ -645,6 +653,13 @@ CLAUDE.md when a phase ends.
   the first has none), else waits up to 2 minutes; one bot digs the stairs down. Turned tunnels' branches can still cross
   the busy one's later branches (a cell found open is passed; a dig aborted by the other bot counts as an empty trip).
   Only trips that stopped inside the mine count toward ending a tunnel (a bot stuck outside ended none).
+- F83 (10-01, Minevale1, model-driven, jungle edge -829,257) The layout's plot with its 2-block margin reached past the
+  30x30 area find_site had checked (z 273 against 272): prepare_site refused "the ground at -819,273 is 10 blocks below
+  the level (a ravine)". Worker1's executor then ran find_site itself and prepared a 23x29 plot 43 blocks west, and the
+  code-posted prepare task counted as done (its step names prepare_site, which succeeded), while every building stayed
+  laid out on the unprepared ground. Stopped at 3.1 min (no mine reached). Not V.5b; proposed: a prepare task is done
+  only when the prepared plot covers the laid-out one, and plan_layout keeps the plot and margin inside the site
+  find_site measured (backlog).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
