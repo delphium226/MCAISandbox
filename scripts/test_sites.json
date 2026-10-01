@@ -1,0 +1,53 @@
+{
+ "about": "Sites of the fixed test world (mc/testserver, plan step T.2): fresh land from seed 1793578865, as it was before any test village. probe: where stage_village.py --site starts its land search while site is null. site: find_site's result there on the pristine world ({x, y, z, size, wood, woodLogs}, printed by the first --site run), used directly from then on. radius: blocks around the site (else the probe) a run can touch; scripts/reset_site.py restores every region file (512x512 blocks) that square touches, computed at run time (python mc/testserver.py regions all lists them and the shared ones).",
+ "sites": [
+  {
+   "name": "minevale3",
+   "kind": "woods-sand",
+   "probe": {"x": -1544, "z": 8},
+   "site": {"x": -1563, "y": 64, "z": -36, "size": 32, "wood": "birch", "woodLogs": 1290},
+   "radius": 160,
+   "notes": "Minevale3's land before it was built (main world site -1600,-35: oak and birch woods, sand near; passed with 0 failed actions in 14.4 min). Shares r.-4.-1, r.-4.0, r.-3.-1 and r.-3.0 with minevale4, drop, woods-sand and woods-sand2 (see regions all): resetting it resets their land in those regions too."
+  },
+  {
+   "name": "minevale4",
+   "kind": "woods-sand",
+   "probe": {"x": -1596, "z": 181},
+   "site": null,
+   "radius": 160,
+   "notes": "Minevale4's land before it was built (main world plot -1606..-1586, 167..195, mine at -1600,183; passed in 12.2 min). Shares r.-4.0 and r.-3.0 with minevale3 and woods-sand2."
+  },
+  {
+   "name": "hills",
+   "kind": "hills",
+   "probe": {"x": -648, "z": -328},
+   "site": null,
+   "radius": 160,
+   "notes": "StageM6's hills (its site was -740,-391 at y 111): steep wooded ground. Alternative if this probe finds nothing useful: -824,-600 (hilltop y 116-118, drops of up to 51, 10k logs, no sand within ~100). Shares no region with the western sites."
+  },
+  {
+   "name": "drop",
+   "kind": "mine-meets-drop",
+   "probe": {"x": -1656, "z": -152},
+   "site": {"x": -1706, "y": 64, "z": -194, "size": 32, "wood": "birch", "woodLogs": 191},
+   "radius": 160,
+   "notes": "A flat shelf at y 95; the ground falls to y 64 within two chunks to the west, where the Minevale mines dug: the mine's main tunnel should meet the hillside. Sand about 93 blocks off (edge of the 96-block range). Shares r.-4.-1 and r.-3.-1 with minevale3 and woods-sand, r.-4.0 and r.-3.0 with minevale3, minevale4 and woods-sand2."
+  },
+  {
+   "name": "woods-sand",
+   "kind": "woods-sand",
+   "probe": {"x": -1480, "z": -248},
+   "site": null,
+   "radius": 160,
+   "notes": "Flat ground at y 62, sand 16 blocks off, 2.8k logs, 14% water; hills to y 114 near. The main world has the test village StageS1 here now, which does not matter in the test world. Shares r.-4.-1 and r.-3.-1 with minevale3 and drop."
+  },
+  {
+   "name": "woods-sand2",
+   "kind": "woods-sand",
+   "probe": {"x": -1624, "z": 360},
+   "site": null,
+   "radius": 160,
+   "notes": "Flat at y 65-67, sand about 36 blocks off, 4.9k logs, 13% water. Shares r.-4.0 and r.-3.0 with minevale3, minevale4 and drop."
+  }
+ ]
+}

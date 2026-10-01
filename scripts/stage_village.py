@@ -1,6 +1,12 @@
 """Start a real-Minecraft village at a given stage and watch it, to test one part of the village economy quickly.
 
 Usage: python scripts/stage_village.py VILLAGE X Z [options]
+       python scripts/stage_village.py VILLAGE --site NAME [options]
+  --site NAME                   a site of the fixed test world (scripts/test_sites.json, plan step T.2; restore it first
+                                with scripts/reset_site.py NAME): its recorded find_site result is used as it is (no land
+                                search); while it has none, the land search starts at its probe and prints the site found
+                                to record. MCAI_API defaults to the test agent server (port 8767) and MC_SERVER_DIR to
+                                mc/testserver with --site
   --buildings testhut,testhut   design names, one per building (default: one testhut; built in: testhut 5x5, testhall 9x9)
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
   --stage full|build            full: layout only, workers do storage, gathering and building;
@@ -52,7 +58,8 @@ TESTHALL = {
 }
 
 p = argparse.ArgumentParser()
-p.add_argument("village"); p.add_argument("x", type=float); p.add_argument("z", type=float)
+p.add_argument("village"); p.add_argument("x", type=float, nargs="?"); p.add_argument("z", type=float, nargs="?")
+p.add_argument("--site", help="a site of scripts/test_sites.json (the fixed test world)")
 p.add_argument("--buildings", default="testhut")
 p.add_argument("--design-from", action="append", default=[])
 p.add_argument("--stage", choices=["full", "build"], default="full")
@@ -63,6 +70,30 @@ p.add_argument("--minutes", type=float, default=20)
 p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
 p.add_argument("--no-deposit-check", action="store_true")
 args = p.parse_args()
+test_site = None
+if args.site:
+    sites = json.load(open(os.path.join(ROOT, "scripts", "test_sites.json"), encoding="utf-8"))
+    sites = sites["sites"] if isinstance(sites, dict) else sites
+    test_site = next((s for s in sites if s["name"].lower() == args.site.lower()), None)
+    if not test_site:
+        p.error(f"no site {args.site} in scripts/test_sites.json; there are: {', '.join(s['name'] for s in sites)}")
+    if args.x is not None:
+        print(f"--site {args.site}: X Z ignored", flush=True)
+    args.x, args.z = test_site["probe"]["x"], test_site["probe"]["z"]
+    # The test world's servers, unless told otherwise (rcon.py reads MC_SERVER_DIR)
+    if "MCAI_API" not in os.environ:
+        API = "http://127.0.0.1:8767/api"
+    os.environ.setdefault("MC_SERVER_DIR", "mc/testserver")
+    print(f"test world: API {API}, server folder {os.environ['MC_SERVER_DIR']}", flush=True)
+    # The village records (API) and the RCON commands (server folder) must reach the same world
+    props = os.path.join(ROOT, os.environ["MC_SERVER_DIR"], "server.properties")
+    kv = dict(l.split("=", 1) for l in open(props).read().splitlines() if "=" in l and not l.startswith("#"))
+    with urllib.request.urlopen(API + "/status", timeout=10) as r:
+        served = json.loads(r.read()).get("server", "")
+    if not served.endswith(f":{kv.get('server-port', '25565')}"):
+        raise SystemExit(f"the agent server at {API} plays on {served}, but {props} says server-port={kv.get('server-port')}: not one world")
+elif args.x is None or args.z is None:
+    p.error("give X and Z, or --site NAME")
 buildings = [b.strip() for b in args.buildings.split(",") if b.strip()]
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
 
@@ -134,7 +165,17 @@ for name in set(buildings):
 # ---- site and layout (the size covers the plot plus prepare_site's margin; a new village gets a 7x9 storage hut too)
 biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildings))
 size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
-site = find_land(args.x, args.z, size)
+if test_site and test_site.get("site"):
+    site = test_site["site"]
+    print(f"site {test_site['name']} from test_sites.json: {json.dumps(site)}", flush=True)
+    if site.get("size", size) < size:
+        raise SystemExit(f"the recorded site is {site['size']} blocks across, these buildings need {size}: set its site "
+                         f"to null in scripts/test_sites.json and run once more to find a bigger one")
+else:
+    site = find_land(args.x, args.z, size)
+    if test_site:
+        found = {k: site[k] for k in ("x", "y", "z", "size", "wood", "woodLogs") if k in site}
+        print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
 r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs")})
 print(r.get("result") or r, flush=True)
 if "error" in r:
