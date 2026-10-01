@@ -35,11 +35,27 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   (main + test world). F88 found and fixed (find_site's scan window tied to the bot's height, F93) with F83 (the
   margin over a drop). V.7 passed: Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Phase 2A
   (V.1-V.7) is complete.
-- **Next, to decide with the user:** the open items: fallen trees read as built (F94), find_site's wood-count window
-  (backlog), the Mayor's executor answering workers' distress chat (F84), prepare_site roofing gullies (F86), two miners
-  on crossing tunnels, a real "drop" test site (record one on the y 95 shelf near -1656,-152 by hand); then 2.3 (sites
-  from the atlas) or phase 3 (talking to the mayor). Test each fix on a restored test site first (staged at 2x, then a
-  model-driven run at 1x).
+- **Next (recommended at the close; the user starts the next session with it):**
+  1. a short batch of small fixes found this session: fallen trees read as built (F94), find_site's wood-count window
+     tied to the bot's height (backlog), kelp reading a lake as dry ground (backlog), and a real "drop" test site
+     (backlog: record one on the y 95 shelf near -1656,-152) so a plot against a drop and a mine meeting a hillside
+     get tested on purpose;
+  2. step 2.3, sites from the atlas (phase 3's "by the river" needs it, decisions log 09-28);
+  3. phase 3, talking to the mayor (the second half of the user's goal).
+  Left for later: F84 (the Mayor's executor chasing distress chat), F86 (gullies roofed), two miners on crossing
+  tunnels, the rest of the backlog. Test each fix on a restored test site first: staged at 2x, then one model-driven
+  run at 1x.
+- **Asked at the close, not yet answered:** push the 14 unpushed commits (the sixth session's nine and this session's
+  five or more) to origin `tiered-brain-building`; stop the detached servers or leave them up.
+- **Test world state:** Minevale6 stands on minevale3's land (reset before using that site); the snapshot
+  (`mc/testworld`, 2026-10-01 15:18) holds the six sites untouched. `scripts/test_sites.json` has minevale3,
+  minevale4 and drop recorded; hills, woods-sand and woods-sand2 still probe (their first run prints the site to record).
+- **Tools added this session:** `scripts/reset_site.py`, `mc/testserver.py`, `scripts/gen_test_sites.py` (add a site
+  to the test world; its docstring gives the order), `scripts/checks/site.py`, `scripts/checks/walk_speed.py`,
+  `scripts/detach.py`, `region_blocks.py --world/--compare`, `stage_village.py --site`. Not kept from the scratchpad:
+  the decompiled Paper classes the T.1 review read (F91 records the finding), the CPU sampler (one PowerShell loop over
+  `Get-Counter '\Processor(_Total)\% Processor Time'`), the reviews' notes (their findings are in F89-F94, the backlog
+  and the decisions log).
 - **How to test now:** `MC_TIME_SCALE=2 MCAI_API=http://127.0.0.1:8767/api python scripts/reset_site.py minevale3`, then
   `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver MCAI_STALL_MIN=8 python scripts/stage_village.py V
   --site minevale3 --stage full` (~7 min; 1x baseline 9-12). A model-driven run on the test world: reset without
@@ -262,7 +278,7 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
         meets a hillside (StageH19's ground -1403,-42 shows the shape; find or make one where the stairs point at a
         drop), one in hills (StageM6, -740,-391).
       - Snapshot: with Paper stopped (`python mc/rcon.py stop` saves), copy the region files covering each site (r.X.Z.mca
-        under `mc/server/world/region`, and `entities/`, `poi/`) to `mc/testworld/` (gitignored), and the matching
+        under `world/dimensions/minecraft/overworld/region` in 26.1, not `world/region`, and `entities/`, `poi/`) to `mc/testworld/` (gitignored), and the matching
         `villages.json`/`atlas.json` entries (none: the sites must be outside every village).
       - Restore: `scripts/reset_site.py NAME` stops Paper, copies the site's region files back, removes villages the
         test created there from `villages.json` (and their atlas marks), starts Paper. Check it with
@@ -329,8 +345,9 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Not yet exercised in a run: the mayor's `add_need`, and a gather task code posts for a shortfall (V.3).
 - Side pickups (V.4) rarely trigger: logs are excluded and what villages need seldom lies within 4 blocks of the
   material being gathered. Worth more with ores in the mine walls (V.6) or wider radii.
-- F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure); plan_layout's margin
-  reaching past the measured site into a ravine.
+- F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure): count it done only
+  when a prepared plot covers the laid-out one. (The margin half is fixed, F93: prepare_site leaves margin columns over
+  a drop as they are; the plot-column error no longer says "find another site".)
 - Two miners on crossing tunnels (F82): a dig aborted by the other bot counts toward an empty trip.
 - Mine yield (log analysis of 10-01): branches end early at gravel pockets, gullies and the stairs' keep-off (6 of 9
   side branches of Minevale2's two later tunnels); diorite, andesite and granite are dug but do not count toward
@@ -342,8 +359,17 @@ lays out, gathers and builds it, and the mayor answers in chat.
   bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).
 - Kelp reaching the water's surface makes `surfaceAt` pass down to the seabed and read a lake as dry ground (T.3
   review; site.py treats kelp as water).
+- More from the T.3 reviews (10-01), not yet seen in a run: (a) `surfaceAt` still floors its scan at bot y - 48, so a
+  valley far below the surveying bot reads as yHint - 48 "air" (penalised as built, not taken as flat; passing the
+  neighbouring column's height as the hint would fix it); (b) its climb stops at the first plain `air`, so a large
+  noise cave inside a hill (plain air, not cave_air) can read as the ground (neighbours differ, so the site reads as
+  steep rather than flat; a guard: two airs 16 apart, or sky light); (c) prepare_site now also leaves deep ponds in the
+  margin as they are: a builder stepping out of the footprint may land in one (the rescue handles it).
+- `stage_village.py`: options before the coordinates (`V --stage build X Z`) are refused since `--site` made X Z
+  optional (no caller uses that order). `scripts/bench/atlasbench.mts` creates a bot without `timeScale`.
 - A "drop" test site: the probe at -1656,-152 settled on the low ground, so no staged run has yet met a plot against a
-  drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand.
+  drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand (a site entry with `site` set skips the probe; or a new site:
+  `scripts/gen_test_sites.py` says how to add one to the test world and its snapshot).
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -439,7 +465,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | Minevale5 | V.7 run 3: same, -1208,-296 (Mayor's site -1176,-360) | stopped | 8.8 min | find_site reported "ground y=101, height range 0, 0 tree blocks" where the ground is at y 119 with a 9-block drop at the edge: prepare_site refused 4 times, the executor looped on find_site (F88); slow layout (7.0 min: hall design with a furnace refused, an Ollama 500) |
 | 10-01 (s7) | T.1 mine check, 1x | `PICKAXE_WAIT=0 mine.py StageM8 2 24` | **PASS** | 92 s | round 1 55 s (stone pickaxe from storage), round 2 28 s (20 cells) |
 | 10-01 (s7) | T.1 mine check, 2x | same, `MC_TIME_SCALE=2` (tick rate 40) | **PASS** | 99 s | round 1 58 s, round 2 32 s (38 cells); no faster: mining is digging, and digs stay in real time (F91); no rejected moves or digs, no `[lag]` |
-| 10-01 (s7) | T.1 walk check | Gus walks 14 fixed legs on StageM8's plot (scratchpad `walk_speed.py`) | 1.94x | 48.8 s at 1x, 25.1 s at 2x | every leg arrived; ~10 blocks/s sprinting at 2x |
+| 10-01 (s7) | T.1 walk check | Gus walks 14 fixed legs on StageM8's plot (`scripts/checks/walk_speed.py`) | 1.94x | 48.8 s at 1x, 25.1 s at 2x | every leg arrived; ~10 blocks/s sprinting at 2x |
 | 10-01 (s7) | Fixed1 | T.2: staged full at 2x on the test world's restored site minevale3 (probe -1544,8; site -1563,-36, birch) | **3/3 built** | **7.1 min** (1x: 9-12, StageM6-M8) | 0 failed actions; plot x -1572..-1554, z -46..-26, y 64; stairs 7 steps to y 58 at 4.9 min; mine east, legs 26 and 33 cells |
 | 10-01 (s7) | Fixed2 | T.2: the same after `reset_site.py minevale3`, the site from test_sites.json | **3/3 built** | **7.1 min** | **identical**: the same plot, 18 trees felled, stairs at 4.9 min, mine east with legs 26 and 33; then a restore without start: 0 of 264,191 blocks differ from the snapshot (`region_blocks.py --compare`) |
 | 10-01 (s7) | site check M5 | T.3: `site.py -1208 -296 30` before and after the F88 fix (main world, 1x) | FAIL, then **PASS** | 15 s | before: "ground y=100, range 0" (Gus at y 68 + 32), real 123, range 14, 90 columns below the level; after: site -1109,-259, y 65, range 4, 344 tree blocks, all equal to the blocks |

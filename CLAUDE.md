@@ -235,7 +235,12 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   `hilly_land.py [DROP]` lists fresh land beside a drop from the atlas. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
   3 minutes; since the huts, use 8); `stage_village.py` ignores soft "cannot be gathered here" failures.
   `fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas, away from every village (no server needed);
-  `follow_workers.py VILLAGE MINUTES` follows the workers on after a stage run's stall rule stopped it. To see the panel without a browser:
+  `follow_workers.py VILLAGE MINUTES` follows the workers on after a stage run's stall rule stopped it.
+  Since phase T (2026-10-01): `site.py X Z SIZE` (find_site's report against the blocks; run after changing find_site
+  or prepare_site), `walk_speed.py` (Gus walks 14 fixed legs on StageM8's plot: compare game speeds),
+  `scripts/gen_test_sites.py NAME|all` (generate a new test site's land; its docstring says how to add a site to the
+  snapshot), `region_blocks.py --world W --compare OTHER X1 Y1 Z1 X2 Y2 Z2` (a restored site against the snapshot).
+  To see the panel without a browser:
   headless Edge (`"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --screenshot=<png>
   --window-size=1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
 - **Agent names are fixed** (the user finds them in the world by name): **Gus** for any single-agent test,
@@ -329,7 +334,9 @@ the materials a village needs, then build with them. Decisions made with the use
   header). 26.1 names game rules in snake_case (`fall_damage`, `keep_inventory`, `spawn_monsters`,
   `fire_spread_radius_around_player`; camelCase is rejected), and a bare `gamerule` lists nothing over RCON: the full
   list is in the jar (`net/minecraft/world/level/gamerules/GameRules.class`). `time query daytime` no longer exists
-  (timelines). `server.properties` now says `difficulty=peaceful` too (the server re-applies it at start).
+  (timelines). `mc/server/server.properties` still says `difficulty=easy` (checked 2026-10-01; an earlier note said
+  peaceful): peaceful comes from the agent server's RCON at every start, so a Paper running without it is on easy.
+  `mc/testserver`'s says peaceful.
 - **Building places blocks by command but charges the inventory:** `/setblock` / `/fill` as now, but each block must
   be carried, is taken from the inventory (e.g. RCON `clear <agent> <item> <n>` per run of blocks), and the job stops
   when a material runs out. Not real block-by-block placement.
@@ -434,7 +441,9 @@ creative, block-by-block placement in survival; not built yet).
   gitignored; checksums verified), `start.py` (runs the server), `rcon.py` (send commands, e.g. `python mc/rcon.py
   "list"`). The server listens on 127.0.0.1 only, offline mode, RCON on localhost, seed 1793578865, survival, peaceful.
   The user accepted the EULA on 2026-09-26. Stop the server with `python mc/rcon.py stop` (saves the world); killing
-  it loses unsaved chunks. 26.x keeps no spawn chunks loaded: RCON block tests need `forceload` or a player nearby.
+  it loses unsaved chunks (Paper autosaves every 6000 ticks, `bukkit.yml` `autosave`: 5 minutes at 1x, so a kill loses
+  at most the last few minutes). 26.x keeps no spawn chunks loaded: RCON block tests need `forceload` or a player nearby.
+  The world is under `world/dimensions/minecraft/overworld/{region,entities,poi}` in 26.1 (not `world/region`).
 - `npm run mc:agents` (`server/src/mineflayer/index.ts`) connects agents as bots and serves the agent REST API on
   **port 8766**, with the sandbox's routes and JSON shapes, so the watch scripts can point at it. It needs the
   Minecraft server running. `tsx` here does not watch; stopping `npm` leaves the `tsx` child listening on 8766: stop
