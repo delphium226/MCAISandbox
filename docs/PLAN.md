@@ -22,8 +22,8 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 (written 2026-10-01 at the close of the sixth session: V.5b and V.6 done, V.7 two of three)
 
-- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e` (the user asked to be asked before pushing;
-  this session's commits `545003b`..HEAD are not pushed). `main` untouched. Working tree clean except `runs/`.
+- **Code:** committed on `tiered-brain-building`; origin has up to `55e993e`. The sixth session's commits (`545003b`
+  onward, nine with this handover) are **not pushed**: the user was asked at the close and has not answered; ask again before pushing. `main` untouched. Working tree clean except `runs/`.
 - **Nothing is running after the session** (background tasks die with it): start the stack in CLAUDE.md's order. Run
   `python scripts/ollama_exec.py status` first: on 10-01 the first start reported qwen3:30b "in VRAM" with GPU 1 at
   1.2 GB (the known false report); a stop and start fixed it.
@@ -38,7 +38,10 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   prepare_site roofing gullies (F86), two miners on crossing tunnels (backlog), 2.3 (sites from the atlas).
 - **Tools added:** `GET /api/blocks` (a box of blocks), `scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]]` (Gus mines;
   checks the cells; `PICKAXE_WAIT=0` makes him make his own pickaxe), `scripts/checks/atlas_ores.py VILLAGE` (the atlas's
-  ores against the blocks). Test edits in `villages.json`: StageM1's and Hutvale4's first tunnels marked ended (backups in
+  ores against the blocks), `scripts/checks/region_blocks.py X Y Z [X2 Y2 Z2]` (blocks from the saved region files, no
+  server: offline analysis and T.2's snapshot check; sees only saved chunks), `scripts/checks/hilly_land.py [DROP]`
+  (fresh land beside a drop, from the atlas). The sixth session's scratchpad (V.6's offline ore benchmark
+  `oretest.mts`/`underbench.cjs`, edit scripts) is not kept; everything it held that matters is in the repo or here. Test edits in `villages.json`: StageM1's and Hutvale4's first tunnels marked ended (backups in
   `runs/2026-10-01/`). Test villages of the session: StageM1-M8, Minevale1-5.
 - **Working method** as before (subagents for reviews, log analysis, docs, drafts; every review found real bugs). Run
   logs: `runs/2026-10-01/`.
@@ -205,7 +208,10 @@ the hut down to stone, then straight branch tunnels at one level.
       ones, which no player could see) by kind with their y range, and marks the chunks a village's mine dug in; the
       panel's map pointer shows them; the mine's "seen" counts no longer count an ore twice. Drafted by a subagent in the
       scratchpad during V.5b, reviewed, checked with `scripts/checks/atlas_ores.py` (the atlas against `/api/blocks`).
-      Not done: collect going to the atlas for ores (2.2b), and the check reads the bots' view, not the server.
+      Not done: collect going to the atlas for ores (2.2b), and the check reads the bots' view, not the server. If the
+      summary's p99 grows past ~1.5 ms (it was 1.24-1.36 on 10-01; tall mountain chunks read ~70k states): map each
+      section's palette to ore kinds once and read the raw BitArray, or scan only 64 below the surface (V.6 review and
+      draft, 10-01).
 - [ ] V.7 Model-driven village runs with all of it. 10-01: Minevale3 (14.4 min) and Minevale4 (12.2 min) passed in a row,
       0 failed actions each, every cobblestone from the mine; Minevale5 lost to find_site (F88). One more pass after F88. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
       cobblestone from the mine. More runs, and F77 (a main tunnel that ends should turn or go a level down), next.
@@ -245,8 +251,8 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
         under `mc/server/world/region`, and `entities/`, `poi/`) to `mc/testworld/` (gitignored), and the matching
         `villages.json`/`atlas.json` entries (none: the sites must be outside every village).
       - Restore: `scripts/reset_site.py NAME` stops Paper, copies the site's region files back, removes villages the
-        test created there from `villages.json` (and their atlas marks), starts Paper. Check it with `/api/blocks`
-        against the snapshot.
+        test created there from `villages.json` (and their atlas marks), starts Paper. Check it with
+        `scripts/checks/region_blocks.py` against the snapshot (no server needed) and with `/api/blocks` once it runs.
       - `stage_village.py --site NAME` uses a site from the file directly (no land probe).
       - Test: one staged full run twice on the same restored site: same plot, same mine direction, similar times.
 - [ ] T.3 **A site check** (with F88, which is next after T.1-T.2): `scripts/checks/site.py X Z SIZE` runs find_site
@@ -309,6 +315,11 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure); plan_layout's margin
   reaching past the measured site into a ravine.
 - Two miners on crossing tunnels (F82): a dig aborted by the other bot counts toward an empty trip.
+- Mine yield (log analysis of 10-01): branches end early at gravel pockets, gullies and the stairs' keep-off (6 of 9
+  side branches of Minevale2's two later tunnels); diorite, andesite and granite are dug but do not count toward
+  cobblestone (StageM7: 43 diorite); a second miner waits up to 2 minutes when the busy tunnel has no finished junction
+  and both stairs-bottom turns are used (Minevale2, 28.3-30.4 min); it could take an unfinished branch instead.
+- The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -727,7 +738,8 @@ CLAUDE.md when a phase ends.
   stone pickaxe from storage, 24 cobblestone in 52 s.
 - F86 (10-01, Minevale2) prepare_site roofed a natural gully under the plot (2-3 blocks of lid over air at y 91-93)
   instead of filling it; the storage hut and hall stand over it, and tunnels open into it. 58 jungle logs from the
-  plot's felling were never used in an oak village. Backlog.
+  plot's felling were never used in an oak village. Left in the world: a crafting table at -827,96,-365 (a pickaxe made
+  outside, before F85's fix) and a 2-block dirt pillar at -833,96..97,-349 beside the mining hut. Backlog.
 - F87 (10-01, review of V.6) The atlas check reads the bots' view (`/api/blocks`), as the atlas does: a stale view
   (lesson 29) would pass both. A few cells checked over RCON (`execute if block`) would close it. Noted.
 - F88 (10-01, Minevale5) find_site reported a 30x30 site at -1176,-360 as "ground y=101, height range 0, 0 tree blocks

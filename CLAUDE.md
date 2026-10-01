@@ -218,7 +218,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   every round must come from the planned tunnel cells with nothing else changed; it prints the RCON line to give him a
   pickaxe, `PICKAXE_WAIT=0` makes him make his own) and `atlas_ores.py VILLAGE` (the atlas's exposed ores against the
   blocks; spawn an idle Gus at the mine first so its chunks are loaded). Run the relevant one after changing find_site,
-  layout.ts, smelting, the atlas, felling or the mine. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
+  layout.ts, smelting, the atlas, felling or the mine. No server needed: `region_blocks.py X Y Z [X2 Y2 Z2]` reads
+  blocks from the saved region files (only chunks already saved: unloaded or after `python mc/rcon.py stop`), and
+  `hilly_land.py [DROP]` lists fresh land beside a drop from the atlas. Staged runs with felling need `MCAI_STALL_MIN=5` (a 30-cobblestone task with a pickaxe to make takes over
   3 minutes; since the huts, use 8); `stage_village.py` ignores soft "cannot be gathered here" failures.
   `fresh_land.py [MIN_DISTANCE]` lists fresh land from the atlas, away from every village (no server needed);
   `follow_workers.py VILLAGE MINUTES` follows the workers on after a stage run's stall rule stopped it. To see the panel without a browser:
@@ -295,7 +297,7 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     tunnels, levels down, stone only, one miner a tunnel, no-dig walks; F79-F82); V.6, exposed ores in the atlas
     (`d34ed76`, with README and ARCHITECTURE.md); spawns on the ground and pickaxes from storage (`abfd90c`, F84, F85).
     V.7: Minevale3 and Minevale4 passed in a row (14.4 and 12.2 min, 0 failed actions); Minevale5 lost to find_site
-    (F88). Next: F88, one more V.7 pass.
+    (F88). Next (decided at the close): phase T, faster tests (PLAN.md), then F88 and one more V.7 pass.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
