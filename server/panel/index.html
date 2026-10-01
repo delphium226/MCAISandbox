@@ -518,6 +518,9 @@ function worldTip(e) {
     const total = logs.reduce((t, [, q]) => t + q, 0), low = Object.values(s.low || {}).reduce((t, q) => t + q, 0);
     const sand = (s.surface && s.surface.sand) || 0, red = (s.surface && s.surface.red_sand) || 0;
     lines.push(`<span class="sub">chunk ${s.cx}, ${s.cz}: ${total ? `${total} logs (${esc(logs.map(([k, q]) => `${q} ${words(k)}`).join(', '))}; ${low} low)` : 'no logs'}, ${sand} sand${red ? `, ${red} red sand` : ''}${s.t ? `; seen ${ago(s.t)} ago` : ''}</span>`);
+    // Ores exposed to air underground (summaries from before V.6 have none recorded)
+    const ores = Object.entries(s.ores || {}).sort((p, q) => q[1][0] - p[1][0]);
+    if (s.ores) lines.push(`<span class="sub">${ores.length ? `exposed ores: ${esc(ores.map(([k, [n, lo, hi]]) => `${n} ${k} (y ${lo === hi ? lo : `${lo} to ${hi}`})`).join(', '))}` : 'no exposed ores'}${s.mine ? `; ${esc(s.mine)}'s mine` : ''}</span>`);
   }
   const inside = (a) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
   for (const vg of mapVillages()) {

@@ -322,6 +322,7 @@ stateDiagram-v2
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
 | Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. |
 | Unplaced (`unplaced`) | `plan_layout` | Buildings that did not fit on the site: shown in the village summary, laid out by code at the mayor's next successful `find_site`; completion waits for them. |
+| Mine (`mine`) | `dig_mine`, `collect cobblestone` (Minecraft) | The mining hut, the stairs (first step, direction, steps, `level` once in stone), the main tunnels (`legs`: start, level, direction, cells dug in their fixed order, branches cut short, why it ended, turns tried), the stairs down to deeper levels (`down`: start, steps, `level` or why they stopped), what the mine gave and the ores its cells laid open (`got`), and why it stopped; mines from before V.5b load as one leg (`upgradeMine`). Who digs which tunnel is kept in memory only, per trip. |
 
 Every village member stays within `VILLAGE_RANGE` (96 blocks, `village.ts`) of the village's home, `villageHome`: the
 first layout or plot, else the first storage chest, else where the mayor started (`memory.origin`). `move_to` and
@@ -426,7 +427,7 @@ flowchart LR
   page["/panel (server/panel/index.html)<br/>browser, refreshes every 2 s"]
   page -- "GET /api/overview (2 s)" --> overview["panel.ts overview()<br/>for each agent: observe(4), memory,<br/>brain.status(), events, village"]
   page -- "GET /api/maps (2 s)" --> maps["mapAround(24) per agent<br/>top block + height per column,<br/>cached 1.5 s (~2 ms each)"]
-  page -- "GET /api/atlas?all=1 (30 s)" --> atlas["the shared atlas (mcAtlas.ts)<br/>every chunk summary and every village's ground,<br/>4x4-block cells: the world map"]
+  page -- "GET /api/atlas?all=1 (30 s)" --> atlas["the shared atlas (mcAtlas.ts)<br/>every chunk summary (exposed ores too)<br/>and every village's ground,<br/>4x4-block cells: the world map"]
   page -- "GET /api/models (5 s)" --> models["/api/ps on every Ollama<br/>in use (app + routes)"]
   page -- "GET /api/status" --> status["world, version, server"]
   page -- "POST stop, DELETE,<br/>POST /api/watch" --> actions["stop actions, remove,<br/>spectate an agent (Minecraft: RCON tp)"]
@@ -446,7 +447,16 @@ by wood kind (and how many stand within 5 blocks of the ground), the surface mat
 and covers for the map. Bots report chunks as they arrive (`chunkColumnLoad`) and changed blocks (`blockUpdate`,
 summarised again after a minute); the world's tick works the queue off within 3 ms per tick. The scan reads block
 state ids straight from the chunk through a lookup table per state, starting at the highest section that is not all
-air: ~0.1 ms a chunk (99th percentile ~0.6 ms), against ~7 ms with `bot.blockAt`. Nothing reads the atlas yet;
+air: ~0.1 ms a chunk (99th percentile ~0.6 ms), against ~7 ms with `bot.blockAt`.
+
+Underground (V.6), `exposedOres` records the ores exposed to air: in cave walls, ravines, cliffs and mine tunnels. It
+reads the sections from the bottom up to the highest one with blocks and passes over every section whose palette names
+no ore (most of them). An ore counts when one of its faces inside the chunk touches air or cave air (a face across the
+chunk's edge is not seen: the next column may not be loaded); per kind (deepslate ores counted with the others) the
+summary keeps how many and the lowest and highest y (`ores`). The rescan a minute after a change shows ores mined out
+or newly laid open. `mine` names the village whose mine has dug in the chunk (`atlas.mined`, called for every cell the
+mine digs; kept through rescans). With the ore scan a summary costs ~0.4 ms a chunk (median; 99th percentile ~1.3 ms)
+and ~100 more bytes in `?all=1` when it has ores; the panel's pointer shows them. Nothing reads the atlas yet;
 `collect` and `find_site` are its planned users (`docs/PLAN.md`, phase 2).
 
 ## 8. Testing
@@ -458,14 +468,15 @@ flowchart LR
   script -- "poll events, board, stats" --> api
   script -- "early stop: objective met,<br/>same failure 3 times, stalled" --> report["log: timeline, board,<br/>designs, plots, buildings, storage, stats"]
   bench["scripts/bench/*.mts"] -- "the brain's real prompts<br/>and tools" --> ollama["Ollama models"]
-  checks["scripts/checks/*.py<br/>(one skill or layout case,<br/>no models)"] -- "find_site, plan_layout,<br/>materials, smelting" --> api
+  checks["scripts/checks/*.py<br/>(one skill or layout case,<br/>no models)"] -- "find_site, plan_layout,<br/>materials, smelting,<br/>the mine, the atlas" --> api
   attach["attach_village.py<br/>(follow a running village)"] -- "poll events" --> api
 ```
 
 Tests go from fast to slow. `npm run typecheck` first. `scripts/checks/` then checks one piece of the survival
 village's code in seconds to a minute, without models: `find_site.py` (site search, wood, walking legs),
 `layout_small_sites.py` (partial layouts, second sites), `materials_near_site.py` (plan_layout's material counts),
-`treeless_site.py`, `smelt_fuel.py`; `test_rescue.py` traps Gus in a pit, a box or a pool. `stage_village.py` sets a
+`treeless_site.py`, `smelt_fuel.py`, `mine.py` (the mine's cells against a snapshot of its level from `/api/blocks`:
+nothing dug outside the plan), `atlas_ores.py` (the atlas's exposed ores against the blocks); `test_rescue.py` traps Gus in a pit, a box or a pool. `stage_village.py` sets a
 village up at a stage and runs scripted workers (`taskBrain.ts`: they run the skill calls each task spells out), so
 the economy's code is checked in one to ten minutes with no model involved. The benches (`modelbench`, `execbench`,
 `planbench`, `mayorbench`) replay the brain's real prompts against a model in seconds per case. Only then do
@@ -511,7 +522,7 @@ flowchart LR
 | World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
 | Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", a smelting table, whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
 | Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots), gather for the hut, build it around the chests; other buildings' gathering waits only for the storage, their builds for the hut |
-| Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends a main tunnel with 12-long branches every 3 cells; tunnels end at water, lava, caves, missing ceilings, village ground; the mine's area is kept from the pathfinder's digging |
+| Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below) |
 | Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item. Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max, every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (none deeper than 16 below ground), walking up to two 40-block legs toward land or trees |
 | Design limits | `tieredBrain.ts` (design checks) | survival designs at most 9x9, raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration; one retry with the problems |
@@ -519,6 +530,35 @@ flowchart LR
 | Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets (narrower when that fits), partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
 | Survival building | `mcBuild.ts` | registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings (`onVillageGround`, `stepOffVillageGround` in `mcUtil.ts`), wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
+
+**The mine's trips** (`mcMine.ts`, `mineFor`): a main tunnel's cells are dug in a fixed order (`tunnelCell`: 3 main
+cells, then a 12-cell branch to each side, and again), two blocks each, until the bot carries enough or 6 minutes pass.
+
+```mermaid
+flowchart LR
+  collect["collect cobblestone<br/>in a village with a mine"] --> next{"nextLeg at the<br/>deepest level"}
+  next -- "its own tunnel, a free one,<br/>or a new turn (turnFrom)" --> cell["unsafe()? then dig the cell<br/>standing on the one before"]
+  cell -- "dug" --> next
+  cell -- "refused" --> ended["the branch ends, or the tunnel<br/>(the next turns left, then right)"] --> next
+  next -- "busy: every tunnel is held,<br/>no junction to turn at" --> wait["wait 5 s (2 min a trip)"] --> next
+  next -- "none left at this level" --> down["digDown: the stairs on 6-10 steps<br/>into stone, a new level's first tunnel"] --> next
+  down -- "the stairs stopped,<br/>or 3 levels dug" --> stop["mine stopped:<br/>cobblestone from the surface"]
+```
+
+`turnFrom` starts a turned tunnel at the latest junction whose branch on that side ran its full length, so its first
+stretch is open already (the first tunnel may also turn at the bottom of the stairs). `digDown` goes on from the deepest
+level's bottom step in the stairs' direction, under that level's first tunnel, one block down per step, until at least
+6 steps and stone. One bot holds each tunnel and one the stairs down (`holders`, `downHolders`, in memory, released when
+its trip ends). `unsafe()` refuses a cell beyond 90 blocks of the village's home; under any village's plot or laid-out
+plot (2-block margin, down to 4 below its level), at a building, in another village's mine or beside the stairs; that is
+not natural ground or has water or lava in or next to it; with open air beside it under the open sky (a hillside; not on
+the side it is dug from); or with no solid, non-falling ceiling; so do a missing floor and a cell with no stone (F79). A refused cell ends its branch or tunnel.
+Every walk in the mine (`walkMine`) has digging, scaffolding and pillaring turned off, and `digCell` digs only standing
+on its approach (`stand`: the cell before, the step above); the stairs from the hut keep the pathfinder's own walk onto
+each step (F80, F81). `mineAreas` gives the boxes the mine takes up (hut and stairs, each stairs down, each tunnel's
+reach to the end of the stretch being dug, floor to ceiling `y2`, so the ground above stays free), and no bot's
+pathfinder breaks blocks in them. Two trips in a row that gathered nothing end the tunnel or branch they worked on, and
+so do three that stopped at the same cell inside the mine; a bot stuck outside it ends nothing.
 
 Results: the acceptance runs of 2026-09-28/29 built "two matching cottages and a meeting hall" from nothing with a
 mayor and two workers and no manual help, five times with gpt-oss as the workers' planner (10.2-29.2 minutes; three in

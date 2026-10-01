@@ -160,9 +160,12 @@ export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
   return out;
 }
 
+/** The six blocks around a cell. */
+const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]];
+
 /**
- * Dig one planned cell (a pickaxe made if stone needs one); records what it gave. The drop is left where it fell: the
- * bot steps into the cell next and picks it up (walking to each drop took seconds a block).
+ * Dig one planned cell (a pickaxe made if stone needs one); records what it gave and the ores it laid open. The drop
+ * is left where it fell: the bot steps into the cell next and picks it up (walking to each drop took seconds a block).
  */
 async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand?: Vec3) {
   const b = a.bot.blockAt(p);
@@ -201,10 +204,16 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
   }
   const drop = name === 'stone' ? 'cobblestone' : name === 'deepslate' ? 'cobbled_deepslate' : name;
   m.got[drop] = (m.got[drop] ?? 0) + 1;
-  // Ores seen in the walls (V.6 will put them in the atlas)
-  for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
-    const n = a.bot.blockAt(p.offset(d[0], d[1], d[2]));
-    if (n && /_ore$/.test(n.name)) m.got[`seen ${n.name}`] = (m.got[`seen ${n.name}`] ?? 0) + 1;
+  // Ores this cell laid open in the walls, floor and ceiling, each counted once: not when it touched air before (an
+  // earlier cell, a cave). The atlas records every exposed ore by chunk when it summarises the chunk again (V.6)
+  const v = a.village();
+  if (v) a.world.atlas.mined(p.x, p.z, v.name);
+  for (const d of SIDES) {
+    const q = p.offset(d[0], d[1], d[2]);
+    const n = a.bot.blockAt(q);
+    if (!n || !/_ore$/.test(n.name)) continue;
+    const before = SIDES.some((e) => (e[0] !== -d[0] || e[1] !== -d[1] || e[2] !== -d[2]) && /^(air|cave_air)$/.test(a.bot.blockAt(q.offset(e[0], e[1], e[2]))?.name ?? ''));
+    if (!before) m.got[`seen ${n.name}`] = (m.got[`seen ${n.name}`] ?? 0) + 1;
   }
 }
 

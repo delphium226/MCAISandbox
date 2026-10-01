@@ -34,7 +34,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   }
   // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
   if (parts[1] === 'atlas') {
-    // ?all=1: every chunk and every village's ground, compact (~0.6 MB for 2,600 chunks): the panel's world map
+    // ?all=1: every chunk and every village's ground, compact (~230 bytes a chunk, ~100 more with exposed ores): the
+    // panel's world map
     if (url.searchParams.get('all') === '1') {
       const villages = [...w.villages.villages.values()].map((v) => ({
         name: v.name, layouts: v.layouts ?? [], plots: v.plots, structures: v.structures,

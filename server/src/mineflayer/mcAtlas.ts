@@ -1,7 +1,8 @@
 /**
  * The shared atlas (plan phase 2): what the bots have seen of the world, one summary per chunk, shared by every agent
  * and village and saved to <server>/atlas.json. Each chunk a bot receives is summarised (ground height and flatness,
- * water, logs by kind, surface materials), and a chunk whose blocks changed is summarised again a minute later.
+ * water, logs by kind, surface materials, and ores exposed to air underground: plan step V.6), and a chunk whose blocks
+ * changed is summarised again a minute later, so an ore mined out or newly exposed shows then.
  *
  * Several bots share this process's event loop (F16, F44), so the scan reads block state ids straight from the chunk
  * with a lookup table per state (no Block objects: bot.blockAt costs ~7 ms a chunk, this ~0.1 ms) and the queue is
@@ -34,6 +35,11 @@ export interface ChunkSummary {
    *  what covers most of the cell (CELL_LETTERS). */
   h: Array<number | null>;
   s: string;
+  /** Ores exposed to air anywhere in the column (cave walls, ravines, cliffs, mine tunnels) by kind, deepslate ores with
+   *  the others: how many blocks, the lowest and the highest y (V.6). Missing in summaries from before. */
+  ores?: Record<string, [number, number, number]>;
+  /** The village whose mine has dug in this chunk (kept through later summaries). */
+  mine?: string;
 }
 
 /** Surface materials, with the letter a map cell gets when it is mostly that. */
@@ -54,6 +60,8 @@ export const CELL_LETTERS = { water: '~', lava: '^', trees: 'T', other: 'b', unk
 const OTHER = MATERIALS.length;
 
 const LOG = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_log$/;
+/** The ores recorded (deepslate_iron_ore counts as iron; the Nether's are not looked for). */
+export const ORE_KINDS = ['coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald'];
 // Block categories per state id
 const PASS = 0, WOOD = 1, LEAF = 2, WATER = 3, LAVA = 4, GROUND = 5;
 
@@ -62,9 +70,12 @@ const RESCAN_CHANGED_MS = 60_000; // a changed chunk: at most this often
 const BUDGET_MS = 3; // per world tick (50 ms)
 const SAVE_MS = 30_000;
 
+/** A section of 16x16x16 blocks (prismarine-chunk): `palette` lists the states it uses (only grows: a state dug out
+ *  stays in it), missing when one state fills it (`data.value`) or it stores state ids directly. */
+type Section = { solidBlockCount: number; palette?: number[]; data: { get(i: number): number; value?: number } };
 type Column = {
   minY: number;
-  sections: Array<{ solidBlockCount: number } | null | undefined>;
+  sections: Array<Section | null | undefined>;
   getBlockStateId(p: { x: number; y: number; z: number }): number;
 };
 
@@ -74,11 +85,16 @@ export class Atlas {
   private queue = new Map<string, [number, number]>();
   /** Chunks whose blocks changed, and when that was first noticed. */
   private changed = new Map<string, number>();
+  /** Chunks a mine dug in before the atlas had summarised them, by village. */
+  private minedBefore = new Map<string, string>();
   private unsaved = false;
   private savedAt = Date.now();
   private cat: Uint8Array;
   private material: Uint8Array;
   private logKind: Uint8Array;
+  /** Per state: 1 + its index in ORE_KINDS (0: no ore), and whether it is air (an ore next to air is exposed). */
+  private ore: Uint8Array;
+  private air: Uint8Array;
   private kinds: string[] = [];
   private times: number[] = [];
   stats = { scans: 0, maxMs: 0 };
@@ -93,7 +109,11 @@ export class Atlas {
     this.cat = new Uint8Array(n);
     this.material = new Uint8Array(n);
     this.logKind = new Uint8Array(n);
+    this.ore = new Uint8Array(n);
+    this.air = new Uint8Array(n);
     for (const b of reg.blocksArray) {
+      const ore = /^(?:deepslate_)?(\w+?)_ore$/.exec(b.name);
+      const o = ore ? ORE_KINDS.indexOf(ore[1]) + 1 : 0, open = /^(air|cave_air)$/.test(b.name) ? 1 : 0;
       const log = LOG.exec(b.name);
       let c = PASS, m = OTHER, k = 0;
       if (log) {
@@ -113,6 +133,8 @@ export class Atlas {
         this.cat[s] = c;
         this.material[s] = m;
         this.logKind[s] = k;
+        this.ore[s] = o;
+        this.air[s] = open;
       }
     }
     this.load();
@@ -129,6 +151,17 @@ export class Atlas {
   touched(x: number, z: number) {
     const k = `${x >> 4},${z >> 4}`;
     if (!this.changed.has(k)) this.changed.set(k, Date.now());
+  }
+
+  /** A village's mine dug at x, z: its chunk is marked as that mine's (its ores come with the next summary). */
+  mined(x: number, z: number, village: string) {
+    const k = `${x >> 4},${z >> 4}`;
+    const s = this.chunks.get(k);
+    if (!s) this.minedBefore.set(k, village); // dug before its first summary: marked when it comes
+    else if (s.mine !== village) {
+      s.mine = village;
+      this.unsaved = true;
+    }
   }
 
   /** On every world tick: work the queue off within the budget, and save now and then. */
@@ -154,6 +187,10 @@ export class Atlas {
       this.times.push(dt);
       if (this.times.length > 1000) this.times.shift();
       if (s) {
+        // What no scan sees: whose mine dug here
+        const had = this.chunks.get(k)?.mine ?? this.minedBefore.get(k);
+        if (had) s.mine = had;
+        this.minedBefore.delete(k);
         this.chunks.set(k, s);
         this.unsaved = true;
       }
@@ -246,8 +283,47 @@ export class Atlas {
       cx, cz, t: Date.now(), by, y, flat, water, lava,
       logs: named(logs, this.kinds), low: named(low, this.kinds),
       surface: named(surface, [...MATERIALS.map((m) => m[0]), 'other']),
-      h, s,
+      h, s, ores: this.exposedOres(col, top),
     };
+  }
+
+  /**
+   * Ores exposed to air in a column, read section by section from the bottom to the highest non-empty one; a section
+   * whose palette holds no ore is passed over. About 0.25 ms a chunk (synthetic 26.1 chunks, ground at y 70), on top of
+   * the surface's 0.1. Only faces inside the chunk count (the next column may not be loaded), so an ore on the chunk's
+   * edge exposed only across it is left out.
+   */
+  private exposedOres(col: Column, top: number): Record<string, [number, number, number]> {
+    const { ore, air } = this;
+    const N = ORE_KINDS.length + 1;
+    const n = new Uint32Array(N), lo = new Int16Array(N).fill(32767), hi = new Int16Array(N).fill(-32768);
+    const q = { x: 0, y: 0, z: 0 };
+    const open = (x: number, y: number, z: number) => {
+      if (x < 0 || x > 15 || z < 0 || z > 15 || y < col.minY) return 0;
+      q.x = x;
+      q.y = y;
+      q.z = z;
+      return air[col.getBlockStateId(q)];
+    };
+    for (let i = 0; i <= top; i++) {
+      const sec = col.sections[i];
+      if (!sec || !sec.solidBlockCount) continue;
+      // One state fills it (never an ore worth a loop), or its palette names no ore
+      if (sec.palette ? !sec.palette.some((s) => ore[s]) : sec.data.value !== undefined) continue;
+      const y0 = col.minY + i * 16;
+      for (let j = 0; j < 4096; j++) {
+        const k = ore[sec.data.get(j)];
+        if (!k) continue;
+        const x = j & 15, z = (j >> 4) & 15, y = y0 + (j >> 8);
+        if (!(open(x + 1, y, z) || open(x - 1, y, z) || open(x, y, z + 1) || open(x, y, z - 1) || open(x, y + 1, z) || open(x, y - 1, z))) continue;
+        n[k]++;
+        if (y < lo[k]) lo[k] = y;
+        if (y > hi[k]) hi[k] = y;
+      }
+    }
+    const out: Record<string, [number, number, number]> = {};
+    for (let k = 1; k < N; k++) if (n[k]) out[ORE_KINDS[k - 1]] = [n[k], lo[k], hi[k]];
+    return out;
   }
 
   /** Summaries of chunks within `radius` blocks of x, z. */

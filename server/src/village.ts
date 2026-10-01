@@ -435,7 +435,7 @@ export class VillageRegistry {
       const got = Object.entries(m.got).filter(([n, q]) => q > 0 && !n.startsWith('seen ')).map(([n, q]) => `${q} ${n}`).join(', ');
       const ores = Object.entries(m.got).filter(([n]) => n.startsWith('seen ')).map(([n, q]) => `${q} ${n.slice(5)}`).join(', ');
       lines.push(m.level !== undefined && !m.stopped
-        ? `Mine: stairs ${m.steps} steps down to y=${m.level}${(m.down ?? []).map((d) => (d.level !== undefined ? ` and on to y=${d.level}` : '')).join('')}, ${m.dug} tunnel cells dug${(m.legs?.length ?? 0) > 1 ? ` in ${m.legs!.length} main tunnels` : ''}${got ? `; it gave ${got}` : ''}${ores ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
+        ? `Mine: stairs ${m.steps} steps down to y=${m.level}${(m.down ?? []).map((d) => (d.level !== undefined ? ` and on to y=${d.level}` : '')).join('')}, ${m.dug} tunnel cells dug${(m.legs?.length ?? 0) > 1 ? ` in ${m.legs!.length} main tunnels` : ''}${got ? `; it gave ${got}` : ''}${ores && !compact ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
         : m.stopped ? `Mine: stopped (${m.stopped}) after ${m.steps} steps${m.dug ? ` and ${m.dug} tunnel cells` : ''}; cobblestone is gathered outside` : 'Mine: not dug yet (the mining hut and "Dig the village mine" come first)');
     }
     if (v.storage?.chests.length) {

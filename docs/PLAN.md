@@ -208,9 +208,14 @@ the hut down to stone, then straight branch tunnels at one level.
       builds StageM2-M3; staged full StageM6-M8 (3/3 each, all cobblestone from the mine, two miners on separate tunnels;
       no main tunnel met a hillside on three hilly sites); model-driven Minevale2 (5/5, the first tunnel met a hillside and
       turned, no cobblestone from outside). Done 10-01.
-- [ ] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
+- [x] V.6 **Underground atlas**: ores and stone exposed in tunnel walls (and seen in loaded chunks below the
       surface, if cheap enough) are recorded per chunk and level. Test: a mining run, then the atlas against
       `/api/block`.
+      Done 10-01: every chunk summary counts the ores exposed to air (cave walls, ravines, cliffs, tunnels; not buried
+      ones, which no player could see) by kind with their y range, and marks the chunks a village's mine dug in; the
+      panel's map pointer shows them; the mine's "seen" counts no longer count an ore twice. Drafted by a subagent in the
+      scratchpad during V.5b, reviewed, checked with `scripts/checks/atlas_ores.py` (the atlas against `/api/blocks`).
+      Not done: collect going to the atlas for ores (2.2b), and the check reads the bots' view, not the server.
 - [ ] V.7 Model-driven village runs with all of it. Hutvale4 (09-29): 5/5 in 19.2 min, 2 failed actions, every
       cobblestone from the mine. More runs, and F77 (a main tunnel that ends should turn or go a level down), next.
 
@@ -349,7 +354,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 | mine check H19e | regression after the last review fixes | **PASS** 2/2 | 1.3 min | |
 | 10-01 | StageM8 | staged full, -1512,360 (site -1475,334) | **3/3 built** | 9.0 min | all cobblestone from the mine (117); the second miner turned north at the stairs' bottom at once ("the east tunnel is another miner's"), no wait; no main tunnel met a hillside (three hilly sites tried, M6-M8: the stairs face the nearest plot edge, where the ground rarely drops) |
 | 10-01 | Minevale1 | model, 2 workers, qwen3.8 worker planner, -840,136 (site -829,257, jungle edge) | stopped | 3.1 min | prepare_site refused a ravine at the layout's margin; the executor prepared a plot 43 blocks away and the task counted done (F83); no mine reached |
-| 10-01 | Minevale2 | model, same, -888,-456 (site -828,-348, hills at y 95) | **5/5 built** (mining hut, storage hut, hall, 2 cottages), declared complete by code | 37.8 min | every cobblestone from the mine (none outside); the first tunnel met a hillside after 28 cells ("open air beside", a hillside) and the mine turned; one 2-minute "mine is busy" wait; slow elsewhere: layout at 7.0 min (hall design refused twice, the Mayor stuck in hollows), the plot "not loaded" for 3 min (workers spawned 70 blocks off), Worker2's log collects 0 of 10 for 8 min; 10 failed actions, no sand within 96 |
+| 10-01 | Minevale2 | model, same, -888,-456 (site -828,-348, hills at y 95) | **5/5 built** (mining hut, storage hut, hall, 2 cottages), declared complete by code | 37.8 min | every cobblestone from the mine (none outside); the first tunnel met a hillside after 28 cells ("open air beside", a hillside) and the mine turned; one 2-minute "mine is busy" wait; slow elsewhere (log analysis): the watcher spawned everyone at y 90 inside the hill (ground y 100): both workers suffocated and respawned at the world spawn ~900 blocks away (F84), the Mayor landed in a cave and chased their "under attack" chat, layout at 7.0 min; the plot "not loaded" and Worker2's "0 of 10 logs" were their walks back; 5 pickaxe remakes felled trees outside while storage held 100+ logs (F85); 10 failed actions, no sand within 96 |
+| 10-01 | mine check M8 + V.6 | `mine.py StageM8 2 24`, then `scripts/checks/atlas_ores.py StageM8` (V.6 applied) | **PASS**, 5/5 chunks match | 1.6 min | the atlas's exposed ores (kinds, counts, y ranges) equal the blocks in all 5 of the mine's chunks; summary cost median 0.40 ms, p99 1.24-1.36, max 2.94 (was 0.1 surface only); `?all=1` 1.40 MB for 5,920 chunks (ores add ~53 bytes a summarised chunk); rechecked after the review's fix (marks before a chunk's first summary) |
 
 ## Findings log
 
@@ -660,6 +666,21 @@ CLAUDE.md when a phase ends.
   laid out on the unprepared ground. Stopped at 3.1 min (no mine reached). Not V.5b; proposed: a prepare task is done
   only when the prepared plot covers the laid-out one, and plan_layout keeps the plot and margin inside the site
   find_site measured (backlog).
+- F84 (10-01, Minevale2, log analysis) The watcher spawned the village at y 90 (`tp x 90 z`) where the ground was at
+  y 100: both workers spawned in stone, suffocated (paper-start.log "Worker1 suffocated in a wall") and respawned at the
+  world spawn ~900 blocks away; the Mayor landed in a cave at y 84 and its executor chased the workers' "I'm under
+  attack" chat (follow, move_to) instead of designing. ~15 worker-minutes and the Mayor's first 5 minutes lost. Fix next:
+  spawn at the site's ground (lesson 12: spreadplayers or a known block), and keep the Mayor's executor off workers'
+  distress chat.
+- F85 (10-01, Minevale2, StageM6-M8) Every miner's first pickaxe is wooden (59 blocks) and its replacements are made
+  from a tree felled outside the mine while the storage holds 100+ logs: 5 remakes in Minevale2, trips with one took
+  1.7-3.2 min against 0.2-0.9 without; one remake's walk back left Worker2 at the tree (the 33.2 min "away"). Fix next:
+  a miner takes logs (or a stone pickaxe) from storage, and makes a stone pickaxe once the mine has given cobblestone.
+- F86 (10-01, Minevale2) prepare_site roofed a natural gully under the plot (2-3 blocks of lid over air at y 91-93)
+  instead of filling it; the storage hut and hall stand over it, and tunnels open into it. 58 jungle logs from the
+  plot's felling were never used in an oak village. Backlog.
+- F87 (10-01, review of V.6) The atlas check reads the bots' view (`/api/blocks`), as the atlas does: a stale view
+  (lesson 29) would pass both. A few cells checked over RCON (`execute if block`) would close it. Noted.
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

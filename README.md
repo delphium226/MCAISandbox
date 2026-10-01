@@ -291,6 +291,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
 | GET | `/api/block?x=&y=&z=` | The block at a position (name and state; `loaded: false` when its chunk is not loaded) |
+| GET | `/api/blocks?x1=&y1=&z1=&x2=&y2=&z2=` | Minecraft: a box of up to 65,536 blocks, as a list of names and an index into it per block (x fastest, then z, then y; -1 where no bot has the chunk loaded), for checks that compare before and after |
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
 | GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage (chest by chest, with each one's material group in a storage hut), reservations and recent events |
 | POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
@@ -300,7 +301,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does |
 | POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
 | GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
-| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map |
+| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map |
 | GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 
 **Scale:** in the sandbox, the per-tick pathfinding budget and fast block search keep the server at about 8 ms per
@@ -423,8 +424,11 @@ What building these agents taught, and what the code is built around:
 - `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
   running): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs), `layout_small_sites.py VILLAGE`
   (partial layouts and second sites), `materials_near_site.py` (plan_layout's material counts), `treeless_site.py` and
-  `smelt_fuel.py`, `atlas.py` and `fell_trees.py`. Run the relevant one after changing find_site, layout.ts, smelting,
-  the atlas or felling. Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
+  `smelt_fuel.py`, `atlas.py` and `fell_trees.py`; `mine.py VILLAGE [ROUNDS [COUNT]]` (Gus collects cobblestone in the
+  village mine; each round must come from the planned tunnel cells, with nothing else changed at the mine's level) and
+  `atlas_ores.py VILLAGE` or `--near X Z [RADIUS]` (the atlas's exposed ores against the blocks, read with
+  `/api/blocks`). Run the relevant one after changing find_site, layout.ts, smelting, the atlas, felling or the mine.
+  Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
   the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
   village's workers on after the stage runner's stall rule stopped it.
 - `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
@@ -519,9 +523,18 @@ planner's village summary, in `/api/village/:v` and in the panel's detailed view
 **The mine.** With the storage hut, a new village's first layout gets a **mining hut** (`huts.ts`, 5x5, wood only),
 turned so that stairs inside it face the nearest edge of the plot. The code-posted task "Dig the village mine"
 (`dig_mine`, `mcMine.ts`) digs the stairs down to stone, at least 7 steps; from then on `collect cobblestone` in that
-village extends a main tunnel with branches (18-32 cobblestone a trip, about a minute) instead of digging pits around
-the village. The mine digs only natural ground, never village ground or anything built, and ends a tunnel at water,
-lava, a cave or a missing ceiling; the pathfinder may not dig into its area. Ores seen in its walls are counted.
+village extends a main tunnel with 12-block branches every 3 cells (18-32 cobblestone a trip, about a minute) instead
+of digging pits around the village. The mine digs only natural ground, never village ground or anything built, and ends
+a tunnel or branch at water, lava, a cave, a missing ceiling, open air beside it (a hillside) or a cell with no stone
+(a tunnel through a hillside's dirt once gave 412 dirt for 67 cobblestone). A main tunnel that ends does not end the
+mine: a new one turns left, then right, at one of its junctions (up to 12 tunnels a level), and when no tunnel at a
+level can go on, the stairs go on down 6-10 steps into stone to a new level (at most three). Only then is cobblestone
+gathered at the surface again. One miner digs a tunnel at a time: a second turns its own tunnel off the busy one (or
+starts a second face at the bottom of the stairs), else waits up to two minutes. Walks inside the mine dig nothing (a
+walk free to dig cut its own shortcut from the hut to the face), each cell is dug standing on the one before it, and no
+bot's pathfinder may dig into the mine's tunnels. Ores its cells lay open are counted in the village record and recorded
+in the atlas (see the control panel). In the staged and model-driven runs of 2026-10-01 every cobblestone came from the
+mine, and the first tunnel of one village met a hillside after 28 cells and turned.
 
 **Materials still to gather.** Code keeps a list of what the village still needs gathered (`refreshNeeds` in
 `mcWorld.ts`): the raw materials of every laid-out building not built or being built yet, plus anything the mayor asked
@@ -601,10 +614,12 @@ a live top-down map (terrain, facing, mobs, players, the target, village plots a
 executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
 plus the village task board and the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
 In Minecraft the panel shows one world map of everything the bots have seen (the shared atlas,
-`mcAtlas.ts`): every chunk a bot receives is summarised in about 0.1 ms, again a minute after its blocks change, and
+`mcAtlas.ts`): every chunk a bot receives is summarised in about 0.4 ms, again a minute after its blocks change, and
 kept in `mc/server/atlas.json`), with every village's plots, buildings and storage chests and the agents drawn on it;
-drag to pan, wheel to zoom, and the pointer shows the ground and the logs and sand of the chunk under it. Agents do
-not use the atlas yet; finding materials and sites from it is a later step.
+drag to pan, wheel to zoom, and the pointer shows the ground and the logs and sand of the chunk under it. Underground,
+a summary records the ores exposed to air (in cave walls, ravines, cliffs and mine tunnels) by kind, with how many and
+their lowest and highest y, and which village's mine has dug in the chunk; the pointer shows these too ("exposed ores:
+3 coal (y 41 to 52)"). Agents do not use the atlas yet; finding materials and sites from it is a later step.
 
 ## Project layout
 
