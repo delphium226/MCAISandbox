@@ -148,8 +148,8 @@ speed of local models.
 | `give` | player, item, count? | Walks to a player and tosses them items (for trading and economy experiments) |
 | `chat` | message | Talks. Agents only **hear** chat within 48 blocks, as in Project Sid |
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
-| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (wood buried more than 16 below the ground does not count), and a smaller wooded site beats a bigger bare one |
-| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it |
+| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (wood buried more than 16 below the ground does not count), and a smaller wooded site beats a bigger bare one. In Minecraft each column's ground is read from its real top, however far above the bot (a hill 50 blocks up once read as flat, treeless ground) |
+| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top, plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
 | `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise, with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
 | `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
@@ -427,7 +427,9 @@ What building these agents taught, and what the code is built around:
   `smelt_fuel.py`, `atlas.py` and `fell_trees.py`; `mine.py VILLAGE [ROUNDS [COUNT]]` (Gus collects cobblestone in the
   village mine; each round must come from the planned tunnel cells, with nothing else changed at the mine's level) and
   `atlas_ores.py VILLAGE` or `--near X Z [RADIUS]` (the atlas's exposed ores against the blocks, read with
-  `/api/blocks`). Run the relevant one after changing find_site, layout.ts, smelting, the atlas, felling or the mine.
+  `/api/blocks`); `site.py X Z SIZE` (Gus runs find_site, and the ground, height range and trees it reports are
+  compared with the blocks over the site and prepare_site's margin). Run the relevant one after changing find_site,
+  prepare_site, layout.ts, smelting, the atlas, felling or the mine.
   Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
   the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
   village's workers on after the stage runner's stall rule stopped it.
@@ -437,7 +439,25 @@ What building these agents taught, and what the code is built around:
   places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
   plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
   workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
-  is tested in one to ten minutes.
+  is tested in one to ten minutes. `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
+  its recorded site directly and the test servers by default.
+- **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
+  (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
+  villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
+  sets it up, snapshots it, says what is running and lists the region files each site covers.
+  `python scripts/reset_site.py SITE` stops the test servers, copies the site's region, entity and poi files back from
+  the snapshot (whole 512x512 regions, so sites sharing one are restored together), removes the villages tests made
+  there and their atlas chunks, and starts the test Paper and agent server again, detached, so they outlive the shell
+  and the session that started them (a server run as a session's background task was stopped at its 30-minute limit).
+  `scripts/test_sites.json` records the sites (woods with sand, hills, a drop) and each one's find_site result. A run:
+  `MC_TIME_SCALE=2 python scripts/reset_site.py minevale3`, then `python scripts/stage_village.py Fixed1 --site minevale3`.
+  `scripts/checks/region_blocks.py` reads blocks from saved region files without a server; `--world` picks a world
+  and `--compare OTHER` lists the blocks that differ, e.g. a restored site against the snapshot.
+- **Running at 2x.** `MC_TIME_SCALE=2` on the agent server runs the Paper server at 40 ticks a second (set over RCON at
+  every start, back to 20 without it) and the bots' physics at the same speed (`patches/mineflayer+4.39.0.patch`,
+  applied by patch-package on install; Mineflayer is pinned to 4.39.0). Digging stays in real time, because Paper times
+  a dig by the wall clock and refuses one finished early. Measured: walking 1.94x faster, a staged build 1.5 instead
+  of 2.2 minutes, mining unchanged. Use it for staged runs and checks only; model-driven acceptance runs stay at 1x.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong.
 - `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
   stuck. `bench_agent.py` compares models on survival progression.
@@ -465,6 +485,12 @@ prepare_site, build_design, build_box and build (`GET /api/skills`), with the sa
 messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
 watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
+
+The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HOST` (127.0.0.1; `0.0.0.0` serves the
+panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
+`server.properties`, `villages.json` and `atlas.json` it uses; `mc/rcon.py` and `mc/start.py` read it too, e.g.
+`mc/testserver` for the test world) and `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
+see [Testing agents](#testing-agents)).
 
 Some things work differently from the sandbox, because Mineflayer (the bot library) and the real server behave
 differently:
@@ -594,10 +620,12 @@ executors only step in after a failure, so the choice of those models shows litt
 players ask for in chat.
 
 `scripts/ollama_exec.py start` runs the two local models on their own Ollama servers (ports 11435 and 11436), each
-pinned to one GPU, and checks they fit; the Ollama app keeps relaying cloud models. Run `python scripts/ollama_exec.py
-status` before a series of runs: Ollama can report a model as fully in VRAM when Windows has moved most of it into
-shared system memory (an executor ran at 2.7 tokens a second, one turn took 187 s), so the script compares each card's
-memory with its model and prints a WARNING; then stop and start them. Then point the agents at them:
+pinned to one GPU (with `OLLAMA_VULKAN=0`: Ollama's Vulkan backend, on by default, ignores the GPU pinning and once
+put the executor on the planner's card), and checks they fit; the Ollama app keeps relaying cloud models. Run
+`python scripts/ollama_exec.py status` before a series of runs: Ollama can report a model as fully in VRAM when
+Windows has moved most of it into shared system memory (an executor ran at 2.7 tokens a second, one turn took 187 s),
+so the script compares each card's memory with its model and prints a WARNING; then stop and start them. Then point
+the agents at them:
 
 ```bash
 python scripts/ollama_exec.py start
@@ -629,7 +657,9 @@ server/src   authoritative server: world storage, entities and mobs, players, co
 client/src   browser client: renderer and shaders, meshing workers, UI, audio, input, networking
 examples/    external agent controller example
 scripts/     agent test harnesses and the local model servers (ollama_exec.py)
-mc/          the local Minecraft server: setup, start and RCON scripts (jar, Java and world are gitignored)
+mc/          the local Minecraft server: setup, start and RCON scripts, the test world's (testserver.py); jar, Java
+             and worlds are gitignored
+patches/     patch-package patches: Mineflayer's physics clock for MC_TIME_SCALE
 docs/        ARCHITECTURE.md: how the agent system fits together, with diagrams
 ```
 

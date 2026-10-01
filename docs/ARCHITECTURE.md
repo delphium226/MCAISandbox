@@ -30,12 +30,19 @@ flowchart LR
     mcclient -.-> paper
   end
 
+  subgraph Test["Fixed test world (staged runs)"]
+    testpaper["Paper, mc/testserver<br/>127.0.0.1:25566<br/>RCON 25576"]
+    testagents["Agent server (port 8767)<br/>MC_SERVER_DIR=mc/testserver"]
+    testagents -- "Mineflayer + RCON" --> testpaper
+  end
+
   brains["Brains<br/>tiered, llm (Claude), scripted"]
   village["VillageRegistry<br/>plots, buildings, designs,<br/>task board, reservations"]
   panel["Control panel /panel<br/>and REST API /api"]
 
   am --- brains
   mcagents --- brains
+  testagents --- brains
   brains --- village
   panel --- am
   panel --- mcagents
@@ -59,6 +66,7 @@ flowchart LR
 | Sandbox agents | `server/src/agents.ts` | Agents as real sandbox players, their skills, the building engine, the REST API. |
 | Paper server | `mc/` (scripts; jar and world gitignored) | A private Minecraft 26.1.2 server for the agents (offline mode, localhost only). |
 | Minecraft agents | `server/src/mineflayer/` | Agents as Mineflayer bots on the Paper server, their skills, the same REST API. |
+| Test world | `mc/testserver.py`, `scripts/reset_site.py` | A second Paper server and agent server on the seed's untouched land, restored site by site before staged runs. |
 | Brains | `server/src/tieredBrain.ts`, `llmBrain.ts`, `brains.ts` | Decide what agents do. The tiered and llm brains run in either world. |
 | Villages | `server/src/village.ts`, `designs.ts` | Shared project state and building designs, one registry per world. |
 | Control panel | `server/panel/index.html`, `server/src/panel.ts` | Live view of every agent's body and brain, maps, the task board. |
@@ -356,6 +364,7 @@ flowchart LR
 | Storage | none | `deposit` and `withdraw` against the village's chests (`mcStorage.ts`), sorted by material group in a storage hut |
 | Safety | none | reflex: fight back with a weapon, run when unarmed, hurt or near a creeper |
 | Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn |
+| Game speed | fixed | `MC_TIME_SCALE` (tests only): the server's tick rate (`tick rate 40` over RCON at start, `mcRules.ts`) and the bots' physics clock (a patch-package patch on Mineflayer 4.39.0) run faster; build pacing, smelt polling, jump-and-place waits and the pathfinder's search budget follow; digs stay in real time (Paper times them by the wall clock) |
 
 ### Building in Minecraft
 
@@ -412,7 +421,8 @@ flowchart LR
 `scripts/ollama_exec.py start` runs the two local models on their own `ollama.exe serve` instances, pinned to a GPU
 by UUID (CUDA and nvidia-smi number the cards differently here), after unloading them from the Ollama app: left to
 itself, the app split a model across both cards and Windows silently spilled the rest into system RAM (60x slower).
-It loads each model, checks it is fully in VRAM and times it.
+It loads each model, checks it is fully in VRAM and times it. The servers start with `OLLAMA_VULKAN=0`: Ollama turns
+its Vulkan backend on by default, and Vulkan ignores `CUDA_VISIBLE_DEVICES` (it put the executor on the planner's card).
 
 Ollama's own "in VRAM" figure is not enough: once it reported "20383 of 20383 MB in VRAM" while nvidia-smi showed
 1.3 GB on that card (Windows' shared GPU memory counted as VRAM), and the executor ran at 2.7 tokens a second; a model
@@ -463,12 +473,13 @@ and ~100 more bytes in `?all=1` when it has ores; the panel's pointer shows them
 
 ```mermaid
 flowchart LR
-  stage["stage_village.py<br/>(layout through the API,<br/>storage stocked by RCON)"] -- "scripted workers<br/>(brain: tasks)" --> api["REST API<br/>8765 sandbox / 8766 Minecraft"]
+  reset["reset_site.py SITE<br/>(regions from mc/testworld,<br/>servers started detached)"] -. "before a --site run" .-> stage
+  stage["stage_village.py<br/>(layout through the API,<br/>storage stocked by RCON)"] -- "scripted workers<br/>(brain: tasks)" --> api["REST API<br/>8765 sandbox / 8766 Minecraft<br/>8767 test world"]
   script["watch_village.py / watch_agent.py /<br/>watch_survival.py<br/>(MCAI_API picks the world)"] -- "spawn (reset), memory,<br/>models" --> api
   script -- "poll events, board, stats" --> api
   script -- "early stop: objective met,<br/>same failure 3 times, stalled" --> report["log: timeline, board,<br/>designs, plots, buildings, storage, stats"]
   bench["scripts/bench/*.mts"] -- "the brain's real prompts<br/>and tools" --> ollama["Ollama models"]
-  checks["scripts/checks/*.py<br/>(one skill or layout case,<br/>no models)"] -- "find_site, plan_layout,<br/>materials, smelting,<br/>the mine, the atlas" --> api
+  checks["scripts/checks/*.py<br/>(one skill or layout case,<br/>no models)"] -- "find_site and the site,<br/>plan_layout, materials,<br/>smelting, the mine, the atlas" --> api
   attach["attach_village.py<br/>(follow a running village)"] -- "poll events" --> api
 ```
 
@@ -476,13 +487,28 @@ Tests go from fast to slow. `npm run typecheck` first. `scripts/checks/` then ch
 village's code in seconds to a minute, without models: `find_site.py` (site search, wood, walking legs),
 `layout_small_sites.py` (partial layouts, second sites), `materials_near_site.py` (plan_layout's material counts),
 `treeless_site.py`, `smelt_fuel.py`, `mine.py` (the mine's cells against a snapshot of its level from `/api/blocks`:
-nothing dug outside the plan), `atlas_ores.py` (the atlas's exposed ores against the blocks); `test_rescue.py` traps Gus in a pit, a box or a pool. `stage_village.py` sets a
+nothing dug outside the plan), `atlas_ores.py` (the atlas's exposed ores against the blocks), `site.py` (find_site's
+reported ground, height range and trees against the blocks of the site and prepare_site's margin; it found that the
+column scan started 32 blocks above the bot, so a higher hill read as flat, treeless ground: the scan now climbs to the
+column's top first); `test_rescue.py` traps Gus in a pit, a box or a pool. `stage_village.py` sets a
 village up at a stage and runs scripted workers (`taskBrain.ts`: they run the skill calls each task spells out), so
 the economy's code is checked in one to ten minutes with no model involved. The benches (`modelbench`, `execbench`,
 `planbench`, `mayorbench`) replay the brain's real prompts against a model in seconds per case. Only then do
 model-driven village runs test behaviour. `watch_village.py` probes for land (in survival, skipping ground with too
 few trees) and spawns the village at the site it found; when a watcher dies mid-run (background tasks stop with the
 session that started them), `attach_village.py` follows the running agents instead.
+
+Staged runs and checks are made faster and repeatable in two ways (`docs/PLAN.md`, phase T). `MC_TIME_SCALE=2` runs
+the game and the bots at 2x (section 5's table): walking is 1.94x faster and a staged build takes 1.5 instead of 2.2
+minutes, but mining is not faster, since digs keep their real-time length; model-driven acceptance runs stay at 1x.
+The **fixed test world** is a second Paper server in `mc/testserver` (25566, RCON 25576, agent server 8767 with
+`MC_SERVER_DIR=mc/testserver`) generated from the same seed, with a snapshot in `mc/testworld` (`mc/testserver.py`).
+`reset_site.py SITE` stops both test servers, copies back the site's region, entity and poi files (whole 512x512
+regions), removes the villages and atlas chunks tests made there, and starts both servers again detached from the
+calling shell (servers run as a Claude session's background tasks were stopped at the task's time limit).
+`stage_village.py --site SITE` then uses the find_site result recorded in `scripts/test_sites.json`: two runs on one
+restored site gave the same plot, the same mine and the same time. `region_blocks.py --compare` checks a restore
+against the snapshot without a server.
 
 The agent server runs every bot on one Node event loop, so a slow synchronous step stalls them all: it logs any stall
 over 2 s as a `[lag]` line with each agent's current action (`mineflayer/index.ts`). 2-3.5 s while bots join and

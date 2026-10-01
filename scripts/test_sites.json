@@ -13,7 +13,7 @@
    "name": "minevale4",
    "kind": "woods-sand",
    "probe": {"x": -1596, "z": 181},
-   "site": null,
+   "site": {"x": -1578, "y": 63, "z": 161, "size": 32, "wood": "oak", "woodLogs": 1009},
    "radius": 160,
    "notes": "Minevale4's land before it was built (main world plot -1606..-1586, 167..195, mine at -1600,183; passed in 12.2 min). Shares r.-4.0 and r.-3.0 with minevale3 and woods-sand2."
   },
