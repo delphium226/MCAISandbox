@@ -3,9 +3,9 @@
 Usage: python scripts/checks/fell_trees.py [X Z [COUNT [ROUNDS]]] (default: Accept15's woods at -580,-200, where
 trunks were left floating; 12 logs, 2 rounds). Needs the agent server; Gus is removed at the end.
 """
-import json, subprocess, sys, time, urllib.request
+import json, os, subprocess, sys, time, urllib.request
 
-API = "http://127.0.0.1:8766/api"
+API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api").rstrip("/")
 X, Z = (int(sys.argv[1]), int(sys.argv[2])) if len(sys.argv) > 2 else (-580, -200)
 COUNT = int(sys.argv[3]) if len(sys.argv) > 3 else 12
 ROUNDS = int(sys.argv[4]) if len(sys.argv) > 4 else 2

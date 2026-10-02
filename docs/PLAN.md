@@ -351,7 +351,8 @@ lays out, gathers and builds it, and the mayor answers in chat.
   cobblestone (StageM7: 43 diorite); a second miner waits up to 2 minutes when the busy tunnel has no finished junction
   and both stairs-bottom turns are used (Minevale2, 28.3-30.4 min); it could take an unfinished branch instead.
 - The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
-- Fallen trees (26.1's lying logs without leaves) count as built: collect gives up on them after minutes (F94).
+- ~~Fallen trees (26.1's lying logs without leaves) count as built: collect gives up on them after minutes (F94).~~
+  Fixed 10-02 (F94 fixed, below F99).
 - ~~find_site's wood count has a window tied to the bot's height like F88's (`floorY = bot y - 16`, mcBuild.ts ~866): a
   bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).~~ Fixed 10-02 (F98).
 - find_site's log search stops at 4,096 logs within 128 blocks: in dense woods (~8,000) its wood counts run ~30% low
@@ -482,6 +483,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s8) | site checks (B, C) | `site.py` on the test world: shelf -1656,-152 before and after B; seagrass -1686,488 15 after C; find_site from Shelf2's mine (y 89) | **pass** | 7-18 s each | before B: "58 log blocks within 48" for a valley site with 1,150 tree blocks (bot at y 96); after: 846-1,064 (real 1,169 by the same rule, the rest is the 4,096 cap); from the mine 998; seagrass: the site moved one row off the seagrass column, no wet columns |
 | 10-02 (s8) | Shelf1 | staged full at 2x on the new "shelf" site, testhut,testhut,testhall, with B and C | **stopped**, 2/5 (both huts) | 8.5 min | plot prepared at y 95 with 5 margin columns over the drop left; the testhall refused "ground not level (93..95)" 3 times: prepare_site left pits where trees stood below the level (F95); 12 sand collects failed (F96) |
 | 10-02 (s8) | Shelf2 | same, with F95's fix | **3/3 built** (5/5 with the huts) | **10.2 min** | plot level everywhere (checked offline); mine stairs 7 steps to y 89, the main tunnel west ended at "open air beside -1675,90,-157 (a hillside)" and turned (V.5b on purpose at last), 169 cells; only failures the 12 sand collects (F96) |
+| 10-02 (s8) | Drop2 | staged full at 2x on "drop" with A (fallen trees) | **stopped**, 0/3 at 8.8 min | - | Worker1 suffocated about a minute in, during its own prepare_site ("Worker1 suffocated in a wall"), respawned ~540 blocks away and dug about underground (F99); no leafless log met |
+| 10-02 (s8) | Drop3 | same, with F99's guard (no block into a player) | **3/3 built** | **6.3 min** (Drop1 11.0) | 0 failed actions; the guard held prepare_site's grass 4 times for Worker2 idle at its spawn on the plot (the lift came after); no leafless log met (the F94 tree lies under the plot) |
+| 10-02 (s8) | fell check, fallen row | `MCAI_API=...8767 fell_trees.py -1703 -237 6 1` on the restored drop site | **pass** | 65 s | "cut the fallen tree at -1704,67,-237: 5 of 5 logs", its stump at -1704,68,-241 left standing, then a standing tree felled (one pillar placement refused on the first try, F92) |
+| 10-02 (s8) | Drop4 | same, after the guard's review (agents teleported out of the way, doors as one command) | **3/3 built** | **6.8 min** | 0 failed actions; the guard fired once (Worker2 at its spawn, teleported); the testhut's door has both halves; the fell check on the fallen row repeated (5 of 5, stump left) |
 
 ## Findings log
 
@@ -882,6 +887,21 @@ CLAUDE.md when a phase ends.
   Shelf2's mine at y 89: 998 for a valley site. Left: logs outside the survey grid cost one `surfaceAt` per column
   inside findBlocks (a few thousand `blockAt`s; more for find_site given far-off x, z), no `[lag]` beyond the normal
   spawn stalls seen.
+- F99 (10-02, Drop2) A preparer suffocated in its own fill: runJob set blocks by command with no check for players
+  ("Worker1 suffocated in a wall" a minute in; damage from tick 811 during prepare_site's job), respawned ~540 blocks
+  away (lesson 37) and was lost to the run. standBy stood south of the plot but inside prepare_site's filled margin, and
+  a failed walk there was ignored. Fixed: standBy stands outside the job's claim (plot + margin, or a build's footprint
+  + 1); no block goes into a player's body (bots and people, not spectators): the builder walks out once, agents
+  still in the way are teleported to the stand spot, people's cells wait for the end of the job (three tries) and are
+  then left out; a door's two halves are one command (the review: a deferred lower half left a lone upper one that
+  the walls then broke). Drop3 (before the teleport): Worker2 idle at its spawn on the plot held a grass block four
+  times; Drop4: one teleport, done.
+- F94 fixed (10-02): a leafless log group is a fallen tree when it is one straight row of up to 16 logs of one kind
+  lying along x or z, touching no other log or built block, at least half on natural ground, nothing solid on top,
+  outside every village; such rows are cut from the ground. One-log stumps and everything else leafless count as built
+  and are passed over in the candidate search itself (shared `bad` marks, no failure). The design review measured the
+  snapshot: 215 leafless groups, 140 one-log stumps, ~58 lying rows of 1-9 (57 pass), 17 by built blocks (none
+  pass). F94's row is -1711,67,-208..-206 (the stump at -210, where Drop1's collect gave up).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block

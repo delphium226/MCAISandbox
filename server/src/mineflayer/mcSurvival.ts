@@ -255,6 +255,81 @@ function groundBelow(a: BotAgent, x: number, y: number, z: number): number | nul
   return null;
 }
 
+/** Ground as nature makes it (mcBuild.ts NATURAL_GROUND): what a fallen tree lies on. */
+const WILD_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/;
+
+/**
+ * A fallen tree (26.1 generates them): a straight row of up to 16 logs of one kind lying along x or z, touching no other
+ * log or built block, at least half of it on natural ground and nothing solid on top, outside every village (`keep`).
+ * Agents' designs and huts use upright logs (axis y) only, so such a row is not village work (a sideways log put down by
+ * `place`, or by the user outside any village, could still pass); the stump beside it (one upright log) is left as built, since a post someone built
+ * looks the same (F94: collect gave up on a fallen birch after 175 s, "no leaves: built by someone").
+ * Returns the row, or null when the logs at `p` are not one.
+ */
+function fallenRow(a: BotAgent, p: Vec3, keep: (p: Vec3) => boolean): Vec3[] | null {
+  const b = a.bot;
+  const first = b.blockAt(p);
+  if (!first || !isTreeLog(first.name)) return null;
+  const axis = (first.getProperties?.() as { axis?: string } | undefined)?.axis;
+  if (axis !== 'x' && axis !== 'z') return null;
+  const d = axis === 'x' ? new Vec3(1, 0, 0) : new Vec3(0, 0, 1);
+  const same = (q: Vec3) => {
+    const k = b.blockAt(q);
+    return !!k && k.name === first.name && (k.getProperties?.() as { axis?: string } | undefined)?.axis === axis;
+  };
+  const row = [p];
+  for (const s of [1, -1]) {
+    for (let q = p.plus(d.scaled(s)); same(q); q = q.plus(d.scaled(s))) {
+      row.push(q);
+      if (row.length > 16) return null;
+    }
+  }
+  if (!row.every(keep)) return null;
+  // Nothing else of wood touching it (a frame's beam meets posts; a cabin's sill the wall above)
+  const inRow = new Set(row.map(at));
+  for (const q of row)
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++) {
+          const n = q.offset(dx, dy, dz);
+          if (!inRow.has(at(n)) && /_log$|_wood$|_planks$|_slab$|_stairs$|_fence|cobblestone|_bricks$/.test(b.blockAt(n)?.name ?? '')) return null;
+        }
+  // Lying on the ground (up to half may overhang a slope or water), with nothing solid on top
+  const onGround = row.filter((q) => WILD_GROUND.test(b.blockAt(q.offset(0, -1, 0))?.name ?? '')).length;
+  if (onGround * 2 < row.length) return null;
+  if (row.some((q) => b.blockAt(q.offset(0, 1, 0))?.boundingBox === 'block')) return null;
+  return row;
+}
+
+/** Cut a fallen tree's row from the ground, nearest log first, and pick up the logs. */
+async function cutFallen(a: BotAgent, row: Vec3[], signal: AbortSignal, walkMs: number): Promise<number> {
+  for (const p of row) targeted.set(at(p), { by: a.name, until: Date.now() + 5 * 60000 });
+  let cut = 0;
+  const me = a.bot.entity.position;
+  for (const p of [...row].sort((u, w) => u.distanceTo(me) - w.distanceTo(me))) {
+    if (!isTreeLog(a.bot.blockAt(p)?.name)) continue;
+    try {
+      await mineBlock(a, p, signal, false, walkMs);
+      cut++;
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      console.log(`[trees] ${a.name} could not cut the fallen log at ${at(p)}: ${(e as Error).message.slice(0, 160)}`);
+    }
+  }
+  const mid = row[Math.floor(row.length / 2)];
+  await sweepDrops(a, mid, Math.max(8, row.length / 2 + 3), 10000, signal);
+  console.log(`[trees] ${a.name} cut the fallen tree at ${at(row[0])}: ${cut} of ${row.length} logs`);
+  return cut;
+}
+
+/** What the logs at p are: a standing tree, a fallen one (its row), or built (no leaves, not a fallen row). */
+function logKind(a: BotAgent, p: Vec3, keep: (p: Vec3) => boolean): { kind: 'tree' } | { kind: 'fallen'; row: Vec3[] } | { kind: 'built'; logs: Vec3[] } {
+  const logs = treeLogs(a, p, keep);
+  if (logs.some((q) => FACES.some((f) => a.bot.blockAt(q.plus(f))?.name.endsWith('_leaves')))) return { kind: 'tree' };
+  const row = fallenRow(a, p, keep);
+  return row ? { kind: 'fallen', row } : { kind: 'built', logs };
+}
+
 /** Jump and put a block of dirt under the feet: one block up. Returns where the block went. */
 async function pillarUp(a: BotAgent, signal: AbortSignal): Promise<Vec3> {
   const bot = a.bot;
@@ -553,7 +628,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       if (e.message === 'cancelled') throw e;
     });
   const from = a.bot.entity.position.clone();
-  const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}. ${base
+  const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}${passedOver()}. ${base
     ? `${got ? 'Deposit what you have; ' : ''}collect again: it searches within 96 blocks of the village by itself (no need to explore)`
     : `${got ? 'Deposit what you have, or c' : 'C'}ollect somewhere else: explore 30 blocks or more in another direction first`}`);
   const fail = (p: Vec3, m: string, ms: number) => {
@@ -562,6 +637,26 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     lastError = m;
     failMs += ms;
   };
+  // Logs without leaves (F94): a fallen tree's row is gathered (`fallen`, by any of its logs); anything else is taken for
+  // built and passed over at once, for every bot and without counting as a failure: a 175 s give-up on a fallen birch
+  // before. Classified before any walk to it
+  let skipped = 0;
+  const fallen = new Map<string, Vec3[]>();
+  const skipBuilt = (p: Vec3, near: (q: Vec3) => boolean): boolean => {
+    if (!isTreeLog(a.bot.blockAt(p)?.name) || fallen.has(at(p))) return false;
+    // (another log of a group already passed over: not counted again)
+    if (bad.has(at(p))) return true;
+    const k = logKind(a, p, near);
+    if (k.kind === 'tree') return false;
+    if (k.kind === 'fallen') {
+      for (const q of k.row) fallen.set(at(q), k.row);
+      return false;
+    }
+    for (const q of [p, ...k.logs]) bad.set(at(q), Date.now() + 10 * 60000);
+    skipped++;
+    return true;
+  };
+  const passedOver = () => (skipped ? ` (passed over ${skipped} group${skipped > 1 ? 's' : ''} of logs without leaves as built)` : '');
   // Stepped off village ground once to look for buried blocks beside it
   let steppedOff = false;
   // Other materials the village needs, taken on the way (V.4)
@@ -602,12 +697,13 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const me = a.bot.entity.position;
     // Logs high in a canopy cost too: the path search to them ran out of time again and again
     const effort = (p: Vec3) => p.distanceTo(me) + 2 * Math.max(0, me.y - p.y) + 1.5 * Math.max(0, p.y - me.y - 2) - (exposed(a, p) ? 4 : 0);
-    let next: Vec3 | undefined = found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).sort((u, w) => effort(u) - effort(w))[0];
+    // (logs that look built are passed over in the same pass: a rescan per skipped stump would hold the event loop)
+    let next: Vec3 | undefined = found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).sort((u, w) => effort(u) - effort(w)).find((p) => !skipBuilt(p, near));
     if (next) targeted.set(at(next), { by: a.name, until: Date.now() + 90000 });
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
-      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p));
+      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p) && !skipBuilt(p, near));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();
@@ -623,13 +719,28 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       if (await stepOffVillageGround(a, signal)) continue;
     }
     if (!next) {
-      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
+      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}${passedOver()}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
       throw new Error(home
-        ? `no ${label} within 96 blocks of the village: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
-        : `no ${label} within 128 blocks; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
+        ? `no ${label} within 96 blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
+        : `no ${label} within 128 blocks${passedOver()}; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     const t1 = Date.now();
-    // A log: its whole tree is felled, so no trunk is left floating out of reach (F54)
+    // A log: its whole tree is felled, so no trunk is left floating out of reach (F54); a fallen tree's row is cut from
+    // the ground; logs that look built are passed over
+    const row = fallen.get(at(next));
+    if (row) {
+      try {
+        const cut = await cutFallen(a, row, signal, 20000 + 500 * Math.round(next.distanceTo(me)));
+        mined += cut;
+        // (gone meanwhile, cut by another bot: not a failure)
+        if (!cut && row.some((q) => isTreeLog(a.bot.blockAt(q)?.name))) fail(next, `could not cut the fallen tree at ${at(next)}`, Date.now() - t1);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        fail(next, (e as Error).message, Date.now() - t1);
+      }
+      for (const p of row) bad.set(at(p), Date.now() + 10 * 60000);
+      continue;
+    }
     if (isTreeLog(a.bot.blockAt(next)?.name)) {
       try {
         const r = await fellTree(a, next, near, signal, 20000 + 500 * Math.round(next.distanceTo(me)));

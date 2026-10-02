@@ -430,14 +430,38 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   return made.length ? `made from storage: ${made.join(', ')}` : null;
 }
 
+/** Players (bots and people, not spectators) whose body overlaps the column of `n` cells from `pos` up. */
+function playersIn(a: BotAgent, pos: Pos, n: number): string[] {
+  const [x, y, z] = pos;
+  const out: string[] = [];
+  for (const [name, pl] of Object.entries(a.bot.players)) {
+    const e = pl.entity;
+    if (!e || pl.gamemode === 3) continue;
+    const p = e.position;
+    if (p.x + 0.3 > x && p.x - 0.3 < x + 1 && p.z + 0.3 > z && p.z - 0.3 < z + 1 && p.y + 1.8 > y && p.y < y + n) out.push(name);
+  }
+  return out;
+}
+
+/** Where to stand during a job: 3 blocks south of all the ground it works on (null if no footing there). */
+function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } | null {
+  const area = job.claim?.area ?? job.area;
+  const x = Math.floor((area.x1 + area.x2) / 2), z = area.z2 + 3;
+  const y = standableY(a, x, job.y + 1, z);
+  return y === null ? null : { x, y, z };
+}
+
 /** Stand just south of the site (out of the way of the blocks), where it can be seen. */
-async function standBy(a: BotAgent, job: Job, signal: AbortSignal) {
-  const cx = Math.floor((job.area.x1 + job.area.x2) / 2), sz = job.area.z2 + 3;
-  const sy = standableY(a, cx, job.y + 1, sz);
+async function standBy(a: BotAgent, job: Job, signal: AbortSignal, force = false) {
+  // Outside all the ground the job works on: prepare_site fills its margin too, and a preparer standing on it was
+  // buried and suffocated (Drop2)
+  const area = job.claim?.area ?? job.area;
+  const cx = Math.floor((area.x1 + area.x2) / 2), sz = area.z2 + 3;
+  const sy = standSpot(a, job)?.y ?? null;
   const p = a.bot.entity.position;
   // Also out of the footprint itself: a builder standing inside was walled in by its own cottage
-  const inside = p.x >= job.area.x1 - 1 && p.x < job.area.x2 + 2 && p.z >= job.area.z1 - 1 && p.z < job.area.z2 + 2;
-  if (inside || Math.hypot(p.x - cx, p.z - sz) > 6)
+  const inside = p.x >= area.x1 - 1 && p.x < area.x2 + 2 && p.z >= area.z1 - 1 && p.z < area.z2 + 2;
+  if (force || inside || Math.hypot(p.x - cx, p.z - sz) > 6)
     await walk(a, sy !== null ? new goals.GoalNear(cx, sy, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
@@ -560,15 +584,15 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       }
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
-    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean };
+    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean; then?: string };
     const cmds: Cmd[] = [];
     const columns = (list: Target[], clearing: boolean) => {
       const byCol = new Map<string, Target[]>();
       for (const t of list) {
         if (/_door$/.test(baseName(t.block))) {
           const f = DIR_NAMES[`${t.facing?.[0] ?? 0},${t.facing?.[1] ?? 1}`] ?? 'south';
-          cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${baseName(t.block)}[facing=${f},half=lower]`, n: 1, pos: [t.x, t.y, t.z], clear: false, item: baseName(t.block) });
-          cmds.push({ cmd: `setblock ${t.x} ${t.y + 1} ${t.z} ${baseName(t.block)}[facing=${f},half=upper]`, n: 0, pos: [t.x, t.y + 1, t.z], clear: false });
+          cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${baseName(t.block)}[facing=${f},half=lower]`, n: 1, pos: [t.x, t.y, t.z], clear: false, item: baseName(t.block),
+            then: `setblock ${t.x} ${t.y + 1} ${t.z} ${baseName(t.block)}[facing=${f},half=upper]` });
           continue;
         }
         const k = `${t.x},${t.z},${t.block},${t.optional ? 1 : 0}`;
@@ -599,6 +623,8 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     const speed = Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1)) * timeScale();
     let placed = 0, cleared = 0, budget = 0;
     const skipped = new Map<string, number>();
+    // Commands put back for a player standing in their cells: index -> tries
+    const waited = new Map<number, number>();
     const spent: Counts = {};
     let lastRenew = Date.now();
     let outOf = -1;
@@ -610,6 +636,34 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         budget += speed;
       }
       budget -= c.n;
+      // Never set a block inside a player: Drop2's preparer stood where its fill went and suffocated (F99). The builder
+      // walks out of the way once; agents still in the way are put at the stand spot outside the job (an idle worker
+      // stood on the plot at its spawn); people's cells wait for the end of the job, three tries, then are left out
+      if (!c.clear) {
+        const h = c.then ? 2 : Math.max(1, c.n);
+        let inBody = playersIn(a, c.pos, h);
+        if (inBody.length) console.log(`[build] ${a.name}: ${inBody.join(', ')} in the way of ${c.cmd}`);
+        if (inBody.includes(a.name) && !waited.has(i)) {
+          await standBy(a, job, signal, true);
+          inBody = playersIn(a, c.pos, h);
+        }
+        const bots = inBody.filter((name) => name === a.name || a.world.isAgent(name));
+        if (bots.length) {
+          const spot = standSpot(a, job);
+          if (spot) for (const name of bots) await a.world.rcon.command(`tp ${name} ${spot.x + 0.5} ${spot.y} ${spot.z + 0.5}`).catch(() => '');
+          await sleep(300, signal);
+          inBody = playersIn(a, c.pos, h);
+        }
+        if (inBody.length) {
+          const tries = (waited.get(i) ?? 0) + 1;
+          if (tries <= 3) {
+            cmds.push(c);
+            waited.set(cmds.length - 1, tries);
+            await sleep(500, signal);
+          } else skipped.set(`where ${inBody.join(' and ')} stood`, (skipped.get(`where ${inBody.join(' and ')} stood`) ?? 0) + c.n);
+          continue;
+        }
+      }
       // Survival: take the blocks from the inventory first; running out stops the job (optional blocks are skipped)
       const cost = pay && c.item && c.n > 0 ? c.item : null;
       if (cost) {
@@ -624,6 +678,8 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       }
       a.bot.lookAt(new Vec3(c.pos[0] + 0.5, c.pos[1] + 0.5, c.pos[2] + 0.5)).catch(() => {});
       const out = await a.world.rcon.command(c.cmd);
+      // A door's upper half right after its lower one, never one without the other
+      if (c.then && /^(Changed the block|Successfully filled)/i.test(out)) await a.world.rcon.command(c.then);
       if (/^(Changed the block|Successfully filled)/i.test(out)) {
         if (c.clear) cleared += c.n;
         else placed += c.n;
