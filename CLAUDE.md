@@ -319,6 +319,10 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     fixed test world `mc/testserver` with `reset_site.py` (`ae77c36`, T.2), `site.py` and the F88/F83 fixes
     (`b8c1e6b`, T.3), parallel staged runs and docs (`58d68bb`, T.4); Ollama's Vulkan default fixed (F89). V.7 passed:
     Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Next: the open items in PLAN.md.
+23. 2026-10-02 (eighth session; not pushed at the close, ask first): the small fixes (`797297b`: find_site's wood count
+    by each column's ground (F98), kelp as water, prepare_site pits (F95), the "shelf" test site; `f390386`: fallen
+    trees gathered (F94), no block set inside a player (F99)) and step 2.3, sites from the atlas (`1bf19a1`,
+    `mcSiteAtlas.ts`). Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions. Next: phase 3.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -473,13 +477,13 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the seventh session (2026-10-01): nothing running but the Ollama app (all servers stopped cleanly at the
-close; start the stack as above); no agents in either world. In the main world, test
+Left after the eighth session (2026-10-02): see PLAN.md's "Next session starts with" for what was left running (the
+stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
-Minevale1-5, StageS1, Par1; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale6 stands there until the next reset). The atlas
-(`mc/server/atlas.json`) holds ~5,900 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
+Minevale1-5, StageS1, Par1, Atlas1, Atlas4; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
+them, or test on the test world (`mc/testserver`, restored per site; Minevale7 stands there until the next reset). The atlas
+(`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
 
 Lessons from the adapter:
@@ -610,6 +614,21 @@ Lessons from the adapter:
    `status` warns again, look for `OLLAMA_VULKAN:true` or `library=Vulkan` in `%TEMP%\ollama_exec.log`.
 43. **A fixed test world beats searching for land** (phase T): two staged runs on a restored site gave the same plot,
    mine and time; land luck had lost more runs than code. Test fixes on a restored site of `scripts/test_sites.json`.
+44. **Commands place blocks into whatever stands there, players included** (F99, 2026-10-02): a preparer suffocated in
+   its own prepare_site fill and respawned 540 blocks away. runJob now never sets a block inside a player (agents are
+   moved to the stand spot); any new code that places by command must do the same.
+45. **When merging targets per cell, a block must win over 'air'** (F95): a felled tree's cells came first as air and
+   the fill under them was dropped as a duplicate, leaving pits in a plot reported ready. A test site built for one
+   case (the shelf, for the mine) found it: new test land finds old bugs.
+46. **A count from a window must match the rule the consumers use** (F98's review): find_site's wood count, freed from
+   the bot's height, counted valley logs that collect (site level - 16) would never take. Check every new count
+   against collect's and plan_layout's own filters.
+47. **Leafless logs**: agents only build upright logs, so a lying row of one kind outside every village is a fallen
+   tree (26.1 generates them) and is felled; one-log stumps and other leafless logs count as built and are passed over
+   in the candidate search itself (no failure, no rescan). Lesson 30's protection comes from the village filter.
+48. **The atlas ranks areas, the column scan chooses the square** (step 2.3): 4x4-block cell means are too coarse for a
+   2-4 block slope; look around the bot first and walk to atlas candidates only when nothing good is near (a first
+   version went to candidates first and could zigzag ~650 blocks).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

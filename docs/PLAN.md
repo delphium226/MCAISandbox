@@ -20,53 +20,40 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-01 at the close of the seventh session: phase T done, V.7 passed)
+(written 2026-10-02 at the close of the eighth session: the small fixes and step 2.3 done, Minevale7 passed)
 
-- **Code:** committed on `tiered-brain-building` and **pushed** to origin (the user agreed at the close; origin at
-  `acb96bf` and the commit that recorded it). `main` untouched. Working tree clean except `runs/`.
-- **Nothing is running:** at the close both agent servers were stopped, both Papers stopped with `stop` (each logged
-  "All dimensions are saved") and the pinned Ollama servers stopped; only the Ollama app, which the user starts. Start
-  the stack in CLAUDE.md's order (with `scripts/detach.py`); for the test world, `reset_site.py` starts its two servers.
-  Run `python scripts/ollama_exec.py status` after starting the model servers. No agents in either world.
-- **Where things stand:** phase T is done. `MC_TIME_SCALE=2` (walking 1.94x, staged build ~1.5x, mining 1x: Paper
-  times digs by the wall clock, F91); the fixed test world (`mc/testserver`, `scripts/reset_site.py SITE`,
-  `scripts/test_sites.json` with minevale3, minevale4 and drop recorded); `scripts/checks/site.py`; parallel staged runs
-  (main + test world). F88 found and fixed (find_site's scan window tied to the bot's height, F93) with F83 (the
-  margin over a drop). V.7 passed: Minevale6 5/5 in 12.3 min, 0 failed actions, on the test world at 1x. Phase 2A
-  (V.1-V.7) is complete.
-- **Next (recommended at the close; the user starts the next session with it):**
-  1. a short batch of small fixes found this session: fallen trees read as built (F94), find_site's wood-count window
-     tied to the bot's height (backlog), kelp reading a lake as dry ground (backlog), and a real "drop" test site
-     (backlog: record one on the y 95 shelf near -1656,-152) so a plot against a drop and a mine meeting a hillside
-     get tested on purpose;
-  2. step 2.3, sites from the atlas (phase 3's "by the river" needs it, decisions log 09-28);
-  3. phase 3, talking to the mayor (the second half of the user's goal).
-  Left for later: F84 (the Mayor's executor chasing distress chat), F86 (gullies roofed), two miners on crossing
-  tunnels, the rest of the backlog. Test each fix on a restored test site first: staged at 2x, then one model-driven
-  run at 1x.
-- **Test world state:** Minevale6 stands on minevale3's land (reset before using that site); the snapshot
-  (`mc/testworld`, 2026-10-01 15:18) holds the six sites untouched. `scripts/test_sites.json` has minevale3,
-  minevale4 and drop recorded; hills, woods-sand and woods-sand2 still probe (their first run prints the site to record).
-- **Tools added this session:** `scripts/reset_site.py`, `mc/testserver.py`, `scripts/gen_test_sites.py` (add a site
-  to the test world; its docstring gives the order), `scripts/checks/site.py`, `scripts/checks/walk_speed.py`,
-  `scripts/detach.py`, `region_blocks.py --world/--compare`, `stage_village.py --site`. Not kept from the scratchpad:
-  the decompiled Paper classes the T.1 review read (F91 records the finding), the CPU sampler (one PowerShell loop over
-  `Get-Counter '\Processor(_Total)\% Processor Time'`), the reviews' notes (their findings are in F89-F94, the backlog
-  and the decisions log).
-- **How to test now:** `MC_TIME_SCALE=2 MCAI_API=http://127.0.0.1:8767/api python scripts/reset_site.py minevale3`, then
-  `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver MCAI_STALL_MIN=8 python scripts/stage_village.py V
-  --site minevale3 --stage full` (~7 min; 1x baseline 9-12). A model-driven run on the test world: reset without
-  `MC_TIME_SCALE` but with `MC_OLLAMA_ROUTES`, then watch_village.py with the same `MCAI_API` and `MC_SERVER_DIR` from
-  the site's probe point. Parallel: one run per world at a time, the main world and the test world at once.
-- **Stack notes:** Ollama turned Vulkan on by default; `ollama_exec.py` now starts with `OLLAMA_VULKAN=0` (F89, the
-  likely cause of the old "in VRAM" false reports): `status` showed no warning after that. Paper's "Done" is in
-  `<server>/logs/latest.log`.
-- **Working method** as before (subagents for design and diff reviews, log analysis, check scripts, docs; every review
-  found something real again). Run logs: `runs/2026-10-01/s7/` (and `runs/2026-10-01/test*.log` from reset_site.py).
-- **The user's standing preferences** (also in Claude's memory): teleport SausageOfDoom4 to the Mayor at the start of
-  every run when online (the watchers do it); agent names Gus, Mayor, Worker1-4; commit tested batches, ask before
-  pushing; never edit server files while a run is going; stop a run as soon as it is clearly lost; report findings from
-  logs and the panel; show the approach before changing code at the start of a new piece of work.
+- **Code:** committed on `tiered-brain-building`: `797297b` (B, C, D, F95), `f390386` (A = F94, F99), `1bf19a1`
+  (step 2.3) and the closing docs commit. **Not pushed** (origin is at `d15c9c5`; ask the user). `main` untouched.
+- **Stack:** stopped cleanly at the close unless the user asked to leave it up (see the session's last message). Start
+  it in CLAUDE.md's order; `reset_site.py` starts the test world's two servers. No agents in either world.
+- **Where things stand:** the batch of small fixes is done and step 2.3 is done:
+  - fallen trees are gathered, leafless built logs passed over at no cost (F94);
+  - find_site's wood count judges each log by its own column and the site's level (F98); kelp and seagrass are water;
+  - prepare_site no longer leaves pits where trees stood below the level (F95, found by the new "shelf" site);
+  - no block is ever set inside a player; doors are placed as one command (F99: a preparer suffocated in its fill);
+  - sites from the atlas (`mcSiteAtlas.ts`), used when the local search finds nothing good, for an agent in no village
+    or a mayor's first site;
+  - test sites: "shelf" (a plot against a drop; its mine turned at the hillside, Shelf2), woods-sand and hills recorded;
+    `site.py` checks the wood count; `fell_trees.py` takes `MCAI_API`.
+  Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions.
+- **Next (recommended):**
+  1. phase 3, talking to the mayor (step 3.1 first: an API route that posts a player's chat to the mayor); 3.3's
+     "by the river" can now build on `atlasSites` (add a `near` term: water, a point);
+  2. small items from today's findings (backlog): no gather task for material collect cannot reach (F96, also a
+     ~1-2 s stall per futile collect), a build not waiting for gather tasks storage already covers (F97), a plot check
+     on the server after prepare_site (F95's follow-up), jungle in the site scores or felling that stops at the
+     task's count on 2x2 trunks (F100).
+  Left for later as before: F84, F86, two miners on crossing tunnels, the rest of the backlog.
+- **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale7 stands on minevale3's land (reset first).
+  `scripts/test_sites.json`: minevale3, minevale4, drop, shelf, woods-sand, hills recorded; woods-sand2 still probes.
+  Shelf runs need `--buildings testhut,testhut,testhall`.
+- **Main world:** new test villages Atlas1 (-538,-162) and Atlas4 (-471,-41) stand there now (main world at 2x when the
+  session ended its staged runs: the agent server sets the tick rate at its start, so restart it without
+  `MC_TIME_SCALE` for 1x).
+- **How to test now:** as before (CLAUDE.md "Testing agents"); the staged probes wait up to 300 s for find_site.
+  Run logs: `runs/2026-10-02/`.
+- **Working method** as before: subagents for design and diff reviews, log analysis, offline searches and docs. Every
+  review found something real again (the wood floor vs collect's, the guard's door split, the atlas's zigzag walks).
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -497,6 +484,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s8) | Atlas2 | staged full at 2x, test world woods-sand (probe) | **3/3 built** | 5.7 min | atlas candidate -1500,-252 (range 1, 686 logs, 333 sand) -> site -1499,-253, recorded in test_sites.json; 0 failed actions |
 | 10-02 (s8) | Atlas3 | staged full at 2x, test world hills (probe) | **3/3 built** | 9.8 min | atlas candidate -652,-204 (no sand) -> site -657,-204, recorded; 4 sand collects failed (none there, F96), windows open |
 | 10-02 (s8) | Atlas4 | staged full at 2x, main world, probe -235,-53 (the lake), after the review's fixes | **3/3 built** | 14.2 min | atlas -472,-44 -> site -471,-41 (jungle); the storage task collected 97 logs for 10 in 6.7 min (jungle overshoot, F62/F100); one dig_mine timed out on the way to stone, the retry went on |
+| 10-02 (s8) | **Minevale7** | model-driven at **1x** on the restored minevale3 site (test world), gpt-oss mayor and architect, qwen3.8 workers' planner, qwen3:30b executor, "two matching cottages and a meeting hall", all of today's fixes | **5/5 built**, declared complete by code | **11.6 min** (Minevale6 12.3) | **0 failed actions**; the same site as Minevale6 (-1564,-35); mayor 5 plans (4.7 s), 6 executor turns; workers ran code-posted tasks only (plan 0x); one 2.3 s `[lag]` at spawn; no guard events, no rejected moves |
 
 ## Findings log
 
