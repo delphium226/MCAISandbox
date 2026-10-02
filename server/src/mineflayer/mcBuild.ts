@@ -55,7 +55,7 @@ const NON_GROUND = /leaves|_log$|_wood$|_stem$|grass$|fern|flower|dandelion|popp
 /** Ground as nature makes it (find_site counts anything else as built on). */
 const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/;
 /** Blocks that occur in the wild: preparing a site may remove these, never anything built. */
-const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|cocoa|bee_nest|glow_lichen|hanging_roots|sweet_berry_bush|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
+const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|cocoa|bee_nest|glow_lichen|hanging_roots|sweet_berry_bush|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers|kelp|kelp_plant|seagrass|tall_seagrass|sea_pickle|lily_pad)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
 const isLog = (n: string) => /_log$|_wood$|_stem$/.test(n);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
@@ -70,7 +70,9 @@ function blockName(a: BotAgent, x: number, y: number, z: number): string | null 
   return a.bot.blockAt(new Vec3(x, y, z))?.name ?? null;
 }
 
-const LIQUID = /^(water|lava|bubble_column)$/;
+// Kelp and seagrass are water too: their box is empty and they carry no waterlogged state, so a lake whose kelp reached
+// the surface read as dry ground at the seabed (T.3 review)
+const LIQUID = /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/;
 
 /** The top of a column as a builder sees it: liquid, or the first solid non-plant block, plus tree blocks above it. */
 function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
@@ -448,7 +450,7 @@ async function standBy(a: BotAgent, job: Job, signal: AbortSignal) {
 function alreadyThere(a: BotAgent, t: Target, anyWood = false): boolean {
   const cur = blockName(a, t.x, t.y, t.z);
   if (cur === null) return false;
-  if (t.block === 'air') return cur === 'air' || cur === 'cave_air' || LIQUID.test(cur);
+  if (t.block === 'air') return cur === 'air' || cur === 'cave_air' || /^(water|lava|bubble_column)$/.test(cur);
   if (cur === baseName(t.block)) return true;
   const c = anyWood ? WOOD_ITEM.exec(cur) : null, w = c ? WOOD_ITEM.exec(baseName(t.block)) : null;
   return !!c && !!w && c[2] === w[2];
@@ -777,7 +779,7 @@ interface Rejections { wet: number; steep: number; occupied: number; unloaded: n
  * a far 30x30 with 5 logs near it beat a site in the woods).
  */
 function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: number, radius: number, home: { x: number; z: number } | null,
-  woodNear: ((x: number, z: number) => number) | null, why: Rejections): SiteCandidate | null {
+  woodNear: ((x: number, z: number, y: number) => number) | null, why: Rejections): SiteCandidate | null {
   const { n } = g, m = n - sz + 1, half = Math.floor(sz / 2);
   if (m <= 0) return null;
   let ext = g.extremes.get(sz);
@@ -808,7 +810,8 @@ function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: numbe
       const trees = windowSum(g.sums.trees, n, i, j, sz);
       const score0 = range * 6 + windowSum(g.sums.built, n, i, j, sz) * 3 + trees * 0.3 + dist * 0.1;
       if (best && score0 >= best.score) continue;
-      const wood = woodNear ? woodNear(cx, cz) : 0;
+      // (judged from the window's lowest ground: the level, its median, is not known yet and lies at most maxSlope above)
+      const wood = woodNear ? woodNear(cx, cz, ext.lo[j * m + i]) : 0;
       const score = score0 + (woodNear ? Math.max(0, 40 - wood) : 0);
       if (!best || score < best.score) best = { x: cx, z: cz, y: 0, size: sz, range, trees, wood, score };
     }
@@ -864,10 +867,23 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     const g = await surveyGround(a, ox, oz, SITE_WIDE + Math.floor(sz / 2), taken, signal);
     // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
     // Trees, not wood buried far below (mineshaft supports at y=34 under a desert site at y=70 counted as wood near it,
-    // and no one could get at them: Accept7)
-    const floorY = Math.floor(a.bot.entity.position.y) - 16;
-    const logs = survival ? nearestBlocks(a, logIds, 128, 4096, (q) => q.y >= floorY) : [];
-    const woodNear = survival ? (x: number, z: number) => logs.filter((q) => Math.hypot(q.x - x, q.z - z) <= 48).length : null;
+    // and no one could get at them: Accept7), judged by the ground of each log's own column: a floor at the surveying
+    // bot's y - 16 missed a valley's trees from a hill and counted buried logs from the mine (T.3 review, as F93)
+    const colGround = new Map<string, number | null>();
+    const groundOf = (x: number, z: number, yHint: number): number | null => {
+      const i = x - g.x0, j = z - g.z0;
+      if (i >= 0 && j >= 0 && i < g.n && j < g.n && (g.kind[j * g.n + i] === 0 || g.kind[j * g.n + i] === 2)) return g.y[j * g.n + i];
+      const key = `${x},${z}`;
+      if (!colGround.has(key)) colGround.set(key, surfaceAt(a, x, z, yHint)?.y ?? null);
+      return colGround.get(key)!;
+    };
+    const logs = survival ? nearestBlocks(a, logIds, 128, 4096, (q) => {
+      const y0 = groundOf(q.x, q.z, q.y);
+      return y0 !== null && q.y >= y0 - 16;
+    }) : [];
+    // ...and not more than 16 below the site itself, as collect and plan_layout count (a hill site counted the valley's
+    // trees under it, which no worker may gather: review of B)
+    const woodNear = survival ? (x: number, z: number, y: number) => logs.filter((q) => q.y >= y - 16 && Math.hypot(q.x - x, q.z - z) <= 48).length : null;
     // Nearby level ground first, then rougher nearby ground (prepare_site cuts and fills it), then farther out
     const tries: Array<[number, number]> = slopes.map((s) => [radius, s]);
     tries.push([SITE_WIDE, slopes[slopes.length - 1]]);
@@ -959,7 +975,7 @@ function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
     return false;
   };
   for (const q of logs) {
-    if (Math.hypot(q.x - b.x, q.z - b.z) > 64 || !reachable(q)) continue;
+    if (Math.hypot(q.x - b.x, q.z - b.z) > 64 || q.y < b.y - 16 || !reachable(q)) continue;
     const k = /^(.*)_log$/.exec(a.bot.blockAt(q)?.name ?? '')?.[1];
     if (k && WOODS.includes(k)) kinds[k] = (kinds[k] ?? 0) + 1;
   }
@@ -1008,10 +1024,14 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     y = [...counts].sort((u, v) => v[1] - u[1] || u[0] - v[0])[0][0];
   }
   const targets: Target[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
+  // A block wins over an earlier 'air': a felled tree's cells came first as air, and the fill and grass of a column whose
+  // trunk stood at or below the level were dropped as duplicates, leaving pits in a "ready" plot (F95, Shelf1)
   const add = (x: number, yy: number, z: number, block: string) => {
     const k = `${x},${yy},${z}`;
-    if (!seen.has(k)) seen.add(k), targets.push({ x, y: yy, z, block });
+    const i = seen.get(k);
+    if (i === undefined) seen.set(k, targets.push({ x, y: yy, z, block }) - 1);
+    else if (targets[i].block === 'air' && block !== 'air') targets[i] = { x, y: yy, z, block };
   };
   let columns = 0, protectedCols = 0, felled = 0;
   const treeLogs = new Set<string>();

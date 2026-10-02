@@ -14,10 +14,15 @@ height range over the site is more than 3 above the reported one; any column of 
 level (a ravine or drop; in the margin only a WARN: prepare_site fills it up to 8 down and leaves deeper columns, F83);
 any column is not loaded; the site has wet columns (find_site rejects those). WARN when the tree count is far off, and when the real
 ground lies above Gus's y + 32 (before F88's fix such columns read as that height, flat and treeless).
+Wood (survival): the "N log blocks within 48 blocks" of the result text against the logs (not stripped) in the
+cylinder of radius 48 around the centre that are no more than 16 below their own column's ground and within 128 of
+Gus (find_site's rule since the T.3 review). PASS within max(10, real // 10), else WARN; FAIL when N is off by more
+than half and the old rule (logs at or above Gus's y - 16) gives about N (that bug back). Only WARN when find_site's
+4096-log cap may bite, part of the cylinder is beyond 128 of Gus, or Gus walked during the search.
 Prints a height map of the site and margin. Gus is removed at the end. Exits non-zero on any FAIL.
 Env: MCAI_API (default http://127.0.0.1:8766/api).
 """
-import json, os, re, sys, time, urllib.error, urllib.request
+import json, math, os, re, sys, time, urllib.error, urllib.request
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -35,6 +40,11 @@ FIND_TIMEOUT = 4 * 60
 WORLD_MIN, WORLD_MAX = -64, 319
 # find_site's scan window above the surveying bot (mcBuild.ts surfaceAt: yHint + 32)
 SCAN_UP = 32
+# find_site's wood count (mcBuild.ts findSite): logs within WOOD_RADIUS of the centre, no more than WOOD_BURIED below
+# their column's ground, from a findBlocks of at most WOOD_CAP logs within WOOD_REACH of the bot
+WOOD_RADIUS, WOOD_BURIED, WOOD_REACH, WOOD_CAP = 48, 16, 128, 4096
+# Columns per side of one read of the wood cylinder (33: the 97-column square in three tiles a side)
+WOOD_TILE = 33
 
 # mcBuild.ts NON_GROUND: plants, trees and snow are not ground
 NON_GROUND = re.compile(r"leaves|_log$|_wood$|_stem$|grass$|fern|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|lilac"
@@ -61,6 +71,11 @@ def call(path, body=None, method=None):
 
 def is_tree(n):
     return bool(re.search(r"_log$|_wood$|_stem$", n)) or n.endswith("_leaves")
+
+
+def is_log(n):
+    # find_site's logIds: /^(?!stripped_).*_log$/
+    return n.endswith("_log") and not n.startswith("stripped_")
 
 
 def is_ground(n):
@@ -273,6 +288,92 @@ try:
         if above:
             print(f"  note: {len(above)} site columns have ground above y {gy + SCAN_UP} (Gus's y {gy} + {SCAN_UP}), where "
                   f"find_site's scan began before F88's fix", flush=True)
+
+    # Wood near the site (survival): find_site's count against the logs in the cylinder of radius 48 around the centre,
+    # each judged by its own column's ground (find_site since the T.3 review) and by the old rule (Gus's y - 16)
+    wm = re.search(r"(\d+) log blocks within 48 blocks", text)
+    rwood = int(wm.group(1)) if wm else 0 if "No trees within 48 blocks" in text else None
+    if rwood is None:
+        print("no wood note in find_site's text (creative?): wood not checked", flush=True)
+    else:
+        t = time.time()
+        wx1, wz1, wx2, wz2 = cx - WOOD_RADIUS, cz - WOOD_RADIUS, cx + WOOD_RADIUS, cz + WOOD_RADIUS
+        # Down to 48 below the lower of the level and Gus (logs deeper than that count by neither rule), up from 64
+        # above the higher while any column is still solid at the top of the read
+        wlo = max(WORLD_MIN, min(level, gy if gy is not None else level) - 48)
+        whi0 = min(WORLD_MAX, max(level, gy if gy is not None else level) + 64)
+        px, py, pz = (p["x"], p["y"], p["z"]) if all(k in p for k in "xyz") else (None, None, None)
+        in_reach = lambda x, y, z: px is None or math.dist((x, y, z), (px, py, pz)) <= WOOD_REACH
+        counted = buried = below_site = old = beyond = unl = no_ground = wreqs = 0
+        for tz in range(wz1, wz2 + 1, WOOD_TILE):
+            for tx in range(wx1, wx2 + 1, WOOD_TILE):
+                ex, ez = min(wx2, tx + WOOD_TILE - 1), min(wz2, tz + WOOD_TILE - 1)
+                inside = [(x, z) for x in range(tx, ex + 1) for z in range(tz, ez + 1)
+                          if math.hypot(x - cx, z - cz) <= WOOD_RADIUS]
+                if not inside:
+                    continue
+                tc, whi = {}, whi0
+                wreqs += read_box(tx, wlo, tz, ex, whi, ez, tc)
+                while whi < WORLD_MAX and any((n := tc.get((x, whi, z))) is not None and n not in AIR for x, z in inside):
+                    top = min(WORLD_MAX, whi + 64)
+                    wreqs += read_box(tx, whi + 1, tz, ex, top, ez, tc)
+                    whi = top
+                for x, z in inside:
+                    c = column(tc, x, z, whi, wlo)
+                    if c is None:
+                        unl += 1
+                        continue
+                    for y in range(wlo, whi + 1):
+                        if not is_log(tc.get((x, y, z)) or ""):
+                            continue
+                        reach = in_reach(x, y, z)
+                        if gy is not None and y >= gy - WOOD_BURIED and reach:
+                            old += 1
+                        if c["y"] is None:
+                            # No ground down to the bottom of the read: find_site would look deeper; counted by neither
+                            no_ground += 1
+                        elif y < c["y"] - WOOD_BURIED:
+                            buried += 1
+                        elif y < level - WOOD_BURIED:
+                            # Below the site as collect and plan_layout count (find_site judges a candidate from its
+                            # lowest ground, at most the slope limit under the level: a few logs either way)
+                            below_site += 1
+                        elif reach:
+                            counted += 1
+                        else:
+                            beyond += 1
+        print(f"wood: read y {wlo}..(up to {WORLD_MAX} where needed) over the {WOOD_RADIUS}-block cylinder in {wreqs} requests "
+              f"({time.time() - t:.1f} s): {counted} logs counted by find_site's rule, {buried} excluded as buried (more than "
+              f"{WOOD_BURIED} below their column's ground), {below_site} more than {WOOD_BURIED} below the site's level, {beyond} beyond {WOOD_REACH} of Gus, {no_ground} in columns with "
+              f"no ground found; the old rule (y >= Gus's y - {WOOD_BURIED}) gives {old if gy is not None else '?'}; "
+              f"{unl} columns not loaded (skipped; findBlocks does not see them either); lastSite wood "
+              f"{site.get('wood')}, woodLogs {site.get('woodLogs')}", flush=True)
+        # Why the count may legitimately differ: the cap, the reach, or a search from an earlier spot
+        doubts = []
+        # The cap is over find_site's whole search (radius 128 around Gus): estimate it from the cylinder's density
+        est = (counted + beyond) * (WOOD_REACH / WOOD_RADIUS) ** 2
+        if est >= 0.8 * WOOD_CAP:
+            doubts.append(f"about {est:.0f} logs within {WOOD_REACH} of Gus by this density, near find_site's cap of {WOOD_CAP}")
+        if px is not None and math.hypot(cx - px, cz - pz) + WOOD_RADIUS > WOOD_REACH:
+            doubts.append(f"part of the cylinder lies more than {WOOD_REACH} from Gus")
+        if beyond:
+            doubts.append(f"{beyond} logs are beyond findBlocks' reach")
+        if re.search(r"walked \d+ blocks", text):
+            doubts.append("Gus walked during the search, so the logs may be from a survey at another spot")
+        if px is None:
+            doubts.append("Gus's position is unknown")
+        diff = abs(rwood - counted)
+        msg = f"reported {rwood} log blocks within {WOOD_RADIUS}, real {counted} (old rule {old if gy is not None else '?'})"
+        if doubts:
+            msg += "; " + "; ".join(doubts)
+        if diff <= max(10, counted // 10):
+            out("PASS", msg)
+        elif gy is not None and diff > counted / 2 and abs(old - rwood) <= max(10, old // 10):
+            # (the cap and reach cannot make the report match the old rule; only a survey elsewhere can)
+            vague = re.search(r"walked \d+ blocks", text) or px is None
+            out("WARN" if vague else "FAIL", msg + ": the report matches the old rule (each log judged by Gus's y, F93)")
+        else:
+            out("WARN", msg)
 
     # Height map: north at the top, x to the right; the site inside the frame, the margin outside
     def ch(c, base):

@@ -34,6 +34,14 @@
    "notes": "A flat shelf at y 95; the ground falls to y 64 within two chunks to the west, where the Minevale mines dug: the mine's main tunnel should meet the hillside. Sand about 93 blocks off (edge of the 96-block range). Shares r.-4.-1 and r.-3.-1 with minevale3 and woods-sand, r.-4.0 and r.-3.0 with minevale3, minevale4 and woods-sand2."
   },
   {
+   "name": "shelf",
+   "kind": "plot-at-drop",
+   "probe": {"x": -1656, "z": -159},
+   "site": {"x": -1656, "y": 95, "z": -159, "size": 32, "wood": "birch", "woodLogs": 481},
+   "radius": 160,
+   "notes": "The drop site's y 95 shelf, recorded by hand (2026-10-02, from an offline simulation of the snapshot): find_site would not pick it (no 32x32 on the shelf within slope 4; the largest is 26x26 at -1653,-156). Run with --buildings testhut,testhut,testhall: with one testhut the mine faces east into the hill. Plot x -1667..-1645, z -173..-145, level 95 (ground 88-97; about 5 margin columns over the drop are left as they are, F93). The mining hut at -1662..-1658, -159..-155 faces west; its stairs reach stone in about 7 steps (level 89); the main tunnel west meets the hillside at about its 9th cell (-1675,-157), after some 56 cells dug. woodLogs counted offline (siteFound's rule). Sand is scarce: 24 blocks within 96, the nearest under water 87 off, so windows may stay open. Touches r.-4.-1, r.-4.0, r.-3.-1 and r.-3.0, like drop."
+  },
+  {
    "name": "woods-sand",
    "kind": "woods-sand",
    "probe": {"x": -1480, "z": -248},

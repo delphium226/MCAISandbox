@@ -352,10 +352,18 @@ lays out, gathers and builds it, and the mayor answers in chat.
   and both stairs-bottom turns are used (Minevale2, 28.3-30.4 min); it could take an unfinished branch instead.
 - The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
 - Fallen trees (26.1's lying logs without leaves) count as built: collect gives up on them after minutes (F94).
-- find_site's wood count has a window tied to the bot's height like F88's (`floorY = bot y - 16`, mcBuild.ts ~866): a
-  bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).
-- Kelp reaching the water's surface makes `surfaceAt` pass down to the seabed and read a lake as dry ground (T.3
-  review; site.py treats kelp as water).
+- ~~find_site's wood count has a window tied to the bot's height like F88's (`floorY = bot y - 16`, mcBuild.ts ~866): a
+  bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).~~ Fixed 10-02 (F98).
+- find_site's log search stops at 4,096 logs within 128 blocks: in dense woods (~8,000) its wood counts run ~30% low
+  (F98). Harmless while sites pass the 30-log bar; matters if wood is ever compared closely.
+- ~~Kelp reaching the water's surface makes `surfaceAt` pass down to the seabed and read a lake as dry ground (T.3
+  review; site.py treats kelp as water).~~ Fixed 10-02: kelp and seagrass are liquid to `surfaceAt` (checked over
+  seagrass at -1686,488 on the test world; the test world has no kelp reaching the surface).
+- Post no gather task for a material collect cannot reach (sand under collect's floor, F96), or let a failed soft task
+  go without at once; a futile collect's two `findBlocks` passes block the event loop ~1-2 s.
+- A build whose needs storage already covers waits for its open gather tasks (F97: 1.3 min): close them.
+- After prepare_site's job, check the plot's columns on the server and redo what is missing (F95's follow-up; also
+  catches placements refused at 2x, F92).
 - More from the T.3 reviews (10-01), not yet seen in a run: (a) `surfaceAt` still floors its scan at bot y - 48, so a
   valley far below the surveying bot reads as yHint - 48 "air" (penalised as built, not taken as flat; passing the
   neighbouring column's height as the hint would fix it); (b) its climb stops at the first plain `air`, so a large
@@ -364,9 +372,9 @@ lays out, gathers and builds it, and the mayor answers in chat.
   margin as they are: a builder stepping out of the footprint may land in one (the rescue handles it).
 - `stage_village.py`: options before the coordinates (`V --stage build X Z`) are refused since `--site` made X Z
   optional (no caller uses that order). `scripts/bench/atlasbench.mts` creates a bot without `timeScale`.
-- A "drop" test site: the probe at -1656,-152 settled on the low ground, so no staged run has yet met a plot against a
-  drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand (a site entry with `site` set skips the probe; or a new site:
-  `scripts/gen_test_sites.py` says how to add one to the test world and its snapshot).
+- ~~A "drop" test site: the probe at -1656,-152 settled on the low ground, so no staged run has yet met a plot against a
+  drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand.~~ Done 10-02:
+  "shelf" in `scripts/test_sites.json` (run with `--buildings testhut,testhut,testhall`; Shelf2 passed).
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
 
 ## Run record
@@ -471,6 +479,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-01 (s7) | Par1 + Par2 | T.4: two staged full runs at once at 2x: Par1 in the main world (probe -1624,360; plot -1639..-1621, 377..397), Par2 on the test world's restored minevale4 (site -1578,161 recorded) | **3/3 and 3/3 built** | **6.6 and 5.9 min** | 0 failed actions in either; CPU mean ~10%, peak 47% (two Papers, two agent servers, four bots); `[lag]` 2.9 s and 4.8 s at the two probes' spawns only; Par2's mine east, legs 57 and 36 |
 | 10-01 (s7) | Minevale6 | V.7 run 4 (after F88's fix): model-driven at 1x on the test world's restored minevale3 land (probe -1544,8; the Mayor's find_site chose -1564,-35, as the staged runs), gpt-oss Mayor and architect, qwen3.8 workers' planner, qwen3:30b executor | **5/5 built**, declared complete by code | **12.3 min** | **0 failed actions**; layout at 1.8 min (the hall design retried twice, plan_layout once refused before the cottage design); stairs at 8.2 min (7 steps to y 58); all 5 cobblestone trips from the mine; workers' planner never called; no `[lag]` |
 | 10-01 (s7) | StageS1 | staged build at 2x, -1480,-248 (site -1495,-248, oak) | **3/3 built**, deposit check passed | **1.5 min** (1x: 2.2-2.3, StageM2/M3) | 0 failures; no rejected moves in Paper's log; one 2.3 s `[lag]` at the probe's spawn (normal); the last minutes may be missing from the world (Paper killed, F90) |
+| 10-02 (s8) | site checks (B, C) | `site.py` on the test world: shelf -1656,-152 before and after B; seagrass -1686,488 15 after C; find_site from Shelf2's mine (y 89) | **pass** | 7-18 s each | before B: "58 log blocks within 48" for a valley site with 1,150 tree blocks (bot at y 96); after: 846-1,064 (real 1,169 by the same rule, the rest is the 4,096 cap); from the mine 998; seagrass: the site moved one row off the seagrass column, no wet columns |
+| 10-02 (s8) | Shelf1 | staged full at 2x on the new "shelf" site, testhut,testhut,testhall, with B and C | **stopped**, 2/5 (both huts) | 8.5 min | plot prepared at y 95 with 5 margin columns over the drop left; the testhall refused "ground not level (93..95)" 3 times: prepare_site left pits where trees stood below the level (F95); 12 sand collects failed (F96) |
+| 10-02 (s8) | Shelf2 | same, with F95's fix | **3/3 built** (5/5 with the huts) | **10.2 min** | plot level everywhere (checked offline); mine stairs 7 steps to y 89, the main tunnel west ended at "open air beside -1675,90,-157 (a hillside)" and turned (V.5b on purpose at last), 169 cells; only failures the 12 sand collects (F96) |
 
 ## Findings log
 
@@ -843,6 +854,34 @@ CLAUDE.md when a phase ends.
   village is natural. Backlog. (The site, "drop", had 191 birch logs; after the plot's 116 a collect found none left
   within 96 blocks: Drop1 took 11.0 min against minevale3's 7.1, and its probe chose the low ground at y 64, not the
   shelf at y 95, so it did not test a plot against a drop.)
+- F95 (10-02, eighth session, Shelf1) prepare_site left pits in a plot it reported ready: the testhall's build then
+  refused "the ground is not level here (heights 93..95)" three times and the run stopped at 8.5 min. Every pit was a
+  cell that held a tree when the work was planned (the log analysis compared every plot column with the snapshot): the
+  shelf's birches stood in hollows below the level, `treeAt` added the whole tree as 'air' targets first, and `add()`
+  kept only the first target per cell, so the column's fill and grass were dropped as duplicates. A bug since milestone
+  (c), shown by the first plot with trunks below its level. Fixed: a block replaces an earlier 'air' target (and, from
+  the diff review, water plants and lily pads join `NATURAL`: a column with them above the level was kept as built,
+  lesson 34). Not done:
+  a check of the plot's columns on the server after the job (it would also catch placements refused at 2x, F92).
+- F96 (10-02, Shelf1) plan_layout posts sand gather tasks where collect can take none: layout.ts lets sand off its
+  material check (windows stay open without it) but `materialTasks` still posts them; Shelf1's only sand lies 93-96
+  blocks off at y 60-63, below collect's floor (home y - 16). Each task was taken twice and failed twice per take (12
+  failed collects in 20 s), and each futile collect probably blocked the event loop ~1-2.4 s (four `[lag]` lines of
+  2.0-2.4 s line up with them, though Worker2's log collect ran at each too): two synchronous `findBlocks` passes (48 blocks, 1024, then 128 blocks, 256) that find nothing.
+  Backlog: post no gather task for a material collect cannot reach; a failed soft task goes without at once.
+- F97 (10-02, Shelf1) The mining hut's build waited 1.3 min for a log gather task (t192) although storage already held
+  224 birch logs (prepare_site's felled trees, deposited at 2.5 min); Worker1 meanwhile had only the futile sand tasks.
+  Backlog: a build whose needs storage covers does not wait for its gather tasks (close them).
+- F98 (10-02, T.3 review item, B) find_site's wood count: from the y 96 shelf it reported 58 log blocks within 48 of a
+  valley site with 1,150 tree blocks on it (the floor at the bot's y - 16 left the valley's trees out). Fixed: each log
+  is judged against its own column's ground (the survey grid, else `surfaceAt` per column, cached), and (the diff
+  review: a hill site counted the valley's trees under it, which collect and plan_layout refuse) not more than 16 below
+  the candidate's lowest ground, as collect counts. After, the same valley site from y 103: 846 reported, 1,169 real
+  (old rule 34; the rest of the gap is the search's 4,096-log cap, ~8,300 logs within 128 there: left, a soft warning in
+  site.py); the hill site -1610,-168 (y 101): 1,064 reported and real, mostly oak (birch before, from the valley); from
+  Shelf2's mine at y 89: 998 for a valley site. Left: logs outside the survey grid cost one `surfaceAt` per column
+  inside findBlocks (a few thousand `blockAt`s; more for find_site given far-off x, z), no `[lag]` beyond the normal
+  spawn stalls seen.
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
