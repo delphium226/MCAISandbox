@@ -187,7 +187,9 @@ Two optional `WorldAdapter` methods carry the survival economy, so `layout.ts` a
 wanted, the blocks `collect` would gather for each material near a point (as `collect` reaches them: anything within
 40 blocks, only exposed blocks farther out, nothing more than 16 below the ground), in the ground one agent has loaded.
 `plan_layout` uses it to refuse designs whose materials are not near the site, and the architect's brief uses it to
-say when there is no sand or sandstone. The sandbox implements neither.
+say when there is no sand or sandstone. A third, `scoutPoints`, gives the points of a 160-block ring around a new
+village's home that the world's map (Minecraft's atlas) does not know yet, for scouting (section 4). The sandbox
+implements none of them.
 
 ## 3. The two-tier brain
 
@@ -249,8 +251,9 @@ Code also keeps the mayor on its job, because gpt-oss drifts back to doing the w
 | Plan steps naming a planner tool (`plan_layout`) are dropped; the planner calls the tool | the executor, unable to call it, ran `find_site` and swapped a 30x30 site for a 24x24 |
 | An empty first plan with nothing laid out gets `find_site` added (or is asked again after 10 s) | a mayor that waited 3 minutes before doing anything |
 | Completion is checked by code on every tick of the mayor's brain | all three buildings stood, but the mayor had just tried to re-post work, so nothing woke it again |
-| `move_to` and `explore` beyond 96 blocks of home are refused or shortened (every member) | a mayor wandering 500 blocks for a site; a worker exploring to 180 blocks out |
+| `move_to` and `explore` beyond 96 blocks of home are refused or shortened (every member; a new village's mayor may walk up to 256 to its first site) | a mayor wandering 500 blocks for a site; a worker exploring to 180 blocks out |
 | Buildings that did not fit are laid out by code at the mayor's next successful `find_site` | the model placing them there only 1-2 times in 10 |
+| A poor first site search sends scouts (code-posted, once per village); `plan_layout` waits for them (at most 20 minutes) and code runs `find_site` again when they are back | a mayor left to it would lay the village out on the poor site |
 
 ### A village, end to end (the survival economy)
 
@@ -265,6 +268,11 @@ sequenceDiagram
   participant S as Skills (Minecraft)
   participant C as Village storage
   M->>S: find_site size 24+ (with 30 logs near), design_building cottage, meeting_hall (its executor)
+  opt the first search finds no site, a small one or too few trees (memory.siteSearch)
+    M->>B: code posts scout tasks to ring points the atlas lacks (once per village)
+    W->>S: scout x, z (queued as written; the land comes into the atlas)
+    M->>S: code runs find_site again when the scouts are back; plan_layout waited till then
+  end
   M->>L: plan_layout ["cottage", "cottage", "meeting_hall"]
   L->>S: materialsNear: are the materials near the site, as collect reaches them?
   L->>B: prepare the plot; set up the storage (4 chests into the storage hut's spots); gather for the hut, build it
@@ -307,7 +315,7 @@ coordinates, everyone else in the village is a worker.
 ```mermaid
 stateDiagram-v2
   [*] --> open: plan_layout or the mayor posts
-  open --> claimable: prerequisites done (a failed "soft" gather task counts) and its design drawn
+  open --> claimable: prerequisites done (a failed "soft" gather task counts, and a held one the storage covers) and its design drawn
   claimable --> claimed: a free worker claims it (before planning)
   claimed --> done: the worker's plan completes
   claimed --> open: handed back (replanned 3 times, or the plan failed), 1st time
@@ -330,12 +338,18 @@ stateDiagram-v2
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
 | Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. |
 | Unplaced (`unplaced`) | `plan_layout` | Buildings that did not fit on the site: shown in the village summary, laid out by code at the mayor's next successful `find_site`; completion waits for them. |
+| Unavailable (`unavailable`) | `collect` (Minecraft) | Materials found nowhere near the village (sand): the first failed collect closes their other open gather tasks, and code posts no gathering for them until the next layout clears the list. |
+| Scouting (`scouted`, `scoutRerun`, `scoutDone`) | the mayor's brain | When code posted scout tasks, ran `find_site` again after them, and when that search ended; scouting happens once per village. |
 | Mine (`mine`) | `dig_mine`, `collect cobblestone` (Minecraft) | The mining hut, the stairs (first step, direction, steps, `level` once in stone), the main tunnels (`legs`: start, level, direction, cells dug in their fixed order, branches cut short, why it ended, turns tried), the stairs down to deeper levels (`down`: start, steps, `level` or why they stopped), what the mine gave and the ores its cells laid open (`got`), and why it stopped; mines from before V.5b load as one leg (`upgradeMine`). Who digs which tunnel is kept in memory only, per trip. |
 
 Every village member stays within `VILLAGE_RANGE` (96 blocks, `village.ts`) of the village's home, `villageHome`: the
 first layout or plot, else the first storage chest, else where the mayor started (`memory.origin`). `move_to` and
 `explore` beyond it are refused or shortened, `collect` walks back first and searches from there, and `find_site`
-walks at most two 40-block legs without leaving it.
+walks at most two 40-block legs without leaving it. The exception is a new village before its first layout
+(`SCOUT_RANGE`, 256 blocks from where the mayor started): its mayor's first `find_site` (which writes a verdict, good,
+small, treeless or none, to `memory.siteSearch`) and its walk there, and the `scout` skill. A poor first verdict makes
+the mayor's brain post scout tasks, one per worker, each a run of the ring points `scoutPoints` returns (none on land the
+atlas knows); `scout` walks toward a point, waits for the atlas to take in what came into view, and never fails.
 
 ## 5. Skills in each world
 
@@ -358,12 +372,12 @@ flowchart LR
 | Body | a sandbox `Player` driven by input each tick | a Mineflayer bot (client-side physics, half-width 0.3001 to stay in step with the server) |
 | Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog, digging natural blocks only, opening doors (its own door support covers fence gates only; `moves()` adds doors), never digging into any village's ground, avoiding water (and swimming out of it), diagonals only with both sides clear, legs of ~40 blocks for long walks, a retry with longer drops |
 | Crafting | recipes applied to the inventory | the recipe from minecraft-data, carried out by server command: ingredients counted and taken (`/clear`), the result given (`/give`); a table recipe still needs a table placed nearby |
-| Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), picks the cheapest block to reach (near, not deep below, in the open, away from water), crafts a wooden pickaxe when stone needs one, stays within 96 blocks of the village and no more than 16 below it, and never mines inside any village's buildings or plots (2-block margin); a log fells its whole tree (`fellTree`: the logs in reach from the ground, then a dirt pillar under the feet, dug back down, with the pillar checked on the server afterwards); a fallen tree (a straight row of lying logs of one kind, touching nothing built, outside every village) is cut from the ground, while stumps and other logs without leaves are builds, passed over in the candidate search without a failure; it gives up after 3 tries (one per tree) or 90 s and shares unreachable blocks and targets between bots |
+| Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores), picks the cheapest block to reach (near, not deep below, in the open, away from water), crafts a wooden pickaxe when stone needs one, stays within 96 blocks of the village and no more than 16 below it, and never mines inside any village's buildings or plots (2-block margin); a log fells its whole tree (`fellTree`: the logs in reach from the ground, then a dirt pillar under the feet, dug back down, with the pillar checked on the server afterwards); a fallen tree (a straight row of lying logs of one kind, touching nothing built, outside every village) is cut from the ground, while stumps and other logs without leaves are builds, passed over in the candidate search without a failure; a giant tree (more than max(40, 2x the logs wanted + 20) logs) is passed over while an ordinary tree is near and felled whole only as a fallback; in a village the first search that finds no sand fails the task and marks sand unavailable (section 4); the second search pass reads positions only and filters after, and slow searches are logged as `[search]`; it gives up after 3 tries (one per tree) or 90 s and shares unreachable blocks and targets between bots |
 | Stuck rescue | none | `mcRescue.ts`: two failed moves within 3 blocks in 6 minutes (including a timed-out walk that got nowhere; `BotAgent.movedFailed`) run in the reflex's slot: swim up, walk out, climb out through natural blocks (pillaring with dirt or stone), and last, teleport beside the village storage (in front of the storage hut's door when there is one); survival only |
-| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged, a door's two halves in one command; the builder stands outside the job's claim (plot and margin, or footprint + 1), and no block is set inside a player (the builder walks out, other bots are teleported to its stand spot, people's cells wait to the end of the job); in survival each run is charged to the inventory (`/clear`) after a material check, with crafting from storage and a requeue when short |
+| Building | `BuildJob`: blocks placed one by one, paced by `buildSpeed` | `/setblock` and `/fill` over RCON, paced by `buildSpeed`, vertical runs merged, a door's two halves in one command; the builder stands outside the job's claim (plot and margin, or footprint + 1), and no block is set inside a player (the builder walks out, other bots are teleported to its stand spot, people's cells wait to the end of the job); `prepare_site` then checks its plot: cells unlike the plan are run once more, every plot column must pass the build's ground rule (odd ones confirmed over RCON), else it fails saying where; in survival each run is charged to the inventory (`/clear`) after a material check, with crafting from storage and a requeue when short |
 | Storage | none | `deposit` and `withdraw` against the village's chests (`mcStorage.ts`), sorted by material group in a storage hut |
 | Safety | none | reflex: fight back with a weapon, run when unarmed, hurt or near a creeper |
-| Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn |
+| Spawning | `game.join` | a bot joins; RCON sets game mode, teleports, `reset` clears inventory and returns it to spawn; a spawn without a height uses `spreadplayers`, which refuses water: then the nearest dry land within 16, then 64 blocks, else a drop from y 120 |
 | Game speed | fixed | `MC_TIME_SCALE` (tests only): the server's tick rate (`tick rate 40` over RCON at start, `mcRules.ts`) and the bots' physics clock (a patch-package patch on Mineflayer 4.39.0) run faster; build pacing, smelt polling, jump-and-place waits and the pathfinder's search budget follow; digs stay in real time (Paper times them by the wall clock) |
 
 ### Building in Minecraft
@@ -504,7 +518,8 @@ village up at a stage and runs scripted workers (`taskBrain.ts`: they run the sk
 the economy's code is checked in one to ten minutes with no model involved. The benches (`modelbench`, `execbench`,
 `planbench`, `mayorbench`) replay the brain's real prompts against a model in seconds per case. Only then do
 model-driven village runs test behaviour. `watch_village.py` probes for land (in survival, skipping ground with too
-few trees) and spawns the village at the site it found; when a watcher dies mid-run (background tasks stop with the
+few trees) and spawns the village at the site it found (`MCAI_NO_PROBE=1` starts it at the given point instead, for
+scouting tests); when a watcher dies mid-run (background tasks stop with the
 session that started them), `attach_village.py` follows the running agents instead.
 
 Staged runs and checks are made faster and repeatable in two ways (`docs/PLAN.md`, phase T). `MC_TIME_SCALE=2` runs
@@ -519,7 +534,8 @@ calling shell (servers run as a Claude session's background tasks were stopped a
 restored site gave the same plot, the same mine and the same time. The sites cover woods with sand, hills, a drop and a
 shelf (a plot against a drop, whose mine meets the hillside); `site.py` and `fell_trees.py` reach the test world's
 agent server through `MCAI_API`. `region_blocks.py --compare` checks a restore
-against the snapshot without a server.
+against the snapshot without a server. `stage_village.py --site-at X,Y,Z,SIZE` takes a site find_site gave elsewhere
+(in jungle, where a probe spawned by x,z lands on the canopy).
 
 The agent server runs every bot on one Node event loop, so a slow synchronous step stalls them all: it logs any stall
 over 2 s as a `[lag]` line with each agent's current action (`mineflayer/index.ts`). 2-3.5 s while bots join and
@@ -537,6 +553,7 @@ the agent server applies peaceful difficulty and game rules for no damage and ke
 ```mermaid
 flowchart LR
   site["find_site<br/>(level, dry, 30 logs near;<br/>the atlas when nothing near)"] --> layout
+  site -- "poor first verdict" --> scout["scout tasks (once a village):<br/>workers map the ring, then<br/>find_site runs again"] --> site
   design["design<br/>(architect; 9x9 at most,<br/>whitelisted materials)"] --> bom["bill of materials<br/>and recipe chain<br/>(mcMaterials.ts)"]
   bom --> near{"materialsNear:<br/>enough near the site?"}
   near -- no --> refuse["plan_layout refused:<br/>smaller buildings or another site"]
@@ -561,11 +578,11 @@ flowchart LR
 | Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots), gather for the hut, build it around the chests; other buildings' gathering waits only for the storage, their builds for the hut |
 | Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below) |
 | Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item. Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
-| Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees |
+| Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees; a new village's first site may lie up to 256 blocks from the mayor's start, and the verdict (`memory.siteSearch`) decides whether workers scout first (section 4) |
 | Design limits | `tieredBrain.ts` (design checks) | survival designs at most 9x9, raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration; one retry with the problems |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
 | Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets (narrower when that fits), partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
-| Survival building | `mcBuild.ts` | registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings (`onVillageGround`, `stepOffVillageGround` in `mcUtil.ts`), wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
+| Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings (`onVillageGround`, `stepOffVillageGround` in `mcUtil.ts`), wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
 
 **The mine's trips** (`mcMine.ts`, `mineFor`): a main tunnel's cells are dug in a fixed order (`tunnelCell`: 3 main

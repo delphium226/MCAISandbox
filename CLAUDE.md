@@ -327,6 +327,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     trees gathered (F94), no block set inside a player (F99)) and step 2.3, sites from the atlas (`1bf19a1`,
     `mcSiteAtlas.ts`). Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions. Next (the user's
     choice at the close): batch R in PLAN.md (F96, F97, F95's plot check, F100 jungle), then 2.4; phase 3 deferred.
+24. 2026-10-02 (ninth session; not pushed at the close, ask first): batch R, each step tested and diff-reviewed: R.1 no
+    futile sand gathering (`8ebfc33`, F96), R.2 builds not held by gather tasks storage covers (`e2d619b`, F97), R.3 the
+    plot checked after prepare_site (`9bde50f`), R.4 small trees before giant jungle trees (`aefad6e`, F100); step 2.4,
+    scouting, and spawns off water (`fd0bf3c`, F105). Minevale8 (1x, model-driven): 5/5 in 15.9 min, 0 failed actions
+    (slower than Minevale7 only by the mayor's cobblestone-heavy designs). Open: F106 (search stalls of 3-10 s on sand
+    and stone land), F107 (a pickaxe remake that collects logs far from storage), phase D (written into PLAN.md by a
+    conversation beside the session; its place relative to the rest is the user's call).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -481,12 +488,13 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the eighth session (2026-10-02): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the ninth session (2026-10-02): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
-Minevale1-5, StageS1, Par1, Atlas1, Atlas4; all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale7 stands there until the next reset). The atlas
+Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
+them, or test on the test world (`mc/testserver`, restored per site; Minevale8 stands on minevale3 until the next reset, and the
+scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
 
@@ -633,6 +641,20 @@ Lessons from the adapter:
 48. **The atlas ranks areas, the column scan chooses the square** (step 2.3): 4x4-block cell means are too coarse for a
    2-4 block slope; look around the bot first and walk to atlas candidates only when nothing good is near (a first
    version went to candidates first and could zigzag ~650 blocks).
+49. **Filtering inside `findBlocks` builds a Block for every match** (F96, F106, 2026-10-02): a search that finds
+   nothing still visits every section that holds the block, and on sand or stone land that is thousands of matches: a
+   futile 128-block sand search took 2.4-2.7 s, a desert's material counts 5-10 s in one call. Search positions only
+   and filter after when the block is common; `[search]` lines log every search over 200 ms.
+50. **Check a job after it, by its consumer's rule** (R.3): RCON fills reach the bot as ordinary block updates (lesson 29
+   is about a bot's own placements), so re-reading the targets is cheap; run what looks wrong once more (the command's
+   answer is the server's check) and judge the result as the next step will (the build's level rule, which also sees
+   water flowing back).
+51. **Spawning by x,z can silently go elsewhere** (F105): `spreadplayers` refuses water and the agent stayed where its
+   name last stood; in jungle it lands on the canopy (lesson 19). Check the command's answer; give a ground height
+   (`FELL_Y`, `stage_village.py --site-at`) for tests in jungle.
+52. **Measure how often a case happens before building for it** (F108): an offline port of `atlasSites` over the main
+   atlas showed nearly all land has a good site within ~110 blocks, so scouting (2.4) is a safety net; five starts chosen
+   as poor gave one scouting run. Widening a range before the first layout did more than the scouts.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

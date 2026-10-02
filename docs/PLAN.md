@@ -20,41 +20,43 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-02 at the close of the eighth session: the small fixes and step 2.3 done, Minevale7 passed)
+(written 2026-10-02 at the close of the ninth session: batch R and step 2.4 done, Minevale8 passed)
 
-- **Code:** committed on `tiered-brain-building`: `797297b` (B, C, D, F95), `f390386` (A = F94, F99), `1bf19a1`
-  (step 2.3) and the closing docs commit. **Not pushed** (origin is at `d15c9c5`; ask the user). `main` untouched.
-- **Stack:** stopped cleanly at the close unless the user asked to leave it up (see the session's last message). Start
+- **Code:** committed on `tiered-brain-building`: `8ebfc33` (R.1), `e2d619b` (R.2), `9bde50f` (R.3), `aefad6e` (R.4),
+  `fd0bf3c` (step 2.4, F105) and the closing docs commit. **Not pushed** (origin is at `d15c9c5`: the eighth session's
+  five commits are unpushed too; ask the user). `main` untouched.
+- **Stack:** see the session's last message (stopped cleanly at the close unless the user asked to leave it up). Start
   it in CLAUDE.md's order; `reset_site.py` starts the test world's two servers. No agents in either world.
-- **Where things stand:** the batch of small fixes is done and step 2.3 is done:
-  - fallen trees are gathered, leafless built logs passed over at no cost (F94);
-  - find_site's wood count judges each log by its own column and the site's level (F98); kelp and seagrass are water;
-  - prepare_site no longer leaves pits where trees stood below the level (F95, found by the new "shelf" site);
-  - no block is ever set inside a player; doors are placed as one command (F99: a preparer suffocated in its fill);
-  - sites from the atlas (`mcSiteAtlas.ts`), used when the local search finds nothing good, for an agent in no village
-    or a mayor's first site;
-  - test sites: "shelf" (a plot against a drop; its mine turned at the hillside, Shelf2), woods-sand and hills recorded;
-    `site.py` checks the wood count; `fell_trees.py` takes `MCAI_API`.
-  Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions.
-- **Next (decided at the close with the user, 10-02): batch R, then 2.4.** Phase 3 (talking to the mayor) is
-  **deferred** by the user. Batch R ("run-time fixes", section below, before phase 3) takes today's findings in this
-  order: R.1 F96 (no futile gather tasks; the 1-2 s stalls), R.2 F97 (a build not waiting for gather tasks storage
-  covers), R.3 F95's follow-up (check the plot on the server after prepare_site), R.4 F100/F62 (jungle: felling past
-  the task's count, and the site scores). Then step 2.4, scouting. Each R step has its code pointers and test in its
-  section; show the user the approach in a few lines first (the user's standing rule), and design reviews before code.
-  Left for later as before: F84, F86, F102, two miners on crossing tunnels, the rest of the backlog.
-- **Also written 10-02 (a separate conversation): phase D**, buildings and villages with character (after batch R),
-  proposed and not scheduled: ask the user where it goes relative to 2.4.
-- **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale7 stands on minevale3's land (reset first).
-  `scripts/test_sites.json`: minevale3, minevale4, drop, shelf, woods-sand, hills recorded; woods-sand2 still probes.
-  Shelf runs need `--buildings testhut,testhut,testhall`.
-- **Main world:** new test villages Atlas1 (-538,-162) and Atlas4 (-471,-41) stand there now (main world at 2x when the
-  session ended its staged runs: the agent server sets the tick rate at its start, so restart it without
-  `MC_TIME_SCALE` for 1x).
-- **How to test now:** as before (CLAUDE.md "Testing agents"); the staged probes wait up to 300 s for find_site.
-  Run logs: `runs/2026-10-02/`.
-- **Working method** as before: subagents for design and diff reviews, log analysis, offline searches and docs. Every
-  review found something real again (the wood floor vs collect's, the guard's door split, the atlas's zigzag walks).
+- **Where things stand:**
+  - R.1: the first collect that finds no sand fails its task, closes the other sand tasks and marks sand unavailable
+    (`v.unavailable`, cleared at the next layout); one sand failure per village is the detector, not a fault;
+  - R.2: a held gather task storage covers no longer holds its build back (Hills2 7.3 min, Hills1 10.4);
+  - R.3: prepare_site redoes what its job missed and fails, saying where, if plot columns are still wrong;
+  - R.4: small log tasks fell ordinary trees before giant jungle trees (Jungle2 6.5 min, Atlas4 14.2);
+  - 2.4: a new village's first site may lie up to 256 from the mayor's start; after a poor first verdict scouts walk the
+    ring points the atlas lacks, then code runs find_site again. Seldom needed (F108): nearly all land has a site
+    within ~110, and Scout5 found one 110 off without scouts;
+  - Minevale8 (1x, model-driven, minevale3): 5/5 in 15.9 min, 0 failed actions.
+- **Next (the user's to choose):**
+  - **F106, the search stalls** (3-10 s `[lag]` from material counts and find_site's log search on sand and stone land;
+    a stall over ~30 s drops every bot): the most urgent reliability item; positions-only searches filtered after, as
+    R.1 did for collect.
+  - **Phase D** (buildings with character), written into this plan by a conversation beside the ninth session; its
+    place relative to F106 and phase 3 is the user's call.
+  - F107 (a pickaxe remake collecting logs far from storage), F104 (oak branches left), the desert mayor's loop on
+    refused layouts (Scout3), and the backlog.
+- **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale8 stands on minevale3 (reset first). Outside
+  the recorded sites the scouting tests left villages Scout4 (-19,-88, 4/5) and Scout5 (-378,-804, 5/5) and an empty
+  Scout1-3 in `mc/testserver/villages.json`.
+- **Main world:** Jungle1 (stopped after prepare, -527,-627) and Jungle2 (-747,-576) are new; the main agent server ran
+  at 2x for R.4 (restart without `MC_TIME_SCALE` for 1x).
+- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `stage_village.py --site-at X,Y,Z,SIZE[,WOOD]`
+  (a known site, no probe), `FELL_Y` for `fell_trees.py`, `MCAI_NO_PROBE=1` for `watch_village.py` (a village started
+  where told), `[search]` and `[prepare]` log lines. Run logs: `runs/2026-10-02/` (Shelf3-6, Hills1-2, Drop5-6,
+  Jungle1-2, Minevale8, Scout1-5).
+- **Working method:** as before. Every review found something real again (the cascade closing log tasks, the RCON probe
+  checking the wrong cell, scouting blocking plan_layout for good). Twice this session a server file was edited while a
+  run was going (no effect: the servers do not reload), against the user's rule: hold edits until the run's STOPPED line.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 

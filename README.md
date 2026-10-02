@@ -139,7 +139,7 @@ speed of local models.
 |---|---|---|
 | `move_to` | x, y, z, range? | Pathfinding: walks, jumps, swims and drops down ledges; far goals are walked in legs of ~40 blocks |
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
-| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure |
+| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure. A giant tree (a jungle giant of far more logs than the task still wants) is passed over while an ordinary tree is near, and felled whole only when nothing else is. The first village collect that finds no sand fails its task, closes the village's other open sand tasks and marks sand unavailable there until the next layout |
 | `place` | item, x, y, z | Places a block |
 | `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
@@ -148,8 +148,9 @@ speed of local models.
 | `give` | player, item, count? | Walks to a player and tosses them items (for trading and economy experiments) |
 | `chat` | message | Talks. Agents only **hear** chat within 48 blocks, as in Project Sid |
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
-| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (a log counts when it is no more than 16 below its own column's ground and below the site, as `collect` would reach it), and a smaller wooded site beats a bigger bare one. In Minecraft each column's ground is read from its real top, however far above the bot (a hill 50 blocks up once read as flat, treeless ground), and kelp or seagrass mark water. When nothing good is found around it, an agent in no village or a mayor looking for its first site turns to the shared atlas: it walks to the best areas the atlas knows (level, dry, wooded, sand near; at most 300 blocks of walking in all) and surveys the ground there; the reply says how far it walked |
-| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top (also where a felled tree stood below the level), plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot |
+| `scout` | x, z | Real Minecraft: walks toward x,z so the land around it comes into the shared atlas, waits for the atlas to take it in and reports how far it got. It never fails (a scout stopped halfway still brought land in); used by code-posted scout tasks |
+| `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (a log counts when it is no more than 16 below its own column's ground and below the site, as `collect` would reach it), and a smaller wooded site beats a bigger bare one. In Minecraft each column's ground is read from its real top, however far above the bot (a hill 50 blocks up once read as flat, treeless ground), and kelp or seagrass mark water. When nothing good is found around it, an agent in no village or a mayor looking for its first site turns to the shared atlas: it walks to the best areas the atlas knows (level, dry, wooded, sand near; at most 300 blocks of walking in all) and surveys the ground there; the reply says how far it walked. A new village's first site may lie up to 256 blocks from where its mayor started (later sites stay within 96 of the village). Its verdict (good, small, treeless or none) is kept for code in `memory.siteSearch` |
+| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top (also where a felled tree stood below the level), plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot. In Minecraft it checks the plot afterwards: cells unlike the plan are redone once, then every plot column must pass the build's own ground rule (odd ones confirmed over RCON), or it fails saying where |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
 | `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise, with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
 | `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
@@ -263,6 +264,8 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 - **Range.** Every village member stays within 96 blocks of its village's home (the first plot, else the storage, else
   where the mayor started): `move_to` and `explore` beyond it are refused or shortened. Before this, a worker's
   executor explored hop by hop to 180 blocks out and then gave up every gathering task as "none within 96 blocks".
+  The one exception is a new village before its first layout: its mayor's first site search and walk, and its scouts,
+  may go up to 256 blocks from where the mayor started.
 - **Stuck rescue** (real Minecraft, survival). Two moves that fail within 3 blocks of the same spot in 6 minutes (a pit,
   a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
   up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage (in
@@ -418,7 +421,8 @@ What building these agents taught, and what the code is built around:
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
   storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft); the land probe then
-  also skips ground with too few trees, and the village spawns at the site it found, not at X,Z.
+  also skips ground with too few trees, and the village spawns at the site it found, not at X,Z. `MCAI_NO_PROBE=1`
+  skips the probe and starts the village at X,Z itself, poor land or not (for scouting tests).
 - `attach_village.py VILLAGE MINUTES_SO_FAR` follows a village whose agents are already running (when a watcher was
   stopped mid-run): it prints their new events until the village is complete or nothing succeeds for 5 minutes.
 - `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
@@ -429,7 +433,8 @@ What building these agents taught, and what the code is built around:
   `atlas_ores.py VILLAGE` or `--near X Z [RADIUS]` (the atlas's exposed ores against the blocks, read with
   `/api/blocks`); `site.py X Z SIZE` (Gus runs find_site, and the ground, height range, trees and wood count it
   reports are compared with the blocks over the site and prepare_site's margin). `site.py` and `fell_trees.py` take
-  `MCAI_API`, so they run on the test world too. Run the relevant one after changing find_site,
+  `MCAI_API`, so they run on the test world too; `fell_trees.py` takes `FELL_Y` (a known ground height + 1: in jungle a
+  drop from y 120 lands Gus on the canopy). Run the relevant one after changing find_site,
   prepare_site, layout.ts, smelting, the atlas, felling or the mine.
   Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
   the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
@@ -441,7 +446,8 @@ What building these agents taught, and what the code is built around:
   plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
   workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
   is tested in one to ten minutes. `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
-  its recorded site directly and the test servers by default.
+  its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD]` uses a site find_site gave
+  directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the canopy).
 - **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
   (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
   villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
@@ -484,9 +490,11 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
-place, craft, smelt, eat, attack, explore, follow, give, equip, drop, get_item, deposit, withdraw, find_site,
-prepare_site, build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and failure
-messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). Survival
+place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
+find_site, prepare_site, build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and
+failure messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
+spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
+drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
 watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
 
@@ -512,7 +520,8 @@ differently:
 - **One event loop for every bot.** All bots share the agent server's Node process, so path searches are capped per
   tick and block scans filter as they search. The server logs any stall of the event loop over 2 seconds as a `[lag]`
   line with what each agent was doing: 2-3.5 s while bots join or during a site search's log scan is normal; a stall
-  over ~30 s makes Paper disconnect every bot at once.
+  over ~30 s makes Paper disconnect every bot at once. Block searches over 200 ms (and `collect` choosing its next
+  block in over 300 ms) are logged as `[search]` lines.
 
 ### The village economy (real Minecraft)
 
@@ -578,7 +587,12 @@ down stood inside the future hut and raised its floor).
 **From objective to buildings.** For "two matching cottages and a meeting hall":
 
 1. The **mayor** runs `find_site` (a site with enough trees near it), has a `cottage` and a `meeting_hall` designed
-   within the survival limits, and calls `plan_layout`, which checks the materials are near the site.
+   within the survival limits, and calls `plan_layout`, which checks the materials are near the site. If that first
+   search finds nothing good (no site, only a small one, or too few trees near it), code sends the workers to **scout**
+   once per village: scout tasks to the points on a 160-block ring around the start that the atlas does not know yet
+   (each worker a run of neighbouring points, run as written). `plan_layout` waits meanwhile (at most 20 minutes)
+   while the mayor draws its designs, and when the scouts are back code runs `find_site` again over the land they
+   mapped. On land the atlas already knows there is nothing to scout.
 2. `plan_layout` places the buildings, with the storage hut, and posts the tasks, each as exact skill calls: prepare
    the plot; set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
@@ -590,7 +604,9 @@ down stood inside the future hut and raised its floor).
    Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
    with a wooden pickaxe `collect` crafts itself when it has none. A gather task for a material that is not within
    reach is given up at once (it is "soft": the build checks its own materials), and only that task: the queue goes
-   with it.
+   with it. For sand the first such failure also closes the village's other open sand tasks, and code posts no sand
+   gathering again until the next layout. A build does not wait for a gather task still held by a worker when the
+   storage already covers that task.
 4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
    smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
    the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
