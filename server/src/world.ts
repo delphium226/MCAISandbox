@@ -142,6 +142,11 @@ export interface WorldAdapter {
    * not here. For the survival economy.
    */
   materialsNear?(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number): Record<string, number> | null;
+  /**
+   * Where scouts should walk around a new village's home so that its land becomes known (step 2.4): points of a ring the
+   * world's map does not cover yet, in walking order around the ring. Worlds without a map leave it out.
+   */
+  scoutPoints?(home: { x: number; z: number }): Array<{ x: number; z: number }>;
 }
 
 /**

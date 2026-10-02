@@ -12,6 +12,7 @@ import { mineAreas, mineCanGive, mineFor } from './mcMine';
 import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
+import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
   abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
   sleep, str, syncInventory, walk,
@@ -1354,6 +1355,45 @@ async function explore(a: BotAgent, args: Record<string, unknown>, signal: Abort
   return `explored to ${at(bot.entity.position)}`;
 }
 
+/**
+ * Walk toward x, z so that the land around it comes into view and into the atlas (step 2.4). It never fails (only a
+ * cancel stops it): a scout that gets only part of the way still brought in what it saw, and a task run as written must
+ * not fall to a model. Waits for the atlas to summarise what came into view before it reports.
+ */
+async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const bot = a.bot;
+  let x = Math.floor(num(args.x, 'x')), z = Math.floor(num(args.z, 'z'));
+  // Within the scouting range of the village's home (a new village's: where its agent started), and within the
+  // village's range once it has ground (an executor must not use it as an explore without bounds, lesson 22)
+  const v = a.village();
+  const home = villageHome(v, a.memory);
+  const range = v && (v.layouts?.length || v.plots.length) ? VILLAGE_RANGE : SCOUT_RANGE;
+  if (home) {
+    const d = Math.hypot(x - home.x, z - home.z);
+    if (d > range) {
+      x = Math.round(home.x + ((x - home.x) * range) / d);
+      z = Math.round(home.z + ((z - home.z) * range) / d);
+    }
+  }
+  const from = bot.entity.position.clone();
+  const before = a.world.atlas.chunks.size;
+  const far = Math.hypot(x - from.x, z - from.z);
+  let stopped = '';
+  await walk(a, new goals.GoalNearXZ(x, z, 8), `${x},${z}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+    stopped = e.message.slice(0, 120);
+  });
+  await Promise.race([bot.waitForChunksToLoad().catch(() => {}), sleep(10000, signal)]);
+  for (let i = 0; i < 25 && a.world.atlas.pending > 0; i++) await sleep(200, signal);
+  const here = bot.entity.position;
+  const walked = Math.round(Math.hypot(here.x - from.x, here.z - from.z));
+  const left = Math.round(Math.hypot(here.x - x, here.z - z));
+  const added = a.world.atlas.chunks.size - before;
+  return left <= 12
+    ? `scouted to ${at(here)} (${walked} blocks walked); ${added} chunks of land added to the atlas`
+    : `scouted ${walked} blocks toward ${x},${z} and stopped at ${at(here)}, ${left} short (${stopped || 'no way on'}); ${added} chunks of land added to the atlas`;
+}
+
 function playerEntity(a: BotAgent, name: string): Entity {
   const e = Object.values(a.bot.players).find((p) => p.username.toLowerCase() === name.toLowerCase())?.entity;
   if (!e) throw new Error(`player ${name} is not in sight (too far away or offline)`);
@@ -1430,6 +1470,7 @@ export const SURVIVAL_SKILLS: Record<string, McSkill> = {
     run: attack,
   },
   explore: { run: explore },
+  scout: { check: (x) => (num(x.x, 'x'), num(x.z, 'z'), undefined), run: scout },
   follow: { check: (x) => void str(x.player, 'player'), run: follow },
   give: { check: (x) => (str(x.player, 'player'), str(x.item, 'item')), run: give },
   equip: {

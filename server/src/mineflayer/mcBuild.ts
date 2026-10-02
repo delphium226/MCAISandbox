@@ -15,7 +15,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure } from '../village';
-import { VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
+import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
@@ -838,7 +838,7 @@ interface Rejections { wet: number; steep: number; occupied: number; unloaded: n
  * a far 30x30 with 5 logs near it beat a site in the woods).
  */
 function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: number, radius: number, home: { x: number; z: number } | null,
-  woodNear: ((x: number, z: number, y: number) => number) | null, why: Rejections): SiteCandidate | null {
+  woodNear: ((x: number, z: number, y: number) => number) | null, why: Rejections, homeRange = VILLAGE_RANGE): SiteCandidate | null {
   const { n } = g, m = n - sz + 1, half = Math.floor(sz / 2);
   if (m <= 0) return null;
   let ext = g.extremes.get(sz);
@@ -848,7 +848,7 @@ function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: numbe
     for (let i = 0; i < m; i++) {
       const cx = g.x0 + i + half, cz = g.z0 + j + half;
       const dist = Math.hypot(cx - ox, cz - oz);
-      if (dist > radius || (home && Math.hypot(cx - home.x, cz - home.z) > VILLAGE_RANGE)) continue;
+      if (dist > radius || (home && Math.hypot(cx - home.x, cz - home.z) > homeRange)) continue;
       if (windowSum(g.sums.unloaded, n, i, j, sz)) {
         why.unloaded++;
         continue;
@@ -952,11 +952,19 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   // village and a mayor's first site: workers (told to run find_site after a failed prepare) and a mayor's second plot
   // stay with the local search (the review of 2.3)
   const atlasOk = !fixed && args.atlas !== false && (!v || (a.memory.villageRole === 'mayor' && !v.layouts?.length && !v.plots.length));
+  // A new village's first site may lie up to SCOUT_RANGE from where its mayor started (step 2.4: within 96 the spawn's
+  // own view had shown everything already); a later site stays within 96 of the village
+  const firstSite = !!v && a.memory.villageRole === 'mayor' && !v.layouts?.length && !v.plots.length;
+  const homeRange = firstSite ? SCOUT_RANGE : VILLAGE_RANGE;
+  // How the search went, for code (step 2.4: a mayor's poor first result sends scouts out), not parsed from the reply
+  const verdict = (k: 'good' | 'small' | 'treeless' | 'none') => {
+    a.memory.siteSearch = { verdict: k, size: sz, at: Date.now() };
+  };
   const tryAtlas = async (): Promise<string | null> => {
     const p0 = a.bot.entity.position.clone();
     let cands = atlasSites(a.world.atlas.chunks, {
-      x: Math.floor(p0.x), z: Math.floor(p0.z), size: sz, radius: home ? VILLAGE_RANGE : ATLAS_RADIUS,
-      home, homeRange: VILLAGE_RANGE, taken, survival,
+      x: Math.floor(p0.x), z: Math.floor(p0.z), size: sz, radius: home ? homeRange : ATLAS_RADIUS,
+      home, homeRange, taken, survival,
     });
     const tried: string[] = [];
     let walkedSoFar = 0;
@@ -986,11 +994,12 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
       surveyed.push({ x: c.x, z: c.z });
       const { g, logs, woodNear } = await survey(c.x, c.z, ATLAS_CONFIRM + Math.floor(sz / 2) + 1, ATLAS_CONFIRM + 48);
       for (const sl of slopes) {
-        const b = bestSite(g, sz, sl, c.x, c.z, ATLAS_CONFIRM, home, woodNear, own);
+        const b = bestSite(g, sz, sl, c.x, c.z, ATLAS_CONFIRM, home, woodNear, own, homeRange);
         if (!b) continue;
         if (!survival || b.wood >= SITE_WOOD) {
           console.log(`[site] ${a.name}: atlas candidate ${c.x},${c.z} (y ${c.y}, range ${c.range}, ${c.logs} logs, ${c.sand} sand, ${c.dist} away) -> site ${b.x},${b.z}${tried.length ? `; tried ${tried.join(', ')}` : ''}`);
           const w = Math.round(Math.hypot(here.x - p0.x, here.z - p0.z));
+          verdict('good');
           return `${siteFound(a, b, logs)} (Found from the atlas: walked ${w} blocks from ${Math.floor(p0.x)},${Math.floor(p0.z)}.)`;
         }
         // Full size but few trees: kept in case nothing better turns up
@@ -1014,10 +1023,13 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     tries.push([SITE_WIDE, slopes[slopes.length - 1]]);
     let treeless = false;
     for (const [r, s] of tries) {
-      const c = bestSite(g, sz, s, ox, oz, r, home, woodNear, why);
+      const c = bestSite(g, sz, s, ox, oz, r, home, woodNear, why, homeRange);
       if (!c) continue;
       // In survival a site without trees near it is a last resort (every building needs wood): look further first
-      if (!survival || c.wood >= SITE_WOOD || fixed) return siteFound(a, c, logs);
+      if (!survival || c.wood >= SITE_WOOD || fixed) {
+        verdict(scarce(c) ? 'treeless' : 'good');
+        return siteFound(a, c, logs);
+      }
       bare ??= { c, logs };
       treeless = true;
       break;
@@ -1027,7 +1039,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     const maxSlope = slopes[slopes.length - 1];
     for (let s = sz - 1; s >= Math.max(9, Math.floor(sz / 2)); s--) {
       if (fallback && !scarce(fallback.c) && s <= fallback.c.size) break;
-      const c = bestSite(g, s, maxSlope, ox, oz, SITE_WIDE, home, woodNear, { wet: 0, steep: 0, occupied: 0, unloaded: 0 });
+      const c = bestSite(g, s, maxSlope, ox, oz, SITE_WIDE, home, woodNear, { wet: 0, steep: 0, occupied: 0, unloaded: 0 }, homeRange);
       if (!c) continue;
       if (!scarce(c)) {
         fallback = { c, logs };
@@ -1063,7 +1075,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
           if (d > 50 && (x * dx + z * dz) / d > 0.92) land++;
         }
       return { name, tx, tz, land };
-    }).filter((d) => d.land > 0 && (!home || Math.hypot(d.tx - home.x, d.tz - home.z) <= VILLAGE_RANGE)
+    }).filter((d) => d.land > 0 && (!home || Math.hypot(d.tx - home.x, d.tz - home.z) <= homeRange)
       && !surveyed.some((q) => Math.hypot(d.tx - q.x, d.tz - q.z) < SITE_LEG * 0.75))
       .sort((u, w) => w.land - u.land);
     let moved = false;
@@ -1079,15 +1091,21 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     if (!moved) break;
   }
   const walked = Math.round(Math.hypot(a.bot.entity.position.x - start.x, a.bot.entity.position.z - start.z));
-  const searched = `within ${SITE_WIDE} blocks${walked >= 16 ? ` of ${surveyed.length} spots (walked ${walked} blocks)` : ''}${home ? `, staying within ${VILLAGE_RANGE} of the village` : ''}`;
+  const searched = `within ${SITE_WIDE} blocks${walked >= 16 ? ` of ${surveyed.length} spots (walked ${walked} blocks)` : ''}${home ? `, staying within ${homeRange} of the village` : ''}`;
   // A smaller site with trees near it beats a full-size one without
-  if (bare && !(fallback && !scarce(fallback.c) && fallback.c.size >= Math.ceil(sz * 0.6))) return `${siteFound(a, bare.c, bare.logs)} Searched ${searched} for ground with trees near it and found none: a village here needs wood from farther away.`;
+  if (bare && !(fallback && !scarce(fallback.c) && fallback.c.size >= Math.ceil(sz * 0.6))) {
+    verdict('treeless');
+    return `${siteFound(a, bare.c, bare.logs)} Searched ${searched} for ground with trees near it and found none: a village here needs wood from farther away.`;
+  }
   if (fallback) {
     const s = fallback.c.size;
     const rest = siteFound(a, fallback.c, fallback.logs).replace(/^site found: /, '');
+    // (nearly as big counts as found, as in the search above)
+    verdict(scarce(fallback.c) ? 'treeless' : s >= Math.ceil(sz * 0.8) ? 'good' : 'small');
     if (s >= Math.ceil(sz * 0.6)) return `site found (${s}x${s}, the largest ${searched}; ${sz}x${sz} does not fit): ${rest} Plan the project to fit it: plan_layout lays out what fits and says what does not.`;
     throw new Error(`no ${sz}x${sz} site ${searched}. The largest is smaller: ${rest} It is saved as the last site: plan the project to fit it (plan_layout lays out what fits), or use a smaller size`);
   }
+  verdict('none');
   const reasons = [why.wet && `${why.wet} over water`, why.steep && `${why.steep} too steep`, why.occupied && `${why.occupied} taken by buildings, plots or other agents`, why.unloaded && `${why.unloaded} not loaded yet`].filter(Boolean).join(', ');
   throw new Error(`no dry, flat site of ${Math.max(9, Math.floor(sz / 2))}x${Math.max(9, Math.floor(sz / 2))} or more ${searched} (candidates rejected: ${reasons}); try a smaller size${home ? '' : ', or explore in another direction and try again'}`);
 }

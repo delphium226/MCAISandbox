@@ -43,6 +43,8 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   the task's count, and the site scores). Then step 2.4, scouting. Each R step has its code pointers and test in its
   section; show the user the approach in a few lines first (the user's standing rule), and design reviews before code.
   Left for later as before: F84, F86, F102, two miners on crossing tunnels, the rest of the backlog.
+- **Also written 10-02 (a separate conversation): phase D**, buildings and villages with character (after batch R),
+  proposed and not scheduled: ask the user where it goes relative to 2.4.
 - **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale7 stands on minevale3's land (reset first).
   `scripts/test_sites.json`: minevale3, minevale4, drop, shelf, woods-sand, hills recorded; woods-sand2 still probes.
   Shelf runs need `--buildings testhut,testhut,testhall`.
@@ -120,9 +122,21 @@ sites. Code keeps and uses the atlas; models do not read it raw.
       after the best; 300 blocks of walking at most) are checked by the column survey there. Passed: site.py at both
       places; Atlas1 (jungle hills) 3/3 in 8.2 min, Atlas2 (woods-sand) 5.7, Atlas3 (hills) 9.8, Atlas4 (lake) 14.2 at
       2x (F100). Stone is not scored (the mine gives it).
-- [ ] 2.4 **Scouting**: when the site search finds nothing good, code posts "scout" tasks for idle workers in
+- [x] 2.4 done 10-02 (ninth session; the mechanism tested, a scouting rescue not yet seen in a run): find_site
+      writes a verdict (memory.siteSearch); a new village's first site may lie up to 256 from the mayor's start (bestSite,
+      atlas step, legs; the mayor's move_to too); after a poor first verdict code posts scout tasks (`scout x= z=`, a skill
+      that never fails, clamped to 96 once the village has ground) to the ring points the atlas lacks, once per village,
+      split across the workers; plan_layout and the 10-s "nothing laid out" re-ask wait while scouts are out; when they are
+      back (or gone, or after 20 min) code runs find_site once more, and its end (found or not) closes scouting. Scout3
+      (desert): posted, run as written, re-run by code; the land has no wood within 256 (the mayor then loops on refused
+      layouts: backlog). Scouting is rarely needed: an offline search of the main atlas found nearly all land has a good
+      site within ~110 blocks, and find_site's own legs reach ~190 (Scout2, 4, 5 found sites at 31-110 blocks).
+      Was: **Scouting**: when the site search finds nothing good, code posts "scout" tasks for idle workers in
       different directions (run as written, no model calls) while the mayor draws designs. Test: model-driven run
-      from a poor start point.
+      from a poor start point. Design agreed 10-02 (decisions log): 256 before the first layout, a `scout` skill
+      that never fails, ring points the atlas lacks, find_site re-run by code, one round. Test: regression on minevale3
+      (no scouting), a staged run at 2x from the lake at -235,-53 on the test world (atlas never saw it; a no-probe
+      start), then a model-driven run at 1x.
 
 ## Phase 2A: village infrastructure (the user's, 2026-09-29; before 2.3)
 
@@ -356,6 +370,119 @@ test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): dro
 
 Then step 2.4 (scouting) as written in phase 2.
 
+## Phase D: buildings and villages with character (proposed 2026-10-02; not scheduled)
+
+The user (10-02): the building and village designs are "a bit flat". A review of the design path (10-02, a conversation
+beside the ninth session) found that the model aims higher than the format lets it draw, and that the reliability fixes
+left it little room. Of the 35 designs the architect has drawn (`mc/server/villages.json`, huts left out), 31 are boxes
+with a flat one-layer roof and three have stepped pyramids of whole blocks; none uses stairs. Fourfold1's cottage is
+described as having "a peaked oak roof" and its top layer is solid planks; Meadowford2-4's roofs sit a layer above
+their walls with only air between. Causes, in the code:
+
+- **Every cell is drawn by hand.** A pitched roof means layers that shrink inward with `_` outside them, counted row by
+  row; models avoid it (lesson 1).
+- **The architect's only example** (`DESIGN_SYSTEM`, `designs.ts` ~176) is a flat-roofed 5x5 box.
+- **The block list.** `DESIGN_BLOCKS` (`designs.ts` ~13) is the sandbox's list, shown to the Minecraft architect too:
+  no stairs, trapdoors, fence gates or walls. In survival `DESIGN_SURVIVAL` (`tieredBrain.ts` ~264) allows planks,
+  logs, cobblestone, sandstone and 4 glass, and `MAYOR_SURVIVAL` bans stone bricks. The economy has no such limit:
+  `Materials.plan` resolves stairs, slabs, fences, trapdoors, cobblestone walls, stone, stone bricks and torches to logs,
+  cobblestone and fuel (`EASY_GATHER`), `makeFromStock` crafts whatever it resolves, and `plankUnits` and `swapWood`
+  (`mcBuild.ts` ~243, ~309) already handle stairs, fences and trapdoors, states kept. Untested in a build so far.
+- **Block states do not turn.** `buildDesign` (`mcBuild.ts` ~1367-1407) sets a facing for doors only: a drawn
+  `oak_stairs[facing=north]` faces wrong after `rotate`. States do reach `/setblock` (runJob ~619).
+- **The cap is on footprint, not cost.** `SURVIVAL_MAX = 9` (`tieredBrain.ts` ~279; decision 09-28, after Accept5's
+  ~750 blocks) also rules out cheap tall, long or L-shaped buildings.
+- **The village is one flat pad** of at most 32x32 (`layout.ts` ~111): buildings packed in rows by area
+  (`layoutBuildings`, `village.ts` ~565), never turned toward a street; the streets are levelled ground with nothing on
+  them.
+- **Little is asked for:** the test objective is "two matching cottages and a meeting hall", and the mayor's prompt says
+  "cheap" and "up to 9x9".
+
+Principle (lesson 1): the model chooses the style; code draws the geometry, orients the blocks and counts the cost.
+Every step keeps the economy's guards (bills, materials near the site, no workstations, the 96-block range). Ambition
+is paid for in gathering time (log roofs: Accept16 and 18 took 38-39 min, F51): a stair costs 1.5 planks and a slab
+0.5, so a stair gable with a 1-block overhang on a 9x9 is ~200 planks against 81 for a flat plank roof, and a slab
+roof ~40. New designs are tried in creative first (runs of 4-10 min), then in survival on a restored test site. The
+architect is gpt-oss:120b-cloud; designbench (D.1) can compare others (the `claude:` provider works for `designModel`,
+billed separately), but the generator (D.2) should make the model's strength matter less. Order as listed; D.7 later.
+
+- [ ] D.1 **Quick wins and a design bench** (prompts and small code; measure before and after):
+      - `scripts/bench/designbench.mts`: the architect's real prompts (cottage and meeting-hall briefs from the runs,
+        with and without the survival note and the site lines), N times per model; for each design its footprint,
+        layers, roof shape (flat, stepped, pitched with stairs; read from the layers), materials, blocks and gather cost
+        (`Materials.plan`), whether it was valid, and seconds. Judge on 10 or more samples a case (lesson 20).
+      - Examples: replace the flat box in `DESIGN_SYSTEM` with two or three short ones in different styles (a
+        log-framed house with a stair roof and an overhang, a hall on a cobblestone base).
+      - A block list per world (the world gives it, e.g. `WorldAdapter.designBlocks`; the sandbox keeps today's), and in
+        survival the derived blocks: stairs, slabs, fences, fence gates, trapdoors, cobblestone walls, stone and stone
+        bricks in moderation (smelting fuel), torches (charcoal and sticks). Each checked with `Materials.plan`: no raw
+        material outside `EASY_GATHER`.
+      - A cost budget instead of the 9x9 cap: gather units from `materialTasks` (about 250 for a house and 400 for one
+        landmark a village, to be set from the bench), keeping the site's footprint limit (`siteLimit`). The full
+        cobblestone floor becomes optional (`_` keeps the prepared ground).
+      - Turn block states with the building in `buildDesign`: `facing` (as the door's) and `axis` (x and z swap at 90
+        and 270). `validateDesign` and `fixDoor` count only `oak_door` as a door: count any door.
+      Test: typecheck; a design with stairs built by Gus in creative at rotate 0, 90, 180 and 270 on a restored site,
+      checked with `GET /api/blocks`; designbench before and after; a staged build with a stair-roofed testhut and
+      testhall (`--buildings`: builders must craft the stairs and slabs from storage); one model-driven village at 1x.
+      Pass: designbench shows pitched roofs in most designs with no more invalid ones than before; staged 3/3; the
+      model-driven village within 1.5x Minevale7's 11.6 min (or the budget lowered until it is).
+- [ ] D.2 **A building generator** (the main lever): the architect may submit a style instead of layers, and code draws
+      the layers (`buildingGen.ts` beside `huts.ts`; world-independent, a `Design` out, so build_design, bills, layout
+      and storage stay as they are). First parameters: footprint `rect`, `L` or `T` with width and depth; 1-2 storeys
+      and wall height; frame (log corners, log beams laid on their side at each storey line); wall material per storey;
+      roof `gable`, `hip`, `pyramid`, `flat` with a parapet, or `shed`, with its axis, overhang 0-1 and material (stairs
+      on the slopes, slabs or full blocks on the ridge); windows (spacing, pairs, glass or open, trapdoor shutters); the
+      door's side and an optional porch (fence posts under a slab roof); a chimney. Code gets right what models get
+      wrong: stair facing and `shape` at hips and L corners, the door on an outer wall with headroom, symmetry, a roof
+      that covers everything, the bill. The style is kept with the design, so copies can vary (mirrored, which swaps
+      east and west facings and left and right stair shapes; the door on another side; another accent material):
+      "matching" cottages that are not identical. Drawing by hand stays for what the generator cannot express, and the
+      model may edit generated layers (a bell, a balcony) and submit them.
+      Test: an offline script (no server) printing each roof type's layers and elevations (D.3) for 5x5, 7x9 and an L
+      footprint and checking the door, every stair's facing and the bill; each built by Gus in creative at all four
+      rotations and compared with `GET /api/blocks`; a staged build with generated designs; a model-driven village.
+      Pass: every roof type built as drawn at every rotation; staged 3/3; model-driven 3/3 with no failed designs.
+- [ ] D.3 **Show the architect its building**: after each submission code renders front, side and top views as text
+      (`elevations(design)` in `designs.ts`) and lints it: a flat roof, one wall material, a blank wall on the door's
+      side, an empty layer under the roof (Meadowford2-4), walls lower than 3 on a building over 7 wide. One revision
+      round with both, in the retry loop `TieredBrain.design` (`tieredBrain.ts` ~1168) already runs for errors; lint
+      notes are suggestions, so a valid design is saved after the revision either way. The panel shows the elevations
+      in the village's design list. Test: designbench with and without the revision (share of pitched roofs, materials
+      per design, cost, seconds: gpt-oss draws in ~9 s, and a revision about doubles it).
+- [ ] D.4 **Village plans with character**: `plan_layout` takes a plan, `green`, `street` or `rows` (today's), and code
+      places the buildings round a green with a well in the middle, facing in, or along both sides of a main street,
+      facing it; each is turned with build_design's `rotate` so its door faces the green or the street (the door's side
+      is in the design). The huts keep their rules (the mine's stairs face the nearest plot edge). After the buildings,
+      code posts small soft tasks for what lies between them: gravel or dirt-path streets (dirt path charged as dirt,
+      like grass) and a path from each door, lamp posts (a fence post with a torch), a well (drawn by code, like the
+      huts), later fenced gardens or a farm plot. A green that does not fit on the site falls back to rows. Test: an
+      offline check of the layouts (no overlaps, inside the plot, every door facing and reaching the street or green);
+      a staged build on a restored site; one model-driven village.
+- [ ] D.5 **Vanilla village pieces as a library**: the Paper jar (`mc/server/versions/26.1.2/paper-26.1.2.jar`) holds
+      483 village pieces under `data/minecraft/structure/village/`: houses for plains (36), savanna (31), snowy (30),
+      desert (28) and taiga (27), town centres and streets. `nbt.ts` and `schematic.ts`'s structure reader read them; a
+      Minecraft variant of `schematicToDesign` keeps the block states (no sandbox mapping), turns jigsaw blocks into what
+      they become and `structure_void` into `_`, and swaps or drops what the economy cannot make (villager job sites,
+      beds, bells, hay, wool, lanterns...; a substitution table like `mapBlock`). A piece with more block states than
+      the one-character symbols allow needs a wider symbol set. Each piece then passes the checks a drawn design does
+      (bill, no workstations, the budget). Uses: one or two biome-matched examples in the architect's prompt, pieces
+      the mayor can name outright, and the town centres (wells, meeting points) as D.4's green. Read from the local jar
+      at runtime; commit no pieces (Mojang's files). Test: import every house of one biome and report how many pass after
+      substitution and at what cost; build three in creative on a restored site at rotate 0 and 90 and compare with
+      `GET /api/blocks`.
+- [ ] D.6 **Ambition at the mayor's level**: a style chosen once per village from its biome and wood (spruce and
+      cobblestone in taiga, acacia and terracotta in savanna and badlands, sandstone in desert), kept on the village and
+      passed into every brief in one line; more building types in the mayor's prompt (watchtower, smithy, chapel with a
+      bell tower, market stalls, gatehouse) within the budget; one landmark a village once the storage holds spare
+      materials (the needs list, V.3); test objectives that ask for more ("a hamlet round a green with a watchtower").
+      Test: mayorbench cases for the style and the landmark, then model-driven runs with the new objective.
+- [ ] D.7 **Terrain** (bigger; design review first): buildings on their own levels instead of one levelled pad:
+      terraces stepping down a slope, each its own plot at its ground's level, joined by stair paths; foundations filled
+      down to the ground under a building on uneven ground instead of levelling it all. Touches prepare_site (several
+      levels), `layoutBuildings`, the village's and the mine's protected ground (lessons 31, 35) and find_site's scores
+      (a slope stops being a reason to pass a site over).
+
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
 (Deferred by the user on 2026-10-02: batch R and step 2.4 come first.)
@@ -576,6 +703,12 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s9) | fell check, jungle | `FELL_Y=87 fell_trees.py -747 -577 10 2`, main world 2x, R.4 | **pass** | 104 s + 59 s | 21 oak logs, then 12 jungle logs; no giant felled (Atlas4: 97 logs, 6.7 min for 10); 10 high branch logs of a big oak left out of reach (F104). A first try from y 120 left Gus on the canopy (y 117), no tree reachable |
 | 10-02 (s9) | Jungle1 | staged full at 2x, main world, probe -746,-576 | **stopped** | - | the probe spawned on the canopy and the land search took an oak site 220 blocks east (-527,-627): not a jungle test; R.3 repaired a fill at -528,88,-634 |
 | 10-02 (s9) | Jungle2 | staged full at 2x, main world, `--site-at=-747,86,-576,31,jungle` (find_site from the ground: 2,149 logs within 48, mostly jungle; 3,068 tree blocks on the site) | **3/3** | **6.5 min** (Atlas4 14.2) | storage task's 10 logs in 0.8 min; every collect 9-15 logs from small trees, no giant felled; 1 sand failure (none within collect's rules); no `[lag]`; R.3 cleared 2 cells on its second pass |
+| 10-02 (s9) | **Minevale8** | model-driven at **1x** on the restored minevale3 site (test world), standard models, "two matching cottages and a meeting hall", batch R (R.1-R.4) | **5/5 built**, declared complete by code | **15.9 min** (Minevale7 11.6) | **0 failed actions**, workers 0 model calls, one 2.0 s `[lag]` at spawn; the slower time is the mayor's designs: its first ones used sandstone (4 of 131 near; plan_layout refused, redrawn: layout at 1.7 min, Minevale7 0.7) and the redrawn ones need ~330 cobblestone (the hall alone 98; Minevale7 ~90), mined at the wall clock's pace (F91); prepare 1.4 min in both; sand gathered in short trips (7) |
+| 10-02 (s9) | Scout1 | 2.4 at 2x, test world, `MCAI_NO_PROBE=1` start at the lake -235,-53 | **stopped** | - | the spawn's `spreadplayers` refused the water and the Mayor stayed where its name last stood (minevale3's site, 1,300 blocks off): F105, fixed |
+| 10-02 (s9) | Scout2 | same, after F105's fix | **stopped** | - | the lake has a good 30x30 31 blocks off on the test world (177 acacia logs): verdict good, no scouting (correct) |
+| 10-02 (s9) | Scout3 | 2.4 at 2x, desert -35,324 (the test atlas knew none of it) | **stopped**, 0/5 | - | verdict treeless -> one scout task (the mayor's own find_site had walked ~125 blocks and mapped 7 of 8 ring points), run as written (162 blocks, 193 chunks added), find_site re-run by code: still treeless, nothing within 256; the mayor then looped on refused layouts; F106: 5-10 s stalls (material counts in a desert) |
+| 10-02 (s9) | Scout4 | 2.4 at 2x, 20,-120 (few trees), after the review's fixes | **stopped**, 4/5 | - | good site 46 off, no scouting; Worker2 underground at 4,60,-77 failed a sandstone task 4 times with "could not reach logs" (F107); hall 15.4 min (sandstone gathering) |
+| 10-02 (s9) | **Scout5** | 2.4 at 2x, mountain ridge -360,-696 (offline search's pick: nearest good site 156 off by the main atlas) | **5/5 built**, declared complete by code | **9.1 min** | site found 110 blocks off (beyond the old 96 limit; unmapped land) without scouting; 1 failed action (the sand detector); the mayor's move_to to its site was refused (fixed: 256 before the first layout); 3-4 s stalls from sand/sandstone counts (F106) |
 
 ## Findings log
 
@@ -995,6 +1128,21 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F108 (10-02, ninth session, 2.4) Scouting is seldom needed: an offline port of `atlasSites` over the main atlas
+  (~6,700 chunks) found a good 24-block square within ~110 blocks of nearly every mapped point (none beyond 156), and
+  find_site's two 40-block legs reach ~190. Of the poor starts tried, the lake had a site 31 off, 20,-120 one 46 off,
+  the ridge one 110 off; only the desert had none within 256. Scouting stays as a safety net for phase 3 ("build here").
+- F107 (10-02, Scout4) A worker on a sandstone task failed 4 times with "could not reach logs ... stuck at 4,60,-77"
+  (under the surface, ~80 blocks from storage; the rescue moved it to 12,55,-78): its pickaxe broke and the remake
+  collected logs instead of taking them from storage (F85's rule?). The cottage behind the task waited; the run was lost
+  at 4/5. Backlog: log analysis.
+- F106 (10-02, Scout3, Scout5) Material counts stall the event loop on sand- and stone-heavy land: plan_layout's
+  `materialsNear` (128 blocks, filtered in the search, one Block per match) took stone 5.4 s, sandstone 2.8 s, logs 2.5 s
+  in one call (a 9.8 s `[lag]`), and sand/sandstone counts 2.1-2.8 s each with none found (3-4 s `[lag]` in the
+  mountains); find_site's 4,096-log search 2.2-2.8 s in a desert. A stall over ~30 s drops every bot. Next: positions-only
+  searches filtered after (as collect's second pass, R.1), or the atlas's surface counts first.
+- F105 (10-02, Scout1) `spreadplayers` refuses water ("Could not spread"), and spawning ignored the answer: an agent stayed
+  where its name last stood (1,300 blocks off). Fixed: dry land within 16, then 64 blocks, else dropped in from y 120.
 - F104 (10-02, ninth session, R.4's fell check) A big oak in the jungle at -746,87,-580 kept 10 high branch logs (e.g.
   -750,96,-578) "out of reach" after felling: branches beyond `treeLogs`' 4-block box from the start log (the R.4 design
   review saw the same on 2x2 trunk corners: 1-2 branch logs). They stay floating (F54's rule, small). Backlog.
@@ -1091,6 +1239,23 @@ CLAUDE.md when a phase ends.
   door faces south, spot 1 is just inside it and the back-middle spot is last. Known risk, left as agreed: the hut
   chains the village (prepare -> storage -> every gather; the hut build -> every other build), so a failed prepare or
   hut build blocks the rest until the mayor steps in (review finding).
+- 10-02 (ninth session) 2.4 after its diff review: scouting ends with the re-run's result (found or not), after 20 min,
+  or when the scouts' tasks are gone with their agents; only the mayor's first verdict counts; no scouts without workers;
+  `scout` is clamped to 96 once the village has ground (an executor must not use it as a boundless explore, lesson 22);
+  no code-added find_site while scouting; a failed re-run wakes the planner. Left: plan_layout's material count around a
+  far site (it counts around the mayor; errs toward refusing).
+- 10-02 (ninth session) Step 2.4 design (the user agreed, "go"): scouts within the 96-block range add nothing (a bot
+  sees ~128 blocks, and a new mayor's site search, the atlas step included, stays within 96 of its spawn), so **before a
+  village's first layout its site search and its scouts may go 256 blocks from home** (as for an agent in no village,
+  2.3); after the first layout home is the plot and 96 applies again (changes the decisions of 09-28 and 10-02 for that
+  phase only). A `scout x= z=` skill walks toward a point and never fails (a dead end reports how far it got), so the
+  tasks run as written with no model calls; walking is enough (the atlas records every chunk a bot loads). Code posts
+  scout tasks once per village when the mayor's first find_site finds nothing good (a verdict field written by
+  find_site, not parsed text), in survival, to the points of an 8-point ring (radius 160 around home) **the atlas does
+  not already know** (the user agreed to this refinement: on warm land no scouting at all); `plan_layout` is refused
+  while scouts are out; when they are all back, code (not the mayor's model) runs find_site once more with the 256 range;
+  one round only, then the best site found is used. The mayor draws its designs meanwhile. Order: the 1x model-driven
+  run of batch R first (Minevale8), then 2.4.
 - 10-02 (eighth session, close) Phase 3 is deferred (the user); next: batch R (today's findings F96, F97, F95's
   follow-up, F100), then step 2.4 scouting.
 - 10-02 (eighth session) A, the fallen-tree rule: lying rows are felled, one-log stumps and other leafless logs count
@@ -1102,6 +1267,9 @@ CLAUDE.md when a phase ends.
   seeding: a village search stays within the spawn's loaded chunks, which the atlas records in seconds.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
+- 10-02 (a conversation beside the ninth session) Phase D, buildings and villages with character, written into the plan
+  at the user's request after a review of the design path (the user: the designs are "a bit flat"). Not scheduled:
+  where it goes relative to 2.4 is the user's to decide.
 
 ## Keeping this plan honest
 

@@ -337,6 +337,24 @@ export class Atlas {
     return out;
   }
 
+  /** Chunks waiting to be summarised (a scout waits for them before it reports, step 2.4). */
+  get pending() {
+    return this.queue.size;
+  }
+
+  /** The share of chunk columns within `radius` blocks of x, z that have a summary. */
+  known(x: number, z: number, radius: number): number {
+    const r = Math.ceil(radius / 16), cx0 = x >> 4, cz0 = z >> 4;
+    let all = 0, have = 0;
+    for (let dz = -r; dz <= r; dz++)
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.hypot(dx * 16, dz * 16) > radius) continue;
+        all++;
+        if (this.chunks.has(`${cx0 + dx},${cz0 + dz}`)) have++;
+      }
+    return all ? have / all : 1;
+  }
+
   /** How the atlas is doing: chunks known and waiting, and the cost of a summary (ms). */
   status() {
     const t = [...this.times].sort((a, b) => a - b);

@@ -92,6 +92,21 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /**
+   * Scouting (step 2.4): eight points on a ring of 160 blocks around home (a bot sees ~128 blocks, so the ring's
+   * walkers bring in the land out to ~256), those whose surroundings the atlas mostly does not know yet, in order
+   * around the ring. On land the atlas knows already, none: find_site reads it as it is.
+   */
+  scoutPoints(home: { x: number; z: number }) {
+    const out: Array<{ x: number; z: number }> = [];
+    for (let k = 0; k < 8; k++) {
+      const t = (k * Math.PI) / 4;
+      const x = Math.round(home.x + 160 * Math.cos(t)), z = Math.round(home.z + 160 * Math.sin(t));
+      if (this.atlas.known(x, z, 64) < 0.5) out.push({ x, z });
+    }
+    return out;
+  }
+
+  /**
    * Gather tasks for building a design in survival: its raw materials (from the bill of materials and the recipe
    * chain, with a furnace and fuel when something must be smelted), in chunks two workers can share. Builders craft
    * and smelt the rest from the village storage themselves (build_design does it).
@@ -283,7 +298,20 @@ export class MineflayerWorld implements WorldAdapter {
     if (o.position) {
       // Without y, land on the highest block at x, z
       const { x, z } = o.position;
-      await this.rcon.command(o.position.y !== undefined ? `tp ${name} ${x} ${o.position.y} ${z}` : `spreadplayers ${x} ${z} 0 1 false ${name}`);
+      if (o.position.y !== undefined) await this.rcon.command(`tp ${name} ${x} ${o.position.y} ${z}`);
+      else {
+        // spreadplayers refuses water ("Could not spread"), and the agent then stayed where its name last stood, 1,300
+        // blocks away (Scout1, F105): the nearest dry land within 16, then 64 blocks, else dropped in from above
+        let out = '';
+        for (const r of [0, 16, 64]) {
+          out = await this.rcon.command(`spreadplayers ${x} ${z} 0 ${Math.max(1, r)} false ${name}`);
+          if (!/could not spread/i.test(out)) break;
+        }
+        if (/could not spread/i.test(out)) {
+          console.log(`[spawn] ${name}: no dry land within 64 of ${x},${z}; dropped in from y 120`);
+          await this.rcon.command(`tp ${name} ${x} 120 ${z}`);
+        }
+      }
       // Let the teleport arrive, then the chunks around the new place
       await new Promise((ok) => setTimeout(ok, 1000));
       await a.bot.waitForChunksToLoad();

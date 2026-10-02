@@ -3,7 +3,8 @@ stalls (no successful action for MCAI_STALL_MIN minutes, default 3), an agent fa
 MCAI_GAMEMODE=survival (real Minecraft's village economy: materials are gathered, stored and paid for).
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
-Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30).
+Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30);
+MCAI_NO_PROBE=1 starts the village at X,Z itself instead (scouting tests).
 WORKER_PLANNER defaults to gemma4:31b. Other models: MCAI_MAYOR_MODEL (the mayor's planner), MCAI_DESIGN_MODEL (the
 architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud.
 """
@@ -111,7 +112,9 @@ def find_land(x, z):
     raise SystemExit("no land found")
 
 
-x, z, ground = find_land(x, z)
+# MCAI_NO_PROBE=1: start the village at X,Z itself, poor land or not (scouting tests, plan step 2.4): the agents get the
+# server's surface spawn there
+x, z, ground = (x, z, None) if os.environ.get("MCAI_NO_PROBE") == "1" else find_land(x, z)
 call("/village", {"name": village, "objective": objective})
 names = ["Mayor"] + [f"Worker{i + 1}" for i in range(workers)]
 for i, n in enumerate(names):

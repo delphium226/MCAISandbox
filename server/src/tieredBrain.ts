@@ -26,7 +26,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
-import { VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
+import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { taskCalls } from './taskBrain';
 
@@ -229,9 +229,30 @@ function boardStatus(a: WorldAgent): string {
     held.length ? `Workers busy: ${held.join('; ')}.` : 'No worker holds a task.',
     ready.length ? `Ready for the next free worker: ${ready.join(', ')}.` : '',
     waiting.length ? `Waiting: ${waiting.slice(0, 8).join('; ')}.` : '',
-    !v.tasks.some((t) => t.status === 'failed' && !t.soft) && (held.length || ready.length) ? 'Nothing for you to do: the workers and code handle this; wait (set_plan with an empty list).' : '',
+    scouting(a, v) ? 'The workers are scouting the land around the village; code runs find_site again when they are back. Meanwhile draw any design the objective still needs (design_building steps), then wait (set_plan with an empty list); plan_layout comes after that find_site.'
+      : !v.tasks.some((t) => t.status === 'failed' && !t.soft) && (held.length || ready.length) ? 'Nothing for you to do: the workers and code handle this; wait (set_plan with an empty list).' : '',
   ];
   return `Board status:\n${lines.filter(Boolean).join('\n')}`;
+}
+
+/** The village's scout tasks (step 2.4). */
+const scoutTasks = (v: Village) => v.tasks.filter((t) => t.postedBy === 'code' && /^Scout the land/.test(t.title));
+
+/** How long scouting may hold the layout back, whatever happens to the scouts (a worker removed mid-task). */
+const SCOUT_DEADLINE_MS = 20 * 60000;
+
+/** Scout tasks still being worked on: open, or held by an agent still in the world. */
+const scoutsOut = (a: WorldAgent, v: Village) => scoutTasks(v).filter((t) => t.status === 'open' || (t.status === 'claimed' && a.world.agentList().some((o) => o.name === t.claimedBy)));
+
+/**
+ * Whether scouting is still under way: scouts out, or back but the find_site code runs again not finished yet.
+ * plan_layout waits for it (the site found before the scouts left is the poor one); never longer than the deadline
+ * (the review of 2.4: a scout task nobody finishes held the layout back for good).
+ */
+function scouting(a: WorldAgent, v: Village): boolean {
+  if (!v.scouted || v.scoutDone || v.layouts?.length || !scoutTasks(v).length) return false;
+  if (Date.now() - v.scouted > SCOUT_DEADLINE_MS) return false;
+  return true;
 }
 
 const MAYOR_ROLE = `
@@ -609,6 +630,16 @@ export class TieredBrain implements AgentBrain {
   }
 
   onEvent(a: WorldAgent, e: AgentEvent) {
+    // (after the handlers below have set their replan reason)
+    if ((e.type === 'action_done' || e.type === 'action_failed') && e.data?.type === 'find_site' && villageRole(a) === 'mayor') {
+      const vil = a.village();
+      if (vil?.scoutRerun && !vil.scoutDone) {
+        // The search after scouting is over, whatever it found: scouting ends (one round only)
+        vil.scoutDone = Date.now();
+        a.world.villages.save();
+        if (e.type === 'action_failed') this.replanReason = `find_site found no site even over the land the scouts mapped (${String(e.data?.message ?? e.text).slice(0, 160)}); lay the village out on the best site found before, or with smaller buildings`;
+      } else queueMicrotask(() => this.maybeScout(a));
+    }
     if (e.type === 'chat' && e.data?.from !== a.name) {
       // Reply at once to people, and to agents who address this agent by name; other agent chatter waits for the
       // next turn (otherwise every message makes every listener answer, and the answers never stop)
@@ -725,6 +756,24 @@ export class TieredBrain implements AgentBrain {
     if (boardKey !== this.boardLast) {
       this.boardLast = boardKey;
       this.boardSince = now;
+    }
+    // The scouts are back (step 2.4): code runs find_site again, once, over the land they mapped (the model left to it
+    // would plan_layout on the poor site); its result wakes the planner as usual
+    if (v && role === 'mayor' && v.scouted && !v.scoutRerun && !v.layouts?.length && a.idle()) {
+      if (scoutTasks(v).length && (!scoutsOut(a, v).length || now - v.scouted > SCOUT_DEADLINE_MS)) {
+        const size = Number((a.memory.siteSearch as { size?: number } | undefined)?.size) || MAYOR_FIRST_SITE;
+        try {
+          a.enqueue('find_site', { size });
+          v.scoutRerun = now;
+          a.world.villages.note(v, `the scouts are back: code runs find_site size=${size} again`);
+          a.world.villages.save();
+          a.pushEvent('system', `The scouts are back: find_site size=${size} runs again (by code) over the land they mapped`);
+          // (not a "review the village" wake-up: the find_site result wakes the planner)
+          this.boardSeen = boardKey;
+        } catch (err) {
+          console.log(`[tiered] ${a.name}: find_site after scouting not queued: ${(err as Error).message}`);
+        }
+      }
     }
     // Once plan_layout has posted the work, code runs it (builds short of materials go back on the board behind new
     // gather tasks): the mayor is woken only for what code cannot handle, not on a timer (it re-posted work each time)
@@ -1010,7 +1059,8 @@ export class TieredBrain implements AgentBrain {
         const out = this.layout(a, v, c.input);
         a.pushEvent('system', out);
         // Refused (a design missing, the site too small, ...): act on the reason now, not at the next review
-        if (out.startsWith('plan_layout:')) this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
+        if (out.startsWith('plan_layout: not yet: the workers are scouting')) this.replanReason = null;
+        else if (out.startsWith('plan_layout:')) this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
         // Laid out only part of it: the rest needs a second site now, while the workers start on the first
         else if (v.unplaced?.length) this.replanReason = `plan_layout placed only part of the village; ${v.unplaced.join(', ')} ${v.unplaced.length > 1 ? 'need' : 'needs'} a second site: ${out.slice(out.indexOf('Find a second site'), out.length)}`;
         console.log(`[tiered] ${a.name} plan_layout: ${out}`);
@@ -1066,7 +1116,7 @@ export class TieredBrain implements AgentBrain {
       // With nothing laid out there is nothing to wait for: Fourfold7's mayor answered its first plan with an empty
       // one and nothing woke it for 3 minutes (the stall review). Without a site, code gives it the first step
       const nothingYet = v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
-      if (nothingYet && !a.memory.lastSite) {
+      if (nothingYet && !a.memory.lastSite && !scouting(a, v!)) {
         a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${MAYOR_FIRST_SITE}`], step: 0, by: label(spec), tick: a.world.ticks };
         this.lastPlan = Date.now();
         a.pushEvent('system', 'Nothing is laid out yet, so there is nothing to wait for: find a site first (step added by code)');
@@ -1077,7 +1127,7 @@ export class TieredBrain implements AgentBrain {
       a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
       this.lastPlan = Date.now();
       console.log(`[tiered] ${a.name} waits (${why.slice(0, 120)})`);
-      if (nothingYet) {
+      if (nothingYet && !scouting(a, v!)) {
         // A site but no layout: ask again shortly rather than at the 3-minute review
         this.replanReason = 'nothing is laid out yet, so there is nothing to wait for: draw any design the objective still needs (design_building steps), then call plan_layout';
         this.lastPlan = Date.now() + 10000;
@@ -1110,8 +1160,49 @@ export class TieredBrain implements AgentBrain {
     console.log(`[tiered] ${a.name} plan (${plan.by}, ${why}): ${plan.goal}\n  ${plan.steps.map((s, i) => `${i + 1}. ${s}`).join('\n  ')}`);
   }
 
+  /**
+   * Scouting (step 2.4): the mayor's first site search found nothing good (memory.siteSearch, written by find_site), so
+   * code sends the workers, once per village, to the points around home the world's map does not know yet (run as
+   * written: no model calls), while the mayor draws its designs; find_site runs again when they are back (tick).
+   */
+  private maybeScout(a: WorldAgent) {
+    const v = a.village();
+    const res = a.memory.siteSearch as { verdict?: string; size?: number } | undefined;
+    // Only the mayor's first search counts (a later one, after plan_layout refused a good site, is not a reason to scout)
+    if (!v || !res || a.memory.firstSiteJudged) return;
+    a.memory.firstSiteJudged = true;
+    if (v.scouted || v.layouts?.length || v.plots.length || a.gamemode === 'creative' || !a.world.scoutPoints || res.verdict === 'good') return;
+    const workers = a.world.agentList().filter((o) => o !== a && o.village() === v).length;
+    if (!workers) return;
+    const home = villageHome(v, a.memory);
+    if (!home) return;
+    const reg = a.world.villages;
+    v.scouted = Date.now();
+    const what = res.verdict === 'none' ? 'no site' : res.verdict === 'small' ? 'only a small site' : 'only sites with too few trees near them';
+    const pts = a.world.scoutPoints(home);
+    if (!pts.length) {
+      reg.note(v, `the first site search found ${what}; the land within ${SCOUT_RANGE} blocks is mapped already, so no scouting`);
+      reg.save();
+      return;
+    }
+    // One task per worker, each a run of neighbouring ring points
+    const n = Math.min(pts.length, workers);
+    const per = Math.ceil(pts.length / n);
+    const tasks: Array<{ title: string; detail: string; soft: boolean }> = [];
+    for (let i = 0; i * per < pts.length; i++) {
+      const part = pts.slice(i * per, (i + 1) * per);
+      tasks.push({ title: `Scout the land around the village (${i + 1}/${Math.ceil(pts.length / per)})`, detail: `${part.map((q) => `scout x=${q.x} z=${q.z}`).join(', then ')} (the land around each comes into the village map)`, soft: true });
+    }
+    const made = reg.post(v, tasks, 'code', 20);
+    reg.note(v, `the first site search found ${what}: code posted ${made.map((t) => t.id).join(', ')} to scout ${pts.length} points 160 blocks around ${home.x},${home.z}`);
+    reg.save();
+    this.replanReason = `find_site found ${what} near here. The workers are scouting the land up to 160 blocks around the village (${made.map((t) => t.id).join(', ')}); code runs find_site again when they are back. Meanwhile draw any design the objective still needs (design_building steps), then wait (set_plan with an empty list)`;
+    console.log(`[tiered] ${a.name}: first site search found ${what}; scouting ${pts.map((q) => `${q.x},${q.z}`).join(' ')}`);
+  }
+
   /** plan_layout, around the mayor's find_site result (layout.ts does the work). */
   private layout(a: WorldAgent, v: Village, input: Record<string, unknown>): string {
+    if (scouting(a, v)) return 'plan_layout: not yet: the workers are scouting the land around the village, and code runs find_site again when they are back; draw any design still missing, then wait (set_plan with an empty list)';
     const economy = a.gamemode !== 'creative' && !!a.world.materialTasks;
     return postLayout(a.world, v, a.name, a.memory.lastSite as Site | undefined, input.buildings, economy);
   }
@@ -1130,7 +1221,11 @@ export class TieredBrain implements AgentBrain {
       : `workers stay within ${VILLAGE_RANGE} blocks of the village (x=${home.x} z=${home.z}); collect searches that whole range by itself, so there is no need to explore farther`;
     if (c.name === 'move_to') {
       const x = Number(c.input.x), z = Number(c.input.z);
-      if (!Number.isFinite(x) || !Number.isFinite(z) || from(x, z) <= VILLAGE_RANGE) return null;
+      // A new village's mayor may go to its first site, which find_site may find up to SCOUT_RANGE away (Scout5: a site
+      // 110 blocks off, the walk to it refused)
+      const v = a.village();
+      const reach = villageRole(a) === 'mayor' && v && !v.layouts?.length && !v.plots.length ? SCOUT_RANGE : VILLAGE_RANGE;
+      if (!Number.isFinite(x) || !Number.isFinite(z) || from(x, z) <= reach) return null;
       return `${x},${z} is ${from(x, z)} blocks from the village; ${advice}`;
     }
     const dirs: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };

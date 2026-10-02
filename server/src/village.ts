@@ -161,12 +161,24 @@ export interface Village {
    * posts no gather task for them again (F96: Shelf's sand tasks failed 12 times in 20 s).
    */
   unavailable?: string[];
+  /**
+   * Scouting (step 2.4): when code posted scout tasks (once per village, after the mayor's first site search found
+   * nothing good), when code ran find_site again after they came back, and when that search ended (scouting is over).
+   */
+  scouted?: number;
+  scoutRerun?: number;
+  scoutDone?: number;
   /** The village mine (V.5). */
   mine?: Mine;
 }
 
 /** How far a village's mayor and its site searches may go from home. */
 export const VILLAGE_RANGE = 96;
+/**
+ * How far a new village may look before its first layout (step 2.4): its first site search and its scouts. Within 96
+ * the spawn's own view (~128 blocks) already showed everything, so scouting there added nothing.
+ */
+export const SCOUT_RANGE = 256;
 
 /** Where a village is: its first plot's centre, else its storage chest, else where the agent started (memory.origin). */
 export function villageHome(v: Village | undefined, memory?: Record<string, unknown>): { x: number; z: number } | null {
