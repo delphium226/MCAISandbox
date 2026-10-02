@@ -1169,6 +1169,8 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   let columns = 0, protectedCols = 0, felled = 0;
   const treeLogs = new Set<string>();
   const drops: string[] = [];
+  // Columns left as they are (built blocks, chests, margin over a drop): the check after the job passes them over
+  const kept = new Set<string>();
   for (let x = x0 - m; x <= x1 + m; x++)
     next: for (let z = z0 - m; z <= z1 + m; z++) {
       // How far down the ground is (under shallow water: its bottom)
@@ -1183,6 +1185,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
         // site find_site measured refused the whole plot)
         if (x < x0 || x > x1 || z < z0 || z > z1) {
           drops.push(`${x},${z}`);
+          kept.add(`${x},${z}`);
           continue;
         }
         // Not "find another site": an executor did, and prepared a plot 43 blocks off the village's layout (F83)
@@ -1195,6 +1198,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
         if (n === 'air' || n === 'cave_air') continue;
         if (!NATURAL.test(n)) {
           protectedCols++;
+          kept.add(`${x},${z}`);
           continue next;
         }
         cut.push(yy);
@@ -1229,13 +1233,55 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     const n = blockName(a, tx, ty, tz);
     if (n && isLog(n)) logs[n] = (logs[n] ?? 0) + 1;
   }
-  let summary = await runJob(a, {
-    targets, area: plot, y, free: true,
-    claim: { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false },
-  }, signal, felled);
+  const claim = { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false };
+  let summary = await runJob(a, { targets, area: plot, y, free: true, claim }, signal, felled);
   if (a.gamemode !== 'creative' && Object.keys(logs).length) {
     for (const [n, q] of Object.entries(logs)) await a.world.rcon.command(`give ${a.name} ${n} ${q}`);
     summary += `; kept ${listCounts(logs)} from the felled trees`;
+  }
+  // The plot as it came out (R.3, F95's follow-up): cells that still look unlike the plan are run once more (the
+  // server's answer to each command is the check: "Changed" is a real repair), then every plot column must pass the
+  // build's own rule (dry, ground at y-1..y, nothing above), or prepare_site fails instead of a build later ("not level")
+  await sleep(1000, signal);
+  // (only on the plot and its margin: a felled tree's cells beyond are not set again, whatever stands there now)
+  const onClaim = (t: Target) => t.x >= claim.area.x1 && t.x <= claim.area.x2 && t.z >= claim.area.z1 && t.z <= claim.area.z2;
+  const redo = targets.filter((t) => onClaim(t) && blockName(a, t.x, t.y, t.z) !== null && !alreadyThere(a, t));
+  let people = '';
+  if (redo.length) {
+    const again = await runJob(a, { targets: redo, area: plot, y, free: true, claim }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return `not redone: ${e.message.slice(0, 120)}`;
+    });
+    people = /skipped [^;]*where [^;]*stood/.exec(again)?.[0] ?? '';
+    console.log(`[prepare] ${a.name}: ${redo.length} cells looked unlike the plan after the job (${redo.slice(0, 6).map((t) => `${t.block} at ${t.x},${t.y},${t.z}`).join('; ')}${redo.length > 6 ? ' ...' : ''}); second pass: ${again}`);
+    summary += `; ${redo.length} cells redone (${again.replace(/;.*$/, '')})`;
+    await sleep(1000, signal);
+  }
+  const bad: Array<{ x: number; z: number; y: number; why: string }> = [];
+  for (let x = x0; x <= x1; x++)
+    for (let z = z0; z <= z1; z++) {
+      if (kept.has(`${x},${z}`)) continue;
+      const c = surfaceAt(a, x, z, y);
+      if (!c) continue;
+      if (c.liquid) bad.push({ x, z, y: c.y, why: 'water' });
+      else if (c.y < y - 1) bad.push({ x, z, y: c.y, why: 'hole' });
+      else if (c.y > y) bad.push({ x, z, y: c.y, why: 'block above' });
+    }
+  // The bot's view against the server's (lesson 29), for at most 64 columns; only "Test failed" clears a column (an
+  // error or an unexpected reply must not switch the check off)
+  const wrong: typeof bad = [];
+  for (const b of bad.slice(0, 64)) {
+    const ask = b.why === 'hole' ? `execute if block ${b.x} ${y} ${b.z} #minecraft:replaceable if block ${b.x} ${y - 1} ${b.z} #minecraft:replaceable`
+      : b.why === 'block above' ? `execute unless block ${b.x} ${b.y} ${b.z} #minecraft:air` : '';
+    if (!ask || !/test failed/i.test(await a.world.rcon.command(ask).catch(() => ''))) wrong.push(b);
+  }
+  wrong.push(...bad.slice(64));
+  // Water flows back whatever is done: say so, not "again"
+  const wet = wrong.filter((b) => b.why === 'water');
+  if (wet.length) throw new Error(`the plot has ${wet.length} columns of water after preparing (${wet.slice(0, 4).map((b) => `${b.x},${b.z}`).join(' ')}${wet.length > 4 ? ' ...' : ''}): water flows in from beside it; this plot cannot be made dry here`);
+  if (wrong.length) {
+    const kinds = [...new Set(wrong.map((b) => b.why))].join(', ');
+    throw new Error(`the plot is not ready after two passes: ${wrong.length} columns not level at y=${y} (${kinds}: ${wrong.slice(0, 4).map((b) => `${b.x},${b.z}`).join(' ')}${wrong.length > 4 ? ' ...' : ''})${people ? `; ${people}` : ''}; run the same prepare_site again`);
   }
   const same = (q: Plot) => q.x1 === plot.x1 && q.z1 === plot.z1 && q.x2 === plot.x2 && q.z2 === plot.z2;
   const v = a.village();

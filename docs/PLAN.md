@@ -326,7 +326,14 @@ test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): dro
       Ideas: in `claimable`, count a gather prerequisite as finished when storage covers what the unbuilt buildings
       want (the same `stock` test), and tell its holder to stop at the next step (or let it finish: harmless). Test:
       shelf staged (the mining hut should start right after the storage deposit), drop.
-- [ ] R.3 **Check the plot on the server after prepare_site** (F95's follow-up, also F92). `mcBuild.ts` prepareSite
+- [x] R.3 done 10-02 (ninth session): after the job, prepare_site re-reads every target on the plot and margin in the
+      bot's view and runs the cells unlike the plan once more (the server's reply to each command is the check: RCON fills
+      reach the bot as ordinary block updates, so lesson 29 does not apply, design review); then every plot column must
+      pass the build's own rule (dry, ground at y-1..y, nothing solid above); odd columns are confirmed over RCON (64 at
+      most; only "Test failed" clears one) and confirmed ones fail prepare_site with where they are (water: "cannot be made
+      dry here"; a person skipped around is named). Shelf6: 2 cells repaired on the second pass (positions not logged
+      then; logged now); Drop6: nothing to redo, plot level at y 65 everywhere offline (top_map.py), the stairs aside.
+      Was: **Check the plot on the server after prepare_site** (F95's follow-up, also F92). `mcBuild.ts` prepareSite
       returns "plot ready" (~1246) after runJob without looking; placements refused (2x, F92) or held back for a
       person (F99) leave holes no one sees until a build refuses "not level". Read each plot column's top over RCON
       (`execute if block` is per block: cheaper to read the bot's view, then confirm odd columns over RCON, lesson 29)
@@ -557,6 +564,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s9) | Shelf4 | shelf again, R.1 after its diff review (sand-only cascade, pass 2 512 beyond 48) | **5/5** | 9.2 min | 1 sand failure, two sand tasks closed, futile pass 1.3 s, no `[lag]` |
 | 10-02 (s9) | Shelf5 | shelf, R.2 | **5/5** | 8.8 min | the mining hut taken at 2.7 min, right after the preparer's 208-log deposit, while t674 was still held; 1 sand failure, no `[lag]` |
 | 10-02 (s9) | Hills2 | hills, R.2 | **3/3** | **7.3 min** (Hills1 10.4) | testhut taken at 7.0 min as the needs reached nothing (Hills1 waited to 10.2); 1 sand failure, no `[lag]` |
+| 10-02 (s9) | Shelf6 | shelf, R.3 first version | **5/5** | **8.5 min** | "[prepare] 2 cells looked unlike the plan after the job; second pass: placed 2 blocks" (real holes repaired; where not logged), 1 sand failure, no `[lag]` |
+| 10-02 (s9) | Drop6 | drop, R.3 after its diff review | **3/3** | **6.1 min** | 0 failed actions; nothing to redo; top_map.py after `save-all flush`: every plot column at y 65 but the mine stairs; the F99 guard moved Worker2 once |
 
 ## Findings log
 
