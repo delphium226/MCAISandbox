@@ -603,6 +603,9 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // A village with a mine digs its stone there (V.5), not in pits around the plot; what the mine cannot give at all
   // (its tunnels ended) is looked for outside as before
   const home = a.village();
+  // Sand no gatherer found near the village is not searched for again (F96: each futile search held the event loop)
+  if (home?.unavailable?.includes(label.replace(/s$/, '')) || home?.unavailable?.includes(label))
+    throw new Error(`no ${label} within 96 blocks of the village (found none before): it cannot be gathered here (a building that needs it goes without, or the task is handed back)`);
   if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
     const { got, why } = await mineFor(a, home, want, have, signal);
     if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;
@@ -691,6 +694,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
     const dry = (p: Vec3) => !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '');
+    const tPick = performance.now();
     const found = nearestBlocks(a, blocks, 48, 1024, (p) => near(p) && dry(p)).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
@@ -698,12 +702,19 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Logs high in a canopy cost too: the path search to them ran out of time again and again
     const effort = (p: Vec3) => p.distanceTo(me) + 2 * Math.max(0, me.y - p.y) + 1.5 * Math.max(0, p.y - me.y - 2) - (exposed(a, p) ? 4 : 0);
     // (logs that look built are passed over in the same pass: a rescan per skipped stump would hold the event loop)
-    let next: Vec3 | undefined = found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).sort((u, w) => effort(u) - effort(w)).find((p) => !skipBuilt(p, near));
+    // (each candidate's effort once: in the comparator it read 6 blocks per comparison, ~600 logs a search)
+    const cost = new Map(found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).map((p) => [p, effort(p)] as const));
+    let next: Vec3 | undefined = [...cost.keys()].sort((u, w) => cost.get(u)! - cost.get(w)!).find((p) => !skipBuilt(p, near));
+    if (performance.now() - tPick > 300) console.log(`[search] ${a.name}: ${Math.round(performance.now() - tPick)} ms to choose the next ${label} (${found.length} candidates)`);
     if (next) targeted.set(at(next), { by: a.name, until: Date.now() + 90000 });
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
-      next = nearestBlocks(a, blocks, 128, 256).filter((p) => !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p) && !skipBuilt(p, near));
+      // (positions only, filtered after: filtering in the search builds a Block for every match, 2.4-2.7 s for Shelf's
+      // sand under the floor; and beyond the first pass's 48 blocks, which it has judged already: the first 256 found
+      // could all be near ones it turned down, or out of range, hiding good ones farther out, F96)
+      const p0 = a.bot.entity.position;
+      next = nearestBlocks(a, blocks, 128, 512).filter((p) => p.distanceTo(p0) > 48 && !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p) && !skipBuilt(p, near));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();

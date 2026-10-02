@@ -147,6 +147,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const clash = (v.layouts ?? []).find((l) => overlaps(plot, l, 2));
     if (clash) return `plan_layout: the plot at ${areaText(plot)} overlaps the plot laid out for ${clash.buildings.join(', ')} (${areaText(clash)}); run find_site for a new site (it keeps off laid-out plots), then plan_layout again`;
     const nth = (v.layouts?.length ?? 0) + 1;
+    // Materials found nowhere near the last site are looked for again (F96)
+    delete v.unavailable;
     const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean }> = [];
     tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them)`, after: [] });
     // One storage for the village: a later layout waits for the storage task already posted

@@ -47,6 +47,23 @@ export class TaskBrain implements AgentBrain {
     } else if (e.type === 'action_failed') {
       this.waiting = false;
       const msg = String(e.data?.message ?? e.text);
+      // A gather task whose material is not to be had near the village fails at once, with the other tasks for it, as
+      // in the tiered brain: retried and taken again, Shelf's sand tasks failed 12 times in 20 s (F96)
+      const v = a.village();
+      const held = v?.tasks.find((t) => t.id === this.task);
+      const block = String((e.data?.args as Record<string, unknown> | undefined)?.block ?? '').toLowerCase();
+      if (v && held?.soft && e.data?.type === 'collect' && block && held.detail.toLowerCase().includes(`collect block=${block} `)
+        && /cannot be gathered here|none left within 96 blocks/.test(msg)) {
+        const none = /cannot be gathered here/.test(msg);
+        a.world.villages.noneToGather(v, held.id, a.name, block, msg, none);
+        this.task = null;
+        this.calls = [];
+        this.failures = 0;
+        this.fixes = 0;
+        // What was gathered goes into the storage all the same
+        if (!none) try { a.enqueue('deposit', { item: 'all' }); } catch { /* nothing to deposit with: kept for the next task's deposit */ }
+        return;
+      }
       // What a player would do, from the failure messages: craft the missing tool, collect the missing logs
       const tool = /needs (?:an? )?(\w+_(?:pickaxe|axe|shovel))/.exec(msg);
       const logs = /collect (\d+) more logs?/.exec(msg);

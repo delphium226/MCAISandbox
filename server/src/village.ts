@@ -156,6 +156,11 @@ export interface Village {
    * not built or being built yet and of `needs`, less the storage and what the village's agents carry.
    */
   needed?: { items: Record<string, number>; for: string[]; updated: number };
+  /**
+   * Materials a gatherer found none of within the village's range (sand only: without it the windows stay open). Code
+   * posts no gather task for them again (F96: Shelf's sand tasks failed 12 times in 20 s).
+   */
+  unavailable?: string[];
   /** The village mine (V.5). */
   mine?: Mine;
 }
@@ -379,6 +384,34 @@ export class VillageRegistry {
     t.result = why.slice(0, 300);
     t.updated = Date.now();
     this.note(v, `${by} could not do ${t.id} "${t.title}": ${why.slice(0, 100)}`);
+  }
+
+  /**
+   * A soft gather task whose collect found none of its material (left) near the village fails at once (F96). When it was
+   * sand and none at all, every other open sand task fails too (the next gatherer would search the same ground) and sand
+   * is recorded as unavailable, so code does not post it again until the next layout. Not other materials: a collect
+   * also says "none" while every candidate is marked out of reach for a while, and only glass has a fallback.
+   */
+  noneToGather(v: Village, id: string, by: string, item: string, why: string, none: boolean) {
+    const held = this.task(v, id);
+    if (!held || held.claimedBy !== by || held.status !== 'claimed') return;
+    this.fail(v, id, by, why);
+    const block = item.toLowerCase().replace(/^minecraft:/, '');
+    // Only sand found nowhere: "none" also comes when every candidate is marked out of reach for a while (shared by all
+    // bots), and closing log tasks would release their builds early (the review of R.1)
+    if (!none || !/^(red_)?sand$/.test(block)) return this.save();
+    const others = v.tasks.filter((t) => t.status === 'open' && t.soft && new RegExp(`^collect block=${block} count=\\d+, then deposit`).test(t.detail));
+    for (const t of others) {
+      t.status = 'failed';
+      t.result = `not to be had: ${by} found none near the village (${held.id})`;
+      t.updated = Date.now();
+    }
+    if (others.length) this.note(v, `${others.map((t) => t.id).join(', ')} closed: no more ${block} near the village`);
+    if (!v.unavailable?.includes(block)) {
+      v.unavailable = [...(v.unavailable ?? []), block];
+      this.note(v, `no ${block} near the village: buildings go without glass (windows open)`);
+    }
+    this.save();
   }
 
   /** Close every task that is not finished (the objective is met, or the mayor is starting over). */

@@ -179,6 +179,8 @@ export class MineflayerWorld implements WorldAdapter {
       items.logs = items[`${wood}_log`];
       delete items[`${wood}_log`];
     }
+    // Not what no one can find near the village (sand: the windows stay open)
+    for (const n of v.unavailable ?? []) delete items[n];
     v.needed = { items, for: unbuilt, updated: now };
     // Not while a build is under way: its builder withdraws and places, and the numbers jump (tasks were closed and
     // posted again)
@@ -197,7 +199,7 @@ export class MineflayerWorld implements WorldAdapter {
       return m ? { item: norm(m[1]), n: Number(m[2]) } : null;
     };
     // A material nobody found at all near the village (a gather task failed as not to be had) is not posted again
-    const hopeless = new Set(v.tasks.filter((t) => t.status === 'failed' && /cannot be gathered here/.test(t.result ?? '')).map((t) => gather(t)?.item));
+    const hopeless = new Set([...v.tasks.filter((t) => t.status === 'failed' && /cannot be gathered here/.test(t.result ?? '')).map((t) => gather(t)?.item), ...(v.unavailable ?? [])]);
     const storage = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
     let changed = false;
     const items = new Set([...Object.keys(need), ...v.tasks.filter((t) => t.status === 'open').map((t) => gather(t)?.item).filter((x): x is string => !!x)]);

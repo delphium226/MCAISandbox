@@ -195,6 +195,8 @@ async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, 
   for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const plan = a.world.materials.plan(short, other);
+  // Not what no one can find near the village (sand for glass: the windows stay open when only glass is short)
+  for (const n of v.unavailable ?? []) delete plan.gather[n];
   if (!Object.keys(plan.gather).length || plan.problems.length) return '';
   // A log spare (a second requeue for one log happened), of any kind: the builder splits a part across kinds, and the
   // village's own kind may be what ran short near here

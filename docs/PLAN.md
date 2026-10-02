@@ -295,7 +295,15 @@ test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): dro
 10.2 (Shelf2, with 12 futile sand collects), woods-sand 5.7 (Atlas2), hills 9.8 (Atlas3, 4 futile sand collects);
 1x model-driven: Minevale7 11.6 min.
 
-- [ ] R.1 **No futile gather tasks** (F96). `server/src/layout.ts` ~78-88 lets sand off the material check ("windows
+- [x] R.1 done 10-02 (ninth session): the first collect that finds no sand fails its task and closes the village's other
+      open sand tasks; sand is then recorded in `v.unavailable` (cleared at the next layout), which syncGather, the needs
+      list, requeueBuild and collect itself respect; the scripted worker fails such a task at once like the tiered one;
+      collect's second pass is positions only (512, beyond the first pass's 48) and filtered after; the first pass's sort
+      computes each candidate's cost once; searches over 200 ms are logged as `[search]`. Not done (design review): a
+      sand count at layout time (it never runs in staged runs, by='api', and would differ from collect's rules in four
+      ways, lesson 46). Changed pass criterion: one sand failure per village (the detector) instead of none. Shelf3/4,
+      Hills1, Drop5 in the run record; F103.
+      Was: **No futile gather tasks** (F96). `server/src/layout.ts` ~78-88 lets sand off the material check ("windows
       stay open") but `materialTasks` (`server/src/mineflayer/mcWorld.ts` ~99) still posts "Gather N sand for X"
       (and plan_layout's `gatherTasks`); collect (`mcSurvival.ts` collect, `near` ~690: within 96 of home and not
       below home y - 16, plus `dry`) then finds none. The scripted worker takes each task twice and fails twice a take
@@ -538,6 +546,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s8) | Atlas3 | staged full at 2x, test world hills (probe) | **3/3 built** | 9.8 min | atlas candidate -652,-204 (no sand) -> site -657,-204, recorded; 4 sand collects failed (none there, F96), windows open |
 | 10-02 (s8) | Atlas4 | staged full at 2x, main world, probe -235,-53 (the lake), after the review's fixes | **3/3 built** | 14.2 min | atlas -472,-44 -> site -471,-41 (jungle); the storage task collected 97 logs for 10 in 6.7 min (jungle overshoot, F62/F100); one dig_mine timed out on the way to stone, the retry went on |
 | 10-02 (s8) | **Minevale7** | model-driven at **1x** on the restored minevale3 site (test world), gpt-oss mayor and architect, qwen3.8 workers' planner, qwen3:30b executor, "two matching cottages and a meeting hall", all of today's fixes | **5/5 built**, declared complete by code | **11.6 min** (Minevale6 12.3) | **0 failed actions**; the same site as Minevale6 (-1564,-35); mayor 5 plans (4.7 s), 6 executor turns; workers ran code-posted tasks only (plan 0x); one 2.3 s `[lag]` at spawn; no guard events, no rejected moves |
+| 10-02 (s9) | Shelf3 | staged full at 2x, shelf, testhut,testhut,testhall, R.1 first version | **5/5** | **8.9 min** (Shelf2 10.2) | 1 sand failure (was 12), the other two sand tasks closed at once, windows left open (8+1+1); the futile 128-block sand pass filtered in the search took 2.4-2.7 s (one `[lag]` 2.2 s); the mining hut still waited for a held log task (F97) |
+| 10-02 (s9) | Hills1 | same on hills (3 buildings), positions-only second pass | **3/3** | 10.4 min (Atlas3 9.8, with a probe) | 1 sand failure (was 4), futile sand pass 0.6 s, no `[lag]`; testhut waited 3.3 min (6.8-10.2) for a held 12-log task while storage covered it ("NEEDED nothing"): F97 again |
+| 10-02 (s9) | Drop5 | same on drop | **3/3** | **6.6 min** (Drop3/4 6.3-6.8) | 0 failed actions, no `[lag]`; the sand near the edge gathered (1 sand) |
+| 10-02 (s9) | Shelf4 | shelf again, R.1 after its diff review (sand-only cascade, pass 2 512 beyond 48) | **5/5** | 9.2 min | 1 sand failure, two sand tasks closed, futile pass 1.3 s, no `[lag]` |
 
 ## Findings log
 
@@ -957,6 +969,12 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F103 (10-02, ninth session, R.1 runs) Search costs measured (`[search]` lines): collect's first pass (48 blocks,
+  up to 1,024 candidates, filtered in the search) takes 0.2-0.5 s for logs on every pass of its loop (once per log or
+  tree); a futile 128-block pass filtered in the search took 2.4-2.7 s on shelf (mineflayer builds a Block for every
+  matching block, and the sand under the floor is thousands), 1.3 s positions only. Each section that holds the block is
+  scanned cell by cell, so the cost follows how many sections hold it, not how many are found. Left: the first pass's
+  0.2-0.5 s per log (a smaller radius or count first, or the atlas, would cut it; no `[lag]` seen from it in R.1's runs).
 - F102 (10-02, Shelf1's log analysis) Two small marks outside the plot: a grass block dug at -1666,97,-135 and a
   dirt block left at -1667,96,-133 beside Worker1's tree (pillar try 1 refused): `fellTree`'s refill of the holes
   `dirtForClimb` dug swallows failures (`placeAt(...).catch(() => undefined)`, mcSurvival.ts ~486); and at

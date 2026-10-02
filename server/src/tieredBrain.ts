@@ -638,9 +638,9 @@ export class TieredBrain implements AgentBrain {
       const why = String(e.data?.message ?? e.text);
       const held = v && pl?.taskId ? v.tasks.find((t) => t.id === pl.taskId && t.status === 'claimed' && t.claimedBy === a.name) : undefined;
       const block = String((args as Record<string, unknown> | undefined)?.block ?? '').toLowerCase();
-      const ownMaterial = !!block && held?.detail.toLowerCase().includes(`collect block=${block}`);
+      const ownMaterial = !!block && !!held?.detail.toLowerCase().includes(`collect block=${block} `);
       if (v && pl && held?.soft && ownMaterial && type === 'collect' && /cannot be gathered here|none left within 96 blocks/.test(why)) {
-        a.world.villages.fail(v, held.id, a.name, why);
+        a.world.villages.noneToGather(v, held.id, a.name, block, why, /cannot be gathered here/.test(why));
         // Whatever is still queued for it (more of the same collect) would fail again under the next task
         a.stop();
         pl.taskId = undefined;

@@ -228,7 +228,11 @@ export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, c
   const p = a.bot.entity.position;
   // `keep` filters during the search, so `count` are all usable (filtering afterwards needed 4x the count for stone,
   // and four bots scanning that much at once starved the event loop)
+  const t0 = performance.now();
   const found = keep ? a.bot.findBlocks({ matching: ids, maxDistance, count, useExtraInfo: (b) => keep(b.position) }) : a.bot.findBlocks({ matching: ids, maxDistance, count });
+  // Long searches hold every bot's event loop (lesson 16): logged to find them
+  const ms = performance.now() - t0;
+  if (ms > 200) console.log(`[search] ${a.name}: ${Math.round(ms)} ms for ${ids.length > 3 ? `${ids.length} block kinds` : ids.map((i) => a.world.registry.blocks[i]?.name).join(', ')} within ${maxDistance} (${found.length} of ${count} found)`);
   return found.sort((u, v) => u.distanceTo(p) - v.distanceTo(p));
 }
 
