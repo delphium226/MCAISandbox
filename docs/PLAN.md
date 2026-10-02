@@ -339,7 +339,14 @@ test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): dro
       (`execute if block` is per block: cheaper to read the bot's view, then confirm odd columns over RCON, lesson 29)
       and redo or report what is missing. Test: shelf and drop staged; `scripts/checks/top_map.py` on the saved test
       world against the snapshot (`MC_SERVER_DIR=mc/testserver python mc/rcon.py "save-all flush"` first).
-- [ ] R.4 **Jungle** (F100, F62). Whole-tree felling of 2x2 jungle trees brings 45-105 logs for 9-10-log tasks and
+- [x] R.4 done 10-02 (ninth session), as option (b) after the design review: collect passes over the logs of a standing
+      tree bigger than max(40, 2 x the logs still wanted + 20) (its size from `treeLogs`, which the built/fallen check runs
+      anyway; once per tree per call) while an ordinary tree costs at most 40 blocks more to get to; giants stay the
+      fallback and are felled whole (F54). Not done: (a) cutting one column of a 2x2 trunk (no floating logs, but the same
+      climb; kept as a fallback if long tasks remain) and (c) a jungle term in the site scores (hardly worth it with (b);
+      a jungle-share rule would also hit hills). fell_trees.py takes `FELL_Y` and stage_village.py `--site-at
+      X,Y,Z,SIZE[,WOOD]` (in jungle a probe spawned by x,z lands on the canopy, lesson 19: Jungle1's probe drifted 220
+      blocks to an oak site). Jungle2 6.5 min (Atlas4 14.2). Was: **Jungle** (F100, F62). Whole-tree felling of 2x2 jungle trees brings 45-105 logs for 9-10-log tasks and
       takes minutes (Atlas4: the storage task's 10 logs took 6.7 min, 97 logs). Ideas: in `fellTree` (`mcSurvival.ts`
       ~394+) stop climbing once the collect's count is reached on a 2x2 trunk, but never leave a trunk floating (F54:
       cut what stands above what was cut?) — or prefer non-jungle trees in collect's candidate order, or weigh tree
@@ -566,6 +573,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s9) | Hills2 | hills, R.2 | **3/3** | **7.3 min** (Hills1 10.4) | testhut taken at 7.0 min as the needs reached nothing (Hills1 waited to 10.2); 1 sand failure, no `[lag]` |
 | 10-02 (s9) | Shelf6 | shelf, R.3 first version | **5/5** | **8.5 min** | "[prepare] 2 cells looked unlike the plan after the job; second pass: placed 2 blocks" (real holes repaired; where not logged), 1 sand failure, no `[lag]` |
 | 10-02 (s9) | Drop6 | drop, R.3 after its diff review | **3/3** | **6.1 min** | 0 failed actions; nothing to redo; top_map.py after `save-all flush`: every plot column at y 65 but the mine stairs; the F99 guard moved Worker2 once |
+| 10-02 (s9) | fell check, jungle | `FELL_Y=87 fell_trees.py -747 -577 10 2`, main world 2x, R.4 | **pass** | 104 s + 59 s | 21 oak logs, then 12 jungle logs; no giant felled (Atlas4: 97 logs, 6.7 min for 10); 10 high branch logs of a big oak left out of reach (F104). A first try from y 120 left Gus on the canopy (y 117), no tree reachable |
+| 10-02 (s9) | Jungle1 | staged full at 2x, main world, probe -746,-576 | **stopped** | - | the probe spawned on the canopy and the land search took an oak site 220 blocks east (-527,-627): not a jungle test; R.3 repaired a fill at -528,88,-634 |
+| 10-02 (s9) | Jungle2 | staged full at 2x, main world, `--site-at=-747,86,-576,31,jungle` (find_site from the ground: 2,149 logs within 48, mostly jungle; 3,068 tree blocks on the site) | **3/3** | **6.5 min** (Atlas4 14.2) | storage task's 10 logs in 0.8 min; every collect 9-15 logs from small trees, no giant felled; 1 sand failure (none within collect's rules); no `[lag]`; R.3 cleared 2 cells on its second pass |
 
 ## Findings log
 
@@ -985,6 +995,9 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F104 (10-02, ninth session, R.4's fell check) A big oak in the jungle at -746,87,-580 kept 10 high branch logs (e.g.
+  -750,96,-578) "out of reach" after felling: branches beyond `treeLogs`' 4-block box from the start log (the R.4 design
+  review saw the same on 2x2 trunk corners: 1-2 branch logs). They stay floating (F54's rule, small). Backlog.
 - F103 (10-02, ninth session, R.1 runs) Search costs measured (`[search]` lines): collect's first pass (48 blocks,
   up to 1,024 candidates, filtered in the search) takes 0.2-0.5 s for logs on every pass of its loop (once per log or
   tree); a futile 128-block pass filtered in the search took 2.4-2.7 s on shelf (mineflayer builds a Block for every

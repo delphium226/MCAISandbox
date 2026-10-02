@@ -69,7 +69,8 @@ def check_tree(logs):
 
 
 call("/agents/Gus", method="DELETE")
-call("/agents", {"name": "Gus", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": X + 0.5, "y": 120, "z": Z + 0.5}})
+# FELL_Y: a known ground height + 1 (in jungle a drop from y 120 lands Gus on the canopy, with no way down)
+call("/agents", {"name": "Gus", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": X + 0.5, "y": int(os.environ.get("FELL_Y", 120)), "z": Z + 0.5}})
 time.sleep(8)
 for r in range(ROUNDS):
     t = time.time()

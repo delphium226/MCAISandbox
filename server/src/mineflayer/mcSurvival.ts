@@ -323,9 +323,9 @@ async function cutFallen(a: BotAgent, row: Vec3[], signal: AbortSignal, walkMs: 
 }
 
 /** What the logs at p are: a standing tree, a fallen one (its row), or built (no leaves, not a fallen row). */
-function logKind(a: BotAgent, p: Vec3, keep: (p: Vec3) => boolean): { kind: 'tree' } | { kind: 'fallen'; row: Vec3[] } | { kind: 'built'; logs: Vec3[] } {
+function logKind(a: BotAgent, p: Vec3, keep: (p: Vec3) => boolean): { kind: 'tree'; logs: Vec3[] } | { kind: 'fallen'; row: Vec3[] } | { kind: 'built'; logs: Vec3[] } {
   const logs = treeLogs(a, p, keep);
-  if (logs.some((q) => FACES.some((f) => a.bot.blockAt(q.plus(f))?.name.endsWith('_leaves')))) return { kind: 'tree' };
+  if (logs.some((q) => FACES.some((f) => a.bot.blockAt(q.plus(f))?.name.endsWith('_leaves')))) return { kind: 'tree', logs };
   const row = fallenRow(a, p, keep);
   return row ? { kind: 'fallen', row } : { kind: 'built', logs };
 }
@@ -645,12 +645,17 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // before. Classified before any walk to it
   let skipped = 0;
   const fallen = new Map<string, Vec3[]>();
+  // Logs of the standing trees looked at in this call, with the tree's size (R.4: giant jungle trees for small tasks)
+  const treeSize = new Map<string, number>();
   const skipBuilt = (p: Vec3, near: (q: Vec3) => boolean): boolean => {
     if (!isTreeLog(a.bot.blockAt(p)?.name) || fallen.has(at(p))) return false;
     // (another log of a group already passed over: not counted again)
     if (bad.has(at(p))) return true;
     const k = logKind(a, p, near);
-    if (k.kind === 'tree') return false;
+    if (k.kind === 'tree') {
+      for (const q of k.logs) treeSize.set(at(q), k.logs.length);
+      return false;
+    }
     if (k.kind === 'fallen') {
       for (const q of k.row) fallen.set(at(q), k.row);
       return false;
@@ -704,7 +709,28 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // (logs that look built are passed over in the same pass: a rescan per skipped stump would hold the event loop)
     // (each candidate's effort once: in the comparator it read 6 blocks per comparison, ~600 logs a search)
     const cost = new Map(found.filter((p) => (p.distanceTo(me) < 16 || exposed(a, p)) && !takenByOther(p)).map((p) => [p, effort(p)] as const));
-    let next: Vec3 | undefined = [...cost.keys()].sort((u, w) => cost.get(u)! - cost.get(w)!).find((p) => !skipBuilt(p, near));
+    // A tree far bigger than what is still wanted (a 2x2 jungle giant: 97 logs and 6.7 min for a 10-log task, F100) waits
+    // while an ordinary tree costs at most 40 blocks more to get to; giants stay the fallback, felled whole (F54)
+    const tooBig = Math.max(40, 2 * (want - got) + 20);
+    let giant: Vec3 | undefined, passed = 0;
+    let next: Vec3 | undefined;
+    for (const p of [...cost.keys()].sort((u, w) => cost.get(u)! - cost.get(w)!)) {
+      if (giant && cost.get(p)! > cost.get(giant)! + 40) break;
+      if ((treeSize.get(at(p)) ?? 0) > tooBig) {
+        giant ??= p;
+        continue;
+      }
+      if (skipBuilt(p, near)) continue;
+      if ((treeSize.get(at(p)) ?? 0) > tooBig) {
+        giant ??= p;
+        passed++;
+        continue;
+      }
+      next = p;
+      break;
+    }
+    next ??= giant;
+    if (passed && next !== giant) console.log(`[trees] ${a.name}: passed over ${passed} tree${passed > 1 ? 's' : ''} of over ${tooBig} logs for one at ${at(next!)} (${want - got} ${label} still wanted)`);
     if (performance.now() - tPick > 300) console.log(`[search] ${a.name}: ${Math.round(performance.now() - tPick)} ms to choose the next ${label} (${found.length} candidates)`);
     if (next) targeted.set(at(next), { by: a.name, until: Date.now() + 90000 });
     if (!next) {

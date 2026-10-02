@@ -60,6 +60,8 @@ TESTHALL = {
 p = argparse.ArgumentParser()
 p.add_argument("village"); p.add_argument("x", type=float, nargs="?"); p.add_argument("z", type=float, nargs="?")
 p.add_argument("--site", help="a site of scripts/test_sites.json (the fixed test world)")
+p.add_argument("--site-at", help="X,Y,Z,SIZE[,WOOD]: a site find_site gave (e.g. from the ground in jungle, where a probe "
+               "spawned by x,z lands on the canopy), used directly in the world MCAI_API points at")
 p.add_argument("--buildings", default="testhut")
 p.add_argument("--design-from", action="append", default=[])
 p.add_argument("--stage", choices=["full", "build"], default="full")
@@ -165,7 +167,11 @@ for name in set(buildings):
 # ---- site and layout (the size covers the plot plus prepare_site's margin; a new village gets a 7x9 storage hut too)
 biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildings))
 size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
-if test_site and test_site.get("site"):
+if args.site_at:
+    f = args.site_at.split(",")
+    site = {"x": int(f[0]), "y": int(f[1]), "z": int(f[2]), "size": int(f[3]), **({"wood": f[4]} if len(f) > 4 else {})}
+    print(f"site given: {json.dumps(site)}", flush=True)
+elif test_site and test_site.get("site"):
     site = test_site["site"]
     print(f"site {test_site['name']} from test_sites.json: {json.dumps(site)}", flush=True)
     if site.get("size", size) < size:
