@@ -273,14 +273,15 @@ export class VillageRegistry {
   }
 
   /**
-   * Gather tasks ("collect block=X count=N, then deposit") the storage already covers are marked done: when the storage
-   * holds as much of X as every gather task for the buildings not yet built asks for, done ones included (what they
-   * brought is in the storage too). prepare_site keeps the logs of the trees it fells: 287 jungle logs sat in the
-   * storage while four workers went on gathering jungle logs.
+   * Whether the storage already covers a gather task ("collect block=X count=N, then deposit"): it holds as much of X as
+   * every gather task for the buildings not yet built asks for, done ones included (what they brought is in the storage
+   * too). Log tasks are summed together ("logs" from a short build's requeue, "oak_log" from the layout: summed per name,
+   * the same logs passed both, the review of R.2). Built once per call; returns why it is covered, or null.
    */
-  private coveredByStock(v: Village) {
+  private stockCovers(v: Village): (t: Task) => string | null {
     const chests = v.storage?.chests ?? [];
-    if (!chests.length) return;
+    if (!chests.length) return () => null;
+    const isLog = (item: string) => item === 'logs' || /_log$/.test(item);
     const stock = (item: string) => chests.reduce((s, c) => s + Object.entries(c.items)
       .filter(([n]) => (item === 'logs' ? /_log$/.test(n) : n === item)).reduce((t, [, q]) => t + q, 0), 0);
     const gather = (t: Task) => {
@@ -289,17 +290,37 @@ export class VillageRegistry {
       return m && label ? { item: m[1], n: Number(m[2]), label } : null;
     };
     const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
+    const wanted = new Map<string, number>();
+    for (const t of v.tasks) {
+      const g = gather(t);
+      if (!g || !unbuilt.has(g.label)) continue;
+      const k = isLog(g.item) ? 'logs' : g.item;
+      wanted.set(k, (wanted.get(k) ?? 0) + g.n);
+    }
+    const have = new Map<string, number>();
+    return (t) => {
+      const g = gather(t);
+      if (!g || !unbuilt.has(g.label)) return null;
+      const want = wanted.get(isLog(g.item) ? 'logs' : g.item) ?? 0;
+      if (!have.has(g.item)) have.set(g.item, stock(g.item));
+      const n = have.get(g.item)!;
+      return n >= want ? `the storage already holds enough ${g.item} (${n}, for ${want} ${isLog(g.item) ? 'logs ' : ''}wanted by the buildings still to build)` : null;
+    };
+  }
+
+  /**
+   * Open gather tasks the storage already covers are marked done. prepare_site keeps the logs of the trees it fells: 287
+   * jungle logs sat in the storage while four workers went on gathering jungle logs.
+   */
+  private coveredByStock(v: Village, covers: (t: Task) => string | null) {
     let changed = false;
     for (const t of v.tasks) {
-      const g = t.status === 'open' ? gather(t) : null;
-      if (!g || !unbuilt.has(g.label)) continue;
-      const wanted = v.tasks.map(gather).filter((x) => x && x.item === g.item && unbuilt.has(x.label)).reduce((s, x) => s + x!.n, 0);
-      const have = stock(g.item);
-      if (have < wanted) continue;
+      const why = t.status === 'open' ? covers(t) : null;
+      if (!why) continue;
       t.status = 'done';
-      t.result = `the storage already holds enough ${g.item} (${have}, for ${wanted} wanted by the buildings still to build)`;
+      t.result = why;
       t.updated = Date.now();
-      this.note(v, `${t.id} "${t.title}" was not needed: ${t.result}`);
+      this.note(v, `${t.id} "${t.title}" was not needed: ${why}`);
       changed = true;
     }
     if (changed) this.save();
@@ -308,13 +329,28 @@ export class VillageRegistry {
   /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
   claimable(v: Village): Task[] {
     this.refreshNeeds?.(v);
-    this.coveredByStock(v);
+    // (closing covered tasks changes no count: done tasks count in what is wanted, and the storage is untouched)
+    const covers = this.stockCovers(v);
+    this.coveredByStock(v, covers);
     const finished = (id: string) => {
       const p = this.task(v, id);
-      return p?.status === 'done' || (p?.status === 'failed' && !!p.soft);
+      // A gather task still held counts as finished when the storage covers it: Hills1's testhut waited 3.3 min for a
+      // 12-log task while the storage held enough (F97); the holder deposits what it brings, extra stock
+      return p?.status === 'done' || (p?.status === 'failed' && !!p.soft) || (p?.status === 'claimed' && !!p.soft && !!covers(p));
     };
-    return v.tasks.filter((t) => t.status === 'open' && t.after.every(finished) && !this.missingDesigns(v, t).length);
+    const ready = v.tasks.filter((t) => t.status === 'open' && t.after.every(finished) && !this.missingDesigns(v, t).length);
+    // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
+    for (const t of ready)
+      if (!this.aheadNoted.has(t.id)) {
+        const held = t.after.filter((id) => this.task(v, id)?.status === 'claimed');
+        if (held.length) {
+          this.aheadNoted.add(t.id);
+          this.note(v, `${t.id} "${t.title}" may start: the storage covers what ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} still gathering`);
+        }
+      }
+    return ready;
   }
+  private aheadNoted = new Set<string>();
 
   /**
    * Designs a building task names that are not in the library yet ('using the "cottage" design', 'build_design

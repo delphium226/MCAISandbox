@@ -314,7 +314,12 @@ test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): dro
       now), and make the futile search cheap (one pass, or the atlas's surface counts first). Test: Shelf (sand 93-96
       blocks off below the floor) and hills (no sand): no sand gather failures, no `[lag]` beyond spawn, windows open,
       3/3; drop (sand near the edge) still gathers its sand.
-- [ ] R.2 **A build does not wait for gather tasks storage already covers** (F97). `server/src/village.ts` ~280-300
+- [x] R.2 done 10-02 (ninth session): `claimable` counts a held (claimed) soft gather task as finished when the
+      storage covers it (`stockCovers`, the same test coveredByStock closes open ones with, built once per call; log
+      tasks of every name summed together, which errs toward waiting); the holder finishes and deposits; a board note says
+      when a task goes ahead of a held one. Not taken: closing the held task (its holder would drop the deposit, design
+      review). Shelf5 8.8 min, Hills2 **7.3 min** (Hills1 10.4: its testhut had waited 3.3 min). Was: **A build does not
+      wait for gather tasks storage already covers** (F97). `server/src/village.ts` ~280-300
       closes "Gather" tasks as "not needed" only while they are **open**; a claimed one (in progress) keeps its build
       waiting (`claimable` ~311: `t.after.every(finished)`). Shelf1: storage held 224 birch logs at 2.5 min (prepare
       felled them) but the mining hut waited for t192 (16 logs) until 3.7 min while Worker1 had nothing to do.
@@ -550,6 +555,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s9) | Hills1 | same on hills (3 buildings), positions-only second pass | **3/3** | 10.4 min (Atlas3 9.8, with a probe) | 1 sand failure (was 4), futile sand pass 0.6 s, no `[lag]`; testhut waited 3.3 min (6.8-10.2) for a held 12-log task while storage covered it ("NEEDED nothing"): F97 again |
 | 10-02 (s9) | Drop5 | same on drop | **3/3** | **6.6 min** (Drop3/4 6.3-6.8) | 0 failed actions, no `[lag]`; the sand near the edge gathered (1 sand) |
 | 10-02 (s9) | Shelf4 | shelf again, R.1 after its diff review (sand-only cascade, pass 2 512 beyond 48) | **5/5** | 9.2 min | 1 sand failure, two sand tasks closed, futile pass 1.3 s, no `[lag]` |
+| 10-02 (s9) | Shelf5 | shelf, R.2 | **5/5** | 8.8 min | the mining hut taken at 2.7 min, right after the preparer's 208-log deposit, while t674 was still held; 1 sand failure, no `[lag]` |
+| 10-02 (s9) | Hills2 | hills, R.2 | **3/3** | **7.3 min** (Hills1 10.4) | testhut taken at 7.0 min as the needs reached nothing (Hills1 waited to 10.2); 1 sand failure, no `[lag]` |
 
 ## Findings log
 
