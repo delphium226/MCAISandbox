@@ -36,14 +36,13 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   - test sites: "shelf" (a plot against a drop; its mine turned at the hillside, Shelf2), woods-sand and hills recorded;
     `site.py` checks the wood count; `fell_trees.py` takes `MCAI_API`.
   Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions.
-- **Next (recommended):**
-  1. phase 3, talking to the mayor (step 3.1 first: an API route that posts a player's chat to the mayor); 3.3's
-     "by the river" can now build on `atlasSites` (add a `near` term: water, a point);
-  2. small items from today's findings (backlog): no gather task for material collect cannot reach (F96, also a
-     ~1-2 s stall per futile collect), a build not waiting for gather tasks storage already covers (F97), a plot check
-     on the server after prepare_site (F95's follow-up), jungle in the site scores or felling that stops at the
-     task's count on 2x2 trunks (F100).
-  Left for later as before: F84, F86, two miners on crossing tunnels, the rest of the backlog.
+- **Next (decided at the close with the user, 10-02): batch R, then 2.4.** Phase 3 (talking to the mayor) is
+  **deferred** by the user. Batch R ("run-time fixes", section below, before phase 3) takes today's findings in this
+  order: R.1 F96 (no futile gather tasks; the 1-2 s stalls), R.2 F97 (a build not waiting for gather tasks storage
+  covers), R.3 F95's follow-up (check the plot on the server after prepare_site), R.4 F100/F62 (jungle: felling past
+  the task's count, and the site scores). Then step 2.4, scouting. Each R step has its code pointers and test in its
+  section; show the user the approach in a few lines first (the user's standing rule), and design reviews before code.
+  Left for later as before: F84, F86, F102, two miners on crossing tunnels, the rest of the backlog.
 - **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale7 stands on minevale3's land (reset first).
   `scripts/test_sites.json`: minevale3, minevale4, drop, shelf, woods-sand, hills recorded; woods-sand2 still probes.
   Shelf runs need `--buildings testhut,testhut,testhall`.
@@ -289,7 +288,50 @@ stairs under a wall, suffocation, block-update desync), and the economy, storage
 Then F88's fix is checked with T.3, and V.7's last model-driven pass runs at 1x. (Done 10-01: phase T closed, V.7
 passed with Minevale6.)
 
+## Batch R: run-time fixes (decided 2026-10-02 at the eighth session's close; before 2.4 and phase 3)
+
+Why: each was seen in the eighth session's runs and costs minutes or stalls; each has a ready test on a restored
+test site (staged at 2x, ~6-11 min). Order as listed. Baselines (10-02, 2x): drop 6.3-6.8 min (Drop3, Drop4), shelf
+10.2 (Shelf2, with 12 futile sand collects), woods-sand 5.7 (Atlas2), hills 9.8 (Atlas3, 4 futile sand collects);
+1x model-driven: Minevale7 11.6 min.
+
+- [ ] R.1 **No futile gather tasks** (F96). `server/src/layout.ts` ~78-88 lets sand off the material check ("windows
+      stay open") but `materialTasks` (`server/src/mineflayer/mcWorld.ts` ~99) still posts "Gather N sand for X"
+      (and plan_layout's `gatherTasks`); collect (`mcSurvival.ts` collect, `near` ~690: within 96 of home and not
+      below home y - 16, plus `dry`) then finds none. The scripted worker takes each task twice and fails twice a take
+      (Shelf1: 12 failed collects in 20 s); each futile collect's two synchronous `findBlocks` passes (48 blocks/1024,
+      then 128/256) probably block the event loop 1-2.4 s (four `[lag]` 2.0-2.4 s lines). Ideas: post gather tasks
+      only for materials collect can reach (count as collect does: the 96 range, the home y - 16 floor, dry, exposed
+      or close), let a soft gather task that finds none go without at once (the build then leaves windows open as
+      now), and make the futile search cheap (one pass, or the atlas's surface counts first). Test: Shelf (sand 93-96
+      blocks off below the floor) and hills (no sand): no sand gather failures, no `[lag]` beyond spawn, windows open,
+      3/3; drop (sand near the edge) still gathers its sand.
+- [ ] R.2 **A build does not wait for gather tasks storage already covers** (F97). `server/src/village.ts` ~280-300
+      closes "Gather" tasks as "not needed" only while they are **open**; a claimed one (in progress) keeps its build
+      waiting (`claimable` ~311: `t.after.every(finished)`). Shelf1: storage held 224 birch logs at 2.5 min (prepare
+      felled them) but the mining hut waited for t192 (16 logs) until 3.7 min while Worker1 had nothing to do.
+      Ideas: in `claimable`, count a gather prerequisite as finished when storage covers what the unbuilt buildings
+      want (the same `stock` test), and tell its holder to stop at the next step (or let it finish: harmless). Test:
+      shelf staged (the mining hut should start right after the storage deposit), drop.
+- [ ] R.3 **Check the plot on the server after prepare_site** (F95's follow-up, also F92). `mcBuild.ts` prepareSite
+      returns "plot ready" (~1246) after runJob without looking; placements refused (2x, F92) or held back for a
+      person (F99) leave holes no one sees until a build refuses "not level". Read each plot column's top over RCON
+      (`execute if block` is per block: cheaper to read the bot's view, then confirm odd columns over RCON, lesson 29)
+      and redo or report what is missing. Test: shelf and drop staged; `scripts/checks/top_map.py` on the saved test
+      world against the snapshot (`MC_SERVER_DIR=mc/testserver python mc/rcon.py "save-all flush"` first).
+- [ ] R.4 **Jungle** (F100, F62). Whole-tree felling of 2x2 jungle trees brings 45-105 logs for 9-10-log tasks and
+      takes minutes (Atlas4: the storage task's 10 logs took 6.7 min, 97 logs). Ideas: in `fellTree` (`mcSurvival.ts`
+      ~394+) stop climbing once the collect's count is reached on a 2x2 trunk, but never leave a trunk floating (F54:
+      cut what stands above what was cut?) — or prefer non-jungle trees in collect's candidate order, or weigh tree
+      kind in the site scores (`bestSite`, `mcSiteAtlas.ts`). Design review first (F54 floating trunks, lesson 30).
+      Test: a staged run on jungle land (main world -471,-41 is now Atlas4's village; find fresh jungle with
+      `scripts/checks/fresh_land.py` or the atlas), `fell_trees.py` there.
+
+Then step 2.4 (scouting) as written in phase 2.
+
 ## Phase 3: humans in the loop (part 2 of the user's goal)
+
+(Deferred by the user on 2026-10-02: batch R and step 2.4 come first.)
 
 The user asks the mayor in chat ("build me a house by the river", "we need a bigger hall"); the village designs,
 lays out, gathers and builds it, and the mayor answers in chat.
@@ -369,6 +411,17 @@ lays out, gathers and builds it, and the mayor answers in chat.
   drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand.~~ Done 10-02:
   "shelf" in `scripts/test_sites.json` (run with `--buildings testhut,testhut,testhall`; Shelf2 passed).
 - Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
+- Check scripts that still call the main world only (no `MCAI_API`): `mine.py`, `atlas.py`, `atlas_ores.py`,
+  `find_site.py` and others (`site.py`, `fell_trees.py`, `walk_speed.py` take it). Add it when one is needed on the
+  test world.
+- Atlas site scores (review of 2.3, harmless for ranking): zero sand costs +20 but one block only +8.7; chunk distances
+  are on the chunk grid (±16 blocks); atlas log counts include logs in builds and high canopy; a redundant `pad` copy.
+- Kelp test spots for later (offline search 10-02; the test world has no kelp reaching the surface, only shallow
+  seagrass at -1686,488): main world, a treeless island at -434,304 (kelp at -427,62,308 over a seabed at 61;
+  `site.py -434 304 13`) and kelp 3 blocks off shore at -293,62,90 (seabed 57).
+- Small tools kept from the eighth session: `scripts/checks/top_map.py` (offline top-ground map; found F95's pits) and
+  `scripts/checks/region_logs.py` (logs with their axis, for fallen trees).
+- F102: fellTree's swallowed refill failures; a stray dig at a plot's margin.
 
 ## Run record
 
@@ -904,6 +957,10 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F102 (10-02, Shelf1's log analysis) Two small marks outside the plot: a grass block dug at -1666,97,-135 and a
+  dirt block left at -1667,96,-133 beside Worker1's tree (pillar try 1 refused): `fellTree`'s refill of the holes
+  `dirtForClimb` dug swallows failures (`placeAt(...).catch(() => undefined)`, mcSurvival.ts ~486); and at
+  -1653,97,-142 one grass block gone where collect's `near` should exclude it (a pathfinder dig?). Cosmetic. Backlog.
 - F101 (10-02, review of 2.3) The first atlas step went to candidates before looking around the bot and walked them in
   score order (up to ~650 blocks zigzag), surveyed each at full size (a 2.4 s `[lag]` in jungle), and dropped low-wood
   results. Fixed before commit: local search first, atlas only for no village or a mayor's first site, nearest-first
@@ -987,6 +1044,8 @@ CLAUDE.md when a phase ends.
   door faces south, spot 1 is just inside it and the back-middle spot is last. Known risk, left as agreed: the hut
   chains the village (prepare -> storage -> every gather; the hut build -> every other build), so a failed prepare or
   hut build blocks the rest until the mayor steps in (review finding).
+- 10-02 (eighth session, close) Phase 3 is deferred (the user); next: batch R (today's findings F96, F97, F95's
+  follow-up, F100), then step 2.4 scouting.
 - 10-02 (eighth session) A, the fallen-tree rule: lying rows are felled, one-log stumps and other leafless logs count
   as built and are passed over at no cost (the user asked Claude to decide; the design review's measurements).
 - 10-02 (eighth session) Step 2.3 design (the user asked Claude to decide): the atlas ranks areas, the column survey

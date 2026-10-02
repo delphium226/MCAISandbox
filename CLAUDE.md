@@ -240,6 +240,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   or prepare_site), `walk_speed.py` (Gus walks 14 fixed legs on StageM8's plot: compare game speeds),
   `scripts/gen_test_sites.py NAME|all` (generate a new test site's land; its docstring says how to add a site to the
   snapshot), `region_blocks.py --world W --compare OTHER X1 Y1 Z1 X2 Y2 Z2` (a restored site against the snapshot).
+  Since 2026-10-02: `top_map.py WORLD X1 Z1 X2 Z2` (offline top-ground map: a prepared plot's pits against the
+  snapshot), `region_logs.py WORLD X1 Y1 Z1 X2 Y2 Z2` (logs with their axis: fallen trees); `site.py` also checks the
+  wood count; `site.py` and `fell_trees.py` take `MCAI_API`. The "shelf" site needs `--buildings testhut,testhut,testhall`.
   To see the panel without a browser:
   headless Edge (`"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --screenshot=<png>
   --window-size=1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
@@ -322,7 +325,8 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
 23. 2026-10-02 (eighth session; not pushed at the close, ask first): the small fixes (`797297b`: find_site's wood count
     by each column's ground (F98), kelp as water, prepare_site pits (F95), the "shelf" test site; `f390386`: fallen
     trees gathered (F94), no block set inside a player (F99)) and step 2.3, sites from the atlas (`1bf19a1`,
-    `mcSiteAtlas.ts`). Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions. Next: phase 3.
+    `mcSiteAtlas.ts`). Minevale7 (model-driven, 1x, test world): 5/5 in 11.6 min, 0 failed actions. Next (the user's
+    choice at the close): batch R in PLAN.md (F96, F97, F95's plot check, F100 jungle), then 2.4; phase 3 deferred.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
