@@ -22,6 +22,7 @@ import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts }
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
+import { atlasSites } from './mcSiteAtlas';
 import { timeScale } from './mcRules';
 
 type Pos = [number, number, number];
@@ -884,6 +885,11 @@ function bestSite(g: Ground, sz: number, maxSlope: number, ox: number, oz: numbe
 
 /** How far find_site looks around its first position, and one step (a leg) further when nothing fits there. */
 const SITE_WIDE = 112, SITE_LEG = 40, SITE_LEGS = 2;
+/** How far find_site looks in the atlas for a new village, and how far from an atlas candidate the column survey may
+ *  move the site (plan step 2.3). */
+const ATLAS_RADIUS = 256, ATLAS_CONFIRM = 32;
+/** The longest walk to one atlas candidate, and to all of them together. */
+const ATLAS_HOP = ATLAS_RADIUS, ATLAS_WALK = 300;
 /** Log blocks within 48 blocks that make ground good for a survival village (it needs ~100 logs; Accept8's site had 1). */
 const SITE_WOOD = 30;
 const COMPASS: Array<[string, number, number]> = [['north', 0, -1], ['northeast', 0.71, -0.71], ['east', 1, 0], ['southeast', 0.71, 0.71], ['south', 0, 1], ['southwest', -0.71, 0.71], ['west', -1, 0], ['northwest', -0.71, -0.71]];
@@ -915,12 +921,9 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const scarce = (c: SiteCandidate) => survival && c.wood < SITE_WOOD;
   // A site of the full size but with no trees near it (survival), kept in case nothing better turns up
   let bare: { c: SiteCandidate; logs: Vec3[] } | null = null;
-  for (let leg = 0; ; leg++) {
-    const p = a.bot.entity.position;
-    const ox = fixed && args.x !== undefined ? int(args, 'x') : Math.floor(p.x);
-    const oz = fixed && args.z !== undefined ? int(args, 'z') : Math.floor(p.z);
-    surveyed.push({ x: ox, z: oz });
-    const g = await surveyGround(a, ox, oz, SITE_WIDE + Math.floor(sz / 2), taken, signal);
+  // The column survey around one spot: the ground grid and the wood near it
+  const survey = async (ox: number, oz: number, r = SITE_WIDE + Math.floor(sz / 2), logR = 128) => {
+    const g = await surveyGround(a, ox, oz, r, taken, signal);
     // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
     // Trees, not wood buried far below (mineshaft supports at y=34 under a desert site at y=70 counted as wood near it,
     // and no one could get at them: Accept7), judged by the ground of each log's own column: a floor at the surveying
@@ -933,13 +936,77 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
       if (!colGround.has(key)) colGround.set(key, surfaceAt(a, x, z, yHint)?.y ?? null);
       return colGround.get(key)!;
     };
-    const logs = survival ? nearestBlocks(a, logIds, 128, 4096, (q) => {
+    const logs = survival ? nearestBlocks(a, logIds, logR, 4096, (q) => {
       const y0 = groundOf(q.x, q.z, q.y);
       return y0 !== null && q.y >= y0 - 16;
     }) : [];
     // ...and not more than 16 below the site itself, as collect and plan_layout count (a hill site counted the valley's
     // trees under it, which no worker may gather: review of B)
     const woodNear = survival ? (x: number, z: number, y: number) => logs.filter((q) => q.y >= y - 16 && Math.hypot(q.x - x, q.z - z) <= 48).length : null;
+    return { g, logs, woodNear };
+  };
+  // Where the atlas knows the land (plan step 2.3): when the ground around the bot has nothing good, its best few areas
+  // are checked by the column survey there, nearest first after the best, before any blind leg. Only for an agent in no
+  // village and a mayor's first site: workers (told to run find_site after a failed prepare) and a mayor's second plot
+  // stay with the local search (the review of 2.3)
+  const atlasOk = !fixed && args.atlas !== false && (!v || (a.memory.villageRole === 'mayor' && !v.layouts?.length && !v.plots.length));
+  const tryAtlas = async (): Promise<string | null> => {
+    const p0 = a.bot.entity.position.clone();
+    let cands = atlasSites(a.world.atlas.chunks, {
+      x: Math.floor(p0.x), z: Math.floor(p0.z), size: sz, radius: home ? VILLAGE_RANGE : ATLAS_RADIUS,
+      home, homeRange: VILLAGE_RANGE, taken, survival,
+    });
+    const tried: string[] = [];
+    let walkedSoFar = 0;
+    const own: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
+    while (cands.length) {
+      checkAbort(signal ?? new AbortController().signal);
+      const from = a.bot.entity.position.clone();
+      const d = (q: { x: number; z: number }) => Math.hypot(q.x - from.x, q.z - from.z);
+      const c = tried.length ? [...cands].sort((u, w) => d(u) - d(w))[0] : cands[0];
+      cands = cands.filter((q) => q !== c);
+      if (d(c) > ATLAS_HOP || walkedSoFar + d(c) > ATLAS_WALK) {
+        tried.push(`${c.x},${c.z} (too far)`);
+        continue;
+      }
+      if (d(c) > 16) {
+        await walk(a, new goals.GoalNearXZ(c.x, c.z, 4), `${c.x},${c.z}`, signal ?? new AbortController().signal, 30000 + 600 * Math.round(d(c))).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+        });
+        await a.bot.waitForChunksToLoad().catch(() => {});
+      }
+      const here = a.bot.entity.position;
+      walkedSoFar += Math.hypot(here.x - from.x, here.z - from.z);
+      if (Math.hypot(here.x - c.x, here.z - c.z) > 24) {
+        tried.push(`${c.x},${c.z} (could not get there)`);
+        continue;
+      }
+      surveyed.push({ x: c.x, z: c.z });
+      const { g, logs, woodNear } = await survey(c.x, c.z, ATLAS_CONFIRM + Math.floor(sz / 2) + 1, ATLAS_CONFIRM + 48);
+      for (const sl of slopes) {
+        const b = bestSite(g, sz, sl, c.x, c.z, ATLAS_CONFIRM, home, woodNear, own);
+        if (!b) continue;
+        if (!survival || b.wood >= SITE_WOOD) {
+          console.log(`[site] ${a.name}: atlas candidate ${c.x},${c.z} (y ${c.y}, range ${c.range}, ${c.logs} logs, ${c.sand} sand, ${c.dist} away) -> site ${b.x},${b.z}${tried.length ? `; tried ${tried.join(', ')}` : ''}`);
+          const w = Math.round(Math.hypot(here.x - p0.x, here.z - p0.z));
+          return `${siteFound(a, b, logs)} (Found from the atlas: walked ${w} blocks from ${Math.floor(p0.x)},${Math.floor(p0.z)}.)`;
+        }
+        // Full size but few trees: kept in case nothing better turns up
+        bare ??= { c: b, logs };
+        break;
+      }
+      tried.push(`${c.x},${c.z} (no ${sz}x${sz} with trees there on the ground)`);
+    }
+    if (tried.length) console.log(`[site] ${a.name}: atlas candidates did not hold: ${tried.join(', ')}; searching on from ${Math.floor(a.bot.entity.position.x)},${Math.floor(a.bot.entity.position.z)}`);
+    return null;
+  };
+  let atlasTried = false;
+  for (let leg = 0; ; leg++) {
+    const p = a.bot.entity.position;
+    const ox = fixed && args.x !== undefined ? int(args, 'x') : Math.floor(p.x);
+    const oz = fixed && args.z !== undefined ? int(args, 'z') : Math.floor(p.z);
+    surveyed.push({ x: ox, z: oz });
+    const { g, logs, woodNear } = await survey(ox, oz);
     // Nearby level ground first, then rougher nearby ground (prepare_site cuts and fills it), then farther out
     const tries: Array<[number, number]> = slopes.map((s) => [radius, s]);
     tries.push([SITE_WIDE, slopes[slopes.length - 1]]);
@@ -968,6 +1035,14 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     }
     // Nearly as big counts as found (models ask for generous sizes, then explore forever looking for them)
     if (fallback && fallback.c.size >= Math.ceil(sz * 0.8) && !treeless && !scarce(fallback.c)) break;
+    if (atlasOk && !atlasTried && !signal?.aborted) {
+      atlasTried = true;
+      const before = a.bot.entity.position.clone();
+      const found = await tryAtlas();
+      if (found) return found;
+      // Somewhere else now: look around there (as a leg)
+      if (a.bot.entity.position.distanceTo(before) >= 16) continue;
+    }
     if (fixed || leg >= SITE_LEGS || signal?.aborted) break;
     // Walk a leg toward the most dry, loaded land beyond the part already searched, staying within reach of home
     const dirs = COMPASS.map(([name, dx, dz]) => {

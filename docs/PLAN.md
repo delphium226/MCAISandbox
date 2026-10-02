@@ -127,8 +127,13 @@ sites. Code keeps and uses the atlas; models do not read it raw.
 - [ ] 2.2b **Gather from the atlas**: `collect` with nothing in view goes to the nearest atlas entry for the material
       (and fails fast if it is gone, updating the atlas). Low value while the view distance (8 chunks) covers the
       96-block range (F54); mainly a CPU saving. Test: staged full run on a site with sand out of view.
-- [ ] 2.3 **Sites from it**: `find_site` scores candidates over the atlas: level, dry, and trees, stone and sand
-      within reach. Test: staged runs in the places that went wrong (jungle hills at -560,-60; lake at -235,-53).
+- [x] 2.3 **Sites from it** (done 10-02, eighth session; design in the decisions log): `find_site` scores candidates
+      over the atlas: level, dry, and trees, stone and sand within reach. Test: staged runs in the places that went
+      wrong (jungle hills at -560,-60; lake at -235,-53). Done as `mcSiteAtlas.ts` (`atlasSites`) and an atlas step in
+      findSite: when the local search finds nothing good, the best atlas candidates (up to 3, 48 apart; nearest first
+      after the best; 300 blocks of walking at most) are checked by the column survey there. Passed: site.py at both
+      places; Atlas1 (jungle hills) 3/3 in 8.2 min, Atlas2 (woods-sand) 5.7, Atlas3 (hills) 9.8, Atlas4 (lake) 14.2 at
+      2x (F100). Stone is not scored (the mine gives it).
 - [ ] 2.4 **Scouting**: when the site search finds nothing good, code posts "scout" tasks for idle workers in
       different directions (run as written, no model calls) while the mayor draws designs. Test: model-driven run
       from a poor start point.
@@ -487,6 +492,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s8) | Drop3 | same, with F99's guard (no block into a player) | **3/3 built** | **6.3 min** (Drop1 11.0) | 0 failed actions; the guard held prepare_site's grass 4 times for Worker2 idle at its spawn on the plot (the lift came after); no leafless log met (the F94 tree lies under the plot) |
 | 10-02 (s8) | fell check, fallen row | `MCAI_API=...8767 fell_trees.py -1703 -237 6 1` on the restored drop site | **pass** | 65 s | "cut the fallen tree at -1704,67,-237: 5 of 5 logs", its stump at -1704,68,-241 left standing, then a standing tree felled (one pillar placement refused on the first try, F92) |
 | 10-02 (s8) | Drop4 | same, after the guard's review (agents teleported out of the way, doors as one command) | **3/3 built** | **6.8 min** | 0 failed actions; the guard fired once (Worker2 at its spawn, teleported); the testhut's door has both halves; the fell check on the fallen row repeated (5 of 5, stump left) |
+| 10-02 (s8) | site.py, atlas (2.3) | Gus at -560,-60 and -235,-53, main world, size 30 | **pass** | 4-103 s | first version: atlas candidates first (jungle -556,-156 -> -564,-165; lake -384,-60 failed, -472,-44 -> -470,-31, 238 away); after the review: the local search first (jungle: a local site, no walk), the lake from the atlas ("walked 234 blocks"); every figure equal to the blocks |
+| 10-02 (s8) | Atlas1 | staged full at 2x, main world, probe -560,-60 (jungle hills, PLAN's poor place) | **3/3 built** | 8.2 min | the probe took atlas candidate -556,-156 (96 away) -> site -538,-162; 0 failed actions |
+| 10-02 (s8) | Atlas2 | staged full at 2x, test world woods-sand (probe) | **3/3 built** | 5.7 min | atlas candidate -1500,-252 (range 1, 686 logs, 333 sand) -> site -1499,-253, recorded in test_sites.json; 0 failed actions |
+| 10-02 (s8) | Atlas3 | staged full at 2x, test world hills (probe) | **3/3 built** | 9.8 min | atlas candidate -652,-204 (no sand) -> site -657,-204, recorded; 4 sand collects failed (none there, F96), windows open |
+| 10-02 (s8) | Atlas4 | staged full at 2x, main world, probe -235,-53 (the lake), after the review's fixes | **3/3 built** | 14.2 min | atlas -472,-44 -> site -471,-41 (jungle); the storage task collected 97 logs for 10 in 6.7 min (jungle overshoot, F62/F100); one dig_mine timed out on the way to stone, the retry went on |
 
 ## Findings log
 
@@ -902,6 +912,15 @@ CLAUDE.md when a phase ends.
   and are passed over in the candidate search itself (shared `bad` marks, no failure). The design review measured the
   snapshot: 215 leafless groups, 140 one-log stumps, ~58 lying rows of 1-9 (57 pass), 17 by built blocks (none
   pass). F94's row is -1711,67,-208..-206 (the stump at -210, where Drop1's collect gave up).
+- F100 (10-02, Atlas4) The atlas (and bestSite) can choose dense jungle: Atlas4's site had 1,708 tree blocks on it and
+  the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
+  minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
+  stop felling at the task's count on 2x2 trunks.
+- F101 (10-02, review of 2.3) The first atlas step went to candidates before looking around the bot and walked them in
+  score order (up to ~650 blocks zigzag), surveyed each at full size (a 2.4 s `[lag]` in jungle), and dropped low-wood
+  results. Fixed before commit: local search first, atlas only for no village or a mayor's first site, nearest-first
+  after the best, 300 blocks in all, a small survey per candidate, low-wood results kept, the walk named in the reply;
+  the probes wait 300 s for find_site (was 120).
 - F72 (09-29, review of V.2b) Fixed before any run hit them: two builders at the one village furnace would mix inputs,
   fuel and glass (smelting now goes in turns, and another smelt's leftovers come out first); the hut's own crafting
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
@@ -980,6 +999,13 @@ CLAUDE.md when a phase ends.
   door faces south, spot 1 is just inside it and the back-middle spot is last. Known risk, left as agreed: the hut
   chains the village (prepare -> storage -> every gather; the hut build -> every other build), so a failed prepare or
   hut build blocks the rest until the mayor steps in (review finding).
+- 10-02 (eighth session) A, the fallen-tree rule: lying rows are felled, one-log stumps and other leafless logs count
+  as built and are passed over at no cost (the user asked Claude to decide; the design review's measurements).
+- 10-02 (eighth session) Step 2.3 design (the user asked Claude to decide): the atlas ranks areas, the column survey
+  chooses the square; within 96 blocks of home for a village (a new village's mayor has its spawn as home), 256 for an
+  agent in no village; a candidate needs 90% of its cells known, unknown land adds nothing; the atlas only replaces
+  the blind legs (after the review: only when the local search found nothing good). The test world's atlas needs no
+  seeding: a village search stays within the spawn's loaded chunks, which the atlas records in seconds.
 - 09-28 The mayor stays within 96 blocks of its village (the same range as gathering); find_site walks at most two
   40-block legs itself instead.
 

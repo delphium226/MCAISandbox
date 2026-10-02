@@ -21,7 +21,7 @@
    "name": "hills",
    "kind": "hills",
    "probe": {"x": -648, "z": -328},
-   "site": null,
+   "site": {"x": -657, "y": 78, "z": -204, "size": 32, "wood": "oak", "woodLogs": 219},
    "radius": 160,
    "notes": "StageM6's hills (its site was -740,-391 at y 111): steep wooded ground. Alternative if this probe finds nothing useful: -824,-600 (hilltop y 116-118, drops of up to 51, 10k logs, no sand within ~100). Shares no region with the western sites."
   },
@@ -45,7 +45,7 @@
    "name": "woods-sand",
    "kind": "woods-sand",
    "probe": {"x": -1480, "z": -248},
-   "site": null,
+   "site": {"x": -1499, "y": 62, "z": -253, "size": 32, "wood": "oak", "woodLogs": 746},
    "radius": 160,
    "notes": "Flat ground at y 62, sand 16 blocks off, 2.8k logs, 14% water; hills to y 114 near. The main world has the test village StageS1 here now, which does not matter in the test world. Shares r.-4.-1 and r.-3.-1 with minevale3 and drop."
   },

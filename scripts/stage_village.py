@@ -133,8 +133,8 @@ def find_land(x, z, size):
         call("/agents", {"name": "Mayor", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": px + 0.5, "z": pz + 0.5}})
         time.sleep(8)
         call("/agents/Mayor/act", {"action": "find_site", "size": size})
-        # find_site takes a few seconds, more when it walks farther out
-        for _ in range(120):
+        # find_site takes a few seconds, more when it walks farther out (to atlas candidates: up to 300 blocks, step 2.3)
+        for _ in range(300):
             time.sleep(1)
             if [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]:
                 break
