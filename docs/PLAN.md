@@ -20,43 +20,23 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-02 at the close of the ninth session: batch R and step 2.4 done, Minevale8 passed)
+(written 2026-10-03 at the close of the tenth session, which the user paused early: F106 done, phase D not started)
 
-- **Code:** committed on `tiered-brain-building`: `8ebfc33` (R.1), `e2d619b` (R.2), `9bde50f` (R.3), `aefad6e` (R.4),
-  `fd0bf3c` (step 2.4, F105) and the closing docs commit. **Not pushed** (origin is at `d15c9c5`: the eighth session's
-  five commits are unpushed too; ask the user). `main` untouched.
-- **Stack:** see the session's last message (stopped cleanly at the close unless the user asked to leave it up). Start
-  it in CLAUDE.md's order; `reset_site.py` starts the test world's two servers. No agents in either world.
-- **Where things stand:**
-  - R.1: the first collect that finds no sand fails its task, closes the other sand tasks and marks sand unavailable
-    (`v.unavailable`, cleared at the next layout); one sand failure per village is the detector, not a fault;
-  - R.2: a held gather task storage covers no longer holds its build back (Hills2 7.3 min, Hills1 10.4);
-  - R.3: prepare_site redoes what its job missed and fails, saying where, if plot columns are still wrong;
-  - R.4: small log tasks fell ordinary trees before giant jungle trees (Jungle2 6.5 min, Atlas4 14.2);
-  - 2.4: a new village's first site may lie up to 256 from the mayor's start; after a poor first verdict scouts walk the
-    ring points the atlas lacks, then code runs find_site again. Seldom needed (F108): nearly all land has a site
-    within ~110, and Scout5 found one 110 off without scouts;
-  - Minevale8 (1x, model-driven, minevale3): 5/5 in 15.9 min, 0 failed actions.
-- **Next (the user's to choose):**
-  - **F106, the search stalls** (3-10 s `[lag]` from material counts and find_site's log search on sand and stone land;
-    a stall over ~30 s drops every bot): the most urgent reliability item; positions-only searches filtered after, as
-    R.1 did for collect.
-  - **Phase D** (buildings with character), written into this plan by a conversation beside the ninth session; its
-    place relative to F106 and phase 3 is the user's call.
-  - F107 (a pickaxe remake collecting logs far from storage), F104 (oak branches left), the desert mayor's loop on
-    refused layouts (Scout3), and the backlog.
-- **Test world state:** the snapshot (`mc/testworld`) is unchanged; Minevale8 stands on minevale3 (reset first). Outside
-  the recorded sites the scouting tests left villages Scout4 (-19,-88, 4/5) and Scout5 (-378,-804, 5/5) and an empty
-  Scout1-3 in `mc/testserver/villages.json`.
-- **Main world:** Jungle1 (stopped after prepare, -527,-627) and Jungle2 (-747,-576) are new; the main agent server ran
-  at 2x for R.4 (restart without `MC_TIME_SCALE` for 1x).
-- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `stage_village.py --site-at X,Y,Z,SIZE[,WOOD]`
-  (a known site, no probe), `FELL_Y` for `fell_trees.py`, `MCAI_NO_PROBE=1` for `watch_village.py` (a village started
-  where told), `[search]` and `[prepare]` log lines. Run logs: `runs/2026-10-02/` (Shelf3-6, Hills1-2, Drop5-6,
-  Jungle1-2, Minevale8, Scout1-5).
-- **Working method:** as before. Every review found something real again (the cascade closing log tasks, the RCON probe
-  checking the wrong cell, scouting blocking plan_layout for good). Twice this session a server file was edited while a
-  run was going (no effect: the servers do not reload), against the user's rule: hold edits until the run's STOPPED line.
+- **Code:** F106 is committed on `tiered-brain-building` (the fast block scanner, see the findings log); origin is at
+  `ec88826` (pushed at this session's start), so the F106 commit is **not pushed**: ask the user. `main` untouched.
+- **Stack:** stopped cleanly at the close (both Papers saved, agent servers stopped; Ollama was never started). Start it
+  in CLAUDE.md's order. No agents in either world.
+- **Next (the user's choice of 10-03):** phase D, starting with D.1 (design bench and quick wins). Models are needed
+  for it: `python scripts/ollama_exec.py start`, then `status`. Then the backlog: F107 (a pickaxe remake collecting logs
+  far from storage), F104 (oak branches left), the desert mayor's loop on refused layouts (Scout3).
+- **Test world state:** the drop site was restored last and holds Drop7 (3/3); reset a site before using it. Minevale8
+  no longer stands on minevale3 (reset since). Scout4 and Scout5 remain outside the recorded sites.
+- **Main world:** unchanged apart from Gus's search checks at -35,324 and -349,-114 (nothing built).
+- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `scripts/checks/search_cost.py X Z` (materialsNear
+  and find_site timed at a spot, through the new read-only `GET /api/agents/:name/near?items=sand:64&range=96`). Run
+  logs: `runs/2026-10-03/` (Hills3, Shelf7, Drop7, cost-desert-*, site-*).
+- **Working method:** as before. Both reviews of F106 found real points (sky sections without a palette; the filter
+  cost on buried matches): keep reviewing before each commit.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -751,6 +731,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-02 (s9) | Scout3 | 2.4 at 2x, desert -35,324 (the test atlas knew none of it) | **stopped**, 0/5 | - | verdict treeless -> one scout task (the mayor's own find_site had walked ~125 blocks and mapped 7 of 8 ring points), run as written (162 blocks, 193 chunks added), find_site re-run by code: still treeless, nothing within 256; the mayor then looped on refused layouts; F106: 5-10 s stalls (material counts in a desert) |
 | 10-02 (s9) | Scout4 | 2.4 at 2x, 20,-120 (few trees), after the review's fixes | **stopped**, 4/5 | - | good site 46 off, no scouting; Worker2 underground at 4,60,-77 failed a sandstone task 4 times with "could not reach logs" (F107); hall 15.4 min (sandstone gathering) |
 | 10-02 (s9) | **Scout5** | 2.4 at 2x, mountain ridge -360,-696 (offline search's pick: nearest good site 156 off by the main atlas) | **5/5 built**, declared complete by code | **9.1 min** | site found 110 blocks off (beyond the old 96 limit; unmapped land) without scouting; 1 failed action (the sand detector); the mayor's move_to to its site was refused (fixed: 256 before the first layout); 3-4 s stalls from sand/sandstone counts (F106) |
+| 10-03 (s10) | search cost, desert | `search_cost.py -35 324`, main world 2x, F106 before/after | **pass** | - | materialsNear logs 2,375 -> 3 ms, stone 59 -> 4, cobblestone 39 -> 4; find_site's log searches 0.5-2.3 s each -> none over 200 ms (one 2.3 s `[lag]` before, none after); same site (-60,320) |
+| 10-03 (s10) | site checks | `site.py -35 324 24` and `-349 -114 24`, main world 2x, F106 | **pass** | 36 s, 3 s | wood count exact in oak woods (226 reported, 226 real); desert 0/0 |
+| 10-03 (s10) | Hills3 | hills, staged full 2x, F106 | **3/3** | 8.1 min (Hills2 7.3) | 1 failed action (the sand detector), no `[lag]` or `[search]` |
+| 10-03 (s10) | Shelf7 | shelf, staged full 2x, F106 (+ column cache, cheap filters first) | **5/5** | **8.4 min** (Shelf5 8.8) | 1 failed action (the sand detector), no `[lag]` or `[search]` with sand buried under the floor; R.3 redid 1 cell (F92) |
+| 10-03 (s10) | Drop7 | drop, staged full 2x, F106 | **3/3** | **5.8 min** (Drop3-4 6.3-6.8) | 0 failed actions; the near sand gathered; no `[lag]` or `[search]` |
 
 ## Findings log
 
@@ -1183,6 +1168,17 @@ CLAUDE.md when a phase ends.
   in one call (a 9.8 s `[lag]`), and sand/sandstone counts 2.1-2.8 s each with none found (3-4 s `[lag]` in the
   mountains); find_site's 4,096-log search 2.2-2.8 s in a desert. A stall over ~30 s drops every bot. Next: positions-only
   searches filtered after (as collect's second pass, R.1), or the atlas's surface counts first.
+  **Fixed 10-03** (tenth session): `nearestBlocks` (`mcUtil.ts`) no longer calls mineflayer's `findBlocks`, which built a
+  Block for every cell of each section that might hold the block; a section filled with one state (all air, all stone)
+  has no palette, so it scanned the whole sky as well. `scanBlocks` reads state ids from the loaded sections, passes over
+  sections whose palette or single state holds none of the blocks and sections outside the caller's y window, runs
+  `keep` on matches only, walks columns nearest first and stops once `count` are nearer than any column left (a true
+  sphere: findBlocks' octahedron of sections reached ~100 of 128 horizontally, so counts can only rise, the same for
+  collect and plan_layout). `exposed` and `dry` read state ids (`exposedAt`, `wetAbove`, the last column cached during
+  a scan). y windows: collect and materialsNear from home or site y - 16, find_site's logs from the lowest surveyed
+  ground - 16. Desert (-35,324, `scripts/checks/search_cost.py`): materialsNear logs 2,375 -> 3 ms, stone 59 -> 4 ms,
+  find_site's log searches 0.5-2.3 s -> none over 200 ms, same site; `site.py` in oak woods: wood 226 reported, 226
+  real. Staged at 2x: Hills3 3/3 8.1 min, Shelf7 5/5 8.4 min, Drop7 3/3 5.8 min, no `[lag]` or `[search]` line in any.
 - F105 (10-02, Scout1) `spreadplayers` refuses water ("Could not spread"), and spawning ignored the answer: an agent stayed
   where its name last stood (1,300 blocks off). Fixed: dry land within 16, then 64 blocks, else dropped in from y 120.
 - F104 (10-02, ninth session, R.4's fell check) A big oak in the jungle at -746,87,-580 kept 10 high branch logs (e.g.
@@ -1319,6 +1315,12 @@ CLAUDE.md when a phase ends.
   mistral-large-3 named the roof shape, none counted footprints reliably; kimi-k3 read doors and windows best (5-9 s),
   qwen3.8 (5-7 s on its pinned server) invented a door and logs once, gemma4 (12-14 s) misread every footprint. So a
   critic gets the exact facts from code with the render and is asked only to judge.
+- 10-03 (tenth session) The user's choices at the start: push the twelve unpushed commits (done: origin at `ec88826`),
+  then F106 (the search stalls) before phase D, which follows in the same session; F107, F104 and the desert mayor's
+  loop stay in the backlog; phase 3 stays deferred.
+- 10-03 (tenth session) F106: one fast scanner behind `nearestBlocks` rather than fixing each caller, so collect,
+  find_site and plan_layout's counts change together (lesson 46); the scan stays synchronous (it is ms now, and an async
+  materialsNear would change the WorldAdapter interface and its callers).
 
 ## Keeping this plan honest
 

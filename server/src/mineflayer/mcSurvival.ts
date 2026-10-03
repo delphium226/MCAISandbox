@@ -14,7 +14,7 @@ import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
-  abortable, at, checkAbort, countItem, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
+  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem, wetAbove,
   sleep, str, syncInventory, walk,
 } from './mcUtil';
 
@@ -136,10 +136,8 @@ export function collectTargets(a: BotAgent, raw: string): { blocks: number[]; it
 
 /** Whether a block touches air or another see-through block (can be seen and reached without digging). */
 export function exposed(a: BotAgent, p: Vec3): boolean {
-  return FACES.some((f) => {
-    const b = a.bot.blockAt(p.plus(f));
-    return !!b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';
-  });
+  // State ids, not Blocks: it runs on every match of a search (F106)
+  return exposedAt(a, p.x, p.y, p.z);
 }
 
 /** Where a village member's home is: its storage chest, or its first plot's centre. */
@@ -423,7 +421,7 @@ async function dirtForClimb(a: BotAgent, need: number, foot: Vec3, keep: (p: Vec
   const ids = ['dirt', 'grass_block', 'podzol'].map((n) => reg.blocksByName[n]?.id).filter((n): n is number => n !== undefined);
   // Ground at the tree's foot, open above, not under the tree itself
   const spots = nearestBlocks(a, ids, 8, 32, (p) => keep(p) && Math.abs(p.y - (foot.y - 1)) <= 1 && (p.x !== foot.x || p.z !== foot.z)
-    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? ''));
+    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? ''), { min: Math.floor(foot.y) - 2, max: Math.floor(foot.y) });
   for (const p of spots) {
     if (countItem(a, dirtId) >= need) break;
     await mineBlock(a, p, signal, false, 15000);
@@ -699,9 +697,11 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
-    const dry = (p: Vec3) => !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '');
+    const dry = (p: Vec3) => !wetAbove(a, p);
+    // Only from home y - 16 up, as `near` takes them (the search skips the sections below)
+    const ys = homeY === undefined ? undefined : { min: homeY - 16 };
     const tPick = performance.now();
-    const found = nearestBlocks(a, blocks, 48, 1024, (p) => near(p) && dry(p)).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
+    const found = nearestBlocks(a, blocks, 48, 1024, (p) => dry(p) && near(p), ys).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
     const me = a.bot.entity.position;
@@ -737,11 +737,11 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (!next) {
       // Nothing close: look through everything loaded (~128 blocks) for one in the open and go there; in a desert a
       // worker told to "explore" wandered for minutes without ever looking again
-      // (positions only, filtered after: filtering in the search builds a Block for every match, 2.4-2.7 s for Shelf's
-      // sand under the floor; and beyond the first pass's 48 blocks, which it has judged already: the first 256 found
-      // could all be near ones it turned down, or out of range, hiding good ones farther out, F96)
+      // (beyond the first pass's 48 blocks, which it has judged already, filtered in the search: the first ones found could
+      // all be near ones it turned down, or out of range, hiding good ones farther out, F96; the filters read state ids, F106)
       const p0 = a.bot.entity.position;
-      next = nearestBlocks(a, blocks, 128, 512).filter((p) => p.distanceTo(p0) > 48 && !failed.has(at(p)) && !bad.has(at(p)) && near(p)).find((p) => exposed(a, p) && !skipBuilt(p, near));
+      // (cheapest first: most matches are buried, and near() goes through every village's areas)
+      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && !failed.has(at(p)) && !bad.has(at(p)), ys).find((p) => !skipBuilt(p, near));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();
@@ -840,7 +840,7 @@ async function sideGather(a: BotAgent, own: number[], near: (p: Vec3) => boolean
     const carried = t.items.reduce((s, id) => s + countItem(a, id), 0);
     let left = Math.min(8, n - carried);
     if (left <= 0) continue;
-    const found = nearestBlocks(a, t.blocks, 5, 12, (p) => p.distanceTo(me) <= 4 && Math.abs(p.y - me.y) <= 2 && near(p) && exposed(a, p));
+    const found = nearestBlocks(a, t.blocks, 5, 12, (p) => p.distanceTo(me) <= 4 && Math.abs(p.y - me.y) <= 2 && near(p) && exposed(a, p), { min: Math.floor(me.y) - 2, max: Math.ceil(me.y) + 2 });
     for (const p of found) {
       if (left <= 0) break;
       checkAbort(signal);

@@ -6,6 +6,7 @@ import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { BotAgent } from './botAgent';
+import type { Column } from './mcAtlas';
 import { overlaps } from '../village';
 
 const { goals } = pathfinderPkg;
@@ -223,13 +224,154 @@ export function resolveItem(a: BotAgent, raw: string): string | null {
   return null;
 }
 
-/** A block the bot can stand next to and see: the first of `blocks` (nearest first) not in `skip`. */
-export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, count = 64, keep?: (p: Vec3) => boolean): Vec3[] {
+/** Per-state lookups for the fast block reads (one per registry): see-through and not liquid, wet (water or lava). */
+const tablesOf = new WeakMap<object, { open: Uint8Array; wet: Uint8Array; match: Map<string, Uint8Array> }>();
+function tables(a: BotAgent) {
+  const reg = a.world.registry;
+  let t = tablesOf.get(reg);
+  if (!t) {
+    const n = reg.blocksArray.reduce((m, b) => Math.max(m, b.maxStateId + 1), 0);
+    t = { open: new Uint8Array(n), wet: new Uint8Array(n), match: new Map() };
+    for (const b of reg.blocksArray) {
+      const open = b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava' ? 1 : 0, wet = /water|lava/.test(b.name) ? 1 : 0;
+      for (let s = b.minStateId; s <= b.maxStateId; s++) {
+        t.open[s] = open;
+        t.wet[s] = wet;
+      }
+    }
+    tablesOf.set(reg, t);
+  }
+  return t;
+}
+
+const cellQ = { x: 0, y: 0, z: 0 };
+// The agent whose scan is running (synchronous, so one at a time) and the column stateAt read last
+let scanning: BotAgent | null = null, lastCx = 0, lastCz = 0, lastCol: Column | null = null;
+/** The state id at a block in the bot's view, or -1 where its chunk is not loaded (no Block object: F106). */
+export function stateAt(a: BotAgent, x: number, y: number, z: number): number {
+  const cx = x >> 4, cz = z >> 4;
+  let col: Column | null;
+  // During a scan the last column is reused (getColumn builds a string key each time; filters read thousands of cells)
+  if (scanning === a && cx === lastCx && cz === lastCz) col = lastCol;
+  else {
+    col = a.bot.world.getColumn(cx, cz) as unknown as Column | null;
+    if (scanning === a) {
+      lastCx = cx;
+      lastCz = cz;
+      lastCol = col;
+    }
+  }
+  if (!col) return -1;
+  const minY = col.minY ?? ((a.bot.game as { minY?: number }).minY ?? -64);
+  if (y < minY || y >= minY + col.sections.length * 16) return 0;
+  cellQ.x = x & 15;
+  cellQ.y = y;
+  cellQ.z = z & 15;
+  return col.getBlockStateId(cellQ);
+}
+
+/** Whether a block touches air or another see-through block that is not liquid (can be seen and reached without digging). */
+export function exposedAt(a: BotAgent, x: number, y: number, z: number): boolean {
+  const { open } = tables(a);
+  const o = (s: number) => s >= 0 && open[s] === 1;
+  return o(stateAt(a, x, y - 1, z)) || o(stateAt(a, x, y + 1, z)) || o(stateAt(a, x - 1, y, z)) || o(stateAt(a, x + 1, y, z)) || o(stateAt(a, x, y, z - 1)) || o(stateAt(a, x, y, z + 1));
+}
+
+/** Whether there is water or lava on top of a block. */
+export function wetAbove(a: BotAgent, p: Vec3): boolean {
+  const s = stateAt(a, p.x, p.y + 1, p.z);
+  return s >= 0 && tables(a).wet[s] === 1;
+}
+
+/**
+ * Up to `count` blocks of `ids` within `maxDistance` of the bot (from its floored position, as findBlocks measures),
+ * nearest first, that pass `keep`, with y in `ys` when given. Reads state ids straight from the loaded sections (F106):
+ * mineflayer's findBlocks built a Block for every cell of each section that might hold the block, and a section filled
+ * with one state (all air, all stone) has no palette, so it scanned the whole sky; 2-2.4 s for logs in a desert, up to
+ * 5.4 s for stone. Sections whose palette or single state holds none of the blocks are passed over; `keep` runs on
+ * matches only. Columns go nearest first and the search stops once `count` are found closer than any column left.
+ */
+function scanBlocks(a: BotAgent, ids: number[], maxDistance: number, count: number, keep?: (p: Vec3) => boolean, ys?: { min?: number; max?: number }): Vec3[] {
+  const t = tables(a);
+  const key = ids.join(',');
+  let match = t.match.get(key);
+  if (!match) {
+    match = new Uint8Array(t.open.length);
+    for (const id of ids) {
+      const b = a.world.registry.blocks[id];
+      if (b) for (let s = b.minStateId; s <= b.maxStateId; s++) match[s] = 1;
+    }
+    t.match.set(key, match);
+  }
+  const m = match;
+  const pt = a.bot.entity.position.floored();
+  const R = maxDistance;
+  const y1 = Math.max(pt.y - R, ys?.min ?? -Infinity), y2 = Math.min(pt.y + R, ys?.max ?? Infinity);
+  if (y1 > y2) return [];
+  // Columns within reach, by the nearest any of their blocks can be (horizontally)
+  const cols: Array<{ cx: number; cz: number; d: number }> = [];
+  const cr = Math.ceil(R / 16) + 1, pcx = pt.x >> 4, pcz = pt.z >> 4;
+  for (let cx = pcx - cr; cx <= pcx + cr; cx++) {
+    for (let cz = pcz - cr; cz <= pcz + cr; cz++) {
+      const dx = Math.max(cx * 16 - pt.x, 0, pt.x - (cx * 16 + 15)), dz = Math.max(cz * 16 - pt.z, 0, pt.z - (cz * 16 + 15));
+      const d = Math.hypot(dx, dz);
+      if (d <= R) cols.push({ cx, cz, d });
+    }
+  }
+  cols.sort((u, v) => u.d - v.d);
+  let out: Array<{ p: Vec3; d: number }> = [];
+  const byD = (u: { d: number }, v: { d: number }) => u.d - v.d;
+  for (const c of cols) {
+    if (out.length >= count) {
+      // Keep the nearest `count`; stop when the farthest of them is nearer than anything in this column
+      out.sort(byD);
+      out.length = count;
+      if (out[count - 1].d <= c.d) break;
+    }
+    const col = a.bot.world.getColumn(c.cx, c.cz) as unknown as Column | null;
+    if (!col) continue;
+    const minY = col.minY ?? ((a.bot.game as { minY?: number }).minY ?? -64);
+    const s1 = Math.max(0, (Math.max(y1, minY) - minY) >> 4), s2 = Math.min(col.sections.length - 1, (y2 - minY) >> 4);
+    for (let s = s1; s <= s2; s++) {
+      const sec = col.sections[s];
+      if (!sec) continue;
+      // One state fills it (all air, all stone): either every cell matches or none; or its palette holds none of them
+      if (sec.palette ? !sec.palette.some((st) => m[st]) : sec.data.value !== undefined && !m[sec.data.value]) continue;
+      const sy = minY + s * 16;
+      for (let j = 0; j < 4096; j++) {
+        if (!m[sec.data.get(j)]) continue;
+        const y = sy + (j >> 8);
+        if (y < y1 || y > y2) continue;
+        const x = c.cx * 16 + (j & 15), z = c.cz * 16 + ((j >> 4) & 15);
+        const d = Math.hypot(x - pt.x, y - pt.y, z - pt.z);
+        if (d > R) continue;
+        const p = new Vec3(x, y, z);
+        if (keep && !keep(p)) continue;
+        out.push({ p, d });
+      }
+    }
+  }
+  out = out.sort(byD).slice(0, count);
+  return out.map((o) => o.p);
+}
+
+/**
+ * Blocks of `ids` within `maxDistance` that pass `keep` (positions only: read what you need with stateAt, exposedAt
+ * and wetAbove, not blockAt, when matches can be many), at most `count`, nearest first; `ys` limits their height.
+ */
+export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, count = 64, keep?: (p: Vec3) => boolean, ys?: { min?: number; max?: number }): Vec3[] {
   const p = a.bot.entity.position;
-  // `keep` filters during the search, so `count` are all usable (filtering afterwards needed 4x the count for stone,
-  // and four bots scanning that much at once starved the event loop)
   const t0 = performance.now();
-  const found = keep ? a.bot.findBlocks({ matching: ids, maxDistance, count, useExtraInfo: (b) => keep(b.position) }) : a.bot.findBlocks({ matching: ids, maxDistance, count });
+  scanning = a;
+  lastCol = null;
+  lastCx = lastCz = NaN;
+  let found: Vec3[];
+  try {
+    found = scanBlocks(a, ids, maxDistance, count, keep, ys);
+  } finally {
+    scanning = null;
+    lastCol = null;
+  }
   // Long searches hold every bot's event loop (lesson 16): logged to find them
   const ms = performance.now() - t0;
   if (ms > 200) console.log(`[search] ${a.name}: ${Math.round(ms)} ms for ${ids.length > 3 ? `${ids.length} block kinds` : ids.map((i) => a.world.registry.blocks[i]?.name).join(', ')} within ${maxDistance} (${found.length} of ${count} found)`);

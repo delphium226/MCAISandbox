@@ -211,6 +211,18 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     return sendJson(res, 200, a.events.filter((e) => e.id > since));
   }
   if (sub === 'actions') return sendJson(res, 200, { current: a.current?.status ?? null, queued: a.queue, history: a.history.slice(-30) });
+  // plan_layout's material count around where the agent stands, timed (F106): /api/agents/Gus/near?items=sand:64,stone:300&range=96
+  if (sub === 'near') {
+    const want = Object.fromEntries((url.searchParams.get('items') ?? '').split(',').filter(Boolean).map((x) => { const [n, q] = x.split(':'); return [n.trim(), Math.max(1, Number(q ?? 1) || 1)]; }));
+    const p = a.bot.entity.position.floored();
+    const out: Record<string, { found: number; ms: number }> = {};
+    for (const [n, q] of Object.entries(want)) {
+      const t0 = performance.now();
+      const found = w.materialsNear(a.name, { [n]: q }, p.x, p.y - 1, p.z, Number(url.searchParams.get('range') ?? 96))?.[n] ?? 0;
+      out[n] = { found, ms: Math.round(performance.now() - t0) };
+    }
+    return sendJson(res, 200, { at: { x: p.x, y: p.y - 1, z: p.z }, counts: out });
+  }
   if (sub === 'memory') {
     if (req.method === 'POST') Object.assign(a.memory, await readJson(req));
     return sendJson(res, 200, a.memory);

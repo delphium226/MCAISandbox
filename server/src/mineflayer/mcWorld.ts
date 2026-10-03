@@ -83,7 +83,7 @@ export class MineflayerWorld implements WorldAdapter {
         // close to the site, and farther out only blocks in the open (Accept12: sandstone buried under sand 50-90 blocks
         // away counted, and gatherers found "none within 96 blocks"); only as many as wanted
         const keep = (p: Vec3) => { const d = Math.hypot(p.x - x, p.z - z); return p.y >= y - 16 && d <= range && (d <= 40 || exposed(a, p)); };
-        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, Math.max(1, Math.ceil(count)), keep).length;
+        out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, Math.max(1, Math.ceil(count)), keep, { min: y - 16 }).length;
       } catch {
         // An unknown name: not this check's business
       }

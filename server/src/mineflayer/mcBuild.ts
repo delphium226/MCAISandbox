@@ -938,10 +938,13 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
       if (!colGround.has(key)) colGround.set(key, surfaceAt(a, x, z, yHint)?.y ?? null);
       return colGround.get(key)!;
     };
+    // (none below the lowest surveyed ground - 16: both counts below take logs from site y - 16 up, F106)
+    let lowest = Infinity;
+    for (let k = 0; k < g.kind.length; k++) if ((g.kind[k] === 0 || g.kind[k] === 2) && g.y[k] < lowest) lowest = g.y[k];
     const logs = survival ? nearestBlocks(a, logIds, logR, 4096, (q) => {
       const y0 = groundOf(q.x, q.z, q.y);
       return y0 !== null && q.y >= y0 - 16;
-    }) : [];
+    }, Number.isFinite(lowest) ? { min: lowest - 16 } : undefined) : [];
     // ...and not more than 16 below the site itself, as collect and plan_layout count (a hill site counted the valley's
     // trees under it, which no worker may gather: review of B)
     const woodNear = survival ? (x: number, z: number, y: number) => logs.filter((q) => q.y >= y - 16 && Math.hypot(q.x - x, q.z - z) <= 48).length : null;

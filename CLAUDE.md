@@ -655,6 +655,11 @@ Lessons from the adapter:
 52. **Measure how often a case happens before building for it** (F108): an offline port of `atlasSites` over the main
    atlas showed nearly all land has a good site within ~110 blocks, so scouting (2.4) is a safety net; five starts chosen
    as poor gave one scouting run. Widening a range before the first layout did more than the scouts.
+53. **Mineflayer's `findBlocks` scans the sky** (F106, 2026-10-03): a section filled with one state has no palette, so
+   every all-air and all-stone section was read cell by cell, a Block built per cell; a futile log search took 2.4 s in a
+   desert. `nearestBlocks` now reads state ids itself (`scanBlocks`: palette and single-state skips, a y window per
+   caller, filters on matches only, ~3 ms). Never call `bot.findBlocks` directly; in search filters read with
+   `stateAt`/`exposedAt`/`wetAbove`, not `blockAt`. `scripts/checks/search_cost.py X Z` times the counts at a spot.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

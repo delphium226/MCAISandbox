@@ -72,8 +72,8 @@ const SAVE_MS = 30_000;
 
 /** A section of 16x16x16 blocks (prismarine-chunk): `palette` lists the states it uses (only grows: a state dug out
  *  stays in it), missing when one state fills it (`data.value`) or it stores state ids directly. */
-type Section = { solidBlockCount: number; palette?: number[]; data: { get(i: number): number; value?: number } };
-type Column = {
+export type Section = { solidBlockCount: number; palette?: number[]; data: { get(i: number): number; value?: number } };
+export type Column = {
   minY: number;
   sections: Array<Section | null | undefined>;
   getBlockStateId(p: { x: number; y: number; z: number }): number;
