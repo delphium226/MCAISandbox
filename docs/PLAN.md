@@ -405,8 +405,10 @@ Every step keeps the economy's guards (bills, materials near the site, no workst
 is paid for in gathering time (log roofs: Accept16 and 18 took 38-39 min, F51): a stair costs 1.5 planks and a slab
 0.5, so a stair gable with a 1-block overhang on a 9x9 is ~200 planks against 81 for a flat plank roof, and a slab
 roof ~40. New designs are tried in creative first (runs of 4-10 min), then in survival on a restored test site. The
-architect is gpt-oss:120b-cloud; designbench (D.1) can compare others (the `claude:` provider works for `designModel`,
-billed separately), but the generator (D.2) should make the model's strength matter less. Order as listed; D.7 later.
+architect is gpt-oss:120b-cloud; designbench (D.1) compares it with the local models only: no cloud model dearer than
+gpt-oss and no Claude API (decision 10-03); the generator (D.2) should make the model's strength matter less. A vision
+critic, if one is added, is the local qwen3.8 (test of 10-02 below). Order as listed, with D.8's renderer and critic
+alongside D.3; D.7 later.
 
 - [ ] D.1 **Quick wins and a design bench** (prompts and small code; measure before and after):
       - `scripts/bench/designbench.mts`: the architect's real prompts (cottage and meeting-hall briefs from the runs,
@@ -484,6 +486,44 @@ billed separately), but the generator (D.2) should make the model's strength mat
       down to the ground under a building on uneven ground instead of levelling it all. Touches prepare_site (several
       levels), `layoutBuildings`, the village's and the mine's protected ground (lessons 31, 35) and find_site's scores
       (a slope stops being a reason to pass a site over).
+- [ ] D.8 **Pictures and inspiration** (added 10-03; the renderer and the critic go with D.3, the sources after D.5):
+      - **Renderer**: a design (or a box of world blocks from `GET /api/blocks`) drawn offline as an isometric PNG, two
+        views (south-east and north-west), block colours averaged from the textures in the client jar (flat colours
+        will do at first). A prototype (Python and Pillow, ~80 lines, flat colours) rendered Minevale5's cottage and
+        Sunhollow3's stepped pyramid correctly in a session scratchpad; rewrite it in the repo. Uses: design
+        thumbnails on the panel, the critic's input, and a view of the whole village from above (layout, sameness,
+        prepare_site's scars in the terrain).
+      - **Vision critic** on the local qwen3.8 (decision 10-03): the render goes with the exact facts from code (size,
+        layers, materials, door and window sides; dimensions written on the picture) and the model only judges: a
+        critique and changes in the generator's terms (D.2), or the best of N generated variants for the brief.
+        Measured 10-02 without the facts: 5-7 s an image, roof shapes right, counts unreliable, plain plank roofs
+        proposed where kimi-k3 proposed stairs. First test: the same two renders with the facts given, scored against
+        the layers; then designbench with and without the critic (share of pitched roofs, cost, seconds).
+      - **Sources, gathered offline before runs, never searched for during one**:
+        - Builders' rules: walls with depth (pillars out a block, windows set back), log frames, a stone base under
+          wood, overhangs with upside-down stairs under the eaves, roof trim, odd widths for a centred ridge,
+          trapdoors and fences as detail. A model distils them from tutorials into a list; they become generator
+          features (D.2) and lint checks (D.3).
+        - A style book: 30-50 vernacular styles (half-timbered, Alpine chalet, adobe, Nordic longhouse...) as cards of
+          generator settings and materials by biome, written by a model and reviewed by the user. Minecraft is close
+          to 1:1 (a storey is about 3 blocks), so real proportions carry over.
+        - Photos to style cards: qwen3.8 (or gemma4) reads a reference photo into a card; later the user gives the
+          mayor a photo on the panel ("build this", with phase 3).
+        - Village plans: geography's village types (street, green, clustered, round) for D.4's templates; real
+          villages' footprints and streets from OpenStreetMap (ODbL: attribution).
+        - Christopher Alexander's *A Pattern Language* for layout and lint rules ("small public squares", "entrance
+          transition", "light on two sides of every room"), in our own words.
+        - Build collections: GrabCraft (MineAnyBuild used ~7,000 builds from it), rom1504's
+          minecraft-schematics-dataset, CraftAssist/3D-Craft (2,586 player-built houses). Curated picks imported
+          locally under each creator's terms (D.5's importer), and statistics (proportions, roof pitches, material
+          pairings, window spacing) for the generator's defaults; nothing redistributed.
+      - **Further out**: a short history per village that shapes it (an old core round the green, newer houses along
+        the road), houses shaped by their owners' work (the miner's stone house by the mine), landmarks the atlas
+        suggests (a lighthouse on the coast, a mill at the river, a watchtower on the highest ground), styles that
+        drift between neighbouring villages, and GDMC's four criteria (adaptability, functionality, narrative,
+        aesthetics) as a rubric for judging villages.
+      Background (10-02): in MineAnyBuild (NeurIPS 2025) the best models scored ~41/100 at writing building plans as
+      block matrices, the format our architect writes: pictures and styles in, geometry from code.
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
@@ -1272,6 +1312,13 @@ CLAUDE.md when a phase ends.
 - 10-02 (a conversation beside the ninth session) Phase D, buildings and villages with character, written into the plan
   at the user's request after a review of the design path (the user: the designs are "a bit flat"). Not scheduled:
   where it goes relative to 2.4 is the user's to decide.
+- 10-03 (the same conversation) No cloud models that cost extra (the user): Ollama Cloud bills every call against the
+  plan's monthly credits by model since 08-31 (gpt-oss:120b $0.15/$0.60 per million tokens in/out, kimi-k3 $3/$15), and
+  the Claude API is billed separately. gpt-oss stays the mayor's planner and architect (a few cents a village); vision
+  work goes to the local models. The vision test that led to it (two design renders, 10-02): every model but
+  mistral-large-3 named the roof shape, none counted footprints reliably; kimi-k3 read doors and windows best (5-9 s),
+  qwen3.8 (5-7 s on its pinned server) invented a door and logs once, gemma4 (12-14 s) misread every footprint. So a
+  critic gets the exact facts from code with the render and is asked only to judge.
 
 ## Keeping this plan honest
 
