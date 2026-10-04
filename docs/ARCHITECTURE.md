@@ -68,7 +68,7 @@ flowchart LR
 | Minecraft agents | `server/src/mineflayer/` | Agents as Mineflayer bots on the Paper server, their skills, the same REST API. |
 | Test world | `mc/testserver.py`, `scripts/reset_site.py` | A second Paper server and agent server on the seed's untouched land, restored site by site before staged runs. |
 | Brains | `server/src/tieredBrain.ts`, `llmBrain.ts`, `brains.ts` | Decide what agents do. The tiered and llm brains run in either world. |
-| Villages | `server/src/village.ts`, `designs.ts` | Shared project state and building designs, one registry per world. |
+| Villages | `server/src/village.ts`, `designs.ts`, `buildingGen.ts` | Shared project state and building designs (drawn by the architect, or by code from its style), one registry per world. |
 | Control panel | `server/panel/index.html`, `server/src/panel.ts` | Live view of every agent's body and brain, maps, the task board. |
 | Model servers | `scripts/ollama_exec.py`, the Ollama app | Local models pinned to GPUs; the app relays cloud models. |
 
@@ -147,9 +147,10 @@ flowchart TB
     llm["llmBrain.ts"]
     layoutts["layout.ts<br/>(plan_layout)"]
     huts["huts.ts<br/>(storage hut design)"]
+    gen["buildingGen.ts<br/>(buildings from a style)"]
     taskb["taskBrain.ts<br/>(scripted worker, tests)"]
     village["village.ts"]
-    designs["designs.ts"]
+    designs["designs.ts<br/>(checks, elevations, lint)"]
     skills["skills.ts<br/>(tool definitions)"]
     panelts["panel.ts"]
   end
@@ -223,7 +224,7 @@ flowchart TD
   executor --> guard{"Loop guards<br/>failed twice? done twice in 2 min?<br/>chatted in the last 30 s?"}
   guard -- refused --> notes["noted as refused<br/>(the model sees it next turn)"]
   guard -- ok --> queue["agent.enqueue(skill, args)"]
-  executor -- design_building --> architect["Architect call<br/>submit_design, validated,<br/>three tries with the problems"]
+  executor -- design_building --> architect["Architect call<br/>submit_style (code draws it)<br/>or submit_design; validated,<br/>three tries, one revision"]
   architect --> library[("design library")]
   queue --> skill["the world runs the skill"]
   skill -- "action_done / action_failed" --> onevent["onEvent: step auto-done,<br/>failure counted, replan triggers"]
@@ -236,10 +237,11 @@ What each model is shown, per call:
 |---|---|---|---|
 | Planner | role, objective, long-term notes, village summary (plots, buildings, designs, storage contents, task board, recent village events, ground others are working on), previous plan, events since the last plan, observation; a worker also its claimed task | `set_plan`; the mayor also `plan_layout`, `post_tasks` and `declare_complete` | on the triggers above; a worker only for tasks a model wrote (code-posted tasks carry their own steps, so in the acceptance runs no worker's planner was called once) |
 | Executor | plan with the current step marked, the claimed task, recent decisions, blocked calls, events since its last turn, a trimmed observation (~2k tokens) | 1-3 skill calls, or `step_done`, `design_building`, `request_replan` | whenever the agent is idle, at least 6 s apart; 1.5 s when urgent. A step of a code-posted task is first queued exactly as written; the executor takes it over only after it fails (executors had rewritten such calls: withdrawing logs and depositing them again counted as gathering) |
-| Architect | the design rules and format with the world's block list (`designSystem(blocks, states)`: in Minecraft the rules for block states and a 7x7 stair-gable example; in the sandbox a flat-roofed hut), a brief, the existing designs | `submit_design` (layers of spaced symbols plus a palette) | when a `design_building` call is made; up to three tries when the checks send it back |
+| Architect | the design rules and format with the world's block list (`designSystem(blocks, states)`: in Minecraft the style first, with an example, then drawing by hand for what a style cannot express, the rules for block states and a 7x7 stair-gable example; in the sandbox a flat-roofed hut), a brief, the existing designs; on a revision, what it submitted, its elevations and the lint notes | `submit_style` (Minecraft: a style code draws) or `submit_design` (layers of spaced symbols plus a palette) | when a `design_building` call is made; up to three tries when the checks send it back (a failed model call is one), one of them a revision when a valid design has lint notes |
 
 Code, not the model, does arithmetic and geometry and cleans up model output: `craft` makes missing planks and sticks,
-doors are moved onto an outside wall, `find_site` suggests the largest site that fits, `plan_layout` places buildings,
+doors are moved onto an outside wall, the building generator draws roofs, walls and doors from a style and fits the
+style to the budget, `find_site` suggests the largest site that fits, `plan_layout` places buildings,
 design layers sent as JSON strings (even without their outer brackets) are parsed, tasks written as skill calls are
 turned into task text, plan steps given as objects are turned into text (keeping arguments such as a design's name).
 
@@ -259,6 +261,48 @@ Code also keeps the mayor on its job, because gpt-oss drifts back to doing the w
 | `move_to` and `explore` beyond 96 blocks of home are refused or shortened (every member; a new village's mayor may walk up to 256 to its first site) | a mayor wandering 500 blocks for a site; a worker exploring to 180 blocks out |
 | Buildings that did not fit are laid out by code at the mayor's next successful `find_site` | the model placing them there only 1-2 times in 10 |
 | A poor first site search sends scouts (code-posted, once per village); `plan_layout` waits for them (at most 20 minutes) and code runs `find_site` again when they are back | a mayor left to it would lay the village out on the poor site |
+
+### Designs: from a brief to the library
+
+`TieredBrain.design()` runs the architect (phase D, `docs/PLAN.md`). Where the world takes block states (Minecraft) it
+offers two tools, `submit_style` first; the sandbox offers `submit_design` only.
+
+```mermaid
+flowchart TD
+  brief["design_building name, brief<br/>(+ site room, materials near,<br/>the survival note)"] --> call["architect call<br/>(a failed call is one try)"]
+  call -- submit_style --> norm["normalizeStyle: enums, odd sizes,<br/>material names read as meant"]
+  norm --> fit["capWalls (house 9, landmark 11),<br/>fitSmelts (stone to cobblestone,<br/>glass to panes), shrinkStyle<br/>(largest size within the budget)"]
+  fit --> gen["generateDesign (buildingGen.ts):<br/>layers, palette, Design.style"]
+  call -- submit_design --> stations["survival: workstations<br/>and chests become air"]
+  gen --> check{"validateDesign, obtainable,<br/>no workstations, fits the site,<br/>budget and furnace runs"}
+  stations --> check
+  check -- "errors (a hand drawing is<br/>pointed at submit_style)" --> call
+  check -- ok --> lint{"lintDesign: strong notes,<br/>first valid design?"}
+  lint -- "yes: shown back once with<br/>elevations (a style stays a style)" --> call
+  lint -- "no, or a revision" --> keep["saved: a revision only<br/>with fewer notes than the first"]
+  keep --> library[("design library")]
+```
+
+`generateDesign` draws a style (`BuildingStyle`: walls width and depth, wall height, floor, base course, log frame,
+wall material, roof gable, hip or flat with its axis, material and overhang, windows, door side) on a grid of the walls
+plus the overhang ring. The roof is a height field over that grid (gable: rising from the two long sides to a ridge;
+hip: from all four), each cell's block a stair facing uphill or, at the top, a slab ridge; the wall columns are filled
+up to the roof, so gable ends are whole, and the inside is left empty (the roof is a shell); a flat roof is one layer
+with a slab parapet. Without a floor the inside keeps the prepared ground and a foundation course goes under the walls.
+Windows go every other cell from the middle of each wall (sizes are odd, so they are symmetric) and the door in the
+middle of its wall. Stair `shape` is left out: `/setblock` and `/fill` compute it from the neighbours (read from the
+26.1.2 jar); `stairShape()` is vanilla's rule, for `gen_designs.mts` and `rotate_design.py` to check against. The
+generator is world-neutral like `huts.ts`: a `Design` comes out, built, billed and laid out like a drawn one.
+
+`elevations(d)` writes a design's views from the south, the east and above as text, with the palette as a legend; the
+architect sees them on a revision and the panel shows them. `lintDesign(d)` gives strong notes (a flat roof by its
+stairs, wall gaps bigger than a window and gable ends open above the eaves, from the openings in the wall columns
+grouped; a layer empty all round under the roof; walls under 3 high on a building over 7 across) and, for hand drawings
+only, weak ones; its definitions were checked on 4,320 generated styles and the stored designs. Every refused try and
+the revision's verdict go to the log as `[design]` lines. Doors are placed by the building's edge, not the grid's:
+`outsideCells` finds the `_` cells of layer 1 joined to the grid's edge (an overhang's ring, an L's notch), and
+`outwardStep` / `doorOutward` give a door's way out, used by `validateDesign`, `fixDoor` and `build_design` in both
+worlds.
 
 ### A village, end to end (the survival economy)
 
@@ -336,7 +380,7 @@ stateDiagram-v2
 |---|---|---|
 | Plots | `prepare_site` | Level ground, with its height, so buildings go on prepared land and plots can be extended at the same level. |
 | Structures | `build`, `build_design`, `build_box` | Footprints: nothing is built on top of them; "a cottage already stands here" ends duplicate work. |
-| Designs | the architect, the API, schematic import | The design library for `build_design`: layers of palette symbols (in Minecraft with block states such as `oak_stairs[facing=south]`), validated by `validateDesign` (`designs.ts`): sizes, the block list, states, a door of any wood on the outside, `waterlogged` dropped, double slabs refused, and for drawn buildings the rain test (every open cell of layer 1 covered) and the solid-roof check (at most 2.5 blocks a column above the inside). |
+| Designs | the architect (by hand or as a style the generator draws), the API, schematic import | The design library for `build_design`: layers of palette symbols (in Minecraft with block states such as `oak_stairs[facing=south]`), validated by `validateDesign` (`designs.ts`): sizes, the block list, states, a door of any wood in an outer wall (by the building's edge), `waterlogged` dropped, double slabs refused, and for drawn buildings the rain test (every open cell of layer 1 covered) and the solid-roof check (at most 2.5 blocks a column above the inside). A generated design keeps its style (`style`, also when posted through the API): layouts pack it by its walls and its build claims its own area. |
 | Task board | `plan_layout`, the mayor, short builds | Tasks with prerequisites (`after`), claims, results, tries; gather tasks are `soft` (their failure does not block the build, which checks its materials itself). |
 | Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests, each one's material group in a sorted storage, and what each held when last opened; shown chest by chest in the planners' village summary and the panel. |
 | Storage hut (`storageHut`) | `plan_layout` (a new village's first economy layout) | The hut's footprint and its nine chest spots in the order chests go down; `deposit` fills them, the stuck rescue teleports to its door. |
@@ -420,8 +464,12 @@ sequenceDiagram
 
 `turnState` (`designs.ts`) turns a block's states clockwise with the building: `facing` north, east, south, west;
 `axis` x and z swapped on odd turns; a fence's or pane's sides; a sign's `rotation`. Stair shapes, halves and slab
-types stay, and doors are left to the builder's own facing. A resumed build counts a block as there only if its
+types stay, and doors are left to the builder's own facing (`doorOutward`: out of the building's wall, which an
+overhang's ring moves in from the grid's edge). A resumed build counts a block as there only if its
 `facing`, `half`, `axis`, `type` and `open` match the target (`alreadyThere`), so a stair the wrong way round is set again.
+A design with an overhang claims only its own area while it builds (its eaves are the clearance: layouts pack such
+buildings by their walls, so two neighbours' eaves meet over a 2-block street), and the way out in front of each door is
+cleared only where neither the design's own cells nor another building of the village, built or laid out, stand.
 
 ## 6. Models and GPUs
 
@@ -472,7 +520,8 @@ Each agent's card shows: the brain's state (planning, thinking, acting, waiting,
 and why), health and food, position and biome, objective and task, the plan as a checklist, the current action, blocked
 calls, a top-down map (terrain, facing, mobs, players, target, plots, buildings, reserved ground), what the executor and
 the planner last saw (the exact user prompt) and answered, recent decisions and events, inventory and model stats. The
-village section shows the task board, buildings, plots, designs, the storage contents (chest by chest with each one's
+village section shows the task board, buildings, plots, designs (each opens to its elevations, as the architect sees
+them; `overview()` adds them), the storage contents (chest by chest with each one's
 material group, "chest 1 (logs): 64 oak_log, ...", when the chests are sorted), reservations and the village log.
 
 In Minecraft, every village (in the simple view too) has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
@@ -525,12 +574,20 @@ that the column scan started 32 blocks above the bot, so a higher hill read as f
 climbs to the column's top first; and that the wood count, floored at the bot's height, missed a valley's trees seen
 from a hill), `fell_trees.py` (whole trees and fallen ones, and what is left around them), `search_cost.py` (plan_layout's
 material counts and find_site's searches timed at a spot, through `GET /api/agents/:name/near`), `rotate_design.py` (a
-stair-gabled test house built at four turns, its states compared through `/api/blocks?states=1`); `test_rescue.py` traps Gus in a pit, a box or a pool. `stage_village.py` sets a
+stair-gabled test house, a design from a file or a style for the generator, built at four turns, its states and stair
+shapes compared through `/api/blocks?states=1` with what `gen_designs.mts` says the build should show); `test_rescue.py` traps Gus in a pit, a box or a pool.
+Some checks need no server at all: `gen_designs.mts` generates every roof type at several sizes, with and without an
+overhang, and checks each design (validation, the door, stairs facing uphill and their shapes by vanilla's rule, whole
+walls, a covered inside, the bill, no lint notes), then validates every stored design again; `render_design.py` draws a
+design or a box from `/api/blocks` as an isometric PNG (phase D's renderer); `village_pieces.py` surveys the vanilla
+village pieces in the Paper jar. `stage_village.py` sets a
 village up at a stage and runs scripted workers (`taskBrain.ts`: they run the skill calls each task spells out), so
 the economy's code is checked in one to ten minutes with no model involved (its test designs include `stairhut` and
-`stairhall`, with stair gable roofs). The benches (`modelbench`, `execbench`, `planbench`, `mayorbench`,
-`designbench`) replay the brain's real prompts against a model in seconds per case; `designbench` reads each design's
-roof shape, blocks, gather cost and validity, on 10 or more samples a case. Only then do
+`stairhall`, with stair gable roofs, and `genhut` and `genhall`, drawn by the generator). The benches (`modelbench`,
+`execbench`, `planbench`, `mayorbench`, `designbench`) replay the brain's real prompts against a model in seconds per
+case; `designbench` offers both design tools as the brain does (`STYLES=0` for hand drawing only, `REVISE=1` for the
+revision round) and reads each design's roof shape, blocks, gather cost, lint notes and validity, on 10 or more samples
+a case. Only then do
 model-driven village runs test behaviour. `watch_village.py` probes for land (in survival, skipping ground with too
 few trees) and spawns the village at the site it found (`MCAI_NO_PROBE=1` starts it at the given point instead, for
 scouting tests); when a watcher dies mid-run (background tasks stop with the
@@ -569,7 +626,7 @@ the agent server applies peaceful difficulty and game rules for no damage and ke
 flowchart LR
   site["find_site<br/>(level, dry, 30 logs near;<br/>the atlas when nothing near)"] --> layout
   site -- "poor first verdict" --> scout["scout tasks (once a village):<br/>workers map the ring, then<br/>find_site runs again"] --> site
-  design["design<br/>(architect; a cost budget,<br/>whitelisted materials)"] --> bom["bill of materials<br/>and recipe chain<br/>(mcMaterials.ts)"]
+  design["design<br/>(architect: a style drawn by code,<br/>or by hand; a cost budget,<br/>whitelisted materials)"] --> bom["bill of materials<br/>and recipe chain<br/>(mcMaterials.ts)"]
   bom --> near{"materialsNear:<br/>enough near the site?"}
   near -- no --> refuse["plan_layout refused:<br/>smaller buildings or another site"]
   near -- yes --> tasks["gather tasks per building<br/>(plan_layout, gatherTasks)"]
@@ -594,9 +651,9 @@ flowchart LR
 | Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below) |
 | Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item. Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees; a new village's first site may lie up to 256 blocks from the mayor's start, and the verdict (`memory.siteSearch`) decides whether workers scout first (section 4) |
-| Design limits | `tieredBrain.ts` (design checks), `designs.ts`, `layout.ts` | the world's block list (`designBlocks`), raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration; a cost budget in place of the old 9x9 cap, in raw blocks to gather from `materialTasks` (`HOUSE_UNITS` 250, a landmark by its name, a hall, chapel, tower..., `LANDMARK_UNITS` 400; at most `MAX_SMELTS` 32 furnace runs), and `plan_layout` lays out one building over 250 a village; three tries with the problems |
+| Design limits | `tieredBrain.ts` (design checks), `designs.ts`, `buildingGen.ts`, `layout.ts` | the world's block list (`designBlocks`), raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration (made air in a hand drawing); a cost budget in place of the old 9x9 cap, in raw blocks to gather from `materialTasks` (`HOUSE_UNITS` 150, a landmark by its name, a hall, chapel, tower..., `LANDMARK_UNITS` 300; 250 and 400 before the generator; at most `MAX_SMELTS` 32 furnace runs), and `plan_layout` lays out one building over 150 a village; a style is fitted by code instead of refused (walls capped at `HOUSE_WALLS` 9 and `LANDMARK_WALLS` 11, `fitSmelts`, `shrinkStyle`); three tries with the problems |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
-| Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets (narrower when that fits), partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
+| Layout and tasks | `layout.ts`, `mcWorld.materialTasks` | positions with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street), partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
 | Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings (`onVillageGround`, `stepOffVillageGround` in `mcUtil.ts`), wood kind per part, server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
 
@@ -637,4 +694,9 @@ make villages slow (a 9x9 log roof is 81 logs); and builders drawing on the ches
 requeue recovers). The shared atlas (`docs/PLAN.md`, phase 2) helps with the first: `find_site` now leaves poor land
 for a better area the atlas knows (staged runs from the jungle hills and the lake that went wrong before built all
 three buildings, 2026-10-02); gathering from the atlas is still to come. With stair gable roofs (phase D's first step,
-2026-10-04) the same objective was built on the test world at 1x in 14.6 and 17.0 minutes with no failed actions.
+2026-10-04) the same objective was built on the test world at 1x in 14.6 and 17.0 minutes with no failed actions;
+with buildings drawn from styles (D.2, D.3) in 16.1 and 19.2 minutes with no failed designs or actions. Next
+(`docs/PLAN.md`, "Vanilla villages", V2.1-V2.5): Minecraft's own village pieces and plans from the jar, read at
+runtime: houses imported as designs with their block states (what the economy cannot make substituted), villages laid
+out along streets from a biome's town centre with the houses facing them, and vanilla's tags, recipes and loot tables
+in place of hand-made lists.

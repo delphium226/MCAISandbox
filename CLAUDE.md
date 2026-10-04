@@ -341,6 +341,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     check, a cost budget instead of 9x9, `designbench.mts`, `rotate_design.py`; lesson 54); `5d20e44` run record and
     handover. Minevale10/11 (1x, model-driven): 5/5 in 14.6 and 17.0 min, 0 failed actions, every roof a stair gable.
     Next (the user's choice of order): D.2, the building generator (PLAN.md).
+26. 2026-10-04 (eleventh session; not pushed at the close, ask first; `main` untouched): phase D steps D.2 and D.3.
+    D.2, the building generator (`399f6a2`, `017deae`, `61595c0`: `buildingGen.ts`, `submit_style`, doors by the
+    building's edge, packing by walls with eaves over the street, budgets 150/300, walls capped 9/11, `fitSmelts`;
+    `render_design.py`, `gen_designs.mts`, rotate_design.py for any design or style): every roof at four rotations, staged
+    GenB1-4/GenF1 5/5, designbench 20/20 by style; Minevale15 (1x, model-driven) 5/5 in 16.1 min, 0 failed designs and
+    actions. D.3 (`e8f019f`: `lintDesign`, one revision round, `shrinkStyle`, the panel's elevations, `[design]` log):
+    designbench 30/30 by style; Minevale16 19.2 min, Minevale17-18 stopped (F120, F121). Lessons 55-59. Next (agreed at
+    the close): vanilla village pieces and plans from the Minecraft jar (PLAN.md "Vanilla villages", V2.1-V2.5).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -497,12 +505,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the tenth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the eleventh session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale11 stands on minevale3 until the next reset, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale18's partial village (3 of 5) stands on minevale3's other site at -1507,-62 until the next reset, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -675,6 +683,26 @@ Lessons from the adapter:
    "pitched" roofs as solid blocks (a 549-block hall; the run took 18.2 min instead of 14.6). The rain test and the
    solid-roof check in `validateDesign` send them back; `scripts/bench/designbench.mts` measures designs (roof shape,
    cost, validity) on 10+ samples a case, and `scripts/checks/rotate_design.py` checks facing blocks at four turns.
+55. **Stair shapes are the server's** (D.2, 2026-10-04, read from the 26.1.2 jar): `/setblock` and `/fill` work out a
+   placed stair's shape from its neighbours, and a neighbour placed later works it out again; a shape written in a
+   design survives only on a stair placed last. Never write `shape`; check it with vanilla's rule (`stairShape` in
+   buildingGen.ts) against `GET /api/blocks?states=1` (rotate_design.py judges it at four turns).
+56. **Fix a model's design in code rather than refuse it** (D.2/D.3, 2026-10-04): a style refused over budget sent
+   gpt-oss to drawing by hand, where it drew a flat box or a hall with open gable ends and failed more (F118, Minevale16
+   and 17); shown its own hand drawing's faults, it redrew them (0 of 8 improved, F119). Code now makes the change and
+   says so (odd sizes, walls capped, `fitSmelts`, `shrinkStyle`, door rules, workstations to air): designbench went to
+   30/30 by style with no retries for the budget. Point a refused hand drawing at the style.
+57. **Whatever the consumers key on must survive every path in** (D.2's reviews): the design API dropped `style`, so a
+   staged run "passed" on the old packing (GenB3); a door check keyed on the grid's edge turned doors sideways once
+   overhangs and `_` rows existed. Follow a new field through the API, the library and each world's builder.
+58. **Render what was built** (D.8's renderer, 2026-10-04): `scripts/render_design.py` on a design or a saved
+   `/api/blocks` box showed open gable ends and wall gaps (F111) and inside shutters (F112) in designs that passed
+   every check, and confirmed whole roofs after the tight-layout runs. Save the blocks while agents are still in the
+   world: removing them unloads the chunks (the box comes back empty).
+59. **Run times depend on the site the mayor picks** (F121): on minevale3 the mayor's find_site sometimes takes
+   -1507,-62, whose mine gave cobblestone at a third of the usual rate. Record the site with each run before comparing
+   times; generated buildings are fuller than drawn ones (overhangs, gable ends), so budgets (150/300) and the wall cap
+   (houses 9, landmarks 11) keep a village near Minevale10's cost.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

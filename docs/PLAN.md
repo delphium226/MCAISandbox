@@ -20,32 +20,47 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-04 at the close of the tenth session: F106 and D.1 done, everything pushed)
+(written 2026-10-04 at the close of the eleventh session: D.2 and D.3 done, the vanilla-villages plan agreed)
 
-- **Code:** committed and pushed on `tiered-brain-building`: `611faf9` (F106, the fast block scanner), `2b4afa3` (D.1:
-  stair roofs, the design bench, the cost budget), `5d20e44` (run record, handover) and the close-out commit (README,
-  ARCHITECTURE, CLAUDE.md; pushed if the user agreed at the close, else ask). `main` untouched.
-- **Stack:** everything stopped cleanly at the close (both Papers logged "All dimensions are saved", agent servers and
-  the pinned model servers stopped; the main world ran at 1x all session). Start it in CLAUDE.md's order;
-  `reset_site.py` starts the test world's two servers. No agents in either world. Ollama note: the executor came up at
-  10 tok/s with `status`'s WARNING once on 10-04; a stop and start fixed it (23 tok/s): check `status` every start.
-- **Where things stand:** D.1 is done (Minevale10 and 11, 1x model-driven: 5/5 in 14.6 and 17.0 min, 0 failed
-  actions, every roof a stair gable). gpt-oss now draws pitched roofs in every design, but the shapes are the model's:
-  cottages with every stair in one layer passed, and 2 of 20 survival designs still need all three tries.
-- **Next:** D.2, the building generator (the main lever: the architect gives a style, code draws the layers, so roof
-  shapes, stair facings, gable ends, windows and doors are right by construction), with D.3's elevations and lint and
-  D.8's renderer alongside (PLAN.md's phase D order). Show the user D.2's parameter set before coding.
-- **Test world state:** minevale3 holds Minevale11 (reset before using it). Scout4 and Scout5 remain outside the
-  recorded sites.
-- **Main world:** unchanged apart from Gus's search checks at -35,324 and -349,-114 (nothing built).
-- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `scripts/bench/designbench.mts [model]` (N, CASES,
-  OLD=1 for the pre-D.1 prompt, OUT for JSON), `scripts/checks/rotate_design.py X Z Y` (facing blocks at four turns on
-  the test world, creative), `stage_village.py --buildings stairhut,stairhall`, `GET /api/blocks?states=1`,
-  `scripts/checks/search_cost.py X Z`. A bench of old code: `git archive <commit> server/src scripts/bench shared
-  tsconfig.json package.json | tar -x -C runs/<date>/old` and run tsx there (node_modules resolve from the repo root).
-  Run logs: `runs/2026-10-03/`, `runs/2026-10-04/` (designbench-*, StairB1, Minevale9-11, rotate*).
-- **Working method:** as before. The reviews of D.1 found real bugs each time (the budget not enforced at save, the
-  landmark budget going to the first design, the overhang moving doors out of walls): keep reviewing before each commit.
+- **Code:** committed on `tiered-brain-building`, not pushed at the close unless the user agreed then (check `git status
+  -sb`; ask before pushing): `399f6a2` (D.2: the building generator), `017deae` (walls capped, Minevale15),
+  `61595c0` (gen_designs fix), `e8f019f` (D.3: lint, revision round, budget fitted by code; the vanilla-villages plan)
+  and the close-out commit (README, ARCHITECTURE, CLAUDE.md lessons 55-59, this handover). `main` untouched.
+- **Stack:** everything stopped cleanly at the close (the test Paper logged "All dimensions are saved"; the main world
+  did not run this session; the test agent server and the pinned model servers stopped). Start it in CLAUDE.md's order;
+  `reset_site.py` starts the test world's two servers. No agents in either world. Check `ollama_exec.py status` at
+  every start (no WARNING this session).
+- **Where things stand:** D.2 and D.3 are done. The architect submits a style and code draws the building (gable, hip
+  or flat roofs with an overhang, frame, base, windows, door), fixing what it can rather than refusing (odd sizes,
+  walls capped at 9 and 11, furnace runs, the 150/300 budgets); layouts pack generated buildings by their walls.
+  designbench: 30/30 by style, 0 lint notes, 3-4 s a design. Model-driven: Minevale15 passed (5/5 in 16.1 min, 0 failed
+  designs and actions); after D.3, Minevale16 took 19.2 min (a hand-drawn hall) and Minevale17-18 were stopped (F120: a
+  failed design and ~4 min of the mayor replanning; F121: the mayor's other site on minevale3 mines cobblestone at a
+  third of the rate). The renders show villages that still look alike (F113): the next work addresses it.
+- **Next (agreed at the close):** "Vanilla villages: pieces and plans from the Minecraft jar" in phase D, steps
+  V2.1-V2.5: V2.1 the importer (vanilla pieces to Designs with states, front side from the entrance jigsaw,
+  substitutions, a report per biome and a contact sheet of renders; offline), V2.2 built as drawn (four rotations, a
+  staged village), V2.3 a street village (vanilla town centre, dirt_path streets, houses facing them, pieces picked by
+  biome and kind), V2.4 a green village, V2.5 vanilla tags, recipes, loot tables and texture colours instead of hand
+  lists (a subagent job). Show the user V2.1's substitution table before coding. Backlog from this session: F116 (a
+  second site's prepare margin over a reservation), F120's replan loop, F121 (record each run's site), the stand spot
+  that can land inside the next building south (a review's note).
+- **Test world state:** minevale3 holds Minevale18's partial village (3 of 5) at -1507,-62: reset before using it.
+  Scout4 and Scout5 remain outside the recorded sites.
+- **Main world:** unchanged this session.
+- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `node_modules/.bin/tsx scripts/checks/gen_designs.mts`
+  (offline: every roof type, door, stair facing and shape, walls, lint; stored designs' doors and lint; `STYLE='{...}'`
+  prints one style; `OUT=` exports a design with its expected stair shapes and door sides), `scripts/checks/rotate_design.py
+  X Z Y [--design FILE | --style JSON]` (four rotations, shapes judged), `scripts/render_design.py SOURCE` (an isometric PNG
+  of a design, a villages.json design or a saved `/api/blocks` box; save the box before removing agents),
+  `stage_village.py --buildings genhut,genhut,genhall` (generated test designs; `--site-at X,Y,Z,SIZE` with X Z for a
+  tighter site), `designbench.mts` with `TRIES=1` (refusals), `REVISE=1` (D.3's round), `STYLES=0` (hand drawing only),
+  case `cottage_mayor`; `scripts/checks/village_pieces.py KIND...` (the jar's village pieces). The agent server log's
+  `[design]` lines show every refused try and the revision's verdict. Run logs: `runs/2026-10-04/` (designbench-d2*,
+  -d3*, GenB1-4, GenF1, Minevale12-18, rotate-gen*, renders).
+- **Working method:** as before. Every review this session found real bugs (the style lost through the design API, a
+  sideways door, the walkway clearing a neighbour's eave, the sandbox's pointless revisions): keep a design review before
+  coding and a diff review before each commit.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 

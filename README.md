@@ -152,7 +152,7 @@ speed of local models.
 | `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (a log counts when it is no more than 16 below its own column's ground and below the site, as `collect` would reach it), and a smaller wooded site beats a bigger bare one. In Minecraft each column's ground is read from its real top, however far above the bot (a hill 50 blocks up once read as flat, treeless ground), and kelp or seagrass mark water. When nothing good is found around it, an agent in no village or a mayor looking for its first site turns to the shared atlas: it walks to the best areas the atlas knows (level, dry, wooded, sand near; at most 300 blocks of walking in all) and surveys the ground there; the reply says how far it walked. A new village's first site may lie up to 256 blocks from where its mayor started (later sites stay within 96 of the village). Its verdict (good, small, treeless or none) is kept for code in `memory.siteSearch` |
 | `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top (also where a felled tree stood below the level), plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot. In Minecraft it checks the plot afterwards: cells unlike the plan are redone once, then every plot column must pass the build's own ground rule (odd ones confirmed over RCON), or it fails saying where |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
-| `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise (in Minecraft stairs, logs on their side and trapdoors turn with it), with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
+| `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model, drawn by code from a model's style, or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise (in Minecraft stairs, logs on their side and trapdoors turn with it), with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
 | `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
 | `deposit`, `withdraw` | item?, count? | Real Minecraft: put items in, or take them from, the village storage chests (see [the village economy](#the-village-economy-real-minecraft)) |
 | `get_item` | item, count? | Creative mode only: takes items from the creative inventory |
@@ -340,9 +340,10 @@ rethink it. Building tasks also wait until the design they name is in the librar
 **Designs.** `design_building` asks the architect model to draw a building as horizontal layers of symbols, one per
 block, spaced so the model can count them (`"L P P P L"`), with a palette (`{"L": "oak_log", "P": "oak_planks"}`). Code
 checks the design (sizes, real blocks, a door of any wood on the outside with room above it, moving or adding the door
-when the model puts it inside the wall) and sends the problems back for a fix (three tries in all). A design is reused
-for every copy, so matching buildings match. The architect's brief says how much room the site has (never below 5x5:
-what does not fit goes on a second site).
+when the model puts it inside the wall) and sends the problems back for a fix (three tries in all; a failed model call,
+such as a cloud error, counts as one). A design is reused for every copy, so matching buildings match (copies differ
+only by `rotate`). The architect's brief says how much room the site has (never below 5x5: what does not fit goes on a
+second site). In Minecraft the architect usually describes a style instead and code draws the layers (below).
 
 Each world gives the architect its own block list (`WorldAdapter.designBlocks`). In Minecraft that includes stairs,
 slabs, fences, fence gates, trapdoors, walls and glass panes, written with block states (`"oak_stairs[facing=south]"`,
@@ -353,20 +354,55 @@ palette but not in the layers: the rain test (every open cell of layer 1 has a b
 example copied onto a 7-deep house left rows open to the sky) and the solid-roof check (more than 2.5 blocks a column
 above the inside is refused: one "pitched" hall filled its roof with planks and cobblestone, 549 blocks).
 
+**Styles drawn by code** (`server/src/buildingGen.ts`). A pitched roof drawn by hand means layers that shrink inward,
+counted row by row, and models got it wrong: gable ends left open, roofs floating a layer above the walls. Where the
+world takes block states (Minecraft), the architect also has `submit_style`, and its prompt leads with it: the size of
+the walls (odd), wall height (3 or 4), floor (none, planks or cobblestone), a base course (a stone base under wood), a
+log frame (corner posts and a beam laid along the top of the walls), the wall material, the roof (gable, hip, or flat
+with a slab parapet) with its axis, material and an overhang of 0 or 1, windows (glass, panes, open or none) and the
+door's side. Code draws the layers: the roof is a height field over the footprint, each cell a stair facing uphill or
+the slab ridge; the wall columns go up to the roof, so gable ends are whole; the inside stays empty; a foundation
+course runs under the walls; windows sit symmetrically and the door stands in the middle of its wall. Stair shapes
+(a hip's corners) are left to the server, which works them out from the neighbours when `/setblock` places a stair;
+`stairShape()` is vanilla's rule, used only by checks. A generated design goes through the same checks as a drawn one
+and keeps its style (`Design.style`, also through the design API). Code fixes a style rather than refusing it, with a
+note in the reply: sizes made odd, material names read as meant ("oak_stairs" as the roof's material, a wood's name for
+planks), walls capped (a house 9 across, a landmark 11: a 13x13 hall took a village run to 23 minutes), stone and
+stone bricks swapped for cobblestone and glass for panes until the furnace runs fit (`fitSmelts`), and the largest
+smaller size within the gather budget (`shrinkStyle`). Doors are judged by the building's edge, not the grid's (an
+overhang's ring is outside), in validation, when a door is moved and when `build_design` faces it.
+
 In survival, code also limits what may be drawn, because every block has to be gathered: raw materials from a short
 list (logs, stone, sand, sandstone, dirt, gravel, terracotta, and what is crafted or smelted from them), no furnaces,
-crafting tables or chests as decoration, and a cost budget in place of the old 9x9 cap: a house may need up to 250
-blocks gathered by hand (logs, cobblestone, sand... from the bill of materials), a landmark (a design whose name ends
-in hall, chapel, tower, market, inn...) up to 400, and at most 32 furnace runs. `plan_layout` lays out only one building
-over 250 a village. The brief says when the site has no sand or sandstone. Before these limits, the architect drew
-13x13 halls in mossy cobblestone, and workers went 70 blocks down to lush caves for the moss. `build_design` turns
-facing blocks with the building (`rotate`: stairs, logs on their side, trapdoors, fence sides), and a resumed build
-counts a stair or log the wrong way round as not built yet.
+crafting tables or chests as decoration (in a hand drawing they become air, with a note), and a cost budget in place of
+the old 9x9 cap: a house may need up to 150 blocks gathered by hand (logs, cobblestone, sand... from the bill of
+materials), a landmark (a design whose name ends in hall, chapel, tower, market, inn...) up to 300, and at most 32
+furnace runs (the budgets were 250 and 400 until the generator, whose fuller buildings with overhangs made a village of
+~760). `plan_layout` lays out only one building over 150 a village. The brief says when the site has no sand or
+sandstone. Before these limits, the architect drew 13x13 halls in mossy cobblestone, and workers went 70 blocks down
+to lush caves for the moss. `build_design` turns facing blocks with the building (`rotate`: stairs, logs on their side,
+trapdoors, fence sides), and a resumed build counts a stair or log the wrong way round as not built yet.
+
+**The architect sees its building.** `elevations()` (`designs.ts`) draws a design as text: the views from the south,
+from the east and from above, with the palette as a legend. `lintDesign()` notes what looks wrong in a valid design: a
+flat roof (less than a third of the inside topped by stairs), wall gaps bigger than a window, gable ends left open, a
+layer empty all round under the roof, walls under 3 high on a building over 7 across; and, for hand drawings only,
+weaker notes (one plain wall material, no window in a long wall with the door). Where styles are offered, a valid design
+with notes is shown back once, with what it submitted, its elevations and the notes; a style may be revised only as a
+style, and the revision is kept only with fewer notes. A refused hand drawing is pointed at `submit_style`. In the
+benches, styles never drew notes and flat hand drawings shown back came back as styles, while hand drawings shown their
+own open gable ends were not fixed (0 of 8): what keeps designs right is keeping the architect on styles. Every refused
+try and the verdict is logged as a `[design]` line, and the control panel shows each design's elevations. Next
+(`docs/PLAN.md`, "Vanilla villages"): Minecraft's own village pieces and plans, read from the game's jar at runtime,
+houses imported as designs with what the economy cannot make substituted, then villages laid out along streets from a
+biome's town centre.
 
 **Layout.** `plan_layout` (`server/src/layout.ts`) takes the buildings by name (`["cottage", "cottage",
 "meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot, 3-block streets apart
 (2-block streets and a 1-block margin when that is what fits), choosing the column count that gives the squarest plot,
-and centres the plot on the site the mayor found. It refuses designs that are not drawn yet and ground that is taken,
+and centres the plot on the site the mayor found. Buildings drawn from a style are packed by their walls, so an
+overhang's eaves hang over the street; such a building reserves only its own area while it is built, and the clearing
+in front of its door keeps off other buildings, built or planned. It refuses designs that are not drawn yet and ground that is taken,
 each with the reason. When the site is too small for everything, it lays out the largest set that fits if that is at
 least half the buildings, so the workers can start, and keeps the rest as unplaced; the mayor's next successful
 `find_site` gets them laid out there by code (the model managed that step 1-2 times in 10). Fewer than half is
@@ -409,7 +445,7 @@ What building these agents taught, and what the code is built around:
 
 - **Models decide; code does arithmetic and geometry.** Models miscount crafting quantities and row lengths, place
   doors inside walls, overlap buildings and invent item ids. So skills make the missing planks, designs use spaced
-  symbols, doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
+  symbols or are drawn by code from a style the model chooses, doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
   counts every block. The weaker the model, the higher-level the skills should be.
 - **Failure messages are the model's eyes.** A failure says what is short or where the problem is, and what to do next
   ("short of materials for the cottage: 35 acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log;
@@ -436,7 +472,19 @@ What building these agents taught, and what the code is built around:
   `designbench.mts` runs the architect's real prompts (cottage and meeting-hall briefs, survival and creative) N times
   a model and reports each design's footprint, roof shape (flat, stepped or pitched with stairs), blocks, gather cost
   and validity (`OLD=1` for the prompt before stair roofs, `OUT=` for JSON): before stair roofs, 0 of 40 designs had a
-  pitched roof; after, 20 of 20 survival designs had stair gables.
+  pitched roof; after, 20 of 20 survival designs had stair gables. It offers `submit_style` as the brain does
+  (`STYLES=0` for drawing by hand only), with the same fitting of styles to the budget; `REVISE=1` runs the revision
+  round and `TRIES=1` prints each try's refusal. The last bench (the cottage, hall and the mayor's cottage brief): 30 of
+  30 designs by style, no lint notes left, 3-4 s each.
+- `scripts/checks/gen_designs.mts` checks the building generator offline (no server; run with `node_modules/.bin/tsx`):
+  every roof type at several sizes, with and without an overhang, validated and costed as the architect's designs are,
+  then one door in an outer wall with room in front of it, every stair facing uphill (and the shapes the server will
+  give them), whole walls, a covered inside and no lint notes; then every stored design is validated again. `STYLE=` or
+  `DESIGN=` prints one design, and with `OUT=` writes it with what its build should show (for `rotate_design.py`).
+- `scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG]` draws a design (from a villages.json or a
+  JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and the north-west,
+  offline, in flat colours. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
+  Paper jar (size, blocks, jigsaw blocks per piece), read in place and never copied out.
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
@@ -454,8 +502,8 @@ What building these agents taught, and what the code is built around:
   `/api/blocks`); `site.py X Z SIZE` (Gus runs find_site, and the ground, height range, trees and wood count it
   reports are compared with the blocks over the site and prepare_site's margin); `search_cost.py X Z [ITEMS]` (how long
   plan_layout's material counts and find_site's searches take at a spot, through `/api/agents/Gus/near`);
-  `rotate_design.py X Z Y` (a stair-gabled test house built at four turns, its facing blocks compared with
-  `/api/blocks?states=1`). `site.py` and `fell_trees.py` take
+  `rotate_design.py X Z Y [--design FILE | --style JSON]` (a stair-gabled test house, a design from a file or a style
+  for the generator, built at four turns, its facing blocks and stair shapes compared with `/api/blocks?states=1`). `site.py` and `fell_trees.py` take
   `MCAI_API`, so they run on the test world too; `fell_trees.py` takes `FELL_Y` (a known ground height + 1: in jungle a
   drop from y 120 lands Gus on the canopy). Run the relevant one after changing find_site,
   prepare_site, layout.ts, smelting, the atlas, felling, the mine, block searches or build_design's turning.
@@ -469,7 +517,8 @@ What building these agents taught, and what the code is built around:
   plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
   workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
   is tested in one to ten minutes. Built-in test designs: `testhut` (5x5) and `testhall` (9x9) with flat roofs,
-  `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs.
+  `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs; drawn by the building
+  generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
   `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
   its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD]` uses a site find_site gave
   directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the canopy).
@@ -565,7 +614,7 @@ stone bricks from stone smelted from cobblestone. Recipes that differ only by wo
 to whole batches and leftovers are reused. Blocks that need Nether materials or hard-to-find ones (glowstone, iron for
 lanterns, wool, bricks) are refused at design time, and the architect is asked for cheap materials: planks, logs,
 cobblestone, sandstone and what is made of them (stairs, slabs, fences, trapdoors), a few windows. The bill's raw
-total is the design's cost against its budget (a house 250, one landmark a village 400). `GET /api/village/:v/designs/:d/bill` shows the bill, for example:
+total is the design's cost against its budget (a house 150, one landmark a village 300). `GET /api/village/:v/designs/:d/bill` shows the bill, for example:
 
 ```
 needs 25 cobblestone, 54 oak_planks, 1 oak_door, 1 glass; gather 25 cobblestone, 1 sand, 15 oak_log, 1 logs (any kind);
@@ -655,7 +704,8 @@ found a code bug, since fixed. What decides the time is gathering: oak woods too
 logs high on hills (up to 23 failed collects a run) and designs with log roofs (a 9x9 log roof is 81 logs) took 25-40.
 `scripts/stage_village.py` runs the same chain with scripted workers, in about a minute when the storage starts
 stocked. With stair gable roofs (2026-10-04, the fixed test world, 1x) the same objective was built in 14.6 and 17.0
-minutes with no failed actions.
+minutes with no failed actions; with buildings drawn from styles, in 16.1 and 19.2 minutes with no failed designs or
+actions.
 
 ### Models
 
@@ -693,7 +743,8 @@ http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) sho
 doing (planning, thinking, acting, waiting: since when and why), its plan as a checklist, its task, the current action,
 a live top-down map (terrain, facing, mobs, players, the target, village plots and buildings), the exact prompt its
 executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
-plus the village task board and the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
+plus the village task board, the design library (each design's elevations as text, as the architect sees them) and
+the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
 In Minecraft the panel shows one world map of everything the bots have seen (the shared atlas,
 `mcAtlas.ts`): every chunk a bot receives is summarised in about 0.4 ms, again a minute after its blocks change, and
 kept in `mc/server/atlas.json`), with every village's plots, buildings and storage chests and the agents drawn on it;
@@ -722,7 +773,8 @@ The agent framework lives in `server/src`: `world.ts` (the world interface brain
 world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
-`layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format and checks)
+`layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format, checks, elevations and lint),
+`buildingGen.ts` (buildings drawn by code from a style)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
 economy, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is
