@@ -334,6 +334,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     (slower than Minevale7 only by the mayor's cobblestone-heavy designs). Open: F106 (search stalls of 3-10 s on sand
     and stone land), F107 (a pickaxe remake that collects logs far from storage), phase D (written into PLAN.md by a
     conversation beside the session; its place relative to the rest is the user's call).
+25. 2026-10-03/04 (tenth session; all pushed to origin `tiered-brain-building`, `main` untouched): the ninth session's
+    and the eighth's commits pushed; F106 fixed (`611faf9`: `nearestBlocks` reads state ids itself, desert searches
+    2.4 s -> 3 ms, Hills3/Shelf7/Drop7 staged with no `[lag]`; lesson 53); phase D step D.1 (`2b4afa3`: stair roofs,
+    the architect's block list per world, block states checked and turned with `rotate`, the rain test and solid-roof
+    check, a cost budget instead of 9x9, `designbench.mts`, `rotate_design.py`; lesson 54); `5d20e44` run record and
+    handover. Minevale10/11 (1x, model-driven): 5/5 in 14.6 and 17.0 min, 0 failed actions, every roof a stair gable.
+    Next (the user's choice of order): D.2, the building generator (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -490,12 +497,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the ninth session (2026-10-02): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the tenth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale8 stands on minevale3 until the next reset, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale11 stands on minevale3 until the next reset, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).

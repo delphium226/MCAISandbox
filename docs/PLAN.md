@@ -20,13 +20,15 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-04 in the tenth session's second day: F106 and D.1 done)
+(written 2026-10-04 at the close of the tenth session: F106 and D.1 done, everything pushed)
 
-- **Code:** committed on `tiered-brain-building`: `611faf9` (F106, the fast block scanner), `2b4afa3` (D.1: stair roofs,
-  the design bench, the cost budget) and the docs commit after it. Origin is at `ec88826`: these are **not pushed**
-  (ask the user). `main` untouched.
-- **Stack:** see the session's last message (stopped cleanly at the close unless the user asked to leave it up). Start it
-  in CLAUDE.md's order; `reset_site.py` starts the test world's two servers. No agents in either world.
+- **Code:** committed and pushed on `tiered-brain-building`: `611faf9` (F106, the fast block scanner), `2b4afa3` (D.1:
+  stair roofs, the design bench, the cost budget), `5d20e44` (run record, handover) and the close-out commit (README,
+  ARCHITECTURE, CLAUDE.md; pushed if the user agreed at the close, else ask). `main` untouched.
+- **Stack:** everything stopped cleanly at the close (both Papers logged "All dimensions are saved", agent servers and
+  the pinned model servers stopped; the main world ran at 1x all session). Start it in CLAUDE.md's order;
+  `reset_site.py` starts the test world's two servers. No agents in either world. Ollama note: the executor came up at
+  10 tok/s with `status`'s WARNING once on 10-04; a stop and start fixed it (23 tok/s): check `status` every start.
 - **Where things stand:** D.1 is done (Minevale10 and 11, 1x model-driven: 5/5 in 14.6 and 17.0 min, 0 failed
   actions, every roof a stair gable). gpt-oss now draws pitched roofs in every design, but the shapes are the model's:
   cottages with every stair in one layer passed, and 2 of 20 survival designs still need all three tries.
