@@ -639,7 +639,13 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       planner, and a gather task in its hands is handed back when it must replan. Expected: gathering about a third
       faster. Test: a staged full run (stage_village.py with the mayor present), then a model-driven village against
       Minevale15's 16.1 min.
-- [ ] V2.4 **A green village**: round a town centre with the buildings facing in; prepare_site's limit raised to ~40 once
+- [x] V2.4 **A green village**. **Done 10-04 (thirteenth session, `723a24d`, with collect's lake and pit fixes `bb48ec0`)**:
+      on a site of 40 or more, the biome's town centre in an open green inside a 3-wide ring street, every building
+      outside it facing in (`layoutGreen`/`planGreen` in streetPlan.ts, the beam search shared as `placeAlong`; the centre
+      moved up to 4 blocks south or north so the unturned storage hut fits north of the ring); else the street plan, now on
+      up to 40; the vanilla mayor searches find_site size=40; prepare_site takes 40x40 (~2.5 min at 1x). Staged VanG1/2/5
+      (plains, snowy) 6/6 in 8.1-8.4 min at 2x; Minevale22 (1x, model-driven, the 40 site at -1628,47) 6/6 in **15.2 min**,
+      0 failed actions. The plan as written: round a town centre with the buildings facing in; prepare_site's limit raised to ~40 once
       its time is measured. Later, with D.7: vanilla's full jigsaw assembly over terrain.
 - [ ] V2.5 **Vanilla data instead of hand lists** (independent; a subagent job, each with its check script): block tags
       (`data/minecraft/tags/block/`: logs, leaves, flowers, replaceable, dirt...) for NATURAL and similar lists (F61 and
@@ -935,6 +941,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s13) | sand_check (scratch) | test world 2x, Gus collects 6, then 20 sand from the green's storage spot beside the lake (F137's fix) | **pass** | 12 s, 46 s (60 s after the review's fixes) | shore sand only; the lake-bed box (x -1672..-1660, y 58..62, z -14..-4) unchanged |
 | 10-04 (s13) | VanG4 | as VanG1 with F136/F137's first fixes | **6/6** | 9.6 min | the Mayor 0 failed; Worker2 stuck again 1.7 min in a dry 1-deep hole beside the shore birch (-1656,62,-5: the side pickup's two dirt pits, no water now) until the rescue walked it out (F138) |
 | 10-04 (s13) | **VanG5** | as VanG1 with F136-F138's fixes (and the review's: seagrass and kelp as water, fresh position, unloaded sides wet) | **6/6** | **8.4 min** | 0 failed actions; side pickups still bring dirt (from banks); the Mayor 6 gather tasks |
+| 10-04 (s13) | **Minevale22** | model-driven 1x, minevale3 (the watcher's probe with site size 40), V2.4 + collect fixes (bb48ec0) | **6/6 PASS** | **15.2 min** | the mayor's find_site size=40 took -1628,65,47 (40x40, 1162 logs within 48, 12 blocks from the probe's site), laid out round a green at 0.2 min (the ring 3 blocks south); prepare_site 2.5 min; 0 failed actions, no `[lag]`; the mayor 9 gather tasks, plan 2x / exec 2x; render `runs/2026-10-04/Minevale22.png` (Minevale21's 32 street plan on the slow-mine site: 15.0) |
 
 ## Findings log
 
