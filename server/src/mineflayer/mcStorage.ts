@@ -247,8 +247,11 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const v = a.village();
   if (!v) throw new Error('deposit puts items in the village storage, and you are not in a village');
   const raw = args.item === undefined ? 'all' : str(args.item, 'item');
-  // "all" keeps tools, and chests (a carried chest becomes more storage when the chests are full)
-  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.test(n) && !JUNK.test(n) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
+  // "all" keeps tools, and chests (a carried chest becomes more storage when the chests are full); junk is not junk to
+  // the agent gathering it (Minevale19: dirt gathered for a vanilla house stayed in the gatherer's hands), while a miner
+  // keeps its dirt (the review: with the village's needs as the rule, every miner emptied its scaffolding into storage)
+  const needed = (n: string) => v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name && new RegExp(`collect block=${n}\\b`).test(t.detail));
+  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.test(n) && (!JUNK.test(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
   if (!m) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
   const carried = () => {
@@ -319,6 +322,8 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   want = carried();
   const got = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
   const n = v.storage?.chests.length ?? 0;
+  // (no path is not a full storage: a miner told to craft a chest put a table down in its tunnel and walled itself in)
+  if (!got && v.storageHut && notes.some((n) => /no path|stuck|timed out|could not reach/.test(n))) throw new Error(`could not reach the storage hut (${notes.join('; ')}): walk back to the village first (move_to near the storage hut at ${v.storageHut.x1 + 3},${v.storageHut.z2 + 2}), then deposit again`);
   if (!got && v.storageHut) throw new Error(`could not put anything in the storage hut${notes.length ? ` (${notes.join('; ')})` : ''}: craft a chest (8 planks) and deposit again`);
   if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
   const rest = left > 0 ? [...want.values()] : [];

@@ -220,6 +220,11 @@ export class BotAgent implements WorldAgent {
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [
         (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
       ];
+      // ...nor build on it: a builder walking to its stand spot pillared up with dirt in front of the mining hut's doorway
+      // and sealed the mine (Minevale19, 10-04). Placing there costs too much for any path to take it
+      (m as unknown as { exclusionAreasPlace: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasPlace = [
+        (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2 + 1)) ? 1000 : 0),
+      ];
       // Around water rather than through it: a gatherer that walked into a lake stayed stuck in it for ten minutes
       (m as unknown as { liquidCost: number }).liquidCost = 20; // (missing from the typings)
       // Diagonal steps only with both sides clear: the pathfinder allows one side blocked, and a bot cutting past that

@@ -626,6 +626,13 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       first. Ground truth: `/place jigsaw` with the biome's town-centre pool in creative on the test world builds a real
       vanilla village to compare with. Test: an offline check of the plans (inside the pad, no overlaps, every entrance
       on a street), a staged run, then a model-driven village.
+- [ ] V2.3m **The mayor gathers while it waits** (the user's choice, 10-04, after Minevale19: the mayor stood idle from
+      0.4 min to the end). Once a layout is posted and the mayor has nothing to plan, it claims the soft gather tasks
+      (logs, cobblestone, sand: never builds, land or storage tasks) and runs them as written, as workers run code-posted
+      tasks (no model call); events that need it (a failed task, the timed review, the village finished) still wake its
+      planner, and a gather task in its hands is handed back when it must replan. Expected: gathering about a third
+      faster. Test: a staged full run (stage_village.py with the mayor present), then a model-driven village against
+      Minevale15's 16.1 min.
 - [ ] V2.4 **A green village**: round a town centre with the buildings facing in; prepare_site's limit raised to ~40 once
       its time is measured. Later, with D.7: vanilla's full jigsaw assembly over terrain.
 - [ ] V2.5 **Vanilla data instead of hand lists** (independent; a subagent job, each with its check script): block tags
@@ -902,6 +909,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s12) | **VanS1** | minevale3, staged build 2x, street plan, plains: plains_meeting_point_2 + plains_small_house_1, 3 + plains_library_2 + huts | **6/6** | **3.1 min** | 0 failed actions, no `[lag]`; 126 blocks of street laid by prepare_site; the centre's plaza charged as 58 dirt (fixed after the review) |
 | 10-04 (s12) | **VanS2** | as VanS1 after the diff review's fixes (plaza free, south door, crossing fallback) | **6/6** | **3.0 min** | 0 failed actions, no `[lag]`; 184 blocks of street and plaza, the centre 85 blocks with no dirt |
 | 10-04 (s12) | **VanS3** | minevale3, staged build 2x, street plan, savanna: savanna_small_house_1, 2 + savanna_library_1 + huts | **5/5** | **3.2 min** | 0 failed actions, no `[lag]`; crossing streets (the 13x12 centre would have left the library out); built in birch, the site's wood |
+| 10-04 (s12) | mayorbench | gpt-oss, 3 per case: before V2.3's mayor line / with it | **18/27 / 21/27** | 1-4 s a case | no case worse; then 5 per case with the review's fixes and a stricter judge: 34/50, the new "vanilla library: plan_layout with siblings" 4/5; the weak ones are the old ("wait" while a layout runs 0/5, "re-post a failed build" 0/5) |
+| 10-04 (s12) | Minevale19 | model-driven 1x, minevale3, V2.3 part 2 (library by biome) | **stopped** at 10.1 min | - | the mayor's empty first plan got code's find_site size=24: a 24x24 street plan, a house to a second 9x9 plot; the mayor named plains_small_house_1 twice; then the storage hut's builder pillared dirt up to its stand spot on the mining hut's roof across the street, sealing the mine (F131); a trapped miner's crafting table walled it in |
+| 10-04 (s12) | **VanF1** | minevale3, staged full 2x, street plan, plains (the F131 fixes) | **6/6** | **9.7 min** (GenF1 10.1) | 2 failed deposits (a miner deep in a west tunnel found no path out until the stuck rescue walked it back), no `[lag]`, nothing placed on village ground |
+| 10-04 (s12) | VanS4 | staged build 2x, street plan, after the second review's fixes (stand spot widened, dirt deposits) | **6/6** | 3.1 min | 0 failed actions, no `[lag]` |
 
 ## Findings log
 
@@ -1321,6 +1332,18 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F132 (10-04, twelfth session, Minevale19) Dirt is junk to `deposit item=all`, so a task gathering dirt (4 for
+  plains_library_2's floor) could not deposit it. Fixed: junk counts when the depositing agent holds a claimed task to
+  collect it (a miner keeps its dirt: with the village's needs as the rule, the review found every miner would empty its
+  scaffolding into storage).
+- F131 (10-04, twelfth session, Minevale19) The mine sealed by a stand spot: the storage hut's builder stood "3 south of
+  the claim", which in the street plan is the mining hut across a 3-wide street; its footing search (24 up and down) chose
+  that hut's roof, and the walk there pillared dirt on the street in front of the hut's doorway. The miner inside, told by
+  deposit's failure to craft a chest, put a crafting table down in its tunnel and walled itself in; the rescue's walk-out
+  counted 4 blocks moved as success. Fixed: no placing on village ground in any walk (`exclusionAreasPlace`), stand spots
+  on four sides at the job's level first and off every building and the mine, walked to without scaffolding; no tables or
+  furnaces in a mine; a deposit with no path says to walk back. Backlog: the rescue's success test and its climb on
+  protected ground (the analysis, `runs/2026-10-04/`), and the mine's doorway repaired before walking in.
 - F130 (10-04, twelfth session, V2.3) Every desert town centre holds water (wells and basins) and savanna's only one
   without water is 13x12: a 32x32 pad holds a centre, its streets and only four or five buildings, so desert villages and
   most savanna ones get crossing streets. Larger pads (V2.4's ~40) or water placed by command (the user chose no water)
@@ -1601,6 +1624,8 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-04 (twelfth session) The mayor gathers while it waits (the user's choice among Claude's options: gathering tasks
+  only, not builds or every task, nor idle until phase 3): step V2.3m, after V2.3.
 - 10-04 (twelfth session) V2.3's design (the user's choices): the mayor gets vanilla houses through the village library,
   filled from the site's biome after find_site (not kinds in plan_layout); town centres are the meeting points without
   water (no fountains: no buckets); lamp posts later; the house budget stays 150 (taiga's log houses mostly fail it,

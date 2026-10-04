@@ -8,7 +8,9 @@ import { plannerPrompt } from '../../server/src/tieredBrain';
 const MODEL = process.argv[2] ?? 'gpt-oss:120b-cloud';
 const TIMES = Number(process.argv[3] ?? 5);
 const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
-const { system, tools } = plannerPrompt('mayor', TOOLS, true);
+// (VANILLA=0: the prompt without V2.3's line about the vanilla library, as before it)
+const VANILLA = process.env.VANILLA !== '0';
+const { system, tools } = plannerPrompt('mayor', TOOLS, true, VANILLA);
 
 const obs = '{"position":"-12,63,-82","biome":"savanna","time":"day","health":20,"food":20,"holding":null,"inventory":{},"visibleBlocks":{"acacia_log":"12 seen, nearest -5,64,-80"},"nearby":["Worker1 at -9,63,-80 (3m)","Worker2 at -10,63,-79 (4m)"]}';
 const head = (why: string, objective: string) => `You are planning for Mayor, role: mayor, game mode: survival. Replanning because ${why}.\n\nObjective: ${objective}`;
@@ -26,7 +28,7 @@ const CASES: Array<[string, string, (c: Call[]) => boolean]> = [
     head('there is no plan yet', 'one small cottage'),
     village('one small cottage', ''),
     'Previous plan:\n(no plan yet)', 'Events since the last plan:\n- [system] You are Mayor, a mayor. You just arrived in the world.', `Observation:\n${obs}`,
-  ].join('\n\n'), (c) => steps(c).some((s) => /find_site/.test(s)) && steps(c).some((s) => /design_building/.test(s)) && !steps(c).some((s) => workerJob.test(s) && !/design_building|find_site/.test(s)) && !posted(c)],
+  ].join('\n\n'), (c) => steps(c).some((s) => /find_site/.test(s)) && (VANILLA || steps(c).some((s) => /design_building/.test(s))) && !steps(c).some((s) => workerJob.test(s) && !/design_building|find_site/.test(s)) && !posted(c)],
   ['site found, design ready: plan_layout', [
     head('you found a site (find_site finished: site found: centre x=-12 z=-82, ground y=63, 30x30, height range 1): draw any design still missing, then call plan_layout', 'one small cottage'),
     village('one small cottage', 'Design library (build with build_design):\n- "cottage": 7x7, 5 high, a small oak cottage'),
@@ -67,6 +69,20 @@ const CASES: Array<[string, string, (c: Call[]) => boolean]> = [
     'Previous plan:\nGoal: site and designs\n[x] 1. find_site size=12\n[x] 2. design_building name=cottage\n[x] 3. design_building name=meeting_hall',
     'Events since the last plan:\n- [action_done] find_site finished: site found (12x12, the largest within 112 blocks; 30x30 does not fit): centre x=-195 z=-97\n- [system] plan_layout: the site is only 12x12; only meeting_hall would fit, and all 3 need 16x16; run find_site size=16 (it searches farther out by itself), then plan_layout again', `Observation:\n${obs}`,
   ].join('\n\n'), (c) => steps(c).some((s) => /find_site/.test(s) && Number(/size\D*(\d+)/.exec(s)?.[1] ?? 0) >= 16) && !steps(c).some((s) => /explore|move_to/.test(s)) && !posted(c) && !layout(c)],
+  // V2.3: the library filled with the land's vanilla houses after find_site (the line fillVanilla adds to the reason)
+  ...(VANILLA ? [['vanilla library: plan_layout with siblings', [
+    head(`you found a site (find_site finished: site found: centre x=40 z=-100, ground y=70, 30x30, height range 1). The design library now holds this land's own buildings (vanilla plains), ready to build: plains_small_house_1 (7x7), plains_small_house_2 (7x7), plains_small_house_3 (7x7), plains_small_house_4 (7x7), plains_cartographer_1 (7x10), plains_fisher_cottage_1 (7x8), plains_library_2 (9x8, a landmark). Use them in plan_layout (two matching houses: siblings such as plains_small_house_1 and plains_small_house_2); draw a design only for a kind of building they do not cover: draw any design still missing, then call plan_layout`, 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Design library (build with build_design):\n- "plains_small_house_1": 7x7, 7 high, vanilla plains_small_house_1 (plains), entrance south\n- "plains_small_house_2": 7x7, 7 high, vanilla plains_small_house_2 (plains), entrance south\n- "plains_small_house_3": 7x7, 7 high, vanilla plains_small_house_3 (plains), entrance south\n- "plains_small_house_4": 7x7, 7 high, vanilla plains_small_house_4 (plains), entrance south\n- "plains_cartographer_1": 7x10, 8 high, vanilla plains_cartographer_1 (plains), entrance south\n- "plains_fisher_cottage_1": 7x8, 7 high, vanilla plains_fisher_cottage_1 (plains), entrance south\n- "plains_library_2": 9x8, 10 high, vanilla plains_library_2 (plains), entrance south'),
+    'Previous plan:\nGoal: choose the site\n[x] 1. find_site size=30', 'Events since the last plan:\n- [action_done] find_site finished: site found: centre x=40 z=-100', `Observation:\n${obs}`,
+  ].join('\n\n'), (c: Call[]) => {
+    const n = names(c).split(',').filter(Boolean);
+    const smalls = new Set(n.filter((x) => /small_house/.test(x)));
+    // plan_layout with the library's names only, two different small houses and the landmark as the hall, or a design
+    // step for the hall first (the review: three small houses, or an undrawn meeting_hall, passed before)
+    const listed = /^plains_(small_house_[1-4]|cartographer_1|fisher_cottage_1|library_2)$/;
+    return !posted(c) && ((smalls.size >= 2 && n.length === 3 && n.every((x) => listed.test(x)) && n.includes('plains_library_2'))
+      || (!layout(c) && steps(c).some((s) => /design_building/.test(s) && /hall/i.test(s))));
+  }] as [string, string, (c: Call[]) => boolean]] : []),
   ['second site found: plan_layout the rest', [
     head('you found a site (find_site finished: site found: centre x=-170 z=-120, ground y=70, 9x9, height range 1, 0 tree blocks to clear, 24 blocks away): draw any design still missing, then call plan_layout', 'two matching cottages and a meeting hall'),
     village('two matching cottages and a meeting hall', 'Not laid out yet (no room on the first site; they need a second site, then plan_layout): meeting_hall\nDesign library (build with build_design):\n- "cottage": 5x5, 5 high, a small acacia cottage\n- "meeting_hall": 7x7, 6 high, a hall of planks and cobblestone\nTask board:\n- t1 [done by Worker1] Prepare the village plot\n- t8 [claimed by Worker2] Build cottage 1: build_design "cottage" x=-195 z=-100\n- t15 [open] Build cottage 2 (after t1): build_design "cottage" x=-195 z=-93'),

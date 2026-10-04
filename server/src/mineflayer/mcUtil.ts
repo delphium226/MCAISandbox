@@ -66,8 +66,18 @@ function pathError(e: Error, target: string): Error {
  * more allowing longer drops: a bot that climbed a tree for logs can stand on leaves 5 blocks up with no way down
  * within the usual 4-block drop.
  */
-export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs = 60000) {
+export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs = 60000, opts: { scaffold?: boolean } = {}) {
   const moves = a.moves();
+  // Without scaffolding (a builder going to its stand spot: Minevale19's built a dirt tower to reach a roof)
+  if (opts.scaffold === false) {
+    const blocks = moves.scafoldingBlocks;
+    moves.scafoldingBlocks = [];
+    try {
+      return await walk(a, goal, target, signal, timeoutMs);
+    } finally {
+      moves.scafoldingBlocks = blocks;
+    }
+  }
   // Far away: go in legs of ~40 blocks toward it (a single path search over 150 blocks found "no path" home), trying
   // a little to either side when a leg is blocked
   const g = goal as unknown as { x?: number; z?: number };
@@ -180,14 +190,15 @@ export async function reach(a: BotAgent, pos: Vec3, range: number, signal: Abort
  * The nearest y in the column at x, z where a player can stand (solid below, two free blocks), searching up and down
  * from y; null if the column is not loaded or has no such spot nearby. Models often guess y from the wrong place.
  */
-export function standableY(a: BotAgent, x: number, y: number, z: number): number | null {
+export function standableY(a: BotAgent, x: number, y: number, z: number, range = 24): number | null {
   const v = new Vec3(x, 0, z);
   const box = (yy: number) => a.bot.blockAt(v.set(x, yy, z))?.boundingBox;
-  for (let d = 0; d <= 24; d++)
+  for (let d = 0; d <= range; d++)
     for (const yy of d ? [y - d, y + d] : [y]) {
       const below = box(yy - 1);
       if (below === undefined) return null;
-      if (below === 'block' && box(yy) === 'empty' && box(yy + 1) === 'empty') return yy;
+      // (not in water: an empty box is also water's)
+      if (below === 'block' && box(yy) === 'empty' && box(yy + 1) === 'empty' && !/water|lava/.test(a.bot.blockAt(v.set(x, yy, z))?.name ?? '')) return yy;
     }
   return null;
 }
@@ -437,7 +448,9 @@ export function freeSpotNearby(a: BotAgent): { ground: Block; pos: Vec3 } | null
     // Not on a block that opens when clicked (placing against a crafting table opens it: the server refused a furnace)
     const clickable = !!ground && /chest|barrel|furnace|smoker|crafting_table|door|trapdoor|gate|bed$|shulker|anvil|table$|lectern|hopper|dispenser|dropper/.test(ground.name);
     // Air only: a cell with wildflowers or grass in it refused the crafting table ("the block is still wildflowers", F68)
-    if (ground?.boundingBox === 'block' && !clickable && /^(cave_)?air$/.test(here?.name ?? '') && above?.boundingBox === 'empty' && !onVillageGround(a, pos.x, pos.z, pos.y)) return { ground, pos };
+    // Nor in a village's mine (Minevale19: a miner's crafting table walled it into a tunnel)
+    const mine = a.protectedGround().some((q) => q.y2 !== undefined && pos.x >= q.x1 && pos.x <= q.x2 && pos.z >= q.z1 && pos.z <= q.z2 && pos.y >= q.y && pos.y <= q.y2 + 1);
+    if (ground?.boundingBox === 'block' && !clickable && /^(cave_)?air$/.test(here?.name ?? '') && above?.boundingBox === 'empty' && !mine && !onVillageGround(a, pos.x, pos.z, pos.y)) return { ground, pos };
   }
   return null;
 }

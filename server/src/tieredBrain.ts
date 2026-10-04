@@ -283,6 +283,15 @@ or lanterns). A house's design may need up to ${HOUSE_UNITS} blocks gathered; on
 chapel, tower, market or inn) up to ${LANDMARK_UNITS}. Gathering takes a while: wait for it. The village summary lists the materials still to gather; code keeps
 the gathering tasks in step with it. To keep something else in stock, add_need.`;
 
+/** The mayor where the world has vanilla's village pieces (V2.3): the library fills from the site's biome. */
+const MAYOR_VANILLA = `
+Search with find_site size=32: the village's streets take the whole plot. Once find_site has found the site, the design
+library fills with this land's own buildings (vanilla Minecraft houses of its biome, cheap enough to gather): use them in
+plan_layout, and draw a design only for a kind of building they do not cover. Matching houses are siblings (two different
+small houses of the land), not one design twice. The library's landmark (a library or temple) can be the village's hall:
+a village has room for one building over ${HOUSE_UNITS} blocks gathered. Code lays them out along streets round the
+land's town centre.`;
+
 /** Executor tools the brain handles itself, added to the world's skills. */
 const BRAIN_TOOLS: ToolDef[] = [
   { name: 'step_done', description: 'Mark the current plan step as complete (only when the observation shows it is done).', input_schema: obj({}) },
@@ -293,6 +302,25 @@ const BRAIN_TOOLS: ToolDef[] = [
   },
   { name: 'request_replan', description: 'Ask the planner for a new plan because the current step is impossible or the situation changed.', input_schema: obj({ reason: { type: 'string' } }, ['reason']) },
 ];
+
+/**
+ * After the mayor's find_site, while the village has no layout (V2.3): the library gets the vanilla houses of the site's
+ * biome (those passing the survival checks; a later find_site in another biome swaps them, designs the architect drew
+ * are kept) and the village the street plan. Returns the line for the mayor, or '' where the world has no pieces.
+ */
+function fillVanilla(a: WorldAgent, v: Village): string {
+  if (v.layouts?.length || !a.world.vanillaLibrary) return '';
+  const site = a.memory.lastSite as Site | undefined;
+  const lib = a.world.vanillaLibrary(site?.biome ?? 'plains');
+  if (!lib || !lib.houses.length) return '';
+  for (const [n, d] of Object.entries(v.designs)) if (d.by === 'vanilla' && !lib.houses.some((h) => h.name === n)) delete v.designs[n];
+  for (const h of lib.houses) if (!v.designs[h.name] || v.designs[h.name].by === 'vanilla') v.designs[h.name] = structuredClone(h);
+  v.plan = 'street';
+  v.vanillaBiome = lib.biome;
+  a.world.villages.note(v, `the design library holds ${lib.biome}'s vanilla buildings: ${lib.houses.map((h) => h.name).join(', ')}`);
+  const small = lib.houses.filter((h) => /small_house/.test(h.name)).map((h) => h.name);
+  return `The design library now holds this land's own buildings (vanilla ${lib.biome}), ready to build: ${lib.houses.map((h) => `${h.name} (${h.width}x${h.depth}${isLandmark(h.name) ? ', a landmark: it can be the hall; a village has room for one building like it' : ''})`).join(', ')}. Use them in plan_layout${small.length > 1 ? ` (two matching houses: siblings such as ${small[0]} and ${small[1]})` : ''}; draw a design only for a kind of building they do not cover`;
+}
 
 /**
  * The largest smaller version of a style within a gather budget, said for the architect: the walls two narrower at a
@@ -390,8 +418,8 @@ monsters that attack you. If an action failed, try a different approach instead 
 For building, prefer one build or build_box call over many place calls; their results say how many blocks were placed or skipped.`;
 
 /** The planner's system prompt and tools for a role (exported for scripts/bench/mayorbench.mts). */
-export function plannerPrompt(role: 'mayor' | 'worker' | null, skills: ToolDef[], economy: boolean) {
-  const system = toolsFor(skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
+export function plannerPrompt(role: 'mayor' | 'worker' | null, skills: ToolDef[], economy: boolean, vanilla = false) {
+  const system = toolsFor(skills).planSystem + (role === 'mayor' ? MAYOR_ROLE + (economy ? MAYOR_SURVIVAL : '') + (vanilla ? MAYOR_VANILLA : '') : role === 'worker' ? WORKER_ROLE + (economy ? WORKER_SURVIVAL : '') : PLAN_SOLO);
   return { system, tools: role === 'mayor' ? (economy ? [...MAYOR_PLAN_TOOLS, ADD_NEED] : MAYOR_PLAN_TOOLS) : PLAN_TOOLS };
 }
 
@@ -569,6 +597,8 @@ const callKey = (name: string, args: Record<string, unknown>) =>
 export class TieredBrain implements AgentBrain {
   name = 'tiered';
   private execPending = false;
+  /** The vanilla library's line for the mayor (V2.3), kept for replan reasons that come after find_site's (scouting). */
+  private vanillaNote = '';
   private planPending = false;
   private lastExec = 0;
   private lastPlan = 0;
@@ -752,7 +782,11 @@ export class TieredBrain implements AgentBrain {
           this.replanReason = out.startsWith('plan_layout:') ? `plan_layout was refused: ${out.slice(13, 220)}`
             : vil.unplaced?.length ? `plan_layout placed only part of the rest; ${vil.unplaced.join(', ')} still need a site: ${out.slice(out.indexOf('Find a second site'))}`
             : 'the rest of the village is laid out on the site you found: wait for the workers (set_plan with an empty list)';
-        } else this.replanReason = `you found a site (${e.text.slice(0, 160)}): draw any design still missing, then call plan_layout`;
+        } else {
+          const lib = vil ? fillVanilla(a, vil) : '';
+          if (lib) this.vanillaNote = lib;
+          this.replanReason = `you found a site (${e.text.slice(0, 160)})${lib ? `. ${lib}` : ''}: draw any design still missing, then call plan_layout`;
+        }
       }
     }
   }
@@ -1024,7 +1058,8 @@ export class TieredBrain implements AgentBrain {
       a.pushEvent('system', `New plan (the task's own steps): ${steps.map((st, i) => `${i + 1}. ${st}`).join(' ')}`);
       return;
     }
-    const { system, tools } = plannerPrompt(role, a.world.skills, a.gamemode !== 'creative' && !!a.world.materialTasks);
+    // (the vanilla line only where the pieces can be read: the library is cached after the first read)
+    const { system, tools } = plannerPrompt(role, a.world.skills, a.gamemode !== 'creative' && !!a.world.materialTasks, !!a.world.vanillaLibrary?.('plains'));
     const planStart = Date.now();
     const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
     this.lastPlanCall = modelCall(spec, planStart, user, reply);
@@ -1152,7 +1187,8 @@ export class TieredBrain implements AgentBrain {
       // one and nothing woke it for 3 minutes (the stall review). Without a site, code gives it the first step
       const nothingYet = v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
       if (nothingYet && !a.memory.lastSite && !scouting(a, v!)) {
-        a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${MAYOR_FIRST_SITE}`], step: 0, by: label(spec), tick: a.world.ticks };
+        // (32 where villages get the street plan: its streets take the whole plot, and Minevale19's 24x24 left a house out)
+        a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${a.world.vanillaLibrary?.('plains') ? 32 : MAYOR_FIRST_SITE}`], step: 0, by: label(spec), tick: a.world.ticks };
         this.lastPlan = Date.now();
         a.pushEvent('system', 'Nothing is laid out yet, so there is nothing to wait for: find a site first (step added by code)');
         console.log(`[tiered] ${a.name} returned an empty plan with nothing laid out: find_site added by code`);
@@ -1231,7 +1267,7 @@ export class TieredBrain implements AgentBrain {
     const made = reg.post(v, tasks, 'code', 20);
     reg.note(v, `the first site search found ${what}: code posted ${made.map((t) => t.id).join(', ')} to scout ${pts.length} points 160 blocks around ${home.x},${home.z}`);
     reg.save();
-    this.replanReason = `find_site found ${what} near here. The workers are scouting the land up to 160 blocks around the village (${made.map((t) => t.id).join(', ')}); code runs find_site again when they are back. Meanwhile draw any design the objective still needs (design_building steps), then wait (set_plan with an empty list)`;
+    this.replanReason = `find_site found ${what} near here. The workers are scouting the land up to 160 blocks around the village (${made.map((t) => t.id).join(', ')}); code runs find_site again when they are back. Meanwhile draw any design the objective still needs (design_building steps), then wait (set_plan with an empty list)${this.vanillaNote ? `. ${this.vanillaNote}` : ''}`;
     console.log(`[tiered] ${a.name}: first site search found ${what}; scouting ${pts.map((q) => `${q.x},${q.z}`).join(' ')}`);
   }
 

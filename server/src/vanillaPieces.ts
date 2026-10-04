@@ -429,7 +429,7 @@ export function villageBiome(biome: string): string {
   if (/desert/.test(b)) return 'desert';
   if (/savanna|badlands/.test(b)) return 'savanna';
   if (/snowy_(plains|slopes|beach)|ice_spikes|frozen|snowy$/.test(b)) return 'snowy';
-  if (/taiga|grove/.test(b)) return 'taiga';
+  if (/taiga|^grove$/.test(b)) return 'taiga';
   return 'plains';
 }
 

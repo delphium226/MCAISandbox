@@ -64,9 +64,21 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       v.designs[MINING_HUT] = miningHutDesign();
       names.unshift(MINING_HUT, STORAGE_HUT);
     }
+    // Matching vanilla houses are siblings, not one design twice (the user's choice for V2.3; Minevale19's mayor named
+    // plains_small_house_1 twice): a repeated small house becomes another of the library's small houses
+    if (v.plan === 'street' && !v.layouts?.length) {
+      const spare = Object.values(v.designs).filter((d) => d.by === 'vanilla' && /small_house/.test(d.name) && !names.includes(d.name)).map((d) => d.name);
+      const seen = new Set<string>();
+      names.forEach((n, i) => {
+        if (v.designs[n]?.by !== 'vanilla' || !/small_house/.test(n)) return;
+        if (seen.has(n) && spare.length) names[i] = spare.shift()!;
+        seen.add(names[i]);
+      });
+    }
     // The street plan (V2.3), for a village's first plot: the town centre of the site's biome in the middle, streets from
     // it, every building turned to face one (a second site gets rows)
-    const lib = v.plan === 'street' && !v.layouts?.length && w.vanillaLibrary ? w.vanillaLibrary(site.biome ?? 'plains') : null;
+    // (the biome the library came from, else the site's: a failed find_site moves the site without refilling the library)
+    const lib = v.plan === 'street' && !v.layouts?.length && w.vanillaLibrary ? w.vanillaLibrary(v.vanillaBiome ?? site.biome ?? 'plains') : null;
     let centre = lib?.centre ?? null;
     if (centre) {
       v.designs[centre.design.name] = centre.design;

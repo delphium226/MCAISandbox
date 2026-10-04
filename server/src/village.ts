@@ -150,6 +150,8 @@ export interface Village {
   wood?: string;
   /** How its first plot is laid out: "street" (phase D, V2.3: a vanilla town centre, streets, houses facing them), else rows. */
   plan?: 'street';
+  /** The biome its vanilla library came from (the street plan's town centre is that biome's, V2.3). */
+  vanillaBiome?: string;
   /** Plots plan_layout has laid buildings out on (kept off by later site searches and layouts). */
   /** (`streets`: the street plan's streets, which prepare_site lays as dirt_path, V2.3.) */
   layouts?: Array<Area & { buildings: string[]; streets?: Area[] }>;

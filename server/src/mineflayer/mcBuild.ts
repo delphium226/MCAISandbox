@@ -15,6 +15,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure } from '../village';
+import { mineAreas } from './mcMine';
 import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import type { BotAgent } from './botAgent';
@@ -449,12 +450,34 @@ function playersIn(a: BotAgent, pos: Pos, n: number): string[] {
   return out;
 }
 
-/** Where to stand during a job: 3 blocks south of all the ground it works on (null if no footing there). */
+/**
+ * Where to stand during a job: 3 blocks off all the ground it works on, south first, then north, east, west, at the
+ * job's level (2 up or down), off every building of the village and those laid out, with a block round them (null if no
+ * footing). Minevale19's builder looked for footing 24 up and down 3 blocks south of the storage hut, found the mining
+ * hut's roof across the street and pillared up to it in front of its door.
+ */
 function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } | null {
   const area = job.claim?.area ?? job.area;
-  const x = Math.floor((area.x1 + area.x2) / 2), z = area.z2 + 3;
-  const y = standableY(a, x, job.y + 1, z);
-  return y === null ? null : { x, y, z };
+  const cx = Math.floor((area.x1 + area.x2) / 2), cz = Math.floor((area.z1 + area.z2) / 2);
+  const v = a.village();
+  // (the buildings themselves, built or laid out, and the mine: a street cell beside a house is a fine place to wait)
+  const taken: Area[] = [...(v?.structures ?? [])];
+  for (const t of v?.tasks ?? []) {
+    const m = /footprint x (-?\d+)\.\.(-?\d+), z (-?\d+)\.\.(-?\d+)/.exec(t.detail);
+    if (m) taken.push({ x1: Number(m[1]), x2: Number(m[2]), z1: Number(m[3]), z2: Number(m[4]) });
+  }
+  if (v?.mine) taken.push(...mineAreas(v.mine));
+  const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
+  // Near the job's level first, then farther up or down (cut and fill at a plot's edge can be 3 or more; runJob's
+  // in-the-way teleport needs a spot)
+  for (const range of [2, 8, 24])
+    for (const d of [3, 2, 4])
+      for (const [x, z] of [[cx, area.z2 + d], [cx, area.z1 - d], [area.x2 + d, cz], [area.x1 - d, cz]] as Array<[number, number]>) {
+        if (!free(x, z)) continue;
+        const y = standableY(a, x, job.y + 1, z, range);
+        if (y !== null) return { x, y, z };
+      }
+  return null;
 }
 
 /** Stand just south of the site (out of the way of the blocks), where it can be seen. */
@@ -462,13 +485,14 @@ async function standBy(a: BotAgent, job: Job, signal: AbortSignal, force = false
   // Outside all the ground the job works on: prepare_site fills its margin too, and a preparer standing on it was
   // buried and suffocated (Drop2)
   const area = job.claim?.area ?? job.area;
-  const cx = Math.floor((area.x1 + area.x2) / 2), sz = area.z2 + 3;
-  const sy = standSpot(a, job)?.y ?? null;
+  const spot = standSpot(a, job);
+  const cx = spot?.x ?? Math.floor((area.x1 + area.x2) / 2), sz = spot?.z ?? area.z2 + 3;
   const p = a.bot.entity.position;
   // Also out of the footprint itself: a builder standing inside was walled in by its own cottage
   const inside = p.x >= area.x1 - 1 && p.x < area.x2 + 2 && p.z >= area.z1 - 1 && p.z < area.z2 + 2;
+  // (without scaffolding: a stand spot is somewhere to wait, never worth building up to)
   if (force || inside || Math.hypot(p.x - cx, p.z - sz) > 6)
-    await walk(a, sy !== null ? new goals.GoalNear(cx, sy, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000).catch((e: Error) => {
+    await walk(a, spot ? new goals.GoalNear(cx, spot.y, sz, 2) : new goals.GoalNearXZ(cx, sz, 2), `the site at ${cx},${sz}`, signal, 90000, { scaffold: false }).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
 }
@@ -1152,7 +1176,11 @@ function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
     if (k && WOODS.includes(k)) kinds[k] = (kinds[k] ?? 0) + 1;
   }
   const wood = Object.entries(kinds).sort((u, w) => w[1] - u[1])[0];
-  a.memory.lastSite = { x: b.x, y: b.y, z: b.z, size: sz, ...(wood && wood[1] >= 12 ? { wood: wood[0], woodLogs: wood[1] } : {}) };
+  // The biome at the site's centre (V2.3: the street plan's town centre and the library's houses come from it)
+  // (only where the column is loaded: an unloaded one reads as id 0, badlands)
+  const biomeId = a.bot.blockAt(new Vec3(b.x, b.y, b.z)) ? (a.bot.world.getBiome?.(new Vec3(b.x, b.y + 1, b.z)) as number | undefined) : undefined;
+  const biome = biomeId !== undefined ? (a.world.registry.biomes as Record<number, { name: string }>)[biomeId]?.name : undefined;
+  a.memory.lastSite = { x: b.x, y: b.y, z: b.z, size: sz, ...(wood && wood[1] >= 12 ? { wood: wood[0], woodLogs: wood[1] } : {}), ...(biome ? { biome } : {}) };
   if (v && a.memory.villageRole === 'mayor') a.world.villages.note(v, `${a.name} found a ${sz}x${sz} site centred at x=${b.x} z=${b.z} (ground y=${b.y})`);
   const plots = ((v ? v.plots : (a.memory.plots as Plot[] | undefined)) ?? []) as Plot[];
   const onPlot = plots.some((q) => q.y === b.y && b.x - half >= q.x1 && b.x - half + sz - 1 <= q.x2 && b.z - half >= q.z1 && b.z - half + sz - 1 <= q.z2);
