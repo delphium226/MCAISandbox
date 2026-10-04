@@ -5,6 +5,7 @@
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
+import { doorOf, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -17,6 +18,8 @@ export interface Site {
   wood?: string;
   /** How many log blocks of that kind are within 64 blocks. */
   woodLogs?: number;
+  /** The biome at the site (Minecraft's name): the street plan's town centre comes from it (V2.3). */
+  biome?: string;
 }
 
 /**
@@ -61,18 +64,33 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       v.designs[MINING_HUT] = miningHutDesign();
       names.unshift(MINING_HUT, STORAGE_HUT);
     }
+    // The street plan (V2.3), for a village's first plot: the town centre of the site's biome in the middle, streets from
+    // it, every building turned to face one (a second site gets rows)
+    const lib = v.plan === 'street' && !v.layouts?.length && w.vanillaLibrary ? w.vanillaLibrary(site.biome ?? 'plains') : null;
+    let centre = lib?.centre ?? null;
+    if (centre) {
+      v.designs[centre.design.name] = centre.design;
+      names.push(centre.design.name);
+    }
+    // The centre is code's choice: when it cannot be had, the streets just cross (the mayor is not asked to redraw it)
+    const dropCentre = () => {
+      if (centre && names.includes(centre.design.name)) names.splice(names.lastIndexOf(centre.design.name), 1);
+      if (centre && v.designs[centre.design.name] === centre.design) delete v.designs[centre.design.name];
+      centre = null;
+    };
     const materials = new Map<string, ReturnType<NonNullable<WorldAdapter['materialTasks']>>>();
     // One wood kind for the whole village, chosen at its first layout, when there is enough of it near the site for
     // these buildings with a margin (acacia chosen from 42 logs for ~80 needed sent gatherers 80 blocks away); otherwise
     // any kind is gathered and builders mix kinds part by part
     let wood = v.wood;
     if (!wood && economy && site.wood) {
-      const logs = names.reduce((s, n) => s + (w.materialTasks!(v.designs[n], n).logs ?? 0), 0);
+      const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n).logs ?? 0), 0);
       if ((site.woodLogs ?? 0) >= logs * 1.5) wood = site.wood;
     }
     if (economy)
       for (const n of new Set(names)) {
         const m = w.materialTasks!(v.designs[n], '{label}', wood);
+        if (m.problems.length && n === centre?.design.name) { dropCentre(); continue; }
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
       }
@@ -88,6 +106,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const want = new Map<string, string[]>();
       const amount: Record<string, number> = {};
       for (const [n, m] of materials) {
+        // (not the centre's: a centre short of something is left out at the layout instead)
+        if (n === centre?.design.name) continue;
         const copies = names.filter((x) => x === n).length;
         for (const t of m.tasks) {
           const g = /collect block=(\S+) count=(\d+)/.exec(t.detail);
@@ -130,8 +150,37 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const l = layoutBuildings(0, 0, list.map(foot), 2, 1);
       return Math.max(l.width, l.depth);
     };
+    let street: StreetLayout | null = null;
+    if (lib) {
+      const items: PlanItem[] = names.filter((n) => n !== centre?.design.name).map((n) => ({
+        name: n, width: v.designs[n].width, depth: v.designs[n].depth, ...doorOf(v.designs[n]),
+        kind: n === STORAGE_HUT ? 'storage' : n === MINING_HUT ? 'mine' : undefined,
+      }));
+      const c = centre ? { name: centre.design.name, width: centre.design.width, depth: centre.design.depth, connectors: centre.connectors, paths: centre.paths } : null;
+      let s = planStreets(site.x, site.z, limit, c, items);
+      // A centre takes room: when it leaves buildings out, plain crossing streets may place them all (the review of V2.3:
+      // savanna's 13x12 centre sent the hall of "two cottages and a hall" to a second site)
+      if (s.unplaced.length && c) {
+        const cross = planStreets(site.x, site.z, limit, null, items);
+        if (cross.unplaced.length < s.unplaced.length) {
+          s = cross;
+          dropCentre();
+        }
+      }
+      const isHut = (n: string) => n === STORAGE_HUT || n === MINING_HUT;
+      const own = items.filter((i) => !isHut(i.name)).length, out = s.unplaced.filter((n) => !isHut(n)).length;
+      // Still some left out while rows place them all, or fewer than half of the mayor's buildings placed, or a hut out:
+      // rows, without the centre; otherwise the rest wait for a second site
+      if (s.unplaced.length && fit(names.filter((n) => n !== centre?.design.name))) dropCentre();
+      else if (out * 2 <= own && !s.unplaced.some(isHut)) street = s;
+      else dropCentre();
+    }
     let placed = names;
-    let lay = fit(names);
+    let lay: Layout | null = street ?? fit(names);
+    if (street) {
+      const left = [...street.unplaced];
+      placed = names.filter((n) => { const i = left.indexOf(n); return i < 0 || !left.splice(i, 1).length; });
+    }
     if (!lay) {
       let best: { list: string[]; lay: Layout; area: number } | null = null;
       for (let mask = 1; mask < 1 << Math.min(names.length, 12); mask++) {
@@ -159,7 +208,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // Materials found nowhere near the last site are looked for again (F96)
     delete v.unavailable;
     const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean }> = [];
-    tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them)`, after: [] });
+    tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them${street ? '; it lays the streets as dirt_path' : ''})`, after: [] });
     // One storage for the village: a later layout waits for the storage task already posted
     const storageTask = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
     let storage: string | number | undefined = storageTask && storageTask.status !== 'done' ? storageTask.id : undefined;
@@ -185,7 +234,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     let hutBuild: string | number | undefined = hutTask?.id;
     // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
     const mining = withHut ? lay.places.find((p) => p.name === MINING_HUT) : undefined;
-    const mineTurn = mining ? miningHutTurn(mining, plot) : 0;
+    // (in the street plan the hut faces its street, the stairs running out its back: its turn is the plan's)
+    const mineTurn = mining ? (street ? (mining.rotate ?? 0) / 90 : miningHutTurn(mining, plot)) : 0;
     if (mining) {
       const top = miningStairs(mining.x1, mining.z1, mineTurn);
       v.mine = { hut: { x1: mining.x1, z1: mining.z1, x2: mining.x2, z2: mining.z2 }, top: { x: top.x, z: top.z }, dir: top.dir, steps: 0, dug: 0, ended: [], got: {} };
@@ -213,7 +263,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const build = tasks.length;
       tasks.push({
         title: `Build ${label}`,
-        detail: `build_design "${p.name}" x=${p.x} z=${p.z}${isMine && mineTurn ? ` rotate=${mineTurn * 90}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
+        detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
         after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && hutBuild !== undefined ? [hutBuild] : [])],
       });
       if (isMine) {
@@ -236,7 +286,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

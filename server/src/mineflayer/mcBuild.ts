@@ -1206,6 +1206,10 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     else if (targets[i].block === 'air' && block !== 'air') targets[i] = { x, y: yy, z, block };
   };
   let columns = 0, protectedCols = 0, felled = 0;
+  // The village's streets on this plot (the street plan, V2.3): dirt_path instead of grass, laid with the levelling
+  const lay = a.village()?.layouts?.find((l) => l.x1 === x0 && l.z1 === z0 && l.x2 === x1 && l.z2 === z1);
+  const street = (x: number, z: number) => !!lay?.streets?.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
+  let paved = 0;
   const treeLogs = new Set<string>();
   const drops: string[] = [];
   // Columns left as they are (built blocks, chests, margin over a drop): the check after the job passes them over
@@ -1260,7 +1264,10 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
       for (let yy = g + 1; yy < y; yy++) add(x, yy, z, 'dirt');
       const top = blockName(a, x, y, z) ?? 'air';
       const solidTop = a.bot.blockAt(new Vec3(x, y, z))?.boundingBox === 'block';
-      if (top !== 'grass_block' && (g < y || top === 'dirt' || !solidTop)) add(x, y, z, 'grass_block');
+      if (street(x, z)) {
+        if (top !== 'dirt_path') add(x, y, z, 'dirt_path');
+        paved++;
+      } else if (top !== 'grass_block' && (g < y || top === 'dirt' || !solidTop)) add(x, y, z, 'grass_block');
     }
   if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
   if (targets.length > 12000) throw new Error(`too much work (${targets.length} blocks, max 12000); prepare a smaller area`);
@@ -1330,7 +1337,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name });
     reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
-  return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
+  return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -23,6 +23,8 @@ import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
+import { DEFAULT_JAR, vanillaLibrary, villageBiome } from '../vanillaPieces';
+import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -104,6 +106,24 @@ export class MineflayerWorld implements WorldAdapter {
       if (this.atlas.known(x, z, 64) < 0.5) out.push({ x, z });
     }
     return out;
+  }
+
+  /**
+   * Vanilla's pieces for a biome (V2.3), each passing the checks the architect's survival designs pass (valid with block
+   * states, obtainable and easy materials, the budget, the furnace runs). Null when the jar cannot be read.
+   */
+  vanillaLibrary(biome: string) {
+    const accept = (d: Design, centre: boolean) => {
+      if (!validateDesign({ ...d } as unknown as Record<string, unknown>, 'vanilla', { isPlaceable: (b) => this.isPlaceable(b), states: true, requireDoor: !centre }).design) return false;
+      const m = this.materialTasks(d, d.name);
+      return !m.problems.length && (m.units ?? 0) <= (isLandmark(d.name) ? LANDMARK_UNITS : HOUSE_UNITS) && (m.smelts ?? 0) <= MAX_SMELTS;
+    };
+    try {
+      return vanillaLibrary(villageBiome(biome), accept, process.env.MC_VANILLA_JAR ?? DEFAULT_JAR);
+    } catch (e) {
+      console.warn(`[vanilla] cannot read the village pieces: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   /**

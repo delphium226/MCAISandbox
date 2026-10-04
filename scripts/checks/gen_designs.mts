@@ -228,8 +228,9 @@ for (const file of ['mc/server/villages.json', 'mc/testserver/villages.json']) {
   const villages = Array.isArray(data) ? data : Object.values(data.villages ?? data);
   for (const v of villages as Array<{ name: string; designs?: Record<string, Design> }>)
     for (const d of Object.values(v.designs ?? {})) {
-      // (code's huts, and designs the generator drew: their doors were always faced by the new rule)
-      if (d.by === 'code' || d.style) continue;
+      // (code's huts, designs the generator drew: their doors were always faced by the new rule; vanilla town centres
+      // have no door)
+      if (d.by === 'code' || d.style || /a town centre/.test(d.description)) continue;
       stored++;
       const { errors, fixes } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, d.by, { isPlaceable: () => true, maxLayers: 99, maxSide: 99, states: true });
       const doorErr = errors.filter((e) => /door/.test(e));

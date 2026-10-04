@@ -155,6 +155,12 @@ export interface WorldAdapter {
    */
   materialsNear?(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number): Record<string, number> | null;
   /**
+   * Vanilla's village pieces for a biome (phase D, V2.3; a Minecraft biome name or one of plains, savanna, snowy, taiga,
+   * desert): the town centre (a meeting point without water, with its street connectors) and the houses that pass the
+   * survival checks, from the server's jar. Worlds without one leave it out.
+   */
+  vanillaLibrary?(biome: string): { biome: string; centre: { design: Design; connectors: Array<{ side: string; offset: number }>; paths: Array<[number, number]> } | null; houses: Design[] } | null;
+  /**
    * Where scouts should walk around a new village's home so that its land becomes known (step 2.4): points of a ring the
    * world's map does not cover yet, in walking order around the ring. Worlds without a map leave it out.
    */

@@ -6,7 +6,7 @@
  * the budget (HOUSE_UNITS, or LANDMARK_UNITS for a library or temple), the furnace runs. Prints a line per piece and a
  * summary per biome (how many import, how many pass, gather units), and the substitutions made.
  * Usage: node_modules/.bin/tsx scripts/checks/vanilla_pieces.mts [BIOME ...]
- * Env: KIND (default houses; town_centers, decor...), PIECE (one piece path, e.g. plains/houses/plains_small_house_1:
+ * Env: KIND (default houses; town_centers: centreToDesign, no door, street connectors listed), PIECE (one piece path, e.g. plains/houses/plains_small_house_1:
  *      prints its layers), OUT=DIR (each design as JSON plus index.json for scripts/contact_sheet.py and
  *      rotate_design.py --design; keep DIR out of the repo: the pieces are Mojang's), JAR (default mc/server's).
  */
@@ -16,7 +16,7 @@ import minecraftData from 'minecraft-data';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, elevations, isLandmark, lintDesign, validateDesign } from '../../server/src/designs';
 import type { Design } from '../../server/src/village';
 import { Materials, designBill, hardToGather, inWood, woodPart } from '../../server/src/mineflayer/mcMaterials';
-import { DEFAULT_JAR, VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece } from '../../server/src/vanillaPieces';
+import { DEFAULT_JAR, VILLAGE_BIOMES, centreToDesign, listPieces, pieceToDesign, readPiece } from '../../server/src/vanillaPieces';
 
 const reg = minecraftData('26.1');
 const materials = new Materials(reg);
@@ -66,8 +66,12 @@ for (const p of pieces) {
   const row: Row = { biome, name, ok: false, why: '', notes: [] };
   rows.push(row);
   let imported;
+  const centre = KIND === 'town_centers';
   try {
-    imported = pieceToDesign(readPiece(p, JAR), biome);
+    if (centre) {
+      const c = centreToDesign(readPiece(p, JAR), biome);
+      imported = { ...c, notes: [`streets ${c.connectors.map((k) => `${k.side}@${k.offset}`).join(' ')}`, ...(c.water ? ['water'] : [])] };
+    } else imported = pieceToDesign(readPiece(p, JAR), biome);
   } catch (e) {
     row.why = `import: ${(e as Error).message}`;
     continue;
@@ -76,7 +80,7 @@ for (const p of pieces) {
   row.notes.push(...imported.notes);
   const d0 = imported.design;
   row.size = `${d0.width}x${d0.depth}x${d0.height}`;
-  const checked = validateDesign({ ...d0 } as unknown as Record<string, unknown>, 'vanilla', { isPlaceable, states: true });
+  const checked = validateDesign({ ...d0 } as unknown as Record<string, unknown>, 'vanilla', { isPlaceable, states: true, requireDoor: !centre });
   if (!checked.design) {
     row.why = `invalid: ${checked.errors.join('; ')}`;
     continue;

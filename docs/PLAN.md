@@ -607,7 +607,17 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       0 failed actions; stripped birch logs placed and charged as birch logs, acacia and spruce swapped to birch. The plan:
       **Built as drawn**: a few pieces of each biome at four rotations (`rotate_design.py --design`), then a staged
       village of vanilla houses (`stage_village.py`).
-- [ ] V2.3 (D.4, hybrid plan) **A street village**: code lays the plan on the pad, vanilla supplies the content: the
+- [ ] V2.3 (D.4, hybrid plan) **A street village**. **Part 1 done 10-04 (twelfth session)**: the street plan
+      (`server/src/streetPlan.ts`: `planStreets`, `layoutStreets`, `doorOf`; plan_layout's street branch when the village's
+      `plan` is "street"; `scripts/checks/street_plan.mts` offline). The biome's town centre (a meeting point without water,
+      `centreToDesign`; desert has none, so its streets cross) in the middle of the pad, 3-wide streets from its connectors
+      to the pad's edge (a plain one from each side without a connector, when that places more), buildings turned to face
+      a street, their entrance step touching it or a path of up to 4 blocks to it, 2 blocks apart, the storage hut never
+      turned, the mining hut with free ground behind it to the pad's edge; a beam search places them; a centre that leaves
+      buildings out gives way to crossing streets, then to rows. Streets, paths and the centre's plaza are laid free by
+      prepare_site as dirt_path (the layout record keeps them). Staged VanS1-3 (2x): 6/6, 6/6, 5/5 in 3.0-3.2 min, 0 failed
+      actions. Part 2 (next): the mayor's library filled by the site's biome, the prompt line, mayorbench, a model-driven
+      village. The plan as written: **A street village**: code lays the plan on the pad, vanilla supplies the content: the
       biome's town centre (substituted) in the middle, its jigsaw connectors giving the street directions, streets laid
       as dirt_path (charged as dirt, like vanilla's street pieces), houses along them turned so their entrance faces the
       street, the biome's lamp posts along it. The mayor asks by kind ("two small houses and a library"); code picks the
@@ -888,6 +898,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s12) | vanilla_pieces.mts | offline, the 152 house pieces of the five biomes, V2.1 after both reviews | 113 import, 105 valid, **62 pass** | - | plains 14/36, savanna 21/31, snowy 10/30, taiga 4/27, desert 13/28; passing 55-189 gather units; the rest: 33 no door (F123), over budget (taiga 15 of 19, F122), snow and ice (F125), too big (F126), door side (F124) |
 | 10-04 (s12) | rotate_design.py | minevale3 test world, creative, 2x: six vanilla pieces | **5 pass, 1 3/4** | - | plains_small_house_1, savanna_small_house_4, taiga_small_house_4, desert_small_house_7, plains_library_2: 0 mismatches at four turns, stair shapes and fence sides by the server; snowy_small_house_2 lost rotate 0 to gravel on the plot (F128); rows north of the site hit water and hills (y 97-117): rows chosen from `top_map.py` |
 | 10-04 (s12) | **VanB1** | minevale3, staged build 2x, plains_small_house_1 + savanna_small_house_1 + snowy_small_house_2 (birch village) | **5/5** | **2.5 min** | 0 failed actions, no `[lag]`, deposit check passed; stripped_birch_log placed (16) and charged as birch_log; render saved (`runs/2026-10-04/VanB1-render.png`) |
+| 10-04 (s12) | street_plan.mts | offline, the five biomes' libraries with both huts, V2.3 | **pass** | - | "two cottages and a hall" (small, small, landmark): plains 5/5, snowy 5/5, taiga 4/4, desert 5/5 (crossing), savanna 4/5 with its 13x12 centre and 5/5 with crossing streets (plan_layout takes those) |
+| 10-04 (s12) | **VanS1** | minevale3, staged build 2x, street plan, plains: plains_meeting_point_2 + plains_small_house_1, 3 + plains_library_2 + huts | **6/6** | **3.1 min** | 0 failed actions, no `[lag]`; 126 blocks of street laid by prepare_site; the centre's plaza charged as 58 dirt (fixed after the review) |
+| 10-04 (s12) | **VanS2** | as VanS1 after the diff review's fixes (plaza free, south door, crossing fallback) | **6/6** | **3.0 min** | 0 failed actions, no `[lag]`; 184 blocks of street and plaza, the centre 85 blocks with no dirt |
+| 10-04 (s12) | **VanS3** | minevale3, staged build 2x, street plan, savanna: savanna_small_house_1, 2 + savanna_library_1 + huts | **5/5** | **3.2 min** | 0 failed actions, no `[lag]`; crossing streets (the 13x12 centre would have left the library out); built in birch, the site's wood |
 
 ## Findings log
 
@@ -1307,6 +1321,14 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F130 (10-04, twelfth session, V2.3) Every desert town centre holds water (wells and basins) and savanna's only one
+  without water is 13x12: a 32x32 pad holds a centre, its streets and only four or five buildings, so desert villages and
+  most savanna ones get crossing streets. Larger pads (V2.4's ~40) or water placed by command (the user chose no water)
+  would bring the centres back.
+- F129 (10-04, twelfth session, V2.3's reviews) Street plans and the build's claims: every build claims its area plus a
+  block and refuses recorded structures in it, so streets cannot be buildings (laid by prepare_site instead) and
+  neighbours need 2 blocks between them; a greedy placement left half the pad unused (a beam search fixed it); a
+  centre's plaza path was charged as dirt while the streets were free (laid free now).
 - F128 (10-04, twelfth session, V2.2's rotation check) Gravel on a prepared plot: prepare_site at -1580,-82 passed its
   after-check, then build_design found 6 gravel at y 65-66 ("the ground is not level here (heights 64..66)"); gravel from
   the cut's edge slid in after the check. Rare (land with gravel near the surface). Backlog: prepare_site's after-check
@@ -1579,6 +1601,12 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-04 (twelfth session) V2.3's design (the user's choices): the mayor gets vanilla houses through the village library,
+  filled from the site's biome after find_site (not kinds in plan_layout); town centres are the meeting points without
+  water (no fountains: no buckets); lamp posts later; the house budget stays 150 (taiga's log houses mostly fail it,
+  F122); streets are laid free by prepare_site as dirt_path, not charged as dirt (a shovel's work in vanilla; building
+  them as designs collided with every build's claim); wool becomes a slab of the piece's wood (market awnings stay roofs);
+  leaves stay out (shears need iron).
 - 10-04 (twelfth session) V2.1's design (the user's choices among Claude's recommendations): an imported piece's
   entrance door is in layer 1 (plains floors sit a block lower than vanilla's; no new Design field); terracotta by biome
   (plains, taiga and snowy cobblestone, savanna acacia planks, desert sandstone); stripped logs and bark blocks keep their

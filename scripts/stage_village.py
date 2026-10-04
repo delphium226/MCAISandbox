@@ -15,6 +15,9 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
   --design-file FILE.json       a design from a JSON file, by its name (repeatable; e.g. a vanilla piece written by
                                 scripts/checks/vanilla_pieces.mts with OUT=)
+  --plan street                 the street plan (V2.3): the biome's vanilla town centre in the middle, streets from it laid by
+                                prepare_site as dirt_path, the buildings turned to face them (--biome picks the centre,
+                                default plains)
   --stage full|build            full: layout only, workers do storage, gathering and building;
                                 build: the storage chest is placed and stocked with the raw materials, so workers
                                 only prepare the plot and build (tests building from storage, crafting included).
@@ -143,6 +146,8 @@ p.add_argument("--site-at", help="X,Y,Z,SIZE[,WOOD]: a site find_site gave (e.g.
 p.add_argument("--buildings", default="testhut")
 p.add_argument("--design-from", action="append", default=[])
 p.add_argument("--design-file", action="append", default=[])
+p.add_argument("--plan", choices=["rows", "street"], default="rows")
+p.add_argument("--biome", default="plains")
 p.add_argument("--stage", choices=["full", "build"], default="full")
 p.add_argument("--brain", choices=["tasks", "tiered"], default="tasks")
 p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
@@ -268,7 +273,8 @@ else:
     if test_site:
         found = {k: site[k] for k in ("x", "y", "z", "size", "wood", "woodLogs") if k in site}
         print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
-r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs")})
+r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs"),
+                                             "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {})})
 print(r.get("result") or r, flush=True)
 if "error" in r:
     raise SystemExit(1)

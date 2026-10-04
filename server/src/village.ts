@@ -148,8 +148,11 @@ export interface Village {
   storageHut?: Area & { spots: Array<{ x: number; z: number }> };
   /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
   wood?: string;
+  /** How its first plot is laid out: "street" (phase D, V2.3: a vanilla town centre, streets, houses facing them), else rows. */
+  plan?: 'street';
   /** Plots plan_layout has laid buildings out on (kept off by later site searches and layouts). */
-  layouts?: Array<Area & { buildings: string[] }>;
+  /** (`streets`: the street plan's streets, which prepare_site lays as dirt_path, V2.3.) */
+  layouts?: Array<Area & { buildings: string[]; streets?: Area[] }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -569,7 +572,8 @@ export interface Layout {
   width: number;
   depth: number;
   /** Each building's footprint and its centre (x, z as build_design takes them), in build order. */
-  places: Array<Footprint & Area & { x: number; z: number }>;
+  /** (`rotate`: build_design's quarter turns in degrees, the street plan's; width and depth are then as turned.) */
+  places: Array<Footprint & Area & { x: number; z: number; rotate?: number }>;
 }
 
 /**
