@@ -139,7 +139,7 @@ speed of local models.
 |---|---|---|
 | `move_to` | x, y, z, range? | Pathfinding: walks, jumps, swims and drops down ledges; far goals are walked in legs of ~40 blocks |
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
-| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure. A giant tree (a jungle giant of far more logs than the task still wants) is passed over while an ordinary tree is near, and felled whole only when nothing else is. The first village collect that finds no sand fails its task, closes the village's other open sand tasks and marks sand unavailable there until the next layout |
+| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure. A giant tree (a jungle giant of far more logs than the task still wants) is passed over while an ordinary tree is near, and felled whole only when nothing else is. In Minecraft it keeps out of water: a block with water above it (also above the sand or gravel stacked on it, which would fall) is passed over, and so is a buried one with water beside it (kelp, seagrass and bubble columns count as water). After each block or tree, a village gatherer also takes open blocks of other materials the village still needs within 4 blocks (side pickups), only at or above its feet, never under itself and none with water beside or above, so it digs no pits to fall into. The first village collect that finds no sand fails its task, closes the village's other open sand tasks and marks sand unavailable there until the next layout |
 | `place` | item, x, y, z | Places a block |
 | `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
@@ -150,7 +150,7 @@ speed of local models.
 | `eat`, `equip`, `drop`, `look_at`, `wait`, `explore`, `sleep` | | |
 | `scout` | x, z | Real Minecraft: walks toward x,z so the land around it comes into the shared atlas, waits for the atlas to take it in and reports how far it got. It never fails (a scout stopped halfway still brought land in); used by code-posted scout tasks |
 | `find_site` | size?, radius?, x?, z?, max_slope? | Finds the flattest dry, open area of `size`×`size` nearby (no water or lava, few trees, off every village's buildings and plots) and reports its centre. It checks every centre within 112 blocks on a height grid, allows 4 blocks of height difference (prepare_site levels them) before offering a smaller site, and if nothing fits walks up to two 40-block legs toward dry land. In survival a site needs 30 log blocks within 48 (a log counts when it is no more than 16 below its own column's ground and below the site, as `collect` would reach it), and a smaller wooded site beats a bigger bare one. In Minecraft each column's ground is read from its real top, however far above the bot (a hill 50 blocks up once read as flat, treeless ground), and kelp or seagrass mark water. When nothing good is found around it, an agent in no village or a mayor looking for its first site turns to the shared atlas: it walks to the best areas the atlas knows (level, dry, wooded, sand near; at most 300 blocks of walking in all) and surveys the ground there; the reply says how far it walked. A new village's first site may lie up to 256 blocks from where its mayor started (later sites stay within 96 of the village). Its verdict (good, small, treeless or none) is kept for code in `memory.siteSearch` |
-| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top (also where a felled tree stood below the level), plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot. In Minecraft it checks the plot afterwards: cells unlike the plan are redone once, then every plot column must pass the build's own ground rule (odd ones confirmed over RCON), or it fails saying where |
+| `prepare_site` | x?, z?, width?, depth?, margin?, y? | Prepares a building plot the way a player would: fells every tree touching it (whole trees, canopy included), cuts high ground down and fills low ground to one level with grass on top (also where a felled tree stood below the level), plus a margin. Never demolishes builds. Records the plot; preparing next to it at the same `y` extends it. A margin column over a drop or deep water (more than 8 below the level) is left as it is; such a column on the plot itself refuses the plot. In Minecraft it checks the plot afterwards: cells unlike the plan are redone once, then every plot column must pass the build's own ground rule (odd ones confirmed over RCON), or it fails saying where. Plots go up to 40x40 there (about 2.5 minutes at 1x); a preparer whose plot is partly not loaded walks to its middle first |
 | `build` | structure, x?, z?, material?, roof?, floor?, width?, depth?, height?, door?, length?, direction? | Builds a `hut` (5×5), `house` (7×7), `platform` or `wall` centred on x,z: walls, windows, roof, an oriented door and a clear path out. Needs prepared ground: refuses sites that are sloped, over water, cluttered by trees, or overlapping a building |
 | `build_design` | design, x, z, rotate? | Builds a design from the village design library (drawn by a model, drawn by code from a model's style, or imported from a schematic) centred on x,z, turned by `rotate` degrees clockwise (in Minecraft stairs, logs on their side and trapdoors turn with it), with doors facing out and a clear path in front of them. Needs prepared ground; building a design that already stands there counts as done |
 | `build_box` | x1, y1, z1, x2, y2, z2, block, hollow?, label? | Fills a box with a block (or only its shell), or clears it with `air`; `label` names it in the village record |
@@ -302,7 +302,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
 | GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
 | GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
-| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`; `"rows"` clears it) |
+| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`, round a green when `size` is 40 or more; `"rows"` clears it) |
 | POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
 | GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
 | GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map |
@@ -427,8 +427,8 @@ becomes another of the library's. Builders charge stripped logs and bark blocks 
 swap the wood kind for the village's), and a door with no way out (between rooms) faces across its wall.
 
 **Layout.** `plan_layout` (`server/src/layout.ts`) takes the buildings by name (`["cottage", "cottage",
-"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot (or, with vanilla pieces,
-along streets: below), 3-block streets apart
+"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot of up to 32x32 (or, with
+vanilla pieces, round a green or along streets on up to 40x40: below), 3-block streets apart
 (2-block streets and a 1-block margin when that is what fits), choosing the column count that gives the squarest plot,
 and centres the plot on the site the mayor found. Buildings drawn from a style are packed by their walls, so an
 overhang's eaves hang over the street; such a building reserves only its own area while it is built, and the clearing
@@ -445,13 +445,19 @@ survival, a new village's first layout also gets a storage hut, added by code (t
 `design_building` refuses the name): see [the village economy](#the-village-economy-real-minecraft). Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot and spent the
 rest of the run relocating it.
 
-**Streets** (`server/src/streetPlan.ts`). A village whose plan is "street" (set with the vanilla library) has its first
-plot laid out as a vanilla village is, by code: the biome's town centre in the middle of the pad, 3-wide streets from
+**Greens and streets** (`server/src/streetPlan.ts`). A village whose plan is "street" (set with the vanilla library) has
+its first plot laid out by code from vanilla's pieces. On a site of 40 or more it gets a **green**: the biome's town
+centre in an open green (4 blocks wide round it, else 3 or 2), a 3-wide ring street round the green, streets from the
+centre's own connectors across the green to the ring, and every building outside the ring with its door onto it. The
+centre and ring may move up to 4 blocks south or north so the storage hut, which is never turned, fits north of the
+ring; the first such plan that places every building is taken (`planGreen`), and the green itself stays free. When no
+green places everything, or the site is smaller, the plot gets the **street plan**: the town centre in the middle of
+the pad, 3-wide streets from
 its street connectors out to the pad's edge (a plain street from a side without one, when that places more), and every
 building turned with `build_design`'s `rotate` so its door opens onto a street, its entrance step touching it or a path
 of up to 4 blocks to it. Buildings keep 2 blocks apart (each build claims a block round its area), the storage hut is
 never turned (its chest spots stay where they are), and the mining hut keeps free ground behind it to the pad's edge for
-its stairs. A beam search places them (a greedy first choice left half the pad unused). When the centre leaves
+its stairs. A beam search places them in both plans (a greedy first choice left half the pad unused). When the centre leaves
 buildings out, plain crossing streets take its place, and when those leave too many out, rows; desert's town centres
 all hold water, so desert villages get crossing streets. `prepare_site` lays the streets, the paths and the centre's
 plaza as `dirt_path` while it levels the plot, free, from the layout record (`layouts[].streets`); the centre itself is
@@ -536,7 +542,8 @@ What building these agents taught, and what the code is built around:
   (offline) lays each biome's library out with both huts by the street plan and checks it: every building inside the pad,
   off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
   hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
-  library's houses, `small,small,landmark,other` by default).
+  library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
+  also checks that nothing stands on the green and no door opens onto it.
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
@@ -572,7 +579,8 @@ What building these agents taught, and what the code is built around:
   `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs; drawn by the building
   generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
   `--design-file FILE.json` adds a design from a file (a vanilla piece written by `vanilla_pieces.mts` with `OUT=`),
-  and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default).
+  and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default), or
+  round a green when the site is 40 across (`--site-at X,Y,Z,40`).
   `--mayor` adds a tiered Mayor whose layout is posted and whose plan is empty, so it gathers while it waits
   (`--planner` is its planner, `--planner none` none; start the agent server with `MC_OLLAMA_ROUTES`).
   `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
@@ -730,17 +738,18 @@ down stood inside the future hut and raised its floor).
 
 **From objective to buildings.** For "two matching cottages and a meeting hall":
 
-1. The **mayor** runs `find_site` (a site with enough trees near it; 32 across, since the streets take the whole
-   plot), and the library fills with the vanilla houses of the site's biome. It names two of the small houses and the
+1. The **mayor** runs `find_site` (a site with enough trees near it; 40 across, room for a green, though a smaller
+   site still gets the street plan), and the library fills with the vanilla houses of the site's biome. It names two of the small houses and the
    landmark as the hall (or has a `cottage` and a `meeting_hall` designed within the survival limits, where there are
    no pieces or for a kind they do not cover), and calls `plan_layout`, which checks the materials are near the site. If that first
-   search finds nothing good (no site, only a small one, or too few trees near it), code sends the workers to **scout**
+   search finds nothing good (no site, only a small one, or too few trees near it; 26 across is enough for the
+   street plan), code sends the workers to **scout**
    once per village: scout tasks to the points on a 160-block ring around the start that the atlas does not know yet
    (each worker a run of neighbouring points, run as written). `plan_layout` waits meanwhile (at most 20 minutes)
    while the mayor draws its designs, and when the scouts are back code runs `find_site` again over the land they
    mapped. On land the atlas already knows there is nothing to scout.
-2. `plan_layout` places the buildings, with the storage hut, the mining hut and (with the street plan) the biome's
-   town centre, and posts the tasks, each as exact skill calls: prepare the plot (laying its streets as `dirt_path`);
+2. `plan_layout` places the buildings, with the storage hut, the mining hut and (round a green or along streets) the
+   biome's town centre, and posts the tasks, each as exact skill calls: prepare the plot (laying its streets as `dirt_path`);
    set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
@@ -778,7 +787,10 @@ the hall, the town centre and both huts) in 18.0 minutes with no failed actions 
 whose mine is slow; staged street villages took about 3 minutes at 2x from a stocked storage (VanS1-4) and 9.7 from
 nothing (VanF1). With the mayor gathering while it waits: Minevale21 (1x, Minevale20's site) built the same six in
 15.0 minutes with 2 failed actions, both a worker's (the mayor did 8 gather tasks with no extra model calls), and a staged street
-village from nothing took 8.0 minutes at 2x instead of 10.9 (VanM2).
+village from nothing took 8.0 minutes at 2x instead of 10.9 (VanM2). Round a green on a 40 site: staged plains and
+snowy villages from nothing built six buildings in 8.1-8.4 minutes at 2x with no failed actions (VanG1, VanG2, and
+VanG5 once collect kept out of the lake beside the plot), and the model-driven Minevale22 (1x) built six in 15.2
+minutes with no failed actions.
 
 ### Models
 
@@ -848,7 +860,7 @@ world: agents, skills including the building engine, REST API), `brains.ts` (bra
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
 `layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests, and the mayor's gathering), `designs.ts` (design format, checks, elevations and lint),
 `buildingGen.ts` (buildings drawn by code from a style), `vanillaPieces.ts` (Minecraft's village pieces as designs,
-read from the server's jar), `streetPlan.ts` (the street plan)
+read from the server's jar), `streetPlan.ts` (the green and the street plan)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
 economy, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is

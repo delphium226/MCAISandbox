@@ -357,6 +357,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     filled by the site's biome, F131/F132 fixes; `9182b77`): staged VanS1-4 and VanF1 (9.7 min full at 2x), Minevale19
     stopped (F131: a sealed mine), Minevale20 (1x, model-driven) 6/6 in 18.0 min, 0 failed actions, no design drawn.
     Lessons 60-65. Next (the user's choice): V2.3m, the mayor gathers while it waits (PLAN.md).
+28. 2026-10-04 (thirteenth session; all pushed to origin `tiered-brain-building` at the close, `main` untouched): V2.3m,
+    the mayor gathers while it waits (`b716f33`: a TaskBrain beside its empty plan runs soft gather tasks as written;
+    `stage_village.py --mayor [--planner none]`): VanM2 8.0 min staged (10.9 without), Minevale21 15.0 min at 1x on
+    Minevale20's site (18.0). V2.4, the green village (`723a24d`: `layoutGreen`/`planGreen`, a ring street round the
+    town centre's green on 40 sites, the street plan up to 40 otherwise, find_site size=40, prepare_site 40x40) and
+    collect's lake and pit fixes (`bb48ec0`, F136-F138): staged VanG1/2/5 8.1-8.4 min at 2x, Minevale22 (1x) 6/6 in
+    15.2 min, 0 failed actions. Lessons 66-71. `stage_village.py --site-at=X,Y,Z,SIZE[,WOOD]` needs the `=` for a
+    negative X and the X Z arguments as well. Next: V2.5 (vanilla data) or the backlog (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -513,12 +521,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twelfth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the thirteenth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale20's street village (6 of 6) stands on minevale3's other site at -1524..-1493, -79..-48 until the next reset, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale22's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -734,6 +742,25 @@ Lessons from the adapter:
 65. **"Matching" is code's to enforce** (V2.3): told in the prompt that matching houses are siblings, the mayor still
    named one house twice in its first model-driven run; plan_layout now swaps a repeated vanilla small house for an
    unused sibling (lesson 1). The mayor's own choice from a filled library was right at once in Minevale20.
+66. **Add a behaviour beside the brain's state, not inside it** (V2.3m's design review): a gather plan written into the
+   mayor's `memory.plan` would have reached the executor's building tools on urgent turns, the 3-failure replan and two
+   wake-ups blocked by its own claim. A TaskBrain running beside the empty plan left every existing check as it was;
+   only the few places that count tasks or events had to learn to ignore it.
+67. **A stopped action sends no report** (F134): `BotAgent.stop()` aborts the running action and its `finish` returns
+   early, so no `action_failed` comes. Anything that waits for an action's end must also notice "idle while waiting"
+   (the scripted workers held their task for good after a death or the panel's stop button).
+68. **One piece that never turns can decide a layout** (V2.4's review, from a prototype before any code): the storage hut
+   opens south and is never turned, so a ring centred on the pad left no room north of it in plains and savanna. Moving
+   the centre and ring a few blocks fixed it; turning the hut would have broken six places that assume it as drawn.
+   Prototype a new plan offline across the biomes before coding it.
+69. **Every dig beside water floods** (F136, F137): checks must look at the sides and up through sand and gravel, not
+   only at the block above; seagrass, kelp and bubble columns are water. Shore sand in the open is fine to take; a buried
+   block next to water and the ground under the bot's own feet are not.
+70. **A drop pickup walks into the pit it came from** (F138): side pickups dug ground below the bot, `pickUpDrops` walked
+   it into each hole, and from there every walk stalled "stuck" for minutes. Take only blocks at or above the feet;
+   don't dig ground the bot will have to stand in.
+71. **Measure with the run's own settings** (V2.4): prepare_site at 40x40 took 9.6 min for Gus at the default
+   buildSpeed 1, ~450 s of it pacing; at a village worker's buildSpeed 4 it was 2.5 min.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
