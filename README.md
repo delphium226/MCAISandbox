@@ -178,7 +178,7 @@ Pick a brain when spawning an agent (`brain` in `POST /api/agents`, or the third
 | `companion` | sandbox | a script | follows the nearest human player around and chats now and then |
 | `llm` | both | Claude | one model that sees everything and calls skills directly |
 | `tiered` | both | a planner model and an executor model | local or mixed models; villages; the brain used for the experiments below |
-| `tasks` | Minecraft | a script | scripted village workers for tests: they run the skill calls each village task spells out |
+| `tasks` | Minecraft | a script | scripted village workers for tests: they run the skill calls each village task spells out (the tiered mayor runs its gather tasks the same way while it waits) |
 
 **LLM brain (Claude).** `server/src/llmBrain.ts` sends each agent's observation and recent events to Claude and runs
 the returned tool calls as skills. It needs Anthropic credentials (`ANTHROPIC_API_KEY` or an `ant auth login`
@@ -316,8 +316,8 @@ tick with 30 autonomous agents (20 TPS needs under 50 ms). `/api/status` shows p
 Agents with the same `village` in their memory share one village record (saved in `villages.json` next to the world):
 its plots, buildings, design library, task board, storage and a log of what happened.
 
-**Roles.** An agent with `villageRole: "mayor"` coordinates and does no physical work itself; every other member is a
-worker.
+**Roles.** An agent with `villageRole: "mayor"` coordinates; its only physical work is gathering while it waits for
+the workers (survival, Minecraft). Every other member is a worker.
 
 - **The mayor** finds the site (`find_site`), has each kind of building designed (`design_building`: the architect
   model draws it; in Minecraft the library first fills with vanilla houses of the site's biome, and the architect draws
@@ -328,7 +328,13 @@ worker.
   and improvised a new, smaller site instead). A mayor with nothing laid out that answers with an empty plan gets
   `find_site` added by code, or is asked again 10 seconds later if it already has a site. Whether the village is
   complete is checked by code on every tick of the mayor's brain: when every building of the layout stands and no task
-  is open, code declares it, whatever the mayor last did.
+  is open, code declares it, whatever the mayor last did. Once its layout is posted and its plan is empty, the mayor
+  gathers too (survival, Minecraft): a scripted task runner beside the empty plan claims only soft "Gather N item"
+  tasks (logs, sand and dirt before cobblestone) and runs their skill calls as written, as workers run code-posted
+  tasks, with no model call. It hands the task back without counting a try when the mayor gets a plan with steps, the
+  village is complete or a second site is needed (`memory.mayorGathers: false` turns it off); a busy mine sends it
+  back the same way and leaves cobblestone alone for 3 minutes. Its gathering is left out of what the planner and the
+  executor see, so every wake-up works as before.
 - **Workers** take the next open task whose prerequisites are done, *before* planning (otherwise several would plan
   the same one), do it, and take the next. A task that code posted spells out its own skill calls ("collect
   block=logs count=12, then deposit item=all"), and those calls are the worker's plan: no planner call. Other tasks go
@@ -557,7 +563,7 @@ What building these agents taught, and what the code is built around:
   the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
   village's workers on after the stage runner's stall rule stopped it.
 - `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
-- `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered]` (real
+- `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered] [--mayor]` (real
   Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
   places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
   plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
@@ -567,6 +573,8 @@ What building these agents taught, and what the code is built around:
   generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
   `--design-file FILE.json` adds a design from a file (a vanilla piece written by `vanilla_pieces.mts` with `OUT=`),
   and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default).
+  `--mayor` adds a tiered Mayor whose layout is posted and whose plan is empty, so it gathers while it waits
+  (`--planner` is its planner, `--planner none` none; start the agent server with `MC_OLLAMA_ROUTES`).
   `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
   its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD]` uses a site find_site gave
   directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the canopy).
@@ -745,7 +753,7 @@ down stood inside the future hut and raised its floor).
    reach is given up at once (it is "soft": the build checks its own materials), and only that task: the queue goes
    with it. For sand the first such failure also closes the village's other open sand tasks, and code posts no sand
    gathering again until the next layout. A build does not wait for a gather task still held by a worker when the
-   storage already covers that task.
+   storage already covers that task. The mayor, waiting with an empty plan, takes gather tasks the same way.
 4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
    smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
    the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
@@ -768,7 +776,9 @@ minutes with no failed actions; with buildings drawn from styles, in 16.1 and 19
 actions. With vanilla houses along streets (Minevale20, 1x): six buildings (two sibling plains houses, a library as
 the hall, the town centre and both huts) in 18.0 minutes with no failed actions and no design drawn, on the test site
 whose mine is slow; staged street villages took about 3 minutes at 2x from a stocked storage (VanS1-4) and 9.7 from
-nothing (VanF1).
+nothing (VanF1). With the mayor gathering while it waits: Minevale21 (1x, Minevale20's site) built the same six in
+15.0 minutes with 2 failed actions, both a worker's (the mayor did 8 gather tasks with no extra model calls), and a staged street
+village from nothing took 8.0 minutes at 2x instead of 10.9 (VanM2).
 
 ### Models
 
@@ -836,7 +846,7 @@ The agent framework lives in `server/src`: `world.ts` (the world interface brain
 world: agents, skills including the building engine, REST API), `brains.ts` (brain registry and scripted brains),
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
-`layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format, checks, elevations and lint),
+`layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests, and the mayor's gathering), `designs.ts` (design format, checks, elevations and lint),
 `buildingGen.ts` (buildings drawn by code from a style), `vanillaPieces.ts` (Minecraft's village pieces as designs,
 read from the server's jar), `streetPlan.ts` (the street plan)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in

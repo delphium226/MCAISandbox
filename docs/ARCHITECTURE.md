@@ -151,7 +151,7 @@ flowchart TB
     gen["buildingGen.ts<br/>(buildings from a style)"]
     vanilla["vanillaPieces.ts<br/>(the jar's village pieces<br/>as designs)"]
     street["streetPlan.ts<br/>(town centre, streets,<br/>buildings facing them)"]
-    taskb["taskBrain.ts<br/>(scripted worker, tests)"]
+    taskb["taskBrain.ts<br/>(scripted worker, tests;<br/>the mayor's gathering)"]
     village["village.ts"]
     designs["designs.ts<br/>(checks, elevations, lint)"]
     skills["skills.ts<br/>(tool definitions)"]
@@ -269,6 +269,19 @@ Code also keeps the mayor on its job, because gpt-oss drifts back to doing the w
 | `move_to` and `explore` beyond 96 blocks of home are refused or shortened (every member; a new village's mayor may walk up to 256 to its first site) | a mayor wandering 500 blocks for a site; a worker exploring to 180 blocks out |
 | Buildings that did not fit are laid out by code at the mayor's next successful `find_site` | the model placing them there only 1-2 times in 10 |
 | A poor first site search sends scouts (code-posted, once per village); `plan_layout` waits for them (at most 20 minutes) and code runs `find_site` again when they are back | a mayor left to it would lay the village out on the poor site |
+
+**The mayor gathers while it waits** (V2.3m, survival in a world with `materialTasks`). Once its layout is posted and
+its plan is empty, a `TaskBrain` (`taskBrain.ts`) runs beside the empty plan, limited by `pick` (`mayorGatherPick`:
+soft "Gather N item for ..." tasks, collect then deposit, logs, sand and dirt before cobblestone) and `notTheTask`. It
+runs their skill calls as written, as workers run code-posted tasks, and takes no new task while a plan or an
+executor call is due. It hands its task back with `VillageRegistry.unclaim` (no try counted) when the mayor gets a
+plan with steps, the village is complete or a second site is needed, or `memory.mayorGathers` is false; "the mine is
+busy" (`notTheTask`) hands back the same way and leaves cobblestone alone for 3 minutes. The plan stays empty, so every
+wake-up of the planner works as before, and the mayor's gathering is kept out of the planner's and executor's events,
+the 3-failure replan, blocked calls and the completion and stuck-board checks. `TaskBrain` waits only for its own
+action ids and notices an action stopped without a report; `finish` refuses done and failed tasks. In Minevale21 (1x,
+Minevale20's site) the mayor did 8 gather tasks with no extra model calls and the village took 15.0 minutes instead
+of 18.0.
 
 ### Designs: from a brief to the library
 
@@ -426,9 +439,10 @@ coordinates, everyone else in the village is a worker.
 stateDiagram-v2
   [*] --> open: plan_layout or the mayor posts
   open --> claimable: prerequisites done (a failed "soft" gather task counts, and a held one the storage covers) and its design drawn
-  claimable --> claimed: a free worker claims it (before planning)
+  claimable --> claimed: a free worker claims it (before planning), or the waiting mayor a gather task
   claimed --> done: the worker's plan completes
   claimed --> open: handed back (replanned 3 times, or the plan failed), 1st time
+  claimed --> open: the mayor hands a gather task back (unclaim, no try counted)
   claimed --> failed: handed back a 2nd time
   open --> failed: cancelled (objective declared complete)
   failed --> open: the mayor re-posts it (a failed layout build is re-opened)
@@ -695,7 +709,8 @@ at the edge). `stage_village.py` sets a
 village up at a stage and runs scripted workers (`taskBrain.ts`: they run the skill calls each task spells out), so
 the economy's code is checked in one to ten minutes with no model involved (its test designs include `stairhut` and
 `stairhall`, with stair gable roofs, and `genhut` and `genhall`, drawn by the generator; `--design-file` takes a design
-from a file, such as a vanilla piece, and `--plan street --biome B` the street plan). The benches (`modelbench`,
+from a file, such as a vanilla piece, and `--plan street --biome B` the street plan; `--mayor` adds a tiered Mayor with
+its layout posted and an empty plan, which gathers while it waits, `--planner none` for no planner). The benches (`modelbench`,
 `execbench`, `planbench`, `mayorbench`, `designbench`) replay the brain's real prompts against a model in seconds per
 case (`mayorbench` with the vanilla library's prompt line and case, `VANILLA=0` without); `designbench` offers both design tools as the brain does (`STYLES=0` for hand drawing only, `REVISE=1` for the
 revision round) and reads each design's roof shape, blocks, gather cost, lint notes and validity, on 10 or more samples
@@ -768,7 +783,7 @@ flowchart LR
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
 | Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
 | Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
-| Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests |
+| Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests; a limited runner (`pick`, `notTheTask`) is the waiting mayor's gathering (section 3) |
 
 **The mine's trips** (`mcMine.ts`, `mineFor`): a main tunnel's cells are dug in a fixed order (`tunnelCell`: 3 main
 cells, then a 12-cell branch to each side, and again), two blocks each, until the bot carries enough or 6 minutes pass.
@@ -815,5 +830,6 @@ a sixth piece lost one turn to gravel sliding onto its plot, F128); staged stree
 villages built 5-6 buildings in about 3 minutes at 2x from stocked storage (VanS1-4) and 6 in 9.7 minutes from nothing
 (VanF1), with no failed actions; and the model-driven Minevale20 built two sibling plains houses, a library as the
 hall, the plains town centre and both huts in 18.0 minutes at 1x, with no failed actions and no design drawn (on the
-test site whose mine is slow, F121). Next: the mayor gathering while it waits (V2.3m), a green village on a larger pad
-(V2.4), and vanilla's tags, recipes and loot tables in place of hand-made lists (V2.5).
+test site whose mine is slow, F121). With the mayor gathering while it waits (V2.3m), the staged VanM2 took 8.0
+minutes at 2x from nothing (10.9 without it) and the model-driven Minevale21 15.0 minutes at 1x on Minevale20's site,
+with 2 failed actions, both a worker's. Next: a green village on a larger pad (V2.4), and vanilla's tags, recipes and loot tables in place of hand-made lists (V2.5).

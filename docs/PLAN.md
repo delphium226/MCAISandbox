@@ -624,8 +624,16 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       first. Ground truth: `/place jigsaw` with the biome's town-centre pool in creative on the test world builds a real
       vanilla village to compare with. Test: an offline check of the plans (inside the pad, no overlaps, every entrance
       on a street), a staged run, then a model-driven village.
-- [ ] V2.3m **The mayor gathers while it waits** (the user's choice, 10-04, after Minevale19: the mayor stood idle from
-      0.4 min to the end). Once a layout is posted and the mayor has nothing to plan, it claims the soft gather tasks
+- [x] V2.3m **The mayor gathers while it waits**. **Done 10-04 (thirteenth session, `b716f33`)**: a `TaskBrain` sub-runner
+      beside the mayor's empty plan (the design review's simpler alternative to a gather plan in `memory.plan`: every
+      wake-up check and the chat-only executor stay as they are) claims soft "Gather N item" tasks (`mayorGatherPick`: logs,
+      sand and dirt before cobblestone), runs them as written and hands the task back (`unclaim`, no try counted) when a plan
+      with steps comes, the village is complete, a second site is needed or `memory.mayorGathers` is false; a busy mine
+      hands back without a try and leaves cobblestone alone 3 minutes. Its gathering is kept out of the model's events, the
+      3-failure replan, blocked calls and the completion and board checks. `stage_village.py --mayor` (`--planner none`).
+      Staged VanM2 6/6 in 8.0 min at 2x (VanF2 without the mayor 10.9); Minevale21 (1x, model-driven, the same site as
+      Minevale20, -1508,-63) 6/6 in **15.0 min** (Minevale20 18.0), the mayor 8 gather tasks, 0 extra model calls. The plan
+      as written: Once a layout is posted and the mayor has nothing to plan, it claims the soft gather tasks
       (logs, cobblestone, sand: never builds, land or storage tasks) and runs them as written, as workers run code-posted
       tasks (no model call); events that need it (a failed task, the timed review, the village finished) still wake its
       planner, and a gather task in its hands is handed back when it must replan. Expected: gathering about a third
@@ -912,6 +920,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s12) | **VanF1** | minevale3, staged full 2x, street plan, plains (the F131 fixes) | **6/6** | **9.7 min** (GenF1 10.1) | 2 failed deposits (a miner deep in a west tunnel found no path out until the stuck rescue walked it back), no `[lag]`, nothing placed on village ground |
 | 10-04 (s12) | VanS4 | staged build 2x, street plan, after the second review's fixes (stand spot widened, dirt deposits) | **6/6** | 3.1 min | 0 failed actions, no `[lag]` |
 | 10-04 (s12) | **Minevale20** | model-driven 1x, minevale3, V2.3 complete (d14fa53) | **6/6 PASS** | **18.0 min** | 0 failed actions, no `[lag]`; the mayor's own find_site size=32 took the other site (-1508,-63, F121's slow mine: Minevale18 there had 3/5 at 24.5 min); 2 mayor plans, 0 designs drawn: plains_small_house_1 and 2 (siblings) and plains_library_2 as the hall, round plains_meeting_point_2; workers 0 model calls |
+| 10-04 (s13) | VanF2 | minevale3, staged full 2x, street plan, plains (VanF1's command, before V2.3m) | **6/6** | **10.9 min** | 0 failed actions; the same-day baseline (VanF1 9.7) |
+| 10-04 (s13) | **VanM1** | as VanF2 with `--mayor --planner none` (V2.3m, before the diff review) | **6/6** | **7.5 min** | 0 failed actions; the Mayor 6 gather tasks (1 log, 4 cobblestone, 1 sand); hand-back checked through the memory API (task open, no try, logs deposited; one executor call for the check's own step) |
+| 10-04 (s13) | **VanM2** | as VanM1 after the diff review's fixes | **6/6** | **8.0 min** | 0 failed actions, the Mayor 8 gather tasks (log, dirt, 2 sand, 4 cobblestone), 0 model calls; hand-back again (deposit by the task's item); the mine never busy |
+| 10-04 (s13) | **Minevale21** | model-driven 1x, minevale3, V2.3m (b716f33) | **6/6 PASS** | **15.0 min** | the mayor's find_site took -1508,-63 (Minevale20's slow-mine site): 18.0 -> 15.0 min; the mayor 8 gather tasks (2 log, 5 cobblestone, 1 sand), plan 2x / exec 2x (its first plan only); 2 failed actions, both Worker1's (F133, and sand none within 96: the soft path); no `[lag]`, no busy mine |
 
 ## Findings log
 
@@ -1331,6 +1343,20 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F133 (10-04, thirteenth session, Minevale21) The storage task's `move_to` to its spot in the storage hut's area stuck 2
+  blocks short (-1519,68,-69 for -67), right after prepare_site; Worker1's executor got there 0.3 min later (2 calls).
+  Not chased: backlog.
+- F134 (10-04, thirteenth session, V2.3m's diff review) A stopped action is not reported: `BotAgent.stop()` aborts the
+  running action and its `finish` returns early, so no `action_failed` comes. TaskBrain (the scripted workers too) then
+  waited for good and held its task (death, the panel's stop button, a replace). Fixed: idle while waiting means the report
+  was lost; the call runs once more, then the task goes back. The review also found the runner taking the tiered brain's
+  refused calls (an `action_failed` with no action id) as its own (now only its own id), "the village mine gave no ..."
+  covering a missing pickaxe as well as a busy mine (now "the mine is busy" only), and `deposit item=all` leaving out
+  junk (dirt for a floor, F132) once a task is handed back (now the task's own item by name).
+- F135 (10-04, thirteenth session, V2.3m) The mayor's gathering gained 27% staged (2x) but 17% model-driven (1x): the
+  first ~4 minutes (prepare_site, the storage task) give it nothing to take, and most log tasks are closed by the felled
+  wood in storage (F97), so its work is cobblestone (5 of 8 tasks in Minevale21) and sand. A reply to a person waits
+  behind its collect (up to ~6 min): fine while nobody talks to it; phase 3 must interrupt.
 - F132 (10-04, twelfth session, Minevale19) Dirt is junk to `deposit item=all`, so a task gathering dirt (4 for
   plains_library_2's floor) could not deposit it. Fixed: junk counts when the depositing agent holds a claimed task to
   collect it (a miner keeps its dirt: with the village's needs as the rule, the review found every miner would empty its
@@ -1623,6 +1649,11 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-04 (thirteenth session) V2.3m's shape (after the design review): the mayor's gathering runs in a TaskBrain beside
+  its empty plan, not as a "by task" plan in `memory.plan` (the review found that path reaching the executor's building
+  tools on urgent turns, the 3-failure replan and two wake-ups blocked by the mayor's own claim); a hand-back for the
+  mayor's own reasons or a busy mine counts no try (`unclaim`), a failed collect after one retry does (`giveUp`); the
+  staged Mayor has no planner (`--planner none`), so a staged run makes no model calls.
 - 10-04 (twelfth session) The mayor gathers while it waits (the user's choice among Claude's options: gathering tasks
   only, not builds or every task, nor idle until phase 3): step V2.3m, after V2.3.
 - 10-04 (twelfth session) V2.3's design (the user's choices): the mayor gets vanilla houses through the village library,
