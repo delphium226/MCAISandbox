@@ -422,7 +422,9 @@ Things to expect:
   collect walks back first). find_site searches up to 112 blocks and walks up to two 40-block legs; in survival a
   site needs 30 log blocks within 48 (only wood within 16 of the ground counts). plan_layout refuses designs whose
   materials are not near the site in the amounts needed (as collect can reach them; wood may be 25% short).
-  Survival designs are at most 9x9 and use only logs, stone, sand, sandstone, dirt, gravel or terracotta.
+  Survival designs have a cost budget (phase D, 2026-10-04: a house 250 gather units, one landmark a village 400) and
+  use only raw materials that are easy to gather; the architect's block list includes stairs, slabs, fences,
+  trapdoors and walls (`designBlockList` in mcMaterials.ts).
 - **Log roofs make villages slow** (a 9x9 hall with an oak log roof needs 81 logs; Accept16 and 18 took 38-39 min).
   The commonest failure left is collect not reaching logs high on hills (9-23 failed collects per run in hilly or
   jungle-edged woods).
@@ -577,7 +579,8 @@ Lessons from the adapter:
    step made it run find_site and replace a 30x30 site with a 24x24). Drop such steps in code.
 27. **Designs need limits in code, not prompts**: 11x11 and 13x13 buildings of mossy cobblestone (moss from lush caves
    at y=-4), furnaces and chests as decoration, sandstone roofs where there is no sandstone. Survival designs are
-   capped at 9x9, raw materials are whitelisted, workstations refused, and materials checked against the site.
+   capped (9x9 then; a cost budget since phase D), raw materials are whitelisted, workstations refused, and materials
+   checked against the site.
 28. **Where the watcher spawns matters**: it spawned villages at its probe point, 100 blocks from the site it found,
    and the mayor started stuck in a hollow; a timed-out walk that got nowhere was not counted as stuck either.
 29. **On 26.1 a bot is often not sent the block update for its own placement** (2026-09-29): Mineflayer said "the
@@ -660,6 +663,11 @@ Lessons from the adapter:
    desert. `nearestBlocks` now reads state ids itself (`scanBlocks`: palette and single-state skips, a y window per
    caller, filters on matches only, ~3 ms). Never call `bot.findBlocks` directly; in search filters read with
    `stateAt`/`exposedAt`/`wetAbove`, not `blockAt`. `scripts/checks/search_cost.py X Z` times the counts at a spot.
+54. **Check a design's shape in code, not only its blocks** (phase D, 2026-10-04): with stairs allowed, gpt-oss drew
+   pitched roofs in every design at once, but copied a 5-deep example onto 7-deep houses (rows open to the sky) and drew
+   "pitched" roofs as solid blocks (a 549-block hall; the run took 18.2 min instead of 14.6). The rain test and the
+   solid-roof check in `validateDesign` send them back; `scripts/bench/designbench.mts` measures designs (roof shape,
+   cost, validity) on 10+ samples a case, and `scripts/checks/rotate_design.py` checks facing blocks at four turns.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

@@ -68,7 +68,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     if (!parts[2]) return sendJson(res, 200, [...w.villages.villages.values()]);
     const v = w.villages.get(decodeURIComponent(parts[2]));
     if (v && parts[3] === 'designs' && req.method === 'POST') {
-      const { design, errors, fixes } = validateDesign(await readJson(req), 'api', { isPlaceable: (b) => w.isPlaceable(b) });
+      const { design, errors, fixes } = validateDesign(await readJson(req), 'api', { isPlaceable: (b) => w.isPlaceable(b), states: true });
       if (!design) return sendJson(res, 400, { errors });
       v.designs[design.name] = design;
       w.villages.note(v, `design "${design.name}" added through the API`);
@@ -141,12 +141,18 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const [x1, x2] = [Math.min(k[0], k[3]), Math.max(k[0], k[3])], [y1, y2] = [Math.min(k[1], k[4]), Math.max(k[1], k[4])], [z1, z2] = [Math.min(k[2], k[5]), Math.max(k[2], k[5])];
     if ((x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1) > 65536) return sendJson(res, 400, { error: 'at most 65536 blocks' });
     const bots = [...w.agents.values()].filter((a) => a.bot.entity).map((a) => a.bot);
+    // states=1: names with their block states ("oak_stairs[facing=north,half=bottom,shape=straight]"; phase D's checks)
+    const withStates = url.searchParams.get('states') === '1';
     const names: string[] = [], index = new Map<string, number>(), cells: number[] = [];
     for (let y = y1; y <= y2; y++) for (let z = z1; z <= z2; z++) for (let x = x1; x <= x2; x++) {
       let name: string | undefined;
       for (const bot of bots) {
         const b = bot.blockAt(new Vec3(x, y, z));
-        if (b) { name = b.name; break; }
+        if (b) {
+          const props = withStates ? Object.entries(b.getProperties() as Record<string, unknown>).filter(([k]) => k !== 'waterlogged').map(([k, v]) => `${k}=${v}`) : [];
+          name = props.length ? `${b.name}[${props.join(',')}]` : b.name;
+          break;
+        }
       }
       if (name === undefined) { cells.push(-1); continue; }
       if (!index.has(name)) { index.set(name, names.length); names.push(name); }

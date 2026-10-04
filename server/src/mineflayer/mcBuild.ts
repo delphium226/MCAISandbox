@@ -16,6 +16,7 @@
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure } from '../village';
 import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
+import { turnState } from '../designs';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
@@ -478,9 +479,24 @@ function alreadyThere(a: BotAgent, t: Target, anyWood = false): boolean {
   const cur = blockName(a, t.x, t.y, t.z);
   if (cur === null) return false;
   if (t.block === 'air') return cur === 'air' || cur === 'cave_air' || /^(water|lava|bubble_column)$/.test(cur);
-  if (cur === baseName(t.block)) return true;
-  const c = anyWood ? WOOD_ITEM.exec(cur) : null, w = c ? WOOD_ITEM.exec(baseName(t.block)) : null;
-  return !!c && !!w && c[2] === w[2];
+  let same = cur === baseName(t.block);
+  if (!same) {
+    const c = anyWood ? WOOD_ITEM.exec(cur) : null, w = c ? WOOD_ITEM.exec(baseName(t.block)) : null;
+    same = !!c && !!w && c[2] === w[2];
+  }
+  // A stair or log the wrong way round is not there yet (the states a design sets; shapes and fence sides are the
+  // server's, and doors are faced from their wall)
+  if (same && !/_door$/.test(cur)) {
+    const want = /\[(.*)\]$/.exec(t.block)?.[1];
+    if (want) {
+      const props = (a.bot.blockAt(new Vec3(t.x, t.y, t.z))?.getProperties() ?? {}) as Record<string, unknown>;
+      for (const p of want.split(',')) {
+        const [k, v] = p.split('=').map((s) => s.trim());
+        if (/^(facing|half|axis|type|open)$/.test(k) && props[k] !== undefined && String(props[k]) !== v) return false;
+      }
+    }
+  }
+  return same;
 }
 
 const DIR_NAMES: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
@@ -1415,7 +1431,8 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
       for (let i = 0; i < row.length; i++) {
         const ch = row[i];
         if (ch === '_') continue;
-        const block = ch === '.' ? 'air' : d.palette[ch];
+        // Facing blocks turn with the building (stairs, logs on their side, trapdoors: phase D)
+        const block = ch === '.' ? 'air' : turnState(d.palette[ch], rot);
         const [ox, oz] = turn(i, j);
         const x = area.x1 + ox, z = area.z1 + oz;
         let facing: [number, number] | undefined;

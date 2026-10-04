@@ -390,7 +390,16 @@ gpt-oss and no Claude API (decision 10-03); the generator (D.2) should make the 
 critic, if one is added, is the local qwen3.8 (test of 10-02 below). Order as listed, with D.8's renderer and critic
 alongside D.3; D.7 later.
 
-- [ ] D.1 **Quick wins and a design bench** (prompts and small code; measure before and after):
+- [x] D.1 **Quick wins and a design bench** (prompts and small code; measure before and after). **Done 10-04**
+      (tenth session, second day): designbench before 0/40 pitched roofs, after 20/20 survival designs with stair
+      gables; rotate_design.py 0 mismatches at four turns; staged StairB1 5/5 in 3.0 min; Minevale10 (1x,
+      model-driven) 5/5 in 14.6 min, 0 failed actions (Minevale9 before the solid-roof check: 18.2 min). What was
+      built differs from the plan in places: the budget is per design by kind (house 250, landmark 400 by its name or
+      brief) with one building over 250 a layout, not one landmark chosen by order; the floor was already optional
+      ("_"); torches and the roof overhang were left out (review: a torch over air drops off and is bought again; an
+      overhang's "_" ring makes fixDoor move the door out of the wall). Added beyond the plan: the rain test and the
+      solid-roof check in validateDesign (F109, F110), block states checked against minecraft-data, three design tries.
+      The steps as planned:
       - `scripts/bench/designbench.mts`: the architect's real prompts (cottage and meeting-hall briefs from the runs,
         with and without the survival note and the site lines), N times per model; for each design its footprint,
         layers, roof shape (flat, stepped, pitched with stairs; read from the layers), materials, blocks and gather cost
@@ -736,6 +745,12 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-03 (s10) | Hills3 | hills, staged full 2x, F106 | **3/3** | 8.1 min (Hills2 7.3) | 1 failed action (the sand detector), no `[lag]` or `[search]` |
 | 10-03 (s10) | Shelf7 | shelf, staged full 2x, F106 (+ column cache, cheap filters first) | **5/5** | **8.4 min** (Shelf5 8.8) | 1 failed action (the sand detector), no `[lag]` or `[search]` with sand buried under the floor; R.3 redid 1 cell (F92) |
 | 10-03 (s10) | Drop7 | drop, staged full 2x, F106 | **3/3** | **5.8 min** (Drop3-4 6.3-6.8) | 0 failed actions; the near sand gathered; no `[lag]` or `[search]` |
+| 10-04 (s10) | designbench before | gpt-oss, 10 per case, the old prompt and checks | 40/40 valid | 7-14 s a design | **0 pitched roofs**; survival cottage 108 gather units, hall 213 |
+| 10-04 (s10) | rotate_design.py | minevale3 test site, creative, D.1 | **pass** | - | a stair-gabled 7x7 with a log beam, trapdoor and fences at rotate 0/90/180/270: 0 mismatches (facing, half, axis, open); fences join by themselves, stairs straight |
+| 10-04 (s10) | StairB1 | minevale3, staged build 2x, stairhut x2 + stairhall | **5/5** | **3.0 min** | 0 failed actions; birch stairs, slabs and trapdoors crafted from storage; the hall's 72 stairs, 9 slabs, 4 shutters as drawn |
+| 10-04 (s10) | designbench after (final) | gpt-oss, survival cases, all D.1 checks | 20/20 valid (9 after a retry) | 19-20 s a design | **20/20 stair roofs**; cottage 93 units, hall 172; the creative 11x11 hall case 6/10 before the solid-roof check (2 server errors) |
+| 10-04 (s10) | Minevale9 | model-driven 1x, minevale3, D.1 before the solid-roof check | **5/5** | 18.2 min | 0 failed actions, no `[lag]`; the hall's roof was solid (549 blocks, 253 units: F110), the cottage's stairs all in one layer |
+| 10-04 (s10) | **Minevale10** | model-driven 1x, minevale3, D.1 final | **5/5** | **14.6 min** (Minevale7 11.6, Minevale8 15.9) | 0 failed actions, no `[lag]`; stair gables on the hall (225 blocks, 72 stairs) and the cottages; workers 0 model calls |
 
 ## Findings log
 
@@ -1155,6 +1170,13 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F110 (10-04, Minevale9) A "pitched" roof drawn as a solid block: the hall filled four roof layers with planks under
+  its stair rows and topped them with cobblestone (5 blocks a column, 549 blocks, 253 gather units), and the run took
+  18.2 min. validateDesign now refuses more than 2.5 blocks a column above the inside ("the roof is a shell"); 11 of
+  36 earlier bench designs would have been refused. Minevale10 after it: 14.6 min.
+- F109 (10-04, designbench) Stair roofs copied from a 5-deep example onto 7-deep houses left rows open to the sky and
+  passed validation. The rain test (every "." of layer 1 has a block above it; drawn buildings only) and a 7x7 example
+  with the rule "rising one layer per row from both sides until they meet".
 - F108 (10-02, ninth session, 2.4) Scouting is seldom needed: an offline port of `atlasSites` over the main atlas
   (~6,700 chunks) found a good 24-block square within ~110 blocks of nearly every mapped point (none beyond 156), and
   find_site's two 40-block legs reach ~190. Of the poor starts tried, the lake had a site 31 off, 20,-120 one 46 off,
@@ -1321,6 +1343,10 @@ CLAUDE.md when a phase ends.
 - 10-03 (tenth session) F106: one fast scanner behind `nearestBlocks` rather than fixing each caller, so collect,
   find_site and plan_layout's counts change together (lesson 46); the scan stays synchronous (it is ms now, and an async
   materialsNear would change the WorldAdapter interface and its callers).
+- 10-04 (tenth session) D.1's budget: per design by kind, a house 250 gather units and a landmark (a hall, chapel,
+  tower... by its name or brief) 400, and plan_layout lays out one building over 250 a village; not "the first design
+  drawn" (the review: that gave the cottage, built twice, the larger budget). Torches and roof overhangs left for D.2's
+  generator, which can place them right.
 
 ## Keeping this plan honest
 

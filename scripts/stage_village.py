@@ -7,7 +7,8 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 search); while it has none, the land search starts at its probe and prints the site found
                                 to record. MCAI_API defaults to the test agent server (port 8767) and MC_SERVER_DIR to
                                 mc/testserver with --site
-  --buildings testhut,testhut   design names, one per building (default: one testhut; built in: testhut 5x5, testhall 9x9)
+  --buildings testhut,testhut   design names, one per building (default: one testhut; built in: testhut 5x5, testhall 9x9,
+                                stairhut 5x5 and stairhall 9x9 with stair gable roofs)
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
   --stage full|build            full: layout only, workers do storage, gathering and building;
                                 build: the storage chest is placed and stocked with the raw materials, so workers
@@ -55,6 +56,53 @@ TESTHALL = {
         ["L P P P P P P P L"] + ["P . . . . . . . P"] * 7 + ["L P P P P P P P L"],
         ["P P P P P P P P P"] * 9,
     ],
+}
+
+
+def gable(width, depth, walls, floor="C", ridge="P"):
+    """Roof layers for a gable over a width x depth building whose walls are `walls` (a list of wall layers): stairs N
+    (facing south, the north slope) and S (facing north) rising one row per layer from both sides, the ridge on the
+    middle row, the gable ends of planks (phase D's test buildings)."""
+    def row(cells):
+        return " ".join(cells)
+    layers = [[row([floor] * width)] * depth] + walls
+    for k in range(depth // 2):
+        rows = []
+        for j in range(depth):
+            if j == k:
+                rows.append(row(["N"] * width))
+            elif j == depth - 1 - k:
+                rows.append(row(["S"] * width))
+            elif k < j < depth - 1 - k:
+                rows.append(row(["P"] + ["."] * (width - 2) + ["P"]))
+            else:
+                rows.append(row(["."] * width))
+        layers.append(rows)
+    layers.append([row([ridge] * width) if j == depth // 2 else row(["."] * width) for j in range(depth)])
+    return layers
+
+
+STAIRS = {"N": "oak_stairs[facing=south,half=bottom]", "S": "oak_stairs[facing=north,half=bottom]"}
+# Phase D: the testhut with a gable roof of stairs (the builder crafts the stairs from storage)
+STAIRHUT = {
+    "name": "stairhut", "description": "a small test hut with a stair gable roof", "width": 5, "depth": 5,
+    "palette": {"C": "cobblestone", "P": "oak_planks", "L": "oak_log", "G": "glass", "D": "oak_door", **STAIRS},
+    "layers": gable(5, 5, [
+        ["L P P P L", "P . . . P", "P . . . P", "P . . . P", "L P D P L"],
+        ["L P G P L", "P . . . P", "P . . . P", "P . . . P", "L P . P L"],
+    ]),
+}
+# ...and a 9x9 hall with a slab ridge and trapdoor shutters (stairs, slabs and trapdoors crafted from storage)
+STAIRHALL = {
+    "name": "stairhall", "description": "a 9x9 test hall with a stair gable roof, slab ridge and shutters", "width": 9, "depth": 9,
+    "palette": {"C": "cobblestone", "P": "oak_planks", "L": "oak_log", "G": "glass", "D": "oak_door", **STAIRS,
+                "R": "oak_slab[type=bottom]", "T": "oak_trapdoor[facing=south,half=top,open=true]"},
+    "layers": gable(9, 9, [
+        ["L P P P P P P P L"] + ["P . . . . . . . P"] * 7 + ["L P P P D P P P L"],
+        ["L P G P P P G P L", "P . . . . . . . P", "G . . . . . . . G", "P . . . . . . . P", "P . . . . . . . P",
+         "P . . . . . . . P", "G . . . . . . . G", "P . . . . . . . P", "L T G T . T G T L"],
+        ["L P P P P P P P L"] + ["P . . . . . . . P"] * 7 + ["L P P P P P P P L"],
+    ], ridge="R"),
 }
 
 p = argparse.ArgumentParser()
@@ -151,7 +199,7 @@ def find_land(x, z, size):
 
 # ---- the village and its designs
 call("/village", {"name": args.village, "objective": f"test: {', '.join(buildings)}"})
-designs = {"testhut": TESTHUT, "testhall": TESTHALL}
+designs = {"testhut": TESTHUT, "testhall": TESTHALL, "stairhut": STAIRHUT, "stairhall": STAIRHALL}
 for spec in args.design_from:
     src, name = spec.split(":")
     d = call(f"/village/{src}").get("designs", {}).get(name)

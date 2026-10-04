@@ -2,6 +2,7 @@
  * plan_layout: lay a village's buildings out on one plot and post every task they need. Code does the geometry and the
  * materials; the mayor (tieredBrain) only names the buildings. Also used by the API (tests start a village at a stage).
  */
+import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
@@ -75,6 +76,11 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
       }
+    // One building over a house's budget a village (phase D): a landmark drawn for two copies would double the gathering
+    if (economy) {
+      const big = names.filter((n) => (materials.get(n)?.units ?? 0) > HOUSE_UNITS);
+      if (big.length > 1) return `plan_layout: ${[...new Set(big)].map((n) => `"${n}" needs ${materials.get(n)!.units} blocks gathered`).join(', ')}${big.length > new Set(big).size ? ' (and is listed more than once)' : ''}; a village has room for one building over ${HOUSE_UNITS}: lay out one of them, or draw smaller designs (under ${HOUSE_UNITS} blocks gathered, under new house names) for the rest`;
+    }
     // Every material a design needs gathered must be near the site: a hall drawn in sandstone in a jungle waited for 81
     // sandstone no one could find (Accept3). Sand is let off: without it the windows stay open
     if (economy && w.materialsNear) {

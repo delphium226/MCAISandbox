@@ -24,7 +24,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
-import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from './designs';
+import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
 import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
@@ -260,7 +260,7 @@ You are the mayor. You coordinate; you do not build, gather or prepare land your
 board, one at a time in the order posted, and do the physical work.
 1. Site and designs: while the village has no plot and you have no find_site result, set_plan with a find_site step
    (size 30 fits three or four small buildings with streets) followed by one design_building step per kind of building
-   the objective needs (e.g. 'design_building name=cottage brief=...', size up to 9x9; matching buildings share one
+   the objective needs (e.g. 'design_building name=cottage brief=...', about 7x7 for a house; matching buildings share one
    design). Any dry, flat land will do, whatever the biome (desert, badlands, savanna): do not look for a better one.
 2. Layout: once the site is found and every design is in the library, call plan_layout with one design name per
    building (e.g. ["cottage", "cottage", "meeting_hall"]). Code places the buildings on one plot with streets and posts
@@ -276,13 +276,11 @@ board, one at a time in the order posted, and do the physical work.
 
 /** The mayor in the survival economy: designs must be cheap to gather. */
 const MAYOR_SURVIVAL = `
-Materials are gathered by hand: brief the designs with cheap materials (planks, logs, cobblestone or sandstone, at most
-a few glass windows; no bricks, stone bricks, wool, bookshelves, glowstone or lanterns). Gathering takes a while: wait
-for it. The village summary lists the materials still to gather; code keeps the gathering tasks in step with it. To
-keep something else in stock, add_need.`;
-
-/** Architect's note in the survival economy. */
-const DESIGN_SURVIVAL = 'Materials are gathered by hand in survival: use only planks, logs, cobblestone, sandstone and at most 4 glass (no bricks, stone bricks, wool, bookshelves, glowstone, lanterns or smooth stone).';
+Materials are gathered by hand: brief the designs with cheap materials (planks, logs, cobblestone or sandstone and what
+is made of them: stairs, slabs, fences, trapdoors; at most a few glass windows; no bricks, wool, bookshelves, glowstone
+or lanterns). A house's design may need up to ${HOUSE_UNITS} blocks gathered; one landmark a village (named as a hall,
+chapel, tower, market or inn) up to ${LANDMARK_UNITS}. Gathering takes a while: wait for it. The village summary lists the materials still to gather; code keeps
+the gathering tasks in step with it. To keep something else in stock, add_need.`;
 
 /** Executor tools the brain handles itself, added to the world's skills. */
 const BRAIN_TOOLS: ToolDef[] = [
@@ -296,8 +294,8 @@ const BRAIN_TOOLS: ToolDef[] = [
 ];
 
 /** What the mayor may do itself: look around, talk, design; building and land work are for workers. */
-/** The largest footprint of a survival design (every block is gathered by hand). */
-const SURVIVAL_MAX = 9;
+/** Tries the architect gets per design. */
+const DESIGN_TRIES = 3;
 /** The smallest first site the mayor searches for (find_site reports the largest near by when this much is not there). */
 const MAYOR_FIRST_SITE = 24;
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
@@ -428,8 +426,7 @@ function siteLimit(a: WorldAgent): { size: number; one: number; fits: Array<[num
 function siteRoom(a: WorldAgent): string {
   const r = siteLimit(a);
   if (!r) return '';
-  const max = a.gamemode !== 'creative' && a.world.materialTasks ? SURVIVAL_MAX : 99;
-  const fits = r.fits.filter(([, f]) => f >= 5).map(([n, f]): [number, number] => [n, Math.min(f, max)]);
+  const fits = r.fits.filter(([, f]) => f >= 5);
   if (!fits.length) return '';
   return `The village site is ${r.size}x${r.size} of level ground; it holds, with streets: ${fits.map(([n, f]) => `${n} building${n > 1 ? 's' : ''} of up to ${f}x${f}`).join(', or ')}. Designs already drawn take their share of it. Size this one so the objective fits if it can, but never smaller than 5x5: what does not fit goes on a second site.`;
 }
@@ -1259,16 +1256,21 @@ export class TieredBrain implements AgentBrain {
       siteRoom(a),
       siteMaterials(a),
     ].filter(Boolean).join('\n');
+    // The world's block list (phase D: stairs, slabs, trapdoors... in Minecraft), enforced as well as shown
+    const allowed = a.world.designBlocks?.(a.gamemode !== 'creative' && !!a.world.materialTasks) ?? { blocks: DESIGN_BLOCKS, states: false };
+    const system = designSystem(allowed.blocks, allowed.states);
     let problems: string[] = [];
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const reply = await this.timed(a, 'plan', () => complete(spec, DESIGN_SYSTEM, user, [DESIGN_TOOL]));
+    // Three tries: the checks of phase D (the rain test, the block list, the budget) send more designs back
+    for (let attempt = 0; attempt < DESIGN_TRIES; attempt++) {
+      const reply = await this.timed(a, 'plan', () => complete(spec, system, user, [DESIGN_TOOL]));
       const call = reply.calls.find((c) => c.name === 'submit_design');
       if (!call) {
         problems = ['no submit_design call was made'];
       } else {
-        const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.name, { isPlaceable: (b) => a.world.isPlaceable(b) });
+        const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.name, { isPlaceable: (b) => a.world.isPlaceable(b), blocks: allowed.blocks, states: allowed.states });
         // In the survival economy every block must be obtainable (no glowstone from the Nether)
-        const unobtainable = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name).problems : [];
+        const cost = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name) : null;
+        const unobtainable = cost?.problems ?? [];
         if (unobtainable.length) errors.push(`these blocks cannot be had here: ${unobtainable.join('; ')}; use other materials`);
         // Workstations as decoration cost materials and a crafting step, and a furnace placed as a block left a hall
         // without one to smelt its glass (Accept2): not in survival designs
@@ -1277,11 +1279,19 @@ export class TieredBrain implements AgentBrain {
         // The storage hut is drawn by code (its chest spots are fixed); plan_layout adds it by itself
         if (design?.name === STORAGE_HUT) errors.push(`"${STORAGE_HUT}" is the village storage hut, which code draws and lays out by itself; name your building something else`);
         const room = siteLimit(a);
-        // In survival every block is gathered by hand: an 11x11 cottage and a 13x13 hall made ~750 blocks (Accept5)
-        const cap = Math.min(room?.one ?? 99, a.gamemode !== 'creative' && a.world.materialTasks ? SURVIVAL_MAX : 99);
-        const tooBig = !!design && Math.max(design.width, design.depth) > cap;
-        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}; ${cap === SURVIVAL_MAX && (!room || room.one > cap) ? `buildings here are at most ${cap}x${cap} (every block is gathered by hand)` : `the village site is ${room!.size}x${room!.size}: one building can be at most ${cap}x${cap} there`}; draw it smaller`);
-        if (design && !unobtainable.length && !tooBig && !stations.length && design.name !== STORAGE_HUT) {
+        const tooBig = !!design && !!room && Math.max(design.width, design.depth) > room.one;
+        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}; the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; draw it smaller`);
+        // In survival every block is gathered by hand: a budget per design (an 11x11 cottage and a 13x13 hall made ~750
+        // blocks, Accept5), with room for one landmark a village
+        if (cost && cost.units !== undefined) {
+          // A landmark (a hall, chapel, tower...) by its name; houses are often built twice or more
+          const landmark = isLandmark(design!.name);
+          const budget = landmark ? LANDMARK_UNITS : HOUSE_UNITS;
+          if (cost.units > budget) errors.push(`it needs ${cost.units} blocks gathered by hand (logs, cobblestone, sand...); here a ${landmark ? 'landmark' : 'house'} may need at most ${budget}: make it smaller, lower or plainer (planks and logs go furthest; a flat floor of "_" keeps the prepared ground)`);
+          if ((cost.smelts ?? 0) > MAX_SMELTS) errors.push(`it needs ${cost.smelts} furnace runs (glass, stone, stone bricks); at most ${MAX_SMELTS}: use fewer of them`);
+        }
+        // Saved only with nothing to fix (the budget's errors were not in this test at first: the review of D.1)
+        if (design && !errors.length) {
           if (v) {
             v.designs[design.name] = design;
             a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);

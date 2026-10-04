@@ -18,7 +18,7 @@ import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Design } from '../village';
-import { Materials, designBill, gatherNames, gatherTasks, hardToGather, inWood, type Counts } from './mcMaterials';
+import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts } from './mcMaterials';
 import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
@@ -124,7 +124,8 @@ export class MineflayerWorld implements WorldAdapter {
     // One log spare (a plank batch per wooden part rounds up; one kind, so no more than that)
     plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + (wood ? 1 : 2);
     const logs = Object.entries(plan.gather).filter(([n]) => /_log$|^any:logs$/.test(n)).reduce((s, [, q]) => s + q, 0);
-    return { tasks: gatherTasks(plan.gather, label, wood), problems, logs };
+    const units = Object.values(plan.gather).reduce((s, q) => s + q, 0);
+    return { tasks: gatherTasks(plan.gather, label, wood), problems, logs, units, smelts: plan.fuel.smelts };
   }
 
   private needsAt = new Map<string, number>();
@@ -258,10 +259,28 @@ export class MineflayerWorld implements WorldAdapter {
     return this.agents.has(name.toLowerCase());
   }
 
-  /** A block with an item (so it can be carried and placed); states such as "[facing=east]" are allowed. */
+  /**
+   * A block with an item (so it can be carried and placed); states such as "[facing=east]" must name the block's own
+   * states and values (a misspelt one passed, and /setblock then refused the block at build time, leaving a hole).
+   */
   isPlaceable(block: string) {
-    const name = block.replace(/^minecraft:/, '').replace(/\[.*\]$/, '');
-    return !!this.registry.blocksByName[name] && !!this.registry.itemsByName[name];
+    const m = /^(?:minecraft:)?([a-z0-9_]+)(?:\[(.*)\])?$/.exec(block.trim());
+    if (!m) return false;
+    const b = this.registry.blocksByName[m[1]];
+    if (!b || !this.registry.itemsByName[m[1]]) return false;
+    if (m[2] === undefined) return true;
+    const states = (b.states ?? []) as Array<{ name: string; type: string; values?: string[] }>;
+    return m[2].split(',').every((p) => {
+      const [k, v] = p.split('=').map((t) => t.trim());
+      const st = states.find((x) => x.name === k);
+      if (!st || v === undefined) return false;
+      return st.type === 'enum' ? !!st.values?.includes(v) : st.type === 'bool' ? v === 'true' || v === 'false' : /^\d+$/.test(v);
+    });
+  }
+
+  /** What the architect may build with (phase D; mcMaterials.ts designBlockList), with block states. */
+  designBlocks(survival: boolean) {
+    return { blocks: designBlockList(survival), states: true };
   }
 
   get(name: string) {

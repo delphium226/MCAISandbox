@@ -128,6 +128,11 @@ export interface WorldAdapter {
   agentList(): WorldAgent[];
   /** Whether a design may use this block (design validation). */
   isPlaceable(block: string): boolean;
+  /**
+   * The blocks the architect may use here (in survival: what the economy can gather and make), and whether it may
+   * write block states ("oak_stairs[facing=north]"). Worlds without it use designs.ts's DESIGN_BLOCKS, without states.
+   */
+  designBlocks?(survival: boolean): { blocks: string[]; states: boolean };
   /** Whether an item id exists (the mayor's add_need), where the world can tell. */
   isItem?(name: string): boolean;
   /**
@@ -135,7 +140,14 @@ export interface WorldAdapter {
    * in the village storage), and why it cannot be built here at all (materials not obtainable). Worlds without an
    * economy leave it out.
    */
-  materialTasks?(design: Design, label: string, wood?: string): { tasks: Array<{ title: string; detail: string }>; problems: string[]; logs?: number };
+  materialTasks?(design: Design, label: string, wood?: string): {
+    tasks: Array<{ title: string; detail: string }>;
+    problems: string[];
+    logs?: number;
+    /** Raw blocks to gather (logs, cobblestone, sand... summed) and furnace runs: what the design costs (phase D's budget). */
+    units?: number;
+    smelts?: number;
+  };
   /**
    * How many of the blocks `collect` would gather for each name lie within `range` blocks of x,z and no more than 16
    * below ground level y, counted up to the number wanted, in the ground agent `by` has loaded; null when that agent is

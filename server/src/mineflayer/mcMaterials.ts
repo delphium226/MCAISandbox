@@ -104,6 +104,22 @@ export interface MaterialPlan {
   problems: string[];
 }
 
+/**
+ * What the architect may build with in Minecraft (phase D): planks, logs and what is made of them in three woods (the
+ * builder swaps the wood for the village's own), cobblestone, stone, stone bricks and sandstone with their stairs, slabs
+ * and walls, glass; in creative also blocks the economy cannot make. Every survival block's raw materials are
+ * easy to gather (scripts/bench/designbench.mts checks the list against Materials.plan).
+ */
+export function designBlockList(survival: boolean): string[] {
+  const wood = ['oak', 'spruce', 'birch'].flatMap((w) => ['planks', 'log', 'stairs', 'slab', 'fence', 'fence_gate', 'trapdoor', 'door'].map((p) => `${w}_${p}`));
+  const stone = ['cobblestone', 'cobblestone_stairs', 'cobblestone_slab', 'cobblestone_wall', 'stone', 'stone_stairs', 'stone_slab', 'stone_bricks',
+    'stone_brick_stairs', 'stone_brick_slab', 'stone_brick_wall', 'sandstone', 'sandstone_stairs', 'sandstone_slab', 'sandstone_wall'];
+  // (no torches: one set over air by command drops off and is bought again on every pass, the review of D.1)
+  const blocks = [...wood, ...stone, 'glass', 'glass_pane', 'dirt'];
+  const extra = ['bricks', 'brick_stairs', 'brick_slab', 'mossy_cobblestone', 'mossy_stone_bricks', 'smooth_stone', 'terracotta', 'white_wool', 'bookshelf', 'lantern'];
+  return survival ? blocks : [...blocks, ...extra];
+}
+
 /** The item a block name costs: states and namespace stripped, grass charged as dirt. */
 export function chargedItem(block: string): string {
   const name = block.replace(/^minecraft:/, '').replace(/\[.*\]$/, '');
