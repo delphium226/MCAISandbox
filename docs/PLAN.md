@@ -429,7 +429,7 @@ alongside D.3; D.7 later.
       testhall (`--buildings`: builders must craft the stairs and slabs from storage); one model-driven village at 1x.
       Pass: designbench shows pitched roofs in most designs with no more invalid ones than before; staged 3/3; the
       model-driven village within 1.5x Minevale7's 11.6 min (or the budget lowered until it is).
-- [ ] D.2 **A building generator** (the main lever). **In progress (10-04, eleventh session)**: first version built and
+- [x] D.2 **A building generator** (the main lever). **First version done 10-04 (eleventh session)**: built and
       committed (`buildingGen.ts`: rect footprints, gable, hip (pyramid on a square) and flat roofs, overhang 0-1, log
       frame, base course, foundation course, windows glass/panes/open, door side; the `submit_style` tool where the world
       takes states, the prompt leading with the style; `elevations()` in designs.ts; doors by the building's edge, not the
@@ -437,8 +437,10 @@ alongside D.3; D.7 later.
       over the street; budgets 150/300). Differs from the plan: stair shapes are left to the server (/setblock computes
       them; code's vanilla rule only checks), copies vary by rotate only, no wood/ridge/window-spacing parameters (the
       decisions log, 10-04). Passed: offline checks, every roof at four rotations, staged GenB1-4 and GenF1, designbench
-      20/20 by style. Not yet: the model-driven village within 17.4 min (Minevale14 23.2 min: a 13x13 hall, F117; next
-      a cap on walls, houses 9 and landmarks 11, the user's choice). Then L and T, then porch, chimney, shutters.
+      20/20 by style, and the model-driven Minevale15 (5/5 in 16.1 min, 0 failed designs and actions; within 1.5x
+      Minevale7) after a cap on a style's walls (houses 9, landmarks 11: Minevale14's 13x13 hall took 23.2 min, F117).
+      Minevale15's cottage was drawn by hand and flat (F118): the generator built only its hall. Next, as D.2b: L and T
+      footprints; D.2c: porch, chimney, trapdoor shutters (outside the wall, F112); later shed roofs and two storeys.
       The plan as written: the architect may submit a style instead of layers, and code draws
       the layers (`buildingGen.ts` beside `huts.ts`; world-independent, a `Design` out, so build_design, bills, layout
       and storage stay as they are). First parameters: footprint `rect`, `L` or `T` with width and depth; 1-2 storeys
@@ -785,6 +787,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s11) | designbench D.2 (150/300) | budgets 150 a house, 300 a landmark (the user's choice) | **20/20 valid**, 5 after a retry | 3.0 / 3.7 s | all by style; the retries took code's "the same style with walls of NxM needs U" at once; cottage 124 units, hall 184 |
 | 10-04 (s11) | GenB3 | staged build 2x, a site given as 30 across | **5/5** | 3.5 min | 0 failed actions; but the API dropped the designs' style, so packing by walls was not exercised (the review) |
 | 10-04 (s11) | **Minevale14** | model-driven 1x, minevale3, packing by walls, budgets 150/300 | **5/5**, 0 failed designs | 23.2 min | both designs by style at 0.3 min; the architect drew the "spacious" hall at 13x13 walls (15x15, 536 blocks, 210 stairs, 295 units), so the second cottage went to a second site 29 off (laid out by code, no clash); 3 failed actions: Worker2 dug to sand under a pond 70 blocks off and was stuck at y 59 until the rescue; no `[lag]`; the render of the plot shows every roof whole |
+| 10-04 (s11) | GenB4 | staged build 2x, a site given as 30 across, the style kept through the API (packing by walls exercised) | **5/5** | 4.1 min | 0 failed actions, no `[lag]`; rings of neighbours 1 block apart, every roof whole in the render |
+| 10-04 (s11) | **Minevale15** | model-driven 1x, minevale3, + walls capped (houses 9, landmarks 11) | **5/5 PASS** | **16.1 min** | 0 failed designs, 0 failed actions, no `[lag]`, workers 0 model calls; one 20x27 plot; the hall by style (9x9, cobblestone gable, 213 units), the cottage drawn by hand as a flat-roofed box (63 units, F118) |
+| 10-04 (s11) | designbench cottage_mayor | gpt-oss, Minevale15's cottage brief ("7x7 house, 5 high, oak_planks roof..."), 10 | 10/10 valid | - | 10/10 by style, all stair gables: the hand-drawn cottage of Minevale15 is not the brief's usual result |
 
 ## Findings log
 
@@ -1204,6 +1209,9 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F118 (10-04, eleventh session, Minevale15) The cottage was drawn by hand as a flat-roofed plank box, though the same
+  brief gives a style with a stair gable 10 times in 10 in designbench; design() does not log refused tries, so whether
+  a style was sent back first (the 150 budget) is unknown. To do: log each try's refusal; D.3's flat-roof lint.
 - F117 (10-04, eleventh session, Minevale14) The landmark budget lets the architect draw a hall that dominates the
   village: "a spacious community hall" became 13x13 walls (536 blocks, 210 stairs, 295 of 300 units), the second cottage
   no longer fitted the site, and the run took 23.2 min. Gather units are only part of the time: placing and crafting

@@ -24,8 +24,8 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
-import { STYLE_TOOL, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
-import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
+import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
+import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
 import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
@@ -1338,7 +1338,12 @@ export class TieredBrain implements AgentBrain {
           const n = normalizeStyle(raw);
           notes = n.notes;
           if (n.style) {
-            style = n.style;
+            // Walls capped by kind: a house 9, a landmark 11 (Minevale14's 13x13 hall took the run to 23 minutes)
+            // (the name as validateDesign keeps it, so the cap and the budget agree on what is a landmark)
+            const finalName = String(raw.name ?? '').trim().toLowerCase().replace(/[^a-z0-9_ -]/g, '').slice(0, 32);
+            const capped = capWalls(n.style, isLandmark(finalName) ? LANDMARK_WALLS : HOUSE_WALLS);
+            style = capped.style;
+            notes.push(...capped.notes);
             // Furnace runs within the limit by code (stone bricks to cobblestone, glass to panes)
             if (a.gamemode !== 'creative' && a.world.materialTasks) {
               const fit = fitSmelts(style, (s) => a.world.materialTasks!(generateDesign(s), s.name).smelts ?? 0, MAX_SMELTS);

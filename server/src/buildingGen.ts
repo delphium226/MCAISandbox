@@ -289,6 +289,17 @@ export function fitSmelts(style: BuildingStyle, smelts: (s: BuildingStyle) => nu
   return { style: s, notes };
 }
 
+/**
+ * A style's walls within a cap (D.2, after Minevale14's 13x13 hall of 536 blocks: the user's choice, houses 9 and
+ * landmarks 11 across), made smaller by code with a note rather than refused. Sizes stay odd.
+ */
+export function capWalls(style: BuildingStyle, max: number): { style: BuildingStyle; notes: string[] } {
+  const cap = max % 2 ? max : max - 1;
+  if (style.width <= cap && style.depth <= cap) return { style, notes: [] };
+  const s = { ...style, width: Math.min(style.width, cap), depth: Math.min(style.depth, cap) };
+  return { style: s, notes: [`walls ${style.width}x${style.depth} made ${s.width}x${s.depth} (at most ${cap} across here)`] };
+}
+
 /** The style a design was generated from, if any. */
 export const styleOf = (d: Design): BuildingStyle | undefined => d.style;
 
@@ -336,8 +347,8 @@ export const STYLE_TOOL = {
     properties: {
       name: { type: 'string', description: 'Short name, e.g. "stone cottage".' },
       description: { type: 'string', description: 'One sentence describing the building.' },
-      width: { type: 'integer', description: `Walls west to east, ${STYLE_LIMITS.minSide} to ${STYLE_LIMITS.maxSide} (odd).` },
-      depth: { type: 'integer', description: `Walls north to south, ${STYLE_LIMITS.minSide} to ${STYLE_LIMITS.maxSide} (odd).` },
+      width: { type: 'integer', description: `Walls west to east, odd: ${STYLE_LIMITS.minSide} to 9 for a house, to 11 for a hall or other landmark.` },
+      depth: { type: 'integer', description: `Walls north to south, odd: ${STYLE_LIMITS.minSide} to 9 for a house, to 11 for a hall or other landmark.` },
       wall_height: { type: 'integer', description: 'Wall layers above the floor, 3 or 4.' },
       floor: { type: 'string', enum: [...OPTIONS.floor], description: 'none keeps the levelled ground (cheapest).' },
       base: { type: 'string', enum: [...OPTIONS.base], description: 'The lowest course of the walls, e.g. a stone base under wood.' },

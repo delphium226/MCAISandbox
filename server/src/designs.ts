@@ -27,6 +27,9 @@ export const DESIGN_BLOCKS = [
 // (250 and 400 until D.2: generated buildings, fuller and with overhangs, made a village ~760 units, Minevale13)
 export const HOUSE_UNITS = 150;
 export const LANDMARK_UNITS = 300;
+/** The most a style's walls may span (D.2, after Minevale14's 13x13 hall): a house, a landmark. */
+export const HOUSE_WALLS = 9;
+export const LANDMARK_WALLS = 11;
 export const MAX_SMELTS = 32;
 const LANDMARK_WORDS = /(hall|chapel|church|temple|tower|market|inn|tavern|guildhall|keep|landmark|library|school)$/i;
 /** Whether a design's name names a landmark: a word of it ends in hall, chapel, tower... ("meeting_hall", "watchtower"). */
@@ -427,7 +430,8 @@ ${states ? 'Submit a style with submit_style, or a hand-drawn building with subm
 /** The building generator (phase D, D.2), for worlds with block states: a style instead of layers. */
 const STYLE_NOTE = `Describe the building as a style with submit_style: you choose the size, walls, base, frame, roof and windows, and code
 draws it right: a roof of stairs that covers it, whole gable ends, symmetric windows, the door in place. Width and
-depth are the walls (odd, 5 to 13); an overhang adds a block on every side, so a 7x7 with one takes 9x9. Choose each
+depth are the walls (odd: a house up to ${HOUSE_WALLS}, a hall or other landmark up to ${LANDMARK_WALLS}); an overhang adds a block on
+every side, so a 7x7 with one takes 9x9. Choose each
 setting for the brief and vary them between designs (walls, roof shape and material, base, frame, size) to give the
 village character. Style example:
 {"name":"cottage","description":"a timber-framed cottage on a stone base","width":7,"depth":7,"wall_height":3,

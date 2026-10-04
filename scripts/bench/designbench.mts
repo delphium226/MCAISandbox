@@ -13,9 +13,9 @@
  */
 import fs from 'node:fs';
 import minecraftData from 'minecraft-data';
-import { DESIGN_SURVIVAL, DESIGN_SYSTEM, DESIGN_TOOL, HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from '../../server/src/designs';
+import { DESIGN_SURVIVAL, DESIGN_SYSTEM, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from '../../server/src/designs';
 import { layoutBuildings, type Design } from '../../server/src/village';
-import { STYLE_TOOL, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from '../../server/src/buildingGen';
+import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from '../../server/src/buildingGen';
 import { smallerStyle } from '../../server/src/tieredBrain';
 import { Materials, designBill, designBlockList, hardToGather } from '../../server/src/mineflayer/mcMaterials';
 
@@ -66,6 +66,8 @@ const CASES: Record<string, { name: string; brief: string; survival: boolean; ex
   hall: { name: 'meeting_hall', survival: true, brief: 'A larger meeting hall for the whole village: cobblestone base, oak planks and logs, windows, about 9x9.', existing: 'cottage (7x7, a small oak cottage with log corners and glass windows)' },
   cottage_creative: { name: 'cottage', survival: false, brief: 'A small cozy cottage for two villagers: oak planks walls, oak log corners, cobblestone floor, glass windows, about 7x7.' },
   hall_creative: { name: 'meeting_hall', survival: false, brief: 'A meeting hall for the whole village: stone bricks and spruce, large windows, about 11x11.' },
+  // The mayor's brief in Minevale15 (D.2): drawn by hand as a flat-roofed box (F118)
+  cottage_mayor: { name: 'cottage', survival: true, brief: '7x7 house, 5 high, oak_planks walls and floor, oak_planks roof, glass_pane windows, south door', existing: 'meeting_hall (9x9, a community hall with plank walls and a cobblestone gable roof)' },
 };
 
 function userPrompt(c: (typeof CASES)[string]): string {
@@ -161,7 +163,8 @@ for (const model of models) {
           if (call?.name === 'submit_style') {
             const n = normalizeStyle({ ...call.input, name: c.name });
             // tieredBrain.ts design(): furnace runs fitted by code in survival
-            if (n.style) style = c.survival && !OLD ? fitSmelts(n.style, (st) => cost(generateDesign(st)).smelts, MAX_SMELTS).style : n.style;
+            const capped = n.style ? capWalls(n.style, isLandmark(c.name) ? LANDMARK_WALLS : HOUSE_WALLS).style : undefined;
+            if (capped) style = c.survival && !OLD ? fitSmelts(capped, (st) => cost(generateDesign(st)).smelts, MAX_SMELTS).style : capped;
             if (style) input = { ...generateDesign(style) };
             else refused = n.errors;
           }
