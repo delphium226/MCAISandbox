@@ -154,7 +154,8 @@ export interface Village {
   vanillaBiome?: string;
   /** Plots plan_layout has laid buildings out on (kept off by later site searches and layouts). */
   /** (`streets`: the street plan's streets, which prepare_site lays as dirt_path, V2.3.) */
-  layouts?: Array<Area & { buildings: string[]; streets?: Area[] }>;
+  /** (`green`: the area a green village keeps free inside its ring street, V2.4) */
+  layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

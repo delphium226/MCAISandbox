@@ -468,15 +468,21 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   }
   if (v?.mine) taken.push(...mineAreas(v.mine));
   const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
+  // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
+  // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
+  const lay = v?.layouts?.find((l) => area.x1 >= l.x1 && area.x2 <= l.x2 && area.z1 >= l.z1 && area.z2 <= l.z2);
+  const onPlot = (x: number, z: number) => !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2;
   // Near the job's level first, then farther up or down (cut and fill at a plot's edge can be 3 or more; runJob's
   // in-the-way teleport needs a spot)
+  // (the job's level still comes first: a level spot off the plot beats footing far down a drop on its margin)
   for (const range of [2, 8, 24])
-    for (const d of [3, 2, 4])
-      for (const [x, z] of [[cx, area.z2 + d], [cx, area.z1 - d], [area.x2 + d, cz], [area.x1 - d, cz]] as Array<[number, number]>) {
-        if (!free(x, z)) continue;
-        const y = standableY(a, x, job.y + 1, z, range);
-        if (y !== null) return { x, y, z };
-      }
+    for (const strict of lay ? [true, false] : [false])
+      for (const d of [3, 2, 4])
+        for (const [x, z] of [[cx, area.z2 + d], [cx, area.z1 - d], [area.x2 + d, cz], [area.x1 - d, cz]] as Array<[number, number]>) {
+          if (!free(x, z) || (strict && !onPlot(x, z))) continue;
+          const y = standableY(a, x, job.y + 1, z, range);
+          if (y !== null) return { x, y, z };
+        }
   return null;
 }
 
@@ -1202,15 +1208,30 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   const last = a.memory.lastSite as { x: number; z: number } | undefined;
   const cx = args.x !== undefined ? int(args, 'x') : last?.x ?? Math.floor(p.x);
   const cz = args.z !== undefined ? int(args, 'z') : last?.z ?? Math.floor(p.z);
-  const w = size(args, 'width', 9, 3, 32), d = size(args, 'depth', 9, 3, 32), m = size(args, 'margin', 2, 0, 4);
+  const w = size(args, 'width', 9, 3, 40), d = size(args, 'depth', 9, 3, 40), m = size(args, 'margin', 2, 0, 4);
   const x0 = cx - Math.floor(w / 2), z0 = cz - Math.floor(d / 2), x1 = x0 + w - 1, z1 = z0 + d - 1;
   const surf = new Map<string, Surface>();
-  for (let x = x0 - m; x <= x1 + m; x++)
-    for (let z = z0 - m; z <= z1 + m; z++) {
-      const c = surfaceAt(a, x, z, Math.floor(p.y));
-      if (!c) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
-      surf.set(`${x},${z}`, c);
-    }
+  const scan = () => {
+    surf.clear();
+    const py = Math.floor(a.bot.entity.position.y);
+    for (let x = x0 - m; x <= x1 + m; x++)
+      for (let z = z0 - m; z <= z1 + m; z++) {
+        const c = surfaceAt(a, x, z, py);
+        if (!c) return false;
+        surf.set(`${x},${z}`, c);
+      }
+    return true;
+  };
+  if (!scan()) {
+    // A 40 plot's far corners can lie beyond what the server sends from where the preparer stands (V2.4's review): walk
+    // to its middle first
+    await walk(a, new goals.GoalNearXZ(cx, cz, 3), `the plot's middle at ${cx},${cz}`, signal, 90000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    await a.bot.waitForChunksToLoad().catch(() => {});
+    checkAbort(signal);
+    if (!scan()) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
+  }
   // Level: the most common ground height on the plot itself (least digging and filling), unless given
   let y = args.y !== undefined ? int(args, 'y') : NaN;
   if (Number.isNaN(y)) {
@@ -1298,7 +1319,9 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
       } else if (top !== 'grass_block' && (g < y || top === 'dirt' || !solidTop)) add(x, y, z, 'grass_block');
     }
   if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
-  if (targets.length > 12000) throw new Error(`too much work (${targets.length} blocks, max 12000); prepare a smaller area`);
+  // (12000 for a 32 plot's 36x36 with the margin, as much again per column for a 40 plot's 44x44, V2.4)
+  const maxWork = Math.max(12000, Math.round(12000 * ((w + 2 * m) * (d + 2 * m)) / (36 * 36)));
+  if (targets.length > maxWork) throw new Error(`too much work (${targets.length} blocks, max ${maxWork}); prepare a smaller area`);
   const plot: Plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
   // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping)
   const logs: Counts = {};

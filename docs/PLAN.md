@@ -925,6 +925,14 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s13) | **VanM2** | as VanM1 after the diff review's fixes | **6/6** | **8.0 min** | 0 failed actions, the Mayor 8 gather tasks (log, dirt, 2 sand, 4 cobblestone), 0 model calls; hand-back again (deposit by the task's item); the mine never busy |
 | 10-04 (s13) | **Minevale21** | model-driven 1x, minevale3, V2.3m (b716f33) | **6/6 PASS** | **15.0 min** | the mayor's find_site took -1508,-63 (Minevale20's slow-mine site): 18.0 -> 15.0 min; the mayor 8 gather tasks (2 log, 5 cobblestone, 1 sand), plan 2x / exec 2x (its first plan only); 2 failed actions, both Worker1's (F133, and sand none within 96: the soft path); no `[lag]`, no busy mine |
 
+| 10-04 (s13) | prepare_site 40x40 | test world 1x, Gus (buildSpeed 1), find_site size=40 from minevale3's site (V2.4's measurement, the cap raised to 40) | done | find_site 3.0 s; prepare_site **9.6 min** | the 40 site at -1657,64,23 (old-growth birch, 111 blocks from the probe; minevale3's sites are 32 wide), 787 placed, 3709 cleared, 51 trees; ~450 s of it pacing at 10 blocks/s, so ~2.5-3 min at a worker's buildSpeed 4 (a 32 pad 2.1 min in Minevale21); no `[lag]` |
+
+| 10-04 (s13) | street_plan.mts PLAN=green | offline, 40 pad, the five biomes' libraries with both huts (V2.4) | **pass** | - | plains, savanna, snowy 6/6 (7/7 with five houses), taiga 5/5 (its library), desert the street plan (no centre); plains' ring 3 blocks south of the middle (the storage hut north of it); the street plans at 32 and 40 identical before and after the refactor |
+| 10-04 (s13) | **VanG1** | test world 2x, the 40 site (-1657,64,23, `--site-at`), green, plains, `--mayor --planner none` | **6/6** | **8.1 min** | 0 failed actions, no `[lag]`; prepare_site 40x40 in 1.3 min (5417 blocks, 340 of street); the Mayor 7 gather tasks; render `runs/2026-10-04/VanG1.png` |
+| 10-04 (s13) | **VanG2** | as VanG1, snowy (snowy_small_house_3, 6, snowy_library_1) | **6/6** | **8.1 min** | 0 failed actions, no `[lag]`; four spokes across the green (the snowy centre's four connectors); render `VanG2.png` |
+
+| 10-04 (s13) | VanG3 | as VanG1 after the diff review's fixes | **6/6** | 10.8 min | 4 failed actions, none from V2.4's code (F136, F137): Worker2 trapped in a flooded hole it dug at the lake shore north of the plot (3.9 min), the Mayor in a flooded sand tunnel under the lake bed (3.8 min) |
+
 ## Findings log
 
 What runs showed, with the evidence, and what was done. Newest last. Keep entries short; move durable lessons to
@@ -1343,6 +1351,20 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F136 (10-04, thirteenth session, VanG3) A side pickup dug a gatherer into the lake: after felling the shore birch at
+  -1657,63,-6, `sideGather` (mcSurvival.ts ~843) took 2 dirt the village needed within 4 blocks, nearest first, without
+  skipping the block under its feet or blocks with water beside them; the lake flooded the holes (-1657,62,-5 and
+  -1656,62,-5 water after the run), the bot stood in water, `walk`'s swim-out and the pathfinder's jump-up out of water
+  failed, and the rescue came only after two failed moves (7.2 min, 3.9 lost). Fix (backlog, low risk): skip its own
+  column and any block with water or lava on a side or above (`wetAround` beside `wetAbove`), also in `dirtForClimb`; a
+  faster rescue when still stuck in water after the swim-out.
+- F137 (10-04, thirteenth session, VanG3) Sand under a lake bed passed collect's `dry` filter (mcSurvival.ts ~700): it
+  checks only the block above, and sand at -1665,59,-7 had sand above it and water above that. Within 16 blocks as a
+  buried candidate and cheaper than exposed sand 20 blocks off, the Mayor tunnelled to it; the sand fell and the lake
+  poured in (3.8 min for 6 sand). Fix (backlog): for falling blocks follow the column up through sand and gravel and
+  reject the candidate when water comes first; reject buried candidates with a wet face. The green's storage hut on the
+  plot's north edge put every gatherer's start beside that lake (chance decided which run met it: VanG1 needed no dirt by
+  then and its third sand task went to another gatherer).
 - F133 (10-04, thirteenth session, Minevale21) The storage task's `move_to` to its spot in the storage hut's area stuck 2
   blocks short (-1519,68,-69 for -67), right after prepare_site; Worker1's executor got there 0.3 min later (2 calls).
   Not chased: backlog.
@@ -1649,6 +1671,10 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-04 (thirteenth session) V2.4's shape (the user's choices among Claude's options, after prepare_site 40x40 was
+  measured): a ring street round a green, the town centre in it, every building outside the ring facing in (not an open
+  green with paths, not just a bigger street plan); the vanilla mayor searches find_site size=40, a 40 site gets the green
+  (when it places every building), a smaller one the street plan as before. Next after V2.3m (pushed at that point).
 - 10-04 (thirteenth session) V2.3m's shape (after the design review): the mayor's gathering runs in a TaskBrain beside
   its empty plan, not as a "by task" plan in `memory.plan` (the review found that path reaching the executor's building
   tools on urgent turns, the 3-failure replan and two wake-ups blocked by the mayor's own claim); a hand-back for the

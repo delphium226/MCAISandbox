@@ -296,12 +296,12 @@ the gathering tasks in step with it. To keep something else in stock, add_need.`
 
 /** The mayor where the world has vanilla's village pieces (V2.3): the library fills from the site's biome. */
 const MAYOR_VANILLA = `
-Search with find_site size=32: the village's streets take the whole plot. Once find_site has found the site, the design
+Search with find_site size=40: the village's green and streets take the whole plot. Once find_site has found the site, the design
 library fills with this land's own buildings (vanilla Minecraft houses of its biome, cheap enough to gather): use them in
 plan_layout, and draw a design only for a kind of building they do not cover. Matching houses are siblings (two different
 small houses of the land), not one design twice. The library's landmark (a library or temple) can be the village's hall:
-a village has room for one building over ${HOUSE_UNITS} blocks gathered. Code lays them out along streets round the
-land's town centre.`;
+a village has room for one building over ${HOUSE_UNITS} blocks gathered. Code lays them out round the land's town centre:
+on a green inside a ring street, or along streets on a smaller site.`;
 
 /** Executor tools the brain handles itself, added to the world's skills. */
 const BRAIN_TOOLS: ToolDef[] = [
@@ -375,6 +375,9 @@ const STATIONS = /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anv
 const DESIGN_TRIES = 3;
 /** The smallest first site the mayor searches for (find_site reports the largest near by when this much is not there). */
 const MAYOR_FIRST_SITE = 24;
+/** The first site of a vanilla village (V2.4): room for a green and its ring street (a smaller one gets the streets). */
+const VANILLA_FIRST_SITE = 40;
+const firstSite = (a: WorldAgent) => (a.world.vanillaLibrary?.('plains') ? VANILLA_FIRST_SITE : MAYOR_FIRST_SITE);
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
 
 interface ToolSets { exec: ToolDef[]; mayorExec: ToolDef[]; chat: ToolDef[]; planSystem: string }
@@ -851,7 +854,7 @@ export class TieredBrain implements AgentBrain {
     // would plan_layout on the poor site); its result wakes the planner as usual
     if (v && role === 'mayor' && v.scouted && !v.scoutRerun && !v.layouts?.length && a.idle()) {
       if (scoutTasks(v).length && (!scoutsOut(a, v).length || now - v.scouted > SCOUT_DEADLINE_MS)) {
-        const size = Number((a.memory.siteSearch as { size?: number } | undefined)?.size) || MAYOR_FIRST_SITE;
+        const size = Number((a.memory.siteSearch as { size?: number } | undefined)?.size) || firstSite(a);
         try {
           a.enqueue('find_site', { size });
           v.scoutRerun = now;
@@ -1234,7 +1237,7 @@ export class TieredBrain implements AgentBrain {
       const nothingYet = v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
       if (nothingYet && !a.memory.lastSite && !scouting(a, v!)) {
         // (32 where villages get the street plan: its streets take the whole plot, and Minevale19's 24x24 left a house out)
-        a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${a.world.vanillaLibrary?.('plains') ? 32 : MAYOR_FIRST_SITE}`], step: 0, by: label(spec), tick: a.world.ticks };
+        a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${firstSite(a)}`], step: 0, by: label(spec), tick: a.world.ticks };
         this.lastPlan = Date.now();
         a.pushEvent('system', 'Nothing is laid out yet, so there is nothing to wait for: find a site first (step added by code)');
         console.log(`[tiered] ${a.name} returned an empty plan with nothing laid out: find_site added by code`);
@@ -1289,6 +1292,9 @@ export class TieredBrain implements AgentBrain {
     if (!v || !res || a.memory.firstSiteJudged) return;
     a.memory.firstSiteJudged = true;
     if (v.scouted || v.layouts?.length || v.plots.length || a.gamemode === 'creative' || !a.world.scoutPoints || res.verdict === 'good') return;
+    // A vanilla village's 40 search (V2.4) that found 26 or more found what a 32 search called good: the street plan
+    // takes it, no scouting (the review of V2.4)
+    if (res.verdict === 'small' && Number(res.size) === VANILLA_FIRST_SITE && (Number((a.memory.lastSite as { size?: number } | undefined)?.size) || 0) >= Math.ceil(32 * 0.8)) return;
     const workers = a.world.agentList().filter((o) => o !== a && o.village() === v).length;
     if (!workers) return;
     const home = villageHome(v, a.memory);
@@ -1586,9 +1592,12 @@ export class TieredBrain implements AgentBrain {
       // architect then drew 3x3 cottages to fit it; later searches (a second site) may be small
       if (villageRole(a) === 'mayor' && c.name === 'find_site' && !a.village()?.layouts?.length) {
         // Nor smaller than the site already found (a second search replaced a 30x30 with a 24x24, Accept5)
-        const floor = Math.max(MAYOR_FIRST_SITE, Number((a.memory.lastSite as { size?: number } | undefined)?.size) || 0);
+        // (a vanilla village's first search asks for 40, the green's room; once a smaller site is found, the street plan
+        // takes it, and a later search is held to that site's size only: else it was refused at 40 where no 40 exists)
+        const found = Number((a.memory.lastSite as { size?: number } | undefined)?.size) || 0;
+        const floor = found ? Math.max(MAYOR_FIRST_SITE, found) : firstSite(a);
         if (!(Number(c.input.size) >= floor)) {
-          a.pushEvent('system', `find_site size raised to ${floor}: the first site needs room for the whole village${floor > MAYOR_FIRST_SITE ? ' (and no less than the site already found)' : ''}`);
+          a.pushEvent('system', `find_site size raised to ${floor}: the first site needs room for the whole village${found ? ' (and no less than the site already found)' : ''}`);
           c.input.size = floor;
         }
       }

@@ -5,7 +5,7 @@
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
-import { doorOf, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
+import { doorOf, planGreen, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -45,7 +45,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     if (!names.length) return 'plan_layout needs buildings: a list of design names, one per building (repeat a name for each copy)';
     const missing = [...new Set(names.filter((n) => !v.designs[n]))];
     if (missing.length) return `plan_layout: no design yet for ${missing.map((n) => `"${n}"`).join(', ')}; draw ${missing.length > 1 ? 'them' : 'it'} with design_building first, then call plan_layout again`;
-    if (!site) return 'plan_layout: no site yet; run find_site first (size 30 for three or four small buildings)';
+    if (!site) return `plan_layout: no site yet; run find_site first (${v.plan === 'street' ? 'size 40: room for a green' : 'size 30 for three or four small buildings'})`;
     const laidOut = v.tasks.filter((t) => t.postedBy === by && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
     if (v.unplaced?.length) {
       // A later layout is for the buildings that did not fit on the first site (the mayor may name them all again)
@@ -143,10 +143,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       }
     }
     // The plot must fit on the ground find_site found (prepare_site levels its margin anyway; asking for the margin too
-    // sent a mayor round in circles) and within the 32x32 prepare_site allows. Normal streets first, then narrow ones;
+    // sent a mayor round in circles) and within 32x32 for rows (a street plan takes up to 40, below). Normal streets first, then narrow ones;
     // if the buildings still do not fit, the largest set that does (most buildings, then most floor area) goes on this
     // site now, so workers can start, and the rest wait for a second site (Fourfold7's mayor wandered 500 blocks)
     const limit = Math.min(32, Number(site.size ?? 0) || 32);
+    // A street plan takes up to 40 (V2.4: prepare_site levels 40x40 in ~2.5-3 min; at 32 a centre and its streets left a
+    // house out in four biomes of five, the review of V2.4); rows stay within 32
+    const streetLimit = Math.min(40, Number(site.size ?? 0) || 32);
     // Packed by their walls: an overhang's eaves hang over the street, above head height (D.2; Minevale13's cottages
     // and hall with overhangs did not fit a 30x30 site). Streets stay at least 2, so two rings never overlap.
     const ring = (n: string) => (v.designs[n].style?.overhang ? 2 : 0);
@@ -169,11 +172,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         kind: n === STORAGE_HUT ? 'storage' : n === MINING_HUT ? 'mine' : undefined,
       }));
       const c = centre ? { name: centre.design.name, width: centre.design.width, depth: centre.design.depth, connectors: centre.connectors, paths: centre.paths } : null;
-      let s = planStreets(site.x, site.z, limit, c, items);
+      // A green round the centre on a 40 site (V2.4, the user's choice) when it places every building; else the streets
+      const green = c && streetLimit >= 40 ? planGreen(site.x, site.z, 40, c, items) : null;
+      let s = green && !green.unplaced.length ? green : planStreets(site.x, site.z, streetLimit, c, items);
       // A centre takes room: when it leaves buildings out, plain crossing streets may place them all (the review of V2.3:
       // savanna's 13x12 centre sent the hall of "two cottages and a hall" to a second site)
       if (s.unplaced.length && c) {
-        const cross = planStreets(site.x, site.z, limit, null, items);
+        const cross = planStreets(site.x, site.z, streetLimit, null, items);
         if (cross.unplaced.length < s.unplaced.length) {
           s = cross;
           dropCentre();
@@ -206,7 +211,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // Fewer than half of them: a bigger site is the better answer than a scattered village
       if (!best || best.list.length * 2 < names.length) {
         const all = plotSize(names);
-        return `plan_layout: the site is only ${limit}x${limit}; ${best ? `only ${best.list.join(', ')} would fit` : 'none of these buildings fits'}, and all ${names.length} need ${all}x${all}${all > 32 ? ' (more than prepare_site allows: lay out some now and the rest on a second site)' : ''}; run find_site size=${Math.min(all, 32)} (it searches farther out by itself), then plan_layout again`;
+        return `plan_layout: the site is only ${limit}x${limit}; ${best ? `only ${best.list.join(', ')} would fit` : 'none of these buildings fits'}, and all ${names.length} need ${all}x${all}${all > 32 ? ' (more than a plot of rows takes: lay out some now and the rest on a second site)' : ''}; run find_site size=${Math.min(all, 32)} (it searches farther out by itself), then plan_layout again`;
       }
       placed = best.list;
       lay = best.lay;
@@ -298,13 +303,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}) }];
     v.unplaced = left;
-    reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
+    reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
     const them = left.length > 1 ? 'them' : 'it';
     const rest = left.length
-      ? ` Not laid out, no room on this ${limit}x${limit} site: ${left.join(', ')}. Find a second site for ${them}: find_site size=${plotSize(left)} (it keeps off this plot), then plan_layout with ${left.map((n) => `"${n}"`).join(', ')}. The workers start on this plot meanwhile.`
+      ? ` Not laid out, no room on this ${street ? streetLimit : limit}x${street ? streetLimit : limit} site: ${left.join(', ')}. Find a second site for ${them}: find_site size=${plotSize(left)} (it keeps off this plot), then plan_layout with ${left.map((n) => `"${n}"`).join(', ')}. The workers start on this plot meanwhile.`
       : ' Now wait for the workers.';
     return `Laid out ${placed.length} buildings on a ${lay.width}x${lay.depth} plot at ${areaText(plot)} (${lay.places.map((p) => `${p.name} at ${p.x},${p.z}`).join('; ')}) and posted ${made.length} tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}.${rest}`;
 }
