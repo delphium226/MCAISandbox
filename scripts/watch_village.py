@@ -150,7 +150,8 @@ while time.time() - t0 < minutes * 60:
                 # Progress also counts: brain tools (designs, the layout) report as system events
                 if e["type"] == "action_done" or (e["type"] == "system" and re.search(r"saved|Laid out|Posted tasks", e["text"])):
                     last_done = time.time()
-                if e["type"] == "action_failed":
+                # (a busy mine is no stuck agent: the gathering Mayor, a third miner, hands its task back for later, V2.3m)
+                if e["type"] == "action_failed" and "the mine is busy" not in e["text"]:
                     k = (n, e["text"][:80])
                     fails[k] = fails.get(k, 0) + 1
                     if fails[k] >= same_fail:

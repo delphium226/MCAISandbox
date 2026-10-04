@@ -413,11 +413,25 @@ export class VillageRegistry {
 
   finish(v: Village, id: string, by: string, result: string) {
     const t = this.task(v, id);
-    if (!t || t.claimedBy !== by) return;
+    // (open is fine: the first deposit finishes the storage task whoever holds it; a failed or cancelled task stays so)
+    if (!t || t.claimedBy !== by || t.status === 'done' || t.status === 'failed') return;
     t.status = 'done';
     t.result = result.slice(0, 300);
     t.updated = Date.now();
     this.note(v, `${by} finished ${t.id} "${t.title}"`);
+  }
+
+  /**
+   * Put a claimed task back on the board without counting a try: handed back for a reason that is not the task's (the
+   * mayor gathering while it waits must plan, the mine is busy), where giveUp would fail it the second time.
+   */
+  unclaim(v: Village, id: string, by: string, why: string) {
+    const t = this.task(v, id);
+    if (!t || t.claimedBy !== by || t.status !== 'claimed') return;
+    t.status = 'open';
+    t.claimedBy = undefined;
+    t.updated = Date.now();
+    this.note(v, `${by} handed back ${t.id} "${t.title}": ${why.slice(0, 100)}`);
   }
 
   /** Give a claimed task back; the second time it is marked failed so the mayor can rethink it. */

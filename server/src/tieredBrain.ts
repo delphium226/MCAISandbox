@@ -27,9 +27,9 @@ import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from '.
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
 import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, elevations, lintDesign, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
-import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
+import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
-import { taskCalls } from './taskBrain';
+import { TaskBrain, taskCalls } from './taskBrain';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
@@ -241,6 +241,17 @@ const scoutTasks = (v: Village) => v.tasks.filter((t) => t.postedBy === 'code' &
 
 /** How long scouting may hold the layout back, whatever happens to the scouts (a worker removed mid-task). */
 const SCOUT_DEADLINE_MS = 20 * 60000;
+
+/**
+ * The tasks a waiting mayor gathers for (V2.3m): soft "Gather N item for ..." tasks, collect then deposit (from the
+ * layout, a short build and the village's needs), never builds, land, storage, the mine's stairs or scouting. Other
+ * materials before cobblestone: the mine digs one tunnel per miner, and a third miner waits for a free one.
+ */
+export function mayorGatherPick(ready: Task[]): Task[] {
+  const gather = ready.filter((t) => t.soft && /^Gather \d+ /.test(t.title) && /^collect block=\S+ count=\d+, then deposit item=all/.test(t.detail));
+  const stone = (t: Task) => /^collect block=cobblestone /.test(t.detail);
+  return [...gather.filter((t) => !stone(t)), ...gather.filter(stone)];
+}
 
 /** Scout tasks still being worked on: open, or held by an agent still in the world. */
 const scoutsOut = (a: WorldAgent, v: Village) => scoutTasks(v).filter((t) => t.status === 'open' || (t.status === 'claimed' && a.world.agentList().some((o) => o.name === t.claimedBy)));
@@ -641,6 +652,12 @@ export class TieredBrain implements AgentBrain {
   private taskReplans = new Map<string, number>();
   /** Task claimed for the plan being made (workers claim before asking the planner). */
   private claimedTask: string | undefined;
+  /**
+   * The mayor's gathering while it waits (V2.3m): a scripted task runner limited to gather tasks, run beside an empty
+   * plan (so every wake-up check and the chat-only executor stay as they are); it hands its task back when a plan with
+   * steps comes. A busy mine is not the task's fault: back without a try, cobblestone left alone for a while.
+   */
+  private gatherer = new TaskBrain({ pick: mayorGatherPick, notTheTask: /the mine is busy/ });
   /** For status(): when the pending model calls started, why the latest plan was asked for, the last error. */
   private planStartedAt = 0;
   private execStartedAt = 0;
@@ -695,6 +712,9 @@ export class TieredBrain implements AgentBrain {
   }
 
   onEvent(a: WorldAgent, e: AgentEvent) {
+    // The mayor's gathering (its own actions only): its failures are the task runner's to handle, not a reason to replan
+    const gathered = villageRole(a) === 'mayor' && this.gatherer.owns(e.data?.action);
+    if (villageRole(a) === 'mayor') this.gatherer.onEvent(a, e);
     // (after the handlers below have set their replan reason)
     if ((e.type === 'action_done' || e.type === 'action_failed') && e.data?.type === 'find_site' && villageRole(a) === 'mayor') {
       const vil = a.village();
@@ -718,10 +738,11 @@ export class TieredBrain implements AgentBrain {
       this.replanReason = 'the agent died and lost its items';
     }
     if (e.type === 'action_failed') {
-      this.failuresSincePlan++;
+      if (!gathered) this.failuresSincePlan++;
       this.stat(a, 'actionsFailed');
       const type = e.data?.type, args = e.data?.args;
-      if (typeof type === 'string' && args && typeof args === 'object') {
+      // (not the task runner's: its failures are not the executor's calls to block)
+      if (!gathered && typeof type === 'string' && args && typeof args === 'object') {
         const k = callKey(type, args as Record<string, unknown>);
         const f = this.failed.get(k);
         this.failed.set(k, { count: (f?.count ?? 0) + 1, at: Date.now(), why: String(e.data?.message ?? e.text) });
@@ -762,7 +783,7 @@ export class TieredBrain implements AgentBrain {
       const item = String(args.block ?? args.item ?? '').toLowerCase().replace(/^minecraft:/, '');
       const names = (st: string) => !item || item === 'all' || !/^(collect|craft|withdraw|deposit|smelt)$/.test(type)
         || st.toLowerCase().replace(/_/g, ' ').includes(item.replace(/_/g, ' ').replace(/s$/, ''));
-      if (plan && type && type !== 'move_to' && this.startedUnder(e.data?.action, plan)) {
+      if (plan && type && type !== 'move_to' && !gathered && this.startedUnder(e.data?.action, plan)) {
         const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st) && names(st));
         if (i >= 0) {
           this.stat(a, 'stepsDone', i + 1 - plan.step);
@@ -850,9 +871,12 @@ export class TieredBrain implements AgentBrain {
     // Everything laid out is built and nothing is open, failed hard or waiting for a site: complete, whatever the mayor
     // last did (Accept16: it tried to re-post gathering when the last cottage was done, so the check after its "wait"
     // never ran, and nothing woke it again)
+    // (a gather task the mayor holds itself is moot then: closed as not needed)
+    const ownGather = (t: Task) => t.status === 'claimed' && t.claimedBy === a.name && t.id === this.gatherer.held;
     if (v && role === 'mayor' && laidOut && !v.complete && !v.unplaced?.length) {
       const builds = v.tasks.filter((t) => /^Build /.test(t.title));
-      if (builds.length && builds.every((t) => t.status === 'done') && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft))) {
+      if (builds.length && builds.every((t) => t.status === 'done') && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft) || ownGather(t))) {
+        if (this.gatherer.held) this.gatherer.handBack(a, 'not needed: every building is built', true);
         v.complete = true;
         a.world.villages.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
         a.pushEvent('system', 'The village is complete: every building you laid out is built (declared by code).');
@@ -868,7 +892,7 @@ export class TieredBrain implements AgentBrain {
       else if (free) why = 'you are free for a new task';
       else if (this.replanReason) why = this.replanReason;
       else if (this.failuresSincePlan >= 3) why = `${this.failuresSincePlan} actions failed since the plan was made`;
-      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || t.status === 'claimed')) {
+      else if (role === 'mayor' && !plan.steps.length && boardKey !== this.boardSeen && !v!.tasks.some((t) => t.status === 'open' || (t.status === 'claimed' && !ownGather(t)))) {
         const builds = v!.tasks.filter((t) => /^Build /.test(t.title));
         why = builds.length && builds.every((t) => t.status === 'done')
           ? `every building of your layout is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and no task is open: if that meets the objective, call declare_complete now`
@@ -879,7 +903,7 @@ export class TieredBrain implements AgentBrain {
         why = `a task failed: ${v!.tasks.filter((t) => t.status === 'failed' && !t.soft && t.updated > this.lastPlan).map((t) => `${t.id} "${t.title}"${t.result ? ` (${t.result.slice(0, 160)})` : ''}`).join('; ')}`;
       // Open tasks that nobody holds and nobody can take, for ten minutes: something they wait for will never finish
       else if (role === 'mayor' && !plan.steps.length && laidOut && now - this.boardSince > 10 * 60000 && boardKey !== this.boardSeen
-        && v!.tasks.some((t) => t.status === 'open') && !v!.tasks.some((t) => t.status === 'claimed') && !a.world.villages.claimable(v!).length)
+        && v!.tasks.some((t) => t.status === 'open') && !v!.tasks.some((t) => t.status === 'claimed' && !ownGather(t)) && !a.world.villages.claimable(v!).length)
         why = 'the task board is stuck: open tasks wait for tasks that will not finish (see the board status)';
       // (a waiting mayor is not reviewed on a timer once the layout is posted: it only re-posted work already on the board)
       else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !laidOut && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS)
@@ -897,6 +921,16 @@ export class TieredBrain implements AgentBrain {
         this.startPlan(a, PLAN, plan, why);
       }
     }
+
+    // The mayor gathers while it waits (V2.3m): soft gather tasks, run as written beside its empty plan. Whatever ends that
+    // (a plan with steps from the planner or the memory API, the village complete, a second site needed, the switch
+    // off) hands the task back
+    const mayGather = role === 'mayor' && !!v && !v.complete && !!plan && !plan.steps.length && laidOut && !v.unplaced?.length
+      && a.gamemode !== 'creative' && !!a.world.materialTasks && a.memory.mayorGathers !== false;
+    if (role === 'mayor' && this.gatherer.held && !mayGather)
+      this.gatherer.handBack(a, v?.complete ? 'the village is complete' : plan?.steps.length ? 'the mayor has its own steps to do' : 'the mayor stops gathering');
+    // (no new task while a plan is coming or due: a pending wake-up goes first)
+    if (mayGather) this.gatherer.tick(a, !this.planPending && !this.replanReason && !this.urgent && !this.execPending);
 
     if (this.execPending) return;
     if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
@@ -978,7 +1012,8 @@ export class TieredBrain implements AgentBrain {
       detail = `after an error, waiting before trying again: ${this.lastError}`;
     } else if (!a.idle()) {
       state = 'acting';
-      detail = 'running its queued actions';
+      const g = role === 'mayor' && this.gatherer.held ? v?.tasks.find((t) => t.id === this.gatherer.held) : undefined;
+      detail = g ? `gathering while it waits: ${g.id} ${g.title}` : 'running its queued actions';
     } else if (v?.complete) {
       state = 'done';
       detail = `the village ${v.name} is declared complete`;
@@ -1014,9 +1049,20 @@ export class TieredBrain implements AgentBrain {
     };
   }
 
+  /**
+   * Events worth a model's attention: without the mayor's own gathering (its actions, pickups and the task runner's
+   * lines), which would fill the window of the last 30 and push the prompt toward the context limit (lesson 32).
+   */
+  private eventsFor(a: WorldAgent, events: AgentEvent[]): AgentEvent[] {
+    if (villageRole(a) !== 'mayor') return events;
+    return events.filter((e) => !(e.type === 'pickup' || this.gatherer.owns(e.data?.action)
+      || (e.type === 'system' && /^(Took task|Handed back task) /.test(e.text))));
+  }
+
   private async makePlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
-    const events = a.events.filter((e) => e.id > this.seenPlan);
-    if (events.length) this.seenPlan = events[events.length - 1].id;
+    const all = a.events.filter((e) => e.id > this.seenPlan);
+    if (all.length) this.seenPlan = all[all.length - 1].id;
+    const events = this.eventsFor(a, all);
     const notes = typeof a.memory.notes === 'string' ? a.memory.notes : '';
     let user = [
       `You are planning for ${a.name}, role: ${a.role}, game mode: ${a.gamemode}. Replanning because ${why}.`,
@@ -1493,8 +1539,9 @@ export class TieredBrain implements AgentBrain {
   }
 
   private async execute(a: WorldAgent, spec: ModelSpec) {
-    const events = a.events.filter((e) => e.id > this.seenExec);
-    if (events.length) this.seenExec = events[events.length - 1].id;
+    const all = a.events.filter((e) => e.id > this.seenExec);
+    if (all.length) this.seenExec = all[all.length - 1].id;
+    const events = this.eventsFor(a, all);
     const plan = this.plan(a);
     const user = [
       `You are ${a.name}, role: ${a.role}, game mode: ${a.gamemode}.`,

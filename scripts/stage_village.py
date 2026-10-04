@@ -29,6 +29,9 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 tiered: model-driven workers (MCAI_EXEC_MODEL, --planner)
   --planner MODEL               the tiered workers' planner (default ollama:gpt-oss:120b-cloud)
   --workers N                   default 2 (Worker1, Worker2)
+  --mayor                       also a tiered Mayor (V2.3m), its layout posted by it and its plan empty: it gathers while
+                                it waits (soft gather tasks run as written, no model calls expected; --planner is its
+                                planner, MCAI_EXEC_MODEL its executor: start the agent server with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
 Stops early when every building is done, when an agent fails the same way 3 times, or after MCAI_STALL_MIN minutes
 (default 3) without a successful action. Workers are left in the world: remove them afterwards (panel or DELETE).
@@ -152,6 +155,7 @@ p.add_argument("--stage", choices=["full", "build"], default="full")
 p.add_argument("--brain", choices=["tasks", "tiered"], default="tasks")
 p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
 p.add_argument("--workers", type=int, default=2)
+p.add_argument("--mayor", action="store_true")
 p.add_argument("--minutes", type=float, default=20)
 p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
 p.add_argument("--no-deposit-check", action="store_true")
@@ -274,7 +278,8 @@ else:
         found = {k: site[k] for k in ("x", "y", "z", "size", "wood", "woodLogs") if k in site}
         print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
 r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs"),
-                                             "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {})})
+                                             "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {}),
+                                             **({"by": "Mayor"} if args.mayor else {})})
 print(r.get("result") or r, flush=True)
 if "error" in r:
     raise SystemExit(1)
@@ -433,16 +438,27 @@ for i, n in enumerate(names):
     r = call("/agents", {"name": n, "role": "builder", "brain": args.brain, "gamemode": "survival", "reset": True,
                          "position": {"x": site["x"] + 0.5 + 2 * i, "z": site["z"] + 0.5 + 8}, "memory": mem})
     print(f"{n}: {r}", flush=True)
+if args.mayor:
+    # The layout is the Mayor's own (posted with by=Mayor) and its plan is empty: the brain sees a mayor waiting for its
+    # workers, which gathers meanwhile (V2.3m)
+    call("/agents/Mayor", method="DELETE")
+    r = call("/agents", {"name": "Mayor", "role": "mayor", "brain": "tiered", "gamemode": "survival", "reset": True,
+                         "position": {"x": site["x"] + 0.5 - 2, "z": site["z"] + 0.5 + 8},
+                         "memory": {"village": args.village, "villageRole": "mayor", "buildSpeed": 4, "planModel": args.planner,
+                                    "execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
+                                    "plan": {"goal": "wait for the workers", "steps": [], "by": "external"}}})
+    print(f"Mayor: {r}", flush=True)
+watched = names + (["Mayor"] if args.mayor else [])
 bring_player(names[0])
 
 # ---- watch
-t0, seen, board, reason, last_done = time.time(), {n: 0 for n in names}, "", "time limit", time.time()
+t0, seen, board, reason, last_done = time.time(), {n: 0 for n in watched}, "", "time limit", time.time()
 fails = {}
 last_need = None
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     time.sleep(3)
-    for n in names:
+    for n in watched:
         events = call(f"/agents/{n}/events?since={seen[n]}")
         if not isinstance(events, list):
             continue
@@ -454,7 +470,8 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
                 last_done = time.time()
             # A material that is not within reach is given up by design (soft gather tasks; the build goes without):
             # not a stuck agent (StageT3 and T4 were stopped on sand)
-            if e["type"] == "action_failed" and "cannot be gathered here" not in e["text"]:
+            # (nor a busy mine: a third miner, the gathering Mayor, hands its task back and comes back later, V2.3m)
+            if e["type"] == "action_failed" and "cannot be gathered here" not in e["text"] and "the mine is busy" not in e["text"]:
                 k = (n, e["text"][:80])
                 fails[k] = fails.get(k, 0) + 1
                 if fails[k] >= 3:
@@ -493,4 +510,7 @@ for c in (v.get("storage") or {}).get("chests", []):
 print("STORAGE", storage)
 for i, c in enumerate((v.get("storage") or {}).get("chests", [])):
     print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}")
+for n in watched:
+    st = (call(f"/agents/{n}/memory") or {}).get("stats") or {}
+    print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}")
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])
