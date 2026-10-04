@@ -25,7 +25,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
-import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
+import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, elevations, lintDesign, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
 import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
 import { postLayout, type Site } from './layout';
@@ -299,6 +299,13 @@ const BRAIN_TOOLS: ToolDef[] = [
  * time (sizes stay odd), with the overhang kept where it can be.
  */
 export function smallerStyle(style: BuildingStyle, budget: number, units: (d: Design) => number, siteOne?: number): string {
+  const best = shrinkStyle(style, budget, units, siteOne);
+  if (!best) return 'even at 5x5 this style is over: choose cheaper materials (planks walls and roof, no floor, no base)';
+  return `the same style with walls of ${best.s.width}x${best.s.depth}${best.s.overhang !== style.overhang ? ' and no overhang' : ''} needs ${best.u}; or choose cheaper materials (planks and logs go furthest, floor none keeps the prepared ground)`;
+}
+
+/** The largest smaller version of a style within a gather budget (walls two narrower at a time, the overhang kept where it can be), or null. */
+export function shrinkStyle(style: BuildingStyle, budget: number, units: (d: Design) => number, siteOne?: number): { s: BuildingStyle; u: number } | null {
   // (typed by assertion: TypeScript's flow analysis takes it as never after the break below)
   let best = null as { s: BuildingStyle; u: number } | null;
   for (const overhang of style.overhang ? [1, 0] : [0]) {
@@ -313,8 +320,7 @@ export function smallerStyle(style: BuildingStyle, budget: number, units: (d: De
       }
     if (best) break;
   }
-  if (!best) return 'even at 5x5 this style is over: choose cheaper materials (planks walls and roof, no floor, no base)';
-  return `the same style with walls of ${best.s.width}x${best.s.depth}${best.s.overhang !== style.overhang ? ' and no overhang' : ''} needs ${best.u}; or choose cheaper materials (planks and logs go furthest, floor none keeps the prepared ground)`;
+  return best;
 }
 
 /** What a style's walls may be on a site that takes buildings up to `one` across: odd, with the overhang if it fits. */
@@ -1293,8 +1299,21 @@ export class TieredBrain implements AgentBrain {
     const system = designSystem(allowed.blocks, allowed.states);
     // A style drawn by code (phase D, D.2) needs stairs and block states: not in the sandbox
     const styles = allowed.states;
-    const tools = styles ? [STYLE_TOOL, DESIGN_TOOL] : [DESIGN_TOOL];
+    let tools = styles ? [STYLE_TOOL, DESIGN_TOOL] : [DESIGN_TOOL];
     let problems: string[] = [];
+    // D.3: a valid design with notes on its look is shown back once (its elevations and the notes); the first valid
+    // design is kept, so a revision that fails a check costs nothing but the call
+    let firstValid: { design: Design; fixes: string[]; cost: { units?: number } | null; style?: BuildingStyle; notes: number } | null = null;
+    const save = (design: Design, fixes: string[], cost: { units?: number } | null, style?: BuildingStyle, note = '') => {
+      if (v) {
+        v.designs[design.name] = design;
+        a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
+      } else a.memory.designs = { ...((a.memory.designs as Record<string, Design> | undefined) ?? {}), [design.name]: design };
+      this.stat(a, 'designs');
+      const fixed = fixes.length ? ` (${fixes.join(', ')})` : '';
+      const gather = cost?.units !== undefined ? `, ${cost.units} to gather` : '';
+      return `design "${design.name}" saved${fixed}${note}: ${design.width}x${design.depth}, ${design.height} layers, ${design.blocks} blocks${gather}${style ? ', drawn from your style' : ''} (${design.description}). Build it with build_design on a level plot at least ${design.width + 2}x${design.depth + 2}.`;
+    };
     // Three tries: the checks of phase D (the rain test, the block list, the budget) send more designs back
     for (let attempt = 0; attempt < DESIGN_TRIES; attempt++) {
       let reply: Awaited<ReturnType<typeof complete>>;
@@ -1309,9 +1328,9 @@ export class TieredBrain implements AgentBrain {
         await new Promise((r) => setTimeout(r, 5000));
         continue;
       }
-      const call = reply.calls.find((c) => c.name === 'submit_design' || (styles && c.name === 'submit_style'));
+      const call = reply.calls.find((c) => (c.name === 'submit_design' && tools.includes(DESIGN_TOOL)) || (styles && c.name === 'submit_style'));
       if (!call) {
-        problems = [`no ${styles ? 'submit_style or submit_design' : 'submit_design'} call was made`];
+        problems = [`no ${tools.map((t) => t.name).join(' or ')} call was made`];
       } else {
         let raw: Record<string, unknown> = { ...call.input, name: name || call.input.name };
         let style: BuildingStyle | undefined;
@@ -1344,11 +1363,21 @@ export class TieredBrain implements AgentBrain {
             const capped = capWalls(n.style, isLandmark(finalName) ? LANDMARK_WALLS : HOUSE_WALLS);
             style = capped.style;
             notes.push(...capped.notes);
-            // Furnace runs within the limit by code (stone bricks to cobblestone, glass to panes)
+            // Furnace runs within the limit by code (stone bricks to cobblestone, glass to panes), then the gather budget
+            // (Minevale16: a style refused at 168 of 150 sent the architect to drawing by hand, where it drew a flat box
+            // and a hall with open gable ends): the largest smaller size that fits, as fitSmelts swaps materials
             if (a.gamemode !== 'creative' && a.world.materialTasks) {
               const fit = fitSmelts(style, (s) => a.world.materialTasks!(generateDesign(s), s.name).smelts ?? 0, MAX_SMELTS);
               style = fit.style;
               notes.push(...fit.notes);
+              const budget = isLandmark(finalName) ? LANDMARK_UNITS : HOUSE_UNITS;
+              const units = (d: Design) => a.world.materialTasks!(d, d.name).units ?? 0;
+              const now = units(generateDesign(style));
+              const smaller = now > budget ? shrinkStyle(style, budget, units, siteLimit(a)?.one) : null;
+              if (smaller) {
+                notes.push(`walls ${style.width}x${style.depth}${smaller.s.overhang !== style.overhang ? ' with the overhang' : ''} made ${smaller.s.width}x${smaller.s.depth}${smaller.s.overhang !== style.overhang ? ' without it' : ''} (${now} to gather; a ${isLandmark(finalName) ? 'landmark' : 'house'} may need ${budget})`);
+                style = smaller.s;
+              }
             }
             raw = { ...generateDesign(style, a.name) };
           } else refused.push(...n.errors);
@@ -1387,21 +1416,44 @@ export class TieredBrain implements AgentBrain {
         }
         // Saved only with nothing to fix (the budget's errors were not in this test at first: the review of D.1)
         if (design && !errors.length) {
-          if (v) {
-            v.designs[design.name] = design;
-            a.world.villages.note(v, `${a.name} designed "${design.name}" (${design.width}x${design.depth}, ${design.height} high)`);
-          } else a.memory.designs = { ...((a.memory.designs as Record<string, Design> | undefined) ?? {}), [design.name]: design };
-          this.stat(a, 'designs');
-          const fixed = fixes?.length ? ` (${fixes.join(', ')})` : '';
-          const gather = cost?.units !== undefined ? `, ${cost.units} to gather` : '';
-          return `design "${design.name}" saved${fixed}: ${design.width}x${design.depth}, ${design.height} layers, ${design.blocks} blocks${gather}${style ? ', drawn from your style' : ''} (${design.description}). Build it with build_design on a level plot at least ${design.width + 2}x${design.depth + 2}.`;
+          // D.3: one revision with the design's elevations when its look has notes (a flat roof, open walls, an empty
+          // layer under the roof, low walls), while a try is left; otherwise saved
+          const lint = lintDesign(design);
+          if (styles && lint.strong.length && !firstValid && attempt < DESIGN_TRIES - 1) {
+            firstValid = { design, fixes, cost, style, notes: lint.strong.length };
+            console.log(`[design] ${a.name} "${design.name}" try ${attempt + 1} valid, shown back for a revision: ${lint.strong.join('; ').slice(0, 300)}`);
+            // What it submitted, so it can change it (the review of D.3: retries only append to one message); a style
+            // stays a style (a hand drawing would lose the generator's whole gable ends and stair facings)
+            const submitted = style
+              ? `Your style: ${JSON.stringify({ ...style, name: undefined, description: undefined })}`
+              : design.width * design.depth * design.height <= 1000
+                ? `Your palette: ${JSON.stringify(design.palette)}\nYour layers:\n${design.layers.map((l, i) => `layer ${i}: ${JSON.stringify(l.map((r) => r.split('').join(' ')))}`).join('\n')}`
+                : `Your palette: ${JSON.stringify(design.palette)}`;
+            if (style) tools = [STYLE_TOOL];
+            user += `\n\nYour design "${design.name}" is valid. ${submitted}\nHere it is as drawn:\n${elevations(design)}\nSuggestions:\n- ${[...lint.strong, ...lint.weak].join('\n- ')}\nIf they improve it, submit a revised design${style ? ' (a style)' : styles ? ', or describe it as a style with submit_style: code then draws whole walls, gable ends and a stair roof' : ''}; otherwise submit the same design again.`;
+            continue;
+          }
+          // A revision is kept only when its look has fewer notes than the first design's
+          if (firstValid) console.log(`[design] ${a.name} "${design.name}" revision: ${lint.strong.length} notes against ${firstValid.notes}, ${lint.strong.length >= firstValid.notes ? 'the first kept' : 'the revision kept'}${lint.strong.length ? `: ${lint.strong.join('; ').slice(0, 200)}` : ''}`);
+          if (firstValid && lint.strong.length >= firstValid.notes)
+            return save(firstValid.design, firstValid.fixes, firstValid.cost, firstValid.style, ' (the revision was no better; the first design kept)');
+          return save(design, fixes, cost, style, firstValid ? ', revised after its elevations' : '');
         }
-        problems = errors;
+        // A refused hand drawing is pointed at the style (Minevale17: three hand-drawn halls refused for row counts and
+        // an open roof, then ~4 minutes of the mayor replanning the same step; F119: hand drawings are not fixed by
+        // being shown their faults, a style cannot have them)
+        problems = call.name === 'submit_design' && styles
+          ? [...errors, 'Or describe the building as a style with submit_style: code draws whole walls, a roof that covers it (flat too) and the door, so these problems cannot happen']
+          : errors;
+        console.log(`[design] ${a.name} "${name}" try ${attempt + 1} refused (${call.name}): ${errors.join('; ').slice(0, 300)}`);
       }
       user += `\n\nYour previous design had problems; fix them and submit again:\n- ${problems.join('\n- ')}`;
     }
+    // The revision failed its checks: the first valid design stands
+    if (firstValid) return save(firstValid.design, firstValid.fixes, firstValid.cost, firstValid.style, ' (the revision was not valid; the first design kept)');
     this.stat(a, 'designsFailed');
-    return `design "${name}" failed: ${problems.join('; ')}`;
+    // (without the pointer to submit_style: the mayor cannot call it)
+    return `design "${name}" failed: ${problems.filter((p) => !p.startsWith('Or describe the building as a style')).join('; ')}`;
   }
 
   private async execute(a: WorldAgent, spec: ModelSpec) {

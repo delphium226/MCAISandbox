@@ -335,12 +335,12 @@ export function elevations(d: Design): string {
     let f = '', s = '';
     for (let i = 0; i < d.width; i++) {
       let ch = ' ';
-      for (let j = d.depth - 1; j >= 0; j--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      for (let j = d.depth - 1; j >= 0; j--) if (solid(d.layers[li]?.[j]?.[i])) { ch = d.layers[li][j][i]; break; }
       f += ch;
     }
     for (let j = d.depth - 1; j >= 0; j--) {
       let ch = ' ';
-      for (let i = d.width - 1; i >= 0; i--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      for (let i = d.width - 1; i >= 0; i--) if (solid(d.layers[li]?.[j]?.[i])) { ch = d.layers[li][j][i]; break; }
       s += ch;
     }
     front.push(`${String(li).padStart(2)} |${f}|`);
@@ -351,7 +351,7 @@ export function elevations(d: Design): string {
     let row = '';
     for (let i = 0; i < d.width; i++) {
       let ch = ' ';
-      for (let li = d.height - 1; li >= 0; li--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      for (let li = d.height - 1; li >= 0; li--) if (solid(d.layers[li]?.[j]?.[i])) { ch = d.layers[li][j][i]; break; }
       row += ch;
     }
     top.push(`   |${row}|`);
@@ -359,6 +359,114 @@ export function elevations(d: Design): string {
   const legend = Object.entries(d.palette).map(([k, v]) => `${k}=${v}`).join(' ');
   return [`${d.name}: ${d.width} wide (west to east), ${d.depth} deep (north to south), ${d.height} layers`, legend,
     'From the south:', ...front, 'From the east (south on the left):', ...side, 'From above (north at the top):', ...top].join('\n');
+}
+
+/**
+ * Notes on a valid design's look (phase D, D.3), shown to the architect with its elevations for one revision. `strong`
+ * notes start the revision: a flat roof, walls open in more than window-sized holes or gable ends left open (F111), an
+ * empty layer under the roof (Meadowford2-4), low walls on a wide building. `weak` ones go along with them for drawn
+ * designs (one plain wall material, no window beside the door on a long wall); a style chose those itself. Suggestions
+ * only: a design is saved either way. Definitions from the review of D.3 (checked on 4,320 generated styles and the
+ * stored designs): wall cells are solid layer-1 cells facing out; the eaves are the headroom inside, so windows do not
+ * lower them; openings in the wall columns are grouped, and a group up to 2 along and 2 high under the eaves is a
+ * window, a bigger one a gap, one above the eaves an open gable end.
+ */
+export function lintDesign(d: Design): { strong: string[]; weak: string[] } {
+  const strong: string[] = [], weak: string[] = [];
+  const l1 = d.layers[1];
+  if (!l1 || d.height < 3 || l1.length !== d.depth || l1.some((r) => r.length !== d.width)) return { strong, weak };
+  const style = d.style;
+  const solid = (ch: string | undefined) => !!ch && ch !== '.' && ch !== '_' && d.palette[ch] !== 'air';
+  const base = (ch: string) => (d.palette[ch] ?? '').replace(/\[.*$/, '');
+  const at = (li: number, i: number, j: number) => d.layers[li]?.[j]?.[i];
+  const outside = outsideCells(l1);
+  const topOf = (i: number, j: number) => {
+    for (let li = d.height - 1; li >= 0; li--) if (solid(at(li, i, j))) return li;
+    return -1;
+  };
+  // Wall cells (solid in layer 1, facing out) by side
+  const SIDES = ['west', 'east', 'north', 'south'];
+  const sideOf = new Map<string, string>();
+  const walls: Record<string, Array<[number, number]>> = { west: [], east: [], north: [], south: [] };
+  let door: [number, number] | null = null;
+  for (let j = 0; j < d.depth; j++)
+    for (let i = 0; i < d.width; i++) {
+      if (!solid(l1[j][i])) continue;
+      const out = outwardStep(l1, i, j, outside);
+      if (!out) continue;
+      const side = SIDES[out[0] < 0 ? 0 : out[0] > 0 ? 1 : out[1] < 0 ? 2 : 3];
+      walls[side].push([i, j]);
+      sideOf.set(`${i},${j}`, side);
+      if (isDoor(d.palette[l1[j][i]] ?? '')) door = [i, j];
+    }
+  const wallCells = SIDES.flatMap((s) => walls[s]);
+  if (!wallCells.length) return { strong, weak };
+  // The eaves: the headroom inside, over the empty cells beside a wall (windows do not lower it)
+  let eaves = Infinity, inside = 0, stairTops = 0;
+  for (let j = 0; j < d.depth; j++)
+    for (let i = 0; i < d.width; i++) {
+      if (solid(l1[j][i]) || outside.has(`${i},${j}`)) continue;
+      inside++;
+      const t = topOf(i, j);
+      if (t > 1 && /_stairs$/.test(base(at(t, i, j)!))) stairTops++;
+      if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => sideOf.has(`${i + di},${j + dj}`))) continue;
+      // (the roof over it, not the first block: an upper floor or a torch inside does not lower the eaves)
+      if (t > 1) eaves = Math.min(eaves, t - 1);
+    }
+  // (1) A flat roof: under a third of the columns inside topped by stairs (slabs on top are flat too, F118); a style
+  // that chose a flat roof is left alone
+  if (inside && stairTops / inside < 1 / 3 && style?.roof !== 'flat')
+    strong.push('the roof is flat: a roof of stairs rising from the walls to a ridge (with submit_style: roof gable or hip) looks far better');
+  // (2) An empty layer between the walls and the roof: every wall cell open in it, with blocks above
+  const empty = new Set<number>();
+  for (let li = 2; li < d.height - 1; li++)
+    if (wallCells.every(([i, j]) => !solid(at(li, i, j))) && wallCells.some(([i, j]) => topOf(i, j) > li)) empty.add(li);
+  if (empty.size) strong.push(`layer${empty.size > 1 ? 's' : ''} ${[...empty].join(', ')} ${empty.size > 1 ? 'are' : 'is'} empty all round: the roof floats over the walls; continue the walls up to it`);
+  // (3) Openings in the wall columns (not the door's upper half, not the empty layers), grouped
+  const open = new Set<string>();
+  for (const [i, j] of wallCells) {
+    const top = topOf(i, j);
+    for (let li = 2; li < top; li++) {
+      if (empty.has(li) || solid(at(li, i, j))) continue;
+      if (li === 2 && isDoor(d.palette[l1[j][i]] ?? '')) continue;
+      open.add(`${li},${i},${j}`);
+    }
+  }
+  const seen = new Set<string>();
+  const gaps: Record<string, string[]> = {}, gables: Record<string, number> = {};
+  for (const key of open) {
+    if (seen.has(key)) continue;
+    const group: Array<[number, number, number]> = [];
+    const stack = [key];
+    seen.add(key);
+    while (stack.length) {
+      const [li, i, j] = stack.pop()!.split(',').map(Number);
+      group.push([li, i, j]);
+      for (const n of [`${li + 1},${i},${j}`, `${li - 1},${i},${j}`, `${li},${i + 1},${j}`, `${li},${i - 1},${j}`, `${li},${i},${j + 1}`, `${li},${i},${j - 1}`])
+        if (open.has(n) && !seen.has(n)) { seen.add(n); stack.push(n); }
+    }
+    const side = sideOf.get(`${group[0][1]},${group[0][2]}`)!;
+    const columns = new Set(group.map(([, i, j]) => `${i},${j}`)).size;
+    const layers = new Set(group.map(([li]) => li));
+    if (group.some(([li]) => li > eaves)) gables[side] = (gables[side] ?? 0) + group.length;
+    else if (columns > 2 || layers.size > 2) (gaps[side] ??= []).push(`${columns} wide in layer${layers.size > 1 ? 's' : ''} ${[...layers].sort((a, b) => a - b).join('-')}`);
+  }
+  for (const side of SIDES) {
+    if (gaps[side]) strong.push(`the ${side} wall has a gap ${[...new Set(gaps[side])].slice(0, 2).join(' and ')}: fill it with the wall block, with glass for windows (a window is 1-2 wide)`);
+    if (gables[side]) strong.push(`the ${side} wall is open above the eaves (${gables[side]} cells): under a gable roof the end walls go up to the roof`);
+  }
+  // (4) Low walls on a wide building
+  const across = Math.max(...SIDES.map((s) => walls[s].length));
+  if (Number.isFinite(eaves) && across > 7 && eaves < 3) strong.push(`the walls are ${eaves} high under the roof on a building ${across} across: 3 or more look right`);
+  // Weak notes, for drawn designs only (a style chose its materials and windows)
+  if (!style) {
+    const kinds = new Set(wallCells.flatMap(([i, j]) => [1, 2].map((li) => at(li, i, j)).filter((ch) => solid(ch) && !isDoor(base(ch!)) && !/glass/.test(base(ch!))).map((ch) => base(ch!))));
+    if (kinds.size === 1) weak.push(`the walls are all ${[...kinds][0]}: log corners, a stone base course or a log beam under the roof give them character`);
+    const doorSide = door ? sideOf.get(`${door[0]},${door[1]}`)! : '';
+    if (doorSide && walls[doorSide].length >= 7 && !walls[doorSide].some(([i, j]) => [2, 3].some((li) => /glass/.test(base(at(li, i, j) ?? '.')) || (open.has(`${li},${i},${j}`) && !(i === door![0] && j === door![1])))))
+      weak.push(`the ${doorSide} wall, with the door, has no window`);
+  }
+  return { strong, weak };
 }
 
 /** Architect's note in the survival economy. */

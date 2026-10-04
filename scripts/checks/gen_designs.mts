@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import minecraftData from 'minecraft-data';
 import { generateDesign, normalizeStyle, stairShape, type BuildingStyle } from '../../server/src/buildingGen';
-import { doorOutward, elevations, outsideCells, outwardStep, validateDesign } from '../../server/src/designs';
+import { doorOutward, elevations, lintDesign, outsideCells, outwardStep, validateDesign } from '../../server/src/designs';
 import type { Design } from '../../server/src/village';
 import { Materials, designBill, designBlockList } from '../../server/src/mineflayer/mcMaterials';
 
@@ -61,6 +61,9 @@ function check(d: Design, style: BuildingStyle): string[] {
   // The door
   const l1 = d.layers[1];
   const outside = outsideCells(l1);
+  // D.3's lint: a generated design draws whole walls and a pitched roof, so only a flat roof the style chose may show
+  const lint = lintDesign(d);
+  for (const note of lint.strong) if (!(style.roof === 'flat' && /roof is flat/.test(note))) problems.push(`lint: ${note}`);
   const doors: Array<[number, number]> = [];
   for (let z = 0; z < d.depth; z++) for (let x = 0; x < d.width; x++) if (/_door$/.test(d.palette[l1[z][x]] ?? '')) doors.push([x, z]);
   if (doors.length !== 1) problems.push(`${doors.length} doors`);
@@ -218,6 +221,7 @@ for (const raw of cases) {
 
 // Stored designs: the D.2 door rules must leave every one as it was (no new fixes, the door still counted)
 let stored = 0, changed = 0;
+const linted: Record<string, number> = {};
 for (const file of ['mc/server/villages.json', 'mc/testserver/villages.json']) {
   if (!fs.existsSync(file)) continue;
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -242,7 +246,16 @@ for (const file of ['mc/server/villages.json', 'mc/testserver/villages.json']) {
         changed++;
         console.log(`stored ${v.name}/${d.name}: ${[...doorErr, ...(fixes ?? []), ...turned].join('; ')}`);
       }
+      // D.3's lint over the stored designs, counted by rule (LINT=1 prints each)
+      const l = lintDesign(d);
+      for (const n of [...l.strong.map((x) => `strong: ${x}`), ...l.weak.map((x) => `weak: ${x}`)]) {
+        const rule = n.replace(/\d+/g, 'N').replace(/the (north|south|east|west) wall/, 'the SIDE wall').slice(0, 60);
+        linted[rule] = (linted[rule] ?? 0) + 1;
+        if (process.env.LINT) console.log(`lint ${v.name}/${d.name}: ${n}`);
+      }
     }
 }
+console.log('\nlint over the stored designs (by rule):');
+for (const [rule, n] of Object.entries(linted).sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${rule}`);
 console.log(`\n${cases.length - failed}/${cases.length} generated cases passed; ${stored} stored designs checked, ${changed} with door changes`);
 process.exit(failed || changed ? 1 : 0);

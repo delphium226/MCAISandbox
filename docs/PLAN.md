@@ -457,7 +457,19 @@ alongside D.3; D.7 later.
       footprint and checking the door, every stair's facing and the bill; each built by Gus in creative at all four
       rotations and compared with `GET /api/blocks`; a staged build with generated designs; a model-driven village.
       Pass: every roof type built as drawn at every rotation; staged 3/3; model-driven 3/3 with no failed designs.
-- [ ] D.3 **Show the architect its building**: after each submission code renders front, side and top views as text
+- [x] D.3 **Show the architect its building**. **Done 10-04 (eleventh session)**; the model-driven runs after it
+      (Minevale16-18) had no failed designs or actions where the architect stayed on styles but did not meet the time
+      (19.2 min; two stopped: F120, F121):
+      `lintDesign` (designs.ts; definitions from a design review checked on 4,320 generated styles and the stored designs:
+      wall cells, eaves as the roof's underside, openings grouped into windows, gaps and open gable ends, empty layers, a
+      flat roof by its stairs, low walls; weak notes for drawn designs only) and one revision round in design() where
+      styles are offered: the design, its elevations and the notes shown back once, a style revised only as a style, the
+      revision kept only with fewer notes; every refused try and the revision's verdict logged (`[design]`). Measured
+      (designbench): with styles offered, style designs never get notes, and the round turned flat hand drawings into
+      styles (cottage_mayor 2 of 2); hand drawings shown their own open gable ends did not fix them (0 of 8 improved).
+      So the lever was code fitting a style to the budget (Minevale16: a style refused at 168 of 150 sent the architect
+      to drawing by hand): `shrinkStyle`, as fitSmelts and capWalls. Final bench: 30/30 by style, 0 notes left. The
+      panel shows each design's elevations. The plan as written: after each submission code renders front, side and top views as text
       (`elevations(design)` in `designs.ts`) and lints it: a flat roof, one wall material, a blank wall on the door's
       side, an empty layer under the roof (Meadowford2-4), walls lower than 3 on a building over 7 wide. One revision
       round with both, in the retry loop `TieredBrain.design` (`tieredBrain.ts` ~1168) already runs for errors; lint
@@ -534,6 +546,45 @@ alongside D.3; D.7 later.
         aesthetics) as a rubric for judging villages.
       Background (10-02): in MineAnyBuild (NeurIPS 2025) the best models scored ~41/100 at writing building plans as
       block matrices, the format our architect writes: pictures and styles in, geometry from code.
+
+### Vanilla villages: pieces and plans from the Minecraft jar (agreed 10-04, eleventh session; next after this session)
+
+The user's direction (10-04): re-use Minecraft's own resources. The Paper jar holds vanilla's whole village system:
+542 pieces under `data/minecraft/structure/village/` in five biomes (plains, savanna, snowy, taiga, desert: 28-37
+houses each, 3-5 town centres (fountains, meeting points), 12-20 street pieces, lamp posts, decorations; zombie variants
+and spawn markers) and 74 template pools under `worldgen/template_pool/village/` (town centre -> streets -> houses ->
+terminators, by jigsaw connectors). A survey of the plains (`scripts/checks/village_pieces.py`, 10-04): small houses 7x7 of
+~150 blocks, mid houses ~250, the library 630; ~85% of all blocks are cobblestone, oak stairs, planks and logs; the
+rest is white terracotta (1 house in 6), beds and wool, bells, workstations, stained glass, carpets, wall torches, and
+dirt or grass in the lowest layers (ground fill); every house has a jigsaw block at its entrance (its street side: the
+front, for turning it toward a street). Pieces are read from the local jar at runtime and never committed; renders of
+them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, each tested before the next:
+
+- [ ] V2.1 (was D.5) **Importer** (`vanillaPieces.ts`, offline first): village pieces to Designs with their block states
+      (no sandbox mapping), the front side from the entrance jigsaw, jigsaw blocks to their final state, structure_void
+      and the ground-fill layers to `_`; a substitution table kept close to vanilla: blocks the economy makes stay
+      (cobblestone, stairs, slabs, planks, logs, fences, trapdoors, doors, glass panes), stripped logs charged as logs,
+      white terracotta to a near colour by biome, stained glass to plain panes, decoration and workstations (beds, bells,
+      carpets, pots, job sites) to air; wall torches left out (placement order) and an interiors pass later. Report per
+      biome: how many pass the economy's checks and the budget, at what cost; a contact sheet of renders for the user.
+- [ ] V2.2 **Built as drawn**: a few pieces of each biome at four rotations (`rotate_design.py --design`), then a staged
+      village of vanilla houses (`stage_village.py`).
+- [ ] V2.3 (D.4, hybrid plan) **A street village**: code lays the plan on the pad, vanilla supplies the content: the
+      biome's town centre (substituted) in the middle, its jigsaw connectors giving the street directions, streets laid
+      as dirt_path (charged as dirt, like vanilla's street pieces), houses along them turned so their entrance faces the
+      street, the biome's lamp posts along it. The mayor asks by kind ("two small houses and a library"); code picks the
+      pieces by the site's biome (D.6's village style for free, F113), "matching" houses as siblings of one family
+      (plains_small_house_1..8), not copies; generated and drawn designs stay for anything else. Within the 32x32 pad
+      first. Ground truth: `/place jigsaw` with the biome's town-centre pool in creative on the test world builds a real
+      vanilla village to compare with. Test: an offline check of the plans (inside the pad, no overlaps, every entrance
+      on a street), a staged run, then a model-driven village.
+- [ ] V2.4 **A green village**: round a town centre with the buildings facing in; prepare_site's limit raised to ~40 once
+      its time is measured. Later, with D.7: vanilla's full jigsaw assembly over terrain.
+- [ ] V2.5 **Vanilla data instead of hand lists** (independent; a subagent job, each with its check script): block tags
+      (`data/minecraft/tags/block/`: logs, leaves, flowers, replaceable, dirt...) for NATURAL and similar lists (F61 and
+      F76 were missing entries); the jar's recipes, smelting included, for mcMaterials' hand-made smelting table; loot
+      tables for "which blocks drop this item" (collect); texture colours averaged from the user's client jar for the
+      renderer (D.8).
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
@@ -789,6 +840,12 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s11) | **Minevale14** | model-driven 1x, minevale3, packing by walls, budgets 150/300 | **5/5**, 0 failed designs | 23.2 min | both designs by style at 0.3 min; the architect drew the "spacious" hall at 13x13 walls (15x15, 536 blocks, 210 stairs, 295 units), so the second cottage went to a second site 29 off (laid out by code, no clash); 3 failed actions: Worker2 dug to sand under a pond 70 blocks off and was stuck at y 59 until the rescue; no `[lag]`; the render of the plot shows every roof whole |
 | 10-04 (s11) | GenB4 | staged build 2x, a site given as 30 across, the style kept through the API (packing by walls exercised) | **5/5** | 4.1 min | 0 failed actions, no `[lag]`; rings of neighbours 1 block apart, every roof whole in the render |
 | 10-04 (s11) | **Minevale15** | model-driven 1x, minevale3, + walls capped (houses 9, landmarks 11) | **5/5 PASS** | **16.1 min** | 0 failed designs, 0 failed actions, no `[lag]`, workers 0 model calls; one 20x27 plot; the hall by style (9x9, cobblestone gable, 213 units), the cottage drawn by hand as a flat-roofed box (63 units, F118) |
+| 10-04 (s11) | designbench D.3 hand | STYLES=0 (drawing by hand only), cottage + hall, 10 each, the reviewed lint, without / with REVISE | 20/20 both | 25 / 24 s; 28 / 31 s | strong notes left: cottages 7 and 3, halls 6 and 7; with REVISE 8 shown back and 0 improved (each kept its first): shown its own open gable ends, the model redrew them open |
+| 10-04 (s11) | designbench D.3 styles | both tools, REVISE=1, cottage, hall, cottage_mayor, 10 each | 30/30 | 4.1 / 5.4 / 6.5 s | all by style, 0 notes left; style designs never shown back; 2 mayor-brief cottages first drawn flat by hand came back as stair-gabled styles |
+| 10-04 (s11) | Minevale16 | model-driven 1x, minevale3, D.3 (before the budget fitting) | **5/5** | 19.2 min | 0 failed designs and actions, no `[lag]`; the `[design]` log showed F118's cause: the cottage's style refused at 168 of 150, then two hand drawings; the hall hand-drawn with empty layers and open gable ends, the revision no better, so built as first drawn (290 units) |
+| 10-04 (s11) | Minevale17 | model-driven 1x, minevale3, + the budget fitted by code | **stopped** at 8.4 min | - | the cottage's style shrunk to fit (7x7 to 7x5 walls, 126 units) and saved; the hall drawn by hand three times (a row count, then the roof open to the sky) and failed, then ~4 min of the mayor replanning the same step (F120); a later flat hand drawing shown back came back a style; no layout by 8.4 min |
+| 10-04 (s11) | Minevale18 | model-driven 1x, + a refused hand drawing pointed at submit_style | **stopped** at 24.5 min, 3/5 | - | both designs by style at 0.4 min, layout 0.9 min (on the other site, -1507,-62), 0 failed actions, no `[lag]`; slow gathering: cobblestone ~8 a minute from this site's mine (~25 on the usual site) for a hall with a cobblestone base and floor (F121) |
+| 10-04 (s11) | designbench D.3 final | + the budget fitted by code (shrinkStyle), REVISE=1, the three cases | **30/30 by style** | 2.8 / 3.1 / 4.1 s | 0 notes left, 3 retries in all (11 before) |
 | 10-04 (s11) | designbench cottage_mayor | gpt-oss, Minevale15's cottage brief ("7x7 house, 5 high, oak_planks roof..."), 10 | 10/10 valid | - | 10/10 by style, all stair gables: the hand-drawn cottage of Minevale15 is not the brief's usual result |
 
 ## Findings log
@@ -1209,6 +1266,17 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F121 (10-04, eleventh session, Minevale18) The mayor's site search on minevale3 sometimes takes the site at -1507,-62
+  (Minevale13, 18) instead of -1564,-35, and there the mine gave cobblestone at ~8 a minute against ~25: runs on the
+  same test site are not always comparable. Pin the site for acceptance runs (the watcher already finds -1564,-35; the
+  mayor's own find_site differs), or record which site a run used.
+- F120 (10-04, eleventh session, Minevale17) A failed design costs minutes: the mayor replanned the same design step
+  about ten times in four minutes (2.3-6.5 min) after design_building failed, until it changed the brief. Made rarer by
+  pointing refused hand drawings at submit_style; the replan loop itself is open (backlog).
+- F119 (10-04, eleventh session, D.3 benches) A revision round does not fix a hand drawing: shown its elevations and
+  "the west wall is open above the eaves (16 cells)", gpt-oss redrew the same open gable ends or broke the design (0 of 8
+  improved). What helps is keeping the architect on styles: code fits a style to the budget (shrinkStyle) instead of
+  refusing it, and a flat hand drawing shown back comes back as a style.
 - F118 (10-04, eleventh session, Minevale15) The cottage was drawn by hand as a flat-roofed plank box, though the same
   brief gives a style with a stair gable 10 times in 10 in designbench; design() does not log refused tries, so whether
   a style was sent back first (the 150 budget) is unknown. To do: log each try's refusal; D.3's flat-roof lint.
@@ -1432,6 +1500,13 @@ CLAUDE.md when a phase ends.
   review read the 26.1.2 jar, and /setblock and /fill compute a placed stair's shape from its neighbours and a later
   neighbour recomputes it, so code computes shapes only to check them (the offline script, the elevations, the
   four-rotation build).
+- 10-04 (eleventh session, late) Vanilla villages next (the user agreed Claude's recommendations, "re-use minecraft
+  resources"): code picks vanilla pieces by the site's biome and the kind the mayor asks for; "matching" houses are
+  siblings of one family; vanilla's blocks are kept where the economy makes them, the rest substituted (decoration to
+  air, interiors later); the plan is a hybrid (our planner places a vanilla town centre, dirt_path streets from its
+  connectors, houses facing the streets, lamp posts), a street village within 32x32 first, then a green with a larger
+  pad; `/place jigsaw` in creative as ground truth; vanilla tags, recipes, loot tables and client textures replace hand
+  lists (V2.5). Pieces are read from the local jars at runtime, never committed. The steps: "Vanilla villages" in phase D.
 - 10-04 (eleventh session) After Minevale12-13 (the user's choices among Claude's options): generated buildings are
   packed by their walls, the overhang's eaves over the street (a building with an overhang reserves only its own area
   while it builds; the doorway clearing keeps off other buildings, built or planned); budgets 150 gather units a house

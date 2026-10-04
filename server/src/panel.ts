@@ -14,6 +14,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WorldAdapter, WorldAgent } from './world';
 import { sendJson } from './api';
 import { OLLAMA_ROUTES } from './tieredBrain';
+import { elevations } from './designs';
+import type { Design } from './village';
+
+/** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
+function safeElevations(d: Design): string {
+  try {
+    return elevations(d);
+  } catch {
+    return '';
+  }
+}
 
 const PAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../panel/index.html');
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
@@ -62,7 +73,9 @@ function agentOverview(a: WorldAgent) {
 export function overview(w: WorldAdapter) {
   const agents = w.agentList();
   const names = new Set(agents.map((a) => a.village()?.name).filter((n): n is string => !!n));
-  const villages = [...w.villages.villages.values()].filter((v) => names.has(v.name));
+  // Each design with its elevations as text (D.3: what the architect is shown)
+  const villages = [...w.villages.villages.values()].filter((v) => names.has(v.name))
+    .map((v) => ({ ...v, designs: Object.fromEntries(Object.entries(v.designs).map(([k, d]) => [k, { ...d, elevations: safeElevations(d) }])) }));
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages };
 }
 

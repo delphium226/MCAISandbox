@@ -356,7 +356,7 @@ function renderVillage(v) {
       <div><div class="label">Buildings</div>${list(v.structures, (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`)}</div>
       <div><div class="label">Storage${v.storage?.chests?.length ? ` <span class="sub">(${v.storage.chests.length} chest${v.storage.chests.length > 1 ? 's' : ''}, seen ${ago(v.storage.updated)} ago)</span>` : ''}</div>${v.storage?.chests?.length ? storageList(v.storage) : '<div class="empty">no chest yet</div>'}</div>
       <div><div class="label">Plots</div>${list(v.plots, (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}</span>`)}</div>
-      <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height} <span class="sub">${esc(d.description)}</span>`)}</div>
+      <div><div class="label">Designs</div>${list(Object.values(v.designs), (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''))}</div>
       <div><div class="label">Ground being worked</div>${list(v.reservations.filter((r) => r.until > now), (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)}</div>
     </div>
     <div class="section"><div class="label">Village log</div>${list(v.log.slice(-10).reverse(), (l) => esc(l))}</div>
