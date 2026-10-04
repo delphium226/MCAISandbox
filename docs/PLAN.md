@@ -607,7 +607,8 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       0 failed actions; stripped birch logs placed and charged as birch logs, acacia and spruce swapped to birch. The plan:
       **Built as drawn**: a few pieces of each biome at four rotations (`rotate_design.py --design`), then a staged
       village of vanilla houses (`stage_village.py`).
-- [ ] V2.3 (D.4, hybrid plan) **A street village**. **Part 1 done 10-04 (twelfth session)**: the street plan
+- [x] V2.3 (D.4, hybrid plan) **A street village**. **Done 10-04 (twelfth session)**; part 2 (the mayor's library by
+      biome, `d14fa53`) passed Minevale20 (6/6 in 18.0 min at 1x, 0 failed actions, no design drawn). Part 1: the street plan
       (`server/src/streetPlan.ts`: `planStreets`, `layoutStreets`, `doorOf`; plan_layout's street branch when the village's
       `plan` is "street"; `scripts/checks/street_plan.mts` offline). The biome's town centre (a meeting point without water,
       `centreToDesign`; desert has none, so its streets cross) in the middle of the pad, 3-wide streets from its connectors
@@ -616,8 +617,8 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       turned, the mining hut with free ground behind it to the pad's edge; a beam search places them; a centre that leaves
       buildings out gives way to crossing streets, then to rows. Streets, paths and the centre's plaza are laid free by
       prepare_site as dirt_path (the layout record keeps them). Staged VanS1-3 (2x): 6/6, 6/6, 5/5 in 3.0-3.2 min, 0 failed
-      actions. Part 2 (next): the mayor's library filled by the site's biome, the prompt line, mayorbench, a model-driven
-      village. The plan as written: **A street village**: code lays the plan on the pad, vanilla supplies the content: the
+      actions. Part 2: the mayor's library filled by the site's biome after find_site, a prompt line, siblings
+      for matching houses in code, F131's fixes (Minevale19). The plan as written: **A street village**: code lays the plan on the pad, vanilla supplies the content: the
       biome's town centre (substituted) in the middle, its jigsaw connectors giving the street directions, streets laid
       as dirt_path (charged as dirt, like vanilla's street pieces), houses along them turned so their entrance faces the
       street, the biome's lamp posts along it. The mayor asks by kind ("two small houses and a library"); code picks the
@@ -913,6 +914,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s12) | Minevale19 | model-driven 1x, minevale3, V2.3 part 2 (library by biome) | **stopped** at 10.1 min | - | the mayor's empty first plan got code's find_site size=24: a 24x24 street plan, a house to a second 9x9 plot; the mayor named plains_small_house_1 twice; then the storage hut's builder pillared dirt up to its stand spot on the mining hut's roof across the street, sealing the mine (F131); a trapped miner's crafting table walled it in |
 | 10-04 (s12) | **VanF1** | minevale3, staged full 2x, street plan, plains (the F131 fixes) | **6/6** | **9.7 min** (GenF1 10.1) | 2 failed deposits (a miner deep in a west tunnel found no path out until the stuck rescue walked it back), no `[lag]`, nothing placed on village ground |
 | 10-04 (s12) | VanS4 | staged build 2x, street plan, after the second review's fixes (stand spot widened, dirt deposits) | **6/6** | 3.1 min | 0 failed actions, no `[lag]` |
+| 10-04 (s12) | **Minevale20** | model-driven 1x, minevale3, V2.3 complete (d14fa53) | **6/6 PASS** | **18.0 min** | 0 failed actions, no `[lag]`; the mayor's own find_site size=32 took the other site (-1508,-63, F121's slow mine: Minevale18 there had 3/5 at 24.5 min); 2 mayor plans, 0 designs drawn: plains_small_house_1 and 2 (siblings) and plains_library_2 as the hall, round plains_meeting_point_2; workers 0 model calls |
 
 ## Findings log
 
