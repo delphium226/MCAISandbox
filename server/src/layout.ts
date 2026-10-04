@@ -115,7 +115,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // if the buildings still do not fit, the largest set that does (most buildings, then most floor area) goes on this
     // site now, so workers can start, and the rest wait for a second site (Fourfold7's mayor wandered 500 blocks)
     const limit = Math.min(32, Number(site.size ?? 0) || 32);
-    const foot = (n: string) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth });
+    // Packed by their walls: an overhang's eaves hang over the street, above head height (D.2; Minevale13's cottages
+    // and hall with overhangs did not fit a 30x30 site). Streets stay at least 2, so two rings never overlap.
+    const ring = (n: string) => (v.designs[n].style?.overhang ? 2 : 0);
+    const foot = (n: string) => ({ name: n, width: v.designs[n].width - ring(n), depth: v.designs[n].depth - ring(n) });
     const fit = (list: string[]) => {
       for (const [street, margin] of [[3, 2], [2, 1]]) {
         const l = layoutBuildings(site.x, site.z, list.map(foot), street, margin);

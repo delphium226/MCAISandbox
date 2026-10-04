@@ -8,7 +8,10 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 to record. MCAI_API defaults to the test agent server (port 8767) and MC_SERVER_DIR to
                                 mc/testserver with --site
   --buildings testhut,testhut   design names, one per building (default: one testhut; built in: testhut 5x5, testhall 9x9,
-                                stairhut 5x5 and stairhall 9x9 with stair gable roofs)
+                                stairhut 5x5 and stairhall 9x9 with stair gable roofs; drawn by the building generator:
+                                genhut 7x7 (a 5x5 hip with an overhang) and genhall 11x11 (a 9x9 gable with an overhang);
+                                plan_layout takes one building over 150 gather units a village: testhall (~153),
+                                stairhall (~172) and genhall (~191) do not go together)
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
   --stage full|build            full: layout only, workers do storage, gathering and building;
                                 build: the storage chest is placed and stocked with the raw materials, so workers
@@ -104,6 +107,31 @@ STAIRHALL = {
         ["L P P P P P P P L"] + ["P . . . . . . . P"] * 7 + ["L P P P P P P P L"],
     ], ridge="R"),
 }
+
+# Phase D, D.2: designs the building generator draws from a style (buildingGen.ts, through scripts/checks/gen_designs.mts):
+# a hip-roofed hut with an overhang and glass panes, and a gabled hall with an overhang on a cobblestone base
+GEN_STYLES = {
+    "genhut": {"width": 5, "depth": 5, "wall_height": 3, "floor": "none", "base": "cobblestone", "frame": "logs",
+               "walls": "planks", "roof": "hip", "roof_material": "planks", "overhang": 1, "windows": "panes",
+               "door_side": "south", "description": "a generated test hut with a hip roof"},
+    "genhall": {"width": 9, "depth": 9, "wall_height": 4, "floor": "none", "base": "cobblestone", "frame": "logs",
+                "walls": "planks", "roof": "gable", "roof_material": "planks", "overhang": 1, "windows": "glass",
+                "door_side": "south", "description": "a generated test hall with a gable roof"},
+}
+
+
+def generated(name):
+    """A design drawn by the building generator from GEN_STYLES[name]."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = os.path.join(root, "runs", f"gen_{name}_{os.getpid()}.json")
+    tsx = os.path.join(root, "node_modules", ".bin", "tsx.cmd" if os.name == "nt" else "tsx")
+    env = dict(os.environ, STYLE=json.dumps({**GEN_STYLES[name], "name": name}), OUT=out)
+    subprocess.run([tsx, os.path.join(root, "scripts", "checks", "gen_designs.mts")], env=env, check=True, cwd=root)
+    with open(out, encoding="utf-8") as f:
+        d = json.load(f)["design"]
+    os.remove(out)
+    return {**d, "name": name}
+
 
 p = argparse.ArgumentParser()
 p.add_argument("village"); p.add_argument("x", type=float, nargs="?"); p.add_argument("z", type=float, nargs="?")
@@ -207,6 +235,8 @@ for spec in args.design_from:
         raise SystemExit(f"no design {name} in {src}")
     designs[name] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
 for name in set(buildings):
+    if name in GEN_STYLES and name not in designs:
+        designs[name] = generated(name)
     if name not in designs:
         raise SystemExit(f"unknown design {name}: use testhut or --design-from VILLAGE:{name}")
     r = call(f"/village/{args.village}/designs", designs[name])
@@ -222,9 +252,11 @@ if args.site_at:
 elif test_site and test_site.get("site"):
     site = test_site["site"]
     print(f"site {test_site['name']} from test_sites.json: {json.dumps(site)}", flush=True)
+    # (a rough estimate: the layout packs tighter, e.g. two 9x9 houses, an 11x11 hall and the huts in 24x31; the layout's
+    # own answer says when they do not fit)
     if site.get("size", size) < size:
-        raise SystemExit(f"the recorded site is {site['size']} blocks across, these buildings need {size}: set its site "
-                         f"to null in scripts/test_sites.json and run once more to find a bigger one")
+        print(f"the recorded site is {site['size']} blocks across, these buildings may need {size}: if the layout leaves "
+              f"some out, set its site to null in scripts/test_sites.json and run once more to find a bigger one", flush=True)
 else:
     site = find_land(args.x, args.z, size)
     if test_site:

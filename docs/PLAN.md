@@ -429,7 +429,17 @@ alongside D.3; D.7 later.
       testhall (`--buildings`: builders must craft the stairs and slabs from storage); one model-driven village at 1x.
       Pass: designbench shows pitched roofs in most designs with no more invalid ones than before; staged 3/3; the
       model-driven village within 1.5x Minevale7's 11.6 min (or the budget lowered until it is).
-- [ ] D.2 **A building generator** (the main lever): the architect may submit a style instead of layers, and code draws
+- [ ] D.2 **A building generator** (the main lever). **In progress (10-04, eleventh session)**: first version built and
+      committed (`buildingGen.ts`: rect footprints, gable, hip (pyramid on a square) and flat roofs, overhang 0-1, log
+      frame, base course, foundation course, windows glass/panes/open, door side; the `submit_style` tool where the world
+      takes states, the prompt leading with the style; `elevations()` in designs.ts; doors by the building's edge, not the
+      grid's; furnace runs fitted by code (`fitSmelts`); layouts pack generated buildings by their walls with the eaves
+      over the street; budgets 150/300). Differs from the plan: stair shapes are left to the server (/setblock computes
+      them; code's vanilla rule only checks), copies vary by rotate only, no wood/ridge/window-spacing parameters (the
+      decisions log, 10-04). Passed: offline checks, every roof at four rotations, staged GenB1-4 and GenF1, designbench
+      20/20 by style. Not yet: the model-driven village within 17.4 min (Minevale14 23.2 min: a 13x13 hall, F117; next
+      a cap on walls, houses 9 and landmarks 11, the user's choice). Then L and T, then porch, chimney, shutters.
+      The plan as written: the architect may submit a style instead of layers, and code draws
       the layers (`buildingGen.ts` beside `huts.ts`; world-independent, a `Design` out, so build_design, bills, layout
       and storage stay as they are). First parameters: footprint `rect`, `L` or `T` with width and depth; 1-2 storeys
       and wall height; frame (log corners, log beams laid on their side at each storey line); wall material per storey;
@@ -762,6 +772,19 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s10) | **Minevale10** | model-driven 1x, minevale3, D.1 final | **5/5** | **14.6 min** (Minevale7 11.6, Minevale8 15.9) | 0 failed actions, no `[lag]`; stair gables on the hall (225 blocks, 72 stairs) and the cottages; workers 0 model calls |
 | 10-04 (s10) | mayorbench | gpt-oss, 3 per case, D.1's mayor prompt against the code before D.1 (611faf9) | **18/27** (before 13/27) | 1-7 s a case | no case worse; the weak ones ("wait" while a layout runs, "re-post the build") were weak before |
 | 10-04 (s10) | **Minevale11** | model-driven 1x, minevale3, D.1 as committed (2b4afa3 + the review's fixes) | **5/5** | **17.0 min** | 0 failed actions, no `[lag]`; a 234-block stair hall and 96-block cottages; slower than Minevale10 in its early tasks only (layout 1.9 min against 1.2, mining hut 7.5 against 6.0): run-to-run spread 14.6-17.0 |
+| 10-04 (s11) | gen_designs.mts | offline, D.2: gable, hip, flat at 5x5, 7x9, 9x7, 13x13, overhang 0/1, three looks; 223 stored designs | **22/22** | - | door, stair facing, vanilla shapes (hip corners outer, gables straight), whole walls, rain and shell tests, bill; the new door rules change none of the stored designs |
+| 10-04 (s11) | rotate_design.py | minevale3, creative, 2x: the D.1 house, a hip 7x9 + overhang (door west), a gable 9x7 + overhang (cobblestone, stone-brick roof, panes, door east), a flat 7x7 (sandstone, wall height 4, door north) | **pass** | - | 0 mismatches at rotate 0/90/180/270 for all four, stair shapes judged against the server (16 outer corners on the hip each turn), doors turned with the building |
+| 10-04 (s11) | designbench D.2 (first) | gpt-oss, cottage + hall, 10 each, both tools, style note after the drawing rules | 20/20 valid (8 after a retry) | 12.5 / 7.6 s | 14/20 by style (cottages 6/10); retries were hand-drawn tries (row counts); styles copied the example |
+| 10-04 (s11) | designbench D.2 (style first) | the same, the prompt leading with the style | 17/20 valid | 5.2 / 5.7 s | cottages 10/10 by style; 3 halls failed: `roof_material "oak_stairs"` (7 refusals) and stone-brick walls needing ~190 furnace runs, three times over |
+| 10-04 (s11) | **designbench D.2 (final)** | + "oak_stairs" read as planks, furnace runs fitted by code (fitSmelts) | **20/20 valid, 0 retries** | **4.0 / 2.9 s** | 19/20 by style; halls 7 gable, 3 hip; cottage 111 gather units (D.1 93), hall 220 (D.1 172) |
+| 10-04 (s11) | **GenB1** | minevale3, staged build 2x, genhut x2 (5x5 hip + overhang, panes) + genhall (9x9 gable + overhang, wall height 4) | **5/5** | **3.2 min** (StairB1 3.0) | 0 failed actions; birch stairs, slabs, doors and panes crafted from storage; the render of the built blocks matches the designs |
+| 10-04 (s11) | **GenF1** | minevale3, staged full 2x, genhut x2 + genhall | **5/5** | **10.1 min** | 0 failed actions, no `[lag]` |
+| 10-04 (s11) | GenB2 | as GenB1, after the diff review's fixes (foundation course, door sides, odd sizes) | **5/5** | 3.3 min | 0 failed actions |
+| 10-04 (s11) | Minevale12 | model-driven 1x, minevale3, D.2 | **5/5**, 2 failed designs | 22.7 min | 0 failed actions, no `[lag]`, workers 0 model calls; a cloud 500 ended the first cottage design (no retry on a call error) and the hall failed three tries on a crafting table (the mayor briefed furniture inside, so it was drawn by hand): layout at ~4 min (1.2-1.9 before) (F115); the style cottage had a cobblestone floor as briefed (68 cobblestone, 170 units each); the hall hand-drawn (155 units) |
+| 10-04 (s11) | Minevale13 | model-driven 1x, minevale3, + the F115 fixes | **stopped** at ~2 min | - | both designs by style at 0.7 min, none failed; but cobblestone-roofed cottages (221 units) and hall (322: fitSmelts turned its stone roof to cobblestone), ~760 units a village; 9x9 cottages and an 11x11 hall with overhangs needed 24x31: one cottage went to a second site whose prepare margin overlapped the first plot's reservation (2 failed prepare_site); the mayor's find_site took a site 63 blocks off (F116) |
+| 10-04 (s11) | designbench D.2 (150/300) | budgets 150 a house, 300 a landmark (the user's choice) | **20/20 valid**, 5 after a retry | 3.0 / 3.7 s | all by style; the retries took code's "the same style with walls of NxM needs U" at once; cottage 124 units, hall 184 |
+| 10-04 (s11) | GenB3 | staged build 2x, a site given as 30 across | **5/5** | 3.5 min | 0 failed actions; but the API dropped the designs' style, so packing by walls was not exercised (the review) |
+| 10-04 (s11) | **Minevale14** | model-driven 1x, minevale3, packing by walls, budgets 150/300 | **5/5**, 0 failed designs | 23.2 min | both designs by style at 0.3 min; the architect drew the "spacious" hall at 13x13 walls (15x15, 536 blocks, 210 stairs, 295 units), so the second cottage went to a second site 29 off (laid out by code, no clash); 3 failed actions: Worker2 dug to sand under a pond 70 blocks off and was stuck at y 59 until the rescue; no `[lag]`; the render of the plot shows every roof whole |
 
 ## Findings log
 
@@ -1181,6 +1204,37 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F117 (10-04, eleventh session, Minevale14) The landmark budget lets the architect draw a hall that dominates the
+  village: "a spacious community hall" became 13x13 walls (536 blocks, 210 stairs, 295 of 300 units), the second cottage
+  no longer fitted the site, and the run took 23.2 min. Gather units are only part of the time: placing and crafting
+  hundreds of stairs counts too. A cap on landmark walls (e.g. 11) or a lower landmark budget would bring runs back
+  towards Minevale10's 14.6 min.
+- F116 (10-04, eleventh session, Minevale13) A second site's prepare_site overlapped the first plot's live reservation
+  (its 2-block margin reached 2 rows into it) and failed twice: find_site keeps off plots, structures and layouts but
+  not off another agent's reservation plus prepare_site's margin. Backlog (packing by walls makes second sites rarer).
+- F115 (10-04, eleventh session, Minevale12) Two design failures, both code gaps: design() retried only on refused
+  designs, so a model call error (a cloud 500) ended a design outright; and the mayor briefed the hall with "a
+  crafting_table and furnace" inside, which a style cannot express, so the architect drew it by hand and kept the
+  table through all three tries. Fixed: a failed call is one try; workstations and containers in a survival
+  hand-drawn palette become air with a note (as fixDoor moves a door). The mayor's briefs ask for furniture often
+  (designbench's brief does not): briefs might be checked or trimmed in code too (backlog).
+- F114 (10-04, eleventh session, designbench) Styles refused for small things: gpt-oss named the roof's material
+  "oak_stairs" (7 of 20 first tries) and chose stone-brick walls for halls needing ~190 furnace runs, three times over
+  despite the hint. Fixed in code (lesson 11): `_stairs`/`_slab`/`_wall` stripped and wood names read as planks;
+  `fitSmelts` swaps stone and stone bricks for cobblestone and glass for panes until the design fits MAX_SMELTS, with a
+  note. After: 20/20 valid with no retries.
+- F113 (10-04, eleventh session, designbench) The architect copies the style example: 12 of 14 styles in the first
+  bench were the example's settings at 7x7 or 9x9 (planks, log frame, cobblestone base, planks gable, overhang); the
+  final bench varied only roof shape (3 hips) and floor. Variety is D.6's (a style per village) and D.4's (turned to
+  the street); a second example or examples by biome would help. Not fixed.
+- F112 (10-04, eleventh session, D.8's renderer) Trapdoor shutters drawn in the wall row sit on the inside: an open
+  trapdoor sits on the edge opposite its facing, so `oak_trapdoor[facing=south,open=true]` in a south wall cell (the
+  stairhall of `stage_village.py`, `rotate_design.py`'s house) is a recess on the cell's north side, not a shutter
+  outside. The generator puts shutters in the cell outside the wall, facing out of it (D.2's third step).
+- F111 (10-04, eleventh session, D.8's renderer) Open gable ends and wall gaps pass validation: Minevale11's hall has
+  no wall under its roof's east and west ends and 5-6-block gaps beside the windows of its north and south walls
+  (layers 2-3 `L.G.....L`), its cottages open gable ends too; the rain test only looks up. The generator draws gable
+  ends and walls whole; a lint (D.3) or a check of every wall-ring cell under the roof should catch hand drawings.
 - F110 (10-04, Minevale9) A "pitched" roof drawn as a solid block: the hall filled four roof layers with planks under
   its stair rows and topped them with cobblestone (5 blocks a column, 549 blocks, 253 gather units), and the run took
   18.2 min. validateDesign now refuses more than 2.5 blocks a column above the inside ("the roof is a shell"); 11 of
@@ -1358,6 +1412,25 @@ CLAUDE.md when a phase ends.
   tower... by its name or brief) 400, and plan_layout lays out one building over 250 a village; not "the first design
   drawn" (the review: that gave the cottage, built twice, the larger budget). Torches and roof overhangs left for D.2's
   generator, which can place them right.
+- 10-04 (eleventh session) D.2's design (the user's choices among Claude's recommendations, after a design review):
+  first version rect footprints with gable, hip (a pyramid on a square) and flat roofs and an overhang of 0-1; then L
+  and T; then porch, chimney and trapdoor shutters; shed roofs and two storeys later (a 9-deep shed needs 13 layers,
+  agents never climb). A separate `submit_style` tool beside `submit_design` (an enum schema; offered only where the
+  world takes block states, so not in the sandbox), and the generated design goes through design()'s checks unchanged.
+  Copies differ by `rotate` only for now; variant designs (mirror, accents) wait for D.4 and a shared check function
+  (the review: exact-name "already stands here", copy labels, summaries and plan_layout's material checks would break).
+  The mayor's brief stays as it is (D.6). No `wood`, `ridge` or window-spacing parameters (a survival village swaps
+  every design into its own wood; code chooses the rest, with odd spans). Stair `shape` is left to the server: the
+  review read the 26.1.2 jar, and /setblock and /fill compute a placed stair's shape from its neighbours and a later
+  neighbour recomputes it, so code computes shapes only to check them (the offline script, the elevations, the
+  four-rotation build).
+- 10-04 (eleventh session) After Minevale12-13 (the user's choices among Claude's options): generated buildings are
+  packed by their walls, the overhang's eaves over the street (a building with an overhang reserves only its own area
+  while it builds; the doorway clearing keeps off other buildings, built or planned); budgets 150 gather units a house
+  and 300 a landmark (were 250 and 400; generated villages came to ~760 units). Workstations in a hand-drawn survival
+  design become air and a failed model call is one try (F115), both in code. After Minevale14 (23.2 min, a 13x13 hall):
+  a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
+  (the user).
 
 ## Keeping this plan honest
 

@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
+import type { BuildingStyle } from '../buildingGen';
 import { TOOLS } from '../skills';
 import { handlePanel } from '../panel';
 import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
@@ -68,8 +69,11 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     if (!parts[2]) return sendJson(res, 200, [...w.villages.villages.values()]);
     const v = w.villages.get(decodeURIComponent(parts[2]));
     if (v && parts[3] === 'designs' && req.method === 'POST') {
-      const { design, errors, fixes } = validateDesign(await readJson(req), 'api', { isPlaceable: (b) => w.isPlaceable(b), states: true });
+      const body = await readJson(req);
+      const { design, errors, fixes } = validateDesign(body, 'api', { isPlaceable: (b) => w.isPlaceable(b), states: true });
       if (!design) return sendJson(res, 400, { errors });
+      // (the style a generated design came from: layouts pack it by its walls, builds claim its own area)
+      if (body.style && typeof body.style === 'object') design.style = body.style as BuildingStyle;
       v.designs[design.name] = design;
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });

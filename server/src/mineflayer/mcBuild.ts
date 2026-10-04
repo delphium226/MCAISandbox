@@ -16,7 +16,7 @@
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure } from '../village';
 import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
-import { turnState } from '../designs';
+import { doorOutward, outsideCells, turnState } from '../designs';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
@@ -1426,6 +1426,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
       throw new Error(`the storage chest at ${c.x},${c.y},${c.z} is not where the ${d.name} leaves room for it (its floor would be at y=${y0}, the chest at y=${y0 + 1}); level the ground around it (prepare_site keeps off the chests), then build again`);
   const targets: Target[] = [];
   const doors: Array<[number, number, [number, number]]> = [];
+  const outside = d.layers[1]?.length === d.depth ? outsideCells(d.layers[1]) : undefined;
   d.layers.forEach((layer, li) =>
     layer.forEach((row, j) => {
       for (let i = 0; i < row.length; i++) {
@@ -1437,7 +1438,8 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
         const x = area.x1 + ox, z = area.z1 + oz;
         let facing: [number, number] | undefined;
         if (/_door$/.test(baseName(block))) {
-          facing = ox === 0 ? [-1, 0] : ox === W - 1 ? [1, 0] : oz === 0 ? [0, -1] : [0, 1];
+          // Out of the building's wall, which an overhang's ring or an L's notch moves in from the grid's edge
+          facing = doorOutward(d, i, j, rot, outside);
           // A door is placed whole from its lower half; the layer above it stays as the design says
           if (targets.some((t) => t.x === x && t.z === z && t.y === y0 + li - 1 && /_door$/.test(baseName(t.block)))) continue;
           if (li === 1) doors.push([x, z, facing]);
@@ -1449,18 +1451,38 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   // The upper half of each door is part of the door: do not clear or overwrite it
   const doorTops = new Set(targets.filter((t) => /_door$/.test(baseName(t.block))).map((t) => `${t.x},${t.y + 1},${t.z}`));
   const work = targets.filter((t) => !doorTops.has(`${t.x},${t.y},${t.z}`));
-  // Keep the way out clear in front of each outside door
+  // What the build reserves: a block round the site, or for a building with an overhang its own area (the ring is the
+  // clearance: layouts pack by walls, so two neighbours' rings meet over a 2-wide street)
+  const claimed = d.style?.overhang ? { ...area } : { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 };
+  // Keep the way out clear in front of each outside door, but not through the design's own cells (an overhang's eave
+  // stair over the doorway would be cleared and placed again on every pass) nor another building's (a neighbour's eaves
+  // over a 2-wide street)
+  const drawn = new Set(targets.map((t) => `${t.x},${t.y},${t.z}`));
+  const others: Area[] = (a.village()?.structures ?? []).filter((s) => s.kind !== 'storage' && !(s.x1 === area.x1 && s.z1 === area.z1 && s.kind === d.name));
+  // ...and off the buildings the village's build tasks place, built or not (a neighbour being built has no record yet,
+  // and its eaves can stand over the street already: the review of D.2)
+  for (const t of a.village()?.tasks ?? []) {
+    const m = /build_design "([^"]+)" x=(-?\d+) z=(-?\d+)(?: rotate=(\d+))?/.exec(t.detail);
+    const pd = m ? lib[m[1]] : undefined;
+    if (!m || !pd || (m[1] === d.name && Number(m[2]) === cx && Number(m[3]) === cz)) continue;
+    const pr = ((Math.round(Number(m[4] ?? 0) / 90) % 4) + 4) % 4;
+    const pw = pr % 2 ? pd.depth : pd.width, pdd = pr % 2 ? pd.width : pd.depth;
+    const x1 = Number(m[2]) - Math.floor(pw / 2), z1 = Number(m[3]) - Math.floor(pdd / 2);
+    others.push({ x1, z1, x2: x1 + pw - 1, z2: z1 + pdd - 1 });
+  }
+  const otherWork = (x: number, z: number) => others.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
   for (const [x, z, [fx, fz]] of doors)
     for (let i = 1; i <= 2; i++) {
       const wx = x + fx * i, wz = z + fz * i;
-      if (a.bot.blockAt(new Vec3(wx, y0, wz))?.boundingBox !== 'block') work.push({ x: wx, y: y0, z: wz, block: 'dirt', optional: true });
-      for (let y = y0 + 1; y <= y0 + 3; y++) work.push({ x: wx, y, z: wz, block: 'air' });
+      if (otherWork(wx, wz)) continue;
+      if (!drawn.has(`${wx},${y0},${wz}`) && a.bot.blockAt(new Vec3(wx, y0, wz))?.boundingBox !== 'block') work.push({ x: wx, y: y0, z: wz, block: 'dirt', optional: true });
+      for (let y = y0 + 1; y <= y0 + 3; y++) if (!drawn.has(`${wx},${y},${wz}`)) work.push({ x: wx, y, z: wz, block: 'air' });
     }
   if (work.length > 60000) throw new Error(`too big (${work.length} blocks, max 60000)`);
   a.memory.pendingBuilds = { ...pending, [key]: y0 };
   const summary = await runJob(a, {
     targets: work, area, y: y0, what: `the ${d.name}`, design: d.name,
-    claim: { area: { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 }, purpose: `build a ${d.name}`, avoidStructures: true, ignore: kept },
+    claim: { area: claimed, purpose: `build a ${d.name}`, avoidStructures: true, ignore: kept },
   }, signal).catch((e: Error) => {
     // A fresh build that placed nothing (short of materials, site taken) gets the site checks again next time
     if (pending[key] === undefined && !/^ran out of/.test(e.message)) delete (a.memory.pendingBuilds as Record<string, number>)[key];

@@ -24,6 +24,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from './world';
+import { STYLE_TOOL, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
 import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
 import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Village } from './village';
@@ -293,6 +294,37 @@ const BRAIN_TOOLS: ToolDef[] = [
   { name: 'request_replan', description: 'Ask the planner for a new plan because the current step is impossible or the situation changed.', input_schema: obj({ reason: { type: 'string' } }, ['reason']) },
 ];
 
+/**
+ * The largest smaller version of a style within a gather budget, said for the architect: the walls two narrower at a
+ * time (sizes stay odd), with the overhang kept where it can be.
+ */
+export function smallerStyle(style: BuildingStyle, budget: number, units: (d: Design) => number, siteOne?: number): string {
+  // (typed by assertion: TypeScript's flow analysis takes it as never after the break below)
+  let best = null as { s: BuildingStyle; u: number } | null;
+  for (const overhang of style.overhang ? [1, 0] : [0]) {
+    for (let w = style.width; w >= 5; w -= 2)
+      for (let d = style.depth; d >= 5; d -= 2) {
+        if (w === style.width && d === style.depth && overhang === style.overhang) continue;
+        // (no bigger than the site takes, by the walls as layouts pack them)
+        if (siteOne && Math.max(w, d) > siteOne) continue;
+        const s = { ...style, width: w, depth: d, overhang };
+        const u = units(generateDesign(s));
+        if (u <= budget && (!best || w * d > best.s.width * best.s.depth)) best = { s, u };
+      }
+    if (best) break;
+  }
+  if (!best) return 'even at 5x5 this style is over: choose cheaper materials (planks walls and roof, no floor, no base)';
+  return `the same style with walls of ${best.s.width}x${best.s.depth}${best.s.overhang !== style.overhang ? ' and no overhang' : ''} needs ${best.u}; or choose cheaper materials (planks and logs go furthest, floor none keeps the prepared ground)`;
+}
+
+/** What a style's walls may be on a site that takes buildings up to `one` across: odd, with the overhang if it fits. */
+function styleFits(one: number): string {
+  const odd = (n: number) => (n % 2 ? n : n - 1);
+  return odd(one) >= 5 ? `make the walls at most ${odd(one)}x${odd(one)}` : 'the site is too small for a building here';
+}
+
+/** Workstations and containers: not part of a survival building (designs). */
+const STATIONS = /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anvil)$/;
 /** What the mayor may do itself: look around, talk, design; building and land work are for workers. */
 /** Tries the architect gets per design. */
 const DESIGN_TRIES = 3;
@@ -1259,36 +1291,94 @@ export class TieredBrain implements AgentBrain {
     // The world's block list (phase D: stairs, slabs, trapdoors... in Minecraft), enforced as well as shown
     const allowed = a.world.designBlocks?.(a.gamemode !== 'creative' && !!a.world.materialTasks) ?? { blocks: DESIGN_BLOCKS, states: false };
     const system = designSystem(allowed.blocks, allowed.states);
+    // A style drawn by code (phase D, D.2) needs stairs and block states: not in the sandbox
+    const styles = allowed.states;
+    const tools = styles ? [STYLE_TOOL, DESIGN_TOOL] : [DESIGN_TOOL];
     let problems: string[] = [];
     // Three tries: the checks of phase D (the rain test, the block list, the budget) send more designs back
     for (let attempt = 0; attempt < DESIGN_TRIES; attempt++) {
-      const reply = await this.timed(a, 'plan', () => complete(spec, system, user, [DESIGN_TOOL]));
-      const call = reply.calls.find((c) => c.name === 'submit_design');
+      let reply: Awaited<ReturnType<typeof complete>>;
+      try {
+        reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
+      } catch (e) {
+        // A failed call is one try (Minevale12: a cloud 500 lost the first cottage design and the layout came 2 min late),
+        // after a short wait; a timeout ends the design (three would hold the executor for 15 minutes)
+        const message = String((e as Error)?.message ?? e).slice(0, 200);
+        problems = [...problems.filter((p) => !p.startsWith("the architect's model call failed")), `the architect's model call failed: ${message}`];
+        if (/aborted due to timeout|TimeoutError/i.test(message)) break;
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      const call = reply.calls.find((c) => c.name === 'submit_design' || (styles && c.name === 'submit_style'));
       if (!call) {
-        problems = ['no submit_design call was made'];
+        problems = [`no ${styles ? 'submit_style or submit_design' : 'submit_design'} call was made`];
       } else {
-        const { design, errors, fixes } = validateDesign({ ...call.input, name: name || call.input.name }, a.name, { isPlaceable: (b) => a.world.isPlaceable(b), blocks: allowed.blocks, states: allowed.states });
+        let raw: Record<string, unknown> = { ...call.input, name: name || call.input.name };
+        let style: BuildingStyle | undefined;
+        let notes: string[] = [];
+        const refused: string[] = [];
+        // Workstations and containers drawn into a survival building are left out by code, as fixDoor moves a door
+        // (Minevale12: the mayor briefed a hall with a crafting table and furnace inside; refused three times over)
+        if (call.name === 'submit_design' && a.gamemode !== 'creative' && raw.palette && typeof raw.palette === 'object') {
+          const palette = { ...(raw.palette as Record<string, unknown>) };
+          const left: string[] = [];
+          for (const [k, b] of Object.entries(palette)) {
+            const base = typeof b === 'string' ? b.replace(/^minecraft:/, '').replace(/\[.*$/, '') : '';
+            if (STATIONS.test(base)) {
+              palette[k] = 'air';
+              left.push(base);
+            }
+          }
+          if (left.length) {
+            raw = { ...raw, palette };
+            notes = [`left out the ${[...new Set(left)].join(', ')} (workstations and containers are not part of a building here)`];
+          }
+        }
+        if (call.name === 'submit_style') {
+          const n = normalizeStyle(raw);
+          notes = n.notes;
+          if (n.style) {
+            style = n.style;
+            // Furnace runs within the limit by code (stone bricks to cobblestone, glass to panes)
+            if (a.gamemode !== 'creative' && a.world.materialTasks) {
+              const fit = fitSmelts(style, (s) => a.world.materialTasks!(generateDesign(s), s.name).smelts ?? 0, MAX_SMELTS);
+              style = fit.style;
+              notes.push(...fit.notes);
+            }
+            raw = { ...generateDesign(style, a.name) };
+          } else refused.push(...n.errors);
+        }
+        // A generated design goes through the same checks as a drawn one (a failure there is the generator's bug)
+        const checked = refused.length ? { errors: refused } : validateDesign(raw, a.name, { isPlaceable: (b) => a.world.isPlaceable(b), blocks: allowed.blocks, states: allowed.states });
+        const { design, errors } = checked;
+        const fixes = [...notes, ...('fixes' in checked ? checked.fixes ?? [] : [])];
+        if (style && !refused.length && errors.length) console.warn(`[design] ${a.name}: the generated "${String(raw.name)}" failed validation (a generator bug): ${errors.join('; ')} -- style ${JSON.stringify(style)}`);
+        if (design && style) design.style = { ...style, name: design.name };
         // In the survival economy every block must be obtainable (no glowstone from the Nether)
         const cost = design && a.gamemode !== 'creative' && a.world.materialTasks ? a.world.materialTasks(design, design.name) : null;
         const unobtainable = cost?.problems ?? [];
         if (unobtainable.length) errors.push(`these blocks cannot be had here: ${unobtainable.join('; ')}; use other materials`);
         // Workstations as decoration cost materials and a crafting step, and a furnace placed as a block left a hall
         // without one to smelt its glass (Accept2): not in survival designs
-        const stations = design && a.gamemode !== 'creative' ? [...new Set(Object.values(design.palette).map((b) => b.replace(/\[.*$/, '')).filter((b) => /^(furnace|blast_furnace|smoker|crafting_table|chest|barrel|anvil)$/.test(b)))] : [];
+        const stations = design && a.gamemode !== 'creative' ? [...new Set(Object.values(design.palette).map((b) => b.replace(/\[.*$/, '')).filter((b) => STATIONS.test(b)))] : [];
         if (stations.length) errors.push(`leave out the ${stations.join(', ')}: workstations and containers are not part of a building here`);
         // The storage hut is drawn by code (its chest spots are fixed); plan_layout adds it by itself
         if (design?.name === STORAGE_HUT) errors.push(`"${STORAGE_HUT}" is the village storage hut, which code draws and lays out by itself; name your building something else`);
         const room = siteLimit(a);
-        const tooBig = !!design && !!room && Math.max(design.width, design.depth) > room.one;
-        if (tooBig) errors.push(`it is ${design!.width}x${design!.depth}; the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; draw it smaller`);
+        // (a style by its walls: layouts pack generated buildings by their walls, the eaves over the street)
+        const ring = 2 * (style?.overhang ?? 0);
+        const tooBig = !!design && !!room && Math.max(design.width, design.depth) - ring > room.one;
+        if (tooBig) errors.push(`it is ${design!.width - ring}x${design!.depth - ring}${style ? ' (walls)' : ''}; the village site is ${room!.size}x${room!.size}: one building can be at most ${room!.one}x${room!.one} there; ${style ? styleFits(room!.one) : 'draw it smaller'}`);
         // In survival every block is gathered by hand: a budget per design (an 11x11 cottage and a 13x13 hall made ~750
         // blocks, Accept5), with room for one landmark a village
         if (cost && cost.units !== undefined) {
           // A landmark (a hall, chapel, tower...) by its name; houses are often built twice or more
           const landmark = isLandmark(design!.name);
           const budget = landmark ? LANDMARK_UNITS : HOUSE_UNITS;
-          if (cost.units > budget) errors.push(`it needs ${cost.units} blocks gathered by hand (logs, cobblestone, sand...); here a ${landmark ? 'landmark' : 'house'} may need at most ${budget}: make it smaller, lower or plainer (planks and logs go furthest; a flat floor of "_" keeps the prepared ground)`);
-          if ((cost.smelts ?? 0) > MAX_SMELTS) errors.push(`it needs ${cost.smelts} furnace runs (glass, stone, stone bricks); at most ${MAX_SMELTS}: use fewer of them`);
+          // For a style, code works out what fits (lesson 1: models do not do the arithmetic)
+          const units = (d: Design) => a.world.materialTasks!(d, d.name).units ?? 0;
+          if (cost.units > budget) errors.push(`it needs ${cost.units} blocks gathered by hand (logs, cobblestone, sand...); here a ${landmark ? 'landmark' : 'house'} may need at most ${budget}: ${style ? smallerStyle(style, budget, units, room?.one) : 'make it smaller, lower or plainer (planks and logs go furthest; a flat floor of "_" keeps the prepared ground)'}`);
+          if ((cost.smelts ?? 0) > MAX_SMELTS) errors.push(`it needs ${cost.smelts} furnace runs (glass, stone, stone bricks); at most ${MAX_SMELTS}: use fewer of them${style ? ' (stone and stone bricks are smelted from cobblestone and glass from sand: cobblestone or planks, and panes or open windows, need none or few)' : ''}`);
         }
         // Saved only with nothing to fix (the budget's errors were not in this test at first: the review of D.1)
         if (design && !errors.length) {
@@ -1298,7 +1388,8 @@ export class TieredBrain implements AgentBrain {
           } else a.memory.designs = { ...((a.memory.designs as Record<string, Design> | undefined) ?? {}), [design.name]: design };
           this.stat(a, 'designs');
           const fixed = fixes?.length ? ` (${fixes.join(', ')})` : '';
-          return `design "${design.name}" saved${fixed}: ${design.width}x${design.depth}, ${design.height} layers, ${design.blocks} blocks (${design.description}). Build it with build_design on a level plot at least ${design.width + 2}x${design.depth + 2}.`;
+          const gather = cost?.units !== undefined ? `, ${cost.units} to gather` : '';
+          return `design "${design.name}" saved${fixed}: ${design.width}x${design.depth}, ${design.height} layers, ${design.blocks} blocks${gather}${style ? ', drawn from your style' : ''} (${design.description}). Build it with build_design on a level plot at least ${design.width + 2}x${design.depth + 2}.`;
         }
         problems = errors;
       }

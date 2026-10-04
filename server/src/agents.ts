@@ -28,7 +28,8 @@ import { countItem, removeItem } from '../../shared/src/inventory';
 import { DAY_LENGTH, FACE_DIRS, PLAYER_EYE_HEIGHT, PLAYER_WIDTH, REACH_DISTANCE } from '../../shared/src/constants';
 import { readJson, sendJson } from './api';
 import { VillageRegistry, Village, Area, Reservation, Design, overlaps, areaText } from './village';
-import { validateDesign } from './designs';
+import { doorOutward, outsideCells, validateDesign } from './designs';
+import type { BuildingStyle } from './buildingGen';
 import { schematicToDesign } from './schematic';
 import { BRAINS } from './brains';
 import { TOOLS } from './skills';
@@ -1372,6 +1373,7 @@ class BuildDesignSkill extends BuildJob {
     };
     const out: BuildTarget[] = [];
     const doors: Array<[number, number, [number, number]]> = [];
+    const outside = d.layers[1]?.length === d.depth ? outsideCells(d.layers[1]) : undefined;
     d.layers.forEach((layer, li) =>
       layer.forEach((row, j) => {
         for (let i = 0; i < row.length; i++) {
@@ -1382,7 +1384,7 @@ class BuildDesignSkill extends BuildJob {
           const x = area.x1 + ox, z = area.z1 + oz;
           let facing: [number, number] | undefined;
           if (block === 'oak_door') {
-            facing = ox === 0 ? [-1, 0] : ox === W - 1 ? [1, 0] : oz === 0 ? [0, -1] : [0, 1];
+            facing = doorOutward(d, i, j, rot, outside);
             if (li === 1) doors.push([x, z, facing]);
           }
           out.push({ x, y: y0 + li, z, block, tries: 0, facing });
@@ -2231,8 +2233,10 @@ export class AgentManager implements WorldAdapter {
         return true;
       }
       if (v && parts[3] === 'designs' && req.method === 'POST') {
-        const { design, errors, fixes } = validateDesign(await readJson(req), 'api', { isPlaceable: (b) => this.isPlaceable(b) });
+        const body = await readJson(req);
+        const { design, errors, fixes } = validateDesign(body, 'api', { isPlaceable: (b) => this.isPlaceable(b) });
         if (!design) return sendJson(res, 400, { errors }), true;
+        if (body.style && typeof body.style === 'object') design.style = body.style as BuildingStyle;
         v.designs[design.name] = design;
         this.villages.note(v, `design "${design.name}" added through the API`);
         sendJson(res, 200, { ok: true, name: design.name, fixes });

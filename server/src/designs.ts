@@ -24,8 +24,9 @@ export const DESIGN_BLOCKS = [
  * hall, chapel, tower...: LANDMARK) up to LANDMARK_UNITS, and plan_layout lays out one building over HOUSE_UNITS a
  * village. A flat 7x7 cottage was ~108 units and a flat 9x9 hall ~213 (designbench, 10-04); a stair gable adds ~20-40.
  */
-export const HOUSE_UNITS = 250;
-export const LANDMARK_UNITS = 400;
+// (250 and 400 until D.2: generated buildings, fuller and with overhangs, made a village ~760 units, Minevale13)
+export const HOUSE_UNITS = 150;
+export const LANDMARK_UNITS = 300;
 export const MAX_SMELTS = 32;
 const LANDMARK_WORDS = /(hall|chapel|church|temple|tower|market|inn|tavern|guildhall|keep|landmark|library|school)$/i;
 /** Whether a design's name names a landmark: a word of it ends in hall, chapel, tower... ("meeting_hall", "watchtower"). */
@@ -63,15 +64,69 @@ export function turnState(block: string, rot: number): string {
 }
 
 /**
+ * The cells of layer 1 outside the building: "_" cells joined to the grid's edge (an overhang's ring, the notch of an
+ * L), not "_" cells enclosed by it (the storage hut's chest spots). Keys "i,j".
+ */
+export function outsideCells(layer1: string[]): Set<string> {
+  const depth = layer1.length, width = layer1[0]?.length ?? 0;
+  const out = new Set<string>();
+  const queue: Array<[number, number]> = [];
+  for (let j = 0; j < depth; j++)
+    for (let i = 0; i < width; i++)
+      if ((i === 0 || j === 0 || i === width - 1 || j === depth - 1) && layer1[j][i] === '_') queue.push([i, j]);
+  while (queue.length) {
+    const [i, j] = queue.pop()!;
+    if (i < 0 || j < 0 || i >= width || j >= depth || layer1[j][i] !== '_' || out.has(`${i},${j}`)) continue;
+    out.add(`${i},${j}`);
+    queue.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]);
+  }
+  return out;
+}
+
+/**
+ * The way out of a cell of layer 1 (a door in a wall): toward the grid's edge or an outside "_" cell, checked west,
+ * east, north, south (as build_design faced doors before phase D); null for a cell inside the building or outside it.
+ */
+export function outwardStep(layer1: string[], i: number, j: number, outside = outsideCells(layer1)): [number, number] | null {
+  const depth = layer1.length, width = layer1[0]?.length ?? 0;
+  if (outside.has(`${i},${j}`)) return null;
+  const out = (ni: number, nj: number) => ni < 0 || nj < 0 || ni >= width || nj >= depth || outside.has(`${ni},${nj}`);
+  const sides = ([[-1, 0], [1, 0], [0, -1], [0, 1]] as Array<[number, number]>).filter(([di, dj]) => out(i + di, j + dj));
+  // Out of the wall, not along it: the side whose opposite cell is inside (a door in a row of "_" faced along the row)
+  return sides.find(([di, dj]) => !out(i - di, j - dj)) ?? sides[0] ?? null;
+}
+
+/**
+ * The way a door at design cell (i, j) opens out of the building, turned clockwise `rot` quarter turns as build_design
+ * turns the building (x east, z south). `outside` is outsideCells of layer 1, computed once per build.
+ */
+export function doorOutward(d: Design, i: number, j: number, rot: number, outside?: Set<string>): [number, number] {
+  const l1 = d.layers[1];
+  const step = l1 && l1.length === d.depth ? outwardStep(l1, i, j, outside ?? outsideCells(l1)) : null;
+  let [dx, dz] = step ?? (i === 0 ? [-1, 0] : i === d.width - 1 ? [1, 0] : j === 0 ? [0, -1] : [0, 1]);
+  for (let r = 0; r < rot; r++) [dx, dz] = [-dz, dx];
+  return [dx, dz];
+}
+
+/**
  * Put the door where it belongs. Models reliably draw good buildings but often place the door a block inside the wall
  * or forget it, so rather than bouncing those back: move an inside door onto the nearest outer wall, or add one in the
- * middle of the south wall, and clear the block above it. Returns what was changed.
+ * middle of the south wall, and clear the block above it. The outer wall is the building's edge, not the grid's (an
+ * overhang's ring or an L's notch is outside, "_" in layer 1). Returns what was changed.
  */
 function fixDoor(layers: string[][], palette: Record<string, string>, width: number, depth: number): string[] {
   if (layers.length < 3 || layers[1].length !== depth || layers[1].some((r) => r.length !== width)) return [];
   let door = Object.keys(palette).find((k) => isDoor(palette[k]));
   const grid = layers.map((l) => l.map((r) => r.split('')));
-  const outer = (i: number, j: number) => j === 0 || j === depth - 1 || i === 0 || i === width - 1;
+  const outside = outsideCells(layers[1]);
+  const outer = (i: number, j: number) => outwardStep(layers[1], i, j, outside) !== null;
+  const inGrid = (i: number, j: number) => i >= 0 && j >= 0 && i < width && j < depth;
+  // The wall cell reached going straight out from (i, j): the last cell before the edge or the outside
+  const wallFrom = (i: number, j: number, di: number, dj: number): [number, number, number] => {
+    let n = 0;
+    while (inGrid(i + di, j + dj) && !outside.has(`${i + di},${j + dj}`)) [i, j, n] = [i + di, j + dj, n + 1];
+    return [i, j, n];
+  };
   const cells: Array<[number, number]> = [];
   if (door) for (let j = 0; j < depth; j++) for (let i = 0; i < width; i++) if (grid[1][j][i] === door) cells.push([i, j]);
   const fixes: string[] = [];
@@ -79,20 +134,24 @@ function fixDoor(layers: string[][], palette: Record<string, string>, width: num
   if (!at && cells.length) {
     // Move the first inside door straight out to the nearest wall
     const [i, j] = cells[0];
-    const options: Array<[number, [number, number], string]> = [
-      [j, [i, 0], 'north'], [depth - 1 - j, [i, depth - 1], 'south'], [i, [0, j], 'west'], [width - 1 - i, [width - 1, j], 'east'],
-    ];
-    const [, target, side] = options.sort((a, b) => a[0] - b[0])[0];
+    const options = ([[0, -1, 'north'], [0, 1, 'south'], [-1, 0, 'west'], [1, 0, 'east']] as Array<[number, number, string]>).map(([di, dj, side]) => ({ to: wallFrom(i, j, di, dj), side }));
+    const best = options.sort((a, b) => a.to[2] - b.to[2])[0];
     grid[1][j][i] = '.';
-    at = target;
-    fixes.push(`moved the door onto the ${side} wall`);
+    at = [best.to[0], best.to[1]];
+    fixes.push(`moved the door onto the ${best.side} wall`);
   }
   if (!at) {
     if (!door) {
       door = 'D' in palette ? '+' : 'D';
       palette[door] = 'oak_door';
     }
-    at = [Math.floor(width / 2), depth - 1];
+    // From the centre south to the wall; a centre outside the building (a courtyard) starts at the southmost inside cell
+    const mid = Math.floor(width / 2);
+    let start = Math.floor(depth / 2);
+    while (start > 0 && outside.has(`${mid},${start}`)) start--;
+    if (outside.has(`${mid},${start}`)) for (start = depth - 1; start > 0 && outside.has(`${mid},${start}`); start--);
+    const [i, j] = wallFrom(mid, start, 0, 1);
+    at = [i, j];
     fixes.push('added a door in the middle of the south wall');
   }
   const [i, j] = at;
@@ -203,6 +262,9 @@ export function validateDesign(
   const fixes = errors.length || !requireDoor ? [] : fixDoor(layers, palette, width, depth);
   let blocks = 0, doors = 0;
   const unknown = new Set<string>();
+  // A door counts on the building's outer wall, which an overhang's ring or an L's notch ("_" outside) moves inward
+  const shaped = layers[1]?.length === depth && layers[1].every((r) => r.length === width);
+  const outside = shaped ? outsideCells(layers[1]) : new Set<string>();
   layers.forEach((layer, li) => {
     if (layer.length !== depth) errors.push(`layer ${li} has ${layer.length} rows; depth is ${depth}`);
     layer.forEach((row, ri) => {
@@ -213,22 +275,23 @@ export function validateDesign(
         if (!palette[ch]) unknown.add(ch);
         else if (palette[ch] !== 'air') {
           blocks++;
-          const outer = ri === 0 || ri === depth - 1 || ci === 0 || ci === width - 1;
-          if (isDoor(palette[ch]) && li === 1 && outer) doors++;
+          if (isDoor(palette[ch]) && li === 1 && shaped && outwardStep(layer, ci, ri, outside)) doors++;
         }
       }
     });
   });
   if (unknown.size) errors.push(`symbols not in the palette (each cell must be one character): ${[...unknown].map((c) => `"${c}"`).join(', ')}`);
-  if (!doors && requireDoor) errors.push('no door: put a door character (e.g. oak_door) in layer 1 on the outer edge, with "." above it in layer 2 and outside it');
+  if (!doors && requireDoor && shaped) errors.push('no door: put a door character (e.g. oak_door) in layer 1 on the outer edge, with "." above it in layer 2 and outside it');
   // The roof covers the inside: every open cell of layer 1 has a block somewhere above it (a stair roof copied from a
   // 5-deep example onto a 7-deep house left two rows open to the sky, 10-04)
   // (drawn buildings only: imported schematics may be open-topped)
   if (!errors.length && requireDoor && layers.length > 2) {
     const open: string[] = [];
+    // ('air' in the palette counts as "." here: workstations left out of a drawn building become air)
+    const empty = (ch: string) => ch === '.' || palette[ch] === 'air';
     for (let j = 0; j < depth; j++)
       for (let i = 0; i < width; i++) {
-        if (layers[1][j][i] !== '.') continue;
+        if (!empty(layers[1][j][i])) continue;
         let covered = false;
         for (let li = 2; li < layers.length && !covered; li++) {
           const ch = layers[li][j][i];
@@ -243,7 +306,7 @@ export function validateDesign(
     const solid = (ch: string) => ch !== '.' && ch !== '_' && palette[ch] !== 'air';
     for (let j = 0; j < depth; j++)
       for (let i = 0; i < width; i++) {
-        if (layers[1][j][i] !== '.') continue;
+        if (!empty(layers[1][j][i])) continue;
         inside++;
         let top = 1;
         for (let li = 2; li < layers.length; li++) if (!solid(layers[li][j][i])) top = li;
@@ -256,8 +319,47 @@ export function validateDesign(
   return { design: { name, description, palette, layers, width, depth, height: layers.length, blocks, by }, errors: [], fixes };
 }
 
+/**
+ * A design seen from the south (front), the east (side) and above (top), as text with the palette's symbols (phase D,
+ * D.3; D.2's checks use it first): each view shows the nearest block along the line of sight, " " where there is none.
+ * Rows of the front and side views run from the top layer down; the side view has south on the left, as seen from the
+ * east. Stairs keep their symbols: the legend says which way each faces.
+ */
+export function elevations(d: Design): string {
+  const solid = (ch: string | undefined) => !!ch && ch !== '.' && ch !== '_' && d.palette[ch] !== 'air';
+  const front: string[] = [], side: string[] = [];
+  for (let li = d.height - 1; li >= 0; li--) {
+    let f = '', s = '';
+    for (let i = 0; i < d.width; i++) {
+      let ch = ' ';
+      for (let j = d.depth - 1; j >= 0; j--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      f += ch;
+    }
+    for (let j = d.depth - 1; j >= 0; j--) {
+      let ch = ' ';
+      for (let i = d.width - 1; i >= 0; i--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      s += ch;
+    }
+    front.push(`${String(li).padStart(2)} |${f}|`);
+    side.push(`${String(li).padStart(2)} |${s}|`);
+  }
+  const top: string[] = [];
+  for (let j = 0; j < d.depth; j++) {
+    let row = '';
+    for (let i = 0; i < d.width; i++) {
+      let ch = ' ';
+      for (let li = d.height - 1; li >= 0; li--) if (solid(d.layers[li][j][i])) { ch = d.layers[li][j][i]; break; }
+      row += ch;
+    }
+    top.push(`   |${row}|`);
+  }
+  const legend = Object.entries(d.palette).map(([k, v]) => `${k}=${v}`).join(' ');
+  return [`${d.name}: ${d.width} wide (west to east), ${d.depth} deep (north to south), ${d.height} layers`, legend,
+    'From the south:', ...front, 'From the east (south on the left):', ...side, 'From above (north at the top):', ...top].join('\n');
+}
+
 /** Architect's note in the survival economy. */
-export const DESIGN_SURVIVAL = 'Materials are gathered by hand in survival: build from planks, logs, cobblestone, stone and sandstone and what is made of them (stairs, slabs, fences, fence gates, trapdoors, doors, walls, torches), with at most 4 glass and stone or stone bricks only as trim (they are smelted).';
+export const DESIGN_SURVIVAL = 'Materials are gathered by hand in survival: build from planks, logs, cobblestone, stone and sandstone and what is made of them (stairs, slabs, fences, fence gates, trapdoors, doors, walls, torches), with few glass windows (glass panes go further: 16 from 6 glass) and stone or stone bricks only as trim (they are smelted).';
 
 /** How to write facing blocks, for a world that takes block states. */
 const STATE_RULES = `
@@ -295,7 +397,12 @@ layers [
 
 /** The architect's system prompt for a world's block list (WorldAdapter.designBlocks), with or without block states. */
 export function designSystem(blocks: string[], states: boolean): string {
-  return `You are an architect designing buildings for a Minecraft-like village. You draw a building as
+  // With block states the style comes first and drawing by hand is the exception (D.2: with the style note after the
+  // drawing rules, gpt-oss drew half its cottages by hand)
+  const intro = states
+    ? `You are an architect designing buildings for a Minecraft-like village.\n\n${STYLE_NOTE}\n\nDrawing by hand (submit_design), only for what a style cannot express: you draw a building as`
+    : 'You are an architect designing buildings for a Minecraft-like village. You draw a building as';
+  return `${intro}
 horizontal layers from the ground up. Each layer is a list of rows from north to south; each row lists one symbol per
 block from west to east, separated by single spaces. A palette maps each symbol (one character) to a block. Use "." for
 air (empty space inside the building and doorways) and "_" to leave whatever is already there (e.g. outside an L-shaped
@@ -314,8 +421,18 @@ Rules:
 
 ${states ? GABLE_EXAMPLE : HUT_EXAMPLE}
 
-Submit the design with the submit_design tool.`;
+${states ? 'Submit a style with submit_style, or a hand-drawn building with submit_design.' : 'Submit the design with the submit_design tool.'}`;
 }
+
+/** The building generator (phase D, D.2), for worlds with block states: a style instead of layers. */
+const STYLE_NOTE = `Describe the building as a style with submit_style: you choose the size, walls, base, frame, roof and windows, and code
+draws it right: a roof of stairs that covers it, whole gable ends, symmetric windows, the door in place. Width and
+depth are the walls (odd, 5 to 13); an overhang adds a block on every side, so a 7x7 with one takes 9x9. Choose each
+setting for the brief and vary them between designs (walls, roof shape and material, base, frame, size) to give the
+village character. Style example:
+{"name":"cottage","description":"a timber-framed cottage on a stone base","width":7,"depth":7,"wall_height":3,
+"floor":"none","base":"cobblestone","frame":"logs","walls":"planks","roof":"gable","roof_material":"planks",
+"overhang":1,"windows":"glass","door_side":"south"}`;
 
 /** The sandbox's prompt (no block states). */
 export const DESIGN_SYSTEM = designSystem(DESIGN_BLOCKS, false);

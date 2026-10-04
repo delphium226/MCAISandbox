@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import type { BuildingStyle } from './buildingGen';
 
 export interface Area {
   x1: number;
@@ -111,6 +112,8 @@ export interface Design {
   height: number;
   blocks: number;
   by: string;
+  /** The style code drew it from (buildingGen.ts, phase D.2). */
+  style?: BuildingStyle;
 }
 export interface Task {
   id: string;
