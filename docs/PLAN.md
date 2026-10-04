@@ -20,23 +20,30 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-03 at the close of the tenth session, which the user paused early: F106 done, phase D not started)
+(written 2026-10-04 in the tenth session's second day: F106 and D.1 done)
 
-- **Code:** F106 is committed on `tiered-brain-building` (the fast block scanner, see the findings log); origin is at
-  `ec88826` (pushed at this session's start), so the F106 commit is **not pushed**: ask the user. `main` untouched.
-- **Stack:** stopped cleanly at the close (both Papers saved, agent servers stopped; Ollama was never started). Start it
-  in CLAUDE.md's order. No agents in either world.
-- **Next (the user's choice of 10-03):** phase D, starting with D.1 (design bench and quick wins). Models are needed
-  for it: `python scripts/ollama_exec.py start`, then `status`. Then the backlog: F107 (a pickaxe remake collecting logs
-  far from storage), F104 (oak branches left), the desert mayor's loop on refused layouts (Scout3).
-- **Test world state:** the drop site was restored last and holds Drop7 (3/3); reset a site before using it. Minevale8
-  no longer stands on minevale3 (reset since). Scout4 and Scout5 remain outside the recorded sites.
+- **Code:** committed on `tiered-brain-building`: `611faf9` (F106, the fast block scanner), `2b4afa3` (D.1: stair roofs,
+  the design bench, the cost budget) and the docs commit after it. Origin is at `ec88826`: these are **not pushed**
+  (ask the user). `main` untouched.
+- **Stack:** see the session's last message (stopped cleanly at the close unless the user asked to leave it up). Start it
+  in CLAUDE.md's order; `reset_site.py` starts the test world's two servers. No agents in either world.
+- **Where things stand:** D.1 is done (Minevale10 and 11, 1x model-driven: 5/5 in 14.6 and 17.0 min, 0 failed
+  actions, every roof a stair gable). gpt-oss now draws pitched roofs in every design, but the shapes are the model's:
+  cottages with every stair in one layer passed, and 2 of 20 survival designs still need all three tries.
+- **Next:** D.2, the building generator (the main lever: the architect gives a style, code draws the layers, so roof
+  shapes, stair facings, gable ends, windows and doors are right by construction), with D.3's elevations and lint and
+  D.8's renderer alongside (PLAN.md's phase D order). Show the user D.2's parameter set before coding.
+- **Test world state:** minevale3 holds Minevale11 (reset before using it). Scout4 and Scout5 remain outside the
+  recorded sites.
 - **Main world:** unchanged apart from Gus's search checks at -35,324 and -349,-114 (nothing built).
-- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `scripts/checks/search_cost.py X Z` (materialsNear
-  and find_site timed at a spot, through the new read-only `GET /api/agents/:name/near?items=sand:64&range=96`). Run
-  logs: `runs/2026-10-03/` (Hills3, Shelf7, Drop7, cost-desert-*, site-*).
-- **Working method:** as before. Both reviews of F106 found real points (sky sections without a palette; the filter
-  cost on buried matches): keep reviewing before each commit.
+- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `scripts/bench/designbench.mts [model]` (N, CASES,
+  OLD=1 for the pre-D.1 prompt, OUT for JSON), `scripts/checks/rotate_design.py X Z Y` (facing blocks at four turns on
+  the test world, creative), `stage_village.py --buildings stairhut,stairhall`, `GET /api/blocks?states=1`,
+  `scripts/checks/search_cost.py X Z`. A bench of old code: `git archive <commit> server/src scripts/bench shared
+  tsconfig.json package.json | tar -x -C runs/<date>/old` and run tsx there (node_modules resolve from the repo root).
+  Run logs: `runs/2026-10-03/`, `runs/2026-10-04/` (designbench-*, StairB1, Minevale9-11, rotate*).
+- **Working method:** as before. The reviews of D.1 found real bugs each time (the budget not enforced at save, the
+  landmark budget going to the first design, the overhang moving doors out of walls): keep reviewing before each commit.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -751,6 +758,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s10) | designbench after (final) | gpt-oss, survival cases, all D.1 checks | 20/20 valid (9 after a retry) | 19-20 s a design | **20/20 stair roofs**; cottage 93 units, hall 172; the creative 11x11 hall case 6/10 before the solid-roof check (2 server errors) |
 | 10-04 (s10) | Minevale9 | model-driven 1x, minevale3, D.1 before the solid-roof check | **5/5** | 18.2 min | 0 failed actions, no `[lag]`; the hall's roof was solid (549 blocks, 253 units: F110), the cottage's stairs all in one layer |
 | 10-04 (s10) | **Minevale10** | model-driven 1x, minevale3, D.1 final | **5/5** | **14.6 min** (Minevale7 11.6, Minevale8 15.9) | 0 failed actions, no `[lag]`; stair gables on the hall (225 blocks, 72 stairs) and the cottages; workers 0 model calls |
+| 10-04 (s10) | mayorbench | gpt-oss, 3 per case, D.1's mayor prompt against the code before D.1 (611faf9) | **18/27** (before 13/27) | 1-7 s a case | no case worse; the weak ones ("wait" while a layout runs, "re-post the build") were weak before |
+| 10-04 (s10) | **Minevale11** | model-driven 1x, minevale3, D.1 as committed (2b4afa3 + the review's fixes) | **5/5** | **17.0 min** | 0 failed actions, no `[lag]`; a 234-block stair hall and 96-block cottages; slower than Minevale10 in its early tasks only (layout 1.9 min against 1.2, mining hut 7.5 against 6.0): run-to-run spread 14.6-17.0 |
 
 ## Findings log
 
