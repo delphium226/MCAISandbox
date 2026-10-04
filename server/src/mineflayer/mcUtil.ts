@@ -244,7 +244,10 @@ function tables(a: BotAgent) {
     const n = reg.blocksArray.reduce((m, b) => Math.max(m, b.maxStateId + 1), 0);
     t = { open: new Uint8Array(n), wet: new Uint8Array(n), match: new Map() };
     for (const b of reg.blocksArray) {
-      const open = b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava' ? 1 : 0, wet = /water|lava/.test(b.name) ? 1 : 0;
+      // (seagrass, kelp and bubble columns stand in water: wet, not open, as LIQUID in mcBuild and the atlas take them;
+      // lake-bed sand under seagrass passed as dry and exposed, the review of F137)
+      const wet = /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/.test(b.name) ? 1 : 0;
+      const open = b.boundingBox === 'empty' && !wet ? 1 : 0;
       for (let s = b.minStateId; s <= b.maxStateId; s++) {
         t.open[s] = open;
         t.wet[s] = wet;
@@ -292,6 +295,38 @@ export function exposedAt(a: BotAgent, x: number, y: number, z: number): boolean
 export function wetAbove(a: BotAgent, p: Vec3): boolean {
   const s = stateAt(a, p.x, p.y + 1, p.z);
   return s >= 0 && tables(a).wet[s] === 1;
+}
+
+const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|pointed_dripstone|\w+_concrete_powder)$/;
+const fallsOf = new WeakMap<object, Uint8Array>();
+/**
+ * Whether water or lava comes in from above once the block is dug: on top of it, or on top of the sand or gravel stacked
+ * on it (they fall when it goes: sand under a lake bed passed the plain test and a tunnel to it flooded, F137).
+ */
+export function wetOver(a: BotAgent, p: Vec3): boolean {
+  const reg = a.world.registry;
+  let falls = fallsOf.get(reg);
+  if (!falls) {
+    falls = new Uint8Array(tables(a).wet.length);
+    for (const b of reg.blocksArray) if (FALLING.test(b.name)) for (let s = b.minStateId; s <= b.maxStateId; s++) falls[s] = 1;
+    fallsOf.set(reg, falls);
+  }
+  const { wet } = tables(a);
+  for (let y = p.y + 1; y <= p.y + 8; y++) {
+    const s = stateAt(a, p.x, y, p.z);
+    if (s < 0) return false;
+    if (wet[s] === 1) return true;
+    if (falls[s] !== 1) return false;
+  }
+  // (a stack of falling blocks taller than that: unknown, taken as wet)
+  return true;
+}
+
+/** Whether water or lava lies beside a block (on any of its four sides; an unloaded side counts as wet). */
+export function wetSide(a: BotAgent, p: Vec3): boolean {
+  const { wet } = tables(a);
+  const w = (x: number, z: number) => { const s = stateAt(a, x, p.y, z); return s < 0 || wet[s] === 1; };
+  return w(p.x - 1, p.z) || w(p.x + 1, p.z) || w(p.x, p.z - 1) || w(p.x, p.z + 1);
 }
 
 /**
@@ -368,7 +403,7 @@ function scanBlocks(a: BotAgent, ids: number[], maxDistance: number, count: numb
 
 /**
  * Blocks of `ids` within `maxDistance` that pass `keep` (positions only: read what you need with stateAt, exposedAt
- * and wetAbove, not blockAt, when matches can be many), at most `count`, nearest first; `ys` limits their height.
+ * wetOver and wetSide, not blockAt, when matches can be many), at most `count`, nearest first; `ys` limits their height.
  */
 export function nearestBlocks(a: BotAgent, ids: number[], maxDistance: number, count = 64, keep?: (p: Vec3) => boolean, ys?: { min?: number; max?: number }): Vec3[] {
   const p = a.bot.entity.position;

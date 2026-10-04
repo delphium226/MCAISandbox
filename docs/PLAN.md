@@ -932,6 +932,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s13) | **VanG2** | as VanG1, snowy (snowy_small_house_3, 6, snowy_library_1) | **6/6** | **8.1 min** | 0 failed actions, no `[lag]`; four spokes across the green (the snowy centre's four connectors); render `VanG2.png` |
 
 | 10-04 (s13) | VanG3 | as VanG1 after the diff review's fixes | **6/6** | 10.8 min | 4 failed actions, none from V2.4's code (F136, F137): Worker2 trapped in a flooded hole it dug at the lake shore north of the plot (3.9 min), the Mayor in a flooded sand tunnel under the lake bed (3.8 min) |
+| 10-04 (s13) | sand_check (scratch) | test world 2x, Gus collects 6, then 20 sand from the green's storage spot beside the lake (F137's fix) | **pass** | 12 s, 46 s (60 s after the review's fixes) | shore sand only; the lake-bed box (x -1672..-1660, y 58..62, z -14..-4) unchanged |
+| 10-04 (s13) | VanG4 | as VanG1 with F136/F137's first fixes | **6/6** | 9.6 min | the Mayor 0 failed; Worker2 stuck again 1.7 min in a dry 1-deep hole beside the shore birch (-1656,62,-5: the side pickup's two dirt pits, no water now) until the rescue walked it out (F138) |
+| 10-04 (s13) | **VanG5** | as VanG1 with F136-F138's fixes (and the review's: seagrass and kelp as water, fresh position, unloaded sides wet) | **6/6** | **8.4 min** | 0 failed actions; side pickups still bring dirt (from banks); the Mayor 6 gather tasks |
 
 ## Findings log
 
@@ -1351,6 +1354,16 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F138 (10-04, thirteenth session, VanG4) With F136's water checks in, the side pickup still dug two dirt pits beside
+  the felled shore birch (-1656,62,-6 and -5), and `pickUpDrops` walked the bot into each; from the second, every walk to
+  the storage (10 per deposit: the chest's reach and four side spots, two chests) stalled "stuck" for 10 s without
+  moving, 1.7 min, until the rescue's straight walk-out east freed it. An offline replay of mineflayer-pathfinder 2.4.5
+  and prismarine-physics on that terrain gets out in 9 ticks (first move a diagonal jump-up across the pit's corner), so
+  the stall's mechanism is unproven (the "stand still" branch or a stale `returningPos`; the diagonal guard checks side
+  cells only at y+1/y+2 for a jump-up). Fixed at the cause: side pickups take only blocks at or above the bot's feet
+  (banks), no pits. Backlog: `openChest` gives up its side spots after a "stuck" that did not move the bot (the rescue
+  then comes in ~20 s, not minutes); a straight step out toward the goal inside `walk` on such a stall; log the last
+  `path_update`/`path_reset` on "stuck" to settle the mechanism; refused jump-up diagonals with a side solid at foot level.
 - F136 (10-04, thirteenth session, VanG3) A side pickup dug a gatherer into the lake: after felling the shore birch at
   -1657,63,-6, `sideGather` (mcSurvival.ts ~843) took 2 dirt the village needed within 4 blocks, nearest first, without
   skipping the block under its feet or blocks with water beside them; the lake flooded the holes (-1657,62,-5 and

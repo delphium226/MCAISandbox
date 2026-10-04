@@ -14,8 +14,8 @@ import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
-  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem, wetAbove,
-  sleep, str, syncInventory, walk,
+  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
+  sleep, str, syncInventory, walk, wetOver, wetSide,
 } from './mcUtil';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
@@ -421,7 +421,7 @@ async function dirtForClimb(a: BotAgent, need: number, foot: Vec3, keep: (p: Vec
   const ids = ['dirt', 'grass_block', 'podzol'].map((n) => reg.blocksByName[n]?.id).filter((n): n is number => n !== undefined);
   // Ground at the tree's foot, open above, not under the tree itself
   const spots = nearestBlocks(a, ids, 8, 32, (p) => keep(p) && Math.abs(p.y - (foot.y - 1)) <= 1 && (p.x !== foot.x || p.z !== foot.z)
-    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? ''), { min: Math.floor(foot.y) - 2, max: Math.floor(foot.y) });
+    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '') && !wetSide(a, p), { min: Math.floor(foot.y) - 2, max: Math.floor(foot.y) });
   for (const p of spots) {
     if (countItem(a, dirtId) >= need) break;
     await mineBlock(a, p, signal, false, 15000);
@@ -697,7 +697,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
       && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
-    const dry = (p: Vec3) => !wetAbove(a, p);
+    // Dry: no water comes in from above (through falling sand too), and a buried block (dug to) has none beside it either:
+    // the Mayor tunnelled to sand under a lake bed and the lake poured in (F137). Shore sand in the open stays fine
+    // (wetSide before exposedAt: it is almost always false, and buried stone matches by the ten thousand)
+    const dry = (p: Vec3) => !wetOver(a, p) && (!wetSide(a, p) || exposedAt(a, p.x, p.y, p.z));
     // Only from home y - 16 up, as `near` takes them (the search skips the sections below)
     const ys = homeY === undefined ? undefined : { min: homeY - 16 };
     const tPick = performance.now();
@@ -826,9 +829,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
 async function sideGather(a: BotAgent, own: number[], near: (p: Vec3) => boolean, extras: Record<string, number>, signal: AbortSignal) {
   const need = a.village()?.needed?.items;
   if (!need) return;
-  const me = a.bot.entity.position;
   for (const [item, n] of Object.entries(need)) {
     if (n <= 0 || /_log$|^logs$/.test(item)) continue;
+    // (where it stands now: a pickup out of reach is walked to)
+    const me = a.bot.entity.position.clone();
     let t: ReturnType<typeof collectTargets>;
     try {
       t = collectTargets(a, item);
@@ -840,10 +844,17 @@ async function sideGather(a: BotAgent, own: number[], near: (p: Vec3) => boolean
     const carried = t.items.reduce((s, id) => s + countItem(a, id), 0);
     let left = Math.min(8, n - carried);
     if (left <= 0) continue;
-    const found = nearestBlocks(a, t.blocks, 5, 12, (p) => p.distanceTo(me) <= 4 && Math.abs(p.y - me.y) <= 2 && near(p) && exposed(a, p), { min: Math.floor(me.y) - 2, max: Math.ceil(me.y) + 2 });
+    // Not in its own column (the block under its feet), and nothing with water beside it or above: a gatherer dug dirt at
+    // a lake shore, the lake filled the holes and it stood trapped in water for minutes (F136)
+    // Nor ground below its feet: picking up each drop walked it into the pits it dug, and in VanG4 it stood stuck in a
+    // dry one for 1.7 min (F138); a bank or slope beside it leaves a notch (floors' dirt has its own gather task)
+    const col = (p: Vec3, at = me) => p.x === Math.floor(at.x) && p.z === Math.floor(at.z);
+    const found = nearestBlocks(a, t.blocks, 5, 12, (p) => p.distanceTo(me) <= 4 && p.y >= Math.floor(me.y) && p.y - me.y <= 2 && near(p) && exposed(a, p)
+      && !col(p) && !wetOver(a, p) && !wetSide(a, p), { min: Math.floor(me.y), max: Math.ceil(me.y) + 2 });
     for (const p of found) {
       if (left <= 0) break;
       checkAbort(signal);
+      if (col(p, a.bot.entity.position)) continue;
       try {
         await mineBlock(a, p, signal, false, 8000);
       } catch (e) {
