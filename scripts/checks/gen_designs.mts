@@ -227,7 +227,7 @@ for (const file of ['mc/server/villages.json', 'mc/testserver/villages.json']) {
       // (code's huts, and designs the generator drew: their doors were always faced by the new rule)
       if (d.by === 'code' || d.style) continue;
       stored++;
-      const { errors, fixes } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, d.by, { isPlaceable: () => true, maxLayers: 99, maxSide: 99 });
+      const { errors, fixes } = validateDesign({ ...d, layers: d.layers.map((l) => [...l]), palette: { ...d.palette } }, d.by, { isPlaceable: () => true, maxLayers: 99, maxSide: 99, states: true });
       const doorErr = errors.filter((e) => /door/.test(e));
       // build_design's door facing before D.2 (by the grid's edge) against doorOutward's (by the building's edge)
       const turned: string[] = [];
