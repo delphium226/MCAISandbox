@@ -55,6 +55,18 @@ const UNOBTAINABLE: Record<string, string> = {
 export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
 /** A wooden item: its wood kind and part ("acacia", "planks"). */
 export const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
+/**
+ * A wooden block placed by a builder: its kind and part, the part with "stripped_" kept ("stripped_spruce_log" ->
+ * spruce, "stripped_log"), so a swap to the village's kind keeps the look (vanilla pieces, V2.1). Null for other blocks.
+ */
+const WOOD_BLOCK = new RegExp(`^(stripped_)?(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
+export function woodPart(name: string): { kind: string; part: string } | null {
+  const m = WOOD_BLOCK.exec(name);
+  if (!m || (m[1] && !/^(log|wood)$/.test(m[3]))) return null;
+  return { kind: m[2], part: `${m[1] ?? ''}${m[3]}` };
+}
+/** The block of a wood kind and part ("oak", "stripped_log" -> "stripped_oak_log"). */
+export const woodName = (kind: string, part: string) => (part.startsWith('stripped_') ? `stripped_${kind}_${part.slice(9)}` : `${kind}_${part}`);
 
 /**
  * A bill in the village's wood kind (oak planks become acacia planks where acacia grows): a village gathers one kind,
@@ -71,8 +83,8 @@ export function inWood(bill: Counts, wood: string | undefined): Counts {
   return out;
 }
 
-/** Placing one of these charges another item (grass needs silk touch to carry: charge dirt). */
-const CHARGE_AS: Record<string, string> = { grass_block: 'dirt' };
+/** Placing one of these charges another item (grass and paths need silk touch or a shovel's use: charge dirt). */
+const CHARGE_AS: Record<string, string> = { grass_block: 'dirt', dirt_path: 'dirt' };
 
 interface Option {
   kind: 'craft' | 'smelt';
@@ -120,9 +132,13 @@ export function designBlockList(survival: boolean): string[] {
   return survival ? blocks : [...blocks, ...extra];
 }
 
-/** The item a block name costs: states and namespace stripped, grass charged as dirt. */
+/** The item a block name costs: states and namespace stripped, grass and paths charged as dirt, stripped logs and wood as logs. */
 export function chargedItem(block: string): string {
   const name = block.replace(/^minecraft:/, '').replace(/\[.*\]$/, '');
+  // Stripped logs and bark blocks are charged as the log (vanilla pieces, V2.1: stripping is an axe's use; wood is
+  // really 4 logs for 3, close enough), so they are gathered as logs and swapped with the village's wood
+  const w = woodPart(name);
+  if (w && /(^|_)(log|wood)$/.test(w.part)) return `${w.kind}_log`;
   return CHARGE_AS[name] ?? name;
 }
 

@@ -19,7 +19,7 @@ import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../
 import { doorOutward, outsideCells, turnState } from '../designs';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { WOODS, WOOD_ITEM, chargedItem, describeWork, gatherTasks, type Counts } from './mcMaterials';
+import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
@@ -260,16 +260,18 @@ type WoodPlan = Map<string, Array<{ kind: string; n: number }>>;
 function chooseWood(place: Target[], have: Counts, prefer?: string): WoodPlan {
   const need = new Map<string, number>(); // "oak_planks" -> how many
   for (const t of place) {
-    const m = WOOD_ITEM.exec(baseName(t.block));
-    if (m) need.set(`${m[1]}_${m[2]}`, (need.get(`${m[1]}_${m[2]}`) ?? 0) + 1);
+    const m = woodPart(baseName(t.block));
+    if (m) need.set(woodName(m.kind, m.part), (need.get(woodName(m.kind, m.part)) ?? 0) + 1);
   }
   const logs: Counts = {}, planks: Counts = {};
   for (const k of WOODS) {
-    logs[k] = (have[`${k}_log`] ?? 0) + (have[`${k}_wood`] ?? 0);
+    logs[k] = have[`${k}_log`] ?? 0;
     planks[k] = have[`${k}_planks`] ?? 0;
   }
   const out: WoodPlan = new Map();
-  const entries = [...need].map(([key, n]) => { const m = WOOD_ITEM.exec(key)!; return { key, kind: m[1], part: m[2], n }; });
+  const entries = [...need].map(([key, n]) => { const m = woodPart(key)!; return { key, kind: m.kind, part: m.part, n }; });
+  // Log parts (a stripped log and a bark block are charged as one log: chargedItem)
+  const logPart = (part: string) => /(^|_)(log|wood)$/.test(part);
   // Kinds to try for a part: the village's, the design's, then by what there is
   const order = (own: string, amount: (k: string) => number) =>
     [...new Set([...(prefer ? [prefer] : []), own, ...[...WOODS].sort((u, w) => amount(w) - amount(u))])];
@@ -292,9 +294,9 @@ function chooseWood(place: Target[], have: Counts, prefer?: string): WoodPlan {
     for (const p of parts) use(p.kind, p.n);
     out.set(e.key, parts);
   };
-  for (const e of entries.filter((x) => x.part === 'log' || x.part === 'wood'))
+  for (const e of entries.filter((x) => logPart(x.part)))
     split(e, (k) => logs[k], (k, left) => Math.min(left, logs[k]), (k, n) => { logs[k] = Math.max(0, logs[k] - n); });
-  for (const e of entries.filter((x) => x.part !== 'log' && x.part !== 'wood').sort((x, y) => plankUnits(y.part, y.n) - plankUnits(x.part, x.n))) {
+  for (const e of entries.filter((x) => !logPart(x.part)).sort((x, y) => plankUnits(y.part, y.n) - plankUnits(x.part, x.n))) {
     const supply = (k: string) => planks[k] + logs[k] * 4;
     split(e, supply, (k, left) => Math.min(left, partsFrom(e.part, supply(k))), (k, n) => {
       const units = plankUnits(e.part, n);
@@ -310,14 +312,14 @@ function chooseWood(place: Target[], have: Counts, prefer?: string): WoodPlan {
 function swapWood(place: Target[], woods: WoodPlan): Target[] {
   const left = new Map([...woods].map(([key, parts]) => [key, parts.map((p) => ({ ...p }))]));
   return place.map((t) => {
-    const m = WOOD_ITEM.exec(baseName(t.block));
-    const parts = m && left.get(`${m[1]}_${m[2]}`);
+    const m = woodPart(baseName(t.block));
+    const parts = m && left.get(woodName(m.kind, m.part));
     if (!m || !parts?.length) return t;
     const p = parts[0];
     if (--p.n <= 0 && parts.length > 1) parts.shift();
-    if (p.kind === m[1]) return t;
+    if (p.kind === m.kind) return t;
     const i = t.block.indexOf('[');
-    return { ...t, block: `${p.kind}_${m[2]}${i >= 0 ? t.block.slice(i) : ''}` };
+    return { ...t, block: `${woodName(p.kind, m.part)}${i >= 0 ? t.block.slice(i) : ''}` };
   });
 }
 
@@ -481,8 +483,8 @@ function alreadyThere(a: BotAgent, t: Target, anyWood = false): boolean {
   if (t.block === 'air') return cur === 'air' || cur === 'cave_air' || /^(water|lava|bubble_column)$/.test(cur);
   let same = cur === baseName(t.block);
   if (!same) {
-    const c = anyWood ? WOOD_ITEM.exec(cur) : null, w = c ? WOOD_ITEM.exec(baseName(t.block)) : null;
-    same = !!c && !!w && c[2] === w[2];
+    const c = anyWood ? woodPart(cur) : null, w = c ? woodPart(baseName(t.block)) : null;
+    same = !!c && !!w && c.part === w.part;
   }
   // A stair or log the wrong way round is not there yet (the states a design sets; shapes and fence sides are the
   // server's, and doors are faced from their wall)
@@ -589,7 +591,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         }
         if (!why || !v?.storage?.chests.length) break;
       }
-      const swapped = [...woods].filter(([key, parts]) => parts.some((p) => !key.startsWith(`${p.kind}_`)))
+      const swapped = [...woods].filter(([key, parts]) => parts.some((p) => woodPart(key)?.kind !== p.kind))
         .map(([key, parts]) => `${parts.map((p) => (parts.length > 1 ? `${p.n} ${p.kind}` : p.kind)).join(' + ')} for the ${key.replace(/_/g, ' ')}`);
       if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
       if (why) {
@@ -1439,7 +1441,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
         let facing: [number, number] | undefined;
         if (/_door$/.test(baseName(block))) {
           // Out of the building's wall, which an overhang's ring or an L's notch moves in from the grid's edge
-          facing = doorOutward(d, i, j, rot, outside);
+          facing = doorOutward(d, i, j, rot, outside, li);
           // A door is placed whole from its lower half; the layer above it stays as the design says
           if (targets.some((t) => t.x === x && t.z === z && t.y === y0 + li - 1 && /_door$/.test(baseName(t.block)))) continue;
           if (li === 1) doors.push([x, z, facing]);

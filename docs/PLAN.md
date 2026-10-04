@@ -575,14 +575,37 @@ dirt or grass in the lowest layers (ground fill); every house has a jigsaw block
 front, for turning it toward a street). Pieces are read from the local jar at runtime and never committed; renders of
 them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, each tested before the next:
 
-- [ ] V2.1 (was D.5) **Importer** (`vanillaPieces.ts`, offline first): village pieces to Designs with their block states
+- [x] V2.1 (was D.5) **Importer**. **Done 10-04 (twelfth session)**: `server/src/vanillaPieces.ts` (jar read with a
+      small zip reader on zlib, `listPieces`, `readPiece`, `pieceToDesign`, `substitute`), `scripts/checks/vanilla_pieces.mts`
+      (offline report; `OUT=` writes each design and an index), `scripts/contact_sheet.py` (renders tiled by biome). Cut
+      at the entrance door: its level is layer 1, the floor layer 0, vanilla's ground fill below dropped (plains floors
+      sit a block lower than vanilla's, the entrance step flush); air outside the building (a flood of the door layer on
+      vanilla's blocks) or open to the sky is "_"; double slabs become full blocks; states kept: facing, half, axis, type,
+      open, rotation (the server works out stair shapes and fence sides); every piece turned so its entrance faces south,
+      checked with doorOutward. Substitutions (the user's choices): terracotta by biome (plains, taiga, snowy cobblestone;
+      savanna acacia planks; desert sandstone), smooth sandstone to sandstone, stained glass and iron bars to panes,
+      diorite, granite, mossy cobblestone and bricks to cobblestone, glazed terracotta to chiseled sandstone, bookshelves
+      to planks, decoration, lights, workstations, wool, hay and clay to air, water and plants to "_"; snow blocks and ice
+      left for the checks. Economy changes: stripped logs and bark blocks charged as logs (`chargedItem`, the builder's
+      wood swap keeps "stripped_": `woodPart`/`woodName`), dirt_path charged as dirt, a door with no way out faces across
+      its wall and an upper-floor door is judged by its own layer (`doorOutward`). Two reviews (design and diff) found 15
+      real problems, all fixed but F124's limit. Result (152 house pieces): 113 import, 105 valid, **62 pass** the survival
+      checks and budgets: plains 14 of 36, savanna 21 of 31, snowy 10 of 30, taiga 4 of 27, desert 13 of 28; passing
+      pieces cost 55-189 gather units. Contact sheets: `runs/2026-10-04/vanilla_v21/sheet_*.png` (private). The plan as
+      written: **Importer** (`vanillaPieces.ts`, offline first): village pieces to Designs with their block states (`vanillaPieces.ts`, offline first): village pieces to Designs with their block states
       (no sandbox mapping), the front side from the entrance jigsaw, jigsaw blocks to their final state, structure_void
       and the ground-fill layers to `_`; a substitution table kept close to vanilla: blocks the economy makes stay
       (cobblestone, stairs, slabs, planks, logs, fences, trapdoors, doors, glass panes), stripped logs charged as logs,
       white terracotta to a near colour by biome, stained glass to plain panes, decoration and workstations (beds, bells,
       carpets, pots, job sites) to air; wall torches left out (placement order) and an interiors pass later. Report per
       biome: how many pass the economy's checks and the budget, at what cost; a contact sheet of renders for the user.
-- [ ] V2.2 **Built as drawn**: a few pieces of each biome at four rotations (`rotate_design.py --design`), then a staged
+- [x] V2.2 **Built as drawn**. **Done 10-04 (twelfth session)**: `rotate_design.py --design` on six pieces in creative
+      at 2x: plains_small_house_1, savanna_small_house_4, taiga_small_house_4, desert_small_house_7 and plains_library_2 (upper
+      doors, 70 stairs) 0 mismatches at all four turns, vanilla's roof corners worked out by the server (plains_small_house_1:
+      7 outer_left, 5 outer_right); snowy_small_house_2 3 of 4 (gravel slid onto rotate 0's plot, F128). Staged VanB1
+      (`stage_village.py --design-file`, new): three vanilla houses of three biomes in a birch village, 5/5 in 2.5 min at 2x,
+      0 failed actions; stripped birch logs placed and charged as birch logs, acacia and spruce swapped to birch. The plan:
+      **Built as drawn**: a few pieces of each biome at four rotations (`rotate_design.py --design`), then a staged
       village of vanilla houses (`stage_village.py`).
 - [ ] V2.3 (D.4, hybrid plan) **A street village**: code lays the plan on the pad, vanilla supplies the content: the
       biome's town centre (substituted) in the middle, its jigsaw connectors giving the street directions, streets laid
@@ -862,6 +885,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s11) | Minevale18 | model-driven 1x, + a refused hand drawing pointed at submit_style | **stopped** at 24.5 min, 3/5 | - | both designs by style at 0.4 min, layout 0.9 min (on the other site, -1507,-62), 0 failed actions, no `[lag]`; slow gathering: cobblestone ~8 a minute from this site's mine (~25 on the usual site) for a hall with a cobblestone base and floor (F121) |
 | 10-04 (s11) | designbench D.3 final | + the budget fitted by code (shrinkStyle), REVISE=1, the three cases | **30/30 by style** | 2.8 / 3.1 / 4.1 s | 0 notes left, 3 retries in all (11 before) |
 | 10-04 (s11) | designbench cottage_mayor | gpt-oss, Minevale15's cottage brief ("7x7 house, 5 high, oak_planks roof..."), 10 | 10/10 valid | - | 10/10 by style, all stair gables: the hand-drawn cottage of Minevale15 is not the brief's usual result |
+| 10-04 (s12) | vanilla_pieces.mts | offline, the 152 house pieces of the five biomes, V2.1 after both reviews | 113 import, 105 valid, **62 pass** | - | plains 14/36, savanna 21/31, snowy 10/30, taiga 4/27, desert 13/28; passing 55-189 gather units; the rest: 33 no door (F123), over budget (taiga 15 of 19, F122), snow and ice (F125), too big (F126), door side (F124) |
+| 10-04 (s12) | rotate_design.py | minevale3 test world, creative, 2x: six vanilla pieces | **5 pass, 1 3/4** | - | plains_small_house_1, savanna_small_house_4, taiga_small_house_4, desert_small_house_7, plains_library_2: 0 mismatches at four turns, stair shapes and fence sides by the server; snowy_small_house_2 lost rotate 0 to gravel on the plot (F128); rows north of the site hit water and hills (y 97-117): rows chosen from `top_map.py` |
+| 10-04 (s12) | **VanB1** | minevale3, staged build 2x, plains_small_house_1 + savanna_small_house_1 + snowy_small_house_2 (birch village) | **5/5** | **2.5 min** | 0 failed actions, no `[lag]`, deposit check passed; stripped_birch_log placed (16) and charged as birch_log; render saved (`runs/2026-10-04/VanB1-render.png`) |
 
 ## Findings log
 
@@ -1281,6 +1307,29 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F128 (10-04, twelfth session, V2.2's rotation check) Gravel on a prepared plot: prepare_site at -1580,-82 passed its
+  after-check, then build_design found 6 gravel at y 65-66 ("the ground is not level here (heights 64..66)"); gravel from
+  the cut's edge slid in after the check. Rare (land with gravel near the surface). Backlog: prepare_site's after-check
+  could look again for falling blocks, or cut gravel back from a plot's edge.
+- F127 (10-04, twelfth session, V2.1's design review) Two gaps found in existing code: a stripped log in a design was
+  planned as "gather stripped_oak_log", which EASY_GATHER's `.*_log` let through though collect cannot gather it; and
+  doorOutward faced every door without a way out (an inside door) south, sideways in a wall running north-south. Both
+  fixed (stripped logs and bark blocks charged as logs; such doors face across their wall).
+- F126 (10-04, twelfth session, V2.1) Seven pieces are larger than a design may be (15 across, 12 layers): plains_library_1
+  (11x17), the plains butcher shops and stable, the taiga and snowy temples, desert_small_house_6 (a tower). Left out; a
+  landmark's limits could be raised when V2.3 wants them.
+- F125 (10-04, twelfth session, V2.1) Snowy houses of snow blocks or packed and blue ice (igloos: snowy_small_house_1, 4,
+  5, 8, medium_house_1, 3) fail as hard to gather (snowballs, ice), as the user chose; snow piled outside a house's walls
+  (a snow block with open space above it) is ground ("_").
+- F124 (10-04, twelfth session, V2.1's reviews) Five pieces' entrance door opens on another side than the entrance
+  jigsaw's (a yard or porch, the path round it; houses built into slopes): plains_weaponsmith_1, snowy_fisher_cottage,
+  snowy_weapon_smith_1, taiga_medium_house_1, desert_cartographer_house_1. Refused rather than guessed; the front could
+  be taken from the door's way out instead (backlog).
+- F123 (10-04, twelfth session, V2.1) 33 of the 152 "houses" have no door: farms, animal pens, meeting points, the desert
+  temples and two taiga smithies (open forges). They are a village's yards and decorations, for V2.3 (soft tasks).
+- F122 (10-04, twelfth session, V2.1) Taiga houses are log-built and mostly over the house budget: 15 of 19 valid pieces
+  cost 158-300 gather units (a log is a unit; planks a quarter), a 7x7 taiga house ~160. Only 4 taiga pieces pass. The
+  budget's choice is the user's (keep 150, or allow vanilla houses more; gathering logs is the slow part, F117).
 - F121 (10-04, eleventh session, Minevale18) The mayor's site search on minevale3 sometimes takes the site at -1507,-62
   (Minevale13, 18) instead of -1564,-35, and there the mine gave cobblestone at ~8 a minute against ~25: runs on the
   same test site are not always comparable. Pin the site for acceptance runs (the watcher already finds -1564,-35; the
@@ -1529,6 +1578,13 @@ CLAUDE.md when a phase ends.
   design become air and a failed model call is one try (F115), both in code. After Minevale14 (23.2 min, a 13x13 hall):
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
+
+- 10-04 (twelfth session) V2.1's design (the user's choices among Claude's recommendations): an imported piece's
+  entrance door is in layer 1 (plains floors sit a block lower than vanilla's; no new Design field); terracotta by biome
+  (plains, taiga and snowy cobblestone, savanna acacia planks, desert sandstone); stripped logs and bark blocks keep their
+  look and are charged as logs (the builder's wood swap keeps the prefix); every piece turned so its entrance faces south
+  (V2.3 turns it to its street with build_design's rotate). Doors with no way out face across their wall. Snow and ice
+  houses are left to fail the checks.
 
 ## Keeping this plan honest
 

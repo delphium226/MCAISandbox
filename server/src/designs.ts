@@ -100,13 +100,18 @@ export function outwardStep(layer1: string[], i: number, j: number, outside = ou
 }
 
 /**
- * The way a door at design cell (i, j) opens out of the building, turned clockwise `rot` quarter turns as build_design
- * turns the building (x east, z south). `outside` is outsideCells of layer 1, computed once per build.
+ * The way a door at design cell (i, j) of layer `li` (1: the ground floor) opens out of the building, turned clockwise
+ * `rot` quarter turns as build_design turns the building (x east, z south). `outside` is outsideCells of layer 1,
+ * computed once per build. A door on an upper floor (a vanilla piece's balcony) is judged by its own layer.
  */
-export function doorOutward(d: Design, i: number, j: number, rot: number, outside?: Set<string>): [number, number] {
-  const l1 = d.layers[1];
-  const step = l1 && l1.length === d.depth ? outwardStep(l1, i, j, outside ?? outsideCells(l1)) : null;
-  let [dx, dz] = step ?? (i === 0 ? [-1, 0] : i === d.width - 1 ? [1, 0] : j === 0 ? [0, -1] : [0, 1]);
+export function doorOutward(d: Design, i: number, j: number, rot: number, outside?: Set<string>, li = 1): [number, number] {
+  const l1 = d.layers[li] ?? d.layers[1];
+  const step = l1 && l1.length === d.depth ? outwardStep(l1, i, j, li === 1 && outside ? outside : outsideCells(l1)) : null;
+  // A door inside the building (between rooms of a vanilla piece) faces across its wall: east-west when the wall runs
+  // north-south (blocks north and south of it), else north-south (it was always south, sideways in such a wall)
+  const solidAt = (ni: number, nj: number) => { const ch = l1?.[nj]?.[ni]; return !!ch && ch !== '.' && ch !== '_' && d.palette[ch] !== 'air'; };
+  const across: [number, number] = solidAt(i, j - 1) && solidAt(i, j + 1) && !(solidAt(i - 1, j) && solidAt(i + 1, j)) ? [1, 0] : [0, 1];
+  let [dx, dz] = step ?? (i === 0 ? [-1, 0] : i === d.width - 1 ? [1, 0] : j === 0 ? [0, -1] : j === d.depth - 1 ? [0, 1] : across);
   for (let r = 0; r < rot; r++) [dx, dz] = [-dz, dx];
   return [dx, dz];
 }

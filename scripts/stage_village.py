@@ -13,6 +13,8 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 plan_layout takes one building over 150 gather units a village: testhall (~153),
                                 stairhall (~172) and genhall (~191) do not go together)
   --design-from VILLAGE:NAME    copy a design from another village's library (repeatable)
+  --design-file FILE.json       a design from a JSON file, by its name (repeatable; e.g. a vanilla piece written by
+                                scripts/checks/vanilla_pieces.mts with OUT=)
   --stage full|build            full: layout only, workers do storage, gathering and building;
                                 build: the storage chest is placed and stocked with the raw materials, so workers
                                 only prepare the plot and build (tests building from storage, crafting included).
@@ -140,6 +142,7 @@ p.add_argument("--site-at", help="X,Y,Z,SIZE[,WOOD]: a site find_site gave (e.g.
                "spawned by x,z lands on the canopy), used directly in the world MCAI_API points at")
 p.add_argument("--buildings", default="testhut")
 p.add_argument("--design-from", action="append", default=[])
+p.add_argument("--design-file", action="append", default=[])
 p.add_argument("--stage", choices=["full", "build"], default="full")
 p.add_argument("--brain", choices=["tasks", "tiered"], default="tasks")
 p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
@@ -234,11 +237,14 @@ for spec in args.design_from:
     if not d:
         raise SystemExit(f"no design {name} in {src}")
     designs[name] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
+for path in args.design_file:
+    d = json.load(open(path, encoding="utf-8"))
+    designs[d["name"]] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
 for name in set(buildings):
     if name in GEN_STYLES and name not in designs:
         designs[name] = generated(name)
     if name not in designs:
-        raise SystemExit(f"unknown design {name}: use testhut or --design-from VILLAGE:{name}")
+        raise SystemExit(f"unknown design {name}: use testhut, --design-from VILLAGE:{name} or --design-file FILE")
     r = call(f"/village/{args.village}/designs", designs[name])
     print(f"design {name}: {r}", flush=True)
 
