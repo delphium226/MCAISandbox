@@ -20,47 +20,44 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-04 at the close of the eleventh session: D.2 and D.3 done, the vanilla-villages plan agreed)
+(written 2026-10-04 at the close of the twelfth session: vanilla villages V2.1-V2.3 done)
 
-- **Code:** committed on `tiered-brain-building`, not pushed at the close unless the user agreed then (check `git status
-  -sb`; ask before pushing): `399f6a2` (D.2: the building generator), `017deae` (walls capped, Minevale15),
-  `61595c0` (gen_designs fix), `e8f019f` (D.3: lint, revision round, budget fitted by code; the vanilla-villages plan)
-  and the close-out commit (README, ARCHITECTURE, CLAUDE.md lessons 55-59, this handover). `main` untouched.
-- **Stack:** everything stopped cleanly at the close (the test Paper logged "All dimensions are saved"; the main world
-  did not run this session; the test agent server and the pinned model servers stopped). Start it in CLAUDE.md's order;
-  `reset_site.py` starts the test world's two servers. No agents in either world. Check `ollama_exec.py status` at
-  every start (no WARNING this session).
-- **Where things stand:** D.2 and D.3 are done. The architect submits a style and code draws the building (gable, hip
-  or flat roofs with an overhang, frame, base, windows, door), fixing what it can rather than refusing (odd sizes,
-  walls capped at 9 and 11, furnace runs, the 150/300 budgets); layouts pack generated buildings by their walls.
-  designbench: 30/30 by style, 0 lint notes, 3-4 s a design. Model-driven: Minevale15 passed (5/5 in 16.1 min, 0 failed
-  designs and actions); after D.3, Minevale16 took 19.2 min (a hand-drawn hall) and Minevale17-18 were stopped (F120: a
-  failed design and ~4 min of the mayor replanning; F121: the mayor's other site on minevale3 mines cobblestone at a
-  third of the rate). The renders show villages that still look alike (F113): the next work addresses it.
-- **Next (agreed at the close):** "Vanilla villages: pieces and plans from the Minecraft jar" in phase D, steps
-  V2.1-V2.5: V2.1 the importer (vanilla pieces to Designs with states, front side from the entrance jigsaw,
-  substitutions, a report per biome and a contact sheet of renders; offline), V2.2 built as drawn (four rotations, a
-  staged village), V2.3 a street village (vanilla town centre, dirt_path streets, houses facing them, pieces picked by
-  biome and kind), V2.4 a green village, V2.5 vanilla tags, recipes, loot tables and texture colours instead of hand
-  lists (a subagent job). Show the user V2.1's substitution table before coding. Backlog from this session: F116 (a
-  second site's prepare margin over a reservation), F120's replan loop, F121 (record each run's site), the stand spot
-  that can land inside the next building south (a review's note).
-- **Test world state:** minevale3 holds Minevale18's partial village (3 of 5) at -1507,-62: reset before using it.
-  Scout4 and Scout5 remain outside the recorded sites.
+- **Code:** all committed and pushed to origin `tiered-brain-building` at the close (`4e44df9` V2.1/V2.2, `5805c5c` V2.3
+  part 1, `d14fa53` V2.3 part 2 with F131/F132, `9182b77` V2.3 done, and the close-out commit: README, ARCHITECTURE,
+  CLAUDE.md lessons 60-65, this handover). `main` untouched. Check `git status -sb` at the start.
+- **Stack:** everything stopped cleanly at the close (the test Paper logged "All dimensions are saved"; the main world did
+  not run this session; the test agent server and the pinned model servers stopped). Start it in CLAUDE.md's order;
+  `reset_site.py` starts the test world's two servers. No agents in either world. `ollama_exec.py status` gave no WARNING
+  this session.
+- **Where things stand:** vanilla villages work end to end. V2.1: `vanillaPieces.ts` imports the jar's village pieces
+  (62 of 152 houses pass the survival checks and budgets; taiga's log houses mostly over 150, F122; igloos fail, F125);
+  V2.2: built at four turns, staged. V2.3: the street plan (`streetPlan.ts`: the biome's meeting point without water in
+  the middle, 3-wide dirt_path streets laid free by prepare_site, houses turned to face them, crossing streets or rows as
+  fallbacks) and the mayor's library filled from the site's biome after find_site. Minevale20 (1x, model-driven): 6/6 in
+  18.0 min, 0 failed actions, the mayor drew no design (two sibling houses and the library as the hall), on minevale3's
+  slower site (F121). Minevale19 was stopped (F131: a builder's stand spot sealed the mine; fixed).
+- **Next (the user's choice): V2.3m, the mayor gathers while it waits** (the step under V2.3 in phase D): design review
+  first (where the mayor claims soft gather tasks, handing them back when it must replan), then a staged full run with the
+  mayor present and a model-driven village against Minevale20's 18.0 min. After it: V2.4 (a green village, larger pad),
+  V2.5 (vanilla tags and recipes), lamp posts (decided later), the backlog below.
+- **Backlog from this session:** F124 (doors on another side than the entrance: take the front from the door), F126 (pieces
+  over 15 or 12 layers), F128 (gravel sliding onto a prepared plot), F130 (centres crowd a 32 pad; desert has none without
+  water), F131's leftovers (the stuck rescue's success test and its climb on protected ground; repair the mine's doorway
+  before walking in), the prompt size of a mayor with the vanilla library listed (~7.6k of 8k in Minevale19: measure).
+- **Test world state:** minevale3 holds Minevale20's village (6 of 6) on its other site at -1524..-1493, -79..-48: reset
+  before using it. Scout4 and Scout5 remain outside the recorded sites.
 - **Main world:** unchanged this session.
-- **How to test now:** as before (CLAUDE.md "Testing agents"); new: `node_modules/.bin/tsx scripts/checks/gen_designs.mts`
-  (offline: every roof type, door, stair facing and shape, walls, lint; stored designs' doors and lint; `STYLE='{...}'`
-  prints one style; `OUT=` exports a design with its expected stair shapes and door sides), `scripts/checks/rotate_design.py
-  X Z Y [--design FILE | --style JSON]` (four rotations, shapes judged), `scripts/render_design.py SOURCE` (an isometric PNG
-  of a design, a villages.json design or a saved `/api/blocks` box; save the box before removing agents),
-  `stage_village.py --buildings genhut,genhut,genhall` (generated test designs; `--site-at X,Y,Z,SIZE` with X Z for a
-  tighter site), `designbench.mts` with `TRIES=1` (refusals), `REVISE=1` (D.3's round), `STYLES=0` (hand drawing only),
-  case `cottage_mayor`; `scripts/checks/village_pieces.py KIND...` (the jar's village pieces). The agent server log's
-  `[design]` lines show every refused try and the revision's verdict. Run logs: `runs/2026-10-04/` (designbench-d2*,
-  -d3*, GenB1-4, GenF1, Minevale12-18, rotate-gen*, renders).
-- **Working method:** as before. Every review this session found real bugs (the style lost through the design API, a
-  sideways door, the walkway clearing a neighbour's eave, the sandbox's pointless revisions): keep a design review before
-  coding and a diff review before each commit.
+- **How to test now:** as before (CLAUDE.md "Testing agents"), plus: `node_modules/.bin/tsx scripts/checks/vanilla_pieces.mts
+  [BIOME]` (offline; PIECE=biome/houses/name prints one; KIND=town_centers; OUT=dir writes designs and an index), `python
+  scripts/contact_sheet.py DIR` (renders tiled by biome; vanilla renders stay private), `node_modules/.bin/tsx
+  scripts/checks/street_plan.mts [BIOME]` (offline street plans; HOUSES=small,small,landmark), `stage_village.py ... --plan
+  street --biome plains --design-file FILE` (designs from `vanilla_pieces.mts` OUT), `rotate_design.py X Z Y --design FILE`
+  (choose flat rows with `top_map.py mc/testworld/world ...`: north of minevale3 is water and hills; flat birch woods at
+  -1680..-1622, z 22..30), mayorbench with `VANILLA=0` for the prompt before V2.3. Run logs and renders:
+  `runs/2026-10-04/` (vanilla_v21, vanilla_v23, vanilla_centres, VanB1, VanS1-4, VanF1, Minevale19-20).
+- **Working method:** as before. Every review found real bugs again (15 in the importer, 7 in the street plan, 3 in the
+  mayor part and 3 more in the Minevale19 fixes): keep a design review before coding and a diff review before each commit,
+  and a log analysis by a subagent after a failed run (it found F131's whole chain).
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 

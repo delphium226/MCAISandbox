@@ -302,7 +302,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
 | GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
 | GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
-| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does |
+| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`; `"rows"` clears it) |
 | POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
 | GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
 | GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map |
@@ -320,7 +320,8 @@ its plots, buildings, design library, task board, storage and a log of what happ
 worker.
 
 - **The mayor** finds the site (`find_site`), has each kind of building designed (`design_building`: the architect
-  model draws it), lays the buildings out (`plan_layout`), then waits. It reviews the board when every task is done or a
+  model draws it; in Minecraft the library first fills with vanilla houses of the site's biome, and the architect draws
+  only what they do not cover), lays the buildings out (`plan_layout`), then waits. It reviews the board when every task is done or a
   task fails, re-posts a failed task with a fix, and calls `declare_complete` when the objective is met. Its executor may
   only look around, talk, find a site and design; plan steps that are workers' jobs (collecting, crafting, building)
   are dropped with a note, and so are steps naming a planner tool such as `plan_layout` (the executor cannot call it
@@ -343,7 +344,8 @@ checks the design (sizes, real blocks, a door of any wood on the outside with ro
 when the model puts it inside the wall) and sends the problems back for a fix (three tries in all; a failed model call,
 such as a cloud error, counts as one). A design is reused for every copy, so matching buildings match (copies differ
 only by `rotate`). The architect's brief says how much room the site has (never below 5x5: what does not fit goes on a
-second site). In Minecraft the architect usually describes a style instead and code draws the layers (below).
+second site). In Minecraft the architect usually describes a style instead and code draws the layers (below), and a
+village's houses mostly come from Minecraft's own village pieces (below).
 
 Each world gives the architect its own block list (`WorldAdapter.designBlocks`). In Minecraft that includes stairs,
 slabs, fences, fence gates, trapdoors, walls and glass panes, written with block states (`"oak_stairs[facing=south]"`,
@@ -392,13 +394,35 @@ with notes is shown back once, with what it submitted, its elevations and the no
 style, and the revision is kept only with fewer notes. A refused hand drawing is pointed at `submit_style`. In the
 benches, styles never drew notes and flat hand drawings shown back came back as styles, while hand drawings shown their
 own open gable ends were not fixed (0 of 8): what keeps designs right is keeping the architect on styles. Every refused
-try and the verdict is logged as a `[design]` line, and the control panel shows each design's elevations. Next
-(`docs/PLAN.md`, "Vanilla villages"): Minecraft's own village pieces and plans, read from the game's jar at runtime,
-houses imported as designs with what the economy cannot make substituted, then villages laid out along streets from a
-biome's town centre.
+try and the verdict is logged as a `[design]` line, and the control panel shows each design's elevations.
+
+**Vanilla village pieces** (Minecraft; `server/src/vanillaPieces.ts`, phase D's "Vanilla villages" in `docs/PLAN.md`).
+The Paper server's jar holds the game's own village pieces (houses, town centres, streets) for five biomes: plains,
+savanna, snowy, taiga and desert. They are read from the local jar at runtime with a small zip reader (`MC_VANILLA_JAR`
+picks another jar) and never copied into the repository: they are Mojang's files. `pieceToDesign` turns a house into a
+design with its block states: cut at its entrance door (the door's level is layer 1, the floor under it layer 0, the
+ground fill below dropped), jigsaw blocks replaced by what they become, outside air and anything open to the sky left
+as `_`, double slabs as full blocks, only the states the server does not work out itself kept (facing, half, axis,
+type, open, rotation), and turned so the entrance faces south. Blocks the economy cannot make are substituted:
+terracotta by biome (cobblestone, acacia planks in savanna, sandstone in desert), stained glass and iron bars to panes,
+diorite, granite, mossy cobblestone and bricks to cobblestone, bookshelves to planks, wool to a slab of the piece's
+wood, decoration, lights and workstations to air, plants and water to `_`. Each piece then goes through the checks an
+architect's survival design does (validity, easy materials, the budget, furnace runs): 62 of the 152 house pieces pass,
+at 55-189 gather units (most of the rest have no door, cost too much, as most of taiga's log houses do, or are built
+of snow and ice). `centreToDesign` imports a town centre (a meeting point, without water: there are no buckets) with its
+street connectors. `vanillaLibrary(biome)` gives a biome's centre and up to four small houses, two others and one
+landmark (a library or temple) that pass; `villageBiome` maps the world's biomes onto the five.
+
+After the mayor's `find_site`, while nothing is laid out, code fills the village library with the vanilla houses of the
+site's biome (`find_site` records it), sets the village's plan to "street", and tells the mayor which they are; a line
+in its prompt says to use them and to draw a design only for a kind of building they do not cover. "Matching" houses
+are siblings of one family (two different small houses), not one design twice: a repeated small house in `plan_layout`
+becomes another of the library's. Builders charge stripped logs and bark blocks as logs (and keep "stripped_" when they
+swap the wood kind for the village's), and a door with no way out (between rooms) faces across its wall.
 
 **Layout.** `plan_layout` (`server/src/layout.ts`) takes the buildings by name (`["cottage", "cottage",
-"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot, 3-block streets apart
+"meeting_hall"]`) and does the geometry: it packs their real footprints in rows on one plot (or, with vanilla pieces,
+along streets: below), 3-block streets apart
 (2-block streets and a 1-block margin when that is what fits), choosing the column count that gives the squarest plot,
 and centres the plot on the site the mayor found. Buildings drawn from a style are packed by their walls, so an
 overhang's eaves hang over the street; such a building reserves only its own area while it is built, and the clearing
@@ -414,6 +438,18 @@ prepare the plot; set up the storage; the materials for each building; each buil
 survival, a new village's first layout also gets a storage hut, added by code (the mayor does not name it, and
 `design_building` refuses the name): see [the village economy](#the-village-economy-real-minecraft). Models are poor at this arithmetic: before `plan_layout`, a mayor placed a hall half outside its plot and spent the
 rest of the run relocating it.
+
+**Streets** (`server/src/streetPlan.ts`). A village whose plan is "street" (set with the vanilla library) has its first
+plot laid out as a vanilla village is, by code: the biome's town centre in the middle of the pad, 3-wide streets from
+its street connectors out to the pad's edge (a plain street from a side without one, when that places more), and every
+building turned with `build_design`'s `rotate` so its door opens onto a street, its entrance step touching it or a path
+of up to 4 blocks to it. Buildings keep 2 blocks apart (each build claims a block round its area), the storage hut is
+never turned (its chest spots stay where they are), and the mining hut keeps free ground behind it to the pad's edge for
+its stairs. A beam search places them (a greedy first choice left half the pad unused). When the centre leaves
+buildings out, plain crossing streets take its place, and when those leave too many out, rows; desert's town centres
+all hold water, so desert villages get crossing streets. `prepare_site` lays the streets, the paths and the centre's
+plaza as `dirt_path` while it levels the plot, free, from the layout record (`layouts[].streets`); the centre itself is
+built like any other building. Later sites get rows.
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -445,7 +481,7 @@ What building these agents taught, and what the code is built around:
 
 - **Models decide; code does arithmetic and geometry.** Models miscount crafting quantities and row lengths, place
   doors inside walls, overlap buildings and invent item ids. So skills make the missing planks, designs use spaced
-  symbols or are drawn by code from a style the model chooses, doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
+  symbols or are drawn by code from a style the model chooses (or come from the game's own village pieces), doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
   counts every block. The weaker the model, the higher-level the skills should be.
 - **Failure messages are the model's eyes.** A failure says what is short or where the problem is, and what to do next
   ("short of materials for the cottage: 35 acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log;
@@ -485,6 +521,16 @@ What building these agents taught, and what the code is built around:
   JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and the north-west,
   offline, in flat colours. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
   Paper jar (size, blocks, jigsaw blocks per piece), read in place and never copied out.
+- `scripts/checks/vanilla_pieces.mts [BIOME ...]` (offline, run with `node_modules/.bin/tsx`) imports every house piece
+  of each biome as `vanillaLibrary` does and checks it as the architect's survival designs are checked: a line per piece
+  and a summary per biome (how many import, are valid and pass, at what cost) with the substitutions made. `KIND=town_centers`
+  imports the town centres with their street connectors, `PIECE=` prints one piece's layers, and `OUT=DIR` writes each
+  design as JSON with an index (keep DIR out of the repository) for `scripts/contact_sheet.py DIR`, which tiles their
+  renders by biome with a caption each, and for `rotate_design.py --design`. `scripts/checks/street_plan.mts [BIOME ...]`
+  (offline) lays each biome's library out with both huts by the street plan and checks it: every building inside the pad,
+  off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
+  hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
+  library's houses, `small,small,landmark,other` by default).
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
@@ -519,6 +565,8 @@ What building these agents taught, and what the code is built around:
   is tested in one to ten minutes. Built-in test designs: `testhut` (5x5) and `testhall` (9x9) with flat roofs,
   `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs; drawn by the building
   generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
+  `--design-file FILE.json` adds a design from a file (a vanilla piece written by `vanilla_pieces.mts` with `OUT=`),
+  and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default).
   `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
   its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD]` uses a site find_site gave
   directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the canopy).
@@ -542,7 +590,8 @@ What building these agents taught, and what the code is built around:
   applied by patch-package on install; Mineflayer is pinned to 4.39.0). Digging stays in real time, because Paper times
   a dig by the wall clock and refuses one finished early. Measured: walking 1.94x faster, a staged build 1.5 instead
   of 2.2 minutes, mining unchanged. Use it for staged runs and checks only; model-driven acceptance runs stay at 1x.
-- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong.
+- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong, with
+  the prompt's line about the vanilla library and a case for it (`VANILLA=0` for the prompt without them).
 - `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
   stuck. `bench_agent.py` compares models on survival progression.
 - `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
@@ -575,21 +624,25 @@ watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mod
 The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HOST` (127.0.0.1; `0.0.0.0` serves the
 panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
 `server.properties`, `villages.json` and `atlas.json` it uses; `mc/rcon.py` and `mc/start.py` read it too, e.g.
-`mc/testserver` for the test world) and `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
-see [Testing agents](#testing-agents)).
+`mc/testserver` for the test world), `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
+see [Testing agents](#testing-agents)) and `MC_VANILLA_JAR` (the jar the vanilla village pieces are read from;
+`mc/server/versions/26.1.2/paper-26.1.2.jar` by default).
 
 Some things work differently from the sandbox, because Mineflayer (the bot library) and the real server behave
 differently:
 
 - **Building** places blocks with `/setblock` and `/fill` over RCON (the server console), paced by `buildSpeed`, while
-  the bot stands by the site, outside the ground the job covers, and watches. No block is set inside a player: a bot
+  the bot stands by the site, outside the ground the job covers, and watches (3 blocks off it, south first, then north,
+  east or west, near the job's level and off the village's buildings and mine, walked to without scaffolding: a builder
+  once pillared dirt up to a stand spot on the mining hut's roof across the street and sealed the mine). No block is set inside a player: a bot
   in the way is moved to the builder's stand spot, and a person's cells wait until they step away (a preparer once
   suffocated in its own fill). It is free in creative; in survival every block is paid for (below).
 - **Crafting** is carried out by server command, charged exactly: the ingredients are counted and taken (`/clear`) and
   the result given (`/give`); a recipe that needs a table still needs one placed nearby. Mineflayer's own crafting
   clicks worked from a stale view of the inventory on 26.1 and made oak buttons out of planks.
 - **Walking** uses mineflayer-pathfinder with a watchdog for stuck bots, digging only natural blocks, opening doors,
-  going around water (and swimming out of it), and splitting long walks into legs. A bot that stays stuck is rescued
+  going around water (and swimming out of it), and splitting long walks into legs. No walk digs into or places blocks
+  on a village's ground (plots, buildings, the mine). A bot that stays stuck is rescued
   (see the guards above).
 - **One event loop for every bot.** All bots share the agent server's Node process, so path searches are capped per
   tick. Block searches (`nearestBlocks` in `mcUtil.ts`, behind collect, find_site and plan_layout's material counts)
@@ -613,7 +666,8 @@ of smelting recipes. Planks come from logs, doors and slabs from planks, glass f
 stone bricks from stone smelted from cobblestone. Recipes that differ only by wood kind accept any wood; crafts round up
 to whole batches and leftovers are reused. Blocks that need Nether materials or hard-to-find ones (glowstone, iron for
 lanterns, wool, bricks) are refused at design time, and the architect is asked for cheap materials: planks, logs,
-cobblestone, sandstone and what is made of them (stairs, slabs, fences, trapdoors), a few windows. The bill's raw
+cobblestone, sandstone and what is made of them (stairs, slabs, fences, trapdoors), a few windows. Placed grass and
+`dirt_path` are charged as dirt, stripped logs and bark blocks as logs. The bill's raw
 total is the design's cost against its budget (a house 150, one landmark a village 300). `GET /api/village/:v/designs/:d/bill` shows the bill, for example:
 
 ```
@@ -630,13 +684,16 @@ chest). The design marks them `_`, cells the build leaves as they are, so the hu
 standing: `build_design` lets the village's chests stand there, and refuses to build when one is not at the level of
 the hut's floor (it would be buried under the floor layer). The village's crafting table and furnace stand in the
 middle of the hut: within 32 blocks of it every craft and smelt happens there (one smelter at a time), so no tables
-and furnaces are left about the village; farther out a table is put down as before, never on village ground.
+and furnaces are left about the village; farther out a table is put down as before, never on village ground or in
+the mine.
 
 The storage is **sorted**: each chest holds one material group (logs, planks, cobblestone, sand, glass, terracotta,
 misc), given at its first use. `deposit` puts each item into its group's chest; when that is full or missing it takes a
 free chest, else puts a new chest in the next free spot (carried, or crafted from logs carried or taken from storage),
 else any chest with room. `withdraw` goes to the chests that hold the item. `deposit item=all` keeps tools and leaves
-the junk that gathering picks up (saplings, seeds, dirt, cocoa beans). Villages laid out before the hut keep their loose
+the junk that gathering picks up (saplings, seeds, dirt, cocoa beans), unless the depositing agent holds a task to
+collect it (dirt for a vanilla house's floor). A deposit that finds no path to the hut says to walk back first (told to
+craft a chest instead, a miner put a crafting table down in its tunnel and walled itself in). Villages laid out before the hut keep their loose
 chests: the first `deposit` puts a carried chest down beside the plot, and when the chests are full, another goes down
 in a row beside them. What each chest holds is recorded whenever it is opened, and shown chest by chest in every
 planner's village summary, in `/api/village/:v` and in the panel's detailed view ("chest 1 (logs): 64 oak_log, ...").
@@ -665,15 +722,18 @@ down stood inside the future hut and raised its floor).
 
 **From objective to buildings.** For "two matching cottages and a meeting hall":
 
-1. The **mayor** runs `find_site` (a site with enough trees near it), has a `cottage` and a `meeting_hall` designed
-   within the survival limits, and calls `plan_layout`, which checks the materials are near the site. If that first
+1. The **mayor** runs `find_site` (a site with enough trees near it; 32 across, since the streets take the whole
+   plot), and the library fills with the vanilla houses of the site's biome. It names two of the small houses and the
+   landmark as the hall (or has a `cottage` and a `meeting_hall` designed within the survival limits, where there are
+   no pieces or for a kind they do not cover), and calls `plan_layout`, which checks the materials are near the site. If that first
    search finds nothing good (no site, only a small one, or too few trees near it), code sends the workers to **scout**
    once per village: scout tasks to the points on a 160-block ring around the start that the atlas does not know yet
    (each worker a run of neighbouring points, run as written). `plan_layout` waits meanwhile (at most 20 minutes)
    while the mayor draws its designs, and when the scouts are back code runs `find_site` again over the land they
    mapped. On land the atlas already knows there is nothing to scout.
-2. `plan_layout` places the buildings, with the storage hut, and posts the tasks, each as exact skill calls: prepare
-   the plot; set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
+2. `plan_layout` places the buildings, with the storage hut, the mining hut and (with the street plan) the biome's
+   town centre, and posts the tasks, each as exact skill calls: prepare the plot (laying its streets as `dirt_path`);
+   set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
    block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
@@ -705,7 +765,10 @@ logs high on hills (up to 23 failed collects a run) and designs with log roofs (
 `scripts/stage_village.py` runs the same chain with scripted workers, in about a minute when the storage starts
 stocked. With stair gable roofs (2026-10-04, the fixed test world, 1x) the same objective was built in 14.6 and 17.0
 minutes with no failed actions; with buildings drawn from styles, in 16.1 and 19.2 minutes with no failed designs or
-actions.
+actions. With vanilla houses along streets (Minevale20, 1x): six buildings (two sibling plains houses, a library as
+the hall, the town centre and both huts) in 18.0 minutes with no failed actions and no design drawn, on the test site
+whose mine is slow; staged street villages took about 3 minutes at 2x from a stocked storage (VanS1-4) and 9.7 from
+nothing (VanF1).
 
 ### Models
 
@@ -774,7 +837,8 @@ world: agents, skills including the building engine, REST API), `brains.ts` (bra
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
 `layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests), `designs.ts` (design format, checks, elevations and lint),
-`buildingGen.ts` (buildings drawn by code from a style)
+`buildingGen.ts` (buildings drawn by code from a style), `vanillaPieces.ts` (Minecraft's village pieces as designs,
+read from the server's jar), `streetPlan.ts` (the street plan)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
 economy, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is

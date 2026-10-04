@@ -349,6 +349,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     actions. D.3 (`e8f019f`: `lintDesign`, one revision round, `shrinkStyle`, the panel's elevations, `[design]` log):
     designbench 30/30 by style; Minevale16 19.2 min, Minevale17-18 stopped (F120, F121). Lessons 55-59. Next (agreed at
     the close): vanilla village pieces and plans from the Minecraft jar (PLAN.md "Vanilla villages", V2.1-V2.5).
+27. 2026-10-04 (twelfth session; all pushed to origin `tiered-brain-building` at the close, `main` untouched): vanilla
+    villages V2.1-V2.3. V2.1/V2.2 (`4e44df9`: `vanillaPieces.ts`, `vanilla_pieces.mts`, `contact_sheet.py`,
+    `stage_village.py --design-file`; stripped logs charged as logs): 62 of 152 house pieces pass the survival checks,
+    five built at four turns with 0 mismatches, staged VanB1 5/5. V2.3 (`5805c5c` the street plan: `streetPlan.ts`,
+    `street_plan.mts`, plan_layout's street branch, streets laid free by prepare_site; `d14fa53` the mayor's library
+    filled by the site's biome, F131/F132 fixes; `9182b77`): staged VanS1-4 and VanF1 (9.7 min full at 2x), Minevale19
+    stopped (F131: a sealed mine), Minevale20 (1x, model-driven) 6/6 in 18.0 min, 0 failed actions, no design drawn.
+    Lessons 60-65. Next (the user's choice): V2.3m, the mayor gathers while it waits (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -505,12 +513,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the eleventh session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twelfth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale18's partial village (3 of 5) stands on minevale3's other site at -1507,-62 until the next reset, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale20's street village (6 of 6) stands on minevale3's other site at -1524..-1493, -79..-48 until the next reset, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -703,6 +711,29 @@ Lessons from the adapter:
    -1507,-62, whose mine gave cobblestone at a third of the usual rate. Record the site with each run before comparing
    times; generated buildings are fuller than drawn ones (overhangs, gable ends), so budgets (150/300) and the wall cap
    (houses 9, landmarks 11) keep a village near Minevale10's cost.
+60. **Read vanilla's data for its own contract before designing on it** (V2.1, 2026-10-04): a village piece's entrance
+   jigsaw is at walk level (street pieces: path at y 0, entrance jigsaws at y 1) and gives the front side; a door's
+   `facing` points in or out depending on the piece. An offline dump of a few pieces (`scripts/checks/vanilla_pieces.mts`
+   PIECE=, the scratch dump scripts) settled the layering before any code; the reviews then found 15 real problems in
+   the importer, mostly in how its output met our own rules (door layer 1, outside "_", double slabs, stripped logs).
+61. **A stand spot is somewhere to wait, never worth building up to** (F131): "3 blocks south of the claim" with
+   footing searched 24 up and down chose a neighbour's roof once a street plan packed buildings 3 apart, and the walk
+   there pillared dirt in front of the mining hut's door and sealed the mine. No walk may place blocks on village ground
+   (`exclusionAreasPlace`), stand spots are searched at the job's level first and off every building and the mine. Any
+   fixed offset is worth checking again when layouts get tighter.
+62. **Whatever lies between buildings must not be a building** (F129): every build claims its area plus a ring and
+   refuses recorded structures in it, so streets built as designs would have failed every house beside them; streets are
+   laid by prepare_site and kept on the layout record, and neighbours stand 2 blocks apart.
+63. **A greedy placement wastes room; compare a clever plan with the simple one** (V2.3): nearest-first placement left
+   half the pad empty and 2-3 buildings out; a small beam search and trying fewer streets placed them, and a centre that
+   still leaves buildings out gives way to crossing streets, then rows (the review found savanna's centre pushing the
+   hall to a second site while a crossing placed all five).
+64. **Rules about "junk" must know who gathers what** (F132): dirt was junk to deposit, so a task gathering dirt for a
+   vanilla floor could never finish; with the village's needs as the rule every miner would have emptied its scaffolding
+   into storage. The rule now asks whether the depositing agent holds a claimed task to collect that item.
+65. **"Matching" is code's to enforce** (V2.3): told in the prompt that matching houses are siblings, the mayor still
+   named one house twice in its first model-driven run; plan_layout now swaps a repeated vanilla small house for an
+   unused sibling (lesson 1). The mayor's own choice from a filled library was right at once in Minevale20.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
