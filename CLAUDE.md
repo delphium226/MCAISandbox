@@ -255,7 +255,13 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
   results with the events stream and `/api/block`. `move_to` needs x, y and z.
 - `scripts/test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue (pit: the pathfinder climbs
-  out with dirt by itself; box: teleport; pool: swim, then teleport).
+  out with dirt by itself, "NO RESCUE" is its pass; box: teleport; pool: swim, then teleport). On the test world:
+  `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver` (its traps at -20,-35 dig deeper each run, F149).
+- **Walk stalls** (2026-10-05): every stalled walk logs a `[stuck]` line in the agent log (the walk's physics ticks,
+  the server's set-backs, the feet, the pathfinder's events; F145's reading guide in PLAN.md); 20+ set-backs add
+  `[stuck-world]` (the blocks the server has differently); `[dig]` logs a dig the server did not count. Count them in
+  every run. `runs/2026-10-05/f138/pit_repro.py` is the pit reproduction (now no stall: a check that F147 holds);
+  `runs/2026-10-05/s16/jdis.py Class.class [method]` disassembles a class from the Paper jar (no JDK here).
 - **Test the village economy in stages before model-driven runs** (the user asked for faster tests; almost every bug
   of the economy work was in code, not in model behaviour): `python scripts/stage_village.py VILLAGE X Z [--stage
   full|build] [--buildings testhut,testhut,testhall] [--brain tasks|tiered]` lays a village out through the API and
@@ -379,6 +385,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     (`runs/2026-10-05/f138/pit_repro.py`: 10.2 s per stalled walk, 52 s per stalled deposit, the rescue after ~105 s);
     a design review held item 4 back (the stall's first move is a cardinal jump-up, not a diagonal) and widened item 1
     (F143-F146). Next: item 3, the `[stuck]` line (PLAN.md).
+31. 2026-10-05 (sixteenth session; not pushed at the close, ask first; `main` untouched): F138's leftovers and F147.
+    `07306d5` the fifteenth session's record; `32f3eff` item 3, the `[stuck]` line and a horizontal walk watchdog;
+    `5861632` item 1, storage fails at once on an unmoved stall (nearest side spot within 6 blocks), the rescue walks
+    away from the stalled goal first; `cff6dbc` F147, half width 1229/4096 and `[stuck-world]`; `8c73e20` every dig
+    checked with the server. Items 4 and 2 dropped (the stall was the server refusing moves). The pit reproduction: a
+    move arrives in 2.0 s and a deposit in 3.1 s (52.3 s and the rescue after ~105 s before). Staged VanG7-9 and
+    VanM4-5 8.0-8.5 min at 2x, Minevale24 and 25 (1x) 6/6 in 15.1 and 15.0 min, all 0 failed actions. Lessons 78-81.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -535,12 +548,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the fourteenth session (2026-10-05): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the sixteenth session (2026-10-05): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale23's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale25's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -548,7 +561,8 @@ mode reads well (2026-09-29).
 Lessons from the adapter:
 1. **Mineflayer bots got stuck against walls on 26.1**: its physics uses a player half-width of exactly 0.3 while the
    server uses 0.6f / 2, so a bot pressed into a wall overlaps it by ~1e-8 in the server's eyes and every move is
-   rejected (the server teleports it back each tick, silently). `botAgent.ts` sets `playerHalfWidth` to 0.3001.
+   rejected (the server teleports it back each tick, silently). `botAgent.ts` sets `playerHalfWidth` to 1229/4096
+   (0.3001 until 2026-10-05: not a binary fraction, it left the box 4e-16 inside walls at faces ±4, ±128, ±1024, F147).
    Worth reporting upstream (ask the user first).
 2. Wait for chunks (`waitForChunksToLoad`) after spawning and after teleports, or the first skills see unloaded
    (null) blocks.
@@ -798,6 +812,21 @@ Lessons from the adapter:
    the chest; and a test bot spawned within 0.3 of a wall has its box inside it, so the server refuses its moves
    ("moved wrongly"): two of four start spots were artefacts. Measure a baseline on the live reproduction before
    changing code.
+78. **Tally what the physics did, not what the controls say at the end** (F145, F147, 2026-10-05): the `[stuck]` line's
+   per-walk tick tally (controls held, on ground, set-backs by the server with the corrected position) named F138's
+   mechanism on its first run, after two sessions of replays: the server refused ~33 moves a second, so no
+   pathfinder rule (item 4's diagonal guard) could have helped. Read a stall's `[stuck]` line before changing a walk.
+79. **A workaround constant must be exact in binary** (F147): `playerHalfWidth` 0.3001 meant face - 0.3001 + 0.3001 >
+   face at ±4, ±128 and ±1024, the bot's box 4e-16 inside the wall, and Paper's CLIPPED_INTO_BLOCK check refuses such
+   moves **without logging** (logWarning false). Silent set-backs (forcedMove, no "moved wrongly") mean a box overlap:
+   look for rounding or a world mismatch. F71's unexplained pocket (z 128) was the same bug, a week earlier.
+80. **The bot's world is not the server's after a dig either** (F147): Mineflayer writes air when its own dig timer
+   ends, Paper breaks the block only when it agrees (progress >= 0.7, later or never); walks through such a cell are
+   set back for 10 s. mineBlock asks the server after every dig (`[dig]` logs a re-dig). With lesson 29 (own placements
+   not echoed), anything that changes a block should be confirmed on the server when a later step depends on it.
+81. **Ask the server's code when its behaviour is silent** (F147): a read-only subagent disassembled Paper's
+   `handleMovePlayer` from the jar (`runs/2026-10-05/s16/jdis.py`, no JDK needed) and found the silent branch in one pass;
+   `[stuck-world]` (RCON `execute if block` round the feet) then confirmed the mine case in the next staged run.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

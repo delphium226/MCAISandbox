@@ -20,6 +20,29 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-05 at the close of the sixteenth session: F138's leftovers done, F147 found and fixed; the notes below
+for the fifteenth and fourteenth sessions stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`: `07306d5` (the fifteenth session's record), `32f3eff` (item 3:
+  `[stuck]` lines, horizontal watchdog), `5861632` (item 1: storage fails at once on an unmoved stall; the rescue walks
+  away first), `cff6dbc` (F147: half width 1229/4096, `[stuck-world]`), `8c73e20` (every dig checked with the server),
+  and the close-out (README, ARCHITECTURE, CLAUDE.md lessons 78-81, this handover). **Not pushed** (ask). `main` untouched.
+- **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the agent server by PID, the pinned
+  model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
+- **Where things stand:** F138's pit stall was F147, a rounding error in our `playerHalfWidth` (Paper's silent
+  CLIPPED_INTO_BLOCK), fixed; the mine's set-back stalls were digs Paper never finished, now checked. The last staged
+  run (VanM5) had no `[stuck]` line; Minevale25 (1x) 6/6 in 15.0 min on -1628,65,47, 0 failed actions.
+- **Next (the user's choice at the close):** see the decisions log. Open small items: F148 (a reproducible 12 s
+  stand-still by the storage hut on VanG's site), F150 (the Mayor's 23 s sand walk through water on minevale3), F133,
+  F131's leftovers (the rescue's success test and its climb on protected ground, the mine's doorway), F139-F142; or
+  lamp posts, or phase 3.
+- **How to test now:** count `[stuck]`, `[stuck-world]` and `[dig]` lines in every run's agent log (CLAUDE.md,
+  Testing agents); `pit_repro.py` must stay stall-free; `test_rescue.py` takes `MCAI_API`.
+- **Test world state:** minevale3 holds Minevale25's green village (-1648..-1609, 27..66): reset before using it.
+- **Working method that worked:** design review before code, diff review before each commit (each found real
+  problems: a pillar regression in the watchdog, the dig wait), and a read-only research subagent on the server's own
+  bytecode when the server was silent.
+
 (written 2026-10-05 at the end of the fifteenth session: F138 reproduced and the design reviewed, no code changed; the
 fourteenth session's notes below stay valid where not overridden)
 
@@ -709,7 +732,10 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - The timed review ("no step completed for 3 minutes") re-plans workers in the middle of long collects; the executor
   then queues more collects (61 cobblestone for a 31 task, F67). No timed review while a code-posted step's action
   is still running.
-- A bot stuck twice in a 1-deep pocket beside a plot on its way to a chest (F71; lesson 1's wall overlap suspected).
+- ~~A bot stuck twice in a 1-deep pocket beside a plot on its way to a chest (F71)~~: explained and fixed by F147 (the
+  half width's rounding at z 128), 10-05.
+- F148: a 12 s stand-still beside the storage hut's aisle on VanG's site (reproducible); F133 (no reproduction; the
+  `[stuck]` and `[stuck-world]` lines will show it if it comes back).
 - The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
   a bot at y 60 under the storage hut); harmless to buildings so far.
 - The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
@@ -974,6 +1000,17 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-05 (s15) | pit_repro (scratch) | test world 2x, minevale3, the shore birch felled and VanG4's pits dug, Gus idle, `move_to` -1645,64,6 (east) | **out** | 2.1 s | first try: east out of the pit at once (as VanG4's rescue) |
 | 10-05 (s15) | pit_repro (scratch) | as above, `move_to` -1660,64,11 (VanG4's logs chest, SW), four start spots x2 moves | **stalls** | 10.2 s a move | stuck at -1656,62,-5 from -1655.5,62,-4.5 (both moves, then the rescue walked out east in 2 s); -1655.5,-5.5 out in 3.1 s; the two off-centre spots were artefacts (F144) |
 | 10-05 (s15) | pit_deposit_before (scratch) | as above from -1655.5,62,-4.5, village PitTest with one chest at -1660,66,11, `deposit item=logs` x2, old code | **stalls** | 52.3 s a deposit | the reach and four side spots, 10 s each; rescue after the second (~105 s), its walk-out 30 s more (out to the north, -1655,64,-11). Baseline for items 1-4 |
+| 10-05 (s16) | pit_repro, item 3 (`32f3eff`) | test world 2x, from -1655.5,62,-4.5, `move_to` -1660,64,11 x2 | **stalls** | 10.2 s a move | the `[stuck]` lines: set back ~33 times a second at y 62.42, z -4.3001, forward/jump/sprint on (F147); rescue out north after 30 s; `data get entity` gave the server's position |
+| 10-05 (s16) | test_rescue pit/box/pool | test world 2x (`MCAI_API` 8767, `MC_SERVER_DIR=mc/testserver`), after item 3, item 1 and F147 | **pass x3** | 8 / 2 / 4 s | pit: the pathfinder pillars out with dirt (no rescue needed); box and pool teleported |
+| 10-05 (s16) | pit_repro, item 1 + rescue order (`5861632`) | as above, `move_to` and `deposit` | **faster** | 10.2 s a move, **11.3 s a deposit** (52.3) | the rescue's first walk-out (away from the goal) out at once (30 s before) |
+| 10-05 (s16) | **VanG7** | staged green, 2x, the 40 site, item 3 + item 1 | **6/6** | **8.4 min** (VanG6 8.3) | 0 failed; 2 mine stalls set back by the server (F147), retried by the mine code |
+| 10-05 (s16) | **VanM4** | staged street plan, 2x, `--site minevale3` | **6/6** | **8.0 min** (VanM3 8.3) | 0 failed; 1 mine stall (F147) |
+| 10-05 (s16) | **Minevale24** | model-driven 1x, minevale3, item 3 + item 1 (`5861632`) | **6/6 PASS** | **15.1 min** (Minevale23 14.9) | the mayor's find_site took -1628,65,47 (Minevale22/23's site), green layout; 0 failed actions, no `[lag]`; 2 `[stuck]` lines, both timeouts (a pickup, a 23 s walk to sand through water) |
+| 10-05 (s16) | pit_repro, F147 (`cff6dbc`, half width 1229/4096) | as above | **no stall** | **2.0 s** a move, **3.1 s** a deposit | arrives at once; no `[stuck]` line |
+| 10-05 (s16) | **VanG8** | staged green, 2x, F147 half width + `[stuck-world]` | **6/6** | **8.1 min** | 0 failed; one mine stall whose `[stuck-world]` found the server's block at -1636,58,34 (bot: air); one 12 s stand-still by the storage hut (F148) |
+| 10-05 (s16) | **VanG9** | as VanG8 with the dig check (first version) | **6/6** | **8.5 min** | 0 failed; 1 re-dig (stone at -1649,58,25), no mine stall; F148 again at the same spot |
+| 10-05 (s16) | **VanM5** | staged street plan, 2x, `--site minevale3`, the final dig check (`8c73e20`) | **6/6** | **8.3 min** (VanM4 8.0) | 0 failed, **no `[stuck]` line**; 2 re-digs, one at VanM4's stall cell (-1558,58,-57) |
+| 10-05 (s16) | **Minevale25** | model-driven 1x, minevale3, all of the session (`8c73e20`) | **6/6 PASS** | **15.0 min** (Minevale24 15.1) | the mayor's find_site took -1628,65,47 again; 0 failed actions, no `[lag]`; 1 re-dig; 1 `[stuck]`: the Mayor's 23 s walk to sand through water, as in Minevale24 (F150) |
 
 ## Findings log
 
@@ -1393,6 +1430,37 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F150 (10-05, sixteenth session, Minevale24 and 25) The Mayor's sand gather on minevale3 walks to sand at -1688,62,1
+  through water and times out after 23 s (443 of 463 ticks in water, half of them busy placing or digging; moved 3.9)
+  in both runs, then gets its sand another way; ~25 s a run, no failure. Backlog (collect's approach to shore sand).
+- F149 (10-05, sixteenth session) Small things seen on the way: `test_rescue.py` on the test world (`MCAI_API` now
+  points it there) builds its traps at -20,-35 outside every restored site, and each run digs the pit deeper (ground 69,
+  66, 63); short pickup walks (timeout 5 s) timed out once or twice a run and their `[stuck]` lines said nothing new
+  (no longer logged); felling's `cutInReach` and pillarDown's direct `bot.dig` skip F147's dig check (the review; both
+  retry in later passes).
+- F148 (10-05, sixteenth session, VanG8 and VanG9) A stand-still beside the storage hut on VanG's 40 site: Worker1 walking
+  to the hut's aisle spot (placeChest, range 0.5, target -1659,65,8) went 13 blocks and stood at -1661.48,65,6.50 for
+  12 s, forward held on only 60 of ~470 ticks, no set-backs, and no pathfinder event after the first path ("success len
+  15"): no `reset stuck`, so not the stand-still branch; looks like the pathfinder idling with an empty path whose end the
+  goal does not accept. The same spot in both runs (a reproduction); placeChest goes on from near (moved 13), so it costs
+  12 s, no failure. Not chased: backlog (read monitorMovement's `path.length === 0` branch against GoalNear range 0.5).
+- F147 (10-05, sixteenth session) **F138's pit stall explained and fixed, and the mine's stalls with it.** The `[stuck]`
+  tally (item 3) showed the server setting Gus back ~33 times a second (forcedMove) at -1655.39,62.42,-4.3001, mid-jump
+  against the pit's south wall, forward, jump and sprint on throughout; every walk pressing south failed whatever its
+  first node (south, south-east, south-west), only north got out; nothing in Paper's log. A read-only study of Paper
+  26.1.2's `ServerGamePacketListenerImpl.handleMovePlayer` (bytecode) found the branch: CLIPPED_INTO_BLOCK, a move whose
+  box newly overlaps a block by more than 1e-7 is refused and the player put back, with logWarning false. The cause was
+  ours: with `playerHalfWidth` 0.3001 a bot stopped at a wall face stands at face - 0.3001, and adding 0.3001 back gives
+  a box edge 4e-16 inside the wall at faces +-4, +-128 and +-1024 (6 faces an axis in +-3000); prismarine-physics'
+  `computeOffset` has no tolerance, so the bot pressed on into the block every tick. The pit's wall face was z -4, and
+  F71's pocket (stuck at -1055,66,128, "x 0.3 from the block edge") was z 128. Fixed with a half width of 1229/4096 (a
+  binary fraction, adds back exactly; 5e-5 wider than the server's box): the reproduction's walk arrives in 2.0 s, the
+  deposit in 3.1 s. The mine's stalls (VanG7 x2, VanM4, VanG8: set back 318-340 times in 10 s in a 1-wide tunnel) were the
+  same branch with another cause: the `[stuck-world]` check found a block the server still had where the bot saw air
+  (-1636,58,34), a tunnel dig Mineflayer counted done (its dig timer writes air) that Paper never finished (it breaks
+  on STOP_DESTROY only at progress >= 0.7, later or never otherwise). mineBlock now asks the server after every dig
+  (sand and gravel aside), up to max(450 ms, 4x the dig time), and if the block is still there puts it back in the
+  bot's view and digs once more (VanG9: one re-dig, no mine stall).
 - F146 (10-05, fifteenth session, the design review of item 1) openChest's errors are swallowed in more places than
   depositSorted (mcStorage ~408) and refreshStorage (~531): `newChest`'s catch (~461-465, errors from ensureChest -> take
   ~483), makePickaxe's `fromStock` (mcSurvival ~165) and the storage hut's placeChest reach (mcStorage ~212, which goes on
@@ -1789,6 +1857,11 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-05 (sixteenth session) F138's leftovers, after item 3's lines (the user's choices among Claude's recommendations):
+  item 4 skipped (the stall was the server refusing moves, not a diagonal); item 1's side spot only within 6 blocks of
+  the chest (farther, an unmoved stall fails at once); item 2 replaced by the rescue walking out away from the stalled
+  walk's goal first. F147: the half width 1229/4096 (not an epsilon patch of prismarine-physics); the mine's stalls
+  diagnosed first (`[stuck-world]`), then every dig checked with the server (mineBlock, collect included).
 - 10-05 (fifteenth session) F138's leftovers (the user's choices among Claude's recommendations, after the reproduction):
   order 3 -> 4 -> 1 -> 2; item 3 a permanent `[stuck]` line in the agent log (the pathfinder's recent events and the
   walk's tick tally, F145); item 1 fails the deposit or withdraw at once on a stall that did not move the bot (a stall

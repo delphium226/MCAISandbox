@@ -269,7 +269,9 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 - **Stuck rescue** (real Minecraft, survival). Two moves that fail within 3 blocks of the same spot in 6 minutes (a pit,
   a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
   up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage (in
-  the storage hut's doorway, when the village has one). The brain is told what happened.
+  the storage hut's doorway, when the village has one). The walk out tries the direction away from where the stalled
+  walk was going first (in a pit the server refused every move toward the goal, and only the other way got out). The
+  brain is told what happened.
 
 ### In-game commands
 ```
@@ -679,8 +681,15 @@ differently:
   clicks worked from a stale view of the inventory on 26.1 and made oak buttons out of planks.
 - **Walking** uses mineflayer-pathfinder with a watchdog for stuck bots, digging only natural blocks, opening doors,
   going around water (and swimming out of it), and splitting long walks into legs. No walk digs into or places blocks
-  on a village's ground (plots, buildings, the mine). A bot that stays stuck is rescued
-  (see the guards above).
+  on a village's ground (plots, buildings, the mine). The watchdog calls a walk stuck after 10 seconds without
+  progress across the ground or onto a new block level (a bot hopping in place is not progress), and its error says
+  how far the walk got. A bot that stays stuck is rescued (see the guards above). The bot's half width is 1229/4096 of
+  a block, a little over the server's 0.3: with 0.3001, a rounding error left a bot stopped at a wall a hair inside it
+  at some block faces (coordinates ±4, ±128, ±1024), and Paper silently refused every move into that wall.
+- **Digging** is checked with the server: Mineflayer counts a block gone when its own dig timer ends, while Paper may
+  break it later or not at all (a tunnel cell left as stone on the server and air in the bot's view had every walk
+  through it set back). After each dig (sand and gravel aside) the agent asks the server, and digs once more if the
+  block is still there.
 - **One event loop for every bot.** All bots share the agent server's Node process, so path searches are capped per
   tick. Block searches (`nearestBlocks` in `mcUtil.ts`, behind collect, find_site and plan_layout's material counts)
   read state ids straight from the loaded chunk sections instead of Mineflayer's `findBlocks`, which built an object
@@ -689,7 +698,10 @@ differently:
   desert went from 2.4 s to ~3 ms). The server logs any stall of the event loop over 2 seconds as a `[lag]`
   line with what each agent was doing: 2-3.5 s while bots join is normal; a stall
   over ~30 s makes Paper disconnect every bot at once. Block searches over 200 ms (and `collect` choosing its next
-  block in over 300 ms) are logged as `[search]` lines.
+  block in over 300 ms) are logged as `[search]` lines. A walk that stalls or times out logs a `[stuck]` line (what
+  the bot's physics did during the walk, how often the server set it back and where to, the blocks round its feet and
+  the pathfinder's recent events); one the server set back 20 times or more also logs `[stuck-world]`, the blocks round
+  the bot that the server does not have as the bot sees them; a dig the server did not count is logged as `[dig]`.
 
 ### The village economy (real Minecraft)
 
@@ -730,7 +742,10 @@ free chest, else puts a new chest in the next free spot (carried, or crafted fro
 else any chest with room. `withdraw` goes to the chests that hold the item. `deposit item=all` keeps tools and leaves
 the junk that gathering picks up (saplings, seeds, dirt, cocoa beans), unless the depositing agent holds a task to
 collect it (dirt for a vanilla house's floor). A deposit that finds no path to the hut says to walk back first (told to
-craft a chest instead, a miner put a crafting table down in its tunnel and walled itself in). Villages laid out before the hut keep their loose
+craft a chest instead, a miner put a crafting table down in its tunnel and walled itself in). A walk to a chest that
+stalls without moving the bot a block fails the deposit or withdraw at once when the chest is more than 6 blocks away
+(nearer, only the side of the chest nearest the bot is tried), so a bot that cannot move reaches the stuck rescue in
+seconds rather than minutes; a deposit that already put something away reports that instead of failing. Villages laid out before the hut keep their loose
 chests: the first `deposit` puts a carried chest down beside the plot, and when the chests are full, another goes down
 in a row beside them. What each chest holds is recorded whenever it is opened, and shown chest by chest in every
 planner's village summary, in `/api/village/:v` and in the panel's detailed view ("chest 1 (logs): 64 oak_log, ...").
