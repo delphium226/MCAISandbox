@@ -33,9 +33,12 @@ let nextActionId = 1;
 /**
  * Mineflayer's physics uses a player half-width of exactly 0.3, the server 0.6f / 2 (a hair wider). Pressed against a
  * wall, the bot then stands where the server's box overlaps the block, and the server rejects every move from there
- * (teleporting the bot back each tick), so it is stuck for good. A slightly wider client box avoids it.
+ * (teleporting the bot back each tick), so it is stuck for good. A slightly wider client box avoids it. It must be a
+ * binary fraction: with 0.3001 a bot stopped at a wall face stood at face - 0.3001, and adding 0.3001 back gave a box
+ * edge 4e-16 inside the wall at some faces (z -4, ±1024: 3 faces a side in 6,001), so prismarine-physics let it press on
+ * into the block and Paper refused every move into it without a word (F147, the pit of F138). 1229/4096 adds back exactly.
  */
-const PLAYER_HALF_WIDTH = 0.3001;
+const PLAYER_HALF_WIDTH = 1229 / 4096; // 0.300048828125
 
 /**
  * Failure messages of skills that could not get somewhere (collect's and explore's too, which quote the walk's), a walk

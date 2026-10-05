@@ -176,6 +176,26 @@ function stuckLine(a: BotAgent, t: WalkTally, target: string, why: string, t0: n
     + `forced ${t.forced}${t.forcedAt ? ` (last ${f2(t.forcedAt.x)},${f2(t.forcedAt.y)},${f2(t.forcedAt.z)})` : ''}; feet ${feet}; events ${events || 'none'}`;
 }
 
+/**
+ * The blocks round the bot's feet and head (3x3, two levels) the server does not have as the bot sees them, asked one by
+ * one over RCON (`execute if block` with the bot's block name); a diagnostic for the `[stuck-world]` line.
+ */
+async function serverDiffers(a: BotAgent): Promise<string> {
+  const p = a.bot.entity.position;
+  const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
+  const out: string[] = [];
+  for (let dy = 0; dy <= 1; dy++)
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = bx + dx, y = by + dy, z = bz + dz;
+        const name = a.bot.blockAt(new Vec3(x, y, z))?.name;
+        if (!name) continue;
+        const r = await a.world.rcon.command(`execute if block ${x} ${y} ${z} minecraft:${name}`);
+        if (!/passed/i.test(r)) out.push(`${x},${y},${z} (the bot sees ${name})`);
+      }
+  return out.length ? `the server differs at ${out.join(', ')}` : 'the server agrees on the 18 blocks round the feet and head';
+}
+
 async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs: number) {
   const bot = a.bot;
   bot.pathfinder.setMovements(a.moves());
@@ -204,7 +224,10 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
     };
     const onAbort = () => done(new Error('cancelled'));
     const stalled = (msg: string, why: string) => {
-      console.log(stuckLine(a, tally, target, why, t0, far));
+      // (short walks to a dropped item time out often and say nothing new)
+      if (why !== 'timed out' || timeoutMs >= 10000) console.log(stuckLine(a, tally, target, why, t0, far));
+      // Set back by the server again and again: does its world differ from the bot's round the feet (F147's mine stalls)?
+      if (tally.forced >= 20) void serverDiffers(a).then((d) => console.log(`[stuck-world] ${a.name} at ${at(bot.entity.position)}: ${d}`), () => {});
       const g = goal as unknown as { x?: number; z?: number };
       if (typeof g.x === 'number' && typeof g.z === 'number') a.lastStall = { x: g.x + 0.5, z: g.z + 0.5, t: Date.now(), at: { x: bot.entity.position.x, z: bot.entity.position.z } };
       done(Object.assign(new Error(msg), { moved: far }));
