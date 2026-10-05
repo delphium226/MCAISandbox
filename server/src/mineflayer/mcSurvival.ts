@@ -17,7 +17,7 @@ import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, unmoved, walk, wetOver, wetSide,
 } from './mcUtil';
-import { TREE_LOG, WILD_GROUND } from './mcBlocks';
+import { FALLING, TREE_LOG, WILD_GROUND } from './mcBlocks';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
 
@@ -86,16 +86,46 @@ export async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, for
   // if it was aborted anyway and the block is still there
   bot.pathfinder.setGoal(null);
   for (let i = 0; i < 30 && bot.pathfinder.isMining(); i++) await sleep(100, signal);
+  // (the state to put back in the bot's view if the server keeps the block, and how long the server may take: Paper breaks
+  // a dig it thinks short only when its own count, which can run at a fifth of ours, reaches the end)
+  let state = block.stateId;
+  const late = Math.max(450, 4 * bot.digTime(block));
   try {
     await abortable(bot.dig(block, true), signal, () => bot.stopDigging());
   } catch (e) {
     if (!/Digging aborted/i.test((e as Error).message) || bot.blockAt(pos)?.name !== name) throw e;
     await sleep(300, signal);
+    state = bot.blockAt(pos)!.stateId;
     await abortable(bot.dig(bot.blockAt(pos)!, true), signal, () => bot.stopDigging());
+  }
+  // Mineflayer counts a block gone when its own dig timer ends; Paper breaks it only when it agrees the dig finished, a
+  // little later. A tunnel cell left stone on the server and air in the bot's view had every walk through it
+  // set back for 10 s (F147). Ask the server; still there: put it back in the bot's view and dig once more. (Not sand or
+  // gravel: the next one falls into the cell.)
+  if (!FALLING.has(name) && (await stillOnServer(a, pos, name, late, signal))) {
+    console.log(`[dig] ${a.name}: the ${name} at ${at(pos)} is still there on the server after the dig; digging again`);
+    const view = bot.world as unknown as { setBlockStateId(p: Vec3, id: number): void };
+    view.setBlockStateId(pos, state);
+    await abortable(bot.dig(bot.blockAt(pos)!, true), signal, () => bot.stopDigging());
+    if (await stillOnServer(a, pos, name, late, signal)) {
+      view.setBlockStateId(pos, state);
+      throw new Error(`the ${name} at ${at(pos)} is still there after digging it twice (the server did not count the digs); try again or another block`);
+    }
   }
   a.pushEvent('broke', `broke ${name} at ${at(pos)}`, { block: name, x: pos.x, y: pos.y, z: pos.z });
   if (pickup) await pickUpDrops(a, pos.offset(0.5, 0.5, 0.5), signal);
   return `mined ${name} at ${at(pos)}`;
+}
+
+/** Whether the server still has `name` at pos after a dig, asking every 150 ms for up to `ms` (it may break it late). */
+async function stillOnServer(a: BotAgent, pos: Vec3, name: string, ms: number, signal: AbortSignal): Promise<boolean> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const r = await a.world.rcon.command(`execute if block ${pos.x} ${pos.y} ${pos.z} minecraft:${name}`).catch(() => '');
+    if (!/passed/i.test(r)) return false;
+    if (Date.now() + 150 > end) return true;
+    await sleep(150, signal);
+  }
 }
 
 /**
