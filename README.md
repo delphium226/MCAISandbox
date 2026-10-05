@@ -404,7 +404,7 @@ try and the verdict is logged as a `[design]` line, and the control panel shows 
 
 **Vanilla village pieces** (Minecraft; `server/src/vanillaPieces.ts`, phase D's "Vanilla villages" in `docs/PLAN.md`).
 The Paper server's jar holds the game's own village pieces (houses, town centres, streets) for five biomes: plains,
-savanna, snowy, taiga and desert. They are read from the local jar at runtime with a small zip reader (`MC_VANILLA_JAR`
+savanna, snowy, taiga and desert. They are read from the local jar at runtime (`vanillaData.ts`, below; `MC_VANILLA_JAR`
 picks another jar) and never copied into the repository: they are Mojang's files. `pieceToDesign` turns a house into a
 design with its block states: cut at its entrance door (the door's level is layer 1, the floor under it layer 0, the
 ground fill below dropped), jigsaw blocks replaced by what they become, outside air and anything open to the sky left
@@ -529,9 +529,13 @@ What building these agents taught, and what the code is built around:
   then one door in an outer wall with room in front of it, every stair facing uphill (and the shapes the server will
   give them), whole walls, a covered inside and no lint notes; then every stored design is validated again. `STYLE=` or
   `DESIGN=` prints one design, and with `OUT=` writes it with what its build should show (for `rotate_design.py`).
-- `scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG]` draws a design (from a villages.json or a
-  JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and the north-west,
-  offline, in flat colours. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
+- `scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG] [--colours jar|hand]` draws a design (from
+  a villages.json or a JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and
+  the north-west, offline, in flat colours, into `runs/renders/` unless `--out` says otherwise. Each block's top and side
+  colours are averaged from the textures in the Minecraft 26.1.2 client jar (`scripts/vanilla_colours.py`; Paper's jar
+  has no textures), read at run time and kept in memory only; `MC_CLIENT_JAR` points at the jar (the launcher's
+  `versions/26.1.2` folder by default). Without the jar, or with `--colours hand` (`MCAI_RENDER_COLOURS=hand`), a hand
+  table of colours is used; `contact_sheet.py` takes `--colours` too. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
   Paper jar (size, blocks, jigsaw blocks per piece), read in place and never copied out.
 - `scripts/checks/vanilla_pieces.mts [BIOME ...]` (offline, run with `node_modules/.bin/tsx`) imports every house piece
   of each biome as `vanillaLibrary` does and checks it as the architect's survival designs are checked: a line per piece
@@ -544,6 +548,13 @@ What building these agents taught, and what the code is built around:
   hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
   library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
   also checks that nothing stands on the green and no door opens onto it.
+- Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
+  and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
+  against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
+  smelting table against the jar's recipes and the old hand table, which it must keep, exit 1 if not; crafting from
+  minecraft-data against the jar's; every stored design's and vanilla piece's bill planned each way) and
+  `vanilla_drops.mts [ITEM ...]` (the blocks `collect` goes for against the blocks whose loot tables drop the item).
+  Run them after changing `mcBlocks.ts`, the smelting or `collect`'s targets.
 - `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
   dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
   objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
@@ -641,8 +652,18 @@ The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HO
 panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
 `server.properties`, `villages.json` and `atlas.json` it uses; `mc/rcon.py` and `mc/start.py` read it too, e.g.
 `mc/testserver` for the test world), `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
-see [Testing agents](#testing-agents)) and `MC_VANILLA_JAR` (the jar the vanilla village pieces are read from;
-`mc/server/versions/26.1.2/paper-26.1.2.jar` by default).
+see [Testing agents](#testing-agents)) and `MC_VANILLA_JAR` (the jar vanilla's data is read from, below;
+`mc/server/versions/26.1.2/paper-26.1.2.jar` by default, relative paths taken from the repository's root).
+
+**Vanilla's data.** Where the game has the answer, the adapter reads it from the game: `server/src/vanillaData.ts` reads
+entries, JSON files and tags (resolved through the tags they name) from the Paper jar on this machine at runtime and
+caches them per process. Mojang's data is never committed. From it come the village pieces (above), the smelting
+recipes behind the bills of materials, and the adapter's block and item lists (`mineflayer/mcBlocks.ts`: natural ground,
+tree logs, water, what prepare_site clears, what the mine and the pathfinder may dig, junk and tools), built from
+vanilla's tags plus a few names no tag covers. Blocks that are waterlogged with an empty box (a coral fan or glow lichen
+under water) count as water. Without the jar everything still runs: the lists and the smelting fall back, all or
+nothing, to the hand-written rules they replaced, the library gets no vanilla houses (the architect draws every
+building), and one `[vanilla]` log line says why.
 
 Some things work differently from the sandbox, because Mineflayer (the bot library) and the real server behave
 differently:
@@ -677,8 +698,8 @@ themselves. When the agent server starts it makes the world **peaceful and safe*
 fall, drowning, fire or freeze damage, keep-inventory, no fire spread. So the agents only gather, craft and build.
 
 **What a building costs.** Code works out the bill of materials of a design (`mcMaterials.ts`): every block, with a door
-counted once for its two cells, then the recipe chain down to raw materials using minecraft-data's recipes and a table
-of smelting recipes. Planks come from logs, doors and slabs from planks, glass from sand smelted with planks as fuel,
+counted once for its two cells, then the recipe chain down to raw materials using minecraft-data's crafting recipes and
+the server jar's smelting recipes (a hand table of eleven without the jar). Planks come from logs, doors and slabs from planks, glass from sand smelted with planks as fuel,
 stone bricks from stone smelted from cobblestone. Recipes that differ only by wood kind accept any wood; crafts round up
 to whole batches and leftovers are reused. Blocks that need Nether materials or hard-to-find ones (glowstone, iron for
 lanterns, wool, bricks) are refused at design time, and the architect is asked for cheap materials: planks, logs,
@@ -790,7 +811,9 @@ nothing (VanF1). With the mayor gathering while it waits: Minevale21 (1x, Mineva
 village from nothing took 8.0 minutes at 2x instead of 10.9 (VanM2). Round a green on a 40 site: staged plains and
 snowy villages from nothing built six buildings in 8.1-8.4 minutes at 2x with no failed actions (VanG1, VanG2, and
 VanG5 once collect kept out of the lake beside the plot), and the model-driven Minevale22 (1x) built six in 15.2
-minutes with no failed actions.
+minutes with no failed actions. With block lists and smelting from vanilla's data (2026-10-05): staged VanG6 and VanM3
+6/6 in 8.3 minutes at 2x, and Minevale23 (model-driven, 1x, on Minevale22's site) 6/6 in 14.9 minutes, with no failed
+actions.
 
 ### Models
 
@@ -859,11 +882,11 @@ world: agents, skills including the building engine, REST API), `brains.ts` (bra
 `llmBrain.ts` (Claude brain),
 `tieredBrain.ts` (planner/executor brain, village roles, model providers), `village.ts` (shared village state),
 `layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests, and the mayor's gathering), `designs.ts` (design format, checks, elevations and lint),
-`buildingGen.ts` (buildings drawn by code from a style), `vanillaPieces.ts` (Minecraft's village pieces as designs,
-read from the server's jar), `streetPlan.ts` (the green and the street plan)
+`buildingGen.ts` (buildings drawn by code from a style), `vanillaData.ts` (reads vanilla's data from the server's jar),
+`vanillaPieces.ts` (Minecraft's village pieces as designs), `streetPlan.ts` (the green and the street plan)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
-economy, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is
+economy, `mcBlocks.ts` for its block lists, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is
 `server/panel/index.html` with `server/src/panel.ts`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 The protocol is JSON over WebSocket (`/ws`), plus a compact binary format for chunks (`shared/src/protocol.ts`).

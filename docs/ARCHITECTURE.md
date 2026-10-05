@@ -150,6 +150,7 @@ flowchart TB
     huts["huts.ts<br/>(storage hut design)"]
     gen["buildingGen.ts<br/>(buildings from a style)"]
     vanilla["vanillaPieces.ts<br/>(the jar's village pieces<br/>as designs)"]
+    vdata["vanillaData.ts<br/>(the jar's entries, JSON, tags)"]
     street["streetPlan.ts<br/>(town centre, a green or<br/>streets, buildings facing them)"]
     taskb["taskBrain.ts<br/>(scripted worker, tests;<br/>the mayor's gathering)"]
     village["village.ts"]
@@ -167,7 +168,7 @@ flowchart TB
     mcworld["mcWorld.ts"]
     bot["botAgent.ts"]
     mcskills["mcSkills.ts, mcSurvival.ts,<br/>mcBuild.ts, mcUtil.ts"]
-    mcecon["mcRules.ts (peaceful settings),<br/>mcMaterials.ts (bills, recipe chains),<br/>mcStorage.ts (village chests, sorted)"]
+    mcecon["mcRules.ts (peaceful settings),<br/>mcMaterials.ts (bills, recipe chains),<br/>mcStorage.ts (village chests, sorted),<br/>mcBlocks.ts (block lists from tags)"]
     mcapi["mcApi.ts, rcon.ts, index.ts"]
   end
   neutral --> world
@@ -330,8 +331,8 @@ own layer.
 
 Minecraft's own villages are built from pieces stored in the server jar (`data/minecraft/structure/village/`: houses,
 town centres and streets for plains, savanna, snowy, taiga and desert) and joined by jigsaw blocks. `vanillaPieces.ts`
-reads them at runtime from the local jar (`DEFAULT_JAR`, or `MC_VANILLA_JAR`) with a small zip reader on Node's zlib (the
-central directory, stored or deflated entries) and the structure reader in `nbt.ts`; no piece is copied into the
+reads them at runtime from the local jar (`vanillaJar()`: `MC_VANILLA_JAR` or the default) with the zip reader in
+`vanillaData.ts` (section 5) and the structure reader in `nbt.ts`; no piece is copied into the
 repository. It is world-neutral like `buildingGen.ts`: a `Design` comes out, and the checks are the caller's.
 
 ```mermaid
@@ -607,6 +608,29 @@ The stand spot keeps off buildings and the mine because in a street plan "3 sout
 across a 3-wide street: a builder's footing search found its roof and the walk there pillared dirt in front of the hut's
 doorway, sealing the mine (F131).
 
+### Vanilla's data from the jar
+
+Where the game itself has the answer, the Minecraft adapter reads it (V2.5). `vanillaData.ts` (world-neutral) reads the
+Paper jar on this machine at runtime: `listEntries`, `readEntry` and `readJson` on the zip (central directory, stored or
+deflated entries, Node's zlib), and `tag(kind, name)` / `itemTag`, a tag's members with the tags it names resolved
+recursively, cached per process and only once complete. `vanillaJar()` is `MC_VANILLA_JAR` or
+`mc/server/versions/26.1.2/paper-26.1.2.jar`, resolved against the repository's root. Mojang's data is never committed:
+nothing read from a jar, or derived from it, is written into the repository.
+
+| Consumer | What it reads | Without the jar |
+|---|---|---|
+| `vanillaPieces.ts` | the village pieces (section 3) | `vanillaLibrary` returns nothing: no vanilla houses, the architect draws every building |
+| `mcMaterials.ts` (`smeltOptions`) | every `minecraft:smelting` recipe, tags expanded; inputs a plan cannot get (ores, gear, unobtainable or ungatherable items) left out, a family's inputs merged into its `any:` token, the old table's input first. Stone smelts from plain cobblestone only (vanilla turns cobbled deepslate into deepslate); mushroom stems are not logs | the hand table (`SMELT_FALLBACK`, 11 entries) |
+| `mineflayer/mcBlocks.ts` | the adapter's block and item lists (`DEFS`: each a union of tags, other lists and extras, minus exclusions): natural ground and what prepare_site clears, `NON_GROUND` for find_site's surface read, `TREE_LOG` shared by find_site, collect and felling, what walks, the mine and the stuck rescue may dig, water, falling blocks, junk and tools for `deposit`, the atlas's logs, leaves and water | every list from the hand rules they replaced (`HAND`), all or nothing |
+
+Each consumer builds its table once, on first use, and logs one `[vanilla]` line saying where it came from (or why it
+fell back). In `mcUtil.ts`'s per-state tables (`stateTables`), waterlogged states of blocks with an empty box (coral
+fans, glow lichen under water) count as water, as find_site's surface read takes them; `wetAt` and `openAt` read them,
+and the mine shares collect's wet table. Mushroom stems are cleared by prepare_site but are not logs.
+
+Three offline checks compare the hand-made data with vanilla's (section 8). The renderer's colours come from the
+client jar instead (Paper's has no textures), through `scripts/vanilla_colours.py`.
+
 ## 6. Models and GPUs
 
 ```mermaid
@@ -715,7 +739,13 @@ shapes compared through `/api/blocks?states=1` with what `gen_designs.mts` says 
 Some checks need no server at all: `gen_designs.mts` generates every roof type at several sizes, with and without an
 overhang, and checks each design (validation, the door, stairs facing uphill and their shapes by vanilla's rule, whole
 walls, a covered inside, the bill, no lint notes), then validates every stored design again; `render_design.py` draws a
-design or a box from `/api/blocks` as an isometric PNG (phase D's renderer); `village_pieces.py` surveys the vanilla
+design or a box from `/api/blocks` as an isometric PNG (phase D's renderer; colours averaged from the client jar's
+textures by `vanilla_colours.py`, `MC_CLIENT_JAR`, or its hand table with `--colours hand` or no jar; PNGs go to
+`runs/renders/`); `vanilla_tags.mts` (the block and item lists from the tags against the hand rules, and the
+waterlogged states), `vanilla_recipes.mts` (the smelting table against the jar's recipes and the old hand table, whose
+outputs it must keep; crafting against minecraft-data's; every stored design's and vanilla piece's bill planned each
+way) and `vanilla_drops.mts` (`collect`'s target blocks against the loot tables) compare our data with vanilla's,
+printing only; `village_pieces.py` surveys the vanilla
 village pieces in the Paper jar; `vanilla_pieces.mts` imports every house piece (or, with `KIND=town_centers`, every
 town centre) and checks each as the architect's survival designs are checked, with a report per biome (`OUT=` writes
 the designs for `contact_sheet.py`, which tiles their renders by biome, and for `rotate_design.py --design`; renders of
@@ -790,7 +820,7 @@ flowchart LR
 | Part | File | What it does |
 |---|---|---|
 | World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
-| Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells; grass and `dirt_path` charged as dirt, stripped logs and bark blocks as logs by `chargedItem`), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", a smelting table, whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
+| Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells; grass and `dirt_path` charged as dirt, stripped logs and bark blocks as logs by `chargedItem`), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", smelting from the jar's recipes or the hand table without it (section 5), whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
 | Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots), gather for the hut, build it around the chests; other buildings' gathering waits only for the storage, their builds for the hut |
 | Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below) |
 | Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item; `deposit item=all` leaves tools and junk (dirt, saplings, seeds), but not junk the depositor holds a task to collect (F132); a deposit that found no path says to walk back, not to craft a chest. Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
@@ -851,5 +881,6 @@ minutes at 2x from nothing (10.9 without it) and the model-driven Minevale21 15.
 with 2 failed actions, both a worker's. Round a green on a 40 site (V2.4), staged plains and snowy villages built 6
 buildings from nothing in 8.1-8.4 minutes at 2x with no failed actions (VanG1, VanG2, and VanG5 after collect's lake
 and pit fixes; VanG3 and VanG4 on the same land lost 2-4 minutes each to a lake beside the plot, F136-F138), and the
-model-driven Minevale22 built six in 15.2 minutes at 1x with no failed actions. Still to come: vanilla's tags, recipes
-and loot tables in place of hand-made lists (V2.5).
+model-driven Minevale22 built six in 15.2 minutes at 1x with no failed actions. With the block lists and smelting read
+from vanilla's tags and recipes (V2.5; loot tables are only checked so far), staged VanG6 and VanM3 built six in 8.3
+minutes at 2x, and the model-driven Minevale23 six in 14.9 minutes at 1x on Minevale22's site, all with no failed actions.

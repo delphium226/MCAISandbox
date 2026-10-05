@@ -20,39 +20,34 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-04 at the close of the thirteenth session: V2.3m and V2.4 done)
+(written 2026-10-05 at the close of the fourteenth session: V2.5 done)
 
-- **Code:** all committed and pushed to origin `tiered-brain-building` at the close (`b716f33` V2.3m, `9cb3a1d` its docs,
-  `723a24d` V2.4, `bb48ec0` collect's lake and pit fixes F136-F138, `a6644ff` V2.4's run record, and the close-out commit:
-  README, ARCHITECTURE, CLAUDE.md lessons 66-71, this handover). `main` untouched. Check `git status -sb` at the start.
-- **Stack:** stopped cleanly at the close (the test Paper logged "All dimensions are saved"; the main world did not run
-  this session; the test agent server and the pinned model servers stopped). Start it in CLAUDE.md's order; `reset_site.py`
-  starts the test world's two servers. No agents in either world. `ollama_exec.py status` gave no WARNING this session.
-- **Where things stand:** the mayor gathers while it waits (V2.3m: a TaskBrain beside its empty plan claims soft "Gather
-  N item" tasks and runs them as written; it hands them back when it must plan); vanilla villages get a green on a 40
-  site (V2.4: the town centre in an open green inside a ring street, every building facing in; the street plan up to 40
-  otherwise; the vanilla mayor searches find_site size=40). Minevale21 (V2.3m, street plan, the slow-mine site) 15.0 min
-  and Minevale22 (green, a 40 site) 15.2 min at 1x, both 6/6; Minevale20 before them 18.0. Collect keeps out of lakes and
-  pits (F136-F138).
-- **Next (the user's choice at the next session):** V2.5 (vanilla tags, recipes and loot tables instead of hand lists; a
-  subagent job, each piece with its check script), lamp posts (decided later), or the backlog: F138's leftovers (deposit
+- **Code:** committed on `tiered-brain-building` (`d2fda9a`, `05d9dbb` vanillaData.ts; `41d733c` renderer colours;
+  `cda19c8` smelting from the jar; `34e205b` block lists from tags; the close-out commit: README, ARCHITECTURE,
+  CLAUDE.md lessons 72-76, this handover). Pushed only if the user said so at the close (check `git status -sb`).
+  `main` untouched.
+- **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
+  pinned model servers). The main world did not run this session. No agents in either world. `ollama_exec.py status`
+  gave no WARNING this session.
+- **Where things stand:** the adapter's block and item lists come from vanilla's tags (`mcBlocks.ts`, the hand regexes
+  as an all-or-nothing fallback, one `[vanilla]` log line at the first use), SMELT from the jar's smelting recipes,
+  the renderer's colours from the client jar; loot tables stay on minecraft-data (`vanilla_drops.mts` checks they agree).
+  Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site (15.2); staged VanG6 and VanM3 8.3 min at 2x.
+- **Next (the user's choice at the next session):** lamp posts (decided later), the backlog (F138's leftovers: deposit
   gives up its side spots after a stuck that did not move the bot, a step out toward the goal inside `walk`, log the
-  pathfinder's last update on "stuck", jump-up diagonals with a side solid at foot level), F133 (the storage set-up's
-  move_to stuck 2 short), waterlogged blocks as water (F137's review), F124, F126, F128, F130, F131's leftovers.
-- **Test world state:** minevale3 holds Minevale22's green village at -1648..-1609, 27..66: reset before using it (the
-  reset restores minevale3's 160-block radius, the 40 sites -1657,64,23 and -1628,65,47 included).
+  pathfinder's last update on "stuck", jump-up diagonals with a side solid at foot level; F133; F124, F126, F128, F130,
+  F131's leftovers; V2.5's leftovers F139-F142), or phase 3 (talking to the mayor).
+- **Test world state:** minevale3 holds Minevale23's green village at -1648..-1609, 27..66: reset before using it.
 - **Main world:** unchanged this session.
-- **How to test now:** as before, plus: `PLAN=green SIZE=40 node_modules/.bin/tsx scripts/checks/street_plan.mts [BIOME]`
-  (offline greens; HOUSES= for more houses), `stage_village.py ... --mayor --planner none` (the gathering mayor without
-  model calls), `stage_village.py VILLAGE -1657 23 --site-at=-1657,64,23,40,birch --plan street --biome plains|snowy ...`
-  (a staged green on the 40 site; the X Z arguments are still required and `=` is needed for a negative X). Designs from
-  `OUT=DIR vanilla_pieces.mts BIOME` (keep them under runs/). Renders: `curl /api/blocks?...&states=1 -o F.json` while the
-  agents are still in the world, then `render_design.py F.json`. Run logs and renders: `runs/2026-10-04/` (VanF2, VanM1-2,
-  Minevale21, prep40, VanG1-5, sand_check, Minevale22).
-- **Working method:** as before. The reviews found real bugs again in every piece (V2.3m's design review: a simpler
-  structure; its diff review: 8, among them an action stopped without a report; V2.4's design review: the storage hut
-  that never turns; its diff review: 4; the collect fixes' review: seagrass as water). Two log analyses after slow staged
-  runs found the lake chains (F136-F138); keep doing that for runs that pass but lose minutes.
+- **How to test now:** as before, plus: `node_modules/.bin/tsx scripts/checks/vanilla_tags.mts [LIST]` (vanilla vs the
+  hand lists, the waterlogged table; exit 1 on problems), `vanilla_recipes.mts` (the server's SMELT against the jar and
+  the old table; exit 1 on lost parity), `vanilla_drops.mts [ITEM]` (loot tables against collect's drops),
+  `python scripts/vanilla_colours.py` (hand vs jar colours); `MC_VANILLA_JAR=nope` runs anything on the hand lists;
+  `render_design.py --colours hand` for the old colours. Run logs and renders: `runs/2026-10-05/`.
+- **Working method:** as before. This session: four read-only inventories in parallel (one per part, each writing its
+  comparison script), a design review (13 findings, among them a smelting filter that would have dropped cobblestone and
+  a partly cached tag), three implementers on disjoint files, a diff review (7 lows). Capture every offline check's output
+  before the change; compare a world check with the old code (stash, reset, run) before blaming the change.
 
 ## Phase 1: reliability of the survival village (done 2026-09-29)
 
@@ -642,7 +637,20 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       (plains, snowy) 6/6 in 8.1-8.4 min at 2x; Minevale22 (1x, model-driven, the 40 site at -1628,47) 6/6 in **15.2 min**,
       0 failed actions. The plan as written: round a town centre with the buildings facing in; prepare_site's limit raised to ~40 once
       its time is measured. Later, with D.7: vanilla's full jigsaw assembly over terrain.
-- [ ] V2.5 **Vanilla data instead of hand lists** (independent; a subagent job, each with its check script): block tags
+- [x] V2.5 **Vanilla data instead of hand lists**. **Done 10-05 (fourteenth session)**: `vanillaData.ts` (the jar reader
+      moved out of vanillaPieces.ts; tags resolved recursively, `vanillaJar()` resolved against the repo root; `d2fda9a`,
+      `05d9dbb`); `mcBlocks.ts`, the adapter's block and item lists from tags plus short extras lists, all at once with the
+      hand regexes as an all-or-nothing fallback (`34e205b`); SMELT from the jar's smelting recipes (`cda19c8`); renderer
+      colours averaged from the client jar (`41d733c`). Loot tables: no runtime change (minecraft-data's drops agree with
+      the jar on every item the economy asks collect for); `vanilla_drops.mts` stays as the upgrade check. Four read-only
+      inventories (one per part, each with its comparison script), a design review (13 findings), three implementers on
+      disjoint files, a diff review (7 lows). Behaviour changes, all judged by the user: natural lists lose built blocks the
+      regexes let through (stripped logs and wood, glazed terracotta, potted plants, crop stems as logs) and gain natural
+      ones (corals, lush caves, newer flowers, pale garden, mangrove roots, dripstone, blue ice; bee nests, cocoa, pumpkins
+      and melons are non-ground for find_site, F76's class); waterlogged empty-box states are water in the wet tables and
+      the mine shares them; mushroom stems are cleared but not logs; built frames read as built ground; stone smelts from
+      plain cobblestone. site.py PASS, staged VanG6 and VanM3 6/6 in 8.3 min at 2x, Minevale23 6/6 in **14.9 min** at 1x
+      (Minevale22 15.2 on the same site), 0 failed actions. The plan as written: block tags
       (`data/minecraft/tags/block/`: logs, leaves, flowers, replaceable, dirt...) for NATURAL and similar lists (F61 and
       F76 were missing entries); the jar's recipes, smelting included, for mcMaterials' hand-made smelting table; loot
       tables for "which blocks drop this item" (collect); texture colours averaged from the user's client jar for the
@@ -741,6 +749,12 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - Small tools kept from the eighth session: `scripts/checks/top_map.py` (offline top-ground map; found F95's pits) and
   `scripts/checks/region_logs.py` (logs with their axis, for fallen trees).
 - F102: fellTree's swallowed refill failures; a stray dig at a plot's margin.
+- V2.5's leftovers (10-05): F140 (collect refusing items it can never get), F141 (resin plans), F142's hand rules
+  (water regexes, the craft hint, stems in charcoal, partial-shape waterlogged solids, tinted glass in renders);
+  `treeAt` crawling plain oak_log frames of a building beside a tree (lesson 30: skip structure cells, as collect's
+  `keep` does); red sand for glass with an `any:sand` family (collect and gatherNames would have to learn it); the
+  stonecutter (stairs 1:1 instead of 6 blocks for 4). After a Paper or minecraft-data upgrade run
+  `vanilla_tags.mts`, `vanilla_recipes.mts` and `vanilla_drops.mts` (tags and recipes exit 1 on problems).
 
 ## Run record
 
@@ -937,6 +951,12 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-04 (s13) | VanG4 | as VanG1 with F136/F137's first fixes | **6/6** | 9.6 min | the Mayor 0 failed; Worker2 stuck again 1.7 min in a dry 1-deep hole beside the shore birch (-1656,62,-5: the side pickup's two dirt pits, no water now) until the rescue walked it out (F138) |
 | 10-04 (s13) | **VanG5** | as VanG1 with F136-F138's fixes (and the review's: seagrass and kelp as water, fresh position, unloaded sides wet) | **6/6** | **8.4 min** | 0 failed actions; side pickups still bring dirt (from banks); the Mayor 6 gather tasks |
 | 10-04 (s13) | **Minevale22** | model-driven 1x, minevale3 (the watcher's probe with site size 40), V2.4 + collect fixes (bb48ec0) | **6/6 PASS** | **15.2 min** | the mayor's find_site size=40 took -1628,65,47 (40x40, 1162 logs within 48, 12 blocks from the probe's site), laid out round a green at 0.2 min (the ring 3 blocks south); prepare_site 2.5 min; 0 failed actions, no `[lag]`; the mayor 9 gather tasks, plan 2x / exec 2x; render `runs/2026-10-04/Minevale22.png` (Minevale21's 32 street plan on the slow-mine site: 15.0) |
+| 10-05 (s14) | offline checks | V2.5 before/after: materials.mts, gen_designs.mts, vanilla_pieces.mts, street_plan.mts PLAN=green SIZE=40, vanilla_tags/recipes/drops.mts | **pass** | - | materials: 5 lines (stone from plain cobblestone, same totals); the rest unchanged; jar missing: materials byte-identical, every list its old regex; all 1,506 items planned in 33 ms (no cost-search hang); waterlogged table 0 mismatches against prismarine-block |
+| 10-05 (s14) | site.py | test world 2x, minevale3 probe -1544,8, size 32, before / after the tag lists | **PASS / PASS** | 18 / 19 s | 0 failures, 0 warnings both; after: the site 2 blocks east (-1560 for -1562), 1565 tree blocks and 1195 logs for 1492 and 1220 (bee nests in the birch woods no longer read as built ground) |
+| 10-05 (s14) | fell_trees.py | test world 2x, -1544,8, 12 logs x 2 rounds, old code / new code | **same trees** | 113 / 125 s | the same four trees in the same order; 13 logs left beside the third (a separate trunk 2 blocks off, both runs); the new run left 1 pillar dirt after a refused placement (F139) |
+| 10-05 (s14) | **VanG6** | test world 2x, the 40 site (`--site-at`), green, plains, `--mayor --planner none`, V2.5 | **6/6** | **8.3 min** (VanG5 8.4) | 0 failed actions, no `[lag]`; prepare_site 1.3 min; the Mayor 18 tasks |
+| 10-05 (s14) | **VanM3** | test world 2x, `--site minevale3`, street plan, plains, `--mayor --planner none`, V2.5 | **6/6** | **8.3 min** (VanM2 8.0) | 0 failed actions, no `[lag]` |
+| 10-05 (s14) | **Minevale23** | model-driven 1x, minevale3 (probe size 40), V2.5 (34e205b) | **6/6 PASS** | **14.9 min** (Minevale22 15.2) | the mayor's find_site took -1628,65,47 (Minevale22's site), green layout at 0.2 min; 0 failed actions, no `[lag]`; plan 2x / exec 2x, 0 designs; render `runs/2026-10-05/Minevale23.png` (jar colours) |
 
 ## Findings log
 
@@ -1356,6 +1376,23 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F139 (10-05, fourteenth session, fell_trees.py) A refused pillar placement (lesson 29: "the block is still air") at
+  -1539,63,15 left one dirt at -1538,63,14 beside the felled trunk; the same check on the old code left none (timing;
+  the felling code reads the same log set). Rare; backlog with lesson 29's other placement retries.
+- F140 (10-05, V2.5's inventories) Items collect accepts but can never get: vine (needs shears), ice and packed ice
+  (drop nothing), snow and snowballs (need a shovel; collect makes only pickaxes), raw_gold (an iron pickaxe), leather
+  (no block drops it). None is posted today (EASY_GATHER and the libraries refuse them first); a rule refusing names
+  whose blocks give the bot nothing would close it (backlog).
+- F141 (10-05, V2.5's diff review) With the jar's smelting, the resin family plans as "gather the block itself":
+  resin_brick now has a smelt option from resin_clump, which only crafts in a cycle with resin_block, and the cost search
+  returns null for an item whose every option cycles. No design uses resin; backlog (resin_clump to GATHER, or cost()
+  treating a self-dropping block as gatherable).
+- F142 (10-05, V2.5) Left as hand rules (noted, not changed): mcBuild ~509 and ~1170, mcUtil ~201 and ~460
+  (`/water|lava/`), mineBlock's plant regex and fallenRow's in mcSurvival, the `_leaves` endsWith tests, the atlas's
+  MATERIALS, the craft skill's "(try smelt)" hint (names cobblestone, misses terracotta and smooth sandstone). Crimson and
+  warped stems stay in `any:logs` (charcoal; vanilla does not burn them). Partial-shape waterlogged solids (sea pickles,
+  stairs, slabs) are not wet. Old atlas.json summaries take the new categories only on rescan. The renderer draws
+  tinted glass, slime and honey opaque in jar mode (the jar marks only force_translucent sprites).
 - F138 (10-04, thirteenth session, VanG4) With F136's water checks in, the side pickup still dug two dirt pits beside
   the felled shore birch (-1656,62,-6 and -5), and `pickUpDrops` walked the bot into each; from the second, every walk to
   the storage (10 per deposit: the chest's reach and four side spots, two chests) stalled "stuck" for 10 s without
@@ -1686,6 +1723,14 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-05 (fourteenth session) V2.5's shape (the user's choices among Claude's recommendations, after four inventories):
+  tags, smelting and textures this session, loot tables only as a check (no runtime change); read from the local jars at
+  runtime, cached per process, today's hand lists when the jar is missing (logged once; all lists at once, never mixed);
+  vanilla's sets in every list, also the ones found beside V2.5's (find_site's NON_GROUND, the mine's and rescue's
+  DIGGABLE, isLog, the atlas); waterlogged states with an empty box count as water in collect's and the mine's checks
+  (solid ones not). After the design review (Claude's call, the user deferred): mushroom stems are not logs, and built
+  log and bamboo frames read as built ground; crafting stays on minecraft-data (a strict subset of the jar's; the jar's
+  recolouring recipes made the cost search cycle).
 - 10-04 (thirteenth session) V2.4's shape (the user's choices among Claude's options, after prepare_site 40x40 was
   measured): a ring street round a green, the town centre in it, every building outside the ring facing in (not an open
   green with paths, not just a bigger street plan); the vanilla mayor searches find_site size=40, a 40 site gets the green

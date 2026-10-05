@@ -365,6 +365,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     collect's lake and pit fixes (`bb48ec0`, F136-F138): staged VanG1/2/5 8.1-8.4 min at 2x, Minevale22 (1x) 6/6 in
     15.2 min, 0 failed actions. Lessons 66-71. `stage_village.py --site-at=X,Y,Z,SIZE[,WOOD]` needs the `=` for a
     negative X and the X Z arguments as well. Next: V2.5 (vanilla data) or the backlog (PLAN.md).
+29. 2026-10-05 (fourteenth session; push only if the user said so at the close; `main` untouched): V2.5, vanilla data
+    instead of hand lists: `vanillaData.ts` (`d2fda9a`, `05d9dbb`: the jar reader shared with vanillaPieces.ts, tags
+    resolved recursively, `vanillaJar()`), the renderer's colours from the client jar (`41d733c`), SMELT from the jar's
+    smelting recipes (`cda19c8`), the adapter's block and item lists from tags in `mcBlocks.ts` with the hand regexes
+    as an all-or-nothing fallback (`34e205b`); loot tables left on minecraft-data (they agree). Staged VanG6 and VanM3
+    8.3 min at 2x, Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site, 0 failed actions. Lessons 72-76. Next: the
+    user's choice (lamp posts, the backlog or phase 3; PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -521,12 +528,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the thirteenth session (2026-10-04): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the fourteenth session (2026-10-05): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale22's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale23's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -761,6 +768,24 @@ Lessons from the adapter:
    don't dig ground the bot will have to stand in.
 71. **Measure with the run's own settings** (V2.4): prepare_site at 40x40 took 9.6 min for Gus at the default
    buildSpeed 1, ~450 s of it pacing; at a village worker's buildSpeed 4 it was 2.5 min.
+72. **The hand lists were wrong more than incomplete** (V2.5, 2026-10-05): suffix patterns took built blocks as natural
+   (`_log$` stripped logs, `.*_terracotta` glazed terracotta, `_sapling$` and `.*_tulip` potted plants, `_stem$` crop
+   stems as tree logs), so prepare_site could clear and felling crawl into vanilla houses' stripped-log frames. Vanilla's
+   tags list blocks by name; prefer a set of names to a pattern for anything that decides what may be broken.
+73. **Tags do not hold every natural block**: cocoa, bee nests and berry bushes (F61, F76) are in no tag that does not
+   also hold built or farmed blocks (`#beehives` has the beehive). A vanilla list is tags plus a short, visible extras
+   list (`mcBlocks.ts` DEFS); `vanilla_tags.mts` prints both against the old hand lists.
+74. **A fallback must be all or nothing** (V2.5's design review): one list from the jar and another from the hand
+   regexes would have kept a stripped-log frame in prepare_site's column check and felled it in treeAt's crawl. Build
+   every derived set in one pass; on any error use every hand list. And never cache a result before it is complete
+   (a tag read that threw left its partial set cached).
+75. **Inventory before deciding, and check the old code in the world before blaming the new** (V2.5): four read-only
+   subagents with comparison scripts turned "replace the hand lists" into a list of judged differences and showed the
+   loot-table part was not worth changing. A felling check that left a pillar dirt was run again on the stashed old
+   code after a reset: the same trees, so the dirt was lesson 29's placement quirk, not the change.
+76. **A new recipe source can cycle a cost search** (V2.5): the jar's wool recolouring hung it and resin's
+   clump/block pair made it return null (F141). After changing recipe data, plan every registry item once with a time
+   limit (33 ms for 1,506 items) and compare the bills with the old ones (`materials.mts`).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
