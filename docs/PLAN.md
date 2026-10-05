@@ -20,6 +20,20 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-05 at the end of the fifteenth session: F138 reproduced and the design reviewed, no code changed; the
+fourteenth session's notes below stay valid where not overridden)
+
+- **Code:** unchanged since `e5efdef` (the session ran in a worktree whose edits to the main checkout were refused; its
+  record was applied by the sixteenth session from `runs/2026-10-05/f138/HANDOVER.md`).
+- **Stack:** left running at the end of the fifteenth session (pinned models 11435/11436 with no WARNING; test Paper 25566
+  and test agent server 8767 at 2x, from `reset_site.py minevale3` at 11:37). minevale3 is dirty: the shore birch at
+  -1657,-6 felled, pits at -1656,62,-6/-5, a chest at -1660,66,11 and a village **PitTest** (one registered chest, no plots)
+  in `mc/testserver/villages.json`. Reset minevale3 before any run and check PitTest is gone.
+- **Next: F138's leftovers in the user's order 3 -> 4 -> 1 -> (2 only if stalls remain)** (decisions of 10-05 s15;
+  F143-F146). Item 3 first (the `[stuck]` line with a per-walk tick tally, F145), run `pit_repro.py` from
+  -1655.5,62,-4.5 only (F144), read the mechanism, then decide item 4 with the user. Then F133, F131's leftovers.
+- **Start sessions on the main checkout, not a worktree** (CLAUDE.md, Conventions).
+
 (written 2026-10-05 at the close of the fourteenth session: V2.5 done)
 
 - **Code:** committed on `tiered-brain-building` (`d2fda9a`, `05d9dbb` vanillaData.ts; `41d733c` renderer colours;
@@ -957,6 +971,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-05 (s14) | **VanG6** | test world 2x, the 40 site (`--site-at`), green, plains, `--mayor --planner none`, V2.5 | **6/6** | **8.3 min** (VanG5 8.4) | 0 failed actions, no `[lag]`; prepare_site 1.3 min; the Mayor 18 tasks |
 | 10-05 (s14) | **VanM3** | test world 2x, `--site minevale3`, street plan, plains, `--mayor --planner none`, V2.5 | **6/6** | **8.3 min** (VanM2 8.0) | 0 failed actions, no `[lag]` |
 | 10-05 (s14) | **Minevale23** | model-driven 1x, minevale3 (probe size 40), V2.5 (34e205b) | **6/6 PASS** | **14.9 min** (Minevale22 15.2) | the mayor's find_site took -1628,65,47 (Minevale22's site), green layout at 0.2 min; 0 failed actions, no `[lag]`; plan 2x / exec 2x, 0 designs; render `runs/2026-10-05/Minevale23.png` (jar colours) |
+| 10-05 (s15) | pit_repro (scratch) | test world 2x, minevale3, the shore birch felled and VanG4's pits dug, Gus idle, `move_to` -1645,64,6 (east) | **out** | 2.1 s | first try: east out of the pit at once (as VanG4's rescue) |
+| 10-05 (s15) | pit_repro (scratch) | as above, `move_to` -1660,64,11 (VanG4's logs chest, SW), four start spots x2 moves | **stalls** | 10.2 s a move | stuck at -1656,62,-5 from -1655.5,62,-4.5 (both moves, then the rescue walked out east in 2 s); -1655.5,-5.5 out in 3.1 s; the two off-centre spots were artefacts (F144) |
+| 10-05 (s15) | pit_deposit_before (scratch) | as above from -1655.5,62,-4.5, village PitTest with one chest at -1660,66,11, `deposit item=logs` x2, old code | **stalls** | 52.3 s a deposit | the reach and four side spots, 10 s each; rescue after the second (~105 s), its walk-out 30 s more (out to the north, -1655,64,-11). Baseline for items 1-4 |
 
 ## Findings log
 
@@ -1376,6 +1393,54 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F146 (10-05, fifteenth session, the design review of item 1) openChest's errors are swallowed in more places than
+  depositSorted (mcStorage ~408) and refreshStorage (~531): `newChest`'s catch (~461-465, errors from ensureChest -> take
+  ~483), makePickaxe's `fromStock` (mcSurvival ~165) and the storage hut's placeChest reach (mcStorage ~212, which goes on
+  to placeAt). A pinned (unmoved) stall must be rethrown in all of them, and a deposit that already put one group away
+  must return that partial result with the stuck note, not fail (rethrow only when nothing moved), or the planner gathers
+  it again. Failing at once also drops today's side-spot fallback for a bot 3-5 blocks from a chest on a step that stalls
+  without moving: the review suggests one nearest standable side spot (~10 s) before the pinned error (changes the
+  user's choice "fail at once": ask). Item 4's rule is geometrically safe (every refused jump-up diagonal leaves a
+  cardinal jump-up and a step; a 1-wide diagonal staircase is refused today already), but `physical` also refuses low
+  blocks (carpet, snow layer, bottom slab): test `side.height - node.y > 0.6`.
+- F145 (10-05, fifteenth session, the design review of item 3) walkOnce's watchdog (mcUtil ~160-168) resets on any 3D
+  move over 0.5 sampled every 500 ms, so a hop sampled near its top resets the stuck timer and stall times vary: use the
+  horizontal distance, and attach the farthest horizontal distance from the walk's start to the thrown error (openChest's
+  "did not move" test should read that, not a 3D distance < 1 from its own start, which a hop or `walk`'s 40-block legs
+  defeat). A snapshot of the controls at the stuck moment says nothing (every 3.5 s `resetPath('stuck')`, index.js ~634,
+  clears them): tally the walk's physics ticks instead (one `physicsTick` listener in `listen()`, counting while walkOnce
+  sets `walkTally`): ticks with forward/jump/sprint, onGround ticks, y range, horizontal spread, `forcedMove` count with
+  the corrected position, isMining/isBuilding ticks. Reading it: forward off most ticks = the "stand still" branch
+  (index.js ~626-629: all four physics checks reject the next node); jump on with forcedMove = the server refuses the
+  moves; jump on without = the client's physics and the server disagree; busy = a toBreak/toPlace on the path. Events
+  for the ring (mineflayer-pathfinder 2.4.5): `path_update` (status success/partial/timeout/noPath, path length, first node
+  x,y,z with toBreak/toPlace counts; copy numbers at once, never keep `results`, `context` (the A* closed set) or the live
+  `path` array), `path_reset` (reason: goal_updated, movements_updated, block_updated, chunk_loaded, stuck, dig_error,
+  place_error, no_scaffolding_blocks; only fires with a non-empty path), `goal_updated`, `path_stop`, `goal_reached`;
+  `forcedMove` is mineflayer's physics plugin's (teleports fire it too). Register once in `listen()`: bots are never
+  recreated, the listeners survive respawns; per-tick cost negligible with 4 bots.
+- F144 (10-05, fifteenth session, a test artefact) A test bot spawned off a cell's centre within 0.3 of a wall has its box
+  1e-4 inside the wall (half width 0.3001, the adapter's lesson 1): prismarine-physics does not push out of a block it
+  already overlaps, the bot walks into it and Paper logs "Gus moved wrongly!" and puts it back. Two of pit_repro's four
+  start spots (-1655.3/-4.3 and -1655.7/-5.7) were such: one spot of four is a real stall. Spawn tests at x.5, z.5.
+- F143 (10-05, fifteenth session, pit_repro) F138 reproduced live. On a fresh minevale3 (2x), with the shore birch at
+  -1657,63..66,-6 felled and VanG4's pits dug (-1656,62,-6 and -5: dry, 1 deep, dirt floor at 61, ground 62 round them
+  rising to 63-66 south and east; `terrain.py` prints it), Gus (idle, survival) at -1655.5,62,-4.5 failed every `move_to`
+  toward -1660,64,11 (VanG4's logs chest, SW and uphill) with "stuck at -1656,62,-5" after 10.2 s, ending within 0.2 blocks
+  of the start (y 62.0-62.8: small hops, never out of the cell); east (-1645,6) got out in 2.1 s, and from -1655.5,62,-5.5
+  the SW walk worked in 3.1 s. A deposit (village PitTest, one chest at -1660,66,11, 10 logs) failed after 52 s (the reach
+  and four side spots, 10 s each); the rescue came after the second (~105 s) and its walk-out took 30 s more (east and
+  south stalled, out to the north). The design review's replay on the real terrain gives a **cardinal** jump-up south to
+  -1656,63,-4 as the first node from -1655.5,-4.5 (not the diagonal the thirteenth session's approximate replay showed),
+  and gets out offline: the live bot's physics or the server disagree with the replay, so the mechanism is still open
+  (item 3's tally decides it; a live check without models: from the centre of -5, `move_to` due south and due east, both
+  cardinal jump-ups). Item 4 is held: from -1655.5,-5.5 it would reroute the one walk that worked onto that same cardinal
+  jump. The VanG4 log analysis: Worker2 lost 3.4 min (3.1 to 6.5 min of the run), not 1.7: two deposits of ~100 s each
+  (the logs group visited its chest twice, five walks each); the rescue started at the second (`movedFailed`: two move
+  failures within 3 blocks and 6 minutes; `finish` counts one only when the action ended within 4 blocks of its start).
+  Least time to the rescue today for a bot that cannot move: two one-walk actions ~20 s, two withdraws ~100 s, two hut
+  deposits ~200 s per group carried. The rescue's `walkOut` counts > 4 blocks from the start and dry as success; its
+  teleport always succeeds; it reports failed only with no home.
 - F139 (10-05, fourteenth session, fell_trees.py) A refused pillar placement (lesson 29: "the block is still air") at
   -1539,63,15 left one dirt at -1538,63,14 beside the felled trunk; the same check on the old code left none (timing;
   the felling code reads the same log set). Rare; backlog with lesson 29's other placement retries.
@@ -1403,6 +1468,7 @@ CLAUDE.md when a phase ends.
   (banks), no pits. Backlog: `openChest` gives up its side spots after a "stuck" that did not move the bot (the rescue
   then comes in ~20 s, not minutes); a straight step out toward the goal inside `walk` on such a stall; log the last
   `path_update`/`path_reset` on "stuck" to settle the mechanism; refused jump-up diagonals with a side solid at foot level.
+  Reproduced live on 10-05 (F143); the leftovers' design and review in F144-F146 and the decisions of 10-05 (s15).
 - F136 (10-04, thirteenth session, VanG3) A side pickup dug a gatherer into the lake: after felling the shore birch at
   -1657,63,-6, `sideGather` (mcSurvival.ts ~843) took 2 dirt the village needed within 4 blocks, nearest first, without
   skipping the block under its feet or blocks with water beside them; the lake flooded the holes (-1657,62,-5 and
@@ -1723,6 +1789,13 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-05 (fifteenth session) F138's leftovers (the user's choices among Claude's recommendations, after the reproduction):
+  order 3 -> 4 -> 1 -> 2; item 3 a permanent `[stuck]` line in the agent log (the pathfinder's recent events and the
+  walk's tick tally, F145); item 1 fails the deposit or withdraw at once on a stall that did not move the bot (a stall
+  after moving keeps today's side spots), so two such failures bring the rescue in ~20 s; item 4 now and item 2 (a
+  straight step toward the goal inside `walk`) only if stalls remain. After the design review (Claude's call, to confirm
+  with the user at the next session): item 4 waits for item 3's lines (the live stall's first node is a cardinal jump-up,
+  F143); item 1's open question: one nearest side spot before failing (F146).
 - 10-05 (fourteenth session) V2.5's shape (the user's choices among Claude's recommendations, after four inventories):
   tags, smelting and textures this session, loot tables only as a check (no runtime change); read from the local jars at
   runtime, cached per process, today's hand lists when the jar is missing (logged once; all lists at once, never mixed);

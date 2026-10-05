@@ -105,6 +105,9 @@ the session ends. When a run teaches something new, the plan changes with it (it
   these: ask the user to switch out of auto mode or to request the action explicitly.
 - Python edit scripts inside a Bash heredoc mangle backslashes (`\n`, `\S`, Windows paths): write the script with
   the Write tool and run the file, or use the Edit tool.
+- **Start Claude Code sessions on the main checkout** (`D:\Projects\MCAISandbox`), not in a worktree (2026-10-05): the
+  desktop app refused every edit a worktree session made to the main checkout (even with the folder granted), and a
+  worktree has no worlds, run logs or `node_modules`; the fifteenth session's record had to be handed over in a file.
 - Never edit server files while a test runs, even though the agent server does not reload them (the user's rule; it
   was broken twice in the 2026-09-27 session without effect on the runs).
 - Write prose (README, comments) plainly; match the surrounding comment density.
@@ -372,6 +375,10 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     as an all-or-nothing fallback (`34e205b`); loot tables left on minecraft-data (they agree). Staged VanG6 and VanM3
     8.3 min at 2x, Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site, 0 failed actions. Lessons 72-76. Next (the
     user's choice): the backlog, F138's leftovers first (PLAN.md).
+30. 2026-10-05 (fifteenth session; no code, nothing to push): F138's leftovers started. The pit reproduced live
+    (`runs/2026-10-05/f138/pit_repro.py`: 10.2 s per stalled walk, 52 s per stalled deposit, the rescue after ~105 s);
+    a design review held item 4 back (the stall's first move is a cardinal jump-up, not a diagonal) and widened item 1
+    (F143-F146). Next: item 3, the `[stuck]` line (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -786,6 +793,11 @@ Lessons from the adapter:
 76. **A new recipe source can cycle a cost search** (V2.5): the jar's wool recolouring hung it and resin's
    clump/block pair made it return null (F141). After changing recipe data, plan every registry item once with a time
    limit (33 ms for 1,506 items) and compare the bills with the old ones (`materials.mts`).
+77. **Reproduce live before trusting a replay, and spawn tests at a cell's centre** (F143, F144, 2026-10-05): two
+   offline replays of the pathfinder got out of VanG4's pit, while Gus in the live world stalled on every walk toward
+   the chest; and a test bot spawned within 0.3 of a wall has its box inside it, so the server refuses its moves
+   ("moved wrongly"): two of four start spots were artefacts. Measure a baseline on the live reproduction before
+   changing code.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
