@@ -14,9 +14,10 @@ import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
-  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, reach, resolveItem,
+  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, walk, wetOver, wetSide,
 } from './mcUtil';
+import { TREE_LOG, WILD_GROUND } from './mcBlocks';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
 
@@ -107,7 +108,7 @@ export function collectTargets(a: BotAgent, raw: string): { blocks: number[]; it
   const blocks = new Set<number>();
   const items = new Set<number>();
   if (/^(logs?|wood|trees?|any_log)$/.test(n)) {
-    for (const b of reg.blocksArray) if (/_log$/.test(b.name) && !b.name.startsWith('stripped_')) blocks.add(b.id);
+    for (const b of reg.blocksArray) if (TREE_LOG.has(b.name)) blocks.add(b.id);
     for (const b of blocks) items.add(reg.itemsByName[reg.blocks[b].name]?.id ?? -1);
   } else {
     const name = reg.blocksByName[n] || reg.itemsByName[n] ? n : n.replace(/s$/, '');
@@ -210,7 +211,7 @@ const targeted = new Map<string, { by: string; until: number }>();
 // Felling trees
 // ---------------------------------------------------------------------------------------------
 
-const isTreeLog = (name: string | undefined) => !!name && name.endsWith('_log') && !name.startsWith('stripped_');
+const isTreeLog = (name: string | undefined) => !!name && TREE_LOG.has(name);
 /** How high above the ground a tree may reach to be felled (giant jungle and spruce trees are left standing). */
 const TREE_MAX_HEIGHT = 30;
 /** How far up a log can be cut from where the bot stands (its eyes are 1.62 above its feet; reach ~4.3). */
@@ -254,9 +255,6 @@ function groundBelow(a: BotAgent, x: number, y: number, z: number): number | nul
   return null;
 }
 
-/** Ground as nature makes it (mcBuild.ts NATURAL_GROUND): what a fallen tree lies on. */
-const WILD_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/;
-
 /**
  * A fallen tree (26.1 generates them): a straight row of up to 16 logs of one kind lying along x or z, touching no other
  * log or built block, at least half of it on natural ground and nothing solid on top, outside every village (`keep`).
@@ -293,8 +291,8 @@ function fallenRow(a: BotAgent, p: Vec3, keep: (p: Vec3) => boolean): Vec3[] | n
           const n = q.offset(dx, dy, dz);
           if (!inRow.has(at(n)) && /_log$|_wood$|_planks$|_slab$|_stairs$|_fence|cobblestone|_bricks$/.test(b.blockAt(n)?.name ?? '')) return null;
         }
-  // Lying on the ground (up to half may overhang a slope or water), with nothing solid on top
-  const onGround = row.filter((q) => WILD_GROUND.test(b.blockAt(q.offset(0, -1, 0))?.name ?? '')).length;
+  // Lying on the ground as nature makes it (WILD_GROUND; up to half may overhang a slope or water), with nothing solid on top
+  const onGround = row.filter((q) => WILD_GROUND.has(b.blockAt(q.offset(0, -1, 0))?.name ?? '')).length;
   if (onGround * 2 < row.length) return null;
   if (row.some((q) => b.blockAt(q.offset(0, 1, 0))?.boundingBox === 'block')) return null;
   return row;
@@ -421,7 +419,7 @@ async function dirtForClimb(a: BotAgent, need: number, foot: Vec3, keep: (p: Vec
   const ids = ['dirt', 'grass_block', 'podzol'].map((n) => reg.blocksByName[n]?.id).filter((n): n is number => n !== undefined);
   // Ground at the tree's foot, open above, not under the tree itself
   const spots = nearestBlocks(a, ids, 8, 32, (p) => keep(p) && Math.abs(p.y - (foot.y - 1)) <= 1 && (p.x !== foot.x || p.z !== foot.z)
-    && a.bot.blockAt(p.offset(0, 1, 0))?.boundingBox === 'empty' && !/water|lava/.test(a.bot.blockAt(p.offset(0, 1, 0))?.name ?? '') && !wetSide(a, p), { min: Math.floor(foot.y) - 2, max: Math.floor(foot.y) });
+    && openAt(a, p.offset(0, 1, 0)) && !wetSide(a, p), { min: Math.floor(foot.y) - 2, max: Math.floor(foot.y) });
   for (const p of spots) {
     if (countItem(a, dirtId) >= need) break;
     await mineBlock(a, p, signal, false, 15000);

@@ -25,6 +25,7 @@ import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from '
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
+import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
 import { timeScale } from './mcRules';
 
 type Pos = [number, number, number];
@@ -53,13 +54,10 @@ interface Plot extends Area {
 const MAX_BUILD_BLOCKS = 2000;
 const baseName = (b: string) => b.replace(/^minecraft:/, '').replace(/\[.*$/, '');
 
-/** Plants, trees and snow: not ground. */
-const NON_GROUND = /leaves|_log$|_wood$|_stem$|grass$|fern|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|lilac|peony|rose_bush|sunflower|bush|sapling|^snow$|vine|mushroom|sugar_cane|bamboo|cactus|azalea|dripleaf|moss_carpet|leaf_litter|petals|cobweb/;
-/** Ground as nature makes it (find_site counts anything else as built on). */
-const NATURAL_GROUND = /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/;
-/** Blocks that occur in the wild: preparing a site may remove these, never anything built. */
-const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|bedrock|water|lava|sand|red_sand|gravel|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|clay|terracotta|.*_terracotta|moss_block|moss_carpet|mossy_cobblestone|cactus|sugar_cane|bamboo|cocoa|bee_nest|glow_lichen|hanging_roots|sweet_berry_bush|dead_bush|short_grass|tall_grass|short_dry_grass|tall_dry_grass|fern|large_fern|bush|firefly_bush|leaf_litter|pumpkin|melon|vine|cobweb|.*_mushroom|.*_mushroom_block|mushroom_stem|dandelion|poppy|.*_tulip|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|lilac|peony|rose_bush|sunflower|pink_petals|wildflowers|kelp|kelp_plant|seagrass|tall_seagrass|sea_pickle|lily_pad)$|_ore$|_log$|_wood$|_leaves$|_sapling$/;
-const isLog = (n: string) => /_log$|_wood$|_stem$/.test(n);
+// The block lists (mcBlocks.ts, from vanilla's tags): NON_GROUND, plants, trees and snow that are not ground;
+// NATURAL_GROUND, ground as nature makes it (find_site counts anything else as built on); NATURAL, blocks that occur in
+// the wild (preparing a site may remove these, never anything built); isLog, a tree's logs (no stripped logs or wood)
+const isLog = (n: string) => BUILD_ISLOG.has(n);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
@@ -72,10 +70,6 @@ interface Surface { y: number; block: string; liquid: boolean; trees: number }
 function blockName(a: BotAgent, x: number, y: number, z: number): string | null {
   return a.bot.blockAt(new Vec3(x, y, z))?.name ?? null;
 }
-
-// Kelp and seagrass are water too: their box is empty and they carry no waterlogged state, so a lake whose kelp reached
-// the surface read as dry ground at the seabed (T.3 review)
-const LIQUID = /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/;
 
 /** The top of a column as a builder sees it: liquid, or the first solid non-plant block, plus tree blocks above it. */
 function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
@@ -96,9 +90,11 @@ function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | 
     const b = a.bot.blockAt(v.set(x, y, z));
     if (!b) return null; // not loaded
     if (b.name === 'air' || b.name === 'cave_air') continue;
-    if (LIQUID.test(b.name) || b.getProperties?.().waterlogged === true && b.boundingBox === 'empty') return { y, block: b.name, liquid: true, trees };
+    // (kelp and seagrass are water too: their box is empty and they carry no waterlogged state, so a lake whose kelp
+    // reached the surface read as dry ground at the seabed, T.3 review)
+    if (LIQUID.has(b.name) || b.getProperties?.().waterlogged === true && b.boundingBox === 'empty') return { y, block: b.name, liquid: true, trees };
     if (isLog(b.name) || isLeaves(b.name)) trees++;
-    if (b.boundingBox === 'block' && !NON_GROUND.test(b.name)) return { y, block: b.name, liquid: false, trees };
+    if (b.boundingBox === 'block' && !NON_GROUND.has(b.name)) return { y, block: b.name, liquid: false, trees };
   }
   // Loaded, but no ground within 48 blocks down: a ravine or a cave shaft (reported as far below the level, not as
   // unloaded: "walk closer" sent a worker standing beside the plot walking in circles)
@@ -819,7 +815,7 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
       y[k] = c.y;
       trees[k] = c.trees;
       if (c.liquid) kind[k] = 2;
-      else if (!NATURAL_GROUND.test(c.block)) built[k] = 1;
+      else if (!NATURAL_GROUND.has(c.block)) built[k] = 1;
     }
     // Several bots share one event loop (F16): let the others run between rows
     if (Date.now() - t > 20) {
@@ -961,7 +957,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? [] : o.plots)]).map(pad),
     ...(v ? v.reservations.filter((r) => r.by !== a.name && r.until > now) : []),
   ];
-  const logIds = survival ? a.world.registry.blocksArray.filter((b) => /^(?!stripped_).*_log$/.test(b.name)).map((b) => b.id) : [];
+  const logIds = survival ? a.world.registry.blocksArray.filter((b) => TREE_LOG.has(b.name)).map((b) => b.id) : [];
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   const start = a.bot.entity.position.clone();
   const surveyed: Array<{ x: number; z: number }> = [];
@@ -1288,7 +1284,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
       for (let yy = y + 1; yy <= y + 32; yy++) {
         const n = blockName(a, x, yy, z) ?? 'air';
         if (n === 'air' || n === 'cave_air') continue;
-        if (!NATURAL.test(n)) {
+        if (!NATURAL.has(n)) {
           protectedCols++;
           kept.add(`${x},${z}`);
           continue next;
@@ -1323,12 +1319,13 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   const maxWork = Math.max(12000, Math.round(12000 * ((w + 2 * m) * (d + 2 * m)) / (36 * 36)));
   if (targets.length > maxWork) throw new Error(`too much work (${targets.length} blocks, max ${maxWork}); prepare a smaller area`);
   const plot: Plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
-  // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping)
+  // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping;
+  // mushroom stems are cleared but are not logs)
   const logs: Counts = {};
   for (const key of treeLogs) {
     const [tx, ty, tz] = key.split(',').map(Number);
     const n = blockName(a, tx, ty, tz);
-    if (n && isLog(n)) logs[n] = (logs[n] ?? 0) + 1;
+    if (n && isLog(n) && n !== 'mushroom_stem') logs[n] = (logs[n] ?? 0) + 1;
   }
   const claim = { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false };
   let summary = await runJob(a, { targets, area: plot, y, free: true, claim }, signal, felled);
@@ -1433,7 +1430,7 @@ function readySite(a: BotAgent, area: Area, height: number, what: string, leave?
         const b = a.bot.blockAt(new Vec3(x, y, z));
         if (!b || b.name === 'air' || b.boundingBox === 'empty') continue;
         blocked++;
-        if (!NATURAL.test(b.name)) built ||= `${b.name} at ${x},${y},${z}`;
+        if (!NATURAL.has(b.name)) built ||= `${b.name} at ${x},${y},${z}`;
       }
   if (built) throw new Error(`the site overlaps an existing structure (${built}); choose another site with find_site`);
   if (blocked) throw new Error(`${blocked} blocks (trees or rocks) stand where the ${what} would go; ${prep}`);
@@ -1638,7 +1635,7 @@ async function buildStructure(a: BotAgent, args: Record<string, unknown>, signal
           const b = a.bot.blockAt(new Vec3(x, y, z));
           if (!b || b.name === 'air' || b.boundingBox === 'empty') continue;
           blocked++;
-          if (!NATURAL.test(b.name)) built ||= `${b.name} at ${x},${y},${z}`;
+          if (!NATURAL.has(b.name)) built ||= `${b.name} at ${x},${y},${z}`;
         }
     if (built) throw new Error(`the site overlaps an existing structure (${built}); choose another site with find_site`);
     if (blocked) throw new Error(`${blocked} blocks (trees or rocks) stand where the ${kind} would go; ${prep}`);

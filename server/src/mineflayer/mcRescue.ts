@@ -8,9 +8,9 @@ import { Vec3 } from 'vec3';
 import type { BotAgent } from './botAgent';
 import { at, checkAbort, goals, sleep, walk } from './mcUtil';
 import { timeScale } from './mcRules';
+// Blocks the climb may dig through: natural terrain only, never anything built
+import { RESCUE_DIGGABLE as DIGGABLE } from './mcBlocks';
 
-/** Blocks the climb may dig through: natural terrain only, never anything built. */
-const DIGGABLE = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|sandstone|red_sandstone|terracotta|.*_terracotta|netherrack|moss_block|.*_leaves|.*_ore)$/;
 /** Carried blocks it may pillar with (dirt and plain stone first; never planks, logs or glass). */
 const PILLAR = ['dirt', 'coarse_dirt', 'sand', 'red_sand', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff', 'stone', 'cobblestone', 'cobbled_deepslate'];
 
@@ -79,7 +79,7 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
     for (const up of [2, 3]) {
       const b = bot.blockAt(feet.offset(0, up, 0));
       if (!b || b.boundingBox !== 'block') continue;
-      if (!DIGGABLE.test(b.name)) return { rose: feet.y - start.y, why: `${b.name} overhead (built, not dug)` };
+      if (!DIGGABLE.has(b.name)) return { rose: feet.y - start.y, why: `${b.name} overhead (built, not dug)` };
       const tool = bot.pathfinder.bestHarvestTool(b);
       if (tool) await bot.equip(tool, 'hand');
       await bot.dig(b, true);

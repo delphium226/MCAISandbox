@@ -11,15 +11,11 @@ import { MINING_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { makePickaxe, mineBlock } from './mcSurvival';
-import { checkAbort, num, reach } from './mcUtil';
+import { checkAbort, num, reach, wetAt } from './mcUtil';
+// What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
+// tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
+import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
 
-/** What the mine may dig: the ground under a village, never logs or anything built. */
-const DIGGABLE = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|gravel|sand|red_sand|clay|sandstone|red_sandstone|terracotta|.*_terracotta|dripstone_block|pointed_dripstone|moss_block|.*_ore|short_grass|tall_grass|fern)$/;
-/** The stairs end on this (plus ores): the tunnels are dug in stone. */
-const STONE = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite)$|_ore$/;
-const LIQUID = /^(water|lava|bubble_column)$/;
-/** Blocks that fall into a hole dug under them. */
-const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*_concrete_powder|pointed_dripstone)$/;
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
 
@@ -81,11 +77,11 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, mod
   }
   // A tunnel (a turned one could pass under them) keeps off the stairs but the bottom step, where the first one starts
   if (mode === 'tunnel' && keptStairs(m).some((s) => Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 1)) return `${where} is at the mine stairs`;
-  if (LIQUID.test(b.name)) return `${b.name} at ${where}`;
-  if (b.boundingBox !== 'empty' && !DIGGABLE.test(b.name)) return `${b.name} at ${where} (not natural ground)`;
+  if (wetAt(a, p)) return `${b.name} at ${where}`;
+  if (b.boundingBox !== 'empty' && !DIGGABLE.has(b.name)) return `${b.name} at ${where} (not natural ground)`;
   for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
-    const n = a.bot.blockAt(p.offset(d[0], d[1], d[2]));
-    if (n && LIQUID.test(n.name)) return `${n.name} next to ${where}`;
+    const q = p.offset(d[0], d[1], d[2]);
+    if (wetAt(a, q)) return `${a.bot.blockAt(q)?.name} next to ${where}`;
   }
   // Open air beside it under the open sky: the tunnel would come out on a hillside (the floors of StageH19's tunnels
   // turned to grass where they had). Not on the side it is dug from
@@ -95,14 +91,14 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, mod
     let open = true;
     for (let up = 0; up <= 8 && open; up++) {
       const s = a.bot.blockAt(side.offset(0, up, 0));
-      open = !!s && s.boundingBox === 'empty' && !LIQUID.test(s.name);
+      open = !!s && s.boundingBox === 'empty' && !wetAt(a, s.position);
     }
     if (open) return `open air beside ${where} (a hillside)`;
   }
   if (ceiling) {
     const up = a.bot.blockAt(p.offset(0, 1, 0));
     if (!up) return UNLOADED;
-    if (up.boundingBox !== 'block' || FALLING.test(up.name)) return `${up.name} over ${where} (no solid ceiling)`;
+    if (up.boundingBox !== 'block' || FALLING.has(up.name)) return `${up.name} over ${where} (no solid ceiling)`;
   }
   return null;
 }
@@ -265,7 +261,7 @@ async function digMine(a: BotAgent, args: Record<string, unknown>, signal: Abort
     });
     // The two cells a tunnel at this level would dig: in stone, or the tunnels give dirt (StageH16: 36 dirt, 10
     // cobblestone from stairs that stopped on the first stone floor)
-    const inStone = [1, 2].every((dy) => STONE.test(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
+    const inStone = [1, 2].every((dy) => STONE.has(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
     for (const dy of [3, 2, 1]) {
       const p = new Vec3(x, floor + dy, z);
       // Outside the hut (from the fourth step) the top cell needs a solid ceiling
@@ -280,11 +276,11 @@ async function digMine(a: BotAgent, args: Record<string, unknown>, signal: Abort
     });
     const under = a.bot.blockAt(new Vec3(x, floor, z));
     if (!under || under.boundingBox !== 'block') return stop(`no floor under step ${i} (a cave or a hole at ${x},${floor},${z})`);
-    if (LIQUID.test(under.name)) return stop(`${under.name} under step ${i}`);
+    if (wetAt(a, under.position)) return stop(`${under.name} under step ${i}`);
     m.steps = i;
     reg.save();
     // Seven steps at least: the tunnels then run 5 or more below the plot, under the ground kept from digging
-    if (i >= 7 && STONE.test(under.name) && inStone) {
+    if (i >= 7 && STONE.has(under.name) && inStone) {
       m.level = floor + 1;
       upgradeMine(m);
       reg.note(v, `${a.name} dug the mine stairs ${i} steps down to stone at y=${m.level}`);
@@ -345,7 +341,7 @@ async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, un
     await walkMine(a, new Vec3(x - dx + 0.5, floor + 2, z - dz + 0.5), 1.2, signal, 60000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
-    const inStone = [1, 2].every((dy) => STONE.test(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
+    const inStone = [1, 2].every((dy) => STONE.has(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
     for (const dy of [3, 2, 1]) {
       const p = new Vec3(x, floor + dy, z);
       const why = unsafe(a, v, m, p, false, 'down', { x: x - dx, z: z - dz });
@@ -353,9 +349,9 @@ async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, un
       // Over the top cell: a solid ceiling, or the tunnel above (open) with its own ceiling, up to that level's
       if (dy === 3) {
         let up = p.y + 1, above = a.bot.blockAt(new Vec3(x, up, z));
-        while (above && above.boundingBox === 'empty' && !LIQUID.test(above.name) && up < d.y + 2) above = a.bot.blockAt(new Vec3(x, ++up, z));
+        while (above && above.boundingBox === 'empty' && !wetAt(a, above.position) && up < d.y + 2) above = a.bot.blockAt(new Vec3(x, ++up, z));
         if (!above) return UNLOADED;
-        if (above.boundingBox !== 'block' || FALLING.test(above.name)) return stopDown(v, m, d, `${above.name} over ${x},${up - 1},${z} (no solid ceiling)`);
+        if (above.boundingBox !== 'block' || FALLING.has(above.name)) return stopDown(v, m, d, `${above.name} over ${x},${up - 1},${z} (no solid ceiling)`);
       }
       await digCell(a, m, p, signal, new Vec3(x - dx + 0.5, floor + 2, z - dz + 0.5));
     }
@@ -364,10 +360,10 @@ async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, un
     });
     const under = a.bot.blockAt(new Vec3(x, floor, z));
     if (!under) return UNLOADED;
-    if (under.boundingBox !== 'block' || LIQUID.test(under.name)) return stopDown(v, m, d, `no floor under ${x},${floor + 1},${z}`);
+    if (under.boundingBox !== 'block' || wetAt(a, under.position)) return stopDown(v, m, d, `no floor under ${x},${floor + 1},${z}`);
     d.steps = k;
     reg.save();
-    if (k >= DOWN_STEPS && inStone && STONE.test(under.name)) {
+    if (k >= DOWN_STEPS && inStone && STONE.has(under.name)) {
       d.level = floor + 1;
       m.legs!.push({ x, z, y: d.level, dir: [dx, dz], dug: 0, ended: [] });
       reg.note(v, `${a.name} dug the mine's stairs ${k} steps on down to a new level at y=${d.level}`);
@@ -552,7 +548,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
     const floor = a.bot.blockAt(new Vec3(c.x, L - 1, c.z));
     const bad = cells.map((p, i) => unsafe(a, v, m, p, i === 0, 'tunnel', c.from)).find(Boolean) ?? (!floor ? UNLOADED : floor.boundingBox !== 'block' ? `no floor at ${c.x},${L - 1},${c.z}` : null)
       // A tunnel through dirt gives no cobblestone (StageH19's hillside: 412 dirt carried for 67 cobblestone, F79)
-      ?? (!open && !cells.some((p) => STONE.test(a.bot.blockAt(p)?.name ?? '')) ? `no stone at ${c.x},${L},${c.z} (${cells.map((p) => a.bot.blockAt(p)?.name).join(', ')})` : null);
+      ?? (!open && !cells.some((p) => STONE.has(a.bot.blockAt(p)?.name ?? '')) ? `no stone at ${c.x},${L},${c.z} (${cells.map((p) => a.bot.blockAt(p)?.name).join(', ')})` : null);
     // Not loaded (it walked short): stop here for now, the next collect goes on
     if (bad === UNLOADED) {
       why = `the mine at ${c.x},${L},${c.z} is not loaded`;

@@ -7,6 +7,7 @@ import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
 import type { BotAgent } from './botAgent';
 import type { Column } from './mcAtlas';
+import { FALLING, WET, waterloggedEmpty } from './mcBlocks';
 import { overlaps } from '../village';
 
 const { goals } = pathfinderPkg;
@@ -237,26 +238,29 @@ export function resolveItem(a: BotAgent, raw: string): string | null {
 
 /** Per-state lookups for the fast block reads (one per registry): see-through and not liquid, wet (water or lava). */
 const tablesOf = new WeakMap<object, { open: Uint8Array; wet: Uint8Array; match: Map<string, Uint8Array> }>();
-function tables(a: BotAgent) {
-  const reg = a.world.registry;
+export function stateTables(reg: BotAgent['world']['registry']) {
   let t = tablesOf.get(reg);
   if (!t) {
     const n = reg.blocksArray.reduce((m, b) => Math.max(m, b.maxStateId + 1), 0);
     t = { open: new Uint8Array(n), wet: new Uint8Array(n), match: new Map() };
     for (const b of reg.blocksArray) {
       // (seagrass, kelp and bubble columns stand in water: wet, not open, as LIQUID in mcBuild and the atlas take them;
-      // lake-bed sand under seagrass passed as dry and exposed, the review of F137)
-      const wet = /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/.test(b.name) ? 1 : 0;
+      // lake-bed sand under seagrass passed as dry and exposed, the review of F137. So are waterlogged states of blocks
+      // with an empty box, as coral fans and glow lichen under water, as find_site's surface read takes them)
+      const wet = WET.has(b.name) ? 1 : 0;
+      const logged = wet ? null : waterloggedEmpty(b);
       const open = b.boundingBox === 'empty' && !wet ? 1 : 0;
       for (let s = b.minStateId; s <= b.maxStateId; s++) {
-        t.open[s] = open;
-        t.wet[s] = wet;
+        const w = logged?.(s) ? 1 : wet;
+        t.open[s] = w ? 0 : open;
+        t.wet[s] = w;
       }
     }
     tablesOf.set(reg, t);
   }
   return t;
 }
+const tables = (a: BotAgent) => stateTables(a.world.registry);
 
 const cellQ = { x: 0, y: 0, z: 0 };
 // The agent whose scan is running (synchronous, so one at a time) and the column stateAt read last
@@ -291,13 +295,24 @@ export function exposedAt(a: BotAgent, x: number, y: number, z: number): boolean
   return o(stateAt(a, x, y - 1, z)) || o(stateAt(a, x, y + 1, z)) || o(stateAt(a, x - 1, y, z)) || o(stateAt(a, x + 1, y, z)) || o(stateAt(a, x, y, z - 1)) || o(stateAt(a, x, y, z + 1));
 }
 
+/** Whether a block is water or lava (or stands in it: kelp, seagrass, a waterlogged coral fan); false if not loaded. */
+export function wetAt(a: BotAgent, p: Vec3): boolean {
+  const s = stateAt(a, p.x, p.y, p.z);
+  return s >= 0 && tables(a).wet[s] === 1;
+}
+
+/** Whether a block is see-through and not liquid (air, plants); false if not loaded. */
+export function openAt(a: BotAgent, p: Vec3): boolean {
+  const s = stateAt(a, p.x, p.y, p.z);
+  return s >= 0 && tables(a).open[s] === 1;
+}
+
 /** Whether there is water or lava on top of a block. */
 export function wetAbove(a: BotAgent, p: Vec3): boolean {
   const s = stateAt(a, p.x, p.y + 1, p.z);
   return s >= 0 && tables(a).wet[s] === 1;
 }
 
-const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|pointed_dripstone|\w+_concrete_powder)$/;
 const fallsOf = new WeakMap<object, Uint8Array>();
 /**
  * Whether water or lava comes in from above once the block is dug: on top of it, or on top of the sand or gravel stacked
@@ -308,7 +323,7 @@ export function wetOver(a: BotAgent, p: Vec3): boolean {
   let falls = fallsOf.get(reg);
   if (!falls) {
     falls = new Uint8Array(tables(a).wet.length);
-    for (const b of reg.blocksArray) if (FALLING.test(b.name)) for (let s = b.minStateId; s <= b.maxStateId; s++) falls[s] = 1;
+    for (const b of reg.blocksArray) if (FALLING.has(b.name)) for (let s = b.minStateId; s <= b.maxStateId; s++) falls[s] = 1;
     fallsOf.set(reg, falls);
   }
   const { wet } = tables(a);

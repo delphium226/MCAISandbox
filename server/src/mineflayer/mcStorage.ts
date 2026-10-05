@@ -17,19 +17,18 @@ import { STORAGE_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt, SURVIVAL_SKILLS } from './mcSurvival';
+import { JUNK, TOOL } from './mcBlocks';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
-/** Kept by deposit "all": the tools an agent works with. */
-const TOOL = /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/;
-/** Left out of deposit "all": what gathering picks up by the way (a chest filled up with saplings, seeds and dirt). */
-// (leaf litter and apples come from felling trees: 28 leaf litter filled a single-chest storage)
-const JUNK = /_sapling$|_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/;
-/** Names that stand for any kind of an item. */
+// Kept by deposit "all": TOOL, the tools an agent works with. Left out of it: JUNK, what gathering picks up by the way (a
+// chest filled up with saplings, seeds and dirt; leaf litter and apples come from felling trees: 28 leaf litter filled a
+// single-chest storage). Both in mcBlocks.ts
+/** Names that stand for any kind of an item (mushroom stems are not logs). */
 const KINDS: Array<[RegExp, RegExp, string]> = [
   [/^(any[ _:]?)?(wood(en)?[ _])?planks?$/, /_planks$/, 'planks'],
-  [/^(any[ _:]?)?(logs?|wood)$/, /^(?!stripped_).*_(log|stem)$/, 'logs'],
+  [/^(any[ _:]?)?(logs?|wood)$/, /^(?!stripped_|mushroom_stem$).*_(log|stem)$/, 'logs'],
 ];
 
 /** Which items an argument means: one item id, or any kind of planks or logs; null if unknown. */
@@ -44,7 +43,7 @@ const total = (items: Record<string, number>) => Object.values(items).reduce((s,
 
 /** Material groups of a sorted storage: each chest in the storage hut holds one; anything else goes to "misc". */
 const GROUPS: Array<[string, RegExp]> = [
-  ['logs', /_(log|wood|stem|hyphae)$/],
+  ['logs', /^(?!mushroom_stem$).*_(log|wood|stem|hyphae)$/],
   ['planks', /_planks$/],
   ['cobblestone', /^(cobblestone|cobbled_deepslate|stone|smooth_stone|deepslate|andesite|diorite|granite|tuff)$/],
   ['sand', /^(red_)?(sand|sandstone)$/],
@@ -251,7 +250,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // the agent gathering it (Minevale19: dirt gathered for a vanilla house stayed in the gatherer's hands), while a miner
   // keeps its dirt (the review: with the village's needs as the rule, every miner emptied its scaffolding into storage)
   const needed = (n: string) => v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name && new RegExp(`collect block=${n}\\b`).test(t.detail));
-  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.test(n) && (!JUNK.test(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
+  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.has(n) && (!JUNK.has(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
   if (!m) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
   const carried = () => {

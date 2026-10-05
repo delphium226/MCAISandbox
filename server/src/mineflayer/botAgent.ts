@@ -16,6 +16,7 @@ import { at, goals, walk } from './mcUtil';
 import { mineAreas } from './mcMine';
 import { rescue } from './mcRescue';
 import { timeScale } from './mcRules';
+import { WALK_DIG } from './mcBlocks';
 
 const { pathfinder, Movements } = pathfinderPkg;
 
@@ -28,9 +29,6 @@ declare module 'mineflayer' {
 
 let nextEventId = 1;
 let nextActionId = 1;
-
-/** Blocks the pathfinder may dig through to get somewhere: natural terrain only, never anything built. */
-const NATURAL = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|netherrack|moss_block|short_grass|tall_grass|fern|large_fern|dead_bush|.*_leaves|.*_ore)$/;
 
 /**
  * Mineflayer's physics uses a player half-width of exactly 0.3, the server 0.6f / 2 (a hair wider). Pressed against a
@@ -176,7 +174,8 @@ export class BotAgent implements WorldAgent {
       // loop, and the API stopped answering); at 2x there are twice the ticks, so half each
       this.bot.pathfinder.tickTimeout = 15 / timeScale();
       m.allowParkour = false;
-      m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !NATURAL.test(b.name)).map((b) => b.id));
+      // (walks dig natural terrain only, never anything built: WALK_DIG in mcBlocks.ts)
+      m.blocksCantBreak = new Set(this.world.registry.blocksArray.filter((b) => !WALK_DIG.has(b.name)).map((b) => b.id));
       // Pillar and bridge with dirt only: the default also spends cobblestone, a building material in the village economy
       m.scafoldingBlocks = [this.world.registry.itemsByName.dirt.id];
       // Doors open (off by default in the pathfinder, "probably due to non-Paper servers"; this is Paper): a builder

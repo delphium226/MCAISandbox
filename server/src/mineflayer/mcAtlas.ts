@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type minecraftData from 'minecraft-data';
+import { ATLAS_LEAF, ATLAS_LOG, ATLAS_SKIP, ATLAS_WATER, waterloggedEmpty } from './mcBlocks';
 
 export interface ChunkSummary {
   /** Chunk coordinates (block x >> 4, z >> 4). */
@@ -59,7 +60,6 @@ const MATERIALS: Array<[string, RegExp, string]> = [
 export const CELL_LETTERS = { water: '~', lava: '^', trees: 'T', other: 'b', unknown: ' ' };
 const OTHER = MATERIALS.length;
 
-const LOG = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_log$/;
 /** The ores recorded (deepslate_iron_ore counts as iron; the Nether's are not looked for). */
 export const ORE_KINDS = ['coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald'];
 // Block categories per state id
@@ -114,23 +114,27 @@ export class Atlas {
     for (const b of reg.blocksArray) {
       const ore = /^(?:deepslate_)?(\w+?)_ore$/.exec(b.name);
       const o = ore ? ORE_KINDS.indexOf(ore[1]) + 1 : 0, open = /^(air|cave_air)$/.test(b.name) ? 1 : 0;
-      const log = LOG.exec(b.name);
+      // Tree logs by kind, leaves (and mushroom blocks), lava, water (mcBlocks.ts: ATLAS_*)
+      const kind = ATLAS_LOG.has(b.name) ? b.name.replace(/_log$/, '') : null;
       let c = PASS, m = OTHER, k = 0;
-      if (log) {
+      if (kind) {
         c = WOOD;
-        if (!this.kinds.includes(log[1])) this.kinds.push(log[1]);
-        k = this.kinds.indexOf(log[1]);
-      } else if (/_leaves$|mushroom_block$/.test(b.name)) c = LEAF;
-      else if (/^(water|bubble_column|seagrass|tall_seagrass|kelp|kelp_plant)$/.test(b.name)) c = WATER;
+        if (!this.kinds.includes(kind)) this.kinds.push(kind);
+        k = this.kinds.indexOf(kind);
+      } else if (ATLAS_LEAF.has(b.name)) c = LEAF;
       else if (b.name === 'lava') c = LAVA;
-      // Solid blocks are ground; plants, snow layers, cocoa pods, cactus and bamboo are passed over as find_site does
-      else if (b.boundingBox === 'block' && !/^(snow|cocoa)$|_wood$|_stem$|cactus|bamboo/.test(b.name)) {
+      else if (ATLAS_WATER.has(b.name)) c = WATER;
+      // Solid blocks are ground; plants, cocoa pods, cactus, bamboo and the like are passed over as find_site does
+      else if (b.boundingBox === 'block' && !ATLAS_SKIP.has(b.name)) {
         c = GROUND;
         const i = MATERIALS.findIndex(([, re]) => re.test(b.name));
         m = i < 0 ? OTHER : i;
       }
+      // Waterlogged states of blocks with an empty box (coral fans, glow lichen under water) are water, as find_site's
+      // surface read takes them
+      const logged = c === PASS ? waterloggedEmpty(b) : null;
       for (let s = b.minStateId; s <= b.maxStateId; s++) {
-        this.cat[s] = c;
+        this.cat[s] = logged?.(s) ? WATER : c;
         this.material[s] = m;
         this.logKind[s] = k;
         this.ore[s] = o;
