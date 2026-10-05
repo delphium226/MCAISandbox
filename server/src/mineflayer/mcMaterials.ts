@@ -5,26 +5,28 @@
  *
  * Crafting recipes come from minecraft-data, which lists one recipe per ingredient variant (a chest has twelve, one per
  * plank kind). Recipes that differ only by wood kind (or cobblestone kind) are merged into one that takes "any planks",
- * so a chest does not demand oak specifically. minecraft-data has no smelting recipes: the few buildings need are below.
- * Fuel is counted as planks (1.5 smelts each), less any coal or charcoal in hand (8 smelts each).
+ * so a chest does not demand oak specifically. minecraft-data has no smelting recipes: they are read from the server's jar
+ * (V2.5; the hand table below when it cannot be read). Fuel is counted as planks (1.5 smelts each), less any coal or
+ * charcoal in hand (8 smelts each).
  */
 import type minecraftData from 'minecraft-data';
 import type { Design } from '../village';
+import { hasJar, itemTag, listEntries, readJson, vanillaJar } from '../vanillaData';
 
 type Registry = ReturnType<typeof minecraftData>;
 export type Counts = Record<string, number>;
 
-/** Interchangeable items: a recipe that accepts every kind takes the "any:" token instead. */
+/** Interchangeable items: a recipe that accepts every kind takes the "any:" token instead (a mushroom stem is no log). */
 const FAMILIES: Record<string, RegExp> = {
   'any:planks': /_planks$/,
-  'any:logs': /^(?!stripped_).*_(log|stem)$/,
+  'any:logs': /^(?!stripped_|mushroom_).*_(log|stem)$/,
   'any:cobblestone': /^(cobblestone|cobbled_deepslate|blackstone)$/,
 };
 const FAMILY_OF = (name: string) => Object.keys(FAMILIES).find((f) => FAMILIES[f].test(name));
 const FAMILY_RECIPES: Record<string, Option> = { 'any:planks': { kind: 'craft', out: 4, ins: { 'any:logs': 1 } } };
 
-/** Smelting (input -> output, one each); minecraft-data has none. */
-const SMELT: Record<string, string> = {
+/** Smelting (output <- input, one each) when the jar cannot be read: the hand table the jar's recipes replaced (V2.5). */
+export const SMELT_FALLBACK: Record<string, string> = {
   glass: 'sand', stone: 'any:cobblestone', smooth_stone: 'stone', brick: 'clay_ball', terracotta: 'clay',
   iron_ingot: 'raw_iron', copper_ingot: 'raw_copper', gold_ingot: 'raw_gold', charcoal: 'any:logs',
   smooth_sandstone: 'sandstone', cracked_stone_bricks: 'stone_bricks',
@@ -86,11 +88,90 @@ export function inWood(bill: Counts, wood: string | undefined): Counts {
 /** Placing one of these charges another item (grass and paths need silk touch or a shovel's use: charge dirt). */
 const CHARGE_AS: Record<string, string> = { grass_block: 'dirt', dirt_path: 'dirt' };
 
-interface Option {
+export interface Option {
   kind: 'craft' | 'smelt';
   /** Items made per run. */
   out: number;
   ins: Counts;
+}
+
+let smeltTable: Map<string, Option[]> | undefined;
+
+/**
+ * Smelting options by output, from the jar's `minecraft:smelting` recipes, built once per process (one registry, the
+ * server's version); today's hand table when the jar is missing or cannot be read (one `[vanilla]` line says why).
+ */
+export function smeltOptions(registry: Registry): Map<string, Option[]> {
+  if (smeltTable) return smeltTable;
+  try {
+    smeltTable = jarSmelt(registry);
+  } catch (e) {
+    console.error(`[vanilla] smelting from the hand table: ${(e as Error).message}`);
+    smeltTable = new Map(Object.entries(SMELT_FALLBACK).map(([out, input]) => [out, [{ kind: 'smelt', out: 1, ins: { [input]: 1 } }]]));
+  }
+  return smeltTable;
+}
+
+/**
+ * The jar's smelting, with inputs a plan can get: gathered, a family's member, or itself made (crafted, or smelted from
+ * such an input). Ores (blocks that drop something else and that nothing makes: collect yields raw iron, never iron
+ * ore), unobtainable items and tools and armour (iron nuggets from an iron pickaxe) are left out, as are inputs with no
+ * way to get them (raw beef, cactus). Inputs of one family merge into its "any:" option as crafting variants do
+ * (charcoal from any logs); where today's table named an input, that option comes first and wins a tie (glass from sand
+ * before red sand).
+ */
+function jarSmelt(registry: Registry): Map<string, Option[]> {
+  const jar = vanillaJar();
+  if (!hasJar(jar)) throw new Error(`no jar at ${jar}`);
+  const strip = (s: string) => s.replace(/^minecraft:/, '');
+  const recipes: Array<{ out: string; count: number; inputs: string[] }> = [];
+  for (const file of listEntries('data/minecraft/recipe/', jar)) {
+    if (!file.endsWith('.json')) continue;
+    const j = readJson<{ type?: string; ingredient?: unknown; result?: { id?: string; count?: number } }>(file, jar);
+    if (j.type !== 'minecraft:smelting') continue;
+    const ing = typeof j.ingredient === 'string' ? [j.ingredient] : j.ingredient;
+    if (!Array.isArray(ing) || !ing.every((s) => typeof s === 'string') || !j.result?.id) throw new Error(`${file}: a smelting recipe not read`);
+    const inputs = (ing as string[]).flatMap((s) => (s.startsWith('#') ? [...itemTag(s, jar)] : [strip(s)]));
+    recipes.push({ out: strip(j.result.id), count: j.result.count ?? 1, inputs: [...new Set(inputs)] });
+  }
+  if (!recipes.length) throw new Error(`no smelting recipes in ${jar}`);
+  const gear = itemTag('enchantable/durability', jar);
+  const crafted = (n: string) => {
+    const item = registry.itemsByName[n];
+    return !!FAMILY_RECIPES[n] || !!(item && (registry.recipes as Record<number, unknown[]>)[item.id]?.length);
+  };
+  const smelted = new Set(recipes.map((r) => r.out));
+  const dropsOther = (n: string) => {
+    const b = registry.blocksByName[n];
+    if (!b || crafted(n) || smelted.has(n)) return false;
+    return ((b.drops ?? []) as unknown[]).some((d) => {
+      const id = typeof d === 'object' && d ? ((d as { drop?: { id?: number }; id?: number }).drop?.id ?? (d as { id?: number }).id) : (d as number);
+      return registry.items[id as number]?.name !== n;
+    });
+  };
+  // Outputs with a usable input, grown until nothing changes (stone_bricks' cracked form: stone from cobblestone)
+  const hasSmelt = new Set<string>();
+  const usable = (n: string) => !dropsOther(n) && !UNOBTAINABLE[n] && !gear.has(n)
+    && (GATHER.has(n) || !!FAMILY_OF(n) || n.startsWith('any:') || crafted(n) || hasSmelt.has(n));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const r of recipes) if (!hasSmelt.has(r.out) && r.inputs.some(usable)) { hasSmelt.add(r.out); grew = true; }
+  }
+  const table = new Map<string, Option[]>();
+  for (const out of hasSmelt) {
+    const groups = new Map<string, { exact: Option; general: Option; inputs: Set<string> }>();
+    for (const r of recipes) if (r.out === out) for (const m of r.inputs.filter(usable)) {
+      const key = `${FAMILY_OF(m) ?? m} ${r.count}`;
+      const g = groups.get(key);
+      if (g) g.inputs.add(m);
+      else groups.set(key, { exact: { kind: 'smelt', out: r.count, ins: { [m]: 1 } }, general: { kind: 'smelt', out: r.count, ins: { [FAMILY_OF(m) ?? m]: 1 } }, inputs: new Set([m]) });
+    }
+    const was = SMELT_FALLBACK[out];
+    const today = (o: Option) => { const i = Object.keys(o.ins)[0]; return i === was || (!!was && !!FAMILIES[was]?.test(i)); };
+    const options = [...groups.values()].map((g) => (g.inputs.size > 1 ? g.general : g.exact));
+    table.set(out, [...options.filter(today), ...options.filter((o) => !today(o))]);
+  }
+  return table;
 }
 
 export interface Step {
@@ -197,7 +278,7 @@ export class Materials {
       else groups.set(key, { exact: { kind: 'craft', out: count, ins: exact }, general: { kind: 'craft', out: count, ins: general }, n: 1 });
     }
     for (const g of groups.values()) out.push(g.n > 1 ? g.general : g.exact);
-    if (SMELT[name]) out.push({ kind: 'smelt', out: 1, ins: { [SMELT[name]]: 1 } });
+    out.push(...(smeltOptions(this.registry).get(name) ?? []));
     this.options.set(name, out);
     return out;
   }
