@@ -98,6 +98,8 @@ export class BotAgent implements WorldAgent {
   private lastHurt = 0;
   /** The current walk's physics tally (mcUtil walkOnce), or null. */
   walkTally: WalkTally | null = null;
+  /** Where the last walk that stalled was going, from where, and when (the rescue walks out the other way first). */
+  lastStall: { x: number; z: number; t: number; at: { x: number; z: number } } | null = null;
   /** The pathfinder's recent events, repeats folded into one entry (for the `[stuck]` line). */
   readonly pathEvents: Array<{ t0: number; t: number; key: string; text: string; n: number }> = [];
 

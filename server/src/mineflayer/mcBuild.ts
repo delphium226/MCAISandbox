@@ -23,7 +23,7 @@ import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
-import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, walk } from './mcUtil';
+import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
 import { timeScale } from './mcRules';
@@ -594,7 +594,8 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
           for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
           // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
           const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal).catch((e: Error) => {
-            if (e.message === 'cancelled') throw e;
+            // (a stall that did not move the bot fails the build now, so the rescue comes soon: F146)
+            if (e.message === 'cancelled' || unmoved(e)) throw e;
             notes.push(e.message);
             makeError = e.message;
             return 'partly made';

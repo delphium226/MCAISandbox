@@ -205,6 +205,8 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
     const onAbort = () => done(new Error('cancelled'));
     const stalled = (msg: string, why: string) => {
       console.log(stuckLine(a, tally, target, why, t0, far));
+      const g = goal as unknown as { x?: number; z?: number };
+      if (typeof g.x === 'number' && typeof g.z === 'number') a.lastStall = { x: g.x + 0.5, z: g.z + 0.5, t: Date.now(), at: { x: bot.entity.position.x, z: bot.entity.position.z } };
       done(Object.assign(new Error(msg), { moved: far }));
     };
     const watch = setInterval(() => {
@@ -245,6 +247,16 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
       (e: Error) => done(pathError(e, target)),
     );
   });
+}
+
+/**
+ * A walk that stalled or ran out of time without getting a block from where it started (F143, F146: a bot set back by the
+ * server in a pit stalls the same way on every walk). Storage gives up at once on such a stall when the chest is far, so
+ * two failed actions bring the rescue in ~20 s instead of minutes; callers that go on to other chests rethrow it.
+ */
+export function unmoved(e: unknown): boolean {
+  const x = e as (Error & { moved?: number }) | undefined;
+  return /^(stuck|timed out) at/.test(x?.message ?? '') && x!.moved !== undefined && x!.moved < 1;
 }
 
 /** Walk until within `range` blocks of pos (does nothing if already there). */

@@ -34,10 +34,18 @@ async function swimUp(a: BotAgent, signal: AbortSignal) {
   }
 }
 
-/** Walk to any point about 10 blocks away (four directions, a few seconds each). */
+/**
+ * Walk to any point about 10 blocks away (four directions, a few seconds each): away from where the last stalled walk was
+ * going first (a bot the server kept setting back against a pit's wall got out only the other way, F147), then to
+ * either side, then toward it.
+ */
 async function walkOut(a: BotAgent, from: Vec3, signal: AbortSignal): Promise<boolean> {
-  for (let i = 0; i < 8; i += 2) {
-    const ang = (i * Math.PI) / 4;
+  // (a stall from here, recent, toward somewhere more than 2 blocks off)
+  const l = a.lastStall;
+  const s = l && Date.now() - l.t < 120000 && Math.hypot(l.at.x - from.x, l.at.z - from.z) < 3 && Math.hypot(l.x - from.x, l.z - from.z) > 2 ? l : null;
+  const away = s ? Math.atan2(from.z - s.z, from.x - s.x) : 0;
+  for (const turn of s ? [0, 1, -1, 2] : [0, 1, 2, 3]) {
+    const ang = away + (turn * Math.PI) / 2;
     const x = Math.round(from.x + Math.cos(ang) * 10), z = Math.round(from.z + Math.sin(ang) * 10);
     try {
       await walk(a, new goals.GoalNearXZ(x, z, 3), `${x},${z}`, signal, 20000);

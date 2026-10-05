@@ -15,7 +15,7 @@ import { timeScale } from './mcRules';
 import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
-  sleep, str, syncInventory, walk, wetOver, wetSide,
+  sleep, str, syncInventory, unmoved, walk, wetOver, wetSide,
 } from './mcUtil';
 import { TREE_LOG, WILD_GROUND } from './mcBlocks';
 
@@ -163,7 +163,8 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
   const v = a.village();
   const fromStock = async (want: Record<string, number>) => {
     if (v?.storage?.chests.length) await withdrawItems(a, v, want, signal).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
+      // (a stall that did not move the bot fails the action, so the rescue comes soon: F146)
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
     });
   };
   const stock = v ? storageContents(v) : {};

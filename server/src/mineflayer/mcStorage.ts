@@ -18,7 +18,7 @@ import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt, SURVIVAL_SKILLS } from './mcSurvival';
 import { JUNK, TOOL } from './mcBlocks';
-import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory } from './mcUtil';
+import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory, unmoved } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -110,20 +110,30 @@ async function openChest(a: BotAgent, v: Village, c: StorageChest, signal: Abort
     await reach(a, pos.offset(0.5, 0, 0.5), 3, signal, Math.min(120000, 20000 + 1500 * far));
   } catch (e) {
     if ((e as Error).message === 'cancelled') throw e;
-    // The walk stalled (a chest on a step up from the plot, twice): try a standable spot right beside it
-    let ok = false;
-    for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    // Stalled without moving, far from the chest: the side spots would stall the same way, 10 s each (F143, F146)
+    const pinned = unmoved(e);
+    if (pinned && a.bot.entity.position.distanceTo(pos) > 6) throw e;
+    // The walk stalled (a chest on a step up from the plot, twice): try a standable spot right beside it (after a stall
+    // that did not move the bot, only the nearest)
+    const me = a.bot.entity.position.clone();
+    const spots = [[0, -1], [0, 1], [-1, 0], [1, 0]].flatMap(([dx, dz]) => {
       const y = standableY(a, c.x + dx, c.y, c.z + dz);
-      if (y === null) continue;
+      return y === null ? [] : [new Vec3(c.x + dx + 0.5, y, c.z + dz + 0.5)];
+    });
+    let ok = false;
+    let last = e;
+    for (const spot of pinned ? spots.sort((p, q) => p.distanceTo(me) - q.distanceTo(me)).slice(0, 1) : spots) {
       try {
-        await reach(a, new Vec3(c.x + dx + 0.5, y, c.z + dz + 0.5), 0.8, signal, 30000);
+        await reach(a, spot, 0.8, signal, 30000);
         ok = true;
         break;
       } catch (e2) {
         if ((e2 as Error).message === 'cancelled') throw e2;
+        last = e2;
       }
     }
-    if (!ok) throw e;
+    // (after a pinned stall, the side spot's own error: whether that walk moved decides what the callers do)
+    if (!ok) throw pinned ? last : e;
   }
   const block = a.bot.blockAt(pos);
   if (!block) throw new Error(`the storage chest at ${at(pos)} is not loaded; move closer`);
@@ -209,8 +219,10 @@ async function placeChest(a: BotAgent, v: Village, signal: AbortSignal): Promise
     // Stand in the aisle beside the spot (inside the hut once it is built, through the door)
     const h = v.storageHut, mid = h.x1 + 3, s = free[0];
     const ax = s.x < mid ? s.x + 1 : s.x > mid ? s.x - 1 : s.x, az = s.x === mid ? s.z + 1 : s.z;
-    await reach(a, new Vec3(ax + 0.5, y, az + 0.5), 0.5, signal).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
+    const aisle = new Vec3(ax + 0.5, y, az + 0.5);
+    await reach(a, aisle, 0.5, signal).catch((e: Error) => {
+      // (near enough, the chest can still be placed; far off and not moving, nothing will be: F146)
+      if (e.message === 'cancelled' || (unmoved(e) && a.bot.entity.position.distanceTo(aisle) > 6)) throw e;
     });
   } else if (!first) {
     // Stand near the row so the next spot is loaded and in reach
@@ -272,51 +284,60 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const notes: string[] = [];
   const moved: Record<string, number> = {};
   let slipped = 0;
-  if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal);
-  for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
-    checkAbort(signal);
-    // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
-    // first chest, not "storage is full" (four workers at one chest were told that with 23 slots free)
-    if (i >= (v.storage?.chests.length ?? 0) && slipped === 1 && v.storage?.chests.some((c) => slotsUsed(a, c) < 27)) {
-      slipped++;
-      await sleep(1000, signal);
-      i = -1;
-      continue;
-    }
-    // Past the last chest (or none yet): a carried chest becomes the next one
-    if (i >= (v.storage?.chests.length ?? 0)) {
-      if (!countItem(a, chestId)) break;
-      const c = await placeChest(a, v, signal);
-      notes.push(`put ${i ? 'another' : 'the storage'} chest down at ${c.x},${c.y},${c.z}`);
-      want = carried();
-      if (!want.size) break;
-    }
-    // Chests with room (as last seen) first
-    if (i === 0) v.storage!.chests.sort((x, y) => Number(slotsUsed(a, x) >= 27) - Number(slotsUsed(a, y) >= 27));
-    const c = v.storage!.chests[i];
-    const w = await openChest(a, v, c, signal);
-    try {
-      for (const [type, { name, count }] of want) {
-        const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
-        if (n <= 0) continue;
-        // One item's failure (Mineflayer's view of the slots drifts) does not stop the rest
-        try {
-          await abortable(w.deposit(type, null, n), signal);
-          moved[name] = (moved[name] ?? 0) + n;
-          left -= n;
-        } catch (e) {
-          if ((e as Error).message === 'cancelled') throw e;
-          if (!slipped) slipped = 1;
-        }
+  let stalled = false;
+  try {
+    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal);
+    for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
+      checkAbort(signal);
+      // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
+      // first chest, not "storage is full" (four workers at one chest were told that with 23 slots free)
+      if (i >= (v.storage?.chests.length ?? 0) && slipped === 1 && v.storage?.chests.some((c) => slotsUsed(a, c) < 27)) {
+        slipped++;
+        await sleep(1000, signal);
+        i = -1;
+        continue;
       }
-      c.items = chestItems(w);
-    } finally {
-      w.close();
+      // Past the last chest (or none yet): a carried chest becomes the next one
+      if (i >= (v.storage?.chests.length ?? 0)) {
+        if (!countItem(a, chestId)) break;
+        const c = await placeChest(a, v, signal);
+        notes.push(`put ${i ? 'another' : 'the storage'} chest down at ${c.x},${c.y},${c.z}`);
+        want = carried();
+        if (!want.size) break;
+      }
+      // Chests with room (as last seen) first
+      if (i === 0) v.storage!.chests.sort((x, y) => Number(slotsUsed(a, x) >= 27) - Number(slotsUsed(a, y) >= 27));
+      const c = v.storage!.chests[i];
+      const w = await openChest(a, v, c, signal);
+      try {
+        for (const [type, { name, count }] of want) {
+          const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
+          if (n <= 0) continue;
+          // One item's failure (Mineflayer's view of the slots drifts) does not stop the rest
+          try {
+            await abortable(w.deposit(type, null, n), signal);
+            moved[name] = (moved[name] ?? 0) + n;
+            left -= n;
+          } catch (e) {
+            if ((e as Error).message === 'cancelled') throw e;
+            if (!slipped) slipped = 1;
+          }
+        }
+        c.items = chestItems(w);
+      } finally {
+        w.close();
+      }
+      await syncInventory(a);
+      v.storage!.updated = Date.now();
+      a.world.villages.save();
+      want = carried();
     }
-    await syncInventory(a);
-    v.storage!.updated = Date.now();
-    a.world.villages.save();
-    want = carried();
+  } catch (e) {
+    // A stall that did not move the bot after something went in: report what went in, not a failure (the planner would
+    // gather it again, F146); the rest is still carried
+    if (!unmoved(e) || !Object.keys(moved).length) throw e;
+    notes.push((e as Error).message);
+    stalled = true;
   }
   want = carried();
   const got = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
@@ -325,7 +346,8 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   if (!got && v.storageHut && notes.some((n) => /no path|stuck|timed out|could not reach/.test(n))) throw new Error(`could not reach the storage hut (${notes.join('; ')}): walk back to the village first (move_to near the storage hut at ${v.storageHut.x1 + 3},${v.storageHut.z2 + 2}), then deposit again`);
   if (!got && v.storageHut) throw new Error(`could not put anything in the storage hut${notes.length ? ` (${notes.join('; ')})` : ''}: craft a chest (8 planks) and deposit again`);
   if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
-  const rest = left > 0 ? [...want.values()] : [];
+  // (after a stall the rest is not about room: the note says the bot could not get there)
+  const rest = left > 0 && !stalled ? [...want.values()] : [];
   const roomLeft = v.storage?.chests.some((c) => slotsUsed(a, c) < 27);
   return `deposited ${got}${notes.length ? ` (${notes.join('; ')})` : ''}` +
     (rest.length && roomLeft ? `; could not put in ${rest.map((r) => `${r.count} ${r.name}`).join(', ')} though there is room${v.storageHut ? '' : ' (another worker at the chest?)'}: deposit again` : '') +
@@ -356,7 +378,7 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
     try {
       await placeChest(a, v, signal);
     } catch (e) {
-      if ((e as Error).message === 'cancelled' || !chests().length) throw e;
+      if ((e as Error).message === 'cancelled' || unmoved(e) || !chests().length) throw e;
       notes.push((e as Error).message);
       break;
     }
@@ -406,7 +428,7 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
       }
       tried.add(c);
       const w = await openChest(a, v, c, signal).catch((e: Error) => {
-        if (e.message === 'cancelled') throw e;
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
         notes.push(e.message);
         return null;
       });
@@ -459,7 +481,7 @@ async function newChest(a: BotAgent, v: Village, signal: AbortSignal, notes: str
     if (!(await ensureChest(a, v, signal, notes))) return null;
     return await placeChest(a, v, signal);
   } catch (e) {
-    if ((e as Error).message === 'cancelled') throw e;
+    if ((e as Error).message === 'cancelled' || unmoved(e)) throw e;
     notes.push((e as Error).message);
     return null;
   }
@@ -529,7 +551,7 @@ export async function refreshStorage(a: BotAgent, v: Village, signal: AbortSigna
   for (const c of [...(v.storage?.chests ?? [])]) {
     checkAbort(signal);
     const w = await openChest(a, v, c, signal).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
       return null;
     });
     w?.close();
