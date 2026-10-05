@@ -6,69 +6,23 @@
  * south, and its blocks substituted so the survival economy can make them (decoration and workstations to air; the
  * table below). World-independent like designs.ts: the checks (bill, budget) are the caller's.
  */
-import fs from 'node:fs';
-import zlib from 'node:zlib';
 import { readNbt, type Nbt } from './nbt';
 import type { Design } from './village';
 import { isDoor, outsideCells, outwardStep, turnState } from './designs';
+import { DEFAULT_JAR, listEntries, readEntry } from './vanillaData';
+
+export { DEFAULT_JAR };
 
 type Obj = { [key: string]: Nbt };
 
-/** The jar the pieces are read from (mc/server's Paper; the test world's server runs the same version). */
-export const DEFAULT_JAR = 'mc/server/versions/26.1.2/paper-26.1.2.jar';
 export const VILLAGE_BIOMES = ['plains', 'savanna', 'snowy', 'taiga', 'desert'] as const;
 const PREFIX = 'data/minecraft/structure/village/';
 
-// ---------------------------------------------------------------------------------------------
-// Reading the jar: a zip's central directory, each entry stored or deflated (zlib, no dependency)
-// ---------------------------------------------------------------------------------------------
-
-interface ZipEntry { name: string; method: number; size: number; offset: number }
-
-const jars = new Map<string, { buf: Buffer; entries: Map<string, ZipEntry> }>();
-
-function openJar(path: string) {
-  const cached = jars.get(path);
-  if (cached) return cached;
-  const buf = fs.readFileSync(path);
-  // The end-of-central-directory record is in the last 64 KiB (a comment may follow it)
-  let eocd = -1;
-  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
-  if (eocd < 0) throw new Error(`${path} is not a zip file`);
-  const count = buf.readUInt16LE(eocd + 10);
-  let p = buf.readUInt32LE(eocd + 16);
-  const entries = new Map<string, ZipEntry>();
-  for (let n = 0; n < count && buf.readUInt32LE(p) === 0x02014b50; n++) {
-    const method = buf.readUInt16LE(p + 10), size = buf.readUInt32LE(p + 20);
-    const nameLen = buf.readUInt16LE(p + 28), extraLen = buf.readUInt16LE(p + 30), commentLen = buf.readUInt16LE(p + 32);
-    const offset = buf.readUInt32LE(p + 42);
-    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
-    if (name.startsWith(PREFIX)) entries.set(name, { name, method, size, offset });
-    p += 46 + nameLen + extraLen + commentLen;
-  }
-  const jar = { buf, entries };
-  jars.set(path, jar);
-  return jar;
-}
-
-function readEntry(path: string, name: string): Buffer {
-  const { buf, entries } = openJar(path);
-  const e = entries.get(name);
-  if (!e) throw new Error(`no ${name} in ${path}`);
-  // The local header's name and extra lengths can differ from the central directory's
-  const start = e.offset + 30 + buf.readUInt16LE(e.offset + 26) + buf.readUInt16LE(e.offset + 28);
-  const raw = buf.subarray(start, start + e.size);
-  if (e.method === 0) return Buffer.from(raw);
-  if (e.method === 8) return zlib.inflateRawSync(raw);
-  throw new Error(`${name}: zip method ${e.method} is not supported`);
-}
-
 /** Piece paths under the village folder ("plains/houses/plains_small_house_1"), optionally of one biome and kind. */
 export function listPieces(jar = DEFAULT_JAR, biome?: string, kind = 'houses'): string[] {
-  const { entries } = openJar(jar);
   const want = `${PREFIX}${biome ? `${biome}/` : ''}`;
-  return [...entries.keys()]
-    .filter((n) => n.startsWith(want) && n.endsWith('.nbt'))
+  return listEntries(want, jar)
+    .filter((n) => n.endsWith('.nbt'))
     .map((n) => n.slice(PREFIX.length, -4))
     .filter((n) => n.split('/')[1] === kind)
     .sort();
@@ -108,7 +62,7 @@ const stateName = (e: Obj) => {
 
 /** Read one piece ("plains/houses/plains_small_house_1") from the jar. */
 export function readPiece(path: string, jar = DEFAULT_JAR): Piece {
-  const { value } = readNbt(readEntry(jar, `${PREFIX}${path}.nbt`));
+  const { value } = readNbt(readEntry(`${PREFIX}${path}.nbt`, jar));
   const [width, height, depth] = (value.size as Nbt[]).map(num);
   const palette = ((value.palette ?? (value.palettes as Nbt[][] | undefined)?.[0] ?? []) as Obj[]).map(stateName);
   const cells: Array<string | null> = new Array(width * height * depth).fill(null);
