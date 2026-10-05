@@ -24,7 +24,7 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 - **Code:** committed on `tiered-brain-building` (`d2fda9a`, `05d9dbb` vanillaData.ts; `41d733c` renderer colours;
   `cda19c8` smelting from the jar; `34e205b` block lists from tags; the close-out commit: README, ARCHITECTURE,
-  CLAUDE.md lessons 72-76, this handover). Pushed only if the user said so at the close (check `git status -sb`).
+  CLAUDE.md lessons 72-76, this handover), all pushed to origin at the close (the user said push). Check `git status -sb`.
   `main` untouched.
 - **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
   pinned model servers). The main world did not run this session. No agents in either world. `ollama_exec.py status`
@@ -33,7 +33,7 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
   as an all-or-nothing fallback, one `[vanilla]` log line at the first use), SMELT from the jar's smelting recipes,
   the renderer's colours from the client jar; loot tables stay on minecraft-data (`vanilla_drops.mts` checks they agree).
   Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site (15.2); staged VanG6 and VanM3 8.3 min at 2x.
-- **Next (the user's choice at the next session):** lamp posts (decided later), the backlog (F138's leftovers: deposit
+- **Next (the user's choice at the close): the backlog, F138's leftovers first** (then lamp posts or phase 3). The backlog (F138's leftovers: deposit
   gives up its side spots after a stuck that did not move the bot, a step out toward the goal inside `walk`, log the
   pathfinder's last update on "stuck", jump-up diagonals with a side solid at foot level; F133; F124, F126, F128, F130,
   F131's leftovers; V2.5's leftovers F139-F142), or phase 3 (talking to the mayor).

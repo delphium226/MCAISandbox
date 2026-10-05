@@ -365,13 +365,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     collect's lake and pit fixes (`bb48ec0`, F136-F138): staged VanG1/2/5 8.1-8.4 min at 2x, Minevale22 (1x) 6/6 in
     15.2 min, 0 failed actions. Lessons 66-71. `stage_village.py --site-at=X,Y,Z,SIZE[,WOOD]` needs the `=` for a
     negative X and the X Z arguments as well. Next: V2.5 (vanilla data) or the backlog (PLAN.md).
-29. 2026-10-05 (fourteenth session; push only if the user said so at the close; `main` untouched): V2.5, vanilla data
+29. 2026-10-05 (fourteenth session; all pushed to origin `tiered-brain-building` at the close, `main` untouched): V2.5, vanilla data
     instead of hand lists: `vanillaData.ts` (`d2fda9a`, `05d9dbb`: the jar reader shared with vanillaPieces.ts, tags
     resolved recursively, `vanillaJar()`), the renderer's colours from the client jar (`41d733c`), SMELT from the jar's
     smelting recipes (`cda19c8`), the adapter's block and item lists from tags in `mcBlocks.ts` with the hand regexes
     as an all-or-nothing fallback (`34e205b`); loot tables left on minecraft-data (they agree). Staged VanG6 and VanM3
-    8.3 min at 2x, Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site, 0 failed actions. Lessons 72-76. Next: the
-    user's choice (lamp posts, the backlog or phase 3; PLAN.md).
+    8.3 min at 2x, Minevale23 (1x) 6/6 in 14.9 min on Minevale22's site, 0 failed actions. Lessons 72-76. Next (the
+    user's choice): the backlog, F138's leftovers first (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
