@@ -1,8 +1,9 @@
 """A contact sheet of designs: one isometric view each (render_design.py's, from the south-east), tiled with a caption
 (name, size, gather units, passed or why not), one PNG per group (phase D, vanilla villages: V2.1's pieces by biome).
-Usage: python scripts/contact_sheet.py DIR [--scale N] [--cols N]
+Usage: python scripts/contact_sheet.py DIR [--scale N] [--cols N] [--colours jar|hand]
 DIR holds index.json, a list of {"file": design JSON in DIR, "group": "plains", "caption": ["line", ...], "ok": bool},
 as scripts/checks/vanilla_pieces.mts writes it with OUT=DIR; the sheets are written as DIR/sheet_<group>.png.
+Colours as render_design.py's (from the client jar by default, MCAI_RENDER_COLOURS or --colours hand for the table).
 Renders of vanilla pieces stay private (never committed or shared).
 """
 import argparse, json, os, sys
@@ -21,7 +22,9 @@ def render(path, scale):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('dir'); ap.add_argument('--scale', type=int, default=7); ap.add_argument('--cols', type=int, default=6)
+    ap.add_argument('--colours', choices=('jar', 'hand'), default=rd.COLOURS)
     a = ap.parse_args()
+    rd.use_colours(a.colours)
     index = json.load(open(os.path.join(a.dir, 'index.json'), encoding='utf-8'))
     groups = {}
     for e in index: groups.setdefault(e['group'], []).append(e)

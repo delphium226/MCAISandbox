@@ -1,5 +1,5 @@
 """Draw a building design (or a box of world blocks) as an isometric PNG, offline (phase D, D.8's renderer).
-Usage: python scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG] [--scale N]
+Usage: python scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG] [--scale N] [--colours jar|hand]
 SOURCE is one of:
   - a villages.json (mc/server/villages.json or mc/testserver/villages.json): --design NAME from the design library,
     --village V to choose among villages that hold it (without --design the village's designs are listed);
@@ -7,16 +7,25 @@ SOURCE is one of:
     south, symbols west to east, '.' air, '_' left as is and not drawn);
   - a JSON file saved from the agent server's GET /api/blocks (with states=1 for stairs, slabs and logs to show).
 Draws two views side by side, from the south-east and from the north-west (a compass under each), on the design's
-footprint grid, with the name and size (width x depth x height) on top. Flat colours per block (a table of common
-blocks, dye colours, wood kinds; other names get a colour hashed from the name), top faces light, left mid, right dark,
-painted back to front. Shapes: full cubes, slabs, stairs (straight, inner and outer corners as quarter blocks, top or
-bottom half), fences, walls and panes as posts with arms to their neighbours, thin doors (two high in designs),
-trapdoors (open or closed), gates, carpets, lanterns, torches, plants and chests; log ends in their wood's plank colour.
-Glass, water and ice are translucent. Everything else is a full cube. Default scale 16 px per half block.
+footprint grid, with the name and size (width x depth x height) on top. Flat colours per block, top faces light, left
+mid, right dark, painted back to front. By default (--colours jar, or MCAI_RENDER_COLOURS) each block's top and side
+colours are averaged from the textures in the user's Minecraft client jar (scripts/vanilla_colours.py; MC_CLIENT_JAR
+overrides its path), read at run time and kept in memory only, and an axis block shows its end on the faces along its
+axis. Grass blocks, water, chests and names the jar has no model for keep the hand table (common blocks, dye colours,
+wood kinds, log ends in their wood's plank colour; other names get a colour hashed from the name); --colours hand uses
+only the table, and so does a missing jar (with a note). Shapes: full cubes, slabs, stairs (straight, inner and outer
+corners as quarter blocks, top or bottom half), fences, walls and panes as posts with arms to their neighbours, thin
+doors (two high in designs), trapdoors (open or closed), gates, carpets, lanterns, torches, plants and chests. Blocks
+the game draws see-through (glass, water, ice) are translucent. Everything else is a full cube. Default scale 16 px per
+half block; the PNG goes to runs/renders/ unless --out says otherwise.
 """
 import argparse, hashlib, json, os, re, sys
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+COLOURS = os.environ.get('MCAI_RENDER_COLOURS', 'jar')  # 'jar' (averaged from the client jar) or 'hand' (the tables below)
+KEEP_HAND = {'grass_block', 'water', 'chest'}  # the jar's averages read worse: a biome-tinted top, still water, a chest's sheet
 WOODS = ['dark_oak', 'pale_oak', 'oak', 'spruce', 'birch', 'jungle', 'acacia', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped']
 PLANK = dict(zip(WOODS, [(67, 43, 20), (227, 217, 215), (162, 131, 79), (115, 85, 49), (192, 175, 121), (160, 115, 81),
                          (168, 90, 50), (118, 54, 49), (227, 179, 173), (194, 173, 80), (101, 49, 71), (43, 105, 99)]))
@@ -54,7 +63,7 @@ def parse(name):
     return m.group(1), dict(p.split('=', 1) for p in (m.group(2) or '').split(',') if '=' in p)
 
 
-def colour(base):
+def hand_colour(base):
     if base in BLOCKS: return BLOCKS[base]
     if base.endswith('_leaves'): return (70, 125, 45)
     wood = next((w for w in WOODS if base.startswith((w + '_', 'stripped_' + w + '_'))), None)
@@ -89,14 +98,66 @@ def kind(base, props):
     return 'plant' if PLANT.search(base) else 'full'
 
 
-def faces(base, props):
-    c = colour(base)
+def hand_faces(base, props):
+    c = hand_colour(base)
     c = c if len(c) == 4 else c + (255,)
     f = {d: c for d in DIRS}
     if base == 'grass_block': f.update(n=BLOCKS['dirt'] + (255,), s=BLOCKS['dirt'] + (255,), e=BLOCKS['dirt'] + (255,), w=BLOCKS['dirt'] + (255,))
     wood = next((w for w in WOODS if w in base), None)
     if wood and re.search(r'_(log|stem)$', base):  # end grain on the axis faces
         for d in {'y': 'u', 'x': 'ew', 'z': 'ns'}[props.get('axis', 'y')]: f[d] = PLANK[wood] + (255,)
+    return f
+
+
+_vc = None  # scripts/vanilla_colours.py once the jar is found
+
+
+def use_colours(mode):
+    """Set the colour mode; 'jar' falls back to the hand table, with one note, when the jar or vanilla_colours is missing."""
+    global COLOURS, _vc
+    if mode == 'jar' and _vc is None:
+        try:
+            if os.path.dirname(os.path.abspath(__file__)) not in sys.path: sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import vanilla_colours
+            if not vanilla_colours.has_jar(): raise FileNotFoundError(f'no client jar at {vanilla_colours.JAR}; set MC_CLIENT_JAR')
+            _vc = vanilla_colours
+        except Exception as e:
+            print(f'colours from the hand table: {e}')
+            mode = 'hand'
+    COLOURS = mode
+
+
+@lru_cache(None)
+def _jar_colours(base):
+    """(top, side) averaged from the jar, with an alpha only for blocks the game draws see-through; None: use the table."""
+    if base in KEEP_HAND: return None
+    c = _vc.block_colours([base]).get(base)
+    if c is None or not _vc.block_translucent(base): return c
+    h = hand_colour(base)
+    a = h[3] if len(h) == 4 else 120
+    return c[0] + (a,), c[1] + (a,)
+
+
+def jar_colours(base):
+    if COLOURS == 'jar' and _vc is None: use_colours('jar')
+    return _jar_colours(base) if COLOURS == 'jar' else None
+
+
+def colour(base):
+    """The block's colour in the current mode (its side colour from the jar): RGB, or RGBA when it is see-through."""
+    j = jar_colours(base)
+    return j[1] if j else hand_colour(base)
+
+
+def faces(base, props):
+    j = jar_colours(base)
+    if j is None: return hand_faces(base, props)
+    top, side = (c if len(c) == 4 else c + (255,) for c in j)
+    f = {d: side for d in DIRS}
+    f['u'] = top
+    if props.get('axis') in ('x', 'z'):  # the model's top is the block's end: on the faces along its axis
+        f['u'] = side
+        for d in {'x': 'ew', 'z': 'ns'}[props['axis']]: f[d] = top
     return f
 
 
@@ -243,7 +304,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('source'); ap.add_argument('--village'); ap.add_argument('--design')
     ap.add_argument('--out'); ap.add_argument('--scale', type=int, default=16)
+    ap.add_argument('--colours', choices=('jar', 'hand'), default=COLOURS)
     args = ap.parse_args()
+    use_colours(args.colours)
     grid, W, D, H, title = load(args)
     items = boxes(grid)
     views = [view(items, W, D, args.scale, nw) for nw in (False, True)]
@@ -266,10 +329,10 @@ def main():
             dr.text((cx + dx * 33 - 4, cy + dy * 33 - 7), lab, fill=col, font=f2)
         dr.text((x + 80, cy - 8), 'from the north-west' if nw else 'from the south-east', fill=(60, 60, 60), font=f2)
         x += v.width + pad
-    out = args.out or re.sub(r'\W+', '_', title.split(': ')[-1]) + '.png'
+    out = args.out or os.path.join(ROOT, 'runs', 'renders', re.sub(r'\W+', '_', title.split(': ')[-1]) + '.png')
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     img.save(out)
-    print(f'{out}: {img.width}x{img.height}, {len(grid)} blocks, {len(items)} boxes')
+    print(f'{out}: {img.width}x{img.height}, {len(grid)} blocks, {len(items)} boxes, {COLOURS} colours')
 
 
 if __name__ == '__main__':
