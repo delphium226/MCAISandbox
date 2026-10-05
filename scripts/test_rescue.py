@@ -7,7 +7,7 @@ The pit case usually needs no rescue: the pathfinder pillars out with the dirt i
 import json, os, subprocess, sys, time, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-API = "http://127.0.0.1:8766/api"
+API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 
 
 def call(path, body=None, method=None):

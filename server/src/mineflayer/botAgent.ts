@@ -47,6 +47,31 @@ const MOVE_FAILED = /stuck at|no path|timed out at/;
 /** Mobs the self-defence reflex fights (creepers are fled from instead). */
 const HOSTILE = new Set(['zombie', 'husk', 'drowned', 'zombie_villager', 'skeleton', 'stray', 'bogged', 'spider', 'cave_spider', 'witch', 'pillager', 'vindicator', 'slime', 'silverfish', 'phantom', 'creaking']);
 
+/**
+ * What the bot's physics did during one walk (walkOnce sets it, the physicsTick listener counts), for the `[stuck]` log
+ * line: a snapshot of the controls at the stuck moment says nothing, the pathfinder clears them every 3.5 s (F145).
+ * Numbers only, nothing of the bot's or the pathfinder's objects.
+ */
+export interface WalkTally {
+  ticks: number;
+  fwd: number;
+  jump: number;
+  sprint: number;
+  ground: number;
+  water: number;
+  busy: number;
+  x0: number; x1: number; y0: number; y1: number; z0: number; z1: number;
+  /** Times the server put the bot back, and where (the corrected position) the last time. */
+  forced: number;
+  forcedAt?: { x: number; y: number; z: number };
+  /**
+   * The block levels the bot stood on since the last horizontal progress (the walk watchdog clears it), and when it last
+   * stood on one outside them: climbing (a dirt pillar, steps out of a pit) is progress, a hop or a set-back is not.
+   */
+  band: [number, number] | null;
+  levelAt: number;
+}
+
 interface Running {
   status: ActionStatus;
   abort: AbortController;
@@ -71,6 +96,10 @@ export class BotAgent implements WorldAgent {
   /** Where recent moves failed (a rescue starts when they keep failing from one spot). */
   private moveFails: Array<{ p: Vec3; t: number }> = [];
   private lastHurt = 0;
+  /** The current walk's physics tally (mcUtil walkOnce), or null. */
+  walkTally: WalkTally | null = null;
+  /** The pathfinder's recent events, repeats folded into one entry (for the `[stuck]` line). */
+  readonly pathEvents: Array<{ t0: number; t: number; key: string; text: string; n: number }> = [];
 
   constructor(readonly world: MineflayerWorld, readonly name: string, readonly role: string) {
     // At MC_TIME_SCALE 2 the bot's physics runs at the server's 40 ticks a second. Digging stays in real time: Paper
@@ -273,6 +302,67 @@ export class BotAgent implements WorldAgent {
     });
     bot.on('kicked', (reason) => this.pushEvent('system', `kicked from the server: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`));
     bot.on('end', (reason) => this.pushEvent('system', `disconnected: ${reason}`));
+    // What the pathfinder did and what the physics made of it, for walkOnce's `[stuck]` line (F145). Registered here,
+    // once: the bot object lives as long as the agent, through respawns. Numbers are copied at once (a path update's
+    // result holds the A* search's closed set)
+    const xyz = (p: { x: number; y: number; z: number }, d = 2) => `${p.x.toFixed(d)},${p.y.toFixed(d)},${p.z.toFixed(d)}`;
+    bot.on('path_update', (r) => {
+      const n = r.path[0] as unknown as { x: number; y: number; z: number; toBreak?: unknown[]; toPlace?: unknown[] } | undefined;
+      const first = n ? ` first ${xyz(n, 1)}${n.toBreak?.length ? ` break ${n.toBreak.length}` : ''}${n.toPlace?.length ? ` place ${n.toPlace.length}` : ''}` : '';
+      // (a partial search updates every tick with a growing path: one entry, the latest)
+      this.pathEvent(`update ${r.status} len ${r.path.length}${first}`, r.status === 'partial' ? 'update partial' : undefined);
+    });
+    bot.on('path_reset', (reason) => this.pathEvent(`reset ${reason}`));
+    bot.on('goal_updated', () => this.pathEvent('goal'));
+    bot.on('path_stop', () => this.pathEvent('stop'));
+    bot.on('goal_reached', () => this.pathEvent('reached'));
+    bot.on('forcedMove', () => {
+      const p = bot.entity.position;
+      this.pathEvent(`forced ${xyz(p)}`, 'forced');
+      const t = this.walkTally;
+      if (!t) return;
+      t.forced++;
+      t.forcedAt = { x: p.x, y: p.y, z: p.z };
+    });
+    bot.on('physicsTick', () => {
+      const t = this.walkTally;
+      if (!t) return;
+      const e = bot.entity;
+      const p = e.position;
+      t.ticks++;
+      if (bot.getControlState('forward')) t.fwd++;
+      if (bot.getControlState('jump')) t.jump++;
+      if (bot.getControlState('sprint')) t.sprint++;
+      if ((e as unknown as { isInWater?: boolean }).isInWater) t.water++;
+      if (bot.pathfinder.isMining() || bot.pathfinder.isBuilding()) t.busy++;
+      t.x0 = Math.min(t.x0, p.x); t.x1 = Math.max(t.x1, p.x);
+      t.y0 = Math.min(t.y0, p.y); t.y1 = Math.max(t.y1, p.y);
+      t.z0 = Math.min(t.z0, p.z); t.z1 = Math.max(t.z1, p.z);
+      if (e.onGround) {
+        t.ground++;
+        // (+0.1: farmland and path blocks stand 15/16 high)
+        const lv = Math.floor(p.y + 0.1);
+        if (!t.band) t.band = [lv, lv];
+        else if (lv < t.band[0] || lv > t.band[1]) {
+          t.band = [Math.min(lv, t.band[0]), Math.max(lv, t.band[1])];
+          t.levelAt = Date.now();
+        }
+      }
+    });
+  }
+
+  /** Record a pathfinder event in the ring; a repeat of the last one (same key) only counts. */
+  private pathEvent(text: string, key = text) {
+    const now = Date.now();
+    const last = this.pathEvents[this.pathEvents.length - 1];
+    if (last && last.key === key) {
+      last.n++;
+      last.t = now;
+      last.text = text;
+      return;
+    }
+    this.pathEvents.push({ t0: now, t: now, key, text, n: 1 });
+    if (this.pathEvents.length > 16) this.pathEvents.shift();
   }
 
   enqueue(type: string, args: Record<string, unknown>, replace = false): ActionStatus {

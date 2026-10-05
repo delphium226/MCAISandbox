@@ -5,9 +5,10 @@
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
-import type { BotAgent } from './botAgent';
+import type { BotAgent, WalkTally } from './botAgent';
 import type { Column } from './mcAtlas';
 import { FALLING, WET, waterloggedEmpty } from './mcBlocks';
+import { timeScale } from './mcRules';
 import { overlaps } from '../village';
 
 const { goals } = pathfinderPkg;
@@ -66,8 +67,24 @@ function pathError(e: Error, target: string): Error {
  * cancelled (the pathfinder alone can keep retrying the same blocked move forever). With no path at all it tries once
  * more allowing longer drops: a bot that climbed a tree for logs can stand on leaves 5 blocks up with no way down
  * within the usual 4-block drop.
+ * A failure carries `moved`, in blocks, horizontally: the larger of how far the last attempt got from where it started
+ * and how far the bot ended from where this walk started (so legs and a swim-out count); under 1 means it did not move.
  */
 export async function walk(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs = 60000, opts: { scaffold?: boolean } = {}) {
+  const start = a.bot.entity.position.clone();
+  try {
+    await walkRetrying(a, goal, target, signal, timeoutMs, opts);
+  } catch (e) {
+    const err = e as Error & { moved?: number };
+    if (err.message !== 'cancelled') {
+      const p = a.bot.entity.position;
+      err.moved = Math.max(err.moved ?? 0, Math.hypot(p.x - start.x, p.z - start.z));
+    }
+    throw err;
+  }
+}
+
+async function walkRetrying(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs: number, opts: { scaffold?: boolean }) {
   const moves = a.moves();
   // Without scaffolding (a builder going to its stand spot: Minevale19's built a dirt tower to reach a roof)
   if (opts.scaffold === false) {
@@ -138,35 +155,84 @@ async function swimOut(a: BotAgent, toward: { x?: number; z?: number }, signal: 
   }
 }
 
+/** The `[stuck]` log line: where, what the physics did during the walk, the blocks round the feet, the pathfinder's events. */
+function stuckLine(a: BotAgent, t: WalkTally, target: string, why: string, t0: number, far: number): string {
+  const bot = a.bot;
+  const p = bot.entity.position;
+  const f2 = (v: number) => v.toFixed(2);
+  const now = Date.now();
+  const s = (now - t0) / 1000;
+  // 3x3 columns round the feet, north row first, west to east: # a collision box, ~ water, . anything else, ? not loaded
+  const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
+  const v = new Vec3(0, 0, 0);
+  const feet = [-1, 0, 1].map((dy) => `y${by + dy} ` + [-1, 0, 1].map((dz) => [-1, 0, 1].map((dx) => {
+    const b = bot.blockAt(v.set(bx + dx, by + dy, bz + dz));
+    return !b ? '?' : b.boundingBox === 'block' ? '#' : WET.has(b.name) ? '~' : '.';
+  }).join('')).join('/')).join(' ');
+  const events = a.pathEvents.filter((e) => e.t >= t0).map((e) => `${((e.t0 - now) / 1000).toFixed(1)}s ${e.text}${e.n > 1 ? ` x${e.n}` : ''}`).join(', ');
+  return `[stuck] ${a.name} ${why} at ${f2(p.x)},${f2(p.y)},${f2(p.z)} -> ${target} after ${s.toFixed(1)} s: moved ${f2(far)}; `
+    + `ticks ${t.ticks}/${Math.round(20 * timeScale() * s)} fwd ${t.fwd} jump ${t.jump} sprint ${t.sprint} ground ${t.ground} water ${t.water} busy ${t.busy}; `
+    + `y ${t.ticks ? `${f2(t.y0)}-${f2(t.y1)}` : '-'}; spread ${t.ticks ? `${f2(t.x1 - t.x0)}x${f2(t.z1 - t.z0)}` : '-'}; `
+    + `forced ${t.forced}${t.forcedAt ? ` (last ${f2(t.forcedAt.x)},${f2(t.forcedAt.y)},${f2(t.forcedAt.z)})` : ''}; feet ${feet}; events ${events || 'none'}`;
+}
+
 async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs: number) {
   const bot = a.bot;
   bot.pathfinder.setMovements(a.moves());
   let settled = false;
-  let last = bot.entity.position.clone();
+  const start = bot.entity.position.clone();
+  let last = start.clone();
   let lastMove = Date.now();
+  let far = 0;
   const t0 = Date.now();
+  const tally: WalkTally = { ticks: 0, fwd: 0, jump: 0, sprint: 0, ground: 0, water: 0, busy: 0, x0: start.x, x1: start.x, y0: start.y, y1: start.y, z0: start.z, z1: start.z, forced: 0, band: null, levelAt: 0 };
+  a.walkTally = tally;
+  let forcedSeen = 0;
+  let levelSeen = 0;
+  let bandSeen: [number, number] | null = null;
   await new Promise<void>((ok, fail) => {
     const done = (err?: Error) => {
       if (settled) return;
       settled = true;
       clearInterval(watch);
       signal.removeEventListener('abort', onAbort);
+      if (a.walkTally === tally) a.walkTally = null;
       if (err) {
         bot.pathfinder.stop();
         fail(err);
       } else ok();
     };
     const onAbort = () => done(new Error('cancelled'));
+    const stalled = (msg: string, why: string) => {
+      console.log(stuckLine(a, tally, target, why, t0, far));
+      done(Object.assign(new Error(msg), { moved: far }));
+    };
     const watch = setInterval(() => {
       const p = bot.entity.position;
-      if (p.distanceTo(last) > 0.5) {
+      // Progress is horizontal (F145: a hop in place, sampled near its top, reset the timer under a 3D measure) or a new
+      // block level stood on (climbing out by steps or a dirt pillar); a position the server has since put back is not
+      if (tally.forced !== forcedSeen) {
+        forcedSeen = tally.forced;
         last = p.clone();
-        lastMove = Date.now();
+        // A rim the client stood on before the server put it back is no progress; a correction up onto a new level (a
+        // dirt pillar's block the bot was not told about, lesson 29) still is
+        const lv = Math.floor(p.y + 0.1);
+        if (!bandSeen || (lv >= bandSeen[0] && lv <= bandSeen[1])) tally.levelAt = levelSeen;
+      } else {
+        far = Math.max(far, Math.hypot(p.x - start.x, p.z - start.z));
+        if (Math.hypot(p.x - last.x, p.z - last.z) > 0.5) {
+          last = p.clone();
+          lastMove = Date.now();
+          tally.band = null;
+        }
       }
+      levelSeen = tally.levelAt;
+      bandSeen = tally.band && [tally.band[0], tally.band[1]];
+      const progress = Math.max(lastMove, tally.levelAt);
       // Digging or placing a block on the way can hold the bot still for a while
       const busy = bot.pathfinder.isMining() || bot.pathfinder.isBuilding();
-      if (!busy && Date.now() - lastMove > 10000) done(new Error(`stuck at ${at(p)} on the way to ${target}; try a different route or a nearer point`));
-      else if (Date.now() - t0 > timeoutMs) done(new Error(`timed out at ${at(p)} on the way to ${target}`));
+      if (!busy && Date.now() - progress > 10000) stalled(`stuck at ${at(p)} on the way to ${target}; try a different route or a nearer point`, 'stuck');
+      else if (Date.now() - t0 > timeoutMs) stalled(`timed out at ${at(p)} on the way to ${target}`, 'timed out');
     }, 500);
     signal.addEventListener('abort', onAbort, { once: true });
     // (the goal's test takes a path node; a position has what it reads)
