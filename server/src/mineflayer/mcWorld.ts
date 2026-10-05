@@ -23,7 +23,8 @@ import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
-import { DEFAULT_JAR, vanillaLibrary, villageBiome } from '../vanillaPieces';
+import { vanillaLibrary, villageBiome } from '../vanillaPieces';
+import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -119,7 +120,7 @@ export class MineflayerWorld implements WorldAdapter {
       return !m.problems.length && (m.units ?? 0) <= (isLandmark(d.name) ? LANDMARK_UNITS : HOUSE_UNITS) && (m.smelts ?? 0) <= MAX_SMELTS;
     };
     try {
-      return vanillaLibrary(villageBiome(biome), accept, process.env.MC_VANILLA_JAR ?? DEFAULT_JAR);
+      return vanillaLibrary(villageBiome(biome), accept, vanillaJar());
     } catch (e) {
       console.warn(`[vanilla] cannot read the village pieces: ${(e as Error).message}`);
       return null;
