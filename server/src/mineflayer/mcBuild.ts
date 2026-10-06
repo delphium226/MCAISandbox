@@ -423,8 +423,10 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     try {
       if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes }, signal);
       else {
-        // "Any logs" (charcoal) is whichever kind is carried
-        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log' : st.input ?? '';
+        // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
+        // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
+        const spare = `${spareKind(i + 1)}_log`;
+        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log') : st.input ?? '';
         await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs }, signal);
       }
     } catch (e) {
