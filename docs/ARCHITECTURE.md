@@ -242,7 +242,7 @@ What each model is shown, per call:
 
 | Role | Sees | Answers with | How often |
 |---|---|---|---|
-| Planner | role, objective, long-term notes, village summary (plots, buildings, designs, storage contents, task board, recent village events, ground others are working on), previous plan, events since the last plan, observation; a worker also its claimed task | `set_plan`; the mayor also `plan_layout`, `post_tasks` and `declare_complete` | on the triggers above; a worker only for tasks a model wrote (code-posted tasks carry their own steps, so in the acceptance runs no worker's planner was called once) |
+| Planner | role, objective, long-term notes, village summary (plots, buildings, designs, storage contents, task board, recent village events, ground others are working on), previous plan, events since the last plan, observation; a worker also its claimed task | `set_plan`; the mayor also `plan_layout`, `post_tasks` and `declare_complete` | on the triggers above; a worker only for tasks a model wrote (code-posted tasks carry their own steps, so in the acceptance runs no worker's planner was called once; the 3-minute review skips a worker running a code-posted step for up to three intervals) |
 | Executor | plan with the current step marked, the claimed task, recent decisions, blocked calls, events since its last turn, a trimmed observation (~2k tokens) | 1-3 skill calls, or `step_done`, `design_building`, `request_replan` | whenever the agent is idle, at least 6 s apart; 1.5 s when urgent. A step of a code-posted task is first queued exactly as written; the executor takes it over only after it fails (executors had rewritten such calls: withdrawing logs and depositing them again counted as gathering) |
 | Architect | the design rules and format with the world's block list (`designSystem(blocks, states)`: in Minecraft the style first, with an example, then drawing by hand for what a style cannot express, the rules for block states and a 7x7 stair-gable example; in the sandbox a flat-roofed hut), a brief, the existing designs; on a revision, what it submitted, its elevations and the lint notes | `submit_style` (Minecraft: a style code draws) or `submit_design` (layers of spaced symbols plus a palette) | when a `design_building` call is made; up to three tries when the checks send it back (a failed model call is one), one of them a revision when a valid design has lint notes |
 
@@ -260,10 +260,11 @@ Code also keeps the mayor on its job, because gpt-oss drifts back to doing the w
 | Hand-written building tasks before a layout are laid out by `plan_layout` | a mayor writing its own gather-craft-build chain |
 | Tasks duplicating the layout's are not posted | a mayor re-posting the whole village after one failure |
 | A re-posted failed building re-opens the layout task | "Build meeting hall" posted for the failed "Build meeting_hall" |
-| `declare_complete` is refused while a layout build is not done | a village declared complete with nothing built |
+| `declare_complete` is refused while a layout build is not done or the street lamps' task is open | a village declared complete with nothing built |
 | No timed review while workers hold tasks; a refused `plan_layout` replans at once | a waiting mayor re-posting gathering every 3 minutes; minutes lost after a refusal |
 | Plan steps naming a planner tool (`plan_layout`) are dropped; the planner calls the tool | the executor, unable to call it, ran `find_site` and swapped a 30x30 site for a 24x24 |
 | An empty first plan with nothing laid out gets `find_site` added (or is asked again after 10 s); size 40 where the world has vanilla pieces (room for a green; also the first search's floor, until a site is found) | a mayor that waited 3 minutes before doing anything; code's 24x24 site left a street village's house out |
+| With a site and nothing laid out, a plan of only waiting or watching steps counts as empty; the nudge (at most 3 a site) names the vanilla library and says "call plan_layout now", keeps a reason already set and repeats a refused `plan_layout`'s advice while site and library are unchanged; `find_site`'s reason ends the same way once the library is filled; the mayor's executor waits while a replan is pending, and a design it draws marks its step done (F155) | three "wait" plans and a drawn 13x13 hall instead of the library's (~3 min in Minevale26); the executor running the previous plan's design step during the next plan |
 | After the mayor's `find_site`, code fills the library with the biome's vanilla houses and names them in the replan reason (`fillVanilla`) | generated villages that looked alike whatever the land (F113) |
 | A repeated vanilla small house in `plan_layout` becomes another of the library's (siblings) | the mayor naming one house twice for "two matching cottages" |
 | Completion is checked by code on every tick of the mayor's brain | all three buildings stood, but the mayor had just tried to re-post work, so nothing woke it again |
@@ -400,7 +401,7 @@ sequenceDiagram
   L->>S: materialsNear: are the materials near the site, as collect reaches them?
   L->>L: a green round the town centre (a 40 site), else streets; each building turned to face one (else rows)
   L->>B: prepare the plot (streets laid as dirt_path); set up the storage (4 chests into the storage hut's spots); gather for the hut, build it
-  L->>B: gather tasks per building (after the storage); builds at x, z (after the hut)
+  L->>B: gather tasks per building (after the storage); builds at x, z (after the hut); "Light the streets" after every build
   opt the site holds only some of the buildings
     L->>B: lay out the ones that fit (at least half); the rest wait as unplaced
     M->>S: find_site again
@@ -423,8 +424,9 @@ sequenceDiagram
   else everything in hand
     S-->>W: action_done: cottage recorded, placed 81 blocks
   end
+  W->>S: light_streets layout=1 (posts and torches made from storage, one charged job)
   alt the mayor declares it
-    M->>B: declare_complete (checked: every layout build done)
+    M->>B: declare_complete (checked: every layout build done, the lamps lit)
   else code, on the mayor's next tick
     B-->>M: every layout build done, nothing open: declared complete by code
   end
@@ -461,7 +463,7 @@ stateDiagram-v2
 | Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests, each one's material group in a sorted storage, and what each held when last opened; shown chest by chest in the planners' village summary and the panel. |
 | Storage hut (`storageHut`) | `plan_layout` (a new village's first economy layout) | The hut's footprint and its nine chest spots in the order chests go down; `deposit` fills them, the stuck rescue teleports to its door. |
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
-| Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. A street plan's plot also keeps its streets, door paths and plaza (`streets`), which `prepare_site` lays as `dirt_path`, and a green village's plot the green inside its ring (`green`), kept free. |
+| Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. A street plan's plot also keeps its streets, door paths and plaza (`streets`), which `prepare_site` lays as `dirt_path`, and a green village's plot the green inside its ring (`green`), kept free. Such a plot also holds its street lamps' cells (`lamps`, Minecraft) and `lit` once `light_streets` put them up; builders' stand spots keep off them. |
 | Plan (`plan`, `vanillaBiome`) | `fillVanilla` (both), `POST /api/village/:v/layout` (`plan`) | "street": the first plot is laid out round a green or by the street plan; the biome the vanilla library came from, whose town centre the plan uses. |
 | Unplaced (`unplaced`) | `plan_layout` | Buildings that did not fit on the site: shown in the village summary, laid out by code at the mayor's next successful `find_site`; completion waits for them. |
 | Unavailable (`unavailable`) | `collect` (Minecraft) | Materials found nowhere near the village (sand): the first failed collect closes their other open gather tasks, and code posts no gathering for them until the next layout clears the list. |
@@ -533,6 +535,20 @@ at most 27 layouts, and takes the first that places everything; otherwise the st
 savanna and snowy get greens with 6 buildings (7 with a fifth house) and taiga with 5; desert, with no centre, keeps
 crossing streets. The vanilla mayor searches with size 40 (its prompt, the code-added first step and the first
 search's floor); a 40 search that finds a site of 26 or more is good enough for the street plan and sends no scouts.
+
+**Street lamps** (2026-10-06, the user's request). `placeLamps` (`streetPlan.ts`) puts lamp cells beside a green's or
+street plan's main streets, about every 8 blocks (`LAMP_SPACING`), corners and the pad's edge first, 2 blocks from
+every building, off the 3 cells out of each entrance door and off the mining hut's ground to the pad's edge
+(`placeAlong` returns each door and the mine's back strip for this). Where the world has the `light_streets` skill
+(Minecraft, survival), `postLayout` records the cells on the layout and posts a soft "Light the streets: N lamp posts"
+task after every build of it. `light_streets` (`mcBuild.ts`) builds every post in one job charged like a build (a fence
+of the village's wood with a torch; in the desert two cut sandstone), standing by the storage hut so the sticks,
+fences and charcoal are made at its table and furnace; it skips a cell that is not level or not free, sets missing
+blocks once more after a check, and marks the layout `lit`. Short of materials, it posts gather tasks and goes back on
+the board behind them (`requeueBuild`, keyed on the task's call). `declare_complete`, `stage_village.py` and
+`follow_workers.py` wait while the lamp task is open; a failed one does not hold completion (it is soft). Staged VanL1:
+six lamps from storage in ~18 s. Left (F159): only each building's entrance door is known, so a second outside door's
+walkway is not kept clear (none got a lamp in 96 test layouts).
 
 ## 5. Skills in each world
 
@@ -606,7 +622,7 @@ buildings by their walls, so two neighbours' eaves meet over a 2-block street), 
 cleared only where neither the design's own cells nor another building of the village, built or laid out, stand.
 The stand spot keeps off buildings and the mine because in a street plan "3 south of the claim" was the mining hut
 across a 3-wide street: a builder's footing search found its roof and the walk there pillared dirt in front of the hut's
-doorway, sealing the mine (F131).
+doorway, sealing the mine (F131). It keeps off street lamps too (a post's top is footing).
 
 ### Vanilla's data from the jar
 
@@ -751,14 +767,16 @@ town centre) and checks each as the architect's survival designs are checked, wi
 the designs for `contact_sheet.py`, which tiles their renders by biome, and for `rotate_design.py --design`; renders of
 pieces stay private); `street_plan.mts` lays out each biome's library with both huts and checks the plan (inside the
 pad, off the streets, 2 blocks apart, every door's way out on a street, the storage hut unturned, the mining hut's back
-at the edge; with `PLAN=green` and `SIZE=40`, greens, with nothing on the green and no door onto it). `stage_village.py` sets a
+at the edge; with `PLAN=green` and `SIZE=40`, greens, with nothing on the green and no door onto it; in both, the street
+lamps: beside a main street, 2 from every building, off walkways and the mine's ground, spaced). `stage_village.py` sets a
 village up at a stage and runs scripted workers (`taskBrain.ts`: they run the skill calls each task spells out), so
 the economy's code is checked in one to ten minutes with no model involved (its test designs include `stairhut` and
 `stairhall`, with stair gable roofs, and `genhut` and `genhall`, drawn by the generator; `--design-file` takes a design
 from a file, such as a vanilla piece, and `--plan street --biome B` the street plan (a green on a 40 site); `--mayor` adds a tiered Mayor with
 its layout posted and an empty plan, which gathers while it waits, `--planner none` for no planner). The benches (`modelbench`,
 `execbench`, `planbench`, `mayorbench`, `designbench`) replay the brain's real prompts against a model in seconds per
-case (`mayorbench` with the vanilla library's prompt line and case, `VANILLA=0` without); `designbench` offers both design tools as the brain does (`STYLES=0` for hand drawing only, `REVISE=1` for the
+case (`mayorbench` with the vanilla library's prompt line and case, `VANILLA=0` without, the F155 cases with `ONLY=F155`,
+and a tally per case of what each answer did); `designbench` offers both design tools as the brain does (`STYLES=0` for hand drawing only, `REVISE=1` for the
 revision round) and reads each design's roof shape, blocks, gather cost, lint notes and validity, on 10 or more samples
 a case. Only then do
 model-driven village runs test behaviour. `watch_village.py` probes for land (in survival, skipping ground with too
@@ -840,8 +858,9 @@ flowchart LR
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees; a new village's first site may lie up to 256 blocks from the mayor's start, and the verdict (`memory.siteSearch`) decides whether workers scout first (section 4) |
 | Design limits | `tieredBrain.ts` (design checks), `designs.ts`, `buildingGen.ts`, `layout.ts` | the world's block list (`designBlocks`), raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration (made air in a hand drawing); a cost budget in place of the old 9x9 cap, in raw blocks to gather from `materialTasks` (`HOUSE_UNITS` 150, a landmark by its name, a hall, chapel, tower..., `LANDMARK_UNITS` 300; 250 and 400 before the generator; at most `MAX_SMELTS` 32 furnace runs), and `plan_layout` lays out one building over 150 a village; a style is fitted by code instead of refused (walls capped at `HOUSE_WALLS` 9 and `LANDMARK_WALLS` 11, `fitSmelts`, `shrinkStyle`); three tries with the problems; vanilla pieces pass the same checks in `mcWorld.vanillaLibrary` before they reach the library (a library or temple as a landmark) |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
-| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls |
-| Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack), charging each run, requeueing a shortfall, open windows when there is no glass |
+| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls; on a green or street plan, a soft street-lamp task after the builds (`placeLamps`, `light_streets`, section 4) |
+| Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack; charcoal from the log kind
+with logs to spare, not the logs fetched for planks, F156), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests; a limited runner (`pick`, `notTheTask`) is the waiting mayor's gathering (section 3) |
 
 **The mine's trips** (`mcMine.ts`, `mineFor`): a main tunnel's cells are dug in a fixed order (`tunnelCell`: 3 main

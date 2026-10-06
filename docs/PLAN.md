@@ -20,6 +20,31 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-06 at the close of the eighteenth session: F155 fixed, street lamps added; the notes below for the
+seventeenth session stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`: `52f5b19` (F155: wait-only mayor plans count as empty, the nudge names
+  the library and says "call plan_layout now", refusal-aware and capped at 3 a site; find_site's reason ends "call
+  plan_layout now"; the mayor's executor waits for a pending replan; a drawn design marks its step; workers running a
+  code-posted step skip the timed review for up to three intervals; mayorbench's F155 cases and per-case tally),
+  `980a5cd` (street lamps: `placeLamps`, the `light_streets` skill, the soft "Light the streets" task after every build),
+  the charcoal fix (F156) and the close-out (this record, CLAUDE.md lessons 85-88, README, ARCHITECTURE). **Not pushed**
+  at the close unless the user said so (see the end of the session). `main` untouched.
+- **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
+  pinned model servers). No agents in either world. Ollama is 0.35.1 now (the app updated itself); `ollama_exec.py
+  status` gave no WARNING.
+- **Where things stand:** the mayor lays out on its second call (Minevale27/28/29: 0.1-0.2 min, no design drawn; the
+  F155 guard never had to fire in a run, the bench shows it works: 12/12). Villages take 14.2-14.4 min on minevale3's
+  usual site, 15.2 with the lamps (Minevale29: ~0.6 min of that was F156, fixed after the run but not yet run again).
+- **Next:** first a model-driven run on minevale3 to confirm F156's fix (lamps in one pass, 0 failed actions: the user
+  chose "fix, no run" at the close). Then the village-life list in the backlog, in the agreed order: signs beside each
+  building's door, then farming (iron age suggested fourth); the user's two lighting items (inside buildings, inside
+  mines) are in that list. Smaller: F157 (the Mayor's 1x1 pocket), F158 (a stray drawn design wins over the library),
+  F159 (lamp leftovers). The prompt for the nineteenth session is `runs/2026-10-06/s18/NEXT_PROMPT.md`.
+- **How to test now:** as before; the mayorbench F155 cases (`ONLY=F155`); `scripts/checks/street_plan.mts` checks the
+  lamps' rules (`SIZE=40 PLAN=green`); staged runs wait for the lamp task; check lamp columns with `/api/block` after a run.
+- **Test world state:** minevale3 holds Minevale29's village with its lamps (-1648..-1609, 27..66): reset before using it.
+
 (written 2026-10-06 at the close of the seventeenth session: F148 and F131's leftovers done, F150 waiting; the notes below
 for the sixteenth session stay valid where not overridden)
 
@@ -755,6 +780,34 @@ lays out, gathers and builds it, and the mayor answers in chat.
 
 ## Backlog (not scheduled)
 
+**Village life (the user's list, 10-06, eighteenth session).** Order agreed so far: lamp posts (under way), then signs,
+then farming; iron age suggested as the fourth (it unlocks buckets, shears, lanterns and interiors). The rest unordered.
+- ~~**Lamp posts** along the streets and the green's ring~~: done 10-06 (`980a5cd`, the user's choices: a fence of the
+  village's wood with a torch, charged, about every 8 blocks, completion waits for them). Vanilla's per-biome lamp pieces
+  later, with the iron age (snowy's lanterns; plains' wall torches need a wall_torch charge and supports-first order).
+- **A sign beside each building's door** naming its function (the user's): 6 planks + a stick make 3 signs; code sets the
+  text by command.
+- **Farming** (the user's): vanilla's farm pieces as the layout; a hoe, seeds from grass, water beside the plot;
+  planting and harvesting as tasks.
+- **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
+  furnaces, chests, bookshelves, wall torches from the mine's coal; beds need wool).
+- **Internal lighting inside buildings** (the user's, 10-06): torches on the inside walls (the importer drops vanilla's
+  wall torches today; they need a wall_torch charge mapping and supports-first placement, the lamp research's notes).
+- **Internal lighting inside mines** (the user's, 10-06): torches along the stairs and tunnels as they are dug (coal from
+  the mine, or charcoal).
+- **Gardens and fences**: a fenced front garden with flowers the agents pick.
+- **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
+- **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
+- **Animal pens**: sheep, cows, chickens fenced near the farm (wool for beds, food), led there with wheat.
+- **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns.
+- **Roles**: a profession per worker (farmer, miner, builder) tied to its building and named on its sign (Project Sid's
+  specialisation).
+- **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room.
+- **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
+- **Upkeep**: the mayor checks buildings against their designs and repairs damage.
+- **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
+- (Phase 3, talking to the mayor, stays its own phase below the plan's phases.)
+
 - Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
 - Events carry no timestamp (the panel cannot say "2 min ago").
 - Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
@@ -774,7 +827,15 @@ lays out, gathers and builds it, and the mayor answers in chat.
 - The mine's doorway repaired before walking in (F131's third part; the cause, walks placing on village ground, was
   fixed 10-04; backlog by the user's choice 10-06).
 - F153: the pathfinder's door branch with dirt carried, and `arrived()` without the cell above.
-- F155: a mayor plan of only "wait" with nothing laid out escapes the plan_layout nudge (~3 min in Minevale26).
+- ~~F155: a mayor plan of only "wait" with nothing laid out escapes the plan_layout nudge (~3 min in Minevale26).~~ Fixed
+  10-06 (eighteenth session, `52f5b19`).
+- F157: the Mayor stood 30 s in a 1x1 pocket on a lake shore (probably its own sand-dig hole; the pathfinder followed a
+  "success" path whose first step no jump reaches, while the partial path's jump south was the way out). Self-recovered.
+- F158: a stray drawn design in the library (Minevale26's "cottage") wins over the vanilla houses: gpt-oss laid out
+  cottage, cottage, plains_library_2 12 times in 12 (valid, slower). The executor no longer runs stale design steps
+  (F155's fix), the usual source.
+- F159: street lamps know only each building's entrance door, not side doors (0 lamps on any walkway in 96 test
+  layouts); stockCovers never closes requeued lamp gathering; `--stage build` stocks no lamp materials.
 - The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
   a bot at y 60 under the storage hut); harmless to buildings so far.
 - The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
@@ -1065,6 +1126,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-06 (s17) | test_rescue x4 + VanG13's sealed mine | F131 with the review fixes (`51f10a2`) | **pass x5** | 2-4 s | tunnel, box, pool teleported; pit no rescue; the sealed mine to the storage hut in 2 s |
 | 10-06 (s17) | **VanM7** | staged street plan 2x, final code | **6/6** | **8.0 min** | 0 failed; no `[stuck]`, 1 re-dig |
 | 10-06 (s17) | **Minevale26** | model-driven 1x, minevale3, the session's code (`51f10a2`) | **6/6 PASS** | **18.8 min** (Minevale25 15.0) | the mayor's find_site took -1628,65,47 again; laid out only at 3.3 min (F155: three "wait" plans before plan_layout, then a drawn 13x13 meeting_hall instead of plains_library_2, built in 3.2 min against 1.8); from layout to complete 15.5 min (14.8); 0 failed actions, no `[stuck]` (no F150), 1 `[repath]` (Worker1 a cell short of a tree, 1-2 s), 2 re-digs, no `[lag]` |
+| 10-06 (s18) | mayorbench F155 cases | gpt-oss:120b-cloud, 10-12 samples a case, before and after `52f5b19` | - | ~1-4 s a call | Minevale26's second call 8/12 plan_layout (3 wait, 1 design), 12/12 with the reason ending "call plan_layout now"; the nudge after a wait plan 2/12 and 0/12 as it was (7 and 11 drew a design), 12/12 naming the library; with a stray drawn cottage 12/12 laid out cottage x2 (F158); old cases within noise |
+| 10-06 (s18) | **Minevale27** | model-driven 1x, minevale3, `52f5b19` | **6/6 PASS** | **14.2 min** (Minevale26 18.8) | site -1628,65,47; laid out at 0.2 min on plan 2, no design drawn, the guard and nudge never fired; 0 failed actions; `[stuck]` 0, `[stuck-world]` 0, `[dig]` 0, `[repath]` 0, `[rescue]` 0, `[lag]` 0 |
+| 10-06 (s18) | **Minevale28** | as Minevale27 | **6/6 PASS** | **14.4 min** | same site; laid out at 0.1 min, no design drawn; 0 failed actions; all counts 0 |
+| 10-06 (s18) | **VanL1** | staged green plains, 2x, minevale3 (VanG's site), `--mayor --planner none`, the lamp code | **6/6 + 6 lamps** | **8.6 min** (VanG10-13 7.7-8.6) | lamps lit in ~18 s at the end (fences, sticks, 2 charcoal, torches made from storage); six columns grass / birch_fence / torch on `/api/block`; 0 failed; `[dig]` 1 |
+| 10-06 (s18) | **Minevale29** | model-driven 1x, minevale3, `980a5cd` (lamps) | **6/6 + 6 lamps PASS** | **15.2 min** (27/28: 14.2/14.4) | site -1628,65,47; laid out at 0.2 min; buildings done at 14.2 as Minevale27; the lamp job's first try failed short of birch logs (F156: charcoal smelted the planks' logs), the executor's retry lit them 0.4 min later; 1 failed action; Mayor 3 `[stuck]` in a 1x1 pocket, 30 s, no rescue (F157); `[repath]` 1, `[dig]` 1, `[lag]` 0 |
 
 ## Findings log
 
@@ -1484,6 +1550,28 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F159 (10-06, eighteenth session, the lamp diff review) Left from the street lamps: `placeLamps` keeps off the 3 cells out
+  of each building's entrance door only (that rule never excludes a cell: they are street or path cells already); six
+  library houses have a second outside door, whose walkway gets no lamp today by geometry only (0 in 96 layouts).
+  stockCovers looks only at "Build" tasks, so requeued lamp gathering runs even when storage holds enough;
+  `stage_village.py --stage build` stocks no lamp materials (the lamps requeue a gather round there). Backlog.
+- F158 (10-06, eighteenth session, mayorbench) With a drawn "cottage" in the library beside the vanilla houses, the named
+  nudge laid out cottage, cottage, plains_library_2 in 12 of 12. Valid, but not the library's village and a slower
+  house. The source in Minevale26 was the executor running plan 1's design step during plan 2 (fixed in `52f5b19`).
+- F157 (10-06, eighteenth session, Minevale29) The Mayor's first sand deposit took 1.0 min (others 0.2-0.4): three
+  `[stuck]` lines at -1673.5,62,-21.3, a 1x1 pocket on the lake shore 20 blocks south of F150's spot (feet `###/#.#/~#~`,
+  head `###/#.#/...`), water 0 ticks, forced 0, fwd 6 jump 3 of ~204 ticks (the stand-still branch). Each re-search gave a
+  partial path whose first node was the jump south (the way out) and then a "success" path starting east and 2 up (no
+  jump reaches it), which the walk followed. The walk's fourth leg direction got out with no rescue. Probably its own
+  sand-dig hole (lesson 70's pattern; not logged). Not F150 (no water) nor F147 (no set-backs). Off the critical path.
+- F156 (10-06, eighteenth session, Minevale29) The lamp job's first try failed "short of 1x birch_log (have 0)" while
+  making from stock: the plan fetched 2 birch_log for the fence planks and 2 oak_log for charcoal, and the smelt took
+  the first log carried (the birch). requeueBuild posted nothing (storage covered it); the executor withdrew 2 birch
+  and retried: lamps lit 0.4 min later, ~0.6 min lost. Fixed after the run: charcoal from `spareKind`'s logs
+  (makeFromStock). Not yet run again (the user's choice). Left (the fix's review): the smelt's fuel (`addFuel`, mcSurvival.ts
+  ~1280: coal, then the first planks, then the first log in the window) is not tied to the plan's fuel planks, so it can
+  still burn the fetched planks or logs; storage coal is not fetched as fuel. A preferred fuel kind from makeFromStock
+  would close it.
 - F155 (10-06, seventeenth session, Minevale26) The mayor's late layout cost ~3.1 min: its second plan (0.2 min, the
   library just filled with vanilla plains pieces) returned "prepare_site, wait" without plan_layout; code dropped
   prepare_site and kept "wait", and plans 3-5 were "wait" or board-watching steps, while the executor improvised (find_site
@@ -1502,7 +1590,15 @@ CLAUDE.md when a phase ends.
   the empty-plan branch and its "draw any design" reason ~1252), `fillVanilla` ~322-334 (fills the library after
   find_site and returns the prompt's library sentence), `WORKER_WORK` ~421; the executor tick does not wait for a pending replan (`planPending` ~616/890/936/978:
   plan 1's design step ran during plan 2). `scripts/bench/mayorbench.mts` replays the mayor's prompts (add a case: a
-  site found, the vanilla library filled, nothing laid out).
+  site found, the vanilla library filled, nothing laid out). **Fixed 10-06 (eighteenth session, `52f5b19`)**: mayorbench's
+  new F155 cases (12 samples each): Minevale26's second call 8/12 plan_layout as it was, 12/12 with find_site's reason
+  ending "call plan_layout now"; the empty-plan nudge 2/12 and 0/12 as it was (7 and 11 drew a design), 12/12 naming the
+  library. Code: wait-only plans with a site and nothing laid out count as empty; the nudge names the library, keeps a
+  reason already set, repeats a refused plan_layout's advice while site and library are unchanged, at most 3 a site;
+  the mayor's executor waits for a pending replan; a completed plan's pending reason goes to the planner; a drawn design
+  marks its step; no "draw" reason once laid out; the timed review skips a worker running a code-posted step for up to
+  three intervals (G4). Two reviews found 10 real problems first (a refusal loop, failures getting round the cap, a
+  step_done after an auto-marked design...). Minevale27/28 laid out at 0.2/0.1 min, 14.2/14.4 min, 0 failed actions.
 - F154 (10-06, seventeenth session, the F131 reviews) The pathfinder's exclusion weights are bans, not costs: movements.js
   refuses any break whose `exclusionAreasBreak` weight is 100 or more, and every move costing over 100 is dropped, so
   `exclusionAreasPlace`'s 1000 bans placing too (botAgent.ts's comments say "never" in effect). A village's mine sealed at
@@ -1985,6 +2081,15 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-06 (eighteenth session) F155 (the user's choices among Claude's recommendations): the full package (wait-only plans
+  as empty, the nudge naming the library, find_site's reason ending "now", the executor waiting for a pending replan, the
+  review's fixes) and G4's skip; code calling plan_layout itself (c) to the backlog (the review: names from free text
+  would lay out the wrong village and code would declare it complete). Staged runs skipped for F155 (no changed path
+  runs with `--planner none`). Then lamp posts (the user's choice of next): simple fence + torch now, vanilla pieces
+  later; charged; about every 8 blocks; completion waits for them. Claude's calls after the reviews: the lamp task after
+  every build; no gather tasks at layout (made from storage, requeued when short); the job stands by the storage hut.
+  The user's village-life list added to the backlog (signs, farming, interiors, lighting inside buildings and mines,
+  and more). F156 fixed without a run (the user's choice); F157 to the backlog.
 - 10-06 (seventeenth session) The small backlog (the user's choices among Claude's recommendations): F148 fixed at the
   root and guarded (the patched pathfinder copies A* nodes into paths, and walkOnce re-searches an idle empty path), not
   by a larger tick budget or the safety net alone. F131: "out" means a path home exists (a search only), else, in no

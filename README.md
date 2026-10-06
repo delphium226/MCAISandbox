@@ -254,7 +254,8 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 
 - **Repeats are refused.** The same failed call twice, or the same successful call twice within two minutes, is refused
   for five minutes, and the executor is told which calls are blocked so it tries something else.
-- **The planner reviews** after 3 failures or 3 minutes without progress.
+- **The planner reviews** after 3 failures or 3 minutes without progress (a worker running a step of a code-posted
+  task is spared the timed review for up to three intervals: a long gather step is progress).
 - **Chat.** Chat from other agents only interrupts an agent that is addressed by name; each agent speaks at most once
   every 30 seconds (before this rule, a village produced 553 messages in 10 minutes).
 - **No freelancing.** An agent without a plan can only talk: urgent chat used to send idle agents off building on their
@@ -331,7 +332,11 @@ the workers (survival, Minecraft). Every other member is a worker.
   only look around, talk, find a site and design; plan steps that are workers' jobs (collecting, crafting, building)
   are dropped with a note, and so are steps naming a planner tool such as `plan_layout` (the executor cannot call it
   and improvised a new, smaller site instead). A mayor with nothing laid out that answers with an empty plan gets
-  `find_site` added by code, or is asked again 10 seconds later if it already has a site. Whether the village is
+  `find_site` added by code, or is asked again 10 seconds later if it already has a site (at most 3 times a site), with
+  a reason that names the vanilla library and says "call plan_layout now" (or repeats a refused `plan_layout`'s advice
+  while the site and library are unchanged). A plan of only waiting or watching steps counts as empty while nothing is
+  laid out (a run lost 3 minutes to three "wait" plans), and the mayor's executor waits while a new plan is being made.
+  Whether the village is
   complete is checked by code on every tick of the mayor's brain: when every building of the layout stands and no task
   is open, code declares it, whatever the mayor last did. Once its layout is posted and its plan is empty, the mayor
   gathers too (survival, Minecraft): a scripted task runner beside the empty plan claims only soft "Gather N item"
@@ -468,6 +473,13 @@ all hold water, so desert villages get crossing streets. `prepare_site` lays the
 plaza as `dirt_path` while it levels the plot, free, from the layout record (`layouts[].streets`); the centre itself is
 built like any other building. Later sites get rows.
 
+**Street lamps.** A green or street plan in Minecraft also gets lamps (`placeLamps`): posts beside the main streets
+about every 8 blocks, corners and the pad's edge first, 2 blocks from every building and off door walkways and the
+mining hut's ground. `plan_layout` records them on the layout and posts a soft "Light the streets: N lamp posts" task
+after every build; `light_streets` puts them all up in one job from the storage hut (a fence of the village's wood with
+a torch; in the desert two cut sandstone), charged like a build, checks the torches after, and goes back on the board
+behind gather tasks when the storage falls short. The village counts as complete once they are lit.
+
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
 curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood","villageRole":"mayor"}}'
@@ -552,7 +564,7 @@ What building these agents taught, and what the code is built around:
   off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
   hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
   library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
-  also checks that nothing stands on the green and no door opens onto it.
+  also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' rules too.
 - Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
   and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
   against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
@@ -624,7 +636,8 @@ What building these agents taught, and what the code is built around:
   a dig by the wall clock and refuses one finished early. Measured: walking 1.94x faster, a staged build 1.5 instead
   of 2.2 minutes, mining unchanged. Use it for staged runs and checks only; model-driven acceptance runs stay at 1x.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong, with
-  the prompt's line about the vanilla library and a case for it (`VANILLA=0` for the prompt without them).
+  the prompt's line about the vanilla library and a case for it (`VANILLA=0` for the prompt without them), the F155
+  cases (`ONLY=F155`: a site found, the library filled, nothing laid out) and a tally of what each answer did per case.
 - `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
   stuck. `bench_agent.py` compares models on survival progression.
 - `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
@@ -647,7 +660,7 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
-find_site, prepare_site, build_design, build_box and build (`GET /api/skills`), with the sandbox's names, arguments and
+find_site, prepare_site, build_design, build_box, build and light_streets (`GET /api/skills`), with the sandbox's names, arguments and
 failure messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
@@ -800,7 +813,8 @@ down stood inside the future hut and raised its floor).
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
    block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
-   gathering waits only for the storage, their builds for the hut.
+   gathering waits only for the storage, their builds for the hut. Round a green or along streets, a last soft task
+   puts up the street lamps once every building stands.
 3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
    asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
    Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
@@ -815,8 +829,9 @@ down stood inside the future hut and raised its floor).
    design comes out in acacia where acacia grows).
 5. If materials are still short, the build posts gather tasks for exactly the shortfall, puts itself back on the board
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
-   the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand.
-6. When every building stands, the mayor declares the objective complete (code checks it first), or code declares it:
+   the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand, and
+   charcoal is made from the wood kind with logs to spare (not the logs fetched for planks).
+6. When every building stands (and the street lamps are lit), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
    village running.
 

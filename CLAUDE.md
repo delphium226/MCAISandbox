@@ -402,6 +402,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     on village ground, `test_rescue.py tunnel`. F150 not reproduced (waits for a model run). Staged VanG10-13, VanP1,
     VanM6-7 6/6 in 7.7-8.6 min at 2x, 0 failed; Minevale26 (1x) 6/6 in 18.8 min, 0 failed actions, ~3 min lost to the
     mayor's late layout (F155). Lessons 82-84. Next: the user's choice (F155, backlog, lamp posts or phase 3).
+33. 2026-10-06 (eighteenth session; see PLAN.md for push state): F155 and street lamps. `52f5b19` F155 (wait-only mayor
+    plans count as empty, the nudge names the vanilla library, find_site's reason ends "call plan_layout now", the mayor's
+    executor waits for a pending replan; mayorbench F155 cases: 2/12 -> 12/12 plan_layout); Minevale27/28 (1x) 6/6 in
+    14.2/14.4 min, laid out at 0.2/0.1 min, 0 failed actions. `980a5cd` street lamps (`placeLamps`, `light_streets`, the
+    soft "Light the streets" task after every build; the user's choices: fence + torch, charged, ~8 apart, completion
+    waits); staged VanL1 8.6 min at 2x, Minevale29 (1x) 6/6 + 6 lamps in 15.2 min; `246c962` F156 (charcoal from spare
+    logs), not run again (the user's choice). The user's village-life list (signs, farming, lighting inside buildings
+    and mines, ...) is in PLAN.md's backlog. Lessons 85-88. Next: one model run for F156, then signs.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -558,12 +566,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the seventeenth session (2026-10-06): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the eighteenth session (2026-10-06): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale26's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale29's green village (6 of 6, with its street lamps) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -848,6 +856,20 @@ Lessons from the adapter:
    stone), a short closed tunnel answered "no path" at once and walked nowhere, and only a long sealed tunnel or a real
    village mine (protected: the pathfinder's exclusion weights of 100+ are bans, F154) showed the false "walked out".
    Test what a recovery counts as success against the trap, not only that it ends.
+85. **Rebuild a failing model call from the run's own log before benchmarking it** (F155, 2026-10-06): the first bench
+   case, written from the analysis, passed 10/10; with the real prompt's events (plan 1's "New plan" line, "size raised
+   to 40") it failed 4/12 as the run had. The events the model saw are part of the prompt.
+86. **A wake-up reason is advice the model follows literally** (F155): told "draw any design the objective still needs,
+   then call plan_layout", gpt-oss drew a design 7-11 times in 12 with a full library; told "the library holds X, Y, Z:
+   call plan_layout now", it laid out 12 in 12. When code already knows the next call, the reason should name it and its
+   arguments, and say nothing that invites a detour.
+87. **Code-posted steps that code runs inside the brain need their own completion** (F155's review): a design drawn by
+   the executor sends no action_done, so its step stayed current and the executor improvised; and a tick that checks
+   "plan complete" before a pending reason drops the reason. Wherever progress is credited by events, check the
+   in-brain paths too.
+88. **"Any" in a recipe plan must not mean "the first one carried"** (F156): charcoal's "any logs" took the birch fetched
+   for fence planks. When a plan reserves some items of a kind for a later step, every generic step must choose from
+   what is spare (makeFromStock's `spareKind`), fuel included (still open).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
