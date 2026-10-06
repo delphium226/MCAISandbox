@@ -1,8 +1,12 @@
-"""Trap Gus three ways (pit with dirt to pillar, roofed box, walled water pit) and check that the rescue gets him out.
+"""Trap Gus four ways (pit with dirt to pillar, roofed box, walled water pit, a sealed cobblestone tunnel) and check that
+the rescue gets him out.
 
-Run: python scripts/test_rescue.py [pit|box|pool ...] (agent server on 8766, Paper running). Builds the traps near
--20,-35 with RCON, spawns Gus inside, fails two move_to calls and waits up to 4 minutes for a "Rescue:" event.
-The pit case usually needs no rescue: the pathfinder pillars out with the dirt it carries.
+Run: python scripts/test_rescue.py [pit|box|pool|tunnel ...] (agent server on 8766, or MCAI_API; Paper running). Builds
+the traps near -20,-35 with RCON, 30 blocks apart, spawns Gus inside, fails two move_to calls and waits up to 5.5 minutes
+for a "Rescue:" event. The pit case usually needs no rescue: the pathfinder pillars out with the dirt it carries. The
+tunnel case (F131) must not end "walked out" inside the tunnel ("STILL SEALED"); Gus is in no village there, so it tests
+the open-sky rule only (a village member sealed in a mine was tested with VanM6's mine, runs/2026-10-06/f131_village1.log).
+Each run cuts the ground a little deeper at the trap sites (F149).
 """
 import json, os, subprocess, sys, time, urllib.request
 
@@ -35,8 +39,8 @@ def run_case(name, x, z, build, give):
     rcon(f"forceload add {x - 8} {z - 8} {x + 8} {z + 8}")
     time.sleep(1)
     g = ground(x, z)
-    # Clear the air above, then build the trap
-    rcon(f"fill {x - 4} {g + 1} {z - 4} {x + 4} {g + 8} {z + 4} air")
+    # Clear the air above, then build the trap (the tunnel's whole length: hills and trees there are cut, F149)
+    rcon(f"fill {x - (16 if name == 'tunnel' else 4)} {g + 1} {z - 4} {x + 4} {g + 8} {z + 4} air")
     stand = build(x, g, z)
     call("/agents/Gus", method="DELETE")
     r = call("/agents", {"name": "Gus", "brain": "idle", "gamemode": "survival", "reset": True, "position": {"x": x + 0.5, "y": stand, "z": z + 0.5}})
@@ -51,7 +55,7 @@ def run_case(name, x, z, build, give):
             raise SystemExit(f"act failed: {r}")
     t0 = time.time()
     outcome = None
-    while time.time() - t0 < 240 and not outcome:
+    while time.time() - t0 < 330 and not outcome:
         time.sleep(2)
         for e in call(f"/agents/Gus/events?since={seen}") or []:
             seen = e["id"]
@@ -60,9 +64,12 @@ def run_case(name, x, z, build, give):
             if e["type"] == "system" and e["text"].startswith("Rescue"):
                 outcome = e["text"]
     pos = call("/agents/Gus").get("position") if outcome else None
-    print(f"[{name}] {'RESCUED' if outcome else 'NO RESCUE'} in {time.time() - t0:.0f}s; now at {pos}", flush=True)
+    # (the tunnel: a rescue that leaves Gus inside the stone shell has not got him out, F131)
+    sealed = name == "tunnel" and pos and x - 14 <= pos["x"] < x + 3 and abs(pos["z"] - (z + 0.5)) < 3 and pos["y"] < g + 6
+    print(f"[{name}] {'RESCUED' if outcome else 'NO RESCUE'} in {time.time() - t0:.0f}s; now at {pos}"
+          f"{' STILL SEALED in the tunnel (F131)' if sealed else ''}", flush=True)
     call("/agents/Gus", method="DELETE")
-    rcon(f"fill {x - 4} {g - 3} {z - 4} {x + 4} {g + 8} {z + 4} air replace cobblestone")
+    rcon(f"fill {x - (16 if name == 'tunnel' else 4)} {g - 3} {z - 4} {x + 4} {g + 8} {z + 4} air replace cobblestone")
     rcon(f"fill {x - 4} {g - 3} {z - 4} {x + 4} {g + 8} {z + 4} air replace water")
     rcon(f"fill {x - 4} {g + 1} {z - 4} {x + 4} {g + 8} {z + 4} air replace dirt")
     rcon(f"forceload remove {x - 8} {z - 8} {x + 8} {z + 8}")
@@ -91,7 +98,16 @@ def pool(x, g, z):
     return g - 1
 
 
-cases = {"pit": (pit, [("dirt", 10)]), "box": (box, []), "pool": (pool, [])}
+def tunnel(x, g, z):
+    # A mine tunnel sealed at both ends (Minevale19, F131): 1 wide, 2 high, 15 long (x - 13 to x + 1), on the ground, Gus at
+    # its east end. Cobblestone stands in for the mine's protected stone (natural stone here the walks dig through). Its
+    # walk-out reaches a point 10 blocks west inside the tunnel, which is not getting out
+    rcon(f"fill {x - 14} {g + 1} {z - 2} {x + 2} {g + 5} {z + 2} cobblestone")
+    rcon(f"fill {x - 13} {g + 2} {z} {x + 1} {g + 3} {z} air")
+    return g + 2
+
+
+cases = {"pit": (pit, [("dirt", 10)]), "box": (box, []), "pool": (pool, []), "tunnel": (tunnel, [])}
 only = sys.argv[1:] or list(cases)
 bx, bz = -20, -35
 for i, n in enumerate(only):

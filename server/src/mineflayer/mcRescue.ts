@@ -34,10 +34,76 @@ async function swimUp(a: BotAgent, signal: AbortSignal) {
   }
 }
 
+/** On any village's protected ground (plots and their margins, buildings, the mine): no shaft is dug out of it. */
+function protectedAt(a: BotAgent, p: Vec3): boolean {
+  return a.protectedGround().some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && (q.y2 === undefined || p.y <= q.y2));
+}
+
+/**
+ * Where a village member's way home ends: beside the storage (the hut's aisle, the chest), else beside the first plot at
+ * about its level (not a mine tunnel under that spot). Null for a bot in no village.
+ */
+function homeGoal(a: BotAgent): InstanceType<typeof goals.Goal> | null {
+  const v = a.village();
+  const h = v ? home(a) : null;
+  if (!v || !h || h.what === 'the world spawn') return null;
+  if (h.y !== undefined) return new goals.GoalNear(h.x, h.y, h.z, 2);
+  const g = new goals.GoalNearXZ(h.x, h.z, 2);
+  const level = v.plots[0]?.y;
+  if (level !== undefined) {
+    const isEnd = g.isEnd.bind(g);
+    g.isEnd = (n) => isEnd(n) && n.y >= level - 2;
+  }
+  return g;
+}
+
+/**
+ * A path search from where the bot stands, no walking, with the walks' own movements (so protected ground is closed to it
+ * as it is to them); one slice of the search a physics tick, as the pathfinder's own, never a long block of the loop.
+ */
+async function search(a: BotAgent, goal: InstanceType<typeof goals.Goal>, signal: AbortSignal): Promise<'success' | 'noPath' | 'timeout'> {
+  const bot = a.bot;
+  // (not from mid-jump: the start cell would be the air above the ground)
+  for (let i = 0; i < 20 && !bot.entity.onGround && !inWater(a); i++) await sleep(50, signal);
+  const gen = bot.pathfinder.getPathFromTo(a.moves(), bot.entity.position, goal, { timeout: 5000, optimizePath: false });
+  let r = gen.next().value?.result;
+  while (r?.status === 'partial') {
+    checkAbort(signal);
+    await Promise.race([new Promise<void>((ok) => bot.once('physicsTick', () => ok())), sleep(200, signal)]);
+    r = gen.next().value?.result;
+  }
+  return r?.status === 'success' ? 'success' : r?.status === 'timeout' ? 'timeout' : 'noPath';
+}
+
+/** Nothing solid over the head up to 64 blocks (leaves aside: a bot under a tree is out); unloaded counts as covered. */
+function openSky(a: BotAgent): boolean {
+  const p = a.bot.entity.position.floored();
+  for (let y = p.y + 2; y <= p.y + 64 && y < 320; y++) {
+    const b = a.bot.blockAt(new Vec3(p.x, y, p.z));
+    if (!b) return false;
+    if (b.boundingBox === 'block' && !b.name.endsWith('_leaves')) return false;
+  }
+  return true;
+}
+
+/**
+ * Is the bot out (F131: a walk-out 7 blocks along a sealed mine tunnel was counted as getting out)? A village member is out
+ * when a path home exists, and sealed in when the search finds none (it is exhaustive, and the walks' bans keep a sealed
+ * space small); a search that runs out of time (home far off, partly unloaded, several bots sharing the loop) counts as
+ * out. A bot in no village is out under the open sky.
+ */
+async function isOut(a: BotAgent, signal: AbortSignal): Promise<'out' | 'in' | 'sealed'> {
+  const goal = homeGoal(a);
+  if (!goal) return openSky(a) ? 'out' : 'in';
+  const r = await search(a, goal, signal);
+  if (r === 'success') return 'out';
+  return r === 'noPath' ? 'sealed' : 'out';
+}
+
 /**
  * Walk to any point about 10 blocks away (four directions, a few seconds each): away from where the last stalled walk was
  * going first (a bot the server kept setting back against a pit's wall got out only the other way, F147), then to
- * either side, then toward it.
+ * either side, then toward it. A walk counts once the bot is out (isOut); sealed in, it stops trying.
  */
 async function walkOut(a: BotAgent, from: Vec3, signal: AbortSignal): Promise<boolean> {
   // (a stall from here, recent, toward somewhere more than 2 blocks off)
@@ -52,7 +118,11 @@ async function walkOut(a: BotAgent, from: Vec3, signal: AbortSignal): Promise<bo
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
     }
-    if (a.bot.entity.position.distanceTo(from) > 4 && !inWater(a)) return true;
+    if (a.bot.entity.position.distanceTo(from) > 4 && !inWater(a)) {
+      const o = await isOut(a, signal);
+      if (o === 'out') return true;
+      if (o === 'sealed') return false;
+    }
   }
   return false;
 }
@@ -87,6 +157,7 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
     for (const up of [2, 3]) {
       const b = bot.blockAt(feet.offset(0, up, 0));
       if (!b || b.boundingBox !== 'block') continue;
+      if (protectedAt(a, b.position)) return { rose: feet.y - start.y, why: 'village ground overhead (no shaft is dug through it)' };
       if (!DIGGABLE.has(b.name)) return { rose: feet.y - start.y, why: `${b.name} overhead (built, not dug)` };
       const tool = bot.pathfinder.bestHarvestTool(b);
       if (tool) await bot.equip(tool, 'hand');
@@ -95,6 +166,7 @@ async function climb(a: BotAgent, signal: AbortSignal): Promise<{ rose: number; 
     const item = PILLAR.map((n) => bot.inventory.items().find((it) => it.name === n)).find(Boolean);
     if (!item) return { rose: feet.y - start.y, why: 'nothing to pillar with (dirt or stone)' };
     await bot.equip(item, 'hand');
+    if (protectedAt(a, feet)) return { rose: feet.y - start.y, why: 'on village ground (no pillar is built on it)' };
     const below = bot.blockAt(feet.offset(0, -1, 0));
     if (!below || below.boundingBox !== 'block') return { rose: feet.y - start.y, why: 'no ground underfoot to build on' };
     bot.setControlState('jump', true);
@@ -135,8 +207,13 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
     await swimUp(a, signal);
     done.push('swam up');
   }
-  if (await walkOut(a, from, signal)) return { how: 'walked', text: `${[...done, 'walked out'].join(', then ')} to ${at(bot.entity.position)}` };
-  const c = await climb(a, signal).catch((e: Error) => {
+  // (a village member with no path home at all walks nowhere useful: on to the climb or the teleport at once)
+  const sealed = homeGoal(a) ? (await isOut(a, signal)) === 'sealed' : false;
+  if (sealed) done.push('sealed in (no path home)');
+  else if (await walkOut(a, from, signal)) return { how: 'walked', text: `${[...done, 'walked out'].join(', then ')} to ${at(bot.entity.position)}` };
+  // A village member on village ground is never dug or pillared out (the mine's roof, a plot): the teleport takes it home
+  const onVillage = !!a.village() && protectedAt(a, bot.entity.position.floored());
+  const c = onVillage ? { rose: 0, why: 'on village ground, not dug out' } : await climb(a, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return { rose: 0, why: e.message };
   });
