@@ -175,6 +175,8 @@ interface Job {
   what?: string;
   /** The design (build_design): a short village build puts its task back on the board behind new gather tasks. */
   design?: string;
+  /** Another kind of village task that does the same when short (light_streets): its detail's first call. */
+  task?: string;
 }
 
 /**
@@ -184,7 +186,8 @@ interface Job {
  */
 async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, signal: AbortSignal): Promise<string> {
   const v = a.village();
-  const task = v && job.design ? v.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && t.detail.includes(`build_design "${job.design}"`)) : undefined;
+  const mine = (d: string) => (job.task ? d === job.task || d.startsWith(`${job.task} `) : !!job.design && d.includes(`build_design "${job.design}"`));
+  const task = v && (job.task || job.design) ? v.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && mine(t.detail)) : undefined;
   if (!v || !task) return '';
   const store = storageContents(v);
   // What is spare beyond the building's own blocks (the logs carried for its log corners are not plank material:
@@ -201,7 +204,7 @@ async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, 
   const logKey = Object.keys(plan.gather).find((n) => /_log$|^any:logs$/.test(n));
   if (logKey) plan.gather[logKey] += 1;
   const reg = a.world.villages;
-  const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design!).map((t) => ({ ...t, soft: true })), a.name, 20);
+  const made = reg.post(v, gatherTasks(plan.gather, job.what?.replace(/^the /, '') ?? job.design ?? 'the work').map((t) => ({ ...t, soft: true })), a.name, 20);
   task.status = 'open';
   task.claimedBy = undefined;
   task.after = [...task.after, ...made.map((t) => t.id)];
@@ -463,6 +466,8 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
     if (m) taken.push({ x1: Number(m[1]), x2: Number(m[2]), z1: Number(m[3]), z2: Number(m[4]) });
   }
   if (v?.mine) taken.push(...mineAreas(v.mine));
+  // (and the street lamps: a post's top is footing, in the torch's cell)
+  for (const l of v?.layouts ?? []) for (const c of l.lamps ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
   const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
   // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
   // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
@@ -1684,6 +1689,69 @@ async function buildStructure(a: BotAgent, args: Record<string, unknown>, signal
   return rec ? `${rec}; ${summary}` : summary;
 }
 
+/**
+ * The street lamps of a village layout (10-06, the user's): a post of the village's wood with a torch on top at each of
+ * the layout's lamp cells (desert: two cut sandstone, sandstone itself counts as natural ground), charged like any build.
+ * The job stands by the storage hut, where the sticks, fences and charcoal are made (from the lamps' far side the hut's
+ * table and furnace were out of reach and new ones would have been put down); the commands reach the whole plot. A
+ * column whose ground is not the plot's (or with something built on it) is skipped.
+ */
+async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('light_streets: not in a village');
+  const k = Math.floor(num(args.layout, 'layout'));
+  const lay = v.layouts?.[k - 1];
+  if (!lay?.lamps?.length) throw new Error(`light_streets: layout ${k} has no street lamps`);
+  const desert = v.vanillaBiome === 'desert';
+  const post = desert ? ['cut_sandstone', 'cut_sandstone'] : [`${v.wood ?? 'oak'}_fence`];
+  const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
+  // (a post or torch already up counts as free: an earlier try, possibly in another wood when the village's was short)
+  const ours = (n: string, i: number) => (i < post.length ? (desert ? n === post[i] : woodPart(n)?.part === 'fence') : n === 'torch');
+  const targets: Target[] = [];
+  const skipped: string[] = [];
+  let y0 = 0;
+  for (const l of lay.lamps) {
+    const plot = v.plots.find((p) => l.x >= p.x1 && l.x <= p.x2 && l.z >= p.z1 && l.z <= p.z2);
+    if (!plot) {
+      skipped.push(`${l.x},${l.z} (not on a prepared plot)`);
+      continue;
+    }
+    y0 = plot.y;
+    // The post's foot: on the ground at the plot's level or a block below (a cut cell), every cell of the lamp free
+    let base: number | null = null;
+    for (const g of [plot.y, plot.y - 1]) {
+      const ground = blockName(a, l.x, g, l.z);
+      const cells = [...post, 'torch'].map((_, i) => blockName(a, l.x, g + 1 + i, l.z));
+      if (ground === null || plant(ground) || LIQUID.has(ground) || cells.some((n) => n === null)) continue;
+      if (cells.every((n, i) => plant(n!) || ours(n!, i))) {
+        base = g + 1;
+        break;
+      }
+    }
+    if (base === null) {
+      skipped.push(`${l.x},${l.z} (not level or not free)`);
+      continue;
+    }
+    post.forEach((b, i) => targets.push({ x: l.x, y: base! + i, z: l.z, block: b }));
+    targets.push({ x: l.x, y: base + post.length, z: l.z, block: 'torch' });
+  }
+  if (!targets.length) throw new Error(`light_streets: no lamp could be put up (${skipped.join('; ')})`);
+  const h = v.storageHut;
+  const xs = lay.lamps.map((l) => l.x), zs = lay.lamps.map((l) => l.z);
+  const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: Math.min(...xs), z1: Math.min(...zs), x2: Math.max(...xs), z2: Math.max(...zs) };
+  const job: Job = { targets, area, y: y0, what: 'the street lamps', task: `light_streets layout=${k}` };
+  let out = await runJob(a, job, signal);
+  // Checked after, by the block the next step needs (R.3): a torch set before its post would have dropped
+  await sleep(1000, signal);
+  const missing = targets.filter((t) => !alreadyThere(a, t, true));
+  if (missing.length) out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
+  await sleep(1000, signal);
+  const lit = targets.filter((t) => t.block === 'torch' && alreadyThere(a, t)).length;
+  lay.lit = lit === lay.lamps.length;
+  a.world.villages.save();
+  return `lit ${lit} street lamp${lit === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}: ${out}`;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -1692,5 +1760,6 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   build_design: { check: (x) => (str(x.design, 'design'), num(x.x, 'x'), num(x.z, 'z')), run: buildDesign },
   build_box: { check: (x) => (box(x), str(x.block, 'block')), run: buildBox },
   build: { check: (x) => void str(x.structure, 'structure'), run: buildStructure },
+  light_streets: { check: (x) => void num(x.layout, 'layout'), run: lightStreets },
 };
 

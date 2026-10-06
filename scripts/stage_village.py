@@ -492,7 +492,9 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
         board = b
         print(f"{stamp()} BOARD {b}", flush=True)
     builds = [t for t in v["tasks"] if t["title"].startswith("Build ")]
-    if builds and all(t["status"] == "done" for t in builds):
+    # (and the street lamps, 10-06: the village is complete once they are lit; a failed lamp task is soft)
+    lamps = [t for t in v["tasks"] if t["title"].startswith("Light the streets")]
+    if builds and all(t["status"] == "done" for t in builds) and all(t["status"] in ("done", "failed") for t in lamps):
         reason = "every building is done"
     elif time.time() - last_done > stall_minutes * 60:
         reason = f"stalled: no successful action for {stall_minutes:g} minutes"

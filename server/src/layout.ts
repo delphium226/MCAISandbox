@@ -5,7 +5,7 @@
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
-import { doorOf, planGreen, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
+import { doorOf, placeLamps, planGreen, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -265,6 +265,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const total = (n: string) => placed.filter((x) => x === n).length + (before.get(n) ?? 0);
     // The mining hut first (wood only), then the storage hut: their gathering and builds are claimed before the others'
     const first = (n: string) => (n === MINING_HUT ? 0 : n === STORAGE_HUT ? 1 : 2);
+    const builds: number[] = [];
     for (const p of [...lay.places].sort((x, y) => first(x.name) - first(y.name))) {
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
@@ -278,6 +279,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
       if (isHut) hutBuild = tasks.length;
       const build = tasks.length;
+      builds.push(build);
       tasks.push({
         title: `Build ${label}`,
         detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
@@ -288,6 +290,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         tasks.push({ title: 'Dig the village mine', detail: 'dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)', after: [build], soft: true });
       }
     }
+    // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once every
+    // building of the layout stands (builders' stand spots and doorways keep clear of them, and builds come first on the
+    // storage); made from what the storage holds then, gathering posted only if it falls short (as a build's). Soft; the
+    // village is complete once they are lit. Only where the world has the skill (not the sandbox)
+    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street) : [];
+    if (lamps.length)
+      tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true });
     if (wood && !v.wood) {
       v.wood = wood;
       reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);
@@ -303,7 +312,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

@@ -3,7 +3,9 @@
  * centre and the houses that pass the survival checks, read from the local jar), laid out with the storage and mining
  * huts on a 32x32 pad by layoutStreets, then checked: every building inside the pad, off the streets, STREET_GAP from the
  * others and the centre, its door's way out on a street, the storage hut unturned, the mining hut's back at the pad's
- * edge; and the streets reach the pad's edge. Prints each plan as a map (letters buildings, "=" streets, "o" door ways).
+ * edge; and the streets reach the pad's edge; the street lamps (placeLamps, 10-06) off streets, walkways and the mine's
+ * ground, 2 from every building, beside a street, spaced. Prints each plan as a map (letters buildings, "=" streets, "o"
+ * door ways, "*" lamps).
  * Usage: node_modules/.bin/tsx scripts/checks/street_plan.mts [BIOME ...]   Env: SIZE (default 32), HOUSES (default
  * "small,small,landmark,other": which of the library's houses to lay out, in order), JAR.
  */
@@ -12,7 +14,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } f
 import type { Area, Design } from '../../server/src/village';
 import { MINING_HUT, STORAGE_HUT, miningHutDesign, storageHutDesign } from '../../server/src/huts';
 import { Materials, designBill, hardToGather, inWood, woodPart } from '../../server/src/mineflayer/mcMaterials';
-import { STREET_GAP, doorOf, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
+import { LAMP_SPACING, STREET_GAP, doorOf, placeLamps, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
 import { DEFAULT_JAR, VILLAGE_BIOMES, vanillaLibrary } from '../../server/src/vanillaPieces';
 
 const reg = minecraftData('26.1');
@@ -71,6 +73,8 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   const inside = (a: Area) => a.x1 > lay.plot.x1 && a.z1 > lay.plot.z1 && a.x2 < lay.plot.x2 && a.z2 < lay.plot.z2;
   const apart = (a: Area, b: Area) => a.x2 + STREET_GAP < b.x1 || b.x2 + STREET_GAP < a.x1 || a.z2 + STREET_GAP < b.z1 || b.z2 + STREET_GAP < a.z1;
   const all = [...bld, ...(centreArea ? [centreArea] : [])];
+  const walkway = new Set<string>();
+  let mineBack: Area | null = null;
   for (const p of bld) {
     if (!inside(p)) problems.push(`${p.name} not inside the pad`);
     for (const q of all) if (q !== p && !apart(p, q)) problems.push(`${p.name} too close to ${q.name}`);
@@ -90,12 +94,15 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     for (let gx = p.x1; gx <= p.x2; gx++) for (let gz = p.z1; gz <= p.z2; gz++) if (inGreen(gx, gz)) { problems.push(`${p.name} stands on the green`); gx = p.x2; break; }
     if (inGreen(x, z)) problems.push(`${p.name}'s door opens onto the green at ${x},${z}`);
     (p as unknown as { exit: [number, number] }).exit = [x, z];
+    // (the walkway build_design clears out of the door, and the next cell: no lamp there)
+    for (let i = 0; i < 3; i++) walkway.add(`${x + ox * i},${z + oz * i}`);
     if (p.name === STORAGE_HUT && p.rotate) problems.push('the storage hut is turned');
     // The mining hut's stairs run out its back: no building from there to the pad's edge
     if (p.name === MINING_HUT) {
       const back = ox > 0 ? { x1: lay.plot.x1, x2: p.x1 - 1, z1: p.z1, z2: p.z2 } : ox < 0 ? { x1: p.x2 + 1, x2: lay.plot.x2, z1: p.z1, z2: p.z2 }
         : oz > 0 ? { x1: p.x1, x2: p.x2, z1: lay.plot.z1, z2: p.z1 - 1 } : { x1: p.x1, x2: p.x2, z1: p.z2 + 1, z2: lay.plot.z2 };
       for (const q of all) if (q !== p && q.x1 <= back.x2 && back.x1 <= q.x2 && q.z1 <= back.z2 && back.z1 <= q.z2) problems.push(`${q.name} stands behind the mining hut`);
+      mineBack = back;
     }
     // build_design's footprint for these x, z and rotate is the same area
     const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
@@ -106,6 +113,20 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     const alongX = s.x2 - s.x1 > s.z2 - s.z1;
     if (alongX ? s.x1 !== lay.plot.x1 && s.x2 !== lay.plot.x2 : s.z1 !== lay.plot.z1 && s.z2 !== lay.plot.z2) problems.push('a street ends inside the pad');
   }
+  // The street lamps (10-06): off streets, walkways and the mine's ground, 2 from every building, beside a main street,
+  // LAMP_SPACING apart, inside the pad
+  const lamps = placeLamps(lay);
+  const main = lay.streets.filter((t) => !lay.paths.includes(t));
+  for (const l of lamps) {
+    const at = `lamp ${l.x},${l.z}`;
+    if (l.x <= lay.plot.x1 || l.z <= lay.plot.z1 || l.x >= lay.plot.x2 || l.z >= lay.plot.z2) problems.push(`${at} not inside the pad`);
+    if (streetAt(lay.streets, l.x, l.z)) problems.push(`${at} on a street`);
+    if (walkway.has(`${l.x},${l.z}`)) problems.push(`${at} on a door's walkway`);
+    if (mineBack && l.x >= mineBack.x1 && l.x <= mineBack.x2 && l.z >= mineBack.z1 && l.z <= mineBack.z2) problems.push(`${at} behind the mining hut`);
+    for (const q of all) if (Math.max(q.x1 - l.x, l.x - q.x2, q.z1 - l.z, l.z - q.z2, 0) < 2) problems.push(`${at} next to ${q.name}`);
+    if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => streetAt(main, l.x + a, l.z + b))) problems.push(`${at} beside no street`);
+    for (const m of lamps) if (m !== l && Math.max(Math.abs(m.x - l.x), Math.abs(m.z - l.z)) < LAMP_SPACING) problems.push(`${at} too close to another lamp`);
+  }
   // The map
   const letters = 'ABCDEFGHIJ';
   const rows: string[] = [];
@@ -114,7 +135,7 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     for (let x = lay.plot.x1; x <= lay.plot.x2; x++) {
       const k = all.findIndex((p) => x >= p.x1 && x <= p.x2 && z >= p.z1 && z <= p.z2);
       const ex = bld.some((p) => (p as unknown as { exit: [number, number] }).exit?.[0] === x && (p as unknown as { exit: [number, number] }).exit?.[1] === z);
-      row += ex ? 'o' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
+      row += lamps.some((l) => l.x === x && l.z === z) ? '*' : ex ? 'o' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
     }
     rows.push(row);
   }
@@ -122,7 +143,7 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   bld.forEach((p, i) => console.log(`  ${letters[i]} ${p.name} ${p.width}x${p.depth} at ${p.x},${p.z} rotate ${p.rotate}`));
   if (lay.unplaced.length) console.log(`  not placed: ${lay.unplaced.join(', ')}; plain crossing streets instead (plan_layout takes them when they place more): ${planStreets(0, 0, SIZE, null, items).unplaced.length} not placed`);
   console.log(rows.map((r) => '    ' + r).join('\n'));
-  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed`);
+  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps`);
   if (problems.length) failed++;
 }
 process.exit(failed ? 1 : 0);

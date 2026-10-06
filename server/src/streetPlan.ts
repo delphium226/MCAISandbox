@@ -44,6 +44,10 @@ export interface StreetLayout extends Layout {
   unplaced: string[];
   /** A green's area inside its ring (V2.4): kept free, the centre in it. */
   green?: Area;
+  /** Each placed building's door cell and the way it opens, and the mining hut's ground kept out to the pad's edge
+   * (for the street lamps, which keep off both). */
+  doors?: Array<{ x: number; z: number; ox: number; oz: number }>;
+  back?: Area;
 }
 
 /**
@@ -108,7 +112,7 @@ export function layoutStreets(cx: number, cz: number, size: number, centre: Plan
   }
   const done = placeAlong(plot, cx, cz, streets, { places, blocked, kept: [] }, items);
   const plaza = plazaOf(centre, done.places);
-  return { plot, x: cx, z: cz, width: size, depth: size, places: done.places, streets: [...streets, ...done.paths, ...plaza], paths: [...done.paths, ...plaza], unplaced: done.unplaced };
+  return { plot, x: cx, z: cz, width: size, depth: size, places: done.places, streets: [...streets, ...done.paths, ...plaza], paths: [...done.paths, ...plaza], unplaced: done.unplaced, doors: done.doors, back: done.back };
 }
 
 /** Where the centre stands on the pad: in the middle, `dz` blocks south of it (a green moves its ring to make room). */
@@ -136,15 +140,16 @@ function plazaOf(centre: PlanCentre | null, places: StreetLayout['places']): Are
  * The buildings placed along `ways` (the streets their doors may open onto), round what `start` holds: the places so far
  * (the centre), the areas kept STREET_GAP apart (the centre) and the areas no building or path may cover (a green).
  */
-function placeAlong(plot: Area, cx: number, cz: number, streets: Area[], start: { places: StreetLayout['places']; blocked: Area[]; kept: Area[] }, items: PlanItem[]): { places: StreetLayout['places']; paths: Area[]; unplaced: string[] } {
+function placeAlong(plot: Area, cx: number, cz: number, streets: Area[], start: { places: StreetLayout['places']; blocked: Area[]; kept: Area[] }, items: PlanItem[]): { places: StreetLayout['places']; paths: Area[]; unplaced: string[]; doors: NonNullable<StreetLayout['doors']>; back?: Area } {
   const overlaps = (a: Area, b: Area) => a.x1 <= b.x2 && b.x1 <= a.x2 && a.z1 <= b.z2 && b.z1 <= a.z2;
   const apart = (a: Area, b: Area) => a.x2 + STREET_GAP < b.x1 || b.x2 + STREET_GAP < a.x1 || a.z2 + STREET_GAP < b.z1 || b.z2 + STREET_GAP < a.z1;
   const inArea = (a: Area, x: number, z: number) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
   const baseCells = streets.flatMap(cellsOf);
   // A partial plan: what is placed, blocked (kept STREET_GAP apart), kept free (paths, the ground behind the mining
   // hut, a green), the paths (later doors may open onto them too)
-  interface State { places: StreetLayout['places']; blocked: Area[]; kept: Area[]; paths: Area[]; unplaced: string[]; score: number }
-  type Option = { area: Area; rot: number; score: number; W: number; D: number; path: Area | null; back: Area | null };
+  type Door = NonNullable<StreetLayout['doors']>[number];
+  interface State { places: StreetLayout['places']; blocked: Area[]; kept: Area[]; paths: Area[]; unplaced: string[]; score: number; doors: Door[]; back?: Area }
+  type Option = { area: Area; rot: number; score: number; W: number; D: number; path: Area | null; back: Area | null; door: Door };
   const options = (st: State, it: PlanItem): Option[] => {
     const ways = [...streets, ...st.paths];
     const onWay = (x: number, z: number) => ways.some((w) => inArea(w, x, z));
@@ -180,7 +185,7 @@ function placeAlong(plot: Area, cx: number, cz: number, streets: Area[], start: 
           // kept behind it is room no house can use)
           const behind = back ? (back.x2 - back.x1 + 1) * (back.z2 - back.z1 + 1) : 0;
           const score = Math.abs(area.x1 + W / 2 - cx) + Math.abs(area.z1 + D / 2 - cz) + 3 * k + behind / 2 + rot * 0.01;
-          out.set(key, { area, rot, score, W, D, path, back });
+          out.set(key, { area, rot, score, W, D, path, back, door: { x: area.x1 + du, z: area.z1 + dv, ox, oz } });
         }
     }
     return [...out.values()].sort((a, b) => a.score - b.score);
@@ -190,7 +195,7 @@ function placeAlong(plot: Area, cx: number, cz: number, streets: Area[], start: 
   // without it (a greedy first choice often left no room for the rest)
   const order = [...items].sort((a, b) => Number(!a.kind) - Number(!b.kind) || (a.kind || b.kind ? 0 : b.width * b.depth - a.width * a.depth));
   const BEAM = 24, WIDTH = 10;
-  let beam: State[] = [{ places: start.places, blocked: start.blocked, kept: start.kept, paths: [], unplaced: [], score: 0 }];
+  let beam: State[] = [{ places: start.places, blocked: start.blocked, kept: start.kept, paths: [], unplaced: [], score: 0, doors: [] }];
   for (const it of order) {
     const next: State[] = [];
     for (const st of beam) {
@@ -199,13 +204,14 @@ function placeAlong(plot: Area, cx: number, cz: number, streets: Area[], start: 
           places: [...st.places, { name: it.name, width: o.W, depth: o.D, ...o.area, x: o.area.x1 + Math.floor(o.W / 2), z: o.area.z1 + Math.floor(o.D / 2), rotate: o.rot * 90 }],
           blocked: [...st.blocked, o.area], kept: [...st.kept, ...(o.path ? [o.path] : []), ...(o.back ? [o.back] : [])],
           paths: [...st.paths, ...(o.path ? [o.path] : [])], unplaced: st.unplaced, score: st.score + o.score,
+          doors: [...st.doors, o.door], back: o.back ?? st.back,
         });
       next.push({ ...st, unplaced: [...st.unplaced, it.name], score: st.score + 1000 });
     }
     next.sort((a, b) => a.unplaced.length - b.unplaced.length || a.score - b.score);
     beam = next.slice(0, BEAM);
   }
-  return { places: beam[0].places, paths: beam[0].paths, unplaced: beam[0].unplaced };
+  return { places: beam[0].places, paths: beam[0].paths, unplaced: beam[0].unplaced, doors: beam[0].doors, back: beam[0].back };
 }
 
 /**
@@ -238,7 +244,7 @@ export function layoutGreen(cx: number, cz: number, size: number, centre: PlanCe
   // (the ring is the only street doors open onto: a door onto a spoke would stand on the green)
   const done = placeAlong(plot, cx, cz, ring, { places: [centrePlace(centre, area)], blocked: [area], kept: [inner] }, items);
   const plaza = plazaOf(centre, done.places);
-  return { plot, x: cx, z: cz, width: size, depth: size, places: done.places, streets: [...ring, ...spokes, ...done.paths, ...plaza], paths: [...done.paths, ...plaza], unplaced: done.unplaced, green: { ...inner } };
+  return { plot, x: cx, z: cz, width: size, depth: size, places: done.places, streets: [...ring, ...spokes, ...done.paths, ...plaza], paths: [...done.paths, ...plaza], unplaced: done.unplaced, green: { ...inner }, doors: done.doors, back: done.back };
 }
 
 /**
@@ -288,3 +294,36 @@ const cellsOf = (a: Area) => { const out: Array<[number, number]> = []; for (let
 
 /** Whether a cell is on one of a layout's streets. */
 export const streetAt = (streets: Area[] | undefined, x: number, z: number) => !!streets?.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
+
+/** Blocks between two street lamps (the user's choice, 10-06: about every 8; vanilla's are 25-40 apart). */
+export const LAMP_SPACING = 8;
+
+/**
+ * Where a street plan's lamp posts go (the user's, 10-06): beside a main street (not a door's path), off every street,
+ * path and plaza, `clear` blocks from every building (each build claims a block round its own area, and a post in a
+ * 2-wide gap would grow an arm to a wall), off the 3 cells out of each door (build_design clears 2 of them), off the mining
+ * hut's ground out to the pad's edge and the pad's own edge cells. Street corners and crossings first, then the pad's
+ * edge (the village's entrances), then along the streets, `spacing` apart.
+ */
+export function placeLamps(lay: StreetLayout, spacing = LAMP_SPACING, clear = 2): Array<{ x: number; z: number }> {
+  const inArea = (a: Area | undefined, x: number, z: number) => !!a && x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
+  const away = (x: number, z: number, a: Area) => Math.max(a.x1 - x, x - a.x2, a.z1 - z, z - a.z2, 0);
+  const walk = new Set<string>();
+  for (const d of lay.doors ?? []) for (let i = 1; i <= 3; i++) walk.add(`${d.x + d.ox * i},${d.z + d.oz * i}`);
+  const main = lay.streets.filter((s) => !lay.paths.includes(s));
+  const onStreet = (x: number, z: number) => streetAt(lay.streets, x, z);
+  const found: Array<{ x: number; z: number; score: number }> = [];
+  for (let x = lay.plot.x1 + 1; x < lay.plot.x2; x++)
+    for (let z = lay.plot.z1 + 1; z < lay.plot.z2; z++) {
+      if (onStreet(x, z) || walk.has(`${x},${z}`) || inArea(lay.back, x, z) || lay.places.some((p) => away(x, z, p) < clear)) continue;
+      const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([a, b]) => streetAt(main, x + a, z + b)).length;
+      if (!sides) continue;
+      const edge = Math.min(x - lay.plot.x1, lay.plot.x2 - x, z - lay.plot.z1, lay.plot.z2 - z);
+      const corner = sides >= 2 || [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([a, b]) => onStreet(x + a, z + b) && !onStreet(x + a, z) && !onStreet(x, z + b));
+      found.push({ x, z, score: (corner ? 0 : 10) + (edge <= 2 ? 0 : 5) + edge * 0.1 });
+    }
+  found.sort((a, b) => a.score - b.score || a.x - b.x || a.z - b.z);
+  const lamps: Array<{ x: number; z: number }> = [];
+  for (const c of found) if (lamps.every((l) => Math.max(Math.abs(l.x - c.x), Math.abs(l.z - c.z)) >= spacing)) lamps.push({ x: c.x, z: c.z });
+  return lamps;
+}
