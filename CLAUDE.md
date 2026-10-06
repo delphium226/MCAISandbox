@@ -385,13 +385,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     (`runs/2026-10-05/f138/pit_repro.py`: 10.2 s per stalled walk, 52 s per stalled deposit, the rescue after ~105 s);
     a design review held item 4 back (the stall's first move is a cardinal jump-up, not a diagonal) and widened item 1
     (F143-F146). Next: item 3, the `[stuck]` line (PLAN.md).
-31. 2026-10-05 (sixteenth session; not pushed at the close, ask first; `main` untouched): F138's leftovers and F147.
+31. 2026-10-05 (sixteenth session; all pushed to origin `tiered-brain-building` at the close, `main` untouched): F138's leftovers and F147.
     `07306d5` the fifteenth session's record; `32f3eff` item 3, the `[stuck]` line and a horizontal walk watchdog;
     `5861632` item 1, storage fails at once on an unmoved stall (nearest side spot within 6 blocks), the rescue walks
     away from the stalled goal first; `cff6dbc` F147, half width 1229/4096 and `[stuck-world]`; `8c73e20` every dig
     checked with the server. Items 4 and 2 dropped (the stall was the server refusing moves). The pit reproduction: a
     move arrives in 2.0 s and a deposit in 3.1 s (52.3 s and the rescue after ~105 s before). Staged VanG7-9 and
     VanM4-5 8.0-8.5 min at 2x, Minevale24 and 25 (1x) 6/6 in 15.1 and 15.0 min, all 0 failed actions. Lessons 78-81.
+    Next (the user's choice): the small backlog, F148, F150 and F131's leftovers (PLAN.md).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.

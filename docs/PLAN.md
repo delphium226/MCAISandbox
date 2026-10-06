@@ -26,16 +26,17 @@ for the fifteenth and fourteenth sessions stay valid where not overridden)
 - **Code:** committed on `tiered-brain-building`: `07306d5` (the fifteenth session's record), `32f3eff` (item 3:
   `[stuck]` lines, horizontal watchdog), `5861632` (item 1: storage fails at once on an unmoved stall; the rescue walks
   away first), `cff6dbc` (F147: half width 1229/4096, `[stuck-world]`), `8c73e20` (every dig checked with the server),
-  and the close-out (README, ARCHITECTURE, CLAUDE.md lessons 78-81, this handover). **Not pushed** (ask). `main` untouched.
+  and the close-out (README, ARCHITECTURE, CLAUDE.md lessons 78-81, this handover). All pushed to origin at the close
+  (the user said push; ask again for later pushes). `main` untouched.
 - **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the agent server by PID, the pinned
   model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
 - **Where things stand:** F138's pit stall was F147, a rounding error in our `playerHalfWidth` (Paper's silent
   CLIPPED_INTO_BLOCK), fixed; the mine's set-back stalls were digs Paper never finished, now checked. The last staged
   run (VanM5) had no `[stuck]` line; Minevale25 (1x) 6/6 in 15.0 min on -1628,65,47, 0 failed actions.
-- **Next (the user's choice at the close):** see the decisions log. Open small items: F148 (a reproducible 12 s
-  stand-still by the storage hut on VanG's site), F150 (the Mayor's 23 s sand walk through water on minevale3), F133,
-  F131's leftovers (the rescue's success test and its climb on protected ground, the mine's doorway), F139-F142; or
-  lamp posts, or phase 3.
+- **Next (the user's choice at the close): the small backlog**: F148 (a reproducible 12 s stand-still by the storage
+  hut on VanG's site: VanG8/9 hit it at -1661.48,65,6.50), F150 (the Mayor's 23 s sand walk through water on
+  minevale3, Minevale24/25), F131's leftovers (the rescue's success test and its climb on protected ground, the mine's
+  doorway); then F133 if it shows again, F139-F142. Lamp posts and phase 3 after that.
 - **How to test now:** count `[stuck]`, `[stuck-world]` and `[dig]` lines in every run's agent log (CLAUDE.md,
   Testing agents); `pit_repro.py` must stay stall-free; `test_rescue.py` takes `MCAI_API`.
 - **Test world state:** minevale3 holds Minevale25's green village (-1648..-1609, 27..66): reset before using it.
@@ -1861,7 +1862,8 @@ CLAUDE.md when a phase ends.
   item 4 skipped (the stall was the server refusing moves, not a diagonal); item 1's side spot only within 6 blocks of
   the chest (farther, an unmoved stall fails at once); item 2 replaced by the rescue walking out away from the stalled
   walk's goal first. F147: the half width 1229/4096 (not an epsilon patch of prismarine-physics); the mine's stalls
-  diagnosed first (`[stuck-world]`), then every dig checked with the server (mineBlock, collect included).
+  diagnosed first (`[stuck-world]`), then every dig checked with the server (mineBlock, collect included). At the close:
+  push, and next the small backlog (F148, F150, F131's leftovers) before lamp posts or phase 3.
 - 10-05 (fifteenth session) F138's leftovers (the user's choices among Claude's recommendations, after the reproduction):
   order 3 -> 4 -> 1 -> 2; item 3 a permanent `[stuck]` line in the agent log (the pathfinder's recent events and the
   walk's tick tally, F145); item 1 fails the deposit or withdraw at once on a stall that did not move the bot (a stall
