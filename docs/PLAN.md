@@ -26,17 +26,19 @@ for the sixteenth session stay valid where not overridden)
 - **Code:** committed on `tiered-brain-building`: `bd174c1` (F148: `patches/mineflayer-pathfinder+2.4.5.patch` copies A*
   nodes into paths; walkOnce's `[repath]`; the `[stuck]` line's goal and path fields), `51f10a2` (F131: the rescue's
   "out" test, no climb on village ground, `test_rescue.py tunnel`), and the close-out (mineflayer-pathfinder pinned at
-  2.4.5, README, ARCHITECTURE, CLAUDE.md lessons 82-84, this record). Not pushed at the close unless the user said so
-  (check `git status -sb`). `main` untouched.
+  2.4.5, README, ARCHITECTURE, CLAUDE.md lessons 82-84, this record). All pushed to origin at the close (the user said
+  push; ask again for later pushes). `main` untouched.
 - **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
   pinned model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
 - **Where things stand:** F148 was the pathfinder corrupting its own search with a partial path's post-processing (F151);
   five staged runs since without a `[stuck]` line (VanG12/13, VanP1, VanM6/7: 7.7-8.5 min at 2x). The rescue now knows a
   sealed-in village member at once (F152: teleported home in 2 s). Minevale26 (1x) 6/6 in 18.8 min, 0 failed actions, but
   ~3 min lost to the mayor's late layout (F155). F150 did not show in Minevale26 and did not reproduce otherwise.
-- **Next (the user's choice at the close; the options):** F155 (the mayor's "wait" plans before plan_layout: a code guard,
-  the user's call), the rest of the backlog (F133 now probably F151's; F153's two pathfinder edges; F139-F142), lamp posts,
-  or phase 3.
+- **Next (the user's choice at the close): F155 first**: the mayor's lone "wait" plans escape the plan_layout nudge
+  (tieredBrain.ts ~1230-1254), and the nudge's second reason overwrites "call plan_layout now"; propose the guard with a
+  recommendation (AskUserQuestion) before coding, check it with `scripts/bench/mayorbench.mts` if the prompt changes, then
+  a model-driven run on minevale3. After that: the rest of the backlog (F133 now probably F151's; F153; F139-F142; F150 if
+  it shows), lamp posts, or phase 3.
 - **How to test now:** as before; also count `[repath]` lines (one in Minevale26, a cell short of a tree: harmless);
   `test_rescue.py tunnel` must teleport (never "walked out" inside); a sealed-mine check: `runs/2026-10-06/f131_village.py`
   (a staged village's member in its mine with the mining hut's doorway sealed; `VILLAGE`, `SEAL`, `START`, `GOAL`).
