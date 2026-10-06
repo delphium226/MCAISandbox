@@ -36,7 +36,10 @@ for the fifteenth and fourteenth sessions stay valid where not overridden)
 - **Next (the user's choice at the close): the small backlog**: F148 (a reproducible 12 s stand-still by the storage
   hut on VanG's site: VanG8/9 hit it at -1661.48,65,6.50), F150 (the Mayor's 23 s sand walk through water on
   minevale3, Minevale24/25), F131's leftovers (the rescue's success test and its climb on protected ground, the mine's
-  doorway); then F133 if it shows again, F139-F142. Lamp posts and phase 3 after that.
+  doorway); then F133 if it shows again, F139-F142. Lamp posts and phase 3 after that. Each entry now says where its
+  evidence is (F148: a lead in the pathfinder's empty-path branch; F150: the two `[stuck]` lines; F131: Minevale19.log
+  lines 91, 96). The research behind F147 is in `runs/2026-10-05/s16/research/README.md`; the prompt for the
+  seventeenth session is `runs/2026-10-05/s16/NEXT_PROMPT.md`.
 - **How to test now:** count `[stuck]`, `[stuck-world]` and `[dig]` lines in every run's agent log (CLAUDE.md,
   Testing agents); `pit_repro.py` must stay stall-free; `test_rescue.py` takes `MCAI_API`.
 - **Test world state:** minevale3 holds Minevale25's green village (-1648..-1609, 27..66): reset before using it.
@@ -1434,17 +1437,28 @@ CLAUDE.md when a phase ends.
 - F150 (10-05, sixteenth session, Minevale24 and 25) The Mayor's sand gather on minevale3 walks to sand at -1688,62,1
   through water and times out after 23 s (443 of 463 ticks in water, half of them busy placing or digging; moved 3.9)
   in both runs, then gets its sand another way; ~25 s a run, no failure. Backlog (collect's approach to shore sand).
+  Both runs' `[stuck]` lines end at -1679.50,61.1-61.5,-2.50 with feet `y60 ~##/~##/###`: in the lake's edge west of
+  the shore birch, y 59.00-62.25; full lines in `runs/2026-10-05/testagents-160003.log` and `testagents-181638.log`.
+  The site is the same every run (the mayor takes -1628,65,47), so a staged `--mayor` run on minevale3's 40 site may
+  reproduce it without models.
 - F149 (10-05, sixteenth session) Small things seen on the way: `test_rescue.py` on the test world (`MCAI_API` now
   points it there) builds its traps at -20,-35 outside every restored site, and each run digs the pit deeper (ground 69,
   66, 63); short pickup walks (timeout 5 s) timed out once or twice a run and their `[stuck]` lines said nothing new
   (no longer logged); felling's `cutInReach` and pillarDown's direct `bot.dig` skip F147's dig check (the review; both
-  retry in later passes).
+  retry in later passes), and so do the pathfinder's own digs on a walk (`[stuck-world]` would show one). Review
+  findings judged and left: a vertical climb before a stall still counts as "unmoved" for openChest (the rescue's own
+  3D check in `finish` keeps it from counting); a set-back across two watchdog windows can give one false level credit
+  per stretch of horizontal progress (bounded). The research behind F147 (Paper's movement checks from the bytecode,
+  the rounding simulation, the class files) is kept in `runs/2026-10-05/s16/research/` (README.md first).
 - F148 (10-05, sixteenth session, VanG8 and VanG9) A stand-still beside the storage hut on VanG's 40 site: Worker1 walking
   to the hut's aisle spot (placeChest, range 0.5, target -1659,65,8) went 13 blocks and stood at -1661.48,65,6.50 for
   12 s, forward held on only 60 of ~470 ticks, no set-backs, and no pathfinder event after the first path ("success len
   15"): no `reset stuck`, so not the stand-still branch; looks like the pathfinder idling with an empty path whose end the
   goal does not accept. The same spot in both runs (a reproduction); placeChest goes on from near (moved 13), so it costs
-  12 s, no failure. Not chased: backlog (read monitorMovement's `path.length === 0` branch against GoalNear range 0.5).
+  12 s, no failure. Not chased: backlog. Lead (read at the close, not tested): mineflayer-pathfinder's monitorMovement
+  (index.js ~455-472) refreshes `lastNodeTime` while `path.length === 0` (so no `reset stuck`), and once `pathUpdated`
+  is true and the goal's `isEnd(position.floored())` is false it does nothing until a `resetPath` (index.js:132 clears
+  `pathUpdated`): a path consumed short of a range-0.5 goal idles silently. `runs/2026-10-05/s16/research/README.md`.
 - F147 (10-05, sixteenth session) **F138's pit stall explained and fixed, and the mine's stalls with it.** The `[stuck]`
   tally (item 3) showed the server setting Gus back ~33 times a second (forcedMove) at -1655.39,62.42,-4.3001, mid-jump
   against the pit's south wall, forward, jump and sprint on throughout; every walk pressing south failed whatever its
@@ -1577,7 +1591,10 @@ CLAUDE.md when a phase ends.
   counted 4 blocks moved as success. Fixed: no placing on village ground in any walk (`exclusionAreasPlace`), stand spots
   on four sides at the job's level first and off every building and the mine, walked to without scaffolding; no tables or
   furnaces in a mine; a deposit with no path says to walk back. Backlog: the rescue's success test and its climb on
-  protected ground (the analysis, `runs/2026-10-04/`), and the mine's doorway repaired before walking in.
+  protected ground (the analysis, `runs/2026-10-04/`), and the mine's doorway repaired before walking in. The evidence
+  (pointer added 10-05, s16): `runs/2026-10-04/Minevale19.log` lines 91 and 96: the rescue "walked out" 7 blocks along
+  the sealed tunnel (-1553,58,-28 to -1560,58,-28; `walkOut` counts > 4 blocks and dry as success, mcRescue.ts ~38-52),
+  the next rescue's climb failed ("the block did not go down underfoot") and it was teleported to the storage hut.
 - F130 (10-04, twelfth session, V2.3) Every desert town centre holds water (wells and basins) and savanna's only one
   without water is 13x12: a 32x32 pad holds a centre, its streets and only four or five buildings, so desert villages and
   most savanna ones get crossing streets. Larger pads (V2.4's ~40) or water placed by command (the user chose no water)
