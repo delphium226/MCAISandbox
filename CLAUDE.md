@@ -254,11 +254,13 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   spawn test agents with `"reset": true`. The user watches with the real client as SausageOfDoom4 (spectator).
 - For a single skill, spawn an `idle` agent in creative mode and queue actions with `/api/agents/:name/act`; check
   results with the events stream and `/api/block`. `move_to` needs x, y and z.
-- `scripts/test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue (pit: the pathfinder climbs
-  out with dirt by itself, "NO RESCUE" is its pass; box: teleport; pool: swim, then teleport). On the test world:
+- `scripts/test_rescue.py [pit|box|pool|tunnel]` traps Gus with RCON and checks the stuck rescue (pit: the pathfinder climbs
+  out with dirt by itself, "NO RESCUE" is its pass; box: teleport; pool: swim, then teleport; tunnel: teleport, never
+  "walked out" inside it, F152). A village member sealed in a real mine: `runs/2026-10-06/f131_village.py`. On the test world:
   `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver` (its traps at -20,-35 dig deeper each run, F149).
 - **Walk stalls** (2026-10-05): every stalled walk logs a `[stuck]` line in the agent log (the walk's physics ticks,
-  the server's set-backs, the feet, the pathfinder's events; F145's reading guide in PLAN.md); 20+ set-backs add
+  the server's set-backs, the feet, the pathfinder's events, the goal and whether the path is empty, F151; F145's
+  reading guide in PLAN.md); `[repath]` logs a walk searched again after idling on an empty path; 20+ set-backs add
   `[stuck-world]` (the blocks the server has differently); `[dig]` logs a dig the server did not count. Count them in
   every run. `runs/2026-10-05/f138/pit_repro.py` is the pit reproduction (now no stall: a check that F147 holds);
   `runs/2026-10-05/s16/jdis.py Class.class [method]` disassembles a class from the Paper jar (no JDK here).
@@ -393,6 +395,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     move arrives in 2.0 s and a deposit in 3.1 s (52.3 s and the rescue after ~105 s before). Staged VanG7-9 and
     VanM4-5 8.0-8.5 min at 2x, Minevale24 and 25 (1x) 6/6 in 15.1 and 15.0 min, all 0 failed actions. Lessons 78-81.
     Next (the user's choice): the small backlog, F148, F150 and F131's leftovers (PLAN.md).
+32. 2026-10-06 (seventeenth session; see PLAN.md for push state): the small backlog. `bd174c1` F148, explained as the
+    pathfinder's partial paths corrupting its own search (F151): a patch-package patch copies A* nodes into paths,
+    walkOnce re-searches an idle empty path (`[repath]`), the `[stuck]` line names the goal; `51f10a2` F131's rescue: "out"
+    means a path home exists (or open sky in no village), a sealed-in village member is teleported home at once, no climb
+    on village ground, `test_rescue.py tunnel`. F150 not reproduced (waits for a model run). Staged VanG10-13, VanP1,
+    VanM6-7 6/6 in 7.7-8.6 min at 2x, 0 failed; Minevale26 (1x) 6/6 in 18.8 min, 0 failed actions, ~3 min lost to the
+    mayor's late layout (F155). Lessons 82-84. Next: the user's choice (F155, backlog, lamp posts or phase 3).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -549,12 +558,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the sixteenth session (2026-10-05): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the seventeenth session (2026-10-06): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale25's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale26's green village (6 of 6) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -828,6 +837,17 @@ Lessons from the adapter:
 81. **Ask the server's code when its behaviour is silent** (F147): a read-only subagent disassembled Paper's
    `handleMovePlayer` from the jar (`runs/2026-10-05/s16/jdis.py`, no JDK needed) and found the silent branch in one pass;
    `[stuck-world]` (RCON `execute if block` round the feet) then confirmed the mine case in the next staged run.
+82. **A library can corrupt its own state through what it hands you** (F151, 2026-10-06): mineflayer-pathfinder's
+   `postProcessPath` edits a partial path in place, and those nodes were the A* search's own; the search went on judging
+   the goal on shifted coordinates and called a cell 3.6 from a range-3.5 goal a success, then idled with an empty path.
+   Log the library's own judgement at a stall (the path's last node and whether the goal accepts it) and fix it where it
+   lives (`patches/`, patch-package; the dependency pinned to the patched version).
+83. **A stall's label can name the wrong call** (F151): `at()` floors, so "-1659,65,8" read as placeChest's aisle when it
+   was craft's walk to the crafting table; two sessions chased the wrong walk. Log the goal itself (kind, cell, range).
+84. **A recovery test needs the protections of the real trap** (F152): a stone shell was dug through (walks dig natural
+   stone), a short closed tunnel answered "no path" at once and walked nowhere, and only a long sealed tunnel or a real
+   village mine (protected: the pathfinder's exclusion weights of 100+ are bans, F154) showed the false "walked out".
+   Test what a recovery counts as success against the trap, not only that it ends.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

@@ -20,6 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-06 at the close of the seventeenth session: F148 and F131's leftovers done, F150 waiting; the notes below
+for the sixteenth session stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`: `bd174c1` (F148: `patches/mineflayer-pathfinder+2.4.5.patch` copies A*
+  nodes into paths; walkOnce's `[repath]`; the `[stuck]` line's goal and path fields), `51f10a2` (F131: the rescue's
+  "out" test, no climb on village ground, `test_rescue.py tunnel`), and the close-out (mineflayer-pathfinder pinned at
+  2.4.5, README, ARCHITECTURE, CLAUDE.md lessons 82-84, this record). Not pushed at the close unless the user said so
+  (check `git status -sb`). `main` untouched.
+- **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
+  pinned model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
+- **Where things stand:** F148 was the pathfinder corrupting its own search with a partial path's post-processing (F151);
+  five staged runs since without a `[stuck]` line (VanG12/13, VanP1, VanM6/7: 7.7-8.5 min at 2x). The rescue now knows a
+  sealed-in village member at once (F152: teleported home in 2 s). Minevale26 (1x) 6/6 in 18.8 min, 0 failed actions, but
+  ~3 min lost to the mayor's late layout (F155). F150 did not show in Minevale26 and did not reproduce otherwise.
+- **Next (the user's choice at the close; the options):** F155 (the mayor's "wait" plans before plan_layout: a code guard,
+  the user's call), the rest of the backlog (F133 now probably F151's; F153's two pathfinder edges; F139-F142), lamp posts,
+  or phase 3.
+- **How to test now:** as before; also count `[repath]` lines (one in Minevale26, a cell short of a tree: harmless);
+  `test_rescue.py tunnel` must teleport (never "walked out" inside); a sealed-mine check: `runs/2026-10-06/f131_village.py`
+  (a staged village's member in its mine with the mining hut's doorway sealed; `VILLAGE`, `SEAL`, `START`, `GOAL`).
+  Loading server edits without a reset: stop the agent server on 8767 by PID and start it with `scripts/detach.py` and
+  reset_site.py's environment (MC_SERVER_DIR, MC_PORT=25566, MC_API_PORT=8767, MC_API_HOST, MC_TIME_SCALE): the staged
+  village stays for checks on it.
+- **Test world state:** minevale3 holds Minevale26's green village (-1648..-1609, 27..66): reset before using it. The
+  rescue traps at -20..70,-35 keep sinking (F149, F154).
+
 (written 2026-10-05 at the close of the sixteenth session: F138's leftovers done, F147 found and fixed; the notes below
 for the fifteenth and fourteenth sessions stay valid where not overridden)
 
@@ -738,8 +764,14 @@ lays out, gathers and builds it, and the mayor answers in chat.
   is still running.
 - ~~A bot stuck twice in a 1-deep pocket beside a plot on its way to a chest (F71)~~: explained and fixed by F147 (the
   half width's rounding at z 128), 10-05.
-- F148: a 12 s stand-still beside the storage hut's aisle on VanG's site (reproducible); F133 (no reproduction; the
-  `[stuck]` and `[stuck-world]` lines will show it if it comes back).
+- ~~F148: a 12 s stand-still beside the storage hut's aisle on VanG's site~~: explained and fixed 10-06 (F151, the
+  patched pathfinder). F133 (no reproduction; probably the same mechanism, F151).
+- F150: the Mayor's sand walk through water (not reproduced 10-06 by Gus or a staged run; watch the next model-driven
+  runs on -1628,65,47, whose `[stuck]` lines now carry the goal and path detail).
+- The mine's doorway repaired before walking in (F131's third part; the cause, walks placing on village ground, was
+  fixed 10-04; backlog by the user's choice 10-06).
+- F153: the pathfinder's door branch with dirt carried, and `arrived()` without the cell above.
+- F155: a mayor plan of only "wait" with nothing laid out escapes the plan_layout nudge (~3 min in Minevale26).
 - The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
   a bot at y 60 under the storage hut); harmless to buildings so far.
 - The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
@@ -1015,6 +1047,21 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-05 (s16) | **VanG9** | as VanG8 with the dig check (first version) | **6/6** | **8.5 min** | 0 failed; 1 re-dig (stone at -1649,58,25), no mine stall; F148 again at the same spot |
 | 10-05 (s16) | **VanM5** | staged street plan, 2x, `--site minevale3`, the final dig check (`8c73e20`) | **6/6** | **8.3 min** (VanM4 8.0) | 0 failed, **no `[stuck]` line**; 2 re-digs, one at VanM4's stall cell (-1558,58,-57) |
 | 10-05 (s16) | **Minevale25** | model-driven 1x, minevale3, all of the session (`8c73e20`) | **6/6 PASS** | **15.0 min** (Minevale24 15.1) | the mayor's find_site took -1628,65,47 again; 0 failed actions, no `[lag]`; 1 re-dig; 1 `[stuck]`: the Mayor's 23 s walk to sand through water, as in Minevale24 (F150) |
+| 10-06 (s17) | **VanG10** | staged green 2x, the 40 site, F148's logging | **6/6** | **8.1 min** | 0 failed; no `[stuck]` (F148 did not show), 1 re-dig |
+| 10-06 (s17) | f148_repro, f148_grid (scratch) | test world 2x, VanG10's standing hut, Gus `move_to` range 0.5 from the east | no repro | 2.6 s | aisle walks fine; targets on the table row lifted onto the roof (y 68) and searched partially (`f148_grid1.log`) |
+| 10-06 (s17) | **VanG11** | as VanG10 | **6/6** | **8.6 min** | 0 failed; **F148 caught**: goal GoalNear -1659,65,8 range 3.5 (craft's table walk), "success" path ending NOT end, path empty 10 s (F151) |
+| 10-06 (s17) | f150_repro (scratch) | test world 2x, Gus collects sand from -1629,38 (Minevale25's hut door), 1 and 4 rounds of 6 | no repro | 20-40 s a round | no `[stuck]`; ends on the same shore (-1687..-1692, -2..4) |
+| 10-06 (s17) | **VanG12** | as VanG10, the patched pathfinder + `[repath]` (first version) | **6/6** | **8.5 min** | 0 failed; no `[stuck]`, no `[repath]`, 2 re-digs |
+| 10-06 (s17) | **VanP1** | staged green 2x on Minevale25's site (`--site-at=-1628,65,47,40,birch`), final F148 code | **6/6** | **8.2 min** | 0 failed; no `[stuck]`, no re-dig; layout as Minevale25's; 3 sand tasks at ~3.7 min, no F150 |
+| 10-06 (s17) | test_rescue tunnel (new case) | test world 2x, before F131 | **STILL SEALED** | 2 s | "walked out to -27,62,-35" inside the sealed tunnel (F152); a stone shell was dug through, a short tunnel gave no walk at all |
+| 10-06 (s17) | pit_repro | test world 2x, F148 code, move and deposit | **no stall** | **2.1 s** / **3.1 s** | as F147's (2.0 / 3.1) |
+| 10-06 (s17) | test_rescue pit/box/pool/tunnel | F148 code | pass x3, tunnel sealed | - / 2 / 4 / 2 s | the baseline for F131 |
+| 10-06 (s17) | **VanM6** | staged street plan 2x, `--site minevale3`, F148 code (`bd174c1`) | **6/6** | **8.1 min** | 0 failed; no `[stuck]`, 1 re-dig |
+| 10-06 (s17) | f131 sealed mine (scratch) | VanM6's mine, Gus a VanM6 member at -1554.5,58,-55.5, the mining hut's doorway sealed with dirt; F131 code | **teleported** | 2 s | "sealed in (no path home); on village ground, not dug out" to the storage hut; doorway open: walked out in 6 s, no rescue |
+| 10-06 (s17) | **VanG13** | staged green 2x, F131 code (before its review fixes) | **6/6** | **7.7 min** | 0 failed; no `[stuck]`, `[dig]`, `[repath]` or `[rescue]` lines |
+| 10-06 (s17) | test_rescue x4 + VanG13's sealed mine | F131 with the review fixes (`51f10a2`) | **pass x5** | 2-4 s | tunnel, box, pool teleported; pit no rescue; the sealed mine to the storage hut in 2 s |
+| 10-06 (s17) | **VanM7** | staged street plan 2x, final code | **6/6** | **8.0 min** | 0 failed; no `[stuck]`, 1 re-dig |
+| 10-06 (s17) | **Minevale26** | model-driven 1x, minevale3, the session's code (`51f10a2`) | **6/6 PASS** | **18.8 min** (Minevale25 15.0) | the mayor's find_site took -1628,65,47 again; laid out only at 3.3 min (F155: three "wait" plans before plan_layout, then a drawn 13x13 meeting_hall instead of plains_library_2, built in 3.2 min against 1.8); from layout to complete 15.5 min (14.8); 0 failed actions, no `[stuck]` (no F150), 1 `[repath]` (Worker1 a cell short of a tree, 1-2 s), 2 re-digs, no `[lag]` |
 
 ## Findings log
 
@@ -1434,13 +1481,64 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F155 (10-06, seventeenth session, Minevale26) The mayor's late layout cost ~3.1 min: its second plan (0.2 min, the
+  library just filled with vanilla plains pieces) returned "prepare_site, wait" without plan_layout; code dropped
+  prepare_site and kept "wait", and plans 3-5 were "wait" or board-watching steps, while the executor improvised (find_site
+  again, 6 explores, 3 repeat refusals). The guard that asks for plan_layout when nothing is laid out (tieredBrain.ts
+  ~1230-1254) fires only on an empty plan, so a lone "wait" step escapes it; and on an empty plan its second reason ("draw
+  any design the objective still needs ... then call plan_layout") overwrites the first ("the site and the designs are
+  ready: call plan_layout now"), which led to a drawn 13x13 hall (378 blocks, 3.2 min to build, 11 glass) instead of the
+  library's plains_library_2. The executor also ran plan 1's design step while plan 2 was being made. Later phases were as
+  fast as Minevale25's (prepare 2.5, storage 1.7 min; collect rates equal or better). Backlog (a behaviour change, the
+  user's call): treat a mayor plan of only wait/monitor steps with nothing laid out like an empty one, and keep "call
+  plan_layout now" when the library already holds what the objective needs.
+- F154 (10-06, seventeenth session, the F131 reviews) The pathfinder's exclusion weights are bans, not costs: movements.js
+  refuses any break whose `exclusionAreasBreak` weight is 100 or more, and every move costing over 100 is dropped, so
+  `exclusionAreasPlace`'s 1000 bans placing too (botAgent.ts's comments say "never" in effect). A village's mine sealed at
+  its doorway therefore searches as `noPath` within milliseconds, for walks and the rescue's search alike. Left from the
+  reviews (judged, not changed): a bot in **no** village is out only under the open sky (the user's choice), so one
+  stalled in a cave walks four directions, climbs, and may be teleported to the world spawn (only Gus is ever in no
+  village); with home unloaded and the loaded area boxed in, `noPath` could read a free bot as sealed (unlikely in 5 s).
+  `test_rescue.py`'s trap sites keep sinking (ground at -20,-35: 60 then 57 this session, F149).
+- F153 (10-06, seventeenth session, the F148 review) Two pre-existing pathfinder edges, not seen in any run: (a) after a door
+  is opened (`useOne`), `placingBlock` becomes undefined while `placing` stays true; a bot carrying dirt would then read
+  `placingBlock.y` (index.js ~536) and throw inside `physicsTick`, and the agent server has no `uncaughtException` handler
+  (no TypeError in any run log so far); (b) walkOnce's `arrived()` tests the floored position and the raw one, not the
+  cell above as the pathfinder's own `goal_reached` does (index.js ~590): a bot on a slab or path block can be told "no
+  path" at its goal. Backlog.
+- F152 (10-06, seventeenth session) F131's success test reproduced and fixed. `test_rescue.py tunnel` (a sealed cobblestone
+  tunnel 15 long, Gus at its east end): the rescue said "walked out to -27,62,-35", still sealed; a stone shell does not do
+  (walks dig natural stone; the mine is protected, F154). In a village's mine (VanM6, VanG13: a member at -1555,58,-56 /
+  -1639,58,30, the mining hut's doorway sealed with dirt) the old walk-out would have walked the tunnels. Fixed (51f10a2):
+  out = a path home exists (search only), no path = sealed in (no walking), a timeout counts as out; no climb for a
+  village member on village ground, the climb never digs or pillars into any village's ground. After: tunnel teleported;
+  the sealed mine teleported to the storage hut in 2 s ("sealed in (no path home); on village ground, not dug out"); with
+  the doorway open Gus walked out in 6 s and no rescue came; pit/box/pool as before.
+- F151 (10-06, seventeenth session) **F148 explained: the pathfinder's partial paths corrupted its own search.** The
+  `[stuck]` line's new fields caught it in VanG11 (same spot, 11.5 s): goal GoalNear -1659,65,8 range 3.50 (craft's
+  `reach(table, 3.5)` to the storage hut's crafting table, not placeChest's aisle: `at()` floors, so the label was the
+  table's cell), "update partial len 16 ... last -1661.5,65.0,6.5 NOT end x3, update success len 15 ... last
+  -1661.5,65.0,6.5 NOT end", path empty for 10 s, goal still set. When a search runs past its tick budget (7.5 ms at 2x)
+  monitorMovement takes the partial result and `postProcessPath` moves its nodes to cell centres in place; those nodes are
+  the A* open set's own (`reconstructPath` pushes `node.data`), so the search, going on, judged `isEnd` on the shifted
+  coordinates: cell -1662,6 is 3.61 from the table, its shifted copy 2.92, "success". The walk ended a cell short and,
+  `pathUpdated` being true, the pathfinder never searched again. Outside the hut only x -1662, z 7-9 lie within 3.5 of the
+  table, so the walk round its north side ended there whenever the search went partial (VanG8, 9, 11; not VanG10, 12).
+  Fixed (bd174c1): `patches/mineflayer-pathfinder+2.4.5.patch` copies the nodes into paths (toBreak/toPlace stay shared:
+  the review found slices would send a bot back to a door it had opened), and walkOnce re-sets the goal after 1 s of an
+  empty path with no search going on (`[repath]`, twice a walk). Since: VanG12, VanP1, VanM6, VanG13, VanM7 no `[stuck]`,
+  no `[repath]`. F133 (a move_to 2 blocks short of the storage spot, 10-04) fits the same mechanism. Side result: Gus's
+  `move_to` onto a workstation row lifted the target onto the hut's roof (y 68) and searched partially for 10 s (the
+  F148 grid, `runs/2026-10-06/f148_grid1.log`): correct behaviour for an unreachable goal.
 - F150 (10-05, sixteenth session, Minevale24 and 25) The Mayor's sand gather on minevale3 walks to sand at -1688,62,1
   through water and times out after 23 s (443 of 463 ticks in water, half of them busy placing or digging; moved 3.9)
   in both runs, then gets its sand another way; ~25 s a run, no failure. Backlog (collect's approach to shore sand).
   Both runs' `[stuck]` lines end at -1679.50,61.1-61.5,-2.50 with feet `y60 ~##/~##/###`: in the lake's edge west of
   the shore birch, y 59.00-62.25; full lines in `runs/2026-10-05/testagents-160003.log` and `testagents-181638.log`.
   The site is the same every run (the mayor takes -1628,65,47), so a staged `--mayor` run on minevale3's 40 site may
-  reproduce it without models.
+  reproduce it without models. 10-06: not reproduced: Gus collecting 4 x 6 sand from the storage hut's doorway (20-40 s
+  each, `runs/2026-10-06/f150_repro2.log`) nor staged VanP1 on that site (3 sand tasks at ~3.7 min; the Mayor's stall
+  came on a later one, ~14 min in, after the shore had been dug). Waits for a model-driven run (the user's choice).
 - F149 (10-05, sixteenth session) Small things seen on the way: `test_rescue.py` on the test world (`MCAI_API` now
   points it there) builds its traps at -20,-35 outside every restored site, and each run digs the pit deeper (ground 69,
   66, 63); short pickup walks (timeout 5 s) timed out once or twice a run and their `[stuck]` lines said nothing new
@@ -1455,7 +1553,7 @@ CLAUDE.md when a phase ends.
   12 s, forward held on only 60 of ~470 ticks, no set-backs, and no pathfinder event after the first path ("success len
   15"): no `reset stuck`, so not the stand-still branch; looks like the pathfinder idling with an empty path whose end the
   goal does not accept. The same spot in both runs (a reproduction); placeChest goes on from near (moved 13), so it costs
-  12 s, no failure. Not chased: backlog. Lead (read at the close, not tested): mineflayer-pathfinder's monitorMovement
+  12 s, no failure. Not chased: backlog. **Explained and fixed 10-06: F151** (the walk was craft's to the hut's table). Lead (read at the close, not tested): mineflayer-pathfinder's monitorMovement
   (index.js ~455-472) refreshes `lastNodeTime` while `path.length === 0` (so no `reset stuck`), and once `pathUpdated`
   is true and the goal's `isEnd(position.floored())` is false it does nothing until a `resetPath` (index.js:132 clears
   `pathUpdated`): a path consumed short of a range-0.5 goal idles silently. `runs/2026-10-05/s16/research/README.md`.
@@ -1595,6 +1693,7 @@ CLAUDE.md when a phase ends.
   (pointer added 10-05, s16): `runs/2026-10-04/Minevale19.log` lines 91 and 96: the rescue "walked out" 7 blocks along
   the sealed tunnel (-1553,58,-28 to -1560,58,-28; `walkOut` counts > 4 blocks and dry as success, mcRescue.ts ~38-52),
   the next rescue's climb failed ("the block did not go down underfoot") and it was teleported to the storage hut.
+  10-06: the success test and the climb on village ground fixed (F152); the doorway repair stays in the backlog.
 - F130 (10-04, twelfth session, V2.3) Every desert town centre holds water (wells and basins) and savanna's only one
   without water is 13x12: a 32x32 pad holds a centre, its streets and only four or five buildings, so desert villages and
   most savanna ones get crossing streets. Larger pads (V2.4's ~40) or water placed by command (the user chose no water)
@@ -1875,6 +1974,13 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-06 (seventeenth session) The small backlog (the user's choices among Claude's recommendations): F148 fixed at the
+  root and guarded (the patched pathfinder copies A* nodes into paths, and walkOnce re-searches an idle empty path), not
+  by a larger tick budget or the safety net alone. F131: "out" means a path home exists (a search only), else, in no
+  village, the open sky; no climb on village ground (teleport home); the mine's doorway repair goes to the backlog (its
+  cause was fixed 10-04). F150: no speculative fix; wait for a model-driven run's `[stuck]` line. After the reviews
+  (Claude's calls): no slices of toBreak/toPlace in the patch; a home search that times out counts as out (sealed spaces
+  answer `noPath` quickly, F154); the climb skip only for village members; F153's two pathfinder edges to the backlog.
 - 10-05 (sixteenth session) F138's leftovers, after item 3's lines (the user's choices among Claude's recommendations):
   item 4 skipped (the stall was the server refusing moves, not a diagonal); item 1's side spot only within 6 blocks of
   the chest (farther, an unmoved stall fails at once); item 2 replaced by the rescue walking out away from the stalled

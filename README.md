@@ -270,8 +270,11 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
   a lake, a hole it dug itself; a walk that timed out without getting anywhere counts) mean the agent is stuck: it swims
   up, walks out, climbs out through natural blocks, and as a last resort is teleported beside the village storage (in
   the storage hut's doorway, when the village has one). The walk out tries the direction away from where the stalled
-  walk was going first (in a pit the server refused every move toward the goal, and only the other way got out). The
-  brain is told what happened.
+  walk was going first (in a pit the server refused every move toward the goal, and only the other way got out). A walk
+  counts only when the agent is out: a village member when a path home exists (a path search, no walking; with none it
+  is sealed in and skips the walk), an agent in no village when it stands under the open sky. A village member on its
+  village's ground (the mine, a plot, a building) is not climbed out, and the climb never digs or pillars into any
+  village's ground: the teleport takes it home. The brain is told what happened.
 
 ### In-game commands
 ```
@@ -582,7 +585,8 @@ What building these agents taught, and what the code is built around:
   Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
   the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
   village's workers on after the stage runner's stall rule stopped it.
-- `test_rescue.py [pit|box|pool]` traps Gus with RCON and checks the stuck rescue.
+- `test_rescue.py [pit|box|pool|tunnel]` traps Gus with RCON and checks the stuck rescue (`tunnel` is a sealed
+  cobblestone tunnel: a walk along it must not count as getting out); each case waits up to 5.5 minutes.
 - `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered] [--mayor]` (real
   Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
   places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
@@ -683,9 +687,14 @@ differently:
   going around water (and swimming out of it), and splitting long walks into legs. No walk digs into or places blocks
   on a village's ground (plots, buildings, the mine). The watchdog calls a walk stuck after 10 seconds without
   progress across the ground or onto a new block level (a bot hopping in place is not progress), and its error says
-  how far the walk got. A bot that stays stuck is rescued (see the guards above). The bot's half width is 1229/4096 of
-  a block, a little over the server's 0.3: with 0.3001, a rounding error left a bot stopped at a wall a hair inside it
-  at some block faces (coordinates ±4, ±128, ±1024), and Paper silently refused every move into that wall.
+  how far the walk got. A walk whose path has run out short of the goal, with no search going on, searches again after
+  a second (twice a walk at most, logged as `[repath]`). mineflayer-pathfinder 2.4.5 is patched
+  (`patches/mineflayer-pathfinder+2.4.5.patch`, applied by patch-package on install) so that a path holds copies of the
+  search's nodes: the pathfinder adjusted a partial path in place, the search, going on, judged the goal on the moved
+  coordinates and accepted a cell just out of range, and the walk stopped a cell short. A bot that stays stuck is
+  rescued (see the guards above). The bot's half width is 1229/4096 of a block, a little over the server's 0.3: with
+  0.3001, a rounding error left a bot stopped at a wall a hair inside it at some block faces (coordinates ±4, ±128,
+  ±1024), and Paper silently refused every move into that wall.
 - **Digging** is checked with the server: Mineflayer counts a block gone when its own dig timer ends, while Paper may
   break it later or not at all (a tunnel cell left as stone on the server and air in the bot's view had every walk
   through it set back). After each dig (sand and gravel aside) the agent asks the server, and digs once more if the
@@ -699,8 +708,9 @@ differently:
   line with what each agent was doing: 2-3.5 s while bots join is normal; a stall
   over ~30 s makes Paper disconnect every bot at once. Block searches over 200 ms (and `collect` choosing its next
   block in over 300 ms) are logged as `[search]` lines. A walk that stalls or times out logs a `[stuck]` line (what
-  the bot's physics did during the walk, how often the server set it back and where to, the blocks round its feet and
-  the pathfinder's recent events); one the server set back 20 times or more also logs `[stuck-world]`, the blocks round
+  the bot's physics did during the walk, how often the server set it back and where to, the goal and whether the bot
+  stands at its end, how long the path has been empty, the blocks round its feet and the pathfinder's recent events,
+  with where each new path ends); one the server set back 20 times or more also logs `[stuck-world]`, the blocks round
   the bot that the server does not have as the bot sees them; a dig the server did not count is logged as `[dig]`.
 
 ### The village economy (real Minecraft)
@@ -887,7 +897,8 @@ examples/    external agent controller example
 scripts/     agent test harnesses and the local model servers (ollama_exec.py)
 mc/          the local Minecraft server: setup, start and RCON scripts, the test world's (testserver.py); jar, Java
              and worlds are gitignored
-patches/     patch-package patches: Mineflayer's physics clock for MC_TIME_SCALE
+patches/     patch-package patches: Mineflayer's physics clock for MC_TIME_SCALE, mineflayer-pathfinder's paths
+             (copies of the A* nodes)
 docs/        ARCHITECTURE.md: how the agent system fits together, with diagrams
 ```
 
