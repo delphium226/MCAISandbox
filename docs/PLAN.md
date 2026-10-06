@@ -28,16 +28,16 @@ seventeenth session stay valid where not overridden)
   plan_layout now"; the mayor's executor waits for a pending replan; a drawn design marks its step; workers running a
   code-posted step skip the timed review for up to three intervals; mayorbench's F155 cases and per-case tally),
   `980a5cd` (street lamps: `placeLamps`, the `light_streets` skill, the soft "Light the streets" task after every build),
-  the charcoal fix (F156) and the close-out (this record, CLAUDE.md lessons 85-88, README, ARCHITECTURE). **Not pushed**
-  at the close unless the user said so (see the end of the session). `main` untouched.
+  the charcoal fix (F156) and the close-out (this record, CLAUDE.md lessons 85-88, README, ARCHITECTURE). Pushed to
+  origin at the close (the user said push; ask again for later pushes). `main` untouched.
 - **Stack:** stopped cleanly at the close (the test Paper "All dimensions are saved", the test agent server by PID, the
   pinned model servers). No agents in either world. Ollama is 0.35.1 now (the app updated itself); `ollama_exec.py
   status` gave no WARNING.
 - **Where things stand:** the mayor lays out on its second call (Minevale27/28/29: 0.1-0.2 min, no design drawn; the
   F155 guard never had to fire in a run, the bench shows it works: 12/12). Villages take 14.2-14.4 min on minevale3's
   usual site, 15.2 with the lamps (Minevale29: ~0.6 min of that was F156, fixed after the run but not yet run again).
-- **Next:** first a model-driven run on minevale3 to confirm F156's fix (lamps in one pass, 0 failed actions: the user
-  chose "fix, no run" at the close). Then the village-life list in the backlog, in the agreed order: signs beside each
+- **Next (the user's choice at the close): signs straight away**; F156's fix is checked by the signs' own model-driven
+  run (lamps in one pass, 0 failed actions). Then the village-life list in the backlog, in the agreed order: signs beside each
   building's door, then farming (iron age suggested fourth); the user's two lighting items (inside buildings, inside
   mines) are in that list. Smaller: F157 (the Mayor's 1x1 pocket), F158 (a stray drawn design wins over the library),
   F159 (lamp leftovers). The prompt for the nineteenth session is `runs/2026-10-06/s18/NEXT_PROMPT.md`.
