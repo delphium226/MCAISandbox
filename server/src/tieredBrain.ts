@@ -333,6 +333,29 @@ function fillVanilla(a: WorldAgent, v: Village): string {
   return `The design library now holds this land's own buildings (vanilla ${lib.biome}), ready to build: ${lib.houses.map((h) => `${h.name} (${h.width}x${h.depth}${isLandmark(h.name) ? ', a landmark: it can be the hall; a village has room for one building like it' : ''})`).join(', ')}. Use them in plan_layout${small.length > 1 ? ` (two matching houses: siblings such as ${small[0]} and ${small[1]})` : ''}; draw a design only for a kind of building they do not cover`;
 }
 
+/** The site the agent found last, as a key (the mayor's nudge counter and refusal belong to one site). */
+const siteKey = (a: WorldAgent) => {
+  const s = a.memory.lastSite as { x?: number; z?: number; size?: number } | undefined;
+  return s ? `${s.x},${s.z},${s.size}` : '';
+};
+
+/**
+ * F155: what a mayor with a site and the vanilla library, but nothing laid out, is told to do: plan_layout now, with the
+ * library's names. Told "draw any design the objective still needs", gpt-oss drew a design 7 times in 12 and laid out 2;
+ * with the names, 12 in 12 (mayorbench). Null without vanilla designs (the old wording stays).
+ */
+/** A refused plan_layout's situation: the site and the design library (a refusal for a missing design ends with it). */
+const refusalKey = (a: WorldAgent, v: Village) => `${siteKey(a)}|${Object.keys(v.designs).sort().join(',')}`;
+
+function layoutNow(v: Village): string | null {
+  const designs = Object.values(v.designs).filter((d) => !/^(storage_hut|mining_hut)$|meeting_point/.test(d.name));
+  const vanilla = designs.filter((d) => d.by === 'vanilla');
+  if (!vanilla.length) return null;
+  const drawn = designs.filter((d) => d.by !== 'vanilla');
+  const small = vanilla.filter((d) => /small_house/.test(d.name)).map((d) => d.name);
+  return `the site is found and the design library holds buildings ready to build: ${vanilla.map((d) => `${d.name}${isLandmark(d.name) ? ' (a landmark: it can be the hall)' : ''}`).join(', ')}${drawn.length ? `; drawn: ${drawn.map((d) => d.name).join(', ')}` : ''}. Call plan_layout now with one design name per building of the objective${small.length > 1 ? ` (matching houses are siblings such as ${small[0]} and ${small[1]})` : ''}; draw a design only for a kind of building none of them is`;
+}
+
 /**
  * The largest smaller version of a style within a gather budget, said for the architect: the walls two narrower at a
  * time (sizes stay odd), with the overhang kept where it can be.
@@ -620,6 +643,13 @@ export class TieredBrain implements AgentBrain {
   private seenPlan = 0;
   private urgent = false;
   private replanReason: string | null = null;
+  /**
+   * The mayor's quick wake-ups while nothing is laid out (F155), counted per site (find_site finding another starts
+   * again): after 3 the timed review takes over. And its last refused plan_layout, repeated rather than "call plan_layout
+   * now" while the site and the design library are as they were then (a design drawn since answers it).
+   */
+  private nudges = { site: '', n: 0 };
+  private layoutRefusal: { site: string; why: string } | null = null;
   private failuresSincePlan = 0;
   private notes: string[] = [];
   /** Steps of code-posted tasks already run as written (task:plan tick:step), and the action doing it now. */
@@ -806,11 +836,14 @@ export class TieredBrain implements AgentBrain {
           this.replanReason = out.startsWith('plan_layout:') ? `plan_layout was refused: ${out.slice(13, 220)}`
             : vil.unplaced?.length ? `plan_layout placed only part of the rest; ${vil.unplaced.join(', ')} still need a site: ${out.slice(out.indexOf('Find a second site'))}`
             : 'the rest of the village is laid out on the site you found: wait for the workers (set_plan with an empty list)';
-        } else {
+        } else if (!vil?.layouts?.length) {
           const lib = vil ? fillVanilla(a, vil) : '';
           if (lib) this.vanillaNote = lib;
-          this.replanReason = `you found a site (${e.text.slice(0, 160)})${lib ? `. ${lib}` : ''}: draw any design still missing, then call plan_layout`;
+          // (with the library's line, which says when to draw, "draw any design still missing" said it twice: 8 layouts in
+          // 12 against 12 in 12 ending "now", mayorbench's F155 case)
+          this.replanReason = `you found a site (${e.text.slice(0, 160)})${lib ? `. ${lib}: call plan_layout now` : ': draw any design still missing, then call plan_layout'}`;
         }
+        // (laid out already, nothing waiting for a site: an executor's stray find_site needs no wake-up)
       }
     }
   }
@@ -891,7 +924,9 @@ export class TieredBrain implements AgentBrain {
       let why: string | null = null;
       const free = role === 'worker' && (!plan || complete || !plan.steps.length);
       if (!plan) why = 'there is no plan yet';
-      else if (complete) why = 'the previous plan is complete';
+      // (a mayor's reason set by the event that completed the plan goes first: find_site's library line was lost behind
+      // "the previous plan is complete" when the plan was only that find_site)
+      else if (complete) why = (role === 'mayor' && this.replanReason) || 'the previous plan is complete';
       else if (free) why = 'you are free for a new task';
       else if (this.replanReason) why = this.replanReason;
       else if (this.failuresSincePlan >= 3) why = `${this.failuresSincePlan} actions failed since the plan was made`;
@@ -909,7 +944,10 @@ export class TieredBrain implements AgentBrain {
         && v!.tasks.some((t) => t.status === 'open') && !v!.tasks.some((t) => t.status === 'claimed' && !ownGather(t)) && !a.world.villages.claimable(v!).length)
         why = 'the task board is stuck: open tasks wait for tasks that will not finish (see the board status)';
       // (a waiting mayor is not reviewed on a timer once the layout is posted: it only re-posted work already on the board)
-      else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !laidOut && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS)
+      // (not a worker still running a code-posted task's step: a long build_design was reviewed at 3, 6 and 9 minutes,
+      // and the third review gives the task up, F155's G4; an action running three intervals is reviewed after all)
+      else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !laidOut && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS
+        && !(plan.by === 'task' && !a.idle() && now - this.lastProgress < 3 * PLAN_INTERVAL_MS))
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
       // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
       if (why && free) {
@@ -938,6 +976,8 @@ export class TieredBrain implements AgentBrain {
     if (this.execPending) return;
     if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
     if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !this.urgent) return; // waiting
+    // A mayor's new plan is coming: the old plan's steps are stale (F155: plan 1's design step ran beside plan 2)
+    if (role === 'mayor' && this.planPending && !this.urgent) return;
     const idle = a.idle();
     // A task code posted is run as written: its calls are exact ("collect block=cobblestone count=29, then deposit
     // item=all"), and executors changed them (one withdrew 11 logs from storage and deposited them again, which counted
@@ -1062,6 +1102,18 @@ export class TieredBrain implements AgentBrain {
       || (e.type === 'system' && /^(Took task|Handed back task) /.test(e.text))));
   }
 
+  /**
+   * What a mayor with a site and nothing laid out should do next (F155): repeat a refused plan_layout's advice for the
+   * same site, else plan_layout with the library's names (layoutNow), else the old wording.
+   */
+  private layoutAdvice(a: WorldAgent, v: Village, fallback: string, nudge = false): string {
+    // (laid out already: the rest goes on a second site, and the library's whole list is not the point)
+    if (v.layouts?.length) return fallback;
+    if (this.layoutRefusal && this.layoutRefusal.site === refusalKey(a, v)) return this.layoutRefusal.why;
+    const now = layoutNow(v);
+    return now ? (nudge ? `nothing is laid out yet, so there is nothing to wait for. ${now[0].toUpperCase()}${now.slice(1)}` : now) : fallback;
+  }
+
   private async makePlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
     const all = a.events.filter((e) => e.id > this.seenPlan);
     if (all.length) this.seenPlan = all[all.length - 1].id;
@@ -1179,7 +1231,10 @@ export class TieredBrain implements AgentBrain {
         a.pushEvent('system', out);
         // Refused (a design missing, the site too small, ...): act on the reason now, not at the next review
         if (out.startsWith('plan_layout: not yet: the workers are scouting')) this.replanReason = null;
-        else if (out.startsWith('plan_layout:')) this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
+        else if (out.startsWith('plan_layout:')) {
+          this.replanReason = `plan_layout was refused: ${out.slice(13, 220)}`;
+          this.layoutRefusal = { site: refusalKey(a, v), why: this.replanReason };
+        }
         // Laid out only part of it: the rest needs a second site now, while the workers start on the first
         else if (v.unplaced?.length) this.replanReason = `plan_layout placed only part of the village; ${v.unplaced.join(', ')} ${v.unplaced.length > 1 ? 'need' : 'needs'} a second site: ${out.slice(out.indexOf('Find a second site'), out.length)}`;
         console.log(`[tiered] ${a.name} plan_layout: ${out}`);
@@ -1217,7 +1272,7 @@ export class TieredBrain implements AgentBrain {
       // plan_layout is the planner's tool, not the executor's: as a plan step the executor ran find_site instead and
       // replaced a 30x30 site with a 24x24 one (Accept4, Accept5). The planner calls it when the other steps are done
       steps = steps.filter((st) => !/plan_layout/i.test(st));
-      if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason = 'the site and the designs are ready: call the plan_layout tool now (not as a plan step), with one design name per building';
+      if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason ??= this.layoutAdvice(a, v!, 'the site and the designs are ready: call the plan_layout tool now (not as a plan step), with one design name per building');
     }
     if (role === 'mayor' && steps.length) {
       // The mayor does not gather or build (its executor cannot): drop such steps, and without a site find one first
@@ -1227,18 +1282,27 @@ export class TieredBrain implements AgentBrain {
         if (!a.memory.lastSite && !v?.plots.length && !steps.some((st) => /find_site/i.test(st))) steps.unshift('find_site size=30');
         a.pushEvent('system', `Dropped plan steps that are workers' jobs (the mayor does not gather, craft or build; plan_layout posts those tasks): ${dropped.join(' | ')}`);
         // With the site and the designs in hand, what is left is plan_layout: ask for it now, not at the next review
-        if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason = 'the site and the designs are ready: call plan_layout with one design name per building now';
+        if (!steps.length && a.memory.lastSite && Object.keys(v?.designs ?? {}).length) this.replanReason ??= this.layoutAdvice(a, v!, 'the site and the designs are ready: call plan_layout with one design name per building now');
       }
     }
     const acted = reply.calls.some((c) => c.name === 'post_tasks' || c.name === 'declare_complete' || c.name === 'plan_layout');
+    // With nothing laid out there is nothing to wait for: Fourfold7's mayor answered its first plan with an empty
+    // one and nothing woke it for 3 minutes (the stall review). Without a site, code gives it the first step
+    const nothingYet = role === 'mayor' && v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
+    // A site found and nothing laid out: steps that neither search nor draw only wait or watch (F155: Minevale26's "wait",
+    // "review the board", "monitor" plans held the layout back 3 minutes while the executor improvised); the plan counts
+    // as empty, so the nudge below comes
+    if (nothingYet && steps.length && a.memory.lastSite && !scouting(a, v!) && !steps.some((st) => /find_site|design_building/i.test(st))) {
+      a.pushEvent('system', `Dropped plan steps that only wait or watch: nothing is laid out yet (${steps.join(' | ').slice(0, 200)})`);
+      console.log(`[tiered] ${a.name} plan of only waiting with nothing laid out, dropped: ${steps.join(' | ').slice(0, 160)}`);
+      steps = [];
+    }
     if (role === 'mayor' && (!call || !steps.length)) {
-      // With nothing laid out there is nothing to wait for: Fourfold7's mayor answered its first plan with an empty
-      // one and nothing woke it for 3 minutes (the stall review). Without a site, code gives it the first step
-      const nothingYet = v && !v.complete && !acted && !v.layouts?.length && !v.tasks.some((t) => /\(on the village plot; footprint/.test(t.detail));
       if (nothingYet && !a.memory.lastSite && !scouting(a, v!)) {
         // (32 where villages get the street plan: its streets take the whole plot, and Minevale19's 24x24 left a house out)
         a.memory.plan = { goal: 'find a site for the village', steps: [`find_site size=${firstSite(a)}`], step: 0, by: label(spec), tick: a.world.ticks };
         this.lastPlan = Date.now();
+        this.failuresSincePlan = 0;
         a.pushEvent('system', 'Nothing is laid out yet, so there is nothing to wait for: find a site first (step added by code)');
         console.log(`[tiered] ${a.name} returned an empty plan with nothing laid out: find_site added by code`);
         return;
@@ -1246,11 +1310,23 @@ export class TieredBrain implements AgentBrain {
       // Nothing to do personally: wait for the board to change
       a.memory.plan = { goal: typeof call?.input.goal === 'string' ? call.input.goal : 'coordinate the village', steps: [], step: 0, by: label(spec), tick: a.world.ticks };
       this.lastPlan = Date.now();
+      // (failures before this plan are not its own: else "3 actions failed since the plan" woke a capped mayor every
+      // few seconds once its "wait" plans were emptied, F155's review)
+      this.failuresSincePlan = 0;
       console.log(`[tiered] ${a.name} waits (${why.slice(0, 120)})`);
       if (nothingYet && !scouting(a, v!)) {
-        // A site but no layout: ask again shortly rather than at the 3-minute review
-        this.replanReason = 'nothing is laid out yet, so there is nothing to wait for: draw any design the objective still needs (design_building steps), then call plan_layout';
-        this.lastPlan = Date.now() + 10000;
+        // A site but no layout: ask again shortly rather than at the 3-minute review, three times a site at most (then
+        // the review takes over). A reason already set by this reply (a refused plan_layout, "call plan_layout now")
+        // is kept: the "draw any design" one used to overwrite it (F155: a 13x13 hall drawn beside the library's)
+        const site = siteKey(a);
+        if (this.nudges.site !== site) this.nudges = { site, n: 0 };
+        if (++this.nudges.n <= 3) {
+          this.replanReason ??= this.layoutAdvice(a, v!, 'nothing is laid out yet, so there is nothing to wait for: draw any design the objective still needs (design_building steps), then call plan_layout', true);
+          this.lastPlan = Date.now() + 10000;
+        } else {
+          this.replanReason = null;
+          if (this.nudges.n === 4) console.log(`[tiered] ${a.name}: nudged 3 times on this site; the timed review takes over`);
+        }
       }
       // Everything it laid out is built, nothing is open or failed, and it waits anyway: nothing would ever wake it again
       // (gpt-oss did this with a finished village), so code declares the objective met
@@ -1568,8 +1644,14 @@ export class TieredBrain implements AgentBrain {
     const reply = await this.timed(a, 'exec', () => complete(spec, EXEC_SYSTEM, user, tools));
     this.lastExecCall = modelCall(spec, execStart, user, reply);
     const done: string[] = [];
+    // (a design marks its own step done: a step_done after it in the same reply is for that step, not the next)
+    let marked = false;
     for (const c of reply.calls) {
       if (c.name === 'step_done') {
+        if (marked) {
+          marked = false;
+          continue;
+        }
         if (plan && plan.step < plan.steps.length) {
           done.push(`step_done(${plan.steps[plan.step]})`);
           plan.step++;
@@ -1580,6 +1662,20 @@ export class TieredBrain implements AgentBrain {
       if (c.name === 'design_building') {
         const msg = await this.design(a, String(c.input.name ?? ''), String(c.input.brief ?? ''));
         a.pushEvent('system', msg);
+        // Drawn here, so no action_done marks its step: the step stayed current after the design was saved and the
+        // executor improvised (F155, Minevale26's hall)
+        const drawn = /^design "([^"]+)" saved/.exec(msg)?.[1]?.toLowerCase().replace(/[\s-]+/g, '_');
+        const now = this.plan(a);
+        if (drawn && now && now === plan) {
+          const named = new RegExp(`(^|[^a-z0-9_])${drawn.replace(/[^a-z0-9_]/g, '.')}($|[^a-z0-9_])`);
+          const i = now.steps.findIndex((st, k) => k >= now.step && /design_building/i.test(st) && named.test(st.toLowerCase().replace(/[\s-]+/g, '_')));
+          if (i >= 0) {
+            this.stat(a, 'stepsDone', i + 1 - now.step);
+            this.stat(a, 'stepsAutoDone');
+            now.step = i + 1;
+            marked = true;
+          }
+        }
         done.push(`design_building(${String(c.input.name ?? '')}): ${msg.slice(0, 120)}`);
         continue;
       }

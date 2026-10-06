@@ -83,6 +83,44 @@ const CASES: Array<[string, string, (c: Call[]) => boolean]> = [
     return !posted(c) && ((smalls.size >= 2 && n.length === 3 && n.every((x) => listed.test(x)) && n.includes('plains_library_2'))
       || (!layout(c) && steps(c).some((s) => /design_building/.test(s) && /hall/i.test(s))));
   }] as [string, string, (c: Call[]) => boolean]] : []),
+  // F155 (Minevale26's second call): the same vanilla line, but the previous plan still holds its two unrun design steps
+  // (gpt-oss answered "prepare_site, wait" there; Minevale25 called plan_layout on the same prompt)
+  // (and with the proposed end of find_site's reason when the library is filled: "call plan_layout now", not "draw ...")
+  ...(VANILLA ? ([['F155: vanilla library, stale design steps: plan_layout', ': draw any design still missing, then call plan_layout'],
+    ['F155: vanilla library, stale design steps, reason ends "now"', ': call plan_layout now']] as Array<[string, string]>).map(([label, tail]) => [label, [
+    head(`you found a site (find_site finished: site found: centre x=-1628 z=47, ground y=65, 40x40, height range 2, 2212 tree blocks to clear, 12 blocks away. 1162 log blocks within 48 bl). The design library now holds this land's own buildings (vanilla plains), ready to build: plains_small_house_1 (7x7), plains_small_house_2 (7x7), plains_small_house_3 (7x7), plains_small_house_4 (7x7), plains_cartographer_1 (7x10), plains_fisher_cottage_1 (7x8), plains_library_2 (9x8, a landmark: it can be the hall; a village has room for one building like it). Use them in plan_layout (two matching houses: siblings such as plains_small_house_1 and plains_small_house_2); draw a design only for a kind of building they do not cover${tail}`, 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Design library (build with build_design):\n- "plains_small_house_1": 7x7, 7 high, vanilla plains_small_house_1 (plains), entrance south\n- "plains_small_house_2": 7x7, 7 high, vanilla plains_small_house_2 (plains), entrance south\n- "plains_small_house_3": 7x7, 7 high, vanilla plains_small_house_3 (plains), entrance south\n- "plains_small_house_4": 7x7, 7 high, vanilla plains_small_house_4 (plains), entrance south\n- "plains_cartographer_1": 7x10, 8 high, vanilla plains_cartographer_1 (plains), entrance south\n- "plains_fisher_cottage_1": 7x8, 7 high, vanilla plains_fisher_cottage_1 (plains), entrance south\n- "plains_library_2": 9x8, 10 high, vanilla plains_library_2 (plains), entrance south\nRecent village events:\n- the design library holds plains\'s vanilla buildings: plains_small_house_1, plains_small_house_2, plains_small_house_3, plains_small_house_4, plains_cartographer_1, plains_fisher_cottage_1, plains_library_2'),
+    'Previous plan:\nGoal: Establish two matching cottages and a meeting hall for Minevale26\n[x] 1. find_site size=30\n-> 2. design_building brief=A small 7x7 house using oak planks, oak logs, and cobblestone. Includes a door, windows, a roof, and a small garden. Matches the biome\'s birch/oak style. name=cottage\n[ ] 3. design_building brief=A larger 11x11 community hall using oak planks, cobblestone, and glass panes. Simple roof, central open area, and a door facing the street. name=meeting_hall',
+    'Events since the last plan:\n- [system] New plan: Establish two matching cottages and a meeting hall for Minevale26 | 1. find_site size=30 2. design_building brief=A small 7x7 house using oak planks, oak logs, and cobblestone. Includes a door, windows, a roof, and a small garden. Matches the biome\'s birch/oak style. name=cottage 3. design_building brief=A larger 11x11 community hall using oak planks, cobblestone, and glass panes. Simple roof, central open area, and a door facing the street. name=meeting_hall\n- [system] find_site size raised to 40: the first site needs room for the whole village\n- [action_done] find_site finished: site found: centre x=-1628 z=47, ground y=65, 40x40, height range 2, 2212 tree blocks to clear, 12 blocks away. 1162 log blocks within 48 blocks (mostly birch).',
+    'Observation:\n{"position":"-1617,65,40","biome":"birch_forest","time":"day","health":20,"food":20,"holding":null,"inventory":{},"visibleBlocks":{"birch_log":"40 seen, nearest -1620,65,44"},"nearby":["Worker1 at -1615,65,38 (3m)","Worker2 at -1614,65,41 (3m)"]}',
+  ].join('\n\n'), (c: Call[]) => {
+    const n = names(c).split(',').filter(Boolean);
+    const smalls = new Set(n.filter((x) => /small_house/.test(x)));
+    // (a small house named twice is fine: plan_layout swaps the second for an unused sibling, lesson 65; a layout with a
+    // drawn "cottage" fails here: it works, but is not the library's village)
+    return !posted(c) && smalls.size >= 1 && n.filter((x) => /small_house/.test(x)).length >= 2 && n.length === 3 && n.includes('plains_library_2') && n.every((x) => /^plains_/.test(x));
+  }] as [string, string, (c: Call[]) => boolean]) : []),
+  // F155's nudge after a plan of only "wait" (site found, library filled, nothing laid out): today's reason (Minevale26
+  // drew a 13x13 hall on it) and the proposed one naming the library's buildings
+  ...(VANILLA ? ([
+    ['F155: nudge after a wait plan, today\'s reason', 'nothing is laid out yet, so there is nothing to wait for: draw any design the objective still needs (design_building steps), then call plan_layout'],
+    ['F155: nudge after a wait plan, library named', 'nothing is laid out yet, so there is nothing to wait for. The site is found and the design library holds buildings ready to build: plains_small_house_1, plains_small_house_2, plains_small_house_3, plains_small_house_4, plains_cartographer_1, plains_fisher_cottage_1, plains_library_2 (a landmark: it can be the hall). Call plan_layout now with one design name per building of the objective (matching houses are siblings such as plains_small_house_1 and plains_small_house_2); draw a design only for a kind of building none of them is'],
+    // (Minevale26's library also held the "cottage" plan 1's stale step drew; layoutNow lists it as drawn)
+    ['F155: nudge after a wait plan, library named, a drawn cottage', 'nothing is laid out yet, so there is nothing to wait for. The site is found and the design library holds buildings ready to build: plains_small_house_1, plains_small_house_2, plains_small_house_3, plains_small_house_4, plains_cartographer_1, plains_fisher_cottage_1, plains_library_2 (a landmark: it can be the hall); drawn: cottage. Call plan_layout now with one design name per building of the objective (matching houses are siblings such as plains_small_house_1 and plains_small_house_2); draw a design only for a kind of building none of them is'],
+  ] as Array<[string, string]>).map(([label, why]) => [label, [
+    head(why, 'two matching cottages and a meeting hall'),
+    village('two matching cottages and a meeting hall', 'Design library (build with build_design):\n' + (/drawn: cottage/.test(why) ? '- "cottage": 9x9, 8 high, A small 7x7 oak-plank cottage on a cobblestone base with oak-log framing, a gable roof of oak stairs, and a south-facing door\n' : '') + '- "plains_small_house_1": 7x7, 7 high, vanilla plains_small_house_1 (plains), entrance south\n- "plains_small_house_2": 7x7, 7 high, vanilla plains_small_house_2 (plains), entrance south\n- "plains_small_house_3": 7x7, 7 high, vanilla plains_small_house_3 (plains), entrance south\n- "plains_small_house_4": 7x7, 7 high, vanilla plains_small_house_4 (plains), entrance south\n- "plains_cartographer_1": 7x10, 8 high, vanilla plains_cartographer_1 (plains), entrance south\n- "plains_fisher_cottage_1": 7x8, 7 high, vanilla plains_fisher_cottage_1 (plains), entrance south\n- "plains_library_2": 9x8, 10 high, vanilla plains_library_2 (plains), entrance south\nRecent village events:\n- the design library holds plains\'s vanilla buildings: plains_small_house_1, plains_small_house_2, plains_small_house_3, plains_small_house_4, plains_cartographer_1, plains_fisher_cottage_1, plains_library_2'),
+    'Previous plan:\nGoal: Build two matching cottages and a meeting hall on the 40x40 site centred at x=-1628 z=47 for Minevale26 (waiting)',
+    // (the wait plan is dropped before it runs, F155's fix: this event, not the wait's action_done)
+    'Events since the last plan:\n- [system] Dropped plan steps that only wait or watch: nothing is laid out yet (wait)',
+    'Observation:\n{"position":"-1617,65,40","biome":"birch_forest","time":"day","health":20,"food":20,"holding":null,"inventory":{},"visibleBlocks":{"birch_log":"40 seen, nearest -1620,65,44"},"nearby":["Worker1 at -1615,65,38 (3m)","Worker2 at -1614,65,41 (3m)"]}',
+  ].join('\n\n'), (c: Call[]) => {
+    const n = names(c).split(',').filter(Boolean);
+    const smalls = new Set(n.filter((x) => /small_house/.test(x)));
+    // (a small house named twice is fine: plan_layout swaps the second for an unused sibling, lesson 65; a layout with a
+    // drawn "cottage" fails here: it works, but is not the library's village)
+    return !posted(c) && smalls.size >= 1 && n.filter((x) => /small_house/.test(x)).length >= 2 && n.length === 3 && n.includes('plains_library_2') && n.every((x) => /^plains_/.test(x));
+  }] as [string, string, (c: Call[]) => boolean]) : []),
   ['second site found: plan_layout the rest', [
     head('you found a site (find_site finished: site found: centre x=-170 z=-120, ground y=70, 9x9, height range 1, 0 tree blocks to clear, 24 blocks away): draw any design still missing, then call plan_layout', 'two matching cottages and a meeting hall'),
     village('two matching cottages and a meeting hall', 'Not laid out yet (no room on the first site; they need a second site, then plan_layout): meeting_hall\nDesign library (build with build_design):\n- "cottage": 5x5, 5 high, a small acacia cottage\n- "meeting_hall": 7x7, 6 high, a hall of planks and cobblestone\nTask board:\n- t1 [done by Worker1] Prepare the village plot\n- t8 [claimed by Worker2] Build cottage 1: build_design "cottage" x=-195 z=-100\n- t15 [open] Build cottage 2 (after t1): build_design "cottage" x=-195 z=-93'),
@@ -97,6 +135,8 @@ for (const [label, user, ok] of CASES) {
   if (process.env.ONLY && !new RegExp(process.env.ONLY, 'i').test(label)) continue;
   let n = 0;
   const times: number[] = [];
+  // What each answer did, whether it passed or not (F155: plan_layout, a design step, only waiting, or something else)
+  const kinds: Record<string, number> = {};
   for (let i = 0; i < TIMES; i++) {
     const t0 = Date.now();
     const res = await fetch(`${OLLAMA}/api/chat`, {
@@ -112,10 +152,13 @@ for (const [label, user, ok] of CASES) {
     times.push(Date.now() - t0);
     const pass = ok(calls);
     if (pass) n++;
+    const kind = layout(calls) ? 'layout' : posted(calls) ? 'post' : steps(calls).some((s) => /design_building/.test(s)) ? 'design'
+      : steps(calls).some((s) => /find_site/.test(s)) ? 'find_site' : steps(calls).every((s) => !/\b(explore|move_to|chat)\b/.test(s)) ? 'wait' : 'other';
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
     if (process.env.PEEK || !pass) console.log(`  ${pass ? 'ok  ' : 'FAIL'} ${label}: ${JSON.stringify(calls).slice(0, 400)}`);
   }
   good += n;
   total += TIMES;
-  console.log(`${n}/${TIMES}  ${label}  (${(times.reduce((s, t) => s + t, 0) / times.length / 1000).toFixed(1)}s avg)`);
+  console.log(`${n}/${TIMES}  ${label}  (${(times.reduce((s, t) => s + t, 0) / times.length / 1000).toFixed(1)}s avg; ${Object.entries(kinds).map(([k, q]) => `${q} ${k}`).join(', ')})`);
 }
 console.log(`${MODEL}: ${good}/${total}`);
