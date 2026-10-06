@@ -785,8 +785,11 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - ~~**Lamp posts** along the streets and the green's ring~~: done 10-06 (`980a5cd`, the user's choices: a fence of the
   village's wood with a torch, charged, about every 8 blocks, completion waits for them). Vanilla's per-biome lamp pieces
   later, with the iron age (snowy's lanterns; plains' wall torches need a wall_torch charge and supports-first order).
-- **A sign beside each building's door** naming its function (the user's): 6 planks + a stick make 3 signs; code sets the
-  text by command.
+- **A sign beside each building's door** naming its function (the user's; **next**, the user's choice at the 10-06 close):
+  6 planks + a stick make 3 signs; code sets the text by command. Notes so far (not researched): the "Ideas for the
+  signs" section of `runs/2026-10-06/s18/minevale29_analysis.md` (door cells, walkway clearing, 26.1's sign text format
+  and wall-sign charging to check in the jar); the lamps' pattern to follow (`light_streets`, `runs/2026-10-06/s18/
+  lamps_research.md` and `lamps_design*.md`). The session prompt: `runs/2026-10-06/s18/NEXT_PROMPT.md`.
 - **Farming** (the user's): vanilla's farm pieces as the layout; a hoe, seeds from grass, water beside the plot;
   planting and harvesting as tasks.
 - **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
@@ -1564,6 +1567,7 @@ CLAUDE.md when a phase ends.
   partial path whose first node was the jump south (the way out) and then a "success" path starting east and 2 up (no
   jump reaches it), which the walk followed. The walk's fourth leg direction got out with no rescue. Probably its own
   sand-dig hole (lesson 70's pattern; not logged). Not F150 (no water) nor F147 (no set-backs). Off the critical path.
+  Evidence: `runs/2026-10-06/s18/minevale29_analysis.md` section 2 (A:35-37 of `testagents-163217.log`).
 - F156 (10-06, eighteenth session, Minevale29) The lamp job's first try failed "short of 1x birch_log (have 0)" while
   making from stock: the plan fetched 2 birch_log for the fence planks and 2 oak_log for charcoal, and the smelt took
   the first log carried (the birch). requeueBuild posted nothing (storage covered it); the executor withdrew 2 birch
@@ -1571,7 +1575,7 @@ CLAUDE.md when a phase ends.
   (makeFromStock). Not yet run again (the user's choice). Left (the fix's review): the smelt's fuel (`addFuel`, mcSurvival.ts
   ~1280: coal, then the first planks, then the first log in the window) is not tied to the plan's fuel planks, so it can
   still burn the fetched planks or logs; storage coal is not fetched as fuel. A preferred fuel kind from makeFromStock
-  would close it.
+  would close it. Evidence: `runs/2026-10-06/s18/minevale29_analysis.md` section 1 (W:122-125 of `Minevale29.log`).
 - F155 (10-06, seventeenth session, Minevale26) The mayor's late layout cost ~3.1 min: its second plan (0.2 min, the
   library just filled with vanilla plains pieces) returned "prepare_site, wait" without plan_layout; code dropped
   prepare_site and kept "wait", and plans 3-5 were "wait" or board-watching steps, while the executor improvised (find_site
