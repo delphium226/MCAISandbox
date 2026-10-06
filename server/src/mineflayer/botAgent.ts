@@ -63,6 +63,13 @@ export interface WalkTally {
   ground: number;
   water: number;
   busy: number;
+  /** Ticks the pathfinder had no path (F148: it idles silently on an empty path short of a goal it computed once). */
+  idle: number;
+  /** ...of them with no goal set, and where and when the current run of path-less ticks began. */
+  noGoal: number;
+  idleFrom?: { t: number; x: number; y: number; z: number };
+  /** When the pathfinder last sent a path (a search still going on is not an idle path). */
+  lastUpdate?: number;
   x0: number; x1: number; y0: number; y1: number; z0: number; z1: number;
   /** Times the server put the bot back, and where (the corrected position) the last time. */
   forced: number;
@@ -312,10 +319,28 @@ export class BotAgent implements WorldAgent {
     // result holds the A* search's closed set)
     const xyz = (p: { x: number; y: number; z: number }, d = 2) => `${p.x.toFixed(d)},${p.y.toFixed(d)},${p.z.toFixed(d)}`;
     bot.on('path_update', (r) => {
+      if (this.walkTally) this.walkTally.lastUpdate = Date.now();
       const n = r.path[0] as unknown as { x: number; y: number; z: number; toBreak?: unknown[]; toPlace?: unknown[] } | undefined;
       const first = n ? ` first ${xyz(n, 1)}${n.toBreak?.length ? ` break ${n.toBreak.length}` : ''}${n.toPlace?.length ? ` place ${n.toPlace.length}` : ''}` : '';
+      // (where the path ends, and whether the goal takes that end: short of it, the pathfinder stops there and idles, F148;
+      // nodes from the first with a dig, a placement or a door on keep their cell's corner, not +0.5: `work`)
+      const nodes = r.path as unknown as Array<{ x: number; y: number; z: number; toBreak?: unknown[]; toPlace?: Array<{ useOne?: boolean }> }>;
+      const e = nodes.length > 1 ? nodes[nodes.length - 1] : undefined;
+      let last = '';
+      if (e) {
+        let ok = '?';
+        try {
+          const g = bot.pathfinder.goal;
+          // (floored, and the cell above as the pathfinder's own arrival test: a node on a slab or path block stands at y + 0.5)
+          const f = new Vec3(e.x, e.y, e.z).floored();
+          if (g) ok = [f, f.offset(0, 1, 0)].some((q) => g.isEnd(q as unknown as Parameters<typeof g.isEnd>[0])) ? 'end' : 'NOT end';
+        } catch { /* (diagnostic only) */ }
+        const w = nodes.findIndex((q) => q.toBreak?.length || q.toPlace?.length);
+        const doors = nodes.reduce((s, q) => s + (q.toPlace?.filter((t) => t.useOne).length ?? 0), 0);
+        last = ` last ${xyz(e, 1)} ${ok}${w >= 0 ? ` work ${w}` : ''}${doors ? ` doors ${doors}` : ''}`;
+      }
       // (a partial search updates every tick with a growing path: one entry, the latest)
-      this.pathEvent(`update ${r.status} len ${r.path.length}${first}`, r.status === 'partial' ? 'update partial' : undefined);
+      this.pathEvent(`update ${r.status} len ${r.path.length}${first}${last}`, r.status === 'partial' ? 'update partial' : undefined);
     });
     bot.on('path_reset', (reason) => this.pathEvent(`reset ${reason}`));
     bot.on('goal_updated', () => this.pathEvent('goal'));
@@ -340,6 +365,11 @@ export class BotAgent implements WorldAgent {
       if (bot.getControlState('sprint')) t.sprint++;
       if ((e as unknown as { isInWater?: boolean }).isInWater) t.water++;
       if (bot.pathfinder.isMining() || bot.pathfinder.isBuilding()) t.busy++;
+      if (!bot.pathfinder.isMoving()) {
+        t.idle++;
+        if (!bot.pathfinder.goal) t.noGoal++;
+        t.idleFrom ??= { t: Date.now(), x: p.x, y: p.y, z: p.z };
+      } else t.idleFrom = undefined;
       t.x0 = Math.min(t.x0, p.x); t.x1 = Math.max(t.x1, p.x);
       t.y0 = Math.min(t.y0, p.y); t.y1 = Math.max(t.y1, p.y);
       t.z0 = Math.min(t.z0, p.z); t.z1 = Math.max(t.z1, p.z);

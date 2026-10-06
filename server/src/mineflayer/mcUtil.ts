@@ -156,7 +156,7 @@ async function swimOut(a: BotAgent, toward: { x?: number; z?: number }, signal: 
 }
 
 /** The `[stuck]` log line: where, what the physics did during the walk, the blocks round the feet, the pathfinder's events. */
-function stuckLine(a: BotAgent, t: WalkTally, target: string, why: string, t0: number, far: number): string {
+function stuckLine(a: BotAgent, goal: InstanceType<typeof goals.Goal>, t: WalkTally, target: string, why: string, t0: number, far: number): string {
   const bot = a.bot;
   const p = bot.entity.position;
   const f2 = (v: number) => v.toFixed(2);
@@ -169,9 +169,22 @@ function stuckLine(a: BotAgent, t: WalkTally, target: string, why: string, t0: n
     const b = bot.blockAt(v.set(bx + dx, by + dy, bz + dz));
     return !b ? '?' : b.boundingBox === 'block' ? '#' : WET.has(b.name) ? '~' : '.';
   }).join('')).join('/')).join(' ');
-  const events = a.pathEvents.filter((e) => e.t >= t0).map((e) => `${((e.t0 - now) / 1000).toFixed(1)}s ${e.text}${e.n > 1 ? ` x${e.n}` : ''}`).join(', ');
-  return `[stuck] ${a.name} ${why} at ${f2(p.x)},${f2(p.y)},${f2(p.z)} -> ${target} after ${s.toFixed(1)} s: moved ${f2(far)}; `
-    + `ticks ${t.ticks}/${Math.round(20 * timeScale() * s)} fwd ${t.fwd} jump ${t.jump} sprint ${t.sprint} ground ${t.ground} water ${t.water} busy ${t.busy}; `
+  // (a repeated event's last time too: partial searches still updating during a stall look like an idle path, F148)
+  const events = a.pathEvents.filter((e) => e.t >= t0).map((e) => `${((e.t0 - now) / 1000).toFixed(1)}s ${e.text}${e.n > 1 ? ` x${e.n} (last ${((e.t - now) / 1000).toFixed(1)}s)` : ''}`).join(', ');
+  // The goal as the pathfinder judges it (F148: an empty path whose end the goal does not accept is never searched again)
+  let gs = 'goal ?';
+  try {
+    const g = goal as unknown as { x?: number; y?: number; z?: number; rangeSq?: number; pos?: { x: number; y: number; z: number } };
+    const c = typeof g.x === 'number' ? g : g.pos;
+    const fl = p.floored();
+    const isEnd = (q: Vec3) => goal.isEnd(q as unknown as Parameters<typeof goal.isEnd>[0]);
+    gs = `goal ${goal.constructor.name}${c ? ` ${c.x},${c.y ?? '-'},${c.z ?? '-'}` : ''}${typeof g.rangeSq === 'number' ? ` range ${f2(Math.sqrt(g.rangeSq))}` : ''} `
+      + `${bot.pathfinder.goal === goal ? 'set' : bot.pathfinder.goal ? 'other' : 'none'} end ${isEnd(fl) ? 'yes' : isEnd(fl.offset(0, 1, 0)) ? 'above' : 'no'}; `
+      + `path ${bot.pathfinder.isMoving() ? 'moving' : 'empty'}`
+      + `${t.idleFrom ? ` since ${((t.idleFrom.t - now) / 1000).toFixed(1)}s at ${f2(t.idleFrom.x)},${f2(t.idleFrom.y)},${f2(t.idleFrom.z)}` : ''}`;
+  } catch { /* (diagnostic only: never let the line keep the walk from ending) */ }
+  return `[stuck] ${a.name} ${why} at ${f2(p.x)},${f2(p.y)},${f2(p.z)} -> ${target} after ${s.toFixed(1)} s: moved ${f2(far)}; ${gs}; `
+    + `ticks ${t.ticks}/${Math.round(20 * timeScale() * s)} fwd ${t.fwd} jump ${t.jump} sprint ${t.sprint} ground ${t.ground} water ${t.water} busy ${t.busy} idle ${t.idle} nogoal ${t.noGoal}; `
     + `y ${t.ticks ? `${f2(t.y0)}-${f2(t.y1)}` : '-'}; spread ${t.ticks ? `${f2(t.x1 - t.x0)}x${f2(t.z1 - t.z0)}` : '-'}; `
     + `forced ${t.forced}${t.forcedAt ? ` (last ${f2(t.forcedAt.x)},${f2(t.forcedAt.y)},${f2(t.forcedAt.z)})` : ''}; feet ${feet}; events ${events || 'none'}`;
 }
@@ -205,7 +218,7 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
   let lastMove = Date.now();
   let far = 0;
   const t0 = Date.now();
-  const tally: WalkTally = { ticks: 0, fwd: 0, jump: 0, sprint: 0, ground: 0, water: 0, busy: 0, x0: start.x, x1: start.x, y0: start.y, y1: start.y, z0: start.z, z1: start.z, forced: 0, band: null, levelAt: 0 };
+  const tally: WalkTally = { ticks: 0, fwd: 0, jump: 0, sprint: 0, ground: 0, water: 0, busy: 0, idle: 0, noGoal: 0, x0: start.x, x1: start.x, y0: start.y, y1: start.y, z0: start.z, z1: start.z, forced: 0, band: null, levelAt: 0 };
   a.walkTally = tally;
   let forcedSeen = 0;
   let levelSeen = 0;
@@ -225,13 +238,16 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
     const onAbort = () => done(new Error('cancelled'));
     const stalled = (msg: string, why: string) => {
       // (short walks to a dropped item time out often and say nothing new)
-      if (why !== 'timed out' || timeoutMs >= 10000) console.log(stuckLine(a, tally, target, why, t0, far));
+      if (why !== 'timed out' || timeoutMs >= 10000) console.log(stuckLine(a, goal, tally, target, why, t0, far));
       // Set back by the server again and again: does its world differ from the bot's round the feet (F147's mine stalls)?
       if (tally.forced >= 20) void serverDiffers(a).then((d) => console.log(`[stuck-world] ${a.name} at ${at(bot.entity.position)}: ${d}`), () => {});
       const g = goal as unknown as { x?: number; z?: number };
       if (typeof g.x === 'number' && typeof g.z === 'number') a.lastStall = { x: g.x + 0.5, z: g.z + 0.5, t: Date.now(), at: { x: bot.entity.position.x, z: bot.entity.position.z } };
       done(Object.assign(new Error(msg), { moved: far }));
     };
+    // (the goal's test takes a path node; a position has what it reads)
+    const arrived = () => [bot.entity.position.floored(), bot.entity.position].some((p) => goal.isEnd(p as unknown as Parameters<typeof goal.isEnd>[0]));
+    let repaths = 0;
     const watch = setInterval(() => {
       const p = bot.entity.position;
       // Progress is horizontal (F145: a hop in place, sampled near its top, reset the timer under a 3D measure) or a new
@@ -256,12 +272,21 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
       const progress = Math.max(lastMove, tally.levelAt);
       // Digging or placing a block on the way can hold the bot still for a while
       const busy = bot.pathfinder.isMining() || bot.pathfinder.isBuilding();
+      // An empty path short of a goal still set, with no search going on: the pathfinder never searches again by itself
+      // (F148: a search corrupted by its own partial path, fixed in the patched A*; kept for any other way in). Set the
+      // goal again, a fresh search from here, twice a walk at most
+      const now = Date.now();
+      if (!busy && repaths < 2 && tally.idleFrom && now - tally.idleFrom.t > 1000 && now - (tally.lastUpdate ?? 0) > 1000
+        && bot.pathfinder.goal === goal && !bot.pathfinder.isMoving() && !arrived()) {
+        repaths++;
+        console.log(`[repath] ${a.name}: no path left at ${at(p)}, short of ${target}, for ${((now - tally.idleFrom.t) / 1000).toFixed(1)} s; searching again`);
+        tally.idleFrom = undefined;
+        bot.pathfinder.setGoal(goal);
+      }
       if (!busy && Date.now() - progress > 10000) stalled(`stuck at ${at(p)} on the way to ${target}; try a different route or a nearer point`, 'stuck');
       else if (Date.now() - t0 > timeoutMs) stalled(`timed out at ${at(p)} on the way to ${target}`, 'timed out');
     }, 500);
     signal.addEventListener('abort', onAbort, { once: true });
-    // (the goal's test takes a path node; a position has what it reads)
-    const arrived = () => [bot.entity.position.floored(), bot.entity.position].some((p) => goal.isEnd(p as unknown as Parameters<typeof goal.isEnd>[0]));
     // Resolving is not arriving: boxed in by built walls, goto returned at once and move_to said "arrived" where the bot
     // stood (a trapped bot told it had succeeded never gets rescued)
     bot.pathfinder.goto(goal).then(

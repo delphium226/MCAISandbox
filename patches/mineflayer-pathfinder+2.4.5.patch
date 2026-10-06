@@ -1,0 +1,25 @@
+diff --git a/node_modules/mineflayer-pathfinder/lib/astar.js b/node_modules/mineflayer-pathfinder/lib/astar.js
+index e7a82cb..8bc1c63 100644
+--- a/node_modules/mineflayer-pathfinder/lib/astar.js
++++ b/node_modules/mineflayer-pathfinder/lib/astar.js
+@@ -21,10 +21,19 @@ class PathNode {
+   }
+ }
+ 
++// MCAISandbox: the path gets copies of the search's nodes. The pathfinder post-processes a path in place (cell centres,
++// heights); with the nodes themselves, a partial path's changes reached the open set, and the search, going on, judged
++// the goal on moved coordinates and called a node 3.6 from a range-3.5 goal a success (F148: the walk ended a cell short
++// and the pathfinder idled). The toBreak/toPlace lists stay shared, as before: a door opened while the search goes on is
++// shifted off them, so later partial paths do not send the bot back to it
++function copyMove (d) {
++  return Object.assign(Object.create(Object.getPrototypeOf(d)), d)
++}
++
+ function reconstructPath (node) {
+   const path = []
+   while (node.parent) {
+-    path.push(node.data)
++    path.push(copyMove(node.data))
+     node = node.parent
+   }
+   return path.reverse()
