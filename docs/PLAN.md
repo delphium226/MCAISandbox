@@ -38,7 +38,8 @@ for the sixteenth session stay valid where not overridden)
   (tieredBrain.ts ~1230-1254), and the nudge's second reason overwrites "call plan_layout now"; propose the guard with a
   recommendation (AskUserQuestion) before coding, check it with `scripts/bench/mayorbench.mts` if the prompt changes, then
   a model-driven run on minevale3. After that: the rest of the backlog (F133 now probably F151's; F153; F139-F142; F150 if
-  it shows), lamp posts, or phase 3.
+  it shows), lamp posts, or phase 3. The prompt for the eighteenth session is `runs/2026-10-06/NEXT_PROMPT.md`; the
+  F155 analysis is `runs/2026-10-06/minevale26_analysis.md`.
 - **How to test now:** as before; also count `[repath]` lines (one in Minevale26, a cell short of a tree: harmless);
   `test_rescue.py tunnel` must teleport (never "walked out" inside); a sealed-mine check: `runs/2026-10-06/f131_village.py`
   (a staged village's member in its mine with the mining hut's doorway sealed; `VILLAGE`, `SEAL`, `START`, `GOAL`).
@@ -1493,7 +1494,15 @@ CLAUDE.md when a phase ends.
   library's plains_library_2. The executor also ran plan 1's design step while plan 2 was being made. Later phases were as
   fast as Minevale25's (prepare 2.5, storage 1.7 min; collect rates equal or better). Backlog (a behaviour change, the
   user's call): treat a mayor plan of only wait/monitor steps with nothing laid out like an empty one, and keep "call
-  plan_layout now" when the library already holds what the objective needs.
+  plan_layout now" when the library already holds what the objective needs. Evidence (pointer added 10-06): the full
+  timeline with log line numbers is `runs/2026-10-06/minevale26_analysis.md`; the mayor's plans are lines 5-22 of
+  `runs/2026-10-06/testagents-131705.log` (Minevale25's plan 2 called plan_layout at once: line 9 of
+  `runs/2026-10-05/testagents-181638.log`, the same first plan and prompt). Code at 7489931: tieredBrain.ts ~1222-1231
+  (worker steps dropped; the "call plan_layout now" reason only when the plan ends up empty), ~1233-1254 (`nothingYet`,
+  the empty-plan branch and its "draw any design" reason ~1252), `fillVanilla` ~322-334 (fills the library after
+  find_site and returns the prompt's library sentence), `WORKER_WORK` ~421; the executor tick does not wait for a pending replan (`planPending` ~616/890/936/978:
+  plan 1's design step ran during plan 2). `scripts/bench/mayorbench.mts` replays the mayor's prompts (add a case: a
+  site found, the vanilla library filled, nothing laid out).
 - F154 (10-06, seventeenth session, the F131 reviews) The pathfinder's exclusion weights are bans, not costs: movements.js
   refuses any break whose `exclusionAreasBreak` weight is 100 or more, and every move costing over 100 is dropped, so
   `exclusionAreasPlace`'s 1000 bans placing too (botAgent.ts's comments say "never" in effect). A village's mine sealed at
