@@ -20,6 +20,38 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-08 at the close of the twentieth session: farming v1 added; the notes below for the nineteenth session
+stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`: `24e7037` (farming v1: `placeFarm` in streetPlan.ts, the seed and
+  "Plant the farm" tasks in layout.ts, `tend_farm` in mcBuild.ts, the walking ban in botAgent.ts, seeds from grass only
+  and not junk, mineBlock's walk to plants, `materialsNear`'s skip, street_plan.mts's farm rules), `e28198e` (seeds in
+  posting order, no hoe-log task) and the close-out (this record, CLAUDE.md lessons 90-92, README, ARCHITECTURE). Not
+  pushed (ask first). `main` untouched.
+- **Stack:** stopped cleanly at the close (the test agent server by PID, the test Paper "All dimensions are saved", the
+  pinned model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
+- **Where things stand:** every new survival village with a street or green plan (and rows where room) gets a 5x7
+  wheat field (water channel down the middle) beside the storage hut, planted with 16 wheat right after the hut's build
+  (two seed tasks the mayor and workers share). Wheat grows with time frozen (confirmed live: ages 0-5 within ~3 min at
+  2x) but only near agents. Minevale31 (1x) 6/6 + 6 lamps + 5 signs + the farm in 16.5 min, 0 failed actions (about a
+  minute of it the mayor's seeds-first order, fixed in `e28198e`; staged VanF5 8.9 min at 2x, not run model-driven again,
+  the user's choice). The test server is reachable on the LAN at 192.168.1.84:25566 only if the user adds a firewall
+  rule for 25566 (the existing rule opens 25565 only).
+- **Next (the user's order, 10-08):** 1. **harvest and bread** (farming v2: code posts "Harvest the farm" when ~3/4 of
+  the wheat is ripe, `loot give` per cell, resow, bread at the table into storage; never counted for completion; test
+  with crops set ripe by command); 2. **the opportunities analysis** (read-only log analysis of existing runs for
+  waste: idle, empty walks, storage round trips, nearer tasks; F164 is its first candidate); 3. **opportunistic farming
+  and exploring** (sightings recorded while working, an opportunity rule posts a farm for whatever is found first, kind-
+  free farm slots, exploring for anything once the buildings stand); 4. the iron age. Details in the backlog's
+  "Village life" list.
+  Smaller: F165 (the craft skill's own plank choice), F166 (minevale3's lake-shore pit), F157-F161.
+- **How to test now:** as before; staged and model-driven runs wait for "Plant the farm" too; read the field with
+  `runs/2026-10-08/s20/farmcheck.py VILLAGE` (MCAI_API's /api/block: farmland, water, wheat and its ages); offline
+  `SIZE=32|40 [PLAN=green] node_modules/.bin/tsx scripts/checks/street_plan.mts` checks the farm's rules. The prompt for
+  the twenty-first session is `runs/2026-10-08/s20/NEXT_PROMPT.md`; research, design, reviews and the run analysis are
+  in `runs/2026-10-08/s20/`.
+- **Test world state:** minevale3 holds VanF5's green village with its farm (-1677..-1638, 3..42): reset before using it.
+
 (written 2026-10-08 at the close of the nineteenth session: name signs added; the notes below for the eighteenth
 session stay valid where not overridden)
 
@@ -815,12 +847,33 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - ~~**A sign beside each building's door** naming its function~~: done 10-08 (`cfe8b8c`, the user's choices: a wall
   sign beside the entrance door, every building with a door labelled by its use, a separate soft task after the lamps,
   waxed, completion waits). Leftovers: F161.
-- **Farming** (the user's; **next**, confirmed by the user at the 10-08 close, before the iron age): vanilla's farm
-  pieces as the layout; a hoe, seeds from grass, water beside the plot; planting and harvesting as tasks. The water is
-  laid free as landscaping by prepare_site, as the streets' dirt_path is (no bucket: a water bucket needs 3 iron); it can
-  become charged after the iron age. Unknown, to settle first: whether crops grow with time frozen at day
-  (`advance_time false`; random ticks should still run, never tested in 26.1), from the jar or a crop planted on the
-  test world.
+- ~~**Farming** v1~~: done 10-08 (`24e7037`, `e28198e`; the user's choices: seeds by gather tasks into storage, a 5x7
+  field of our own shape (vanilla's farm pieces have no door and are dropped, F123; their inside is the shape), 16 seeds
+  in alternate rows, planted early, completion waits for the planting; Claude's: a hoe required, no farm in cold or
+  desert biomes, water laid free by tend_farm). Crops grow with time frozen (random ticks ignore `advance_time`) but only
+  within ~6 chunks of an agent.
+- **Harvest and bread** (farming v2, **next**, the user's order 10-08): code posts "Harvest the farm" when ~3/4 of the
+  wheat is age 7 (a check beside `refreshNeeds`, no board change), `loot give <name> mine X Y Z` per ripe cell (no
+  walking on the field), resow charged a seed, bread (3 wheat) at the hut's table into storage; never counted for
+  completion; tested with crops set ripe by command. The water can become charged after the iron age.
+- **The opportunities analysis** (the user's, 10-08; after harvest and bread): read-only subagents go through the last
+  ~15 runs' logs (Minevale20-31, Van*) and measure where each agent's time goes (idle, waiting for a task, empty walks,
+  storage round trips, a task claimed far off while a nearer one was ready, a needed block passed on the way); each
+  pattern a candidate with its minutes per run, prototyped offline where possible, ranked by minutes saved against risk;
+  the user picks. Known candidates: F164 (logs of another kind never cover log tasks, ~1.5 min a run), claiming the
+  nearest ready task, collecting needed blocks passed on the way, carrying the next build's materials back, idle
+  pre-gathering, the mine keeping ores, one storage-hut visit for lamps, signs and the farm. The existing examples:
+  V2.3m, V.4, F97, prepare_site's logs.
+- **Opportunistic farming and exploring** (the user's, 10-08; after the analysis): no "find X" goals. Agents record
+  sightings while they work (passive animals; pumpkins, melons, sugar cane, berries, cocoa, bamboo, vanilla villages'
+  carrots and potatoes) in the atlas; an opportunity rule (beside `refreshNeeds`) posts a farm for a kind not yet farmed
+  when a sighting is in range, a farm slot is free and the lure food or seed item is in storage (seeds lure chickens,
+  wheat cows and sheep, carrots pigs; kinds seen but not yet possible wait); farm slots reserved at plan_layout, kind-
+  free; tasks fail soft ("Bring 2 chickens from x,z" led with food, no leads: they need string; "Take a pumpkin from
+  x,z"); completion never waits for these. Once every building stands, idle agents explore for anything (the 2.4 ring,
+  bounded trips, winding down after trips with nothing new), and the same rule farms what turns up. Tests need a "keep
+  going after completion" mode with its own time limit. Vanilla's 12 animal pens (dropped like the farms, F123) as pen
+  shapes.
 - **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
   furnaces, chests, bookshelves, wall torches from the mine's coal; beds need wool).
 - **Internal lighting inside buildings** (the user's, 10-06): torches on the inside walls (the importer drops vanilla's
@@ -1169,6 +1222,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-08 (s19) | **VanS1** | staged green plains, 2x, minevale3 (VanG's site), `--mayor --planner none`, the sign code | **6/6 + 6 lamps + 5 signs** | **8.6 min** (VanL1 8.6) | signs up in ~6 s after the lamps; every sign on `/api/block` and `data get` right block, facing and wall, but the vanilla houses read "Plains small / house" (F160, fixed); 0 failed; `[dig]` 1 |
 | 10-08 (s19) | **VanS2** | as VanS1, with F160's fix and the diff review's | **6/6 + 6 lamps + 5 signs** | **8.6 min** | "Mine", "Storage", "Library", "House", "House"; 0 failed; `[dig]` 1, other counts 0 |
 | 10-08 (s19) | **Minevale30** | model-driven 1x, minevale3, `cfe8b8c` (signs) | **6/6 + 6 lamps + 5 signs PASS** | **15.4 min** (29: 15.2) | site -1628,65,47; laid out at 0.2 min; buildings done at 14.6, lamps in one pass by 15.1 (F156's fix confirmed), signs by 15.4; 0 failed actions; `[stuck]` 0 (F157 did not show), `[stuck-world]` 0, `[dig]` 1, `[repath]` 0, `[rescue]` 0, `[lag]` 0 |
+| 10-08 (s20) | VanF2 | staged green plains, 2x, minevale3 (VanG's site), `--mayor --planner none`, the farm code | stopped at 4.5 min | - | every grass walk stalled ~11 s "stuck" (F162: the look goal never meets a plant); the Mayor 3 of 8 seeds in 1.5 min; stopped, fixed, reset |
+| 10-08 (s20) | **VanF3** | as VanF2, F162 fixed | **6/6 + 6 lamps + 5 signs + farm** | **9.0 min** (VanS2 8.6) | the Mayor 8 seeds in 0.9 min, 16 by 3.8; planted 16 at 6.2 (0.1 min, hoe made from storage); every farm cell right on `/api/block`, wheat ages 0-4 at the end (it grows with time frozen); 3 failed actions, all a lake-shore pit (F166: Worker2 sealed in, teleported home); `[stuck]` 1, `[rescue]` 1, `[repath]` 2, `[dig]` 1 |
+| 10-08 (s20) | **VanF4** | as VanF3, the diff review's fixes | **6/6 + 6 lamps + 5 signs + farm** | **9.2 min** | the Mayor took both seed tasks and the hoe's log; planted at 6.4; 0 failed; `[dig]` 1, other counts 0; field 0 problems, wheat 0-5 |
+| 10-08 (s20) | **Minevale31** | model-driven 1x, minevale3, `24e7037` | **6/6 + 6 lamps + 5 signs + farm PASS** | **16.5 min** (30: 15.4) | site -1628,65,47 as 30, same layout and bills; laid out at 0.2; planted 16 at 11.3 (0.1 min); 0 failed actions; `[repath]` 1, other counts 0; ~1.0 min lost to the Mayor's seeds-first order (F163), 0.1 to the planting (`minevale31_analysis.md`) |
+| 10-08 (s20) | **VanF5** | staged as VanF4, `e28198e` (seeds in posting order, no hoe-log task) | **6/6 + 6 lamps + 5 signs + farm** | **8.9 min** (F4 9.2) | seeds by Worker2 and the Mayor from 3.9, planted at 5.8; 0 failed; `[dig]` 1, other counts 0; field 0 problems |
 
 ## Findings log
 
@@ -1588,6 +1646,29 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F167 (10-08, twentieth session, the diff review's rows test) Tight rows plots (street 2) leave no room for a 5x7
+  field; those villages get no farm (rows are the fallback; street and green plans got one in all 15 offline layouts).
+  Accepted.
+- F166 (10-08, twentieth session, VanF3) A lake-shore pit on minevale3 (-1684,60,-3) sealed Worker2 in while gathering
+  sand; the rescue teleported it home ("no path home"); 3 failed collects. F157's family (a 1x1 pocket by the lake), not
+  the farm. Backlog.
+- F165 (10-08, twentieth session, VanF3 and Minevale31) The sign job's result says "could not craft 12 birch_planks ...
+  short of 1x birch_log (made 8 so far)" yet puts up every sign (runJob's second pass). Likely: the craft skill chooses
+  the stick recipe's planks itself (`bestPlanks`, ties to birch) and saws a birch log meant for the sign planks;
+  `spareKind` guards only the plan's `any:` steps (lesson 88's class). The farm made it likelier (the hoe used the spare
+  sticks). Harmless; to confirm, log `plan.steps` and the inventory before each makeFromStock step. Backlog.
+- F164 (10-08, twentieth session, the Minevale31 analysis) The "covered by stock" rule (village.ts ~307-334) counts only
+  the village's wood kind, so ~150 oak logs from prepare_site's felling never cover birch log tasks: the mining hut waited
+  for three log tasks with 200+ logs in storage, ~1.5 min in Minevale30 and 31. Counting all logs would mix kinds in builds
+  (the user's call): the first candidate of the opportunities analysis.
+- F163 (10-08, twentieth session, Minevale31) The farm cost ~1.0 min: the waiting mayor took the seed tasks first
+  (`mayorGatherPick`), not the mining hut's logs, and the build chain ran a minute late; the "Gather 1 logs for the farm"
+  task felled a whole tree for a log storage held. Fixed in `e28198e` (posting order, no log task); VanF5 8.9 min.
+  Lesson 91.
+- F162 (10-08, twentieth session, VanF2) `mineBlock` walked to a plant with `GoalLookAtBlock`, whose ray test needs a
+  collision box: a plant has none, so the goal never ended and every grass walk stalled ~11 s "stuck" (the Mayor 3 of 8
+  seeds in 1.5 min). Its "dug on the way" test (an empty box) also returned at once for every plant without digging.
+  Fixed before the commit: walk within 2 of a plant, "dug on the way" by the block's name changing. Lesson 90.
 - F161 (10-08, nineteenth session, the signs' diff review) Left from the name signs: `put_up_signs` (like
   `light_streets`) reads the sign and wall cells before walking to the storage hut, so a worker far off (members range up
   to 96 blocks) skips "not loaded" signs and the task still ends done; `holdsSign` judges a support by name (accepts
@@ -2130,6 +2211,15 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (twentieth session) Farming v1 (the user's choices, all as recommended): seeds by soft gather tasks into storage
+  (not gathered by the planter); a 5x7 field with 16 seeds in alternate rows; planted early (after the storage hut's
+  build), completion waits for the planting; harvest and bread later, as v2. Claude's calls after the design review: a
+  hoe required; no farm in cold or desert biomes; water laid by tend_farm, not prepare_site (M5); every H and M finding
+  taken. After Minevale31: seeds in posting order and no hoe-log task (the user: both fixes, a staged run only, no second
+  model run); F164 to the opportunities analysis. The user's order for what follows: harvest and bread, then the
+  opportunities analysis (the user's idea: look for more places agents can act opportunistically, for a faster build),
+  then opportunistic farming and exploring (the user's: farm whatever is found first, never search for a given kind;
+  explore for anything once the buildings stand), then the iron age.
 - 10-08 (nineteenth session, after the close) Farming before the iron age (the user asked whether the iron age should
   come first; Claude recommended farming first): iron's only hard link to farming is water (a water bucket, 3 iron),
   and prepare_site lays the farm's water free as landscaping, as it lays the streets. The iron age stays next after

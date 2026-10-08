@@ -139,7 +139,7 @@ speed of local models.
 |---|---|---|
 | `move_to` | x, y, z, range? | Pathfinding: walks, jumps, swims and drops down ledges; far goals are walked in legs of ~40 blocks |
 | `mine` | x, y, z | Walks there, equips the best tool, breaks the block and collects the drops |
-| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure. A giant tree (a jungle giant of far more logs than the task still wants) is passed over while an ordinary tree is near, and felled whole only when nothing else is. In Minecraft it keeps out of water: a block with water above it (also above the sand or gravel stacked on it, which would fall) is passed over, and so is a buried one with water beside it (kelp, seagrass and bubble columns count as water). After each block or tree, a village gatherer also takes open blocks of other materials the village still needs within 4 blocks (side pickups), only at or above its feet, never under itself and none with water beside or above, so it digs no pits to fall into. The first village collect that finds no sand fails its task, closes the village's other open sand tasks and marks sand unavailable there until the next layout |
+| `collect` | block, count | Finds and mines blocks until it has `count` items (`logs`, `stone`, `sand`, `iron_ore`, ...). Picks the cheapest blocks to reach (near, not deep below, in the open) and, if stone needs a pickaxe it does not have, crafts a wooden one first. A village member gathers within 96 blocks of its village (walking back first when it is farther out), no more than 16 blocks below the village, and never inside any village's buildings or plots (with a 2-block margin). A log means its whole tree (Minecraft): the logs it can reach from the ground, then a dirt pillar under its feet for the rest, dug back down afterwards, so no trunk is left floating. A fallen tree (Minecraft 26.1's lying logs: one straight row of one kind, touching nothing built, outside every village) is cut from the ground; stumps and other logs without leaves are someone's build, passed over without counting as a failure. A giant tree (a jungle giant of far more logs than the task still wants) is passed over while an ordinary tree is near, and felled whole only when nothing else is. `wheat_seeds` means short grass, tall grass and ferns (Minecraft: one seed in eight), never a wheat crop, so a village's own field is safe. In Minecraft it keeps out of water: a block with water above it (also above the sand or gravel stacked on it, which would fall) is passed over, and so is a buried one with water beside it (kelp, seagrass and bubble columns count as water). After each block or tree, a village gatherer also takes open blocks of other materials the village still needs within 4 blocks (side pickups), only at or above its feet, never under itself and none with water beside or above, so it digs no pits to fall into. The first village collect that finds no sand fails its task, closes the village's other open sand tasks and marks sand unavailable there until the next layout |
 | `place` | item, x, y, z | Places a block |
 | `craft` | item, count? | Uses recipes; places or uses a crafting table when the recipe needs 3×3, and first makes missing planks and sticks from what it carries |
 | `smelt` | item, count? | Uses a furnace, or places one if carried; adds fuel automatically |
@@ -488,6 +488,20 @@ signs" task after every build and the lamps; `put_up_signs` makes the signs at t
 village's wood (6 planks and a stick make 3), places them charged with their text (waxed, so a click does not edit
 it), checks each text on the server and writes a wrong one again. The village counts as complete once they are up too.
 
+**The farm.** A village's first layout in Minecraft survival also gets a wheat field (`placeFarm`): 5x7, a water channel
+down the middle with farmland either side, on free pad ground nearest the storage hut (off streets, the green, door
+walkways including the entrances, the mining hut's back strip, and 2 blocks from every building). There is none in
+snowy or desert villages (the channel freezes; no grass for seeds), nor where the grass near the site, the plot itself
+left out, is too thin for the seeds. `plan_layout` records it on the layout and posts two soft "Gather 8 wheat_seeds for
+the farm" tasks after the storage, then "Plant the farm: 16 wheat"
+right after the storage hut's build, so the wheat grows while the houses go up. `tend_farm` lays the water and the
+farmland free (landscaping), needs a hoe (from storage, or made at the hut's table), sows 16 wheat in alternate rows,
+each charged as a wheat seed, checks every cell on the server, and asks once each for missing seeds or the hoe's log.
+Seeds come from short grass, tall grass and ferns (never a village's own wheat), and the waiting mayor gathers them
+before anything else. No walk steps onto a farm (a bot standing on one may leave it). Wheat grows with time frozen at
+day, but only within about 6 chunks of an agent or player; harvesting and bread are not built yet. The village counts
+as complete once the farm is planted.
+
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
 curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood","villageRole":"mayor"}}'
@@ -573,7 +587,11 @@ What building these agents taught, and what the code is built around:
   hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
   library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
   also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' and the name
-  signs' rules too (each sign beside its door's way out, facing out, on no lamp, building or other door's walkway).
+  signs' rules too (each sign beside its door's way out, facing out, on no lamp, building or other door's walkway), and
+  the farm's: 5x7 inside the pad, off streets, the green, walkways and the mine's ground, 2 from every building, its
+  channel down the middle, every farmland cell within 4 of the water, 16 sow cells, no lamp or sign on it (the map shows
+  `~` water, `w` sown and `%` bare farmland; a farm is expected in every biome, though plan_layout places none in snowy
+  and desert villages).
 - Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
   and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
   against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
@@ -669,7 +687,7 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
-find_site, prepare_site, build_design, build_box, build, light_streets and put_up_signs (`GET /api/skills`), with the sandbox's names, arguments and
+find_site, prepare_site, build_design, build_box, build, light_streets, put_up_signs and tend_farm (`GET /api/skills`), with the sandbox's names, arguments and
 failure messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
@@ -707,7 +725,8 @@ differently:
   clicks worked from a stale view of the inventory on 26.1 and made oak buttons out of planks.
 - **Walking** uses mineflayer-pathfinder with a watchdog for stuck bots, digging only natural blocks, opening doors,
   going around water (and swimming out of it), and splitting long walks into legs. No walk digs into or places blocks
-  on a village's ground (plots, buildings, the mine). The watchdog calls a walk stuck after 10 seconds without
+  on a village's ground (plots, buildings, the mine), and none steps onto a village's wheat field (a jump or a step down
+  onto farmland turns it to dirt; a bot already standing on the field may walk off it). The watchdog calls a walk stuck after 10 seconds without
   progress across the ground or onto a new block level (a bot hopping in place is not progress), and its error says
   how far the walk got. A walk whose path has run out short of the goal, with no search going on, searches again after
   a second (twice a walk at most, logged as `[repath]`). mineflayer-pathfinder 2.4.5 is patched
@@ -772,7 +791,7 @@ The storage is **sorted**: each chest holds one material group (logs, planks, co
 misc), given at its first use. `deposit` puts each item into its group's chest; when that is full or missing it takes a
 free chest, else puts a new chest in the next free spot (carried, or crafted from logs carried or taken from storage),
 else any chest with room. `withdraw` goes to the chests that hold the item. `deposit item=all` keeps tools and leaves
-the junk that gathering picks up (saplings, seeds, dirt, cocoa beans), unless the depositing agent holds a task to
+the junk that gathering picks up (saplings, seeds other than wheat seeds, which the farm needs, dirt, cocoa beans), unless the depositing agent holds a task to
 collect it (dirt for a vanilla house's floor). A deposit that finds no path to the hut says to walk back first (told to
 craft a chest instead, a miner put a crafting table down in its tunnel and walled itself in). A walk to a chest that
 stalls without moving the bot a block fails the deposit or withdraw at once when the chest is more than 6 blocks away
@@ -822,8 +841,10 @@ down stood inside the future hut and raised its floor).
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
    block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
-   gathering waits only for the storage, their builds for the hut. Round a green or along streets, a soft task puts
-   up the street lamps once every building stands, and on every layout a last one the name signs beside the doors.
+   gathering waits only for the storage, their builds for the hut. In survival, soft tasks gather the farm's seeds
+   after the storage, and "Plant the farm" follows the hut's build. Round a green or along streets, a
+   soft task puts up the street lamps once every building stands, and on every layout a last one the name signs beside
+   the doors.
 3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
    asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
    Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
@@ -831,7 +852,8 @@ down stood inside the future hut and raised its floor).
    reach is given up at once (it is "soft": the build checks its own materials), and only that task: the queue goes
    with it. For sand the first such failure also closes the village's other open sand tasks, and code posts no sand
    gathering again until the next layout. A build does not wait for a gather task still held by a worker when the
-   storage already covers that task. The mayor, waiting with an empty plan, takes gather tasks the same way.
+   storage already covers that task. The mayor, waiting with an empty plan, takes gather tasks the same way, in the
+   order posted (the farm's seeds after the huts' gathering).
 4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
    smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
    the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
@@ -840,7 +862,7 @@ down stood inside the future hut and raised its floor).
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
    the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand, and
    charcoal is made from the wood kind with logs to spare (not the logs fetched for planks).
-6. When every building stands (and the street lamps and name signs are up), the mayor declares the objective complete (code checks it first), or code declares it:
+6. When every building stands (and the street lamps and name signs are up and the farm is planted), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
    village running.
 
@@ -862,7 +884,8 @@ snowy villages from nothing built six buildings in 8.1-8.4 minutes at 2x with no
 VanG5 once collect kept out of the lake beside the plot), and the model-driven Minevale22 (1x) built six in 15.2
 minutes with no failed actions. With block lists and smelting from vanilla's data (2026-10-05): staged VanG6 and VanM3
 6/6 in 8.3 minutes at 2x, and Minevale23 (model-driven, 1x, on Minevale22's site) 6/6 in 14.9 minutes, with no failed
-actions.
+actions. With the farm planted as well (2026-10-08): staged VanF3 and VanF4 in 9.0 and 9.2 minutes at 2x, and
+Minevale31 (model-driven, 1x) in 16.5 minutes, with no failed actions.
 
 ### Models
 

@@ -416,6 +416,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     layout kind, `put_up_signs` charged at the storage hut and checked with `data get`; the user's choices, all as
     recommended). Staged VanS1/VanS2 8.6 min at 2x; Minevale30 (1x) 6/6 + 6 lamps + 5 signs in 15.4 min, 0 failed
     actions, F156's fix confirmed. Lesson 89. Next: farming (the village-life list's order).
+35. 2026-10-08 (twentieth session; see PLAN.md for push state): farming v1. `24e7037`: a 5x7 wheat field (water channel
+    down the middle) placed by `placeFarm` beside the storage hut, two soft seed tasks after the storage and "Plant the
+    farm: 16 wheat" (`tend_farm`: water and farmland free, a hoe, 16 wheat in alternate rows charged as seeds, checked on
+    the server) after the hut's build; walks banned from every field; seeds from grass only and not junk (the user's
+    choices, all as recommended). `e28198e`: seeds in posting order, no hoe-log task (F163). Staged VanF3-5 8.9-9.2 min
+    at 2x, Minevale31 (1x) 6/6 + lamps + signs + farm in 16.5 min, 0 failed actions. Crops grow with time frozen, only
+    near agents. Lessons 90-92. Next (the user's order): harvest and bread, the opportunities analysis, opportunistic
+    farming and exploring, the iron age.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -572,12 +580,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the nineteenth session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twentieth session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale30's green village (6 of 6, with its street lamps and name signs) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; VanF5's green village (6 of 6, with its street lamps, name signs and a wheat field at -1667..-1663, 6..12) stands on VanG's 40 site at -1677..-1638, 3..42 until the next reset (inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -882,6 +890,18 @@ Lessons from the adapter:
    record before trusting a field (lesson 57), and key on something the data carries itself (the jar's piece name).
    Sign text in 26.1 is plain SNBT strings (`messages:["Library","","",""]`, exactly four); a JSON string shows its
    braces. Check signs on the server with `data get block X Y Z front_text.messages`.
+90. **A goal must be one the bot can meet** (F162, 2026-10-08): `mineBlock` walked to grass with `GoalLookAtBlock`, whose
+   test casts a ray against collision shapes; a plant has none, so the goal never ended and every grass walk stalled
+   ~11 s "stuck" (3 of 8 seeds in 1.5 min), and its "dug on the way" test (an empty box) passed every plant undug.
+   Choose the goal by the target's box (within 2 of a plant), and test "dug" by the block changing, not by its shape.
+91. **A priority is a scheduling decision; check it against the critical path** (F163): "the farm's seeds first" for
+   the waiting mayor looked free (off the builds' path) but took it off the mining hut's logs, and the whole build ran a
+   minute late (Minevale31, 16.5 min against 15.4). Line up the run against the last one (a log-analysis subagent did,
+   same layout and bills) before calling a loss variance; post off-path work in posting order.
+92. **Read the jar for loot and ticking, not minecraft-data or assumptions** (the farm's research): minecraft-data lists
+   the wheat crop as a seed source and tall grass and ferns as none (collect would have harvested the village's own
+   field); `advance_time false` leaves random ticks running (crops grow with time frozen, ~25-45 min a crop at 1x), but
+   only in chunks within simulation distance of a player or bot: a field no agent is near does not grow.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
