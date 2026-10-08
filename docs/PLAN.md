@@ -36,11 +36,13 @@ recorded in the decisions; the notes below for the twenty-first session stay val
   caves, up to 5 tries), tunnels keeping iron and coal from walls, floors and veins, an iron pickaxe and then a bucket
   into storage. Staged VanI7: 6 raw iron from 144 cells, both tools made, 0 failed. The iron age takes ~20 min after
   completion at any time scale (digging is wall-clock). F165/F169: signs and lamps in one pass (VanW7, VanW9).
-- **Next:** the user's choice among: **animal pens, chickens first** (animals are near every site, farm plants are
-  rare: F176; luring by held seeds is the new problem, no leads), **the beautifying plan** (backlog, "Beautifying the
-  village": B.1 flower beds and gardens first; four open choices for the user), a model-driven Minevale run with
-  `MCAI_AFTER` to see the chores with real models (none ran in one yet), or the smaller items (F170, F171-F173, F187;
-  the atlas noting cane stalk heights: a 1-high wild stalk gives nothing, VanW7).
+- **Next (set at the close, 10-08; the user confirms at the start):** 1. **Minevale33**, a model-driven run at 1x with
+  `MCAI_AFTER=30`: the after-completion chores (farm starts from wild sightings, harvests, the iron age) with real models
+  for the first time, and the build time against Minevale32's 11.2 min. 2. **Animal pens v1, chickens first** (the
+  backlog's "Animal pens" item now holds everything already known: tempt items from the jar, no leads, pen pieces,
+  fence costs, the slots, the animals map, what is near the test sites, the unknowns to settle live first). Then the
+  beautifying plan (B.1 first; four open choices) or the smaller items (F170, F171-F173, F187; the atlas noting cane stalk
+  heights: a 1-high wild stalk gives nothing, VanW7). The prompt: `runs/2026-10-08/s22/NEXT_PROMPT.md`.
 - **How to test now:** `stage_village.py ... --mayor --after N [--fixtures] [--ripen] [--stock raw_iron:3]` (CLAUDE.md,
   Testing agents); `runs/2026-10-08/s22/iron_start_check.mts`, `ores_along.py`, `f165/sim.mts`, `cdp_stack.cjs` (a hung
   server's stack). Records, research, designs and reviews: `runs/2026-10-08/s22/`; the next prompt is
@@ -942,7 +944,34 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - **Gardens and fences**: a fenced front garden with flowers the agents pick.
 - **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
 - **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
-- **Animal pens**: sheep, cows, chickens fenced near the farm (wool for beds, food), led there with wheat.
+- **Animal pens** (next after Minevale33, set 10-08 at the twenty-second session's close; chickens first): sheep, cows,
+  chickens fenced near the farm (eggs, food; wool for beds once shears exist). **Known already, don't re-derive**
+  (`runs/2026-10-08/s22/research/sightings.md`, `farmslots.md`, `plants_scan.md`):
+  - Tempt items, from the 26.1.2 jar's item tags: `chicken_food` = wheat/melon/pumpkin/beetroot/torchflower seeds and
+    pitcher_pod; `cow_food`, `sheep_food`, `goat_food` = wheat; `pig_food` = carrot, potato, beetroot. Storage holds
+    wheat_seeds (the harvest leaves ~27-33 a time; F168), so chickens are possible now; cows and sheep need wheat kept back
+    from the bread (harvest_farm bakes floor(wheat/3) today, mcBuild.ts harvestFarm).
+  - No leads: a lead is 5 string (no slime in 26.1); string only from cobwebs with a sword or shears (mcMaterials.ts marks
+    string unobtainable). Animals follow a player holding their tempt item (vanilla TemptGoal, ~10 blocks; not yet checked
+    in this jar or with a Mineflayer bot): luring by a held item is the new movement problem.
+  - Pens: vanilla's animal pen pieces (outer W x D): plains 5x6, 7x11, 8x11 (two without a gate), savanna 9x9, 13x12, 8x9,
+    snowy 8x9, 9x8, taiga 13x8, desert 10x7, 10x8 (dropped by the importer like the farms, F123). A 5x7 pen (fence on the
+    outer ring, 3x5 inside, a gate) is 19 fences and a gate, ~39 planks (~10 logs); a farm slot (5x7, kind-free,
+    `layouts[i].slots`) can hold one (kind e.g. `pen:chicken`; the slot's water channel is not laid for a pen).
+  - Animals in the atlas (`Atlas.animals`, by uuid: kind, x, y, z, t, by; seen every 5 s per bot, deleted after 10 s
+    missing near a bot; `/api/atlas?all=1` and `?village=` return them). World-generated animals are persistent in peaceful
+    and stay near where seen (AI only within 32 of a player). Near minevale3's usual site: pigs 12 (60 blocks), sheep 8
+    (48), chickens 4 (55), a cow (91); VanG's site: pigs 13 (41), sheep 9 (48), chickens 4 (45); VanX2's atlas within 176:
+    sheep 10-20, pigs 14, chickens 5-6, a cow. Entity data in the snapshot covers only ~15-30 chunks a site.
+  - Breeding: feed two adults (`bot.activateEntity` with the item held), ~5 min before they breed again, a baby grows
+    ~20 min; animals tick only near agents (lesson 92). Eggs: a chicken lays one every 5-10 min (vanilla; check the jar).
+  - The chore pattern to follow: MineflayerWorld.slotChores (one chore a village at a time, the `chores` lock from the
+    actions' own state, `idleWorker`, back-offs), after completion only; staged tests with `--mayor --after N`; a fixture
+    can `summon chicken X Y Z` by RCON near the site for a deterministic test.
+  - Unknowns to settle live before designing (a Gus test on the test world): whether chickens follow a bot holding
+    seeds, at what distance and speed (a bot walks ~4.3 m/s, faster than a chicken), how to walk so they keep up (short
+    hops, waits), whether a fence gate opened and closed by command keeps them in, and how to count them inside on the
+    server (`execute if entity @e[type=chicken,x=,y=,z=,dx=,dy=,dz=]`).
 - **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns. After
   farming (the user's choice, 10-08): ore is a new gathering problem (the mine takes stone only; iron lies in seams at
   depth; atlas ores can be far or in caves) and adds smelting time to every village; its payoff is spread over buckets,
