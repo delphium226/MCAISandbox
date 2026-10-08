@@ -250,9 +250,9 @@ const SCOUT_DEADLINE_MS = 20 * 60000;
 export function mayorGatherPick(ready: Task[]): Task[] {
   const gather = ready.filter((t) => t.soft && /^Gather \d+ /.test(t.title) && /^collect block=\S+ count=\d+, then deposit item=all/.test(t.detail));
   const stone = (t: Task) => /^collect block=cobblestone /.test(t.detail);
-  // The farm's seeds first (10-08): they are off the builds' path, so the mayor's spare time is best spent on them
-  const seeds = (t: Task) => /^collect block=wheat_seeds /.test(t.detail);
-  return [...gather.filter(seeds), ...gather.filter((t) => !stone(t) && !seeds(t)), ...gather.filter(stone)];
+  // (the farm's seeds in posting order, after the huts' gathering: taken first, they held the mining hut's logs back and
+  // the whole build a minute with them, Minevale31)
+  return [...gather.filter((t) => !stone(t)), ...gather.filter(stone)];
 }
 
 /** Scout tasks still being worked on: open, or held by an agent still in the world. */

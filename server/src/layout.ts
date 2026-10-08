@@ -297,9 +297,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         seeds.push(tasks.length);
         tasks.push({ title: `Gather ${q} wheat_seeds for the farm${parts > 1 ? ` (${i + 1}/${parts})` : ''}`, detail: `collect block=wheat_seeds count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: storage !== undefined ? [storage] : [], soft: true });
       }
-      // (and the hoe's log: made from the houses' logs, a house came up one short, the diff review)
-      seeds.push(tasks.length);
-      tasks.push({ title: `Gather 1 logs for the farm`, detail: `collect block=${wood ? `${wood}_log` : 'logs'} count=1, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: storage !== undefined ? [storage] : [], soft: true });
+      // (no task for the hoe's log: prepare_site's felled trees leave logs in storage, and a gather task "for the farm" is
+      // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
       tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : []), ...seeds], soft: true });
     };
     // Cobblestone is gathered in the mine once it is dug (a soft task: without it, outside as before)
