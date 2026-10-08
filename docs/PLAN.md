@@ -26,18 +26,22 @@ session stay valid where not overridden)
 - **Code:** committed on `tiered-brain-building`: `cfe8b8c` (name signs: `placeSigns`/`signLabel`/`holdsSign` in
   streetPlan.ts, the soft "Put up the signs" task after every build and the lamps, the `put_up_signs` skill, wall signs
   charged as the sign item, `/api/block` text, street_plan.mts's sign rules) and the close-out (this record, CLAUDE.md
-  lesson 89, README, ARCHITECTURE). Not pushed at the close unless the user said so (check `git status -sb`; ask before
-  any push). `main` untouched.
+  lesson 89, README, ARCHITECTURE), pushed to origin at the close (`acc805f`; the user said push), then this tracker
+  update (farming before the iron age), not pushed (ask before any push). `main` untouched.
 - **Stack:** stopped cleanly at the close (the test agent server by PID, the test Paper "All dimensions are saved", the
   pinned model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
 - **Where things stand:** every building of a village gets a waxed wall sign beside its entrance door ("House",
   "Library", "Storage", "Mine"; other designs their own name), put up after the lamps by one worker in ~0.3 min.
   Minevale30 (1x, minevale3's usual site) 6/6 + 6 lamps + 5 signs in 15.4 min, 0 failed actions; F156's fix confirmed
   (lamps in one pass); F157 did not show.
-- **Next (the village-life list's agreed order; confirm with the user): farming**, the next item of the village-life list (research first: vanilla's
-  farm pieces, hoe, seeds from grass, water, planting and harvest as tasks; then design note, review, one question round).
+- **Next (the user's choice, confirmed after the close): farming**, before the iron age (decisions of 10-08): the
+  farm's water laid free by prepare_site; first settle whether crops grow with time frozen at day. Research first
+  (vanilla's farm pieces, hoe, seeds from grass, water, planting and harvest as tasks), then design note, review, one
+  question round.
   Smaller: F157 (if it shows again), F158, F159, F161 (the signs' leftovers). The prompt for the twentieth session is
-  `runs/2026-10-08/s19/NEXT_PROMPT.md`; the signs' research, design and reviews are in `runs/2026-10-08/s19/`.
+  `runs/2026-10-08/s19/NEXT_PROMPT.md`; the signs' research, design and reviews are in `runs/2026-10-08/s19/`
+  (`signs_proto/` the prototype and the jar's glyph widths, `review/` the diff review's comparison of placeSigns with the
+  prototype over 115 real villages, `checks/` the sign bill script and materials.mts before/after).
 - **How to test now:** as before; staged and model-driven runs wait for the sign task too; check sign columns with
   `/api/block` (it shows `text`) or RCON `data get block X Y Z front_text.messages`; `street_plan.mts` checks signs.
 - **Test world state:** minevale3 holds Minevale30's village with lamps and signs (-1648..-1609, 27..66): reset before
@@ -811,8 +815,12 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - ~~**A sign beside each building's door** naming its function~~: done 10-08 (`cfe8b8c`, the user's choices: a wall
   sign beside the entrance door, every building with a door labelled by its use, a separate soft task after the lamps,
   waxed, completion waits). Leftovers: F161.
-- **Farming** (the user's; **next** in the agreed order): vanilla's farm pieces as the layout; a hoe, seeds from grass, water beside the plot;
-  planting and harvesting as tasks.
+- **Farming** (the user's; **next**, confirmed by the user at the 10-08 close, before the iron age): vanilla's farm
+  pieces as the layout; a hoe, seeds from grass, water beside the plot; planting and harvesting as tasks. The water is
+  laid free as landscaping by prepare_site, as the streets' dirt_path is (no bucket: a water bucket needs 3 iron); it can
+  become charged after the iron age. Unknown, to settle first: whether crops grow with time frozen at day
+  (`advance_time false`; random ticks should still run, never tested in 26.1), from the jar or a crop planted on the
+  test world.
 - **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
   furnaces, chests, bookshelves, wall torches from the mine's coal; beds need wool).
 - **Internal lighting inside buildings** (the user's, 10-06): torches on the inside walls (the importer drops vanilla's
@@ -823,7 +831,10 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
 - **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
 - **Animal pens**: sheep, cows, chickens fenced near the farm (wool for beds, food), led there with wheat.
-- **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns.
+- **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns. After
+  farming (the user's choice, 10-08): ore is a new gathering problem (the mine takes stone only; iron lies in seams at
+  depth; atlas ores can be far or in caves) and adds smelting time to every village; its payoff is spread over buckets,
+  shears, lanterns, tools and interiors.
 - **Roles**: a profession per worker (farmer, miner, builder) tied to its building and named on its sign (Project Sid's
   specialisation).
 - **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room.
@@ -2119,6 +2130,10 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (nineteenth session, after the close) Farming before the iron age (the user asked whether the iron age should
+  come first; Claude recommended farming first): iron's only hard link to farming is water (a water bucket, 3 iron),
+  and prepare_site lays the farm's water free as landscaping, as it lays the streets. The iron age stays next after
+  farming; the farm's water can be charged once buckets exist.
 - 10-08 (nineteenth session) Name signs (the user's choices, all as recommended): a wall sign on the outside wall
   beside the entrance door (right as seen from outside, then left; the door's upper half, then its lower half, then over
   the door), not a standing sign or one over the door (536/536 test layouts against 305 standing); every building with a
