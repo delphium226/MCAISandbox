@@ -16,7 +16,8 @@
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure } from '../village';
 import { mineAreas } from './mcMine';
-import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
+import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
+import { SLOT_KINDS, SLOT_ORDER, slotCell, slotPlan } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign } from '../streetPlan';
 import type { BotAgent } from './botAgent';
@@ -483,6 +484,8 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   for (const l of v?.layouts ?? []) for (const c of l.signs ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
   // (and the wheat field: no one waits on farmland, and the in-the-way teleport must not land there)
   for (const l of v?.layouts ?? []) if (l.farm) taken.push({ x1: l.farm.x1, x2: l.farm.x2, z1: l.farm.z1, z2: l.farm.z2 });
+  // (and every farm slot, free or farmed: opportunistic farming, 10-08)
+  for (const l of v?.layouts ?? []) for (const q of l.slots ?? []) taken.push({ x1: q.x1, x2: q.x2, z1: q.z1, z2: q.z2 });
   const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
   // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
   // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
@@ -2144,6 +2147,308 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
   }
 }
 
+/** Farm slots being started or harvested ("village:layout:slot"): one job a slot at a time (set and cleared inside the
+ *  skill, so a stopped agent never leaves a slot locked: lesson 67). */
+export const slotBusy = new Set<string>();
+
+function slotOf(a: BotAgent, args: Record<string, unknown>, what: string) {
+  const v = a.village();
+  if (!v) throw new Error(`${what}: not in a village`);
+  const k = Math.floor(num(args.layout, 'layout')), j = Math.floor(num(args.slot, 'slot'));
+  const slot = v.layouts?.[k - 1]?.slots?.[j - 1];
+  if (!slot) throw new Error(`${what}: layout ${k} has no farm slot ${j}`);
+  const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+  if (!plot) throw new Error(`${what}: farm slot ${j} at ${areaText(slot)} is not on a prepared plot`);
+  return { v, k, j, slot, plot, key: `${v.name}:${k}:${j}` };
+}
+
+/** An item the bot carries, counted on the server (lesson 13); an error is not 0. */
+async function serverCount(a: BotAgent, item: string): Promise<number> {
+  const r = await a.world.rcon.command(`clear ${a.name} ${item} 0`).catch(() => '');
+  const m = /Found (\d+)/i.exec(r);
+  if (m) return Number(m[1]);
+  if (/No items were found/i.test(r)) return 0;
+  throw new Error(`the server did not count ${a.name}'s ${item} (${r.slice(0, 80) || 'no answer'})`);
+}
+
+/** Room for loot: a full inventory loses it silently (the loot command drops nothing). */
+async function roomForLoot(a: BotAgent, what: string, signal: AbortSignal) {
+  await syncInventory(a);
+  if (a.bot.inventory.emptySlotCount() >= 3) return;
+  await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch(() => undefined);
+  await syncInventory(a);
+  if (a.bot.inventory.emptySlotCount() < 3) throw new Error(`${what}: no room for the harvest (${a.bot.inventory.emptySlotCount()} free inventory slots after depositing; 3 needed)`);
+}
+
+/**
+ * A farm slot started with a kind found near the village (opportunistic farming, 10-08; a chore code queues once the
+ * village stands, mcWorld.ts farmChores): the farmer walks to the sighting, collects the first plants there (`here`: no
+ * walk home first, up to FARM_TRIP_RANGE), makes seeds of pumpkins or melon slices by hand, walks home and lays the slot
+ * as the wheat field is laid (the channel's water, farmland or dirt: free landscaping; a hoe for farmland), then plants
+ * what it brought (charged one item a cell; slotPlan says where). Checked on the server after. A start that plants
+ * nothing leaves the slot free again; the sighting is marked bad when too little was brought from it.
+ */
+async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, k, j, slot, plot, key } = slotOf(a, args, 'start_farm');
+  const kind = str(args.kind, 'kind');
+  const spec = SLOT_KINDS[kind];
+  if (!spec) throw new Error(`start_farm: no farm kind ${kind} (${SLOT_ORDER.join(', ')})`);
+  if (slotBusy.has(key)) throw new Error(`start_farm: farm slot ${j} is busy`);
+  if (slot.kind && !slot.laying) throw new Error(`start_farm: farm slot ${j} already holds ${slot.kind}`);
+  slotBusy.add(key);
+  const sx = Math.floor(num(args.x, 'x')), sy = Math.floor(num(args.y, 'y')), sz = Math.floor(num(args.z, 'z'));
+  const sighting = `${sx},${sy},${sz}`;
+  const notes: string[] = [];
+  const save = () => a.world.villages.save();
+  let planted = 0, badSighting = false;
+  try {
+    // The first plants, where they were seen
+    const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
+    await walk(a, new goals.GoalNearXZ(sx, sz, 3), `the ${kind} at ${sighting}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`walk: ${e.message.slice(0, 100)}`);
+    });
+    // (collect fails on a part as well: what was got is counted on the server, the design review's M2)
+    await SURVIVAL_SKILLS.collect.run(a, { block: spec.take, count: spec.count, here: true, range: FARM_TRIP_RANGE }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`collect: ${e.message.slice(0, 140)}`);
+    });
+    if (spec.make) {
+      const took = await serverCount(a, spec.take);
+      if (took)
+        await SURVIVAL_SKILLS.craft.run(a, { item: spec.make, count: spec.make === 'pumpkin_seeds' ? took * 4 : took }, signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          notes.push(`craft: ${e.message.slice(0, 120)}`);
+        });
+    }
+    const items = await serverCount(a, spec.item);
+    if (items < 2) {
+      slot.bad = [...(slot.bad ?? []), `${kind}@${sighting}`].slice(-20);
+      badSighting = true;
+      throw new Error(`start_farm: brought ${items} ${spec.item} from the ${kind} at ${sighting} (2 needed)${notes.length ? `; ${notes.join('; ')}` : ''}`);
+    }
+    // Home: the slot laid, then planted
+    slot.kind = kind;
+    slot.laying = true;
+    save();
+    const home = villageHome(v, a.memory);
+    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 16)
+      await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 8), 'the village', signal, 240000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`walk home: ${e.message.slice(0, 100)}`);
+      });
+    const plan = slotPlan(slot, kind);
+    const y = plot.y;
+    const h = v.storageHut;
+    const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
+    const task = `start_farm layout=${k} slot=${j}`;
+    const job: Job = { targets: [], area, y, free: true, what: `the ${kind} farm`, task };
+    const soil = (n: string) => /^(grass_block|dirt|coarse_dirt|rooted_dirt|dirt_path|farmland|podzol)$/.test(n);
+    const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
+    const solid = (x: number, yy: number, z: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox === 'block';
+    const skipped: string[] = [];
+    const lay: Target[] = [];
+    const ok = new Set<string>();
+    // The channel (as the wheat field's: on solid ground, its ends closed)
+    for (let r = 0; r < 7; r++) {
+      const [x, z] = slotCell(slot, 2, r);
+      const ground = blockName(a, x, y, z), above = blockName(a, x, y + 1, z);
+      if (ground === null || above === null) {
+        skipped.push(`${x},${z} (not loaded)`);
+        continue;
+      }
+      if (above !== 'air' && above !== 'cave_air' && plant(above)) lay.push({ x, y: y + 1, z, block: 'air' });
+      if (!solid(x, y - 1, z)) lay.push({ x, y: y - 1, z, block: 'dirt' });
+      for (const [ex, ez] of [[x - 1, z], [x + 1, z], [x, z - 1], [x, z + 1]])
+        if ((ex < slot.x1 || ex > slot.x2 || ez < slot.z1 || ez > slot.z2) && blockName(a, ex, y, ez) !== null && !solid(ex, y, ez)) lay.push({ x: ex, y, z: ez, block: 'dirt' });
+      if (ground !== 'water') lay.push({ x, y, z, block: 'water' });
+    }
+    // Farmland or dirt under the plants and the fruit cells, nothing above
+    const wantGround = new Map<string, string>([...plan.farmland.map(([x, z]) => [`${x},${z}`, 'farmland'] as const), ...plan.dirt.map(([x, z]) => [`${x},${z}`, 'dirt'] as const)]);
+    for (const [cell, want] of wantGround) {
+      const [x, z] = cell.split(',').map(Number);
+      const ground = blockName(a, x, y, z), above = blockName(a, x, y + 1, z);
+      if (ground === null || above === null) {
+        skipped.push(`${x},${z} (not loaded)`);
+        continue;
+      }
+      if (!soil(ground) || !(plant(above) || above === spec.block)) {
+        skipped.push(`${x},${z} (${!soil(ground) ? ground : above})`);
+        continue;
+      }
+      ok.add(cell);
+      if (above !== 'air' && above !== 'cave_air' && above !== spec.block) lay.push({ x, y: y + 1, z, block: 'air' });
+      if (want === 'farmland' && ground !== 'farmland') lay.push({ x, y, z, block: 'farmland[moisture=7]' });
+      // (cane does not stand on farmland or a path; fruit grows on either, but a path it cannot: dirt for both)
+      // (and plain dirt under cane, which the planting check looks for: podzol and the like set to dirt, the review's L5)
+      if (want === 'dirt' && (/^(farmland|dirt_path)$/.test(ground) || (!spec.fruit && !/^(dirt|grass_block)$/.test(ground)))) lay.push({ x, y, z, block: 'dirt' });
+    }
+    if (spec.farmland && lay.some((t) => /^farmland/.test(t.block))) {
+      const hoes = async () => Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:hoes 0`).catch(() => ''))?.[1] ?? 0);
+      if (!(await hoes())) {
+        const kept = Object.keys(storageContents(v)).find((n) => /_hoe$/.test(n));
+        if (kept)
+          await withdrawItems(a, v, { [kept]: 1 }, signal).catch((e: Error) => {
+            if (e.message === 'cancelled') throw e;
+            notes.push(`hoe: ${e.message.slice(0, 80)}`);
+          });
+      }
+      if (!(await hoes())) {
+        await standBy(a, job, signal);
+        const made = await makeFromStock(a, {}, { wooden_hoe: 1 }, () => standBy(a, job, signal), signal).catch((e: Error) => {
+          if (e.message === 'cancelled' || unmoved(e)) throw e;
+          notes.push(e.message.slice(0, 120));
+          return null;
+        });
+        if (made) notes.push(made);
+      }
+      if (!(await hoes())) throw new Error(`start_farm: no hoe to till the ${kind} farm with, and none could be made from the village storage (a wooden_hoe takes 2 planks and 2 sticks at a crafting table${notes.length ? `; ${notes.join('; ')}` : ''})`);
+    }
+    let out = lay.length ? await runJob(a, { ...job, targets: lay }, signal) : 'the slot was laid already';
+    await sleep(1000, signal);
+    const there = async (t: { x: number; y: number; z: number }, block: string) => /passed/i.test(await a.world.rcon.command(`execute if block ${t.x} ${t.y} ${t.z} minecraft:${block}`).catch(() => ''));
+    const missing: Target[] = [];
+    for (const t of lay) if (t.block !== 'air' && !(await there(t, t.block.replace(/\[.*$/, '')))) missing.push(t);
+    if (missing.length) {
+      out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
+      await sleep(1000, signal);
+    }
+    // Planting: as many cells as items carried, on the ground laid for them
+    const cells: Array<[number, number]> = [];
+    for (const [x, z] of plan.cells) {
+      if (!ok.has(`${x},${z}`)) continue;
+      if (!(await there({ x, y, z }, spec.farmland ? 'farmland' : 'dirt')) && !(!spec.farmland && (await there({ x, y, z }, 'grass_block')))) continue;
+      cells.push([x, z]);
+    }
+    const n = Math.min(cells.length, await serverCount(a, spec.item));
+    const block = spec.block === 'sugar_cane' ? 'sugar_cane' : `${spec.block}[age=0]`;
+    const sow: Job = { targets: cells.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block })), area, y, what: `the ${kind} farm`, task };
+    if (n) {
+      out += `; ${await runJob(a, sow, signal)}`;
+      await sleep(1000, signal);
+    }
+    const grown: Array<[number, number]> = [];
+    for (const t of sow.targets) if (await there(t, spec.block)) grown.push([t.x, t.z]);
+    planted = grown.length;
+    if (!planted) throw new Error(`start_farm: nothing could be planted on farm slot ${j} at ${areaText(slot)} (${n} of ${cells.length} cells with an item; skipped ${skipped.slice(0, 6).join('; ') || 'none'})`);
+    slot.planted = planted;
+    slot.cells = grown;
+    if (spec.fruit) slot.fruit = plan.fruit;
+    slot.from = [sx, sy, sz];
+    delete slot.laying;
+    save();
+    // What is left over goes into storage (seeds of a stem kind stay carried: JUNK)
+    await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      // (nothing to deposit is no news)
+      if (!/not carrying anything/.test(e.message)) notes.push(`not deposited: ${e.message.slice(0, 100)}`);
+    });
+    const done = `started a ${kind} farm on slot ${j} at ${areaText(slot)}: planted ${planted} from the ${kind} at ${sighting}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    a.world.villages.note(v, `${a.name} ${done}`);
+    return `${done}: ${out}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    // Nothing planted: the slot is free again (its laid ground stays; walks are banned only from a slot with a kind)
+    if (slot.laying && !planted) {
+      delete slot.kind;
+      delete slot.laying;
+    }
+    // (a sighting too poor to start from is marked bad and never chosen again: not the slot's failure, the diff review's M2)
+    if (why !== 'cancelled') {
+      if (!badSighting) slot.tries = (slot.tries ?? 0) + 1;
+      slot.lastTry = { at: Date.now(), kind, why: why.slice(0, 200) };
+    }
+    save();
+    throw e;
+  } finally {
+    slotBusy.delete(key);
+  }
+}
+
+/**
+ * A farm slot's ripe plants harvested (a chore, as the wheat's): standing by the storage hut, each ripe cell's loot is
+ * given by the server (`loot give ... mine`), crops sown again charged one planting item (their loot pays it), cane cut
+ * above its base top-down (a cell cleared under cane drops the rest), fruit taken and the stems left; all into storage.
+ */
+async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, k, j, slot, plot, key } = slotOf(a, args, 'harvest_slot');
+  const spec = slot.kind ? SLOT_KINDS[slot.kind] : undefined;
+  if (!spec || slot.laying) throw new Error(`harvest_slot: farm slot ${j} holds no farm yet`);
+  if (slotBusy.has(key)) throw new Error(`harvest_slot: farm slot ${j} is busy`);
+  slotBusy.add(key);
+  const y = plot.y + 1;
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const there = async (x: number, yy: number, z: number, block: string) => /passed/i.test(await rcon(`execute if block ${x} ${yy} ${z} minecraft:${block}`));
+  const record = (ok: boolean, why?: string) => {
+    slot.lastHarvest = { at: Date.now(), ok, ...(why ? { why: why.slice(0, 200) } : {}) };
+    a.world.villages.save();
+  };
+  try {
+    const h = v.storageHut;
+    const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
+    await standBy(a, { targets: [], area, y: plot.y, free: true, what: `the ${slot.kind} farm`, task: `harvest_slot layout=${k} slot=${j}` }, signal);
+    await roomForLoot(a, 'harvest_slot', signal);
+    const notes: string[] = [];
+    let taken = 0;
+    checkAbort(signal);
+    // From here on every looted cell is reset (no abort between: a cell left ripe is looted twice)
+    if (spec.ripe !== undefined) {
+      const ripe: Array<[number, number]> = [];
+      for (const [x, z] of slot.cells ?? []) if (await there(x, y, z, `${spec.block}[age=${spec.ripe}]`)) ripe.push([x, z]);
+      if (!ripe.length) {
+        record(false, 'nothing ripe');
+        return `nothing ripe on the ${slot.kind} farm at ${areaText(slot)}`;
+      }
+      const looted: Array<[number, number]> = [];
+      for (const [x, z] of ripe) if (/Dropped/i.test(await rcon(`loot give ${a.name} mine ${x} ${y} ${z}`))) looted.push([x, z]);
+      let charged = looted.length;
+      try {
+        const have = await serverCount(a, spec.item);
+        const n = Math.min(looted.length, have);
+        charged = n ? Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} ${spec.item} ${n}`))?.[1] ?? 0) : 0;
+      } catch (e) {
+        notes.push(`sown without charging: ${(e as Error).message.slice(0, 100)}`);
+      }
+      for (const [i, [x, z]] of looted.entries()) await rcon(`setblock ${x} ${y} ${z} minecraft:${i < charged ? `${spec.block}[age=0]` : 'air'}`);
+      if (looted.length > charged) notes.push(`${looted.length - charged} cells left bare`);
+      taken = looted.length;
+    } else if (spec.fruit) {
+      for (const [x, z] of slot.fruit ?? [])
+        if (await there(x, y, z, spec.fruit)) {
+          if (/Dropped/i.test(await rcon(`loot give ${a.name} mine ${x} ${y} ${z}`))) taken++;
+          await rcon(`setblock ${x} ${y} ${z} minecraft:air`);
+        }
+    } else {
+      // Cane: the blocks above the base, top-down (the design review's M4)
+      for (const [x, z] of slot.cells ?? [])
+        for (const yy of [y + 2, y + 1])
+          if (await there(x, yy, z, 'sugar_cane')) {
+            if (/Dropped/i.test(await rcon(`loot give ${a.name} mine ${x} ${yy} ${z}`))) taken++;
+            await rcon(`setblock ${x} ${yy} ${z} minecraft:air`);
+          }
+    }
+    if (!taken) {
+      record(false, 'nothing ripe');
+      return `nothing ripe on the ${slot.kind} farm at ${areaText(slot)}`;
+    }
+    const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`not deposited: ${e.message.slice(0, 120)}`);
+      return '';
+    });
+    slot.harvests = (slot.harvests ?? 0) + 1;
+    const out = `harvested ${taken} ${slot.kind} at ${areaText(slot)}${stored ? ' into the village storage' : ''}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    record(true);
+    a.world.villages.note(v, `${a.name} ${out}`);
+    return out;
+  } catch (e) {
+    record(false, (e as Error).message);
+    throw e;
+  } finally {
+    slotBusy.delete(key);
+  }
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -2157,5 +2462,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   tend_farm: { check: (x) => void num(x.layout, 'layout'), run: tendFarm },
   // (not in TOOLS: no model calls it; code queues it as a chore)
   harvest_farm: { check: (x) => void num(x.layout, 'layout'), run: harvestFarm },
+  // (the farm slots', chores as well: opportunistic farming, 10-08)
+  start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startFarm },
+  harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
 };
 

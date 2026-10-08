@@ -39,6 +39,9 @@ export interface ChunkSummary {
   /** Ores exposed to air anywhere in the column (cave walls, ravines, cliffs, mine tunnels) by kind, deepslate ores with
    *  the others: how many blocks, the lowest and the highest y (V.6). Missing in summaries from before. */
   ores?: Record<string, [number, number, number]>;
+  /** Farmable plants seen from above (PLANT_KINDS): the columns whose first plant is of that kind, and the first such
+   *  cell (x, y, z). Missing in summaries from before (opportunistic farming, 10-08). */
+  plants?: Record<string, [number, number, number, number]>;
   /** The village whose mine has dug in this chunk (kept through later summaries). */
   mine?: string;
 }
@@ -62,6 +65,20 @@ const OTHER = MATERIALS.length;
 
 /** The ores recorded (deepslate_iron_ore counts as iron; the Nether's are not looked for). */
 export const ORE_KINDS = ['coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald'];
+/** The plants recorded where agents pass (block names: crops by their block, the fruit blocks, not their stems). */
+export const PLANT_KINDS = ['sugar_cane', 'pumpkin', 'melon', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'cocoa', 'bamboo'];
+/** The animals recorded where agents pass (entity names). */
+export const ANIMAL_KINDS = new Set(['chicken', 'cow', 'sheep', 'pig', 'rabbit', 'goat', 'horse']);
+export interface AnimalSighting {
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  /** When it was last seen there (ms), and by whom. */
+  t: number;
+  by: string;
+}
+const ANIMALS_MAX = 1000;
 // Block categories per state id
 const PASS = 0, WOOD = 1, LEAF = 2, WATER = 3, LAVA = 4, GROUND = 5;
 
@@ -95,6 +112,12 @@ export class Atlas {
   /** Per state: 1 + its index in ORE_KINDS (0: no ore), and whether it is air (an ore next to air is exposed). */
   private ore: Uint8Array;
   private air: Uint8Array;
+  /** Per state: 1 + its index in PLANT_KINDS (0: no plant of a kind recorded). */
+  private plant: Uint8Array;
+  /** Animals seen, by entity uuid (kept where last seen: in peaceful they never despawn, and stray little). */
+  animals = new Map<string, AnimalSighting>();
+  /** Animals not tracked where a bot should see them, by uuid: since when. */
+  private missing = new Map<string, number>();
   private kinds: string[] = [];
   private times: number[] = [];
   stats = { scans: 0, maxMs: 0 };
@@ -111,7 +134,10 @@ export class Atlas {
     this.logKind = new Uint8Array(n);
     this.ore = new Uint8Array(n);
     this.air = new Uint8Array(n);
+    this.plant = new Uint8Array(n);
     for (const b of reg.blocksArray) {
+      const pk = PLANT_KINDS.indexOf(b.name) + 1;
+      if (pk) for (let s = b.minStateId; s <= b.maxStateId; s++) this.plant[s] = pk;
       const ore = /^(?:deepslate_)?(\w+?)_ore$/.exec(b.name);
       const o = ore ? ORE_KINDS.indexOf(ore[1]) + 1 : 0, open = /^(air|cave_air)$/.test(b.name) ? 1 : 0;
       // Tree logs by kind, leaves (and mushroom blocks), lava, water (mcBlocks.ts: ATLAS_*)
@@ -211,7 +237,8 @@ export class Atlas {
         break;
       }
     if (top < 0) return null;
-    const { cat, material, logKind } = this;
+    const { cat, material, logKind, plant } = this;
+    const plantN = new Uint32Array(PLANT_KINDS.length + 1), plantAt = new Int32Array(3 * (PLANT_KINDS.length + 1));
     const yTop = col.minY + top * 16 + 15, yBottom = Math.max(col.minY, yTop - 160);
     const dry = new Int16Array(256);
     let nDry = 0, water = 0, lava = 0;
@@ -226,10 +253,16 @@ export class Atlas {
       for (p.x = 0; p.x < 16; p.x++) {
         const cell = (p.z >> 2) * 4 + (p.x >> 2);
         logYs.length = logKs.length = 0;
-        let canopy = false;
+        let canopy = false, planted = false;
         for (p.y = yTop; p.y >= yBottom; p.y--) {
           const id = col.getBlockStateId(p);
           const c = cat[id];
+          // The first farmable plant on the way down (passed over as find_site does: cocoa under the canopy too)
+          if (!planted && plant[id]) {
+            planted = true;
+            const k = plant[id];
+            if (!plantN[k]++) plantAt.set([cx * 16 + p.x, p.y, cz * 16 + p.z], k * 3);
+          }
           if (c === PASS) continue;
           if (c === LEAF) {
             canopy = true;
@@ -283,11 +316,15 @@ export class Atlas {
       s += best < 0 ? CELL_LETTERS.unknown : letters[best];
     }
     const named = (counts: Uint32Array, names: string[]) => Object.fromEntries(names.map((n, i) => [n, counts[i]] as const).filter(([, q]) => q > 0));
+    const plants: Record<string, [number, number, number, number]> = {};
+    for (let k = 1; k <= PLANT_KINDS.length; k++) if (plantN[k]) plants[PLANT_KINDS[k - 1]] = [plantN[k], plantAt[k * 3], plantAt[k * 3 + 1], plantAt[k * 3 + 2]];
     return {
       cx, cz, t: Date.now(), by, y, flat, water, lava,
       logs: named(logs, this.kinds), low: named(low, this.kinds),
       surface: named(surface, [...MATERIALS.map((m) => m[0]), 'other']),
       h, s, ores: this.exposedOres(col, top),
+      // (always, empty too: "scanned, none" differs from a summary from before plants were recorded, the review's L2)
+      plants,
     };
   }
 
@@ -359,6 +396,48 @@ export class Atlas {
     return all ? have / all : 1;
   }
 
+  /**
+   * Animals a bot can see (opportunistic farming, 10-08): every tracked animal of ANIMAL_KINDS written where it is now;
+   * one recorded within 32 blocks of the bot that the bot no longer tracks (the server tracks animals to 96) is gone.
+   */
+  seen(by: string, at: { x: number; y: number; z: number }, entities: Iterable<{ uuid?: string; name?: string; position: { x: number; y: number; z: number } }>) {
+    const now = Date.now(), here = new Set<string>();
+    for (const e of entities) {
+      if (!e.uuid || !e.name || !ANIMAL_KINDS.has(e.name)) continue;
+      here.add(e.uuid);
+      this.missing.delete(e.uuid);
+      const x = Math.floor(e.position.x), y = Math.floor(e.position.y), z = Math.floor(e.position.z);
+      const had = this.animals.get(e.uuid);
+      // (saved only when something changed much: not the 2 MB file every 30 s for animals wandering about, the reviews)
+      if (!had || Math.hypot(had.x - x, had.z - z) > 8) this.unsaved = true;
+      this.animals.set(e.uuid, { kind: e.name, x, y, z, t: now, by });
+    }
+    // Missing for over 10 s where a bot should see it (a bot just spawned or teleported tracks nothing for a moment, the
+    // reviews; by time, not passes: two bots in one round would count twice)
+    for (const [id, s] of this.animals)
+      if (!here.has(id) && Math.hypot(s.x - at.x, s.z - at.z) <= 32 && Math.abs(s.y - at.y) <= 32) {
+        const since = this.missing.get(id) ?? now;
+        this.missing.set(id, since);
+        if (now - since <= 10000) continue;
+        this.animals.delete(id);
+        this.missing.delete(id);
+        this.unsaved = true;
+      }
+    for (const [id, since] of this.missing) if (now - since > 10 * 60000 || !this.animals.has(id)) this.missing.delete(id);
+    if (this.animals.size > ANIMALS_MAX)
+      for (const [id] of [...this.animals].sort((a, b) => a[1].t - b[1].t).slice(0, this.animals.size - ANIMALS_MAX)) this.animals.delete(id);
+  }
+
+  /** Plant sightings of a kind within `radius` blocks of x, z, nearest first: [x, y, z, columns in that chunk]. */
+  sightings(kind: string, x: number, z: number, radius: number): Array<[number, number, number, number]> {
+    const out: Array<[number, number, number, number]> = [];
+    for (const s of this.near(x, z, radius)) {
+      const p = s.plants?.[kind];
+      if (p && Math.hypot(p[1] - x, p[3] - z) <= radius) out.push([p[1], p[2], p[3], p[0]]);
+    }
+    return out.sort((a, b) => Math.hypot(a[0] - x, a[2] - z) - Math.hypot(b[0] - x, b[2] - z));
+  }
+
   /** How the atlas is doing: chunks known and waiting, and the cost of a summary (ms). */
   status() {
     const t = [...this.times].sort((a, b) => a - b);
@@ -368,7 +447,7 @@ export class Atlas {
 
   save() {
     try {
-      fs.writeFileSync(this.file, JSON.stringify({ version: 1, chunks: [...this.chunks.values()] }));
+      fs.writeFileSync(this.file, JSON.stringify({ version: 1, chunks: [...this.chunks.values()], animals: Object.fromEntries(this.animals) }));
       this.unsaved = false;
       this.savedAt = Date.now();
     } catch (e) {
@@ -379,8 +458,9 @@ export class Atlas {
   private load() {
     if (!fs.existsSync(this.file)) return;
     try {
-      const data = JSON.parse(fs.readFileSync(this.file, 'utf8')) as { chunks?: ChunkSummary[] };
+      const data = JSON.parse(fs.readFileSync(this.file, 'utf8')) as { chunks?: ChunkSummary[]; animals?: Record<string, AnimalSighting> };
       for (const s of data.chunks ?? []) this.chunks.set(`${s.cx},${s.cz}`, s);
+      for (const [id, s] of Object.entries(data.animals ?? {})) this.animals.set(id, s);
       console.log(`[atlas] ${this.chunks.size} chunks from ${path.basename(this.file)}`);
     } catch (e) {
       console.error(`[atlas] could not read ${this.file}: ${(e as Error).message}; starting empty`);

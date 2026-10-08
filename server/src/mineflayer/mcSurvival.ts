@@ -12,7 +12,7 @@ import { mineAreas, mineCanGive, mineFor } from './mcMine';
 import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
-import { SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
+import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, unmoved, walk, wetOver, wetSide,
@@ -57,7 +57,8 @@ export async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, for
   const bot = a.bot;
   let block = bot.blockAt(pos);
   if (!block) throw new Error(`the block at ${at(pos)} is not loaded; move closer first`);
-  if (block.boundingBox === 'empty' && !/grass|fern|bush|flower|sapling|snow/.test(block.name)) return `nothing to mine at ${at(pos)} (${block.name})`;
+  // (plants with no collision box are mined too: sugar cane and crops, for a farm slot's first plants, 10-08)
+  if (block.boundingBox === 'empty' && !/grass|fern|bush|flower|sapling|snow|sugar_cane|carrots|potatoes|beetroots|wheat/.test(block.name)) return `nothing to mine at ${at(pos)} (${block.name})`;
   if (block.hardness === null || block.hardness < 0) throw new Error(`${block.name} at ${at(pos)} cannot be broken`);
   const tools = block.harvestTools;
   if (tools && !force && !bot.inventory.items().some((it) => tools[it.type]))
@@ -188,6 +189,30 @@ function homeOf(a: BotAgent): { x: number; z: number } | null {
   const p = v?.plots[0] ?? v?.layouts?.[0];
   // (or its first layout, laid out but not prepared yet: gatherers work while the plot is prepared, #3)
   return p ? { x: (p.x1 + p.x2) / 2, z: (p.z1 + p.z2) / 2 } : null;
+}
+
+/**
+ * What collect may take, as a test of a block position (shared with the farm slots' opportunity rule, which must judge a
+ * sighting by collect's own rules: lesson 46): within `range` of home (the storage chest), not below home's level - 16,
+ * and never in a village building, nor on or under any village's plot or layout (and its 2-block margin), nor in a mine.
+ */
+export function collectFilter(a: BotAgent, range = VILLAGE_RANGE): (p: { x: number; y: number; z: number }) => boolean {
+  const home = homeOf(a);
+  // Never inside a village building (its footprint, from its floor up)
+  // Nor in a prepared plot, down to a few blocks under its level (cobblestone gatherers dug the levelled stone of a
+  // plot, and its buildings then found the ground uneven)
+  // (and the 2-block margin prepare_site levels around a plot: gatherers dug an 18-deep hole at a plot's edge, Accept8)
+  // Every village's, not only its own: Gus, in no village, felled the jungle-log frames of Accept15's cottages and hall
+  // as trees (2026-09-29)
+  const vil = a.village();
+  const all = [...a.world.villages.villages.values()];
+  // (the whole column under a plot: stone 5 blocks under one was reached by a shaft dug from its surface, Hutvale1)
+  // (and every village's mine, floor to ceiling: its tunnels reach under the countryside, V.5b)
+  const built: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => [...v.plots, ...(v.layouts ?? [])]).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 })), ...all.flatMap((v) => (v.mine ? mineAreas(v.mine) : []))];
+  // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
+  const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
+  return (p) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= range) && (homeY === undefined || p.y >= homeY - 16)
+    && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
 }
 
 /**
@@ -637,6 +662,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   if (a.gamemode === 'creative') throw new Error(`in creative mode broken blocks drop nothing; use get_item ${label} instead`);
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
   const have = () => items.reduce((s, id) => s + countItem(a, id), 0);
+  // A farm slot's start (a chore, opportunistic farming 10-08) collects where it walked to: no walk home first, and as far
+  // as its trip may go (FARM_TRIP_RANGE); every other collect stays within the village's range
+  const here = args.here === true;
+  const range = here ? Math.min(FARM_TRIP_RANGE, Math.max(VILLAGE_RANGE, Number(args.range) || VILLAGE_RANGE)) : VILLAGE_RANGE;
   const start = have();
   // A village with a mine digs its stone there (V.5), not in pits around the plot; what the mine cannot give at all
   // (its tunnels ended) is looked for outside as before
@@ -664,13 +693,13 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // A village member far from home walks back first, so that what it finds (or not) is what the village has: a worker
   // explored hop by hop to 180 blocks away, then gave up every gathering task it took (Accept14)
   const base = homeOf(a);
-  if (base && Math.hypot(a.bot.entity.position.x - base.x, a.bot.entity.position.z - base.z) > 64)
+  if (base && !here && Math.hypot(a.bot.entity.position.x - base.x, a.bot.entity.position.z - base.z) > 64)
     await walk(a, new goals.GoalNearXZ(Math.floor(base.x), Math.floor(base.z), 8), `the village at ${Math.floor(base.x)},${Math.floor(base.z)}`, signal, 180000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
   const from = a.bot.entity.position.clone();
   const giveUp = (got: number) => new Error(`could not reach ${label}: ${failed.size} tried from ${at(from)} in ${Math.round((Date.now() - t0) / 1000)} s${got ? ` (collected ${got} of ${want})` : ''}; last problem: ${lastError}${passedOver()}. ${base
-    ? `${got ? 'Deposit what you have; ' : ''}collect again: it searches within 96 blocks of the village by itself (no need to explore)`
+    ? `${got ? 'Deposit what you have; ' : ''}collect again: it searches within ${range} blocks of the village by itself (no need to explore)`
     : `${got ? 'Deposit what you have, or c' : 'C'}ollect somewhere else: explore 30 blocks or more in another direction first`}`);
   const fail = (p: Vec3, m: string, ms: number) => {
     failed.add(at(p));
@@ -720,22 +749,10 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
     // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off. A village
     // member stays within 96 blocks of home (the storage chest or plot): gathering walk by walk it drifted 150 away
-    const home = homeOf(a);
-    // Never inside a village building (its footprint, from its floor up)
-    // Nor in a prepared plot, down to a few blocks under its level (cobblestone gatherers dug the levelled stone of a
-    // plot, and its buildings then found the ground uneven)
-    // (and the 2-block margin prepare_site levels around a plot: gatherers dug an 18-deep hole at a plot's edge, Accept8)
-    // Every village's, not only its own: Gus, in no village, felled the jungle-log frames of Accept15's cottages and hall
-    // as trees (2026-09-29)
+    // (never in a village building, on or under a plot, nor far below home: collectFilter)
     const vil = a.village();
-    const all = [...a.world.villages.villages.values()];
-    // (the whole column under a plot: stone 5 blocks under one was reached by a shaft dug from its surface, Hutvale1)
-    // (and every village's mine, floor to ceiling: its tunnels reach under the countryside, V.5b)
-    const built: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => [...v.plots, ...(v.layouts ?? [])]).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 })), ...all.flatMap((v) => (v.mine ? mineAreas(v.mine) : []))];
-    // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
-    const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)
-      && !built.some((st) => p.x >= st.x1 - 1 && p.x <= st.x2 + 1 && p.z >= st.z1 - 1 && p.z <= st.z2 + 1 && p.y >= st.y - 1 && (st.y2 === undefined || p.y <= st.y2 + 1));
+    const near = collectFilter(a, range);
     // Dry: no water comes in from above (through falling sand too), and a buried block (dug to) has none beside it either:
     // the Mayor tunnelled to sand under a lake bed and the lake poured in (F137). Shore sand in the open stays fine
     // (wetSide before exposedAt: it is almost always false, and buried stone matches by the ten thousand)
@@ -743,7 +760,9 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Only from home y - 16 up, as `near` takes them (the search skips the sections below)
     const ys = homeY === undefined ? undefined : { min: homeY - 16 };
     const tPick = performance.now();
-    const found = nearestBlocks(a, blocks, 48, 1024, (p) => dry(p) && near(p), ys).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
+    // (sugar cane: never a stalk's base, so the wild cane grows back)
+    const stalk = (p: Vec3) => label !== 'sugar_cane' || a.bot.blockAt(p.offset(0, -1, 0))?.name === 'sugar_cane';
+    const found = nearestBlocks(a, blocks, 48, 1024, (p) => dry(p) && near(p) && stalk(p), ys).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
     const me = a.bot.entity.position;
@@ -783,7 +802,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       // all be near ones it turned down, or out of range, hiding good ones farther out, F96; the filters read state ids, F106)
       const p0 = a.bot.entity.position;
       // (cheapest first: most matches are buried, and near() goes through every village's areas)
-      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && !failed.has(at(p)) && !bad.has(at(p)), ys).find((p) => !skipBuilt(p, near));
+      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)), ys).find((p) => !skipBuilt(p, near));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();
@@ -799,9 +818,9 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       if (await stepOffVillageGround(a, signal)) continue;
     }
     if (!next) {
-      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${home ? '96 blocks of the village' : '128 blocks'}${passedOver()}: deposit what you have${home ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
-      throw new Error(home
-        ? `no ${label} within 96 blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
+      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${base ? `${range} blocks of the village` : '128 blocks'}${passedOver()}: deposit what you have${base ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
+      throw new Error(base
+        ? `no ${label} within ${range} blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
         : `no ${label} within 128 blocks${passedOver()}; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);
     }
     const t1 = Date.now();
@@ -839,7 +858,13 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     }
     try {
       // A walk of 20 seconds for a block close by, a little more for one farther off
-      await mineBlock(a, next, signal, false, 20000 + 500 * Math.round(next.distanceTo(me)));
+      const r = await mineBlock(a, next, signal, false, 20000 + 500 * Math.round(next.distanceTo(me)));
+      // (nothing mined: a failure for that cell, never the same cell again at once; mineBlock answered sugar cane at once
+      // with "nothing to mine", and this loop, its awaits settled at once, held the event loop for good, VanX1)
+      if (r.startsWith('nothing to mine')) {
+        fail(next, r, Date.now() - t1);
+        continue;
+      }
       mined++;
       await sideGather(a, blocks, near, extras, signal);
     } catch (e) {
@@ -1419,7 +1444,8 @@ async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   // village's range once it has ground (an executor must not use it as an explore without bounds, lesson 22)
   const v = a.village();
   const home = villageHome(v, a.memory);
-  const range = v && (v.layouts?.length || v.plots.length) ? VILLAGE_RANGE : SCOUT_RANGE;
+  // (exploring once the village stands, a chore code queues: as far as a farm slot's start may walk, FARM_TRIP_RANGE)
+  const range = v && (v.layouts?.length || v.plots.length) ? (args.chore === true && v.complete ? FARM_TRIP_RANGE : VILLAGE_RANGE) : SCOUT_RANGE;
   if (home) {
     const d = Math.hypot(x - home.x, z - home.z);
     if (d > range) {

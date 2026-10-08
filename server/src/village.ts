@@ -134,11 +134,33 @@ export interface Task {
   /** Its Build prerequisites count as met once claimed (the street lamps go up while the last builds run, #4). */
   afterClaimed?: boolean;
 }
+/**
+ * A farm slot (opportunistic farming, 10-08): a 5x7 field like the wheat's (a channel down the middle), free until a farm
+ * of a kind is started on it (`laying` while that runs). `cells`: what grows there (crops, cane, stems); `fruit`: where a
+ * stem's pumpkin or melon can grow; `from`: the sighting its first plants came from. `tries` and `lastTry`: failed starts
+ * (a back-off); `bad`: sightings that failed, by kind.
+ */
+export type FarmSlot = FarmSpot & {
+  kind?: string;
+  laying?: boolean;
+  planted?: number;
+  cells?: Array<[number, number]>;
+  fruit?: Array<[number, number]>;
+  from?: [number, number, number];
+  tries?: number;
+  lastTry?: { at: number; kind: string; why: string };
+  bad?: string[];
+  harvests?: number;
+  lastHarvest?: { at: number; ok: boolean; why?: string };
+};
+
 export interface Village {
   name: string;
   objective: string;
   mayor?: string;
   complete?: boolean;
+  /** Exploring once complete (opportunistic farming, 10-08): the ring points scouted (by index), and when it ended. */
+  explore?: { visited: number[]; done?: boolean; last?: string };
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;
@@ -169,7 +191,9 @@ export interface Village {
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
     farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
       /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */
-      harvests?: number; bread?: number; lastHarvest?: { at: number; ok: boolean; why?: string } } }>;
+      harvests?: number; bread?: number; lastHarvest?: { at: number; ok: boolean; why?: string } };
+    /** Farm slots kept free for whatever is found (opportunistic farming, 10-08): a kind once a farm is started there. */
+    slots?: FarmSlot[] }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -197,6 +221,8 @@ export interface Village {
 
 /** How far a village's mayor and its site searches may go from home. */
 export const VILLAGE_RANGE = 96;
+/** How far a farm slot's start (a chore once the village stands) may walk for its first plants, and exploring may go. */
+export const FARM_TRIP_RANGE = 160;
 /**
  * How far a new village may look before its first layout (step 2.4): its first site search and its scouts. Within 96
  * the spawn's own view (~128 blocks) already showed everything, so scouting there added nothing.

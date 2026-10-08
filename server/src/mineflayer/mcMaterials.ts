@@ -87,7 +87,11 @@ export function inWood(bill: Counts, wood: string | undefined): Counts {
 
 /** Placing one of these charges another item (grass and paths need silk touch or a shovel's use: charge dirt; a sown crop
  * its seed). */
-const CHARGE_AS: Record<string, string> = { grass_block: 'dirt', dirt_path: 'dirt', wheat: 'wheat_seeds' };
+const CHARGE_AS: Record<string, string> = {
+  grass_block: 'dirt', dirt_path: 'dirt', wheat: 'wheat_seeds',
+  // (the farm slots' plants, opportunistic farming 10-08: a crop or stem is planted from its item)
+  carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot_seeds', pumpkin_stem: 'pumpkin_seeds', melon_stem: 'melon_seeds',
+};
 
 export interface Option {
   kind: 'craft' | 'smelt';

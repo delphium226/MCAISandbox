@@ -43,7 +43,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
         storage: { chests: (v.storage?.chests ?? []).map(({ x, y, z }) => ({ x, y, z })) },
       }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: w.atlas.status(), all: true, chunks: [...w.atlas.chunks.values()], villages }));
+      res.end(JSON.stringify({ status: w.atlas.status(), all: true, chunks: [...w.atlas.chunks.values()], villages, animals: [...w.atlas.animals.values()] }));
       return;
     }
     const radius = Math.min(400, Math.max(16, Number(url.searchParams.get('radius') ?? 200) || 200));
@@ -55,7 +55,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     if (!centre && url.searchParams.has('x') && Number.isFinite(qx) && Number.isFinite(qz)) centre = { x: Math.floor(qx), z: Math.floor(qz) };
     const p = members.map(pos).find(Boolean);
     if (!centre && p) centre = { x: Math.floor(p.x), z: Math.floor(p.z) };
-    return sendJson(res, 200, { status: w.atlas.status(), centre, radius, chunks: centre ? w.atlas.near(centre.x, centre.z, radius) : [] });
+    return sendJson(res, 200, { status: w.atlas.status(), centre, radius, chunks: centre ? w.atlas.near(centre.x, centre.z, radius) : [],
+      animals: centre ? [...w.atlas.animals.values()].filter((s) => Math.hypot(s.x - centre!.x, s.z - centre!.z) <= radius) : [] });
   }
   if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(TOOLS.filter((t) => w.skills.includes(t)).map((t) => [t.name, t.description])));
 

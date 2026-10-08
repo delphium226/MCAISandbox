@@ -894,7 +894,8 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   nearest ready task, collecting needed blocks passed on the way, carrying the next build's materials back, idle
   pre-gathering, the mine keeping ores, one storage-hut visit for lamps, signs and the farm. The existing examples:
   V2.3m, V.4, F97, prepare_site's logs.
-- **Opportunistic farming and exploring** (the user's, 10-08; after the analysis): no "find X" goals. Agents record
+- ~~**Opportunistic farming and exploring** v1~~: done 10-08 (twenty-second session; plants only, see the decisions; next:
+  animal pens, chickens first). The plan was (the user's, 10-08; after the analysis): no "find X" goals. Agents record
   sightings while they work (passive animals; pumpkins, melons, sugar cane, berries, cocoa, bamboo, vanilla villages'
   carrots and potatoes) in the atlas; an opportunity rule (beside `refreshNeeds`) posts a farm for a kind not yet farmed
   when a sighting is in range, a farm slot is free and the lure food or seed item is in storage (seeds lure chickens,
@@ -1269,6 +1270,11 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-08 (s21) | **VanW6** | as VanW5 + #5 (no table or furnace billed after the storage hut) | **6/6 + lamps + signs** | **7.5 min** | 55 tasks posted (57), 16 cobblestone left (42): ~26 fewer gathered; time within noise; 0 failed, all counts 0 |
 | 10-08 (s21) | **VanO3** | staged green plains 2x, `--mayor --planner none --harvest`, #1 + F164 + #5 (`8724395`) | **6/6 + lamps + signs + farm; HARVEST PASS** | **7.0 min** (F5 8.9) | mining hut 1.5, storage hut 4.0, last build 6.6; harvest after completion 0.2 min (16 resown, 5 bread); 0 failed; `[dig]` 1, other counts 0 |
 | 10-08 (s21) | **VanO4** | as VanO3 + #3/#4 (`0ec7e0a`, before the diff review's narrowing guards) | **6/6 + lamps + signs + farm; HARVEST PASS** | **6.1 min** (O3 7.0) | seeds taken at 0.1 while the plot was prepared, sand and dirt at 1.6-1.8 (deposited at once: storage at 1.4); lamps claimed at 5.3 while house 1 was still being built; last build 5.7; 0 failed; `[dig]` 1, other counts 0 |
+| 10-08 (s22) | **Minevale32** | model-driven 1x, minevale3, `3705649` (#1 + F164 + #5 + #3/#4) | **6/6 + 6 lamps + 5 signs + farm PASS** | **11.2 min** (31: 16.5; the simulation predicted 11-12) | site -1628,65,47 as 30/31, same layout; laid out at 0.2; seeds at 0.2 and sand/dirt at 3.2-4.1 while the plot was prepared (2.9); storage set up by the preparer, no log task claimed at all; F164: both houses and the meeting point in oak (`woodFor`); mining hut 3.3, storage hut 7.3, farm planted 7.5, lamps claimed at 10.2 while house 1 was built (done 11.0); 0 failed actions, every count 0 |
+| 10-08 (s22) | VanX1 | staged green plains 2x, minevale3 (VanG's site), `--mayor --planner none --fixtures --after 10 --ripen`, opportunistic farming v1 | built, complete; then **the agent server hung** | (5.7 min to the last build) | the first farm start (sugar cane) looped in collect without yielding (F174); watcher timed out |
+| 10-08 (s22) | **VanX2** | as VanX1 with F174 fixed | **6/6 + lamps + signs + farm; cane and pumpkin farms started and harvested; 8 exploring trips** | **6.4 min** to complete, then 12 after | cane started 0.8 after completion (3 planted from the fixture), harvested 6 at 0.9 and 2 more at 7.9 (real growth); pumpkin started 1.7 (6 stems), 11 pumpkins at 1.9; exploring 2.4-6.5 (8 points at 160, all home); atlas: 31 animals, plants recorded; two explorers at once (F175); 0 failed, `[dig]` 2, other counts 0 |
+| 10-08 (s22) | **VanX3** | as VanX2, F175 fixed | **6/6 + lamps + signs + farm; both farms; 8 exploring trips, one at a time** | **7.1 min** to complete, then 10 after | Worker2 2.6 min in a flooded lake-shore trench it dug for sand (F179; 6 `[stuck]`, no rescue): the storage hut claimed 0.7 min late; farms as VanX2; trips one after another; 0 failed after completion |
+| 10-08 (s22) | **VanX4** | as VanX3 + the diff review's fixes | **6/6 + lamps + signs + farm; cane and pumpkin started and harvested; no exploring with no slot free** | **6.3 min**, then 5 after | the atlas within 176: plants cane 11, pumpkin 9, melon 1; 40 animals; 0 failed, `[dig]` 2, other counts 0 |
 
 ## Findings log
 
@@ -1688,6 +1694,33 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F179 (10-08, twenty-second session, VanX3; the log analysis `runs/2026-10-08/s22/research/f179_analysis.md`) Worker2
+  dug two shore sand columns on minevale3's lake (-1685..-1684, z -3) into a buried water pocket; the 3-deep trench
+  flooded and every walk out (a jump-up whose floor had to be bridged over water, sneaking toward the edge in the current)
+  pinned it against the wall: 6 `[stuck]` lines, 2.6 min, no rescue (collect's walk timeouts are not action failures; the
+  stall check skips a "busy" pathfinder; collect has no unmoved give-up). F166 was the same cell. Fix: beside water collect
+  takes a cell only when that water is the open surface (air over it).
+- F178 (10-08, twenty-second session, the iron design draft) `makeFromStock` fetches only `plan.fromStock`, while the
+  materials plan counts coal in storage as fuel (mcMaterials.ts ~344-347): a smelt that should burn stored coal fails
+  "no fuel" unless the bot carries planks or logs. Latent (no coal reaches storage today); live for glass as soon as the
+  mine keeps coal. Fix with the iron age.
+- F177 (10-08, twenty-second session, VanX2) Collect takes a sugar cane stalk's upper blocks only (the base is left so
+  the wild cane grows back): a 2-high stalk gives one cane, so the three fixture stalks gave 2-3 canes and the cane farm
+  was planted with 3. Enough for a start (it grows and is harvested: VanX2 6 then 2 more).
+- F176 (10-08, twenty-second session, the plant scan) Farm plants are rare near the test sites: none of sugar cane,
+  pumpkin, melon, berries, bamboo or crops within 96 of minevale3's usual site or VanG's (pumpkins ~136 away), a few at
+  other sites; pigs, sheep and chickens near every site. The opportunity rule will seldom fire on plants alone; animal
+  pens (chickens first: seeds are in stock) are the next kind (`research/plants_scan.md`). The staged test plants
+  fixtures by command (`stage_village.py --fixtures`).
+- F175 (10-08, twenty-second session, VanX2) Two explorers out at once: `choreBusy` looked the chore's agent up by its
+  name, but `MineflayerWorld.agents` is keyed by the lower-cased name, so a running chore never counted. Fixed (VanX3).
+- F174 (10-08, twenty-second session, VanX1) **The agent server hung for good** when the first farm start collected
+  sugar cane: `mineBlock` answered "nothing to mine" at once for a block with no collision box unless its name was a
+  grass, fern, bush, flower, sapling or snow, so collect counted nothing, found the same cane again and looped; every
+  await in that loop settled at once (microtasks), so the event loop never ran again: the API timed out, no `[lag]`
+  line (it is logged after a stall ends). Found by attaching the inspector to the running process
+  (`node -e "process._debugProcess(PID)"`, then `runs/2026-10-08/s22/cdp_stack.cjs ws://...` pauses it and prints the
+  stack). Fixed: cane and crops in mineBlock's plant list, and collect counts "nothing to mine" as a failure of that cell.
 - F173 (10-08, twenty-first session, the #3/#4 diff review) Left: the lamp job's runJob moves a player standing in a lamp
   cell to its stand spot by the storage hut, so a builder walking a street over a lamp cell could be moved mid-walk (it
   recovers); desert lamps over-count logs in the cover rule (sandstone posts); before a plot is prepared collect has no
@@ -2273,6 +2306,18 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (twenty-second session) Opportunistic farming and exploring v1 (the user asked for no questions this session;
+  each choice the recommended one): **chores after completion only** (code queues the skill on an idle worker, lesson
+  93; never on the critical path, lesson 91); **plant kinds first** (sugar cane, pumpkin, melon, then carrots, potatoes,
+  beetroot from vanilla villages' fields), animals only recorded (pens next: luring by held food is a new movement
+  problem, no leads without string); **two kind-free 5x7 slots** per layout placed after the lamps and off them (no lamp
+  lost: 2 on every 40 plot, 0-2 on 30-32); the farmer gathers the first plants at the sighting itself and makes seeds by
+  hand; **farm trips and exploring reach FARM_TRIP_RANGE = 160** from home (the design review's H3: the bots at home
+  already see ~128 blocks, so exploring within 96 could find nothing; every board task keeps collect's 96); exploring
+  visits 8 ring points at 160 once each, one explorer at a time, then stops; tests with `--fixtures --after --ripen`
+  (stage) and `MCAI_AFTER` (watch). The design review's 16 findings all taken (stems on inner rows, CHARGE_AS for the new
+  plants, locks inside the skills, collect's own filter shared, partial collects counted on the server, cane cut
+  top-down, the animals' grace and save flag, `plants: {}` always).
 - 10-08 (twenty-first session) The opportunities analysis (`runs/2026-10-08/s21/opportunities/`: three read-only
   analyses, Minevale26-31 with a schedule simulation, 15 staged runs, the code side; `ranking.md`). The user chose to
   build #1, #2 (F164), #5 and #3/#4, F164 as whole buildings. Done: **#1 the preparer sets up the storage with its

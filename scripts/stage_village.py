@@ -161,6 +161,12 @@ p.add_argument("--mixed-wood", action="store_true", help="stage build: stock hal
 p.add_argument("--no-deposit-check", action="store_true")
 p.add_argument("--harvest", action="store_true", help="after the build, set the farm ripe by command and check the harvest "
                                                           "(farming v2): bread in storage, every looted cell sown again")
+p.add_argument("--after", type=float, default=0, help="keep watching this many minutes after the village is complete: the "
+                                                      "chores (opportunistic farms, harvests, exploring) and the atlas's sightings; needs --mayor (only a "
+                                                      "tiered mayor sets the village complete, and the chores wait for that)")
+p.add_argument("--fixtures", action="store_true", help="before the run, put sugar cane (with water), pumpkins and a melon "
+                                                       "on the ground 35-45 blocks off the site by command (sightings to farm)")
+p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
 args = p.parse_args()
 test_site = None
 if args.site:
@@ -499,6 +505,44 @@ if storage_spot:
     rcon(f"forceload remove {sx} {sz}")
     print(f"storage at {sx},{y},{sz} stocked with {need}", flush=True)
 
+def ground_at(x, z, near_y):
+    """The top solid block's y at x, z (the server's block tests; the chunk forceloaded meanwhile)."""
+    for yy in range(near_y + 16, near_y - 24, -1):
+        if "passed" in rcon(f"execute unless block {x} {yy} {z} #minecraft:replaceable").lower():
+            return yy
+    return None
+
+
+def plant_fixtures():
+    """Sightings to farm (opportunistic farming): sugar cane two high beside a water cell, three pumpkins, one melon,
+    each 35-45 blocks off the site's centre (outside its plot and margin)."""
+    gy = site.get("y", 64)
+    spots = {"sugar_cane": (site["x"] + 35, site["z"] + 35), "pumpkin": (site["x"] + 42, site["z"] - 6), "melon": (site["x"] - 8, site["z"] + 42)}
+    for kind, (x, z) in spots.items():
+        fixtures[kind] = []
+        rcon(f"forceload add {x - 2} {z - 2} {x + 4} {z + 2}")
+        time.sleep(1)
+        out = []
+        for i in range(3 if kind != "melon" else 1):
+            cx = x + 2 * i
+            g = ground_at(cx, z, gy)
+            if g is None:
+                out.append(f"no ground at {cx},{z}")
+                continue
+            if kind == "sugar_cane":
+                out += [rcon(f"setblock {cx} {g} {z} minecraft:dirt"), rcon(f"setblock {cx} {g} {z + 1} minecraft:water"),
+                        rcon(f"fill {cx} {g + 1} {z} {cx} {g + 2} {z} minecraft:sugar_cane")]
+            else:
+                out.append(rcon(f"setblock {cx} {g + 1} {z} minecraft:{kind}"))
+            fixtures[kind].append((cx, g + (2 if kind == "sugar_cane" else 1), z))
+        print(f"FIXTURE {kind} at {x},{z}: {'; '.join(o for o in out if o)[:200]}", flush=True)
+        rcon(f"forceload remove {x - 2} {z - 2} {x + 4} {z + 2}")
+
+
+fixtures = {}
+if args.fixtures:
+    plant_fixtures()
+
 # ---- workers
 names = [f"Worker{i + 1}" for i in range(args.workers)]
 for i, n in enumerate(names):
@@ -574,6 +618,76 @@ if reason == "every building is done" and hut and args.stage == "build" and not 
     deposit_check(names[0])
 if reason == "every building is done" and args.harvest:
     harvest_check()
+
+
+def slot_text(s):
+    return f"{s.get('kind') or 'free'} {s['x1']}..{s['x2']},{s['z1']}..{s['z2']} planted={s.get('planted')} harvests={s.get('harvests')} tries={s.get('tries')}"
+
+
+def ripen(v, k, s):
+    """Set a planted slot ripe by command: crops at their last age, sugar cane a third block, a fruit beside each stem."""
+    plot = next((p for p in v["plots"] if p["x1"] <= s["x1"] and p["x2"] >= s["x2"] and p["z1"] <= s["z1"] and p["z2"] >= s["z2"]), None)
+    if not plot:
+        return "no plot"
+    y = plot["y"] + 1
+    kind, out = s["kind"], []
+    ages = {"carrots": 7, "potatoes": 7, "beetroots": 3}
+    for x, z in s.get("cells") or []:
+        if kind in ages:
+            out.append(rcon(f"setblock {x} {y} {z} minecraft:{kind}[age={ages[kind]}]"))
+        elif kind == "sugar_cane":
+            out.append(rcon(f"fill {x} {y + 1} {z} {x} {y + 2} {z} minecraft:sugar_cane"))
+    for x, z in (s.get("fruit") or [])[::2] if kind in ("pumpkin", "melon") else []:
+        out.append(rcon(f"setblock {x} {y} {z} minecraft:{kind}"))
+    return f"{len(out)} commands: {'; '.join(o for o in out[:3] if o)[:200]}"
+
+
+# ---- after completion (opportunistic farming and exploring): the chores, the slots, the sightings
+if args.after and reason == "every building is done":
+    for _ in range(40):
+        if call(f"/village/{args.village}").get("complete"):
+            break
+        time.sleep(3)
+    v = call(f"/village/{args.village}")
+    print(f"AFTER village {'complete' if v.get('complete') else 'NOT complete (chores wait for completion)'}; watching {args.after:g} min", flush=True)
+    # (the early dirt and sand tasks may have taken a fixture's ground, the design review's M6)
+    for kind, cells in fixtures.items():
+        print(f"AFTER fixture {kind}: " + ", ".join(f"{x},{y},{z} {call(f'/block?x={x}&y={y}&z={z}').get('block')}" for x, y, z in cells), flush=True)
+    a0 = call(f"/atlas?village={args.village}&radius=176") or {}
+    chunks0 = len(a0.get("chunks") or [])
+    t2, slots_seen, ripened, explore_seen = time.time(), {}, set(), None
+    while time.time() - t2 < args.after * 60:
+        time.sleep(3)
+        for n in watched:
+            events = call(f"/agents/{n}/events?since={seen[n]}")
+            for e in events if isinstance(events, list) else []:
+                seen[n] = e["id"]
+                if e["type"] in ("action_done", "action_failed"):
+                    print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
+        v = call(f"/village/{args.village}")
+        for k, lay in enumerate(v.get("layouts") or []):
+            for j, s in enumerate(lay.get("slots") or []):
+                t = slot_text(s)
+                if slots_seen.get((k, j)) != t:
+                    slots_seen[(k, j)] = t
+                    print(f"AFTER {(time.time() - t2) / 60:4.1f}m SLOT {k + 1}.{j + 1}: {t}", flush=True)
+                if args.ripen and s.get("kind") and s.get("planted") and (k, j) not in ripened:
+                    ripened.add((k, j))
+                    print(f"AFTER RIPEN {k + 1}.{j + 1} {s['kind']}: {ripen(v, k, s)}", flush=True)
+        ex = v.get("explore")
+        if ex != explore_seen:
+            explore_seen = ex
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m EXPLORE {json.dumps(ex)[:300]}", flush=True)
+    a1 = call(f"/atlas?village={args.village}&radius=176") or {}
+    plants = {}
+    for c in a1.get("chunks") or []:
+        for kind, q in (c.get("plants") or {}).items():
+            plants[kind] = plants.get(kind, 0) + q[0]
+    animals = {}
+    for s in a1.get("animals") or []:
+        animals[s["kind"]] = animals.get(s["kind"], 0) + 1
+    print(f"AFTER atlas within 176: {chunks0} -> {len(a1.get('chunks') or [])} chunks; plants {plants}; animals {animals}", flush=True)
+    reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason})")
 for t in v["tasks"]:

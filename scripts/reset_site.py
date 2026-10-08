@@ -192,7 +192,10 @@ def restore_atlas(regions):
     chunks = [s for s in data.get("chunks", []) if not inside(s)]
     dropped = len(data.get("chunks", [])) - len(chunks)
     back = [s for s in read_json(T.SNAP / "atlas.json", {}).get("chunks", []) if inside(s)]
-    write_json(f, {**data, "version": data.get("version", 1), "chunks": chunks + back})
+    # (animals seen there go too: the restored region has its own; the snapshot's are put back with its summaries)
+    animals = {k: s for k, s in data.get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) not in set(regions)}
+    animals.update({k: s for k, s in read_json(T.SNAP / "atlas.json", {}).get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) in set(regions)})
+    write_json(f, {**data, "version": data.get("version", 1), "chunks": chunks + back, "animals": animals})
     print(f"atlas.json: {dropped} chunk summaries in the restored regions dropped, {len(back)} from the snapshot put back")
 
 

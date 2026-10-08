@@ -20,6 +20,8 @@ mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
 gamemode = os.environ.get("MCAI_GAMEMODE", "creative")
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
 same_fail = int(os.environ.get("MCAI_SAME_FAIL", "3"))
+# Minutes to keep watching after completion (opportunistic farming, 10-08): the chores, no stall or same-fail rule
+after = float(os.environ.get("MCAI_AFTER", "0"))
 BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
         "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
 
@@ -169,6 +171,32 @@ while time.time() - t0 < minutes * 60:
     if time.time() - last_done > stall_minutes * 60:
         reason = f"stalled: no successful action for {stall_minutes:g} minutes"
         break
+
+if after and reason == "objective declared complete":
+    print(f"{stamp()} COMPLETE; watching {after:g} min more (MCAI_AFTER)", flush=True)
+    t2, slots_seen, explore_seen = time.time(), {}, None
+    while time.time() - t2 < after * 60:
+        time.sleep(5)
+        for n in names:
+            try:
+                events = call(f"/agents/{n}/events?since={seen[n]}")
+            except urllib.error.HTTPError:
+                continue
+            for e in events:
+                seen[n] = e["id"]
+                if e["type"] in ("action_done", "action_failed"):
+                    print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
+        v = call(f"/village/{village}")
+        for k, lay in enumerate(v.get("layouts") or []):
+            for j, sl in enumerate(lay.get("slots") or []):
+                t = f"{sl.get('kind') or 'free'} planted={sl.get('planted')} harvests={sl.get('harvests')} tries={sl.get('tries')}"
+                if slots_seen.get((k, j)) != t:
+                    slots_seen[(k, j)] = t
+                    print(f"AFTER {(time.time() - t2) / 60:4.1f}m SLOT {k + 1}.{j + 1}: {t}", flush=True)
+        if v.get("explore") != explore_seen:
+            explore_seen = v.get("explore")
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m EXPLORE {json.dumps(explore_seen)[:300]}", flush=True)
+    reason += f", then {after:g} min after"
 
 v = call(f"/village/{village}")
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}); {chats} chat messages heard")

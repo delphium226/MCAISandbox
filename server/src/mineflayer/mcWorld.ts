@@ -5,15 +5,16 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { VillageRegistry, type Village } from '../village';
-import type { ToolDef, WorldAdapter } from '../world';
+import { FARM_TRIP_RANGE, VillageRegistry, villageHome, type Village } from '../village';
+import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import type { Vec3 } from 'vec3';
-import { collectTargets, exposed } from './mcSurvival';
+import { collectFilter, collectTargets, exposed } from './mcSurvival';
 import { nearestBlocks, stateAt } from './mcUtil';
-import { harvesting } from './mcBuild';
+import { harvesting, slotBusy } from './mcBuild';
+import { SLOT_KINDS, SLOT_ORDER } from '../farmSlots';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
@@ -403,7 +404,19 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[farm] check failed:', e);
     }
+    // Animals each bot can see, every 5 s (sightings for opportunistic farming, 10-08)
+    if (Date.now() - this.animalsAt >= 5000) {
+      this.animalsAt = Date.now();
+      for (const a of this.agents.values())
+        try {
+          if (a.bot.entity) this.atlas.seen(a.name, a.bot.entity.position, Object.values(a.bot.entities));
+        } catch (e) {
+          console.error(`[atlas] ${a.name}'s animals:`, e);
+        }
+    }
   }
+
+  private animalsAt = 0;
 
   private farmCheckAt = 0;
 
@@ -461,6 +474,148 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[farm] ${v.name} layout ${k}: ${ripe} of ${grown} wheat ripe, ${worker.name} harvests`);
         this.villages.note(v, `${ripe} of ${grown} wheat ripe on layout ${k}'s farm: ${worker.name} harvests it (a chore)`);
       }
+      this.slotChores(v);
     }
+  }
+
+  /** Chores the farm slots and exploring queued, by village (one at a time): its agent and the actions' statuses. */
+  private chores = new Map<string, { agent: string; status: ActionStatus[]; what: string }>();
+  /** Kinds with no sighting in range, by "village:kind": not searched for again until then. */
+  private slotSkip = new Map<string, number>();
+
+  /** Whether a village's chore is still under way (from the actions' own state: a stop fails them, lesson 67). */
+  private choreBusy(v: Village): boolean {
+    const c = this.chores.get(v.name);
+    if (!c) return false;
+    // (the agents map is keyed by the lower-cased name: VanX2 sent a second explorer out while the first walked home)
+    if (this.agents.has(c.agent.toLowerCase()) && c.status.some((q) => q.state === 'queued' || q.state === 'running')) return true;
+    this.chores.delete(v.name);
+    return false;
+  }
+
+  private idleWorker(v: Village): BotAgent | undefined {
+    return [...this.agents.values()].find((a) => a.village()?.name === v.name && a.memory.villageRole !== 'mayor' && !!a.bot.entity && a.idle()
+      && !v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name));
+  }
+
+  /**
+   * Opportunistic farming and exploring (10-08; chores beside the board, lesson 93): a planted slot that is ripe is
+   * harvested (as the wheat: before completion only when nothing is claimable); once the village is complete, a free slot
+   * is started with the first kind (SLOT_ORDER) not farmed yet that was seen within FARM_TRIP_RANGE of home on ground
+   * collect may take from; with nothing to start, an idle worker explores, one ring point at a time.
+   */
+  private slotChores(v: Village) {
+    if (this.choreBusy(v)) return;
+    const now = Date.now();
+    const layouts = v.layouts ?? [];
+    // A start cut off by a restart (its finally never ran): the slot free again, or its planting kept (the diff review's
+    // M1); failed starts forgiven after an hour
+    for (const [i, lay] of layouts.entries())
+      for (const [jj, slot] of (lay.slots ?? []).entries()) {
+        if (slot.laying && !slotBusy.has(`${v.name}:${i + 1}:${jj + 1}`)) {
+          if (!slot.planted) delete slot.kind;
+          delete slot.laying;
+          this.villages.save();
+        }
+        if (slot.tries && slot.lastTry && now - slot.lastTry.at > 60 * 60000) slot.tries = 0;
+      }
+    const read = (x: number, y: number, z: number) => {
+      for (const a of this.agents.values()) {
+        const st = a.bot.entity ? stateAt(a, x, y, z) : -1;
+        if (st >= 0) return st;
+      }
+      return -1;
+    };
+    const is = (st: number, name: string) => {
+      const b = this.registry.blocksByName[name];
+      return !!b && st >= b.minStateId && st <= b.maxStateId;
+    };
+    // Ripe slots
+    for (const [i, lay] of layouts.entries())
+      for (const [jj, slot] of (lay.slots ?? []).entries()) {
+        const spec = slot.kind ? SLOT_KINDS[slot.kind] : undefined;
+        const k = i + 1, j = jj + 1;
+        if (!spec || slot.laying || !slot.planted || slotBusy.has(`${v.name}:${k}:${j}`)) continue;
+        if (slot.lastHarvest && !slot.lastHarvest.ok && now - slot.lastHarvest.at < (slot.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) continue;
+        const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+        if (!plot) continue;
+        const y = plot.y + 1;
+        let ripe = 0, of = 0, unloaded = false;
+        if (spec.ripe !== undefined) {
+          const b = this.registry.blocksByName[spec.block];
+          for (const [x, z] of slot.cells ?? []) {
+            const st = read(x, y, z);
+            if (st < 0) unloaded = true;
+            else if (b && is(st, spec.block)) {
+              of++;
+              if (st - b.minStateId >= spec.ripe) ripe++;
+            }
+          }
+        } else
+          for (const [x, z] of (spec.fruit ? slot.fruit : slot.cells) ?? []) {
+            const st = read(x, spec.fruit ? y : y + 1, z);
+            if (st < 0) unloaded = true;
+            else if (is(st, spec.fruit ?? 'sugar_cane')) ripe++;
+          }
+        if (unloaded || ripe < 2 || (spec.ripe !== undefined && ripe < 0.75 * of)) continue;
+        if (!v.complete && this.villages.claimable(v).length) continue;
+        const worker = this.idleWorker(v);
+        if (!worker) return;
+        this.chores.set(v.name, { agent: worker.name, status: [worker.enqueue('harvest_slot', { layout: k, slot: j, chore: true })], what: `harvest ${slot.kind}` });
+        console.log(`[farm] ${v.name} slot ${k}.${j}: ${ripe} ${slot.kind} ripe, ${worker.name} harvests`);
+        return;
+      }
+    if (!v.complete) return;
+    const worker = this.idleWorker(v);
+    if (!worker) return;
+    // A free slot started with a kind found near the village
+    const free = layouts.flatMap((lay, i) => (lay.slots ?? []).map((slot, jj) => ({ slot, k: i + 1, j: jj + 1 })))
+      .find(({ slot, k, j }) => !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && (slot.tries ?? 0) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
+    if (free) {
+      const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
+      const bad = new Set(layouts.flatMap((l) => (l.slots ?? []).flatMap((q) => q.bad ?? [])));
+      // (searched from collect's home, the storage chest, and judged by collect's own filter: the design review's M1)
+      const chest = v.storage?.chests[0];
+      const home = chest ? { x: chest.x, z: chest.z } : villageHome(v, worker.memory);
+      const ok = collectFilter(worker, FARM_TRIP_RANGE);
+      for (const kind of SLOT_ORDER) {
+        const skip = `${v.name}:${kind}`;
+        if (farmed.has(kind) || (this.slotSkip.get(skip) ?? 0) > now || !home) continue;
+        const seen = this.atlas.sightings(kind, Math.floor(home.x), Math.floor(home.z), FARM_TRIP_RANGE)
+          .find(([x, y, z]) => ok({ x, y, z }) && !bad.has(`${kind}@${x},${y},${z}`));
+        if (!seen) {
+          this.slotSkip.set(skip, now + 10 * 60000);
+          continue;
+        }
+        const [x, y, z] = seen;
+        this.chores.set(v.name, { agent: worker.name, status: [worker.enqueue('start_farm', { layout: free.k, slot: free.j, kind, x, y, z, chore: true })], what: `start ${kind}` });
+        console.log(`[farm] ${v.name}: ${kind} seen at ${x},${y},${z}; ${worker.name} starts a ${kind} farm on slot ${free.k}.${free.j}`);
+        this.villages.note(v, `${kind} seen at ${x},${y},${z}: ${worker.name} starts a ${kind} farm on farm slot ${free.j} (a chore)`);
+        return;
+      }
+    }
+    // Exploring: one ring point at a time, FARM_TRIP_RANGE from home, the least known first, each point once (the bots at
+    // home already see ~128 blocks: view distance 8, the design review's H3)
+    // (only while a slot is free: there is nothing else to find for yet, the diff review's L4)
+    if (!free) return;
+    const ex = (v.explore ??= { visited: [] });
+    if (ex.done || harvesting.size || slotBusy.size) return;
+    const home = villageHome(v, worker.memory);
+    if (!home) return;
+    const points = Array.from({ length: 8 }, (_, i) => ({ i, x: Math.round(home.x + FARM_TRIP_RANGE * Math.cos((i * Math.PI) / 4)), z: Math.round(home.z + FARM_TRIP_RANGE * Math.sin((i * Math.PI) / 4)) }));
+    const next = points.filter((q) => !ex.visited.includes(q.i)).sort((p, q) => this.atlas.known(p.x, p.z, 48) - this.atlas.known(q.x, q.z, 48))[0];
+    if (!next) {
+      ex.done = true;
+      this.villages.note(v, 'explored all round the village');
+      this.villages.save();
+      return;
+    }
+    ex.visited.push(next.i);
+    ex.last = `${worker.name} to ${next.x},${next.z}`;
+    this.villages.save();
+    const out = worker.enqueue('scout', { x: next.x, z: next.z, chore: true });
+    const back = worker.enqueue('scout', { x: Math.round(home.x), z: Math.round(home.z), chore: true });
+    this.chores.set(v.name, { agent: worker.name, status: [out, back], what: `explore ${next.x},${next.z}` });
+    console.log(`[explore] ${v.name}: ${worker.name} scouts ${next.x},${next.z} (${ex.visited.length} of 8), then home`);
   }
 }

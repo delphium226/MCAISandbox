@@ -454,7 +454,7 @@ export const FARM_SIZE: [number, number] = [5, 7];
  * the pad's edge; the spot nearest `near` (the storage hut's door: its tiller stands there). Not a building: no
  * structure, nothing to build. Null when none fits.
  */
-export function placeFarm(places: SignPlace[], pad: Area, opts: { streets?: Area[]; green?: Area; back?: Area; near?: { x: number; z: number } } = {}): FarmSpot | null {
+export function placeFarm(places: SignPlace[], pad: Area, opts: { streets?: Area[]; green?: Area; back?: Area; near?: { x: number; z: number }; avoid?: Area[] } = {}): FarmSpot | null {
   const inArea = (a: Area | undefined, x: number, z: number) => !!a && x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
   const away = (x: number, z: number, a: Area) => Math.max(a.x1 - x, x - a.x2, a.z1 - z, z - a.z2, 0);
   const grids = places.map(placedGrid);
@@ -464,7 +464,7 @@ export function placeFarm(places: SignPlace[], pad: Area, opts: { streets?: Area
   for (const g of grids) for (const d of [...g.doors, g.door]) for (const k of [1, 2, 3]) walk.add(`${d.x + d.ox * k},${d.z + d.oz * k}`);
   const ok = (x: number, z: number) =>
     x > pad.x1 && x < pad.x2 && z > pad.z1 && z < pad.z2 && !streetAt(opts.streets, x, z) && !inArea(opts.green, x, z) && !inArea(opts.back, x, z) &&
-    !walk.has(`${x},${z}`) && grids.every((g) => away(x, z, g.area) >= 2);
+    !walk.has(`${x},${z}`) && grids.every((g) => away(x, z, g.area) >= 2) && !(opts.avoid ?? []).some((a) => inArea(a, x, z));
   const near = opts.near ?? { x: (pad.x1 + pad.x2) / 2, z: (pad.z1 + pad.z2) / 2 };
   let best: { farm: FarmSpot; d: number } | null = null;
   for (const along of ['z', 'x'] as const) {

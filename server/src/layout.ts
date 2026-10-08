@@ -4,7 +4,7 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
+import { areaText, layoutBuildings, overlaps, type Area, type FarmSlot, type Layout, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -269,6 +269,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // channel freezes) nor deserts (no grass for seeds), nor where the grass near the site is too thin for the seeds
     // (collect breaks ~8 grass a seed; the plot's own grass is cut by prepare_site). Only where the world has the skill
     let farm: FarmSpot | null = null;
+    let farmBack: Area | undefined;
     const biome = (v.vanillaBiome ?? site.biome ?? '').toLowerCase();
     if (economy && w.skills.some((t) => t.name === 'tend_farm') && !(v.layouts ?? []).some((l) => l.farm)) {
       // (the mining hut's ground out to the pad's edge: its stairs run under it; rows record none, so from the stairs)
@@ -277,6 +278,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         ? m.dir[1] < 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: plot.z1, z2: m.hut.z1 - 1 } : m.dir[1] > 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: m.hut.z2 + 1, z2: plot.z2 }
           : m.dir[0] > 0 ? { x1: m.hut.x2 + 1, x2: plot.x2, z1: m.hut.z1, z2: m.hut.z2 } : { x1: plot.x1, x2: m.hut.x1 - 1, z1: m.hut.z1, z2: m.hut.z2 }
         : undefined);
+      farmBack = back;
       const h = v.storageHut;
       const near = h ? { x: (h.x1 + h.x2) / 2, z: h.z2 + 3 } : undefined;
       farm = /snowy|frozen|ice|grove|peaks|desert|badlands/.test(biome) ? null : placeFarm(grids, plot, { streets: street?.streets, green: street?.green, back, near });
@@ -355,6 +357,21 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // (once every build is claimed, not done: the lamps stand outside every building's claim ring and door walkway in
       // every street and green layout, checked offline; the opportunities analysis #4)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true, afterClaimed: true });
+    // Farm slots (opportunistic farming, 10-08): up to two more 5x7 fields kept free beside the wheat field, for whatever
+    // the agents find to farm once the village stands (mcWorld.ts farmChores); after the lamps and off them, so no lamp is
+    // lost, a cell from the field and from each other. Nothing is built there until then (not structures: lesson 62)
+    const slots: FarmSlot[] = [];
+    if (farm) {
+      const grow = (a: Area, n: number) => ({ x1: a.x1 - n, z1: a.z1 - n, x2: a.x2 + n, z2: a.z2 + n });
+      const near = { x: (farm.x1 + farm.x2) / 2, z: (farm.z1 + farm.z2) / 2 };
+      for (let i = 0; i < 2; i++) {
+        const avoid = [grow(farm, 1), ...slots.map((q) => grow(q, 1)), ...lamps.map((c) => grow({ x1: c.x, z1: c.z, x2: c.x, z2: c.z }, 1))];
+        const s = placeFarm(grids, plot, { streets: street?.streets, green: street?.green, back: farmBack, near, avoid });
+        if (!s) break;
+        slots.push(s);
+      }
+      if (slots.length) reg.note(v, `${slots.length} farm slot${slots.length > 1 ? 's' : ''} kept free at ${slots.map((q) => areaText(q)).join(' and ')}`);
+    }
     // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
     // layout, put up once every building stands, after the lamps (both jobs stand by the storage hut and draw its wood:
     // at once, the second to read the chests could come up short, the design review). Soft, as the lamps
@@ -378,7 +395,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
