@@ -137,12 +137,14 @@ export class MineflayerWorld implements WorldAdapter {
    * chain, with a furnace and fuel when something must be smelted), in chunks two workers can share. Builders craft
    * and smelt the rest from the village storage themselves (build_design does it).
    */
-  materialTasks(d: Design, label: string, wood?: string) {
+  materialTasks(d: Design, label: string, wood?: string, stations = true) {
     // In the village's wood kind: its logs are what gets gathered
     const bill = inWood(designBill(d), wood);
     let plan = this.materials.plan(bill);
-    // A crafting table for the doors and the like, and a furnace when something must be smelted
-    plan = this.materials.plan({ ...bill, crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
+    // A crafting table for the doors and the like, and a furnace when something must be smelted (not for a building
+    // built after the storage hut, `stations` false: it uses the hut's, and each house billed 8 cobblestone and a log
+    // for its own, the opportunities analysis #5)
+    if (stations) plan = this.materials.plan({ ...bill, crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
     // Blocks that need iron ore, leather, clay or wool are too slow to gather for a village: a design using them is
     // sent back (a lantern meant mining raw iron with a stone pickaxe)
     const hard = hardToGather(plan.gather);

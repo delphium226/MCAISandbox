@@ -94,14 +94,18 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // One wood kind for the whole village, chosen at its first layout, when there is enough of it near the site for
     // these buildings with a margin (acacia chosen from 42 logs for ~80 needed sent gatherers 80 blocks away); otherwise
     // any kind is gathered and builders mix kinds part by part
+    // Buildings built after the storage hut use its crafting table and furnace (the opportunities analysis #5: each
+    // house billed 8 cobblestone and a log for its own): only the storage hut bills them (its furnace is crafted at a
+    // table before its own stands), and villages laid out before the hut existed; the mining hut needs none (planks only)
+    const ownStations = (n: string) => n !== MINING_HUT && (!(withHut || v.storageHut) || n === STORAGE_HUT);
     let wood = v.wood;
     if (!wood && economy && site.wood) {
-      const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n).logs ?? 0), 0);
+      const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n, undefined, ownStations(n)).logs ?? 0), 0);
       if ((site.woodLogs ?? 0) >= logs * 1.5) wood = site.wood;
     }
     if (economy)
       for (const n of new Set(names)) {
-        const m = w.materialTasks!(v.designs[n], '{label}', wood);
+        const m = w.materialTasks!(v.designs[n], '{label}', wood, ownStations(n));
         if (m.problems.length && n === centre?.design.name) { dropCentre(); continue; }
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);

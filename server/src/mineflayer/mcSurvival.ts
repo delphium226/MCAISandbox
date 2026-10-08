@@ -985,7 +985,9 @@ export function villageStation(a: BotAgent, name: 'crafting_table' | 'furnace'):
   const [dx, dz] = STORAGE_HUT_STATIONS[name];
   const pos = new Vec3(h.x1 + dx, built.y + 1, h.z1 + dz);
   const me = a.bot.entity.position;
-  if (me.distanceTo(pos) > 32 || Math.abs(me.y - pos.y) > 4) return null;
+  // (64: a builder at the far corner of a 40x40 plot is ~50 blocks from the hut, and walks there to craft; buildings
+  // after the hut bill no table or furnace of their own, #5)
+  if (me.distanceTo(pos) > 64 || Math.abs(me.y - pos.y) > 4) return null;
   const b = a.bot.blockAt(pos);
   return b?.name === name ? b : null;
 }
