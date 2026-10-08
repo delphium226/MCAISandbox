@@ -159,6 +159,8 @@ p.add_argument("--mayor", action="store_true")
 p.add_argument("--minutes", type=float, default=20)
 p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
 p.add_argument("--no-deposit-check", action="store_true")
+p.add_argument("--harvest", action="store_true", help="after the build, set the farm ripe by command and check the harvest "
+                                                          "(farming v2): bread in storage, every looted cell sown again")
 args = p.parse_args()
 test_site = None
 if args.site:
@@ -353,6 +355,69 @@ def stock_hut():
         rcon(f"forceload remove {sx} {sz}")
 
 
+def harvest_check():
+    """Farming v2: set the field's wheat ripe by command, wait for the harvest chore, check bread and the resown field."""
+    v = call(f"/village/{args.village}")
+    if args.mayor:
+        for _ in range(40):
+            if v.get("complete"):
+                break
+            time.sleep(3)
+            v = call(f"/village/{args.village}")
+    print(f"HARVEST village {'complete' if v.get('complete') else 'not complete'}: the harvest runs "
+          f"{'after' if v.get('complete') else 'before'} completion", flush=True)
+    farm = ((v.get("layouts") or [{}])[0]).get("farm")
+    if not farm or not farm.get("planted"):
+        print("HARVEST FAIL: no planted farm", flush=True)
+        return
+    plot = next((p for p in v["plots"] if p["x1"] <= farm["x1"] and p["x2"] >= farm["x2"] and p["z1"] <= farm["z1"] and p["z2"] >= farm["z2"]), None)
+    if not plot:
+        print("HARVEST FAIL: no plot holds the farm", flush=True)
+        return
+    y = plot["y"] + 1
+    # The cells holding wheat now: each must hold wheat again after the harvest (sown, not left bare)
+    sown = [(x, z) for x, z in farm["sow"] if call(f"/block?x={x}&y={y}&z={z}").get("block") == "wheat"]
+    harvests0 = farm.get("harvests") or 0
+    bread0 = sum(c["items"].get("bread", 0) for c in (v.get("storage") or {}).get("chests", []))
+    since = {n: 0 for n in watched}
+    for n in watched:
+        ev = call(f"/agents/{n}/events?since=0")
+        since[n] = max([e["id"] for e in ev] + [0]) if isinstance(ev, list) else 0
+    print("HARVEST ripen:", rcon(f"fill {farm['x1']} {y} {farm['z1']} {farm['x2']} {y} {farm['z2']} minecraft:wheat[age=7] replace minecraft:wheat"), flush=True)
+    t1, done = time.time(), None
+    while time.time() - t1 < 240 and done is None:
+        time.sleep(3)
+        for n in watched:
+            ev = call(f"/agents/{n}/events?since={since[n]}")
+            if not isinstance(ev, list):
+                continue
+            for e in ev:
+                since[n] = e["id"]
+                if e["type"] in ("action_done", "action_failed") and "harvest_farm" in e["text"]:
+                    print(f"HARVEST {(time.time() - t1) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
+                    done = e["type"] == "action_done"
+    if done is None:
+        f2 = ((call(f"/village/{args.village}").get("layouts") or [{}])[0]).get("farm") or {}
+        print(f"HARVEST FAIL: no harvest within 4 minutes (last: {f2.get('lastHarvest')})", flush=True)
+        return
+    time.sleep(2)
+    v = call(f"/village/{args.village}")
+    bread = sum(c["items"].get("bread", 0) for c in (v.get("storage") or {}).get("chests", [])) - bread0
+    ages, bad = [], []
+    for x, z in sown:
+        b = call(f"/block?x={x}&y={y}&z={z}")
+        if b.get("block") == "wheat":
+            ages.append(int((b.get("properties") or {}).get("age", -1)))
+        else:
+            bad.append(f"{x},{z}:{b.get('block')}")
+    ripe = sum(1 for a in ages if a >= 7)
+    f2 = ((v.get("layouts") or [{}])[0]).get("farm") or {}
+    ok = done and bread > 0 and not ripe and not bad and (f2.get("harvests") or 0) > harvests0
+    print(f"HARVEST {'PASS' if ok else 'FAIL'}: bread +{bread} in storage, field {len(ages)} of {len(sown)} wheat (ages {sorted(ages)}), "
+          f"{ripe} still ripe, not wheat {bad[:8]}; record harvests={f2.get('harvests')} bread={f2.get('bread')} "
+          f"last={f2.get('lastHarvest')}", flush=True)
+
+
 def deposit_check(worker):
     """Give the worker mixed items, have it deposit everything, and check each chest holds only its own group, in the hut."""
     gift = {"cobblestone": 5, "oak_log": 7, "sand": 3, "glass": 4, "oak_planks": 6, "torch": 2, "cocoa_beans": 3}
@@ -504,6 +569,8 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
 
 if reason == "every building is done" and hut and args.stage == "build" and not args.no_deposit_check:
     deposit_check(names[0])
+if reason == "every building is done" and args.harvest:
+    harvest_check()
 v = call(f"/village/{args.village}")
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason})")
 for t in v["tasks"]:

@@ -1954,6 +1954,121 @@ async function tendFarm(a: BotAgent, args: Record<string, unknown>, signal: Abor
   return `planted ${sown} wheat on the farm at ${areaText(farm)}${notes.length ? ` (${notes.join('; ')})` : ''}${skipped.length ? ` (skipped ${skipped.slice(0, 6).join('; ')}${skipped.length > 6 ? ' ...' : ''})` : ''}: ${out}`;
 }
 
+/** Farms being harvested ("village:layout"): one harvest a field at a time (two would loot the same ripe cell). */
+export const harvesting = new Set<string>();
+
+/**
+ * A layout's ripe wheat harvested (farming v2, 10-08; a chore code queues, mcWorld.ts farmChores): standing by the
+ * storage hut, each ripe cell's loot is given by the server (`loot give ... mine`: the real loot table, 1 wheat and 1-4
+ * seeds (VanH1: 49 from 16), no walking on the field) and the cell sown again, charged a seed; a looted cell with no seed left for it is
+ * cleared, never left ripe (it would be looted again). The wheat is baked into bread at the hut's table, and the bread,
+ * the leftover wheat and the seeds go into storage.
+ */
+async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('harvest_farm: not in a village');
+  const k = Math.floor(num(args.layout, 'layout'));
+  const farm = v.layouts?.[k - 1]?.farm;
+  if (!farm) throw new Error(`harvest_farm: layout ${k} has no farm`);
+  const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+  if (!plot) throw new Error(`harvest_farm: the farm at ${areaText(farm)} is not on a prepared plot`);
+  const key = `${v.name}:${k}`;
+  if (harvesting.has(key)) throw new Error(`harvest_farm: the farm at ${areaText(farm)} is being harvested already`);
+  harvesting.add(key);
+  const y = plot.y + 1;
+  const record = (ok: boolean, why?: string) => {
+    farm.lastHarvest = { at: Date.now(), ok, ...(why ? { why: why.slice(0, 200) } : {}) };
+    a.world.villages.save();
+  };
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  // (an error is not 0: a failed seed count once meant every looted cell left bare, the diff review)
+  const count = async (item: string) => {
+    const r = await rcon(`clear ${a.name} ${item} 0`);
+    const m = /Found (\d+)/i.exec(r);
+    if (m) return Number(m[1]);
+    if (/No items were found/i.test(r)) return 0;
+    throw new Error(`harvest_farm: the server did not count ${a.name}'s ${item} (${r.slice(0, 80) || 'no answer'})`);
+  };
+  const there = async (x: number, z: number, block: string) => /passed/i.test(await rcon(`execute if block ${x} ${y} ${z} minecraft:${block}`));
+  try {
+    const h = v.storageHut;
+    const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: farm.x1, z1: farm.z1, x2: farm.x2, z2: farm.z2 };
+    const job: Job = { targets: [], area, y: plot.y, free: true, what: 'the farm', task: `harvest_farm layout=${k}` };
+    await standBy(a, job, signal);
+    // Room for the loot: a full inventory loses it silently (the loot command drops nothing)
+    await syncInventory(a);
+    if (a.bot.inventory.emptySlotCount() < 3) {
+      await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch(() => undefined);
+      await syncInventory(a);
+      if (a.bot.inventory.emptySlotCount() < 3) throw new Error(`harvest_farm: no room for the harvest (${a.bot.inventory.emptySlotCount()} free inventory slots after depositing; 3 needed)`);
+    }
+    const ripe: Array<[number, number]> = [];
+    for (const [x, z] of farm.sow) if (await there(x, z, 'wheat[age=7]')) ripe.push([x, z]);
+    if (!ripe.length) {
+      record(false, 'nothing ripe');
+      return `nothing ripe on the farm at ${areaText(farm)}`;
+    }
+    checkAbort(signal);
+    // From here on every looted cell is sown again or cleared (no abort between: a cell left ripe is looted twice)
+    const wheat0 = await count('wheat'), seeds0 = await count('wheat_seeds');
+    const looted: Array<[number, number]> = [];
+    for (const [x, z] of ripe) if (/Dropped/i.test(await rcon(`loot give ${a.name} mine ${x} ${y} ${z}`))) looted.push([x, z]);
+    const notes: string[] = [];
+    let wheat = 0, gotSeeds = 0, charged = 0, unpaid = false;
+    try {
+      wheat = (await count('wheat')) - wheat0;
+      const seeds = await count('wheat_seeds');
+      gotSeeds = seeds - seeds0;
+      const n = Math.min(looted.length, seeds);
+      charged = n ? Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} wheat_seeds ${n}`))?.[1] ?? 0) : 0;
+    } catch (e) {
+      // The server's counts did not come back: every looted cell is sown all the same (a bare cell is never sown again;
+      // a few seeds not charged is the lesser harm)
+      unpaid = true;
+      charged = looted.length;
+      notes.push(`sown without charging: ${(e as Error).message.slice(0, 100)}`);
+    }
+    for (const [i, [x, z]] of looted.entries()) await rcon(`setblock ${x} ${y} ${z} minecraft:${i < charged ? 'wheat[age=0]' : 'air'}`);
+    // On the server (R.3): each resown cell holds wheat (any age), once more where it does not; what is still missing
+    // gets its seed back (a plain wait: a stop here must not skip the refund)
+    await new Promise((r) => setTimeout(r, 1000));
+    let resown = 0;
+    for (const [x, z] of looted.slice(0, charged)) {
+      if (!(await there(x, z, 'wheat'))) await rcon(`setblock ${x} ${y} ${z} minecraft:wheat[age=0]`);
+      if (await there(x, z, 'wheat')) resown++;
+    }
+    if (resown < charged && !unpaid) await rcon(`give ${a.name} wheat_seeds ${charged - resown}`);
+    if (looted.length > charged) notes.push(`${looted.length - charged} cells left bare: no seed to sow them`);
+    // Bread at the storage hut's table (never a table put down elsewhere): three wheat a loaf
+    let bread = 0;
+    const loaves = Math.floor((await count('wheat')) / 3);
+    if (loaves && villageStation(a, 'crafting_table')) {
+      const before = await count('bread');
+      await SURVIVAL_SKILLS.craft.run(a, { item: 'bread', count: loaves }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`bread not baked: ${e.message.slice(0, 120)}`);
+      });
+      bread = (await count('bread')) - before;
+    } else if (loaves) notes.push("not baked: the storage hut's crafting table is not within reach");
+    const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`not deposited: ${e.message.slice(0, 120)}`);
+      return '';
+    });
+    farm.harvests = (farm.harvests ?? 0) + 1;
+    farm.bread = (farm.bread ?? 0) + bread;
+    const out = `harvested ${looted.length} ripe wheat at ${areaText(farm)} (${wheat} wheat, ${gotSeeds} seeds), sowed ${resown} again, baked ${bread} bread${stored ? ' into the village storage' : ''}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    record(true);
+    a.world.villages.note(v, `${a.name} ${out}`);
+    return out;
+  } catch (e) {
+    record(false, (e as Error).message);
+    throw e;
+  } finally {
+    harvesting.delete(key);
+  }
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -1965,5 +2080,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   light_streets: { check: (x) => void num(x.layout, 'layout'), run: lightStreets },
   put_up_signs: { check: (x) => void num(x.layout, 'layout'), run: putUpSigns },
   tend_farm: { check: (x) => void num(x.layout, 'layout'), run: tendFarm },
+  // (not in TOOLS: no model calls it; code queues it as a chore)
+  harvest_farm: { check: (x) => void num(x.layout, 'layout'), run: harvestFarm },
 };
 

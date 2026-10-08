@@ -12,7 +12,8 @@ import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import type { Vec3 } from 'vec3';
 import { collectTargets, exposed } from './mcSurvival';
-import { nearestBlocks } from './mcUtil';
+import { nearestBlocks, stateAt } from './mcUtil';
+import { harvesting } from './mcBuild';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
@@ -391,6 +392,70 @@ export class MineflayerWorld implements WorldAdapter {
       this.atlas.tick();
     } catch (e) {
       console.error('[atlas] tick failed:', e);
+    }
+    try {
+      this.farmChores();
+    } catch (e) {
+      console.error('[farm] check failed:', e);
+    }
+  }
+
+  private farmCheckAt = 0;
+
+  /**
+   * Ripe farms harvested (farming v2, 10-08, the user's choice: a chore, not a task on the board, so completion, the
+   * mayor's wake-ups and the stop rules never see it): every 30 s, each planted field of a village with agents in the
+   * world is read from the bots' view (ages are state ids); when 3/4 of its wheat (at least 4) is ripe, an idle worker
+   * holding no task is given `harvest_farm`. Crops only grow near agents, so a field nobody has loaded is skipped. A
+   * failed harvest waits 10 minutes before the next try.
+   */
+  private farmChores() {
+    const now = Date.now();
+    if (now - this.farmCheckAt < 30000) return;
+    this.farmCheckAt = now;
+    const wheat = this.registry.blocksByName.wheat;
+    if (!wheat) return;
+    const villages = new Map<string, Village>();
+    for (const a of this.agents.values()) {
+      const v = a.village();
+      if (v) villages.set(v.name, v);
+    }
+    for (const v of villages.values()) {
+      for (const [i, lay] of (v.layouts ?? []).entries()) {
+        const farm = lay.farm;
+        const k = i + 1;
+        if (!farm?.planted || harvesting.has(`${v.name}:${k}`)) continue;
+        // (nothing ripe after all, the bots' view and the server apart: 2 minutes)
+        if (farm.lastHarvest && !farm.lastHarvest.ok && now - farm.lastHarvest.at < (farm.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) continue;
+        // Not while the planting is still to finish (it may be back on the board for seeds)
+        if (v.tasks.some((t) => t.detail.startsWith(`tend_farm layout=${k} `) && (t.status === 'open' || t.status === 'claimed'))) continue;
+        const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+        if (!plot) continue;
+        let grown = 0, ripe = 0, unloaded = false;
+        for (const [x, z] of farm.sow) {
+          let s = -1;
+          // (not a bot without an entity: dead, respawning or disconnected, its view may be stale)
+          for (const a of this.agents.values()) if (a.bot.entity && (s = stateAt(a, x, plot.y + 1, z)) >= 0) break;
+          if (s < 0) {
+            unloaded = true;
+            break;
+          }
+          if (s < wheat.minStateId || s > wheat.maxStateId) continue;
+          grown++;
+          if (s - wheat.minStateId >= 7) ripe++;
+        }
+        if (unloaded || ripe < 4 || ripe < 0.75 * grown) continue;
+        // Never ahead of the board's work: a worker between tasks would take the next one only after the harvest (F163's
+        // pattern, the diff review)
+        if (!v.complete && this.villages.claimable(v).length) continue;
+        const worker = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.memory.villageRole !== 'mayor' && !!a.bot.entity && a.idle()
+          && !v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name));
+        if (!worker) continue;
+        // (`chore`: the brains leave its events alone, as the mayor's gathering)
+        worker.enqueue('harvest_farm', { layout: k, chore: true });
+        console.log(`[farm] ${v.name} layout ${k}: ${ripe} of ${grown} wheat ripe, ${worker.name} harvests`);
+        this.villages.note(v, `${ripe} of ${grown} wheat ripe on layout ${k}'s farm: ${worker.name} harvests it (a chore)`);
+      }
     }
   }
 }

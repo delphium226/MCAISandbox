@@ -160,7 +160,9 @@ export interface Village {
   /** (signs: each building's name sign, `signed` once put_up_signs put them all up; not structures either) */
   layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area; lamps?: Array<{ x: number; z: number }>; lit?: boolean; signs?: SignSpot[]; signed?: boolean;
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
-    farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean } }>;
+    farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
+      /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */
+      harvests?: number; bread?: number; lastHarvest?: { at: number; ok: boolean; why?: string } } }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

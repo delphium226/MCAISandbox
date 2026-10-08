@@ -748,7 +748,9 @@ export class TieredBrain implements AgentBrain {
 
   onEvent(a: WorldAgent, e: AgentEvent) {
     // The mayor's gathering (its own actions only): its failures are the task runner's to handle, not a reason to replan
-    const gathered = villageRole(a) === 'mayor' && this.gatherer.owns(e.data?.action);
+    // (and a chore code queued, the farm's harvest: never a step of the plan, nor a failure of it)
+    const chore = !!(e.data?.args as Record<string, unknown> | undefined)?.chore;
+    const gathered = (villageRole(a) === 'mayor' && this.gatherer.owns(e.data?.action)) || chore;
     if (villageRole(a) === 'mayor') this.gatherer.onEvent(a, e);
     // (after the handlers below have set their replan reason)
     if ((e.type === 'action_done' || e.type === 'action_failed') && e.data?.type === 'find_site' && villageRole(a) === 'mayor') {
@@ -774,7 +776,8 @@ export class TieredBrain implements AgentBrain {
     }
     if (e.type === 'action_failed') {
       if (!gathered) this.failuresSincePlan++;
-      this.stat(a, 'actionsFailed');
+      // (a chore's failure is in the village log, not the run's failed actions)
+      if (!chore) this.stat(a, 'actionsFailed');
       const type = e.data?.type, args = e.data?.args;
       // (not the task runner's: its failures are not the executor's calls to block)
       if (!gathered && typeof type === 'string' && args && typeof args === 'object') {
