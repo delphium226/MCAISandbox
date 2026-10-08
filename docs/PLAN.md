@@ -20,6 +20,34 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-08 at the close of the twenty-second session: Minevale32, opportunistic farming and exploring v1, the iron
+age v1, F165/F169, F178, F179; the user asked for no questions this session, so every choice was the recommended one,
+recorded in the decisions; the notes below for the twenty-first session stay valid where not overridden)
+
+- **Code:** on `tiered-brain-building`: `0da949d` opportunistic farming and exploring v1, then the iron age v1 with
+  F165/F169, F178 and F179, and the close-out (this record, CLAUDE.md lessons 98-103, README, ARCHITECTURE). Nothing was
+  pushed this session (origin has `3705649`): ask before any push. `main` untouched.
+- **Stack:** stopped cleanly at the close (the test agent server by PID, the test Paper "All dimensions are saved", the
+  pinned model servers). No agents in either world.
+- **Where things stand:** Minevale32 (1x, model-driven, minevale3's usual site) 6/6 in **11.2 min** (Minevale31 16.5), 0
+  failed actions: the five opportunities hold with real models. Once a village is complete, idle workers start farms on
+  two free slots from what the atlas has seen within 160 blocks (cane, pumpkins, melons, vanilla villages' crops),
+  harvest them, explore 8 ring points while a slot is free, then go down for iron: their own stairs to y 18 (retried past
+  caves, up to 5 tries), tunnels keeping iron and coal from walls, floors and veins, an iron pickaxe and then a bucket
+  into storage. Staged VanI7: 6 raw iron from 144 cells, both tools made, 0 failed. The iron age takes ~20 min after
+  completion at any time scale (digging is wall-clock). F165/F169: signs and lamps in one pass (VanW7, VanW9).
+- **Next:** the user's choice among: **animal pens, chickens first** (animals are near every site, farm plants are
+  rare: F176; luring by held seeds is the new problem, no leads), **the beautifying plan** (backlog, "Beautifying the
+  village": B.1 flower beds and gardens first; four open choices for the user), a model-driven Minevale run with
+  `MCAI_AFTER` to see the chores with real models (none ran in one yet), or the smaller items (F170, F171-F173, F187;
+  the atlas noting cane stalk heights: a 1-high wild stalk gives nothing, VanW7).
+- **How to test now:** `stage_village.py ... --mayor --after N [--fixtures] [--ripen] [--stock raw_iron:3]` (CLAUDE.md,
+  Testing agents); `runs/2026-10-08/s22/iron_start_check.mts`, `ores_along.py`, `f165/sim.mts`, `cdp_stack.cjs` (a hung
+  server's stack). Records, research, designs and reviews: `runs/2026-10-08/s22/`; the next prompt is
+  `runs/2026-10-08/s22/NEXT_PROMPT.md`.
+- **Test world state:** minevale3 holds VanW9's street village on Minevale31's site (-1648..-1609, 27..66): reset before
+  using it. The test world's atlas knows the land to ~160 blocks round VanG's site (exploring).
+
 (written 2026-10-08 at the close of the twenty-first session: harvest and bread, the opportunities analysis and five
 of its opportunities; the notes below for the twentieth session stay valid where not overridden)
 
@@ -927,6 +955,56 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
 - (Phase 3, talking to the mayor, stays its own phase below the plan's phases.)
 
+**Beautifying the village (the user's request, 10-08, twenty-second session; proposed, not scheduled: the order and the
+open choices are the user's).** Today a village is buildings on a levelled pad of grass, dirt paths, lamp posts, signs,
+a wheat field and farm slots; its edges are the cut and fill prepare_site left. This plan gathers the decorative items
+above (gardens, interior lighting, interiors, campfires and chimneys) with new ones into one programme, built the way
+lamps, signs and farm slots were (each a lesson already paid for):
+- **How each piece works** (the pattern of lamps, signs and slots): code places it, the model never does (lesson 1); a
+  pure placer in streetPlan.ts computes the cells from the layout (off streets, door walkways, lamps, signs, farms and
+  slots, 2 from every building's grid; never a structure: lesson 62), recorded on the layout and checked offline in
+  `scripts/checks/street_plan.mts` over the five biomes and three plot sizes before any world test (lesson 68); one skill
+  sets the blocks by command standing by the storage hut, charged from storage (lesson 44: never into a player), checked
+  on the server after (R.3); its materials gathered as chores or soft tasks; run as a **chore after completion** (lesson
+  93, the decision of farming and the iron age: never holding completion or the critical path), unless the user wants a
+  piece counted in the objective as lamps and signs are. Staged tests on minevale3 with `--after`, then
+  `render_design.py` on a saved `/api/blocks` box of the plot and a panel screenshot to judge the look (lesson 58).
+- **B.1 Flower beds and front gardens** (first: cheap, natural, very visible). Flowers are collected like seeds (any
+  small flower in the biome: dandelion, poppy, cornflower, wildflowers; collect already resolves plant blocks); a placer
+  picks the 1-2 cells either side of each door's walkway along the house front and a ring of beds round the green's
+  centrepiece; planted on grass by command, one flower an item. Later: a low fence (village wood) with a gate round each
+  house's front garden, the "Gardens and fences" item.
+- **B.2 Trees and hedges.** Saplings drop from the leaves prepare_site fells (today JUNK, never deposited: keep the
+  village wood's saplings); plant 4-8 on the green and at the plot's corners (2+ from everything, room for a canopy) and
+  let them grow (random ticks run with time frozen, only near agents: lesson 92). Hedges of leaves are not obtainable
+  without shears (the iron age's shears would make them so).
+- **B.3 The plot's edges blended into the land.** prepare_site's cut and fill leaves sheer steps up to its 2-block margin
+  (F95's pits, the "shelf" site): a pass that turns each step over 1 block into a slope of the ground's own blocks
+  (grass on top), and a 1-block grass verge between the pad's edge and the street; the stand spots and lesson 61 (never
+  footing for a walk to build up to) to be checked. Costs dirt only (gathered early already, #3).
+- **B.4 Light inside buildings and the mine** (the user's two lighting items, 10-06): wall torches inside each building
+  on the walls' inner faces at head height (vanilla pieces' own torch cells, which the importer turns to air today, as a
+  first source; a wall_torch charged as a torch and placed after its supporting wall: the lamp research's notes), and
+  torches along the mine's stairs and tunnels every 6-8 cells as they are dug (coal from the mine, or charcoal; the iron
+  level keeps its coal now). Lanterns instead once iron is plentiful (snowy villages' pieces use them).
+- **B.5 Furnished interiors**: the importer's air back to what the economy can make (crafting tables, furnaces, chests,
+  bookshelves from paper and leather: sugar cane from the farm slots gives paper; barrels, flower pots from bricks of
+  clay; beds wait for wool). Per piece, from the jar's own blocks; materials by the bill (lesson 76: plan every item).
+- **B.6 The green's centre and street furniture**: the meeting point's well or bell is vanilla's; add benches (stairs
+  of the village wood facing the centre), a campfire (logs, sticks, coal: chimneys of cobblestone walls over a few houses'
+  roofs too, the "Campfires and chimneys" item), and a notice board at the storage hut (the "stock board" item: signs
+  rewritten from storage on every deposit).
+- **B.7 Window boxes and shutters**: trapdoors beside windows (vanilla pieces carry some; F112's inside shutters are the
+  warning: outside faces only, checked at four turns with rotate_design.py) and flower pots on sills.
+- **Recommended order:** B.1, B.2, B.4 (light), B.3, B.6, B.5, B.7: visible and cheap first; edges before furniture
+  because they change what stand spots and walks see; interiors last (largest bills, lesson 76). Each step: research
+  (vanilla's pieces and tags for the blocks; the placer prototyped offline), a design note, a design review, the user's
+  choices, code, staged test with `--after`, render, diff review, commit; a model-driven run when a piece is counted in
+  the objective.
+- **Open choices for the user:** chores after completion (recommended) or counted in the objective; flowers by the
+  biome's own kinds (recommended) or a fixed palette; trees of the village wood (recommended) or the biome's; whether
+  the edge blending may take a ring of ground outside the plot (it needs 2-4 blocks beyond the margin on steep sites).
+
 - Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
 - Events carry no timestamp (the panel cannot say "2 min ago").
 - Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
@@ -1275,6 +1353,16 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-08 (s22) | **VanX2** | as VanX1 with F174 fixed | **6/6 + lamps + signs + farm; cane and pumpkin farms started and harvested; 8 exploring trips** | **6.4 min** to complete, then 12 after | cane started 0.8 after completion (3 planted from the fixture), harvested 6 at 0.9 and 2 more at 7.9 (real growth); pumpkin started 1.7 (6 stems), 11 pumpkins at 1.9; exploring 2.4-6.5 (8 points at 160, all home); atlas: 31 animals, plants recorded; two explorers at once (F175); 0 failed, `[dig]` 2, other counts 0 |
 | 10-08 (s22) | **VanX3** | as VanX2, F175 fixed | **6/6 + lamps + signs + farm; both farms; 8 exploring trips, one at a time** | **7.1 min** to complete, then 10 after | Worker2 2.6 min in a flooded lake-shore trench it dug for sand (F179; 6 `[stuck]`, no rescue): the storage hut claimed 0.7 min late; farms as VanX2; trips one after another; 0 failed after completion |
 | 10-08 (s22) | **VanX4** | as VanX3 + the diff review's fixes | **6/6 + lamps + signs + farm; cane and pumpkin started and harvested; no exploring with no slot free** | **6.3 min**, then 5 after | the atlas within 176: plants cane 11, pumpkin 9, melon 1; 40 animals; 0 failed, `[dig]` 2, other counts 0 |
+| 10-08 (s22) | VanI1 | staged green plains 2x, `--mayor --planner none --after 35`, the iron age (first version) | 6/6 complete; cane and pumpkin farms from wild sightings (140 and 115 blocks out) | - | the iron level "finished" at once: no clear side of the bottom step (F180); stopped |
+| 10-08 (s22) | VanI2 | as VanI1, F180 fixed and the diff review's fixes | complete; farms from wild sightings again | - | the iron stairs met a cave at y 44 (13 steps) and the iron age ended (F182); stopped |
+| 10-08 (s22) | VanI3 | as VanI2 with stairs retried (3 tries) | complete | - | three stairs met caves at y 44, 45, 41 (the first two 2 blocks apart); 1 raw iron and 7 coal from the stairs; 0 `[stuck]`, F179's fix held (no lake trench); stopped |
+| 10-08 (s22) | VanI4 | as VanI3 with the spacing rule, 5 tries | complete | - | the second stairs settled at y 39; 87 tunnel cells in one 4-min trip, no ore (F183); stopped |
+| 10-08 (s22) | VanI5 | as VanI4 with the settle rule (a level above y 28 only on the last try) | complete; 5 stairs, the fifth reached y 18 | - | four stairs met caves at 44, 38, 40 and water at 41; the fifth went 40 steps to y 18 and dug 102 cells: 3 iron ores seen, 1 raw iron, 10 coal, 11 raw copper; a worker left at y 11 dug a shaft up under the storage hut (F186); stopped |
+| 10-08 (s22) | VanI6 | `--stock raw_iron:3`, F186's teleport, veins and floor ores | iron pickaxe made from storage (2.9 min after completion) | - | stopped early to take the third review's fixes |
+| 10-08 (s22) | **VanI7** | as VanI6 + review 3's fixes | **complete; iron pickaxe from the stocked iron; stairs to y 18 on the fifth try; 6 raw iron from 144 cells (5 iron and 7 coal ores kept from walls, floors and veins); bucket made; 0 failed** | complete ~6.5 min, iron age 21.3 min after | a second iron pickaxe before the bucket (F184); both pickaxes worn out once (F185); `[dig]` 3, other counts 0 |
+| 10-08 (s22) | **VanW7** | staged on Minevale31's site with a wood kind (`--site-at=...,birch,999`), 2x, `--harvest --after 12 --stock raw_iron:6`, F165/F169 + the made-tools fix | **6/6 + lamps + signs + farm; HARVEST PASS; iron pickaxe then bucket** | **6.5 min** (VanW5 7.2) | signs and lamps made in one pass (F165/F169 fixed); the bucket 0.5 min after the pickaxe (F184 fixed); a 1-high wild cane stalk gave no cane (soft, marked bad); all counts 0 |
+| 10-08 (s22) | VanW8 | as VanW7 without `--after`, + the final review's fixes (the craft hint only when a kind looked spare) | 6/6 + lamps + signs + farm; HARVEST PASS | 7.2 min | the fences came a plank short ("could not craft 6 birch_fence ... have 3"), lit on the second pass: the hint gate reverted; 4 `[stuck]` east of the plot (F187) |
+| 10-08 (s22) | **VanW9** | as VanW8 with the craft hint always passed | **6/6 + lamps + signs + farm; HARVEST PASS** | **7.5 min** | lamps, signs and the hoe each made in one pass (no "could not craft"); 0 failed, all counts 0 |
 
 ## Findings log
 
@@ -1694,6 +1782,34 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F187 (10-08, twenty-second session, VanW8) Four `[stuck]` lines for Worker2 at -1589.5,61,39.3, east of Minevale31's
+  plot, on its walks back to the storage (moved 0.0-0.4 in 10 s each, path "moving" or empty); it recovered without a
+  rescue. Not seen in VanW7 or VanW9 on the same site; watch for it (F170's family?).
+- F186 (10-08, twenty-second session, VanI5) **A deposit walk from the deep dug a shaft under the storage hut**: a worker
+  left at y 11 after an iron trip (fallen into a cave below the level; the trip's walks up failed quietly) walked to the
+  storage, and the pathfinder, free to dig below protected ground, dug straight up from y 11 to y 58 under the hut and
+  stalled there (106 s `[stuck]`). Fixed: after a trip a bot still below the mine's top step is teleported home, never
+  walked; the trip ends rather than make a pickaxe down there (its walk for logs is free to dig). Lesson 31 again, deeper.
+- F185 (10-08, twenty-second session, VanI7) Five iron stairs attempts (about 120 steps) and the tunnels wore out both
+  pickaxes (~400 digs: stone 131 uses, iron 250); the trip ended "no pickaxe left" and the next made two stone ones at the
+  hut. Works as designed; a trip could carry three on cave-riddled ground.
+- F184 (10-08, twenty-second session, VanI7) A second iron pickaxe instead of the bucket: the first was made from stored
+  iron before any trip had made `mine.iron`, so it was never recorded as made. The made tools and the iron chores'
+  back-off live on the mine now (`ironMade`, `ironTries`, `ironLastTry`).
+- F183 (10-08, twenty-second session, VanI4) The iron level settled at y 39 (stairs stopped there on their second try) and
+  dug 87 tunnel cells past no ore at all: the snapshot holds 3 iron ores in the whole stretch at y 37-42
+  (`runs/2026-10-08/s22/ores_along.py`). A level above y 28 is now dug only when no try is left (IRON_GOOD_Y 28).
+- F182 (10-08, twenty-second session, VanI2/VanI3) minevale3's ground under VanG's site is full of (dripstone) caves at
+  y 40-45: the iron stairs met "no floor" at y 44, then 45 two blocks over, then 41; with one try the iron age ended at
+  once. Stairs stopped above the settle line are now given up (kept and protected as they are) and new ones start
+  elsewhere on the level, their whole line at least 8 blocks from where earlier ones stopped, up to 5 tries.
+- F181 (10-08, twenty-second session, the iron diff review) Strict digging (no forced digs in the iron level) would have
+  stopped every trip at a gold or emerald ore a stone pickaxe cannot take, then given the dig stage up: strict only for
+  iron and coal now; other ores are dug through (counted as lost).
+- F180 (10-08, twenty-second session, VanI1) No iron stairs start beside the bottom step: with two or three miners the
+  cobblestone mine turns tunnels off both its sides (StageM7's second face), so the first rule found no clear side and
+  marked the iron level finished. Now any dug cell of the deepest level in any direction, nearest the stairs first,
+  keeping off live tunnels' next two stretches (`iron_start_check.mts`: a start in all 27 recorded mines).
 - F179 (10-08, twenty-second session, VanX3; the log analysis `runs/2026-10-08/s22/research/f179_analysis.md`) Worker2
   dug two shore sand columns on minevale3's lake (-1685..-1684, z -3) into a buried water pocket; the 3-deep trench
   flooded and every walk out (a jump-up whose floor had to be bridged over water, sneaking toward the edge in the current)
@@ -2306,6 +2422,26 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (twenty-second session) F165/F169 (no question asked; the research `research/f165_analysis.md` and its
+  simulation `f165/sim.mts`, 7 of 24 cases failing before, 0 after): makeFromStock passes the spare wood kind to every
+  craft (a tie-break after shortfall; sticks of that kind when enough can be had) and every smelt (its planks, then its
+  logs, burn before other kinds'); always passed (VanW8, with the hint dropped when no kind looked spare, came up a
+  plank short on the fences; VanW7 and VanW9 with it always passed made signs and lamps in one pass).
+- 10-08 (twenty-second session) The iron age v1 (no questions this session; each choice the recommended one; design
+  `runs/2026-10-08/s22/iron_design.md`, research `research/iron.md` and `iron_design_draft.md`, review
+  `reviews/iron_design_review.md`): **after completion, as chores** (after the farm slots' starts, before exploring; one
+  chore a village at a time); **an iron level** reached by its own stairs from the deepest level's bottom step,
+  **sideways** off that level's first tunnel (the review's H1: straight on they would have cut the live corridor; the side
+  whose first 4 steps stay off every dug cell, that side then never turned at), one block down a step to y 18 (iron peaks
+  at 12-27 in 26.1; the mine's levels at 56-64 meet ~0-1 iron in 100 cells), or a level at the last step when water or a
+  cave stops them at y 40 or less; tunnels there in the cobblestone mine's pattern (4 legs, 160 cells) keeping the iron
+  and coal in their walls and ceiling (never the floor); its **own record** `mine.iron` (the cobblestone mine's tunnels,
+  turns, counters and stop rules never see it); trips of 6 minutes with two stone pickaxes or better from the hut (no
+  forced digs: a wooden one would lose the ore); **make_iron_tool**: an iron pickaxe once 3 raw iron are stored, then a
+  bucket, both into storage by name (the miner takes the best stored pickaxe at a trip's start); F178 fixed (storage
+  coal fetched as fuel); a bot stuck in the iron level is **teleported home at once** (the review's H3 asked for walks
+  that cannot dig; a teleport is simpler and is what a sealed-in member gets). Not in v1: lanterns, shears, buckets used
+  for anything, axes.
 - 10-08 (twenty-second session) Opportunistic farming and exploring v1 (the user asked for no questions this session;
   each choice the recommended one): **chores after completion only** (code queues the skill on an idle worker, lesson
   93; never on the critical path, lesson 91); **plant kinds first** (sugar cane, pumpkin, melon, then carrots, potatoes,

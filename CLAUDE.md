@@ -273,6 +273,13 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   material group, the mining hut and its stairs are built and dug, and a mixed deposit is checked for sorting at the
   end, `--no-deposit-check` skips it); `--stage full` runs storage, gathering and building (~14-21 min with the huts). It stops when every building is done,
   when an agent fails the same way 3 times, or after 3 minutes without progress. Then run the model-driven village.
+- **After completion** (chores: farm slots, harvests, exploring, the iron age; 2026-10-08): `stage_village.py ... --mayor
+  --after MINUTES` keeps watching after the village is complete (only a tiered mayor sets it complete); `--fixtures`
+  plants sugar cane, pumpkins and a melon 35-45 blocks off the site first (minevale3 has none within 96), `--ripen` sets
+  each newly planted slot ripe, `--stock raw_iron:3` gives a worker items to deposit (the iron tools without the digging);
+  `watch_village.py` takes `MCAI_AFTER=MINUTES`. Iron trips dig on the wall clock: an iron age takes ~20 min after
+  completion even at 2x. Offline: `runs/2026-10-08/s22/iron_start_check.mts [villages.json]` (where the iron stairs would
+  start in every recorded mine), `ores_along.py X1 Y1 Z1 X2 Y2 Z2` (ores in the snapshot).
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
 - While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
@@ -433,6 +440,17 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     shared, `0ec7e0a` hand-gathered items while the plot is prepared and lamps once every build is claimed. Staged green
     plains 8.9 -> 6.1 min at 2x (VanO4, harvest PASS), Minevale31's site with a wood kind 9.6 -> 7.2. No model-driven
     run (the user's choice): Minevale32 first next session. Lessons 93-97.
+37. 2026-10-08 (twenty-second session; not pushed at the close, ask first; `main` untouched; the user asked for no
+    questions this session, so every choice was the recommended one, recorded in PLAN.md's decisions): Minevale32 (1x,
+    model-driven) 6/6 in **11.2 min** (Minevale31 16.5; the simulation predicted 11-12), 0 failed actions. `0da949d`
+    opportunistic farming and exploring v1 (sightings in the atlas: plants per chunk, animals by uuid; two kind-free farm
+    slots a layout; after completion, chores start cane, pumpkin, melon or crop farms from sightings within 160 blocks,
+    harvest them, and explore 8 ring points; staged VanX2-4 and VanI1-7 started farms from fixtures and from wild cane and
+    pumpkins 115-140 blocks out). The iron age v1 (`mine.iron`: its own stairs from the deepest level to y 18, retried past
+    minevale3's caves, tunnels keeping iron and coal from walls, floors and veins; an iron pickaxe, then a bucket, from the
+    village's iron; VanI7 6 raw iron from 144 cells, both tools made), F178, F179, F165/F169 (the spare wood kind passed to
+    the craft and smelt skills; VanW7/VanW8: signs and lamps in one pass) and F184-F186. The village beautifying plan is
+    in PLAN.md's backlog (the user's request). Lessons 98-103.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -589,12 +607,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-first session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-second session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; VanO4's green village (6 of 6, with its street lamps, name signs and a harvested, resown wheat field at -1667..-1663, 6..12) stands on VanG's 40 site at -1677..-1638, 3..42 until the next reset (inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; VanW8's street village (6 of 6, lamps, signs, a harvested wheat field) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -933,6 +951,30 @@ Lessons from the adapter:
    it earlier does not; the predictions held (#1 1.7 min staged against 1.5-1.9). Starting work earlier needs its
    ground protected earlier: gatherers working while the plot is prepared would have dug the plot's own dirt (the
    review's High), so laid-out plots count as village ground before they are prepared.
+98. **A loop whose awaits all settle at once starves the event loop for good** (F174, 2026-10-08): mineBlock answered
+   "nothing to mine" at once for sugar cane, collect counted nothing, found the same cane and looped; with only microtasks
+   between rounds, no I/O ran: the API timed out and no `[lag]` line ever came (it is logged after a stall ends). Every
+   loop over candidates must treat a no-progress answer as a failure of that candidate. To see a hung process's stack,
+   attach the inspector: `node -e "process._debugProcess(PID)"`, then `node runs/2026-10-08/s22/cdp_stack.cjs
+   ws://127.0.0.1:9229/<id>` (pauses it, prints the stack, resumes).
+99. **Count what the land holds before building for it** (F176, F183): an offline scan of the test world's snapshot
+   (plants and animals by site; ores per y band along a planned tunnel) showed farm plants are rare and animals common,
+   and that a level at y 39 held 3 iron ores in its whole stretch. Region-file scans take seconds
+   (`runs/2026-10-08/s22/ores_along.py`); run one before choosing a depth, a kind or a site.
+100. **The ground under a site is not one block of stone** (F180, F182): the mine's own turned tunnels took both sides of
+   its bottom step, and caves and aquifers at y 36-51 stopped three straight descents in a row on minevale3. Plans that
+   dig down need several starts, chosen apart from where the last ones failed, and a rule for when to settle that looks
+   at what the depth gives (F183: settling at y 39 dug 87 cells for nothing).
+101. **Never walk a bot home from deep underground** (F186): a worker left at y 11 by a cave walked to the storage and
+   the pathfinder dug a shaft straight up under the storage hut, below the depth protected ground starts. Any chore that
+   goes deep ends by checking where the bot is and teleporting it home if it is still down there; and nothing down there
+   may make a tool (its walk for logs is free to dig).
+102. **Every protection rule has a third dimension** (the iron reviews): `keptStairs` ignored y, so iron stairs 20 blocks
+   down would have ended tunnels above them; vein following without a height floor dug holes in the next cell's floor
+   and under the bot. When a rule is extended to something at another depth, check it in y as well as in x and z.
+103. **A record made by the first step must exist before the first step** (F184): the iron pickaxe was made from stored
+   iron before any trip had created `mine.iron`, so "made" was written nowhere and a second pickaxe was made. Keep
+   state a chore reads on the record that always exists (the mine), not on one a later stage creates.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
