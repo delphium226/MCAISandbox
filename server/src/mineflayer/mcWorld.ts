@@ -184,7 +184,8 @@ export class MineflayerWorld implements WorldAdapter {
       const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
       if (!d) continue;
       unbuilt.push(t.title.slice(6));
-      add(bill, inWood(designBill(d), wood));
+      // (in its own kind when it has one: F164's whole buildings, as the cover rule counts them)
+      add(bill, inWood(designBill(d), (v.wood && v.woodFor?.[t.title.slice(6)]) || wood));
     }
     // The mayor's items, in the same wood ("logs" and "planks" mean the village's kind)
     const extra: Counts = {};

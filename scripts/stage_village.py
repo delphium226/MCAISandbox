@@ -144,7 +144,7 @@ def generated(name):
 p = argparse.ArgumentParser()
 p.add_argument("village"); p.add_argument("x", type=float, nargs="?"); p.add_argument("z", type=float, nargs="?")
 p.add_argument("--site", help="a site of scripts/test_sites.json (the fixed test world)")
-p.add_argument("--site-at", help="X,Y,Z,SIZE[,WOOD]: a site find_site gave (e.g. from the ground in jungle, where a probe "
+p.add_argument("--site-at", help="X,Y,Z,SIZE[,WOOD[,WOODLOGS]]: a site find_site gave (e.g. from the ground in jungle, where a probe "
                "spawned by x,z lands on the canopy), used directly in the world MCAI_API points at")
 p.add_argument("--buildings", default="testhut")
 p.add_argument("--design-from", action="append", default=[])
@@ -264,7 +264,10 @@ biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildi
 size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
 if args.site_at:
     f = args.site_at.split(",")
-    site = {"x": int(f[0]), "y": int(f[1]), "z": int(f[2]), "size": int(f[3]), **({"wood": f[4]} if len(f) > 4 else {})}
+    # (a sixth field, the logs of that wood near the site as find_site counts them, gives the village a wood kind as in
+    # model-driven runs: plan_layout sets one only with enough of it, F164's tests)
+    site = {"x": int(f[0]), "y": int(f[1]), "z": int(f[2]), "size": int(f[3]), **({"wood": f[4]} if len(f) > 4 else {}),
+            **({"woodLogs": int(f[5])} if len(f) > 5 else {})}
     print(f"site given: {json.dumps(site)}", flush=True)
 elif test_site and test_site.get("site"):
     site = test_site["site"]

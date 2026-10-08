@@ -149,6 +149,11 @@ export interface Village {
   storageHut?: Area & { spots: Array<{ x: number; z: number }> };
   /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
   wood?: string;
+  /**
+   * Buildings (by their task label) built in another wood kind than the village's (F164, 10-08, the user's choice: whole
+   * buildings): given when the storage covers a building's logs in that kind alone, and kept.
+   */
+  woodFor?: Record<string, string>;
   /** How its first plot is laid out: "street" (phase D, V2.3: a vanilla town centre, streets, houses facing them), else rows. */
   plan?: 'street';
   /** The biome its vanilla library came from (the street plan's town centre is that biome's, V2.3). */
@@ -325,10 +330,62 @@ export class VillageRegistry {
       const k = isLog(g.item) ? 'logs' : g.item;
       wanted.set(k, (wanted.get(k) ?? 0) + g.n);
     }
+    // With a village wood kind, logs are counted per kind (F164, the user's choice: whole buildings): each unbuilt
+    // building is built in the village's kind unless `woodFor` gives it another, and a kind covers its buildings' log
+    // tasks when the storage holds the logs of all of them together (the old rule, per kind: closing one never leaves
+    // another short). While the village's kind falls short, buildings not yet started move, the latest posted first, to
+    // another kind that holds their logs on top of its own buildings' (prepare_site's felled oak sat in birch villages'
+    // storage while workers gathered birch: VanW2 9.6 min, 136 oak unused); a move that no longer covers is undone, and a
+    // building under way is never moved (the design review)
+    const logCover = new Map<string, string | null>();
+    if (v.wood) {
+      const wood = v.wood;
+      const pools = new Map<string, number>();
+      for (const c of chests)
+        for (const [n, q] of Object.entries(c.items)) {
+          const m = /^(?!stripped_)(\w+)_log$/.exec(n);
+          if (m) pools.set(m[1], (pools.get(m[1]) ?? 0) + q);
+        }
+      const need = new Map<string, number>();
+      for (const t of v.tasks) {
+        const g = gather(t);
+        if (g && unbuilt.has(g.label) && isLog(g.item)) need.set(g.label, (need.get(g.label) ?? 0) + g.n);
+      }
+      const builds = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && need.get(t.title.slice(6)));
+      const kindOf = (label: string) => v.woodFor?.[label] ?? wood;
+      const total = (k: string) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0);
+      let changed = false;
+      for (const t of builds) {
+        const label = t.title.slice(6), k = v.woodFor?.[label];
+        // (not while any build is under way: its builder holds what it withdrew, and the pool looks short for a while:
+        // VanW4's house 3 went back to birch while house 1's builder held the oak)
+        if (k && k !== wood && !v.tasks.some((b) => /^Build /.test(b.title) && b.status === 'claimed') && (pools.get(k) ?? 0) < total(k)) {
+          delete v.woodFor![label];
+          changed = true;
+          this.note(v, `${label} goes back to ${wood}: the storage no longer holds its logs in ${k}`);
+        }
+      }
+      for (const t of [...builds].reverse()) {
+        if ((pools.get(wood) ?? 0) >= total(wood)) break;
+        const label = t.title.slice(6), n = need.get(label)!;
+        if (t.status === 'claimed' || kindOf(label) !== wood) continue;
+        const k = [...pools].filter(([kind, q]) => kind !== wood && q >= total(kind) + n).sort((x, y) => y[1] - x[1])[0]?.[0];
+        if (!k) continue;
+        (v.woodFor ??= {})[label] = k;
+        changed = true;
+        this.note(v, `${label} will be built in ${k}: the storage holds its ${n} logs in ${k}, and too few ${wood} logs for every building`);
+      }
+      if (changed) this.save();
+      for (const t of builds) {
+        const label = t.title.slice(6), k = kindOf(label), have = pools.get(k) ?? 0, want = total(k);
+        logCover.set(label, have >= want ? `the storage already holds enough ${k}_log (${have}, for ${want} logs wanted by the buildings still to build in ${k})` : null);
+      }
+    }
     const have = new Map<string, number>();
     return (t) => {
       const g = gather(t);
       if (!g || !unbuilt.has(g.label)) return null;
+      if (v.wood && isLog(g.item)) return logCover.get(g.label) ?? null;
       const want = wanted.get(isLog(g.item) ? 'logs' : g.item) ?? 0;
       if (!have.has(g.item)) have.set(g.item, stock(g.item));
       const n = have.get(g.item)!;

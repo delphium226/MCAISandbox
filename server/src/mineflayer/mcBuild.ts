@@ -254,7 +254,7 @@ const plankUnits = (part: string, n: number) => { const [p, out] = PLANK_BATCH[p
 const partsFrom = (part: string, units: number) => { const [p, out] = PLANK_BATCH[part] ?? [1, 1]; return Math.floor(units / p) * out; };
 
 /** Wood kinds for one part, in placing order: "oak_planks" -> [{kind: acacia, n: 30}, {kind: oak, n: 10}]. */
-type WoodPlan = Map<string, Array<{ kind: string; n: number }>>;
+type WoodPlan = Map<string, Array<{ kind: string; n: number }>> & { short?: boolean };
 
 /**
  * Builders place the wood they can get, part by part: log parts first (planks cannot become logs), then plank parts
@@ -295,7 +295,10 @@ function chooseWood(place: Target[], have: Counts, prefer?: string): WoodPlan {
         if (!left) break;
       }
       // Not enough in any mix: the rest in the first choice (the shortage message names it)
-      if (left) parts.push({ kind: kinds[0], n: left });
+      if (left) {
+        parts.push({ kind: kinds[0], n: left });
+        out.short = true;
+      }
     }
     for (const p of parts) use(p.kind, p.n);
     out.set(e.key, parts);
@@ -572,6 +575,12 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       // Two passes: a builder that comes up short reads the chests again and chooses the wood again (two builders
       // starting together each chose from a record the other was emptying, and one gave up with spruce left in storage)
       const orig = place;
+      // The building this job builds (its claimed Build task, else the one unbuilt copy of the design given a kind), for
+      // its own wood kind (F164)
+      const ofDesign = (t: { title: string; detail: string }) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${job.design}"`);
+      const mine = job.design ? v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && ofDesign(t)) : undefined;
+      const given = job.design && !mine ? v?.tasks.filter((t) => t.status !== 'done' && ofDesign(t) && v.woodFor?.[t.title.slice(6)]) : undefined;
+      const label = mine ? mine.title.slice(6) : given?.length === 1 ? given[0].title.slice(6) : undefined;
       let woods: WoodPlan = new Map();
       let need: Counts = {}, inv: Counts = {};
       let why: string | null = null;
@@ -589,7 +598,32 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         }
         const all = inventoryCounts(a);
         for (const [n, q] of Object.entries(store)) all[n] = (all[n] ?? 0) + q;
-        woods = chooseWood(orig, all, v?.wood);
+        const prefer = (label && v?.woodFor?.[label]) || v?.wood;
+        woods = chooseWood(orig, all, prefer);
+        // A whole building in one kind (F164, the user's choice): a plan that mixes kinds part by part gives way to one
+        // kind that covers every part, the building's own first (VanW4: house 3 came out in birch with oak planks)
+        const kindsUsed = new Set([...woods.values()].flatMap((ps) => ps.map((x) => x.kind)));
+        if (kindsUsed.size > 1) {
+          const amount = (k: string) => (all[`${k}_log`] ?? 0) * 4 + (all[`${k}_planks`] ?? 0);
+          // (not a kind another unbuilt building counts on: the cover rule closed its log tasks on those logs, the review)
+          const own = (label && v?.woodFor?.[label]) || v?.wood;
+          const promised = (k: string) => k !== own && !!v?.wood && !!v.tasks.some((t) => /^Build /.test(t.title) && t.status !== 'done' && t.title.slice(6) !== label
+            && (v.woodFor?.[t.title.slice(6)] ?? v.wood) === k);
+          for (const k of [...new Set([...(prefer ? [prefer] : []), ...[...WOODS].sort((x, y) => amount(y) - amount(x))])]) {
+            if (!amount(k) || promised(k)) continue;
+            const only: Counts = { ...all };
+            for (const o of WOODS) if (o !== k) only[`${o}_log`] = only[`${o}_planks`] = 0;
+            const one = chooseWood(orig, only, k);
+            if (one.short) continue;
+            woods = one;
+            // (recorded only in a village with a wood kind: without one, the needs are counted in any logs)
+            if (label && v?.wood && k !== (v.woodFor?.[label] ?? v.wood)) {
+              (v.woodFor ??= {})[label] = k;
+              a.world.villages.note(v, `${label} is built in ${k}: one kind for the whole building`);
+            }
+            break;
+          }
+        }
         place = swapWood(orig, woods);
         need = billOf(place);
         inv = await carriedCounts(a, Object.keys(need));
