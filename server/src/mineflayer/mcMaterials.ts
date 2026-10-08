@@ -56,12 +56,12 @@ const UNOBTAINABLE: Record<string, string> = {
 
 export const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped'];
 /** A wooden item: its wood kind and part ("acacia", "planks"). */
-export const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
+export const WOOD_ITEM = new RegExp(`^(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button|sign)$`);
 /**
  * A wooden block placed by a builder: its kind and part, the part with "stripped_" kept ("stripped_spruce_log" ->
  * spruce, "stripped_log"), so a swap to the village's kind keeps the look (vanilla pieces, V2.1). Null for other blocks.
  */
-const WOOD_BLOCK = new RegExp(`^(stripped_)?(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button)$`);
+const WOOD_BLOCK = new RegExp(`^(stripped_)?(${WOODS.join('|')})_(planks|log|wood|door|slab|stairs|fence|fence_gate|trapdoor|pressure_plate|button|sign|wall_sign)$`);
 export function woodPart(name: string): { kind: string; part: string } | null {
   const m = WOOD_BLOCK.exec(name);
   if (!m || (m[1] && !/^(log|wood)$/.test(m[3]))) return null;
@@ -220,6 +220,8 @@ export function chargedItem(block: string): string {
   // really 4 logs for 3, close enough), so they are gathered as logs and swapped with the village's wood
   const w = woodPart(name);
   if (w && /(^|_)(log|wood)$/.test(w.part)) return `${w.kind}_log`;
+  // A sign on a wall is the sign item (the block has none of its own)
+  if (w?.part === 'wall_sign') return `${w.kind}_sign`;
   return CHARGE_AS[name] ?? name;
 }
 

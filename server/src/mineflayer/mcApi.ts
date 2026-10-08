@@ -136,7 +136,9 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     // Any agent that has the chunk loaded can see the block
     for (const a of w.agents.values()) {
       const b = a.bot.entity ? a.bot.blockAt(new Vec3(c[0], c[1], c[2])) : null;
-      if (b) return sendJson(res, 200, { x: c[0], y: c[1], z: c[2], block: b.name, properties: b.getProperties() });
+      // (a sign's front text too, as the bot sees it: the name signs' check)
+      const text = /_sign$/.test(b?.name ?? '') ? (b as unknown as { getSignText?: () => string[] }).getSignText?.()?.[0] : undefined;
+      if (b) return sendJson(res, 200, { x: c[0], y: c[1], z: c[2], block: b.name, properties: b.getProperties(), ...(text !== undefined ? { text } : {}) });
     }
     return sendJson(res, 200, { x: c[0], y: c[1], z: c[2], loaded: false });
   }

@@ -5,7 +5,7 @@
  * others and the centre, its door's way out on a street, the storage hut unturned, the mining hut's back at the pad's
  * edge; and the streets reach the pad's edge; the street lamps (placeLamps, 10-06) off streets, walkways and the mine's
  * ground, 2 from every building, beside a street, spaced. Prints each plan as a map (letters buildings, "=" streets, "o"
- * door ways, "*" lamps).
+ * door ways, "*" lamps, "s" name signs).
  * Usage: node_modules/.bin/tsx scripts/checks/street_plan.mts [BIOME ...]   Env: SIZE (default 32), HOUSES (default
  * "small,small,landmark,other": which of the library's houses to lay out, in order), JAR.
  */
@@ -14,7 +14,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } f
 import type { Area, Design } from '../../server/src/village';
 import { MINING_HUT, STORAGE_HUT, miningHutDesign, storageHutDesign } from '../../server/src/huts';
 import { Materials, designBill, hardToGather, inWood, woodPart } from '../../server/src/mineflayer/mcMaterials';
-import { LAMP_SPACING, STREET_GAP, doorOf, placeLamps, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
+import { LAMP_SPACING, STREET_GAP, doorOf, placeLamps, placeSigns, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
 import { DEFAULT_JAR, VILLAGE_BIOMES, vanillaLibrary } from '../../server/src/vanillaPieces';
 
 const reg = minecraftData('26.1');
@@ -96,6 +96,8 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     (p as unknown as { exit: [number, number] }).exit = [x, z];
     // (the walkway build_design clears out of the door, and the next cell: no lamp there)
     for (let i = 0; i < 3; i++) walkway.add(`${x + ox * i},${z + oz * i}`);
+    (p as unknown as { out: [number, number] }).out = [ox, oz];
+    (p as unknown as { door: [number, number] }).door = [p.x1 + u, p.z1 + v];
     if (p.name === STORAGE_HUT && p.rotate) problems.push('the storage hut is turned');
     // The mining hut's stairs run out its back: no building from there to the pad's edge
     if (p.name === MINING_HUT) {
@@ -127,6 +129,34 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => streetAt(main, l.x + a, l.z + b))) problems.push(`${at} beside no street`);
     for (const m of lamps) if (m !== l && Math.max(Math.abs(m.x - l.x), Math.abs(m.z - l.z)) < LAMP_SPACING) problems.push(`${at} too close to another lamp`);
   }
+  // The name signs (10-08): one per building, a wall sign beside its door's way out (or over it), facing out, inside the
+  // pad, in no building, on no lamp and on no other building's door walkway
+  // (the centre, last, blocks a sign but gets none: plan_layout passes it with noSign)
+  const signs = placeSigns([...bld.map((p) => ({ design: designs.get(p.name)!, x: p.x, z: p.z, rot: (p.rotate ?? 0) / 90 })),
+    ...(centreArea && c ? [{ design: c.design, x: centreArea.x, z: centreArea.z, rot: (centreArea.rotate ?? 0) / 90, noSign: true }] : [])], lamps, lay.plot);
+  const FACE: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
+  bld.forEach((p, i) => {
+    const s = signs[i];
+    if (!s) return problems.push(`${p.name} gets no sign`);
+    const at = `${p.name}'s sign ${s.x},${s.z}`;
+    const [ox, oz] = (p as unknown as { out: [number, number] }).out;
+    // (the cell out of the door, which a vanilla piece's own step row may hold)
+    const [dx, dz] = (p as unknown as { door: [number, number] }).door;
+    const [fx, fz] = [dx + ox, dz + oz];
+    const beside = s.layer === 3 ? s.x === fx && s.z === fz : Math.abs(s.x - fx) + Math.abs(s.z - fz) === 1 && (ox ? s.x === fx : s.z === fz);
+    if (!beside) problems.push(`${at} not beside the door's way out ${fx},${fz}`);
+    if (s.facing !== FACE[`${ox},${oz}`]) problems.push(`${at} faces ${s.facing}`);
+    if (s.x < lay.plot.x1 || s.z < lay.plot.z1 || s.x > lay.plot.x2 || s.z > lay.plot.z2) problems.push(`${at} not on the pad`);
+    if (signs.some((t, j) => j !== i && t?.x === s.x && t?.z === s.z)) problems.push(`${at} shared with another sign`);
+    for (const q of all) if (q !== p && s.x >= q.x1 && s.x <= q.x2 && s.z >= q.z1 && s.z <= q.z2) problems.push(`${at} inside ${q.name}`);
+    if (lamps.some((l) => l.x === s.x && l.z === s.z)) problems.push(`${at} on a lamp`);
+    for (const q of bld) {
+      if (q === p) continue;
+      const [qx, qz] = (q as unknown as { door: [number, number] }).door, [qo, qp] = (q as unknown as { out: [number, number] }).out;
+      if ([1, 2].some((k) => qx + qo * k === s.x && qz + qp * k === s.z)) problems.push(`${at} on ${q.name}'s walkway`);
+    }
+    if (!s.text.length || s.text.length > 2 || s.text.some((t) => !t)) problems.push(`${at} text ${JSON.stringify(s.text)}`);
+  });
   // The map
   const letters = 'ABCDEFGHIJ';
   const rows: string[] = [];
@@ -135,15 +165,15 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     for (let x = lay.plot.x1; x <= lay.plot.x2; x++) {
       const k = all.findIndex((p) => x >= p.x1 && x <= p.x2 && z >= p.z1 && z <= p.z2);
       const ex = bld.some((p) => (p as unknown as { exit: [number, number] }).exit?.[0] === x && (p as unknown as { exit: [number, number] }).exit?.[1] === z);
-      row += lamps.some((l) => l.x === x && l.z === z) ? '*' : ex ? 'o' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
+      row += lamps.some((l) => l.x === x && l.z === z) ? '*' : signs.some((t) => t?.x === x && t?.z === z) ? 's' : ex ? 'o' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
     }
     rows.push(row);
   }
   console.log(`\n== ${biome}${green ? ` (green, ${green.x2 - green.x1 + 1}x${green.z2 - green.z1 + 1} inside the ring)` : GREEN ? ' (no green: the street plan)' : ''}: centre ${c ? `${c.design.name} ${c.design.width}x${c.design.depth} (${c.connectors.map((k) => k.side).join(', ')})` : 'none (a crossing)'}; library ${lib.houses.map((h) => h.name).join(', ')}`);
-  bld.forEach((p, i) => console.log(`  ${letters[i]} ${p.name} ${p.width}x${p.depth} at ${p.x},${p.z} rotate ${p.rotate}`));
+  bld.forEach((p, i) => console.log(`  ${letters[i]} ${p.name} ${p.width}x${p.depth} at ${p.x},${p.z} rotate ${p.rotate}; sign ${signs[i] ? `${JSON.stringify(signs[i]!.text)} at ${signs[i]!.x},L${signs[i]!.layer},${signs[i]!.z} facing ${signs[i]!.facing}` : 'none'}`));
   if (lay.unplaced.length) console.log(`  not placed: ${lay.unplaced.join(', ')}; plain crossing streets instead (plan_layout takes them when they place more): ${planStreets(0, 0, SIZE, null, items).unplaced.length} not placed`);
   console.log(rows.map((r) => '    ' + r).join('\n'));
-  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps`);
+  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps, ${signs.filter(Boolean).length} signs`);
   if (problems.length) failed++;
 }
 process.exit(failed ? 1 : 0);

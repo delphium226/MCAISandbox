@@ -35,8 +35,8 @@ while time.time() - t0 < minutes * 60:
     if b != board:
         board = b
         print('BUILDS', b, flush=True)
-    # (and the street lamps, 10-06: a failed lamp task is soft)
-    lamps = [t for t in v['tasks'] if t['title'].startswith('Light the streets')]
+    # (and the street lamps and signs, 10-06 and 10-08: a failed one is soft)
+    lamps = [t for t in v['tasks'] if t['title'].startswith(('Light the streets', 'Put up the signs'))]
     if builds and all(t['status'] == 'done' for t in builds) and all(t['status'] in ('done', 'failed') for t in lamps):
         print('ALL BUILT', flush=True)
         break

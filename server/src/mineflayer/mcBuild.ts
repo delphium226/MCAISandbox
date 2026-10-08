@@ -18,6 +18,7 @@ import type { Area, Design, Reservation, Structure } from '../village';
 import { mineAreas } from './mcMine';
 import { SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import { doorOutward, outsideCells, turnState } from '../designs';
+import { holdsSign } from '../streetPlan';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
@@ -40,6 +41,8 @@ interface Target {
   facing?: [number, number];
   /** Survival: placed only if the builder carries the block (the walkway in front of a door). */
   optional?: boolean;
+  /** Block entity data set with it (a sign's text): one setblock of its own, never merged into a run. */
+  nbt?: string;
 }
 
 interface Built extends Area {
@@ -242,6 +245,8 @@ const listCounts = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map
 /** Planks per crafting batch and items it makes, for a wooden part (6 planks make 3 doors; sticks at half a plank). */
 const PLANK_BATCH: Record<string, [number, number]> = {
   planks: [1, 1], door: [6, 3], slab: [3, 6], stairs: [6, 4], fence: [5, 3], fence_gate: [4, 1], trapdoor: [6, 2], pressure_plate: [2, 1], button: [1, 1],
+  // (6 planks and a stick make 3 signs)
+  sign: [7, 3], wall_sign: [7, 3],
 };
 const plankUnits = (part: string, n: number) => { const [p, out] = PLANK_BATCH[part] ?? [1, 1]; return Math.ceil(n / out) * p; };
 /** How many of a part `units` planks make, in whole batches. */
@@ -470,6 +475,8 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   if (v?.mine) taken.push(...mineAreas(v.mine));
   // (and the street lamps: a post's top is footing, in the torch's cell)
   for (const l of v?.layouts ?? []) for (const c of l.lamps ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
+  // (and the name signs: one by a door at head height)
+  for (const l of v?.layouts ?? []) for (const c of l.signs ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
   const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
   // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
   // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
@@ -639,7 +646,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       }
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
-    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean; then?: string };
+    type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean; then?: string; open?: boolean };
     const cmds: Cmd[] = [];
     const columns = (list: Target[], clearing: boolean) => {
       const byCol = new Map<string, Target[]>();
@@ -648,6 +655,10 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
           const f = DIR_NAMES[`${t.facing?.[0] ?? 0},${t.facing?.[1] ?? 1}`] ?? 'south';
           cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${baseName(t.block)}[facing=${f},half=lower]`, n: 1, pos: [t.x, t.y, t.z], clear: false, item: baseName(t.block),
             then: `setblock ${t.x} ${t.y + 1} ${t.z} ${baseName(t.block)}[facing=${f},half=upper]` });
+          continue;
+        }
+        if (t.nbt) {
+          cmds.push({ cmd: `setblock ${t.x} ${t.y} ${t.z} ${t.block}${t.nbt}`, n: 1, pos: [t.x, t.y, t.z], clear: false, item: chargedItem(t.block), optional: t.optional, open: /_sign$/.test(baseName(t.block)) });
           continue;
         }
         const k = `${t.x},${t.z},${t.block},${t.optional ? 1 : 0}`;
@@ -694,7 +705,8 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       // Never set a block inside a player: Drop2's preparer stood where its fill went and suffocated (F99). The builder
       // walks out of the way once; agents still in the way are put at the stand spot outside the job (an idle worker
       // stood on the plot at its spawn); people's cells wait for the end of the job, three tries, then are left out
-      if (!c.clear) {
+      // (a sign has no collision box: no one is in its way)
+      if (!c.clear && !c.open) {
         const h = c.then ? 2 : Math.max(1, c.n);
         let inBody = playersIn(a, c.pos, h);
         if (inBody.length) console.log(`[build] ${a.name}: ${inBody.join(', ')} in the way of ${c.cmd}`);
@@ -1754,6 +1766,69 @@ async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: 
   return `lit ${lit} street lamp${lit === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}: ${out}`;
 }
 
+/** A sign's text as SNBT block entity data (26.1: plain strings are literal text), waxed so a player's click does not edit it. */
+const signNbt = (text: string[]) => `{front_text:{messages:[${[0, 1, 2, 3].map((i) => JSON.stringify(text[i] ?? '')).join(',')}]},is_waxed:1b}`;
+
+/**
+ * The name signs of a village layout (10-08, the user's): a wall sign of the village's wood beside each building's door,
+ * at the cells plan_layout chose (placeSigns), charged like any build and made at the storage hut's table (6 planks and a
+ * stick make 3). A building not built yet, a wall that is not there or a cell taken is skipped. Checked after on the
+ * server (data get): a missing sign is set once more, wrong text is written again (free: text is no item).
+ */
+async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('put_up_signs: not in a village');
+  const k = Math.floor(num(args.layout, 'layout'));
+  const lay = v.layouts?.[k - 1];
+  if (!lay?.signs?.length) throw new Error(`put_up_signs: layout ${k} has no signs`);
+  const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
+  const step: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+  const targets: Target[] = [];
+  const skipped: string[] = [];
+  let y0 = 0;
+  for (const s of lay.signs) {
+    const built = v.structures.find((t) => t.kind === s.building && s.cx >= t.x1 && s.cx <= t.x2 && s.cz >= t.z1 && s.cz <= t.z2);
+    if (!built) {
+      skipped.push(`${s.building}'s (not built)`);
+      continue;
+    }
+    y0 = built.y;
+    const y = built.y + s.layer;
+    const [ox, oz] = step[s.facing];
+    const wall = blockName(a, s.x - ox, y, s.z - oz), cell = blockName(a, s.x, y, s.z);
+    // (a sign already there, of any wood: an earlier try, the village's wood short then)
+    if (wall === null || cell === null || !holdsSign(wall) || !(plant(cell) || woodPart(cell)?.part === 'wall_sign')) {
+      skipped.push(`${s.building}'s at ${s.x},${y},${s.z} (${wall === null || cell === null ? 'not loaded' : !holdsSign(wall) ? `no wall: ${wall}` : `taken: ${cell}`})`);
+      continue;
+    }
+    targets.push({ x: s.x, y, z: s.z, block: `${v.wood ?? 'oak'}_wall_sign[facing=${s.facing}]`, nbt: signNbt(s.text) });
+  }
+  if (!targets.length) throw new Error(`put_up_signs: no sign could be put up (${skipped.join('; ')})`);
+  const h = v.storageHut;
+  const xs = targets.map((t) => t.x), zs = targets.map((t) => t.z);
+  const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: Math.min(...xs), z1: Math.min(...zs), x2: Math.max(...xs), z2: Math.max(...zs) };
+  const job: Job = { targets, area, y: y0, what: 'the signs', task: `put_up_signs layout=${k}` };
+  let out = await runJob(a, job, signal);
+  // Checked on the server by its text (R.3; the bot's view of a block entity can lag)
+  const text = async (t: Target) => (await a.world.rcon.command(`data get block ${t.x} ${t.y} ${t.z} front_text.messages`).catch(() => '')).replace(/^.*following block data: /s, '').trim();
+  const want = (t: Target) => `[${[0, 1, 2, 3].map((i) => JSON.stringify(lay.signs!.find((s) => s.x === t.x && s.z === t.z)?.text[i] ?? '')).join(', ')}]`;
+  await sleep(1000, signal);
+  const missing: Target[] = [];
+  for (const t of targets) {
+    const got = await text(t);
+    if (/^\[/.test(got)) {
+      if (got.replace(/\s+/g, '') !== want(t).replace(/\s+/g, '')) await a.world.rcon.command(`data merge block ${t.x} ${t.y} ${t.z} ${t.nbt}`).catch(() => '');
+    } else missing.push(t);
+  }
+  if (missing.length) out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
+  await sleep(1000, signal);
+  let up = 0;
+  for (const t of targets) if ((await text(t)).replace(/\s+/g, '') === want(t).replace(/\s+/g, '')) up++;
+  lay.signed = up === lay.signs.length;
+  a.world.villages.save();
+  return `put up ${up} sign${up === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}: ${out}`;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -1763,5 +1838,6 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   build_box: { check: (x) => (box(x), str(x.block, 'block')), run: buildBox },
   build: { check: (x) => void str(x.structure, 'structure'), run: buildStructure },
   light_streets: { check: (x) => void num(x.layout, 'layout'), run: lightStreets },
+  put_up_signs: { check: (x) => void num(x.layout, 'layout'), run: putUpSigns },
 };
 

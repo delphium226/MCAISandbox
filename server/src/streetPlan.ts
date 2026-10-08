@@ -327,3 +327,142 @@ export function placeLamps(lay: StreetLayout, spacing = LAMP_SPACING, clear = 2)
   for (const c of found) if (lamps.every((l) => Math.max(Math.abs(l.x - c.x), Math.abs(l.z - c.z)) >= spacing)) lamps.push({ x: c.x, z: c.z });
   return lamps;
 }
+
+/** A building's name sign (the user's, 10-08): a wall sign at layer `layer` over the building's floor, facing out. */
+export interface SignSpot {
+  x: number;
+  z: number;
+  layer: number;
+  facing: 'north' | 'south' | 'east' | 'west';
+  text: string[];
+  /** The design, and the centre build_design takes (to find the built structure and its floor). */
+  building: string;
+  cx: number;
+  cz: number;
+}
+
+/** A building as its Build task places it: the design, the centre and build_design's quarter turns. */
+export interface SignPlace {
+  design: Design;
+  x: number;
+  z: number;
+  rot: number;
+  /** In the way of others' signs but gets none (the town centre: no door). */
+  noSign?: boolean;
+}
+
+// Vanilla's village piece kinds (the jar's piece names, biome and number dropped); only for vanilla pieces: a model's
+// "farmhouse" is not a farm
+const SIGN_LABELS: Array<[RegExp, string]> = [
+  [/(small|medium|big)_house/, 'House'], [/library/, 'Library'], [/temple/, 'Temple'], [/armou?rer/, 'Armorer'],
+  [/butchers?_shop/, 'Butcher'], [/cartographer/, 'Cartographer'], [/fisher/, 'Fisher'], [/fletcher/, 'Fletcher'],
+  [/mason/, 'Mason'], [/shepherd/, 'Shepherd'], [/tannery/, 'Tannery'], [/tool_?smith/, 'Toolsmith'],
+  [/weapon_?smith/, 'Weaponsmith'], [/animal_pen/, 'Animal pen'], [/stable/, 'Stable'], [/farm/, 'Farm'],
+];
+/** Glyph advances of the game's font that are not 6 px (read from the client jar's ascii.png); a sign line shows 90 px. */
+const GLYPH: Record<string, number> = { ' ': 4, "'": 2, '.': 2, I: 4, f: 5, i: 2, k: 5, l: 3, t: 4 };
+const textWidth = (s: string) => [...s].reduce((w, c) => w + (GLYPH[c] ?? 6), 0);
+
+/**
+ * A building's sign text: the huts by their use, vanilla pieces by their kind ("House", "Library"), any other design by
+ * its own name ("meeting_hall_13x13" -> "Meeting hall"), wrapped by words onto at most two lines the sign shows whole
+ * (it cuts a longer line silently).
+ */
+export function signLabel(name: string, vanilla: boolean): string[] {
+  const n = name.toLowerCase();
+  if (n === 'storage_hut') return ['Storage'];
+  if (n === 'mining_hut') return ['Mine'];
+  if (vanilla) for (const [re, label] of SIGN_LABELS) if (re.test(n)) return [label];
+  const words = n.replace(/[^a-z0-9 _-]/g, '').replace(/[_-]+/g, ' ').replace(/\b\d+(x\d+)?\b/g, '').replace(/\s+/g, ' ').trim();
+  const text = words ? words[0].toUpperCase() + words.slice(1) : 'Building';
+  const lines: string[] = [];
+  for (let w of text.split(' ')) {
+    while (textWidth(w) > 90) w = w.slice(0, -1);
+    const last = lines[lines.length - 1];
+    if (last !== undefined && textWidth(`${last} ${w}`) <= 90) lines[lines.length - 1] = `${last} ${w}`;
+    else lines.push(w);
+  }
+  return lines.slice(0, 2);
+}
+
+/**
+ * Whether a block holds a wall sign hung on it (the game's isSolid: a collision box of a near-full size or full height):
+ * full blocks, stairs, slabs, fences, walls, panes, glass; not doors (a double door's other leaf), trapdoors, gates,
+ * plants, torches, lanterns, carpets, chains, snow layers or other signs.
+ */
+export function holdsSign(block: string | undefined): boolean {
+  if (!block || block === '_' || block === '.') return false;
+  const n = block.replace(/^minecraft:/, '').replace(/[[{].*$/, '');
+  return !/^(air|cave_air|void_air|water|lava|snow|vine|ladder|scaffolding)$|_door$|_trapdoor$|fence_gate$|torch|lantern|_sign$|_banner$|carpet|button|pressure_plate|rail$|chain|sapling|flower|grass$|fern$|_pot$|candle|_head$|_skull$|lever|tripwire|cobweb|bush|tulip|poppy|dandelion|orchid|allium|bluet|daisy|lily|rose|mushroom|_coral|^kelp|seagrass|frame$/.test(n);
+}
+
+const FACING: Record<string, SignSpot['facing']> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
+
+/**
+ * Where each building's name sign goes (the user's, 10-08): a wall sign beside the entrance door (doorOf, the door the
+ * street plan faces to its street; the huts' open doorway), facing out, hung on the wall cell next to the door: right of
+ * it as seen from outside, then left, at the door's upper half (layer 2), then its lower half (layer 1), then over the
+ * door (layer 3). The support must be a block that holds a sign in the design, the sign's cell free in it (outside the
+ * grid, "_" or "."), off every other building, off every walkway build_design clears (2 out of each outside door), off
+ * the lamps, off another sign and on the pad (when given; a rows plot's edge door has its way out on the edge row). A wall sign has no collision box: one over a street is in no one's way.
+ * Null for a building where none fits.
+ */
+export function placeSigns(places: SignPlace[], lamps: Array<{ x: number; z: number }> = [], pad?: Area): Array<SignSpot | null> {
+  const info = places.map((p) => {
+    const d = p.design, rot = ((p.rot % 4) + 4) % 4;
+    const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+    // (build_design's grid: its centre is the task's x, z)
+    const x1 = p.x - Math.floor(W / 2), z1 = p.z - Math.floor(D / 2);
+    const cells = new Map<string, string>();
+    d.layers.forEach((layer, li) =>
+      layer.forEach((row, j) => {
+        for (let i = 0; i < row.length; i++) {
+          const [u, v] = turnCell(i, j, d.width, d.depth, rot);
+          cells.set(`${x1 + u},${li},${z1 + v}`, row[i] === '_' || row[i] === '.' ? row[i] : d.palette[row[i]] ?? 'air');
+        }
+      }),
+    );
+    // Every door's walkway (build_design clears 2 cells out of each outside door, unless the design draws them)
+    const walk: Array<[number, number]> = [];
+    const l1 = d.layers[1];
+    if (l1 && l1.length === d.depth) {
+      const outside = outsideCells(l1);
+      for (let j = 0; j < d.depth; j++)
+        for (let i = 0; i < d.width; i++) {
+          const ch = l1[j][i];
+          if (!ch || ch === '_' || ch === '.' || !/_door$/.test((d.palette[ch] ?? '').replace(/\[.*$/, ''))) continue;
+          const [ox, oz] = doorOutward(d, i, j, rot, outside, 1);
+          const [u, v] = turnCell(i, j, d.width, d.depth, rot);
+          for (const k of [1, 2]) walk.push([x1 + u + ox * k, z1 + v + oz * k]);
+        }
+    }
+    const { door, out } = doorOf(d);
+    const [u, v] = turnCell(door[0], door[1], d.width, d.depth, rot);
+    let [ox, oz] = out;
+    for (let r = 0; r < rot; r++) [ox, oz] = [-oz, ox];
+    return { p, area: { x1, z1, x2: x1 + W - 1, z2: z1 + D - 1 }, cells, walk, door: { x: x1 + u, z: z1 + v, ox, oz } };
+  });
+  const lampAt = new Set(lamps.map((l) => `${l.x},${l.z}`));
+  const taken = new Set<string>();
+  return info.map((b, bi) => {
+    if (b.p.noSign) return null;
+    const { x: dx, z: dz, ox, oz } = b.door;
+    const free = (x: number, l: number, z: number) => { const c = b.cells.get(`${x},${l},${z}`); return c === undefined || c === '_' || c === '.' || c === 'air'; };
+    const elsewhere = (x: number, z: number) =>
+      info.some((o, oi) => oi !== bi && x >= o.area.x1 && x <= o.area.x2 && z >= o.area.z1 && z <= o.area.z2) ||
+      info.some((o, oi) => o.walk.some(([wx, wz]) => wx === x && wz === z) && !(oi === bi && [1, 2].some((k) => dx + ox * k === x && dz + oz * k === z)));
+    const ok = (sx: number, sz: number, l: number, wx: number, wz: number) =>
+      holdsSign(b.cells.get(`${wx},${l},${wz}`)) && free(sx, l, sz) && !elsewhere(sx, sz) && !lampAt.has(`${sx},${sz}`) &&
+      !taken.has(`${sx},${sz}`) && (!pad || (sx >= pad.x1 && sx <= pad.x2 && sz >= pad.z1 && sz <= pad.z2));
+    // (right as seen from outside, looking back at the door: (oz, -ox); left: (-oz, ox))
+    const tries: Array<[number, number, number, number, number]> = [];
+    for (const l of [2, 1]) for (const [sx, sz] of [[oz, -ox], [-oz, ox]]) tries.push([dx + ox + sx, dz + oz + sz, l, dx + sx, dz + sz]);
+    tries.push([dx + ox, dz + oz, 3, dx, dz]);
+    const hit = tries.find(([sx, sz, l, wx, wz]) => ok(sx, sz, l, wx, wz));
+    if (!hit) return null;
+    taken.add(`${hit[0]},${hit[1]}`);
+    // (a vanilla piece by its author, or by its jar name: a design posted through the API is recorded as the API's, VanS1)
+    const vanilla = b.p.design.by === 'vanilla' || /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(b.p.design.name);
+    return { x: hit[0], z: hit[1], layer: hit[2], facing: FACING[`${ox},${oz}`], text: signLabel(b.p.design.name, vanilla), building: b.p.design.name, cx: b.p.x, cz: b.p.z };
+  });
+}

@@ -5,7 +5,7 @@
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
-import { doorOf, placeLamps, planGreen, planStreets, type PlanItem, type StreetLayout } from './streetPlan';
+import { doorOf, placeLamps, placeSigns, planGreen, planStreets, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -295,8 +295,17 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // storage); made from what the storage holds then, gathering posted only if it falls short (as a build's). Soft; the
     // village is complete once they are lit. Only where the world has the skill (not the sandbox)
     const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street) : [];
+    const lampTask = tasks.length;
     if (lamps.length)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true });
+    // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
+    // layout, put up once every building stands, after the lamps (both jobs stand by the storage hut and draw its wood:
+    // at once, the second to read the chests could come up short, the design review). Soft, as the lamps
+    const signs = economy && w.skills.some((t) => t.name === 'put_up_signs')
+      ? placeSigns(lay.places.map((p) => ({ design: v.designs[p.name], x: p.x, z: p.z, rot: p.name === MINING_HUT ? mineTurn : (p.rotate ?? 0) / 90, noSign: p.name === centre?.design.name })), lamps, lay.plot).filter((s): s is SignSpot => !!s)
+      : [];
+    if (signs.length)
+      tasks.push({ title: `Put up the signs: ${signs.length} signs`, detail: `put_up_signs layout=${nth} (a name sign beside each building's door, made from the village storage)`, after: [0, ...builds, ...(lamps.length ? [lampTask] : [])], soft: true });
     if (wood && !v.wood) {
       v.wood = wood;
       reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);
@@ -312,7 +321,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
