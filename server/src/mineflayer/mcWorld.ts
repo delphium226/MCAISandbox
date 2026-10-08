@@ -479,7 +479,7 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** Chores the farm slots and exploring queued, by village (one at a time): its agent and the actions' statuses. */
-  private chores = new Map<string, { agent: string; status: ActionStatus[]; what: string }>();
+  private chores = new Map<string, { agent: string; status: ActionStatus[]; what: string; failed?: (why: string) => void }>();
   /** Kinds with no sighting in range, by "village:kind": not searched for again until then. */
   private slotSkip = new Map<string, number>();
 
@@ -490,7 +490,43 @@ export class MineflayerWorld implements WorldAdapter {
     // (the agents map is keyed by the lower-cased name: VanX2 sent a second explorer out while the first walked home)
     if (this.agents.has(c.agent.toLowerCase()) && c.status.some((q) => q.state === 'queued' || q.state === 'running')) return true;
     this.chores.delete(v.name);
+    const bad = c.status.find((q) => q.state === 'failed');
+    if (bad && c.failed) c.failed(bad.message ?? 'failed');
     return false;
+  }
+
+  /**
+   * The iron age (10-08; once the village is complete, after the farm slots' starts): an iron pickaxe once storage holds 3
+   * raw iron (or ingots), then a bucket; while short, trips to the iron level (dig_iron) until it is finished. Each stage
+   * backs off 10 minutes after a failure and is given up after 3. Returns whether a chore was queued.
+   */
+  private ironChores(v: Village, worker: BotAgent): boolean {
+    const m = v.mine;
+    if (!m || m.level === undefined) return false;
+    const made = m.ironMade ?? [];
+    if (made.includes('iron_pickaxe') && made.includes('bucket')) return false;
+    const store = storageContents(v);
+    const iron = (store.raw_iron ?? 0) + (store.iron_ingot ?? 0);
+    const tool = made.includes('iron_pickaxe') ? 'bucket' : 'iron_pickaxe';
+    const stage = iron >= 3 ? tool : 'dig';
+    if (stage === 'dig' && m.iron?.finished) return false;
+    // (failed stages forgiven after an hour, as the farm slots')
+    if (m.ironTries && m.ironLastTry && Date.now() - m.ironLastTry.at > 60 * 60000) m.ironTries = {};
+    const t = m.ironTries?.[stage] ?? 0, last = m.ironLastTry;
+    if (t >= 3 || (last?.stage === stage && Date.now() - last.at < 10 * 60000)) return false;
+    const status = stage === 'dig'
+      ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: Math.max(1, (tool === 'bucket' ? 3 : 6) - iron) })
+      : worker.enqueue('make_iron_tool', { item: stage, chore: true });
+    const failed = (why: string) => {
+      const mm = v.mine;
+      if (!mm || why === 'cancelled') return;
+      mm.ironTries = { ...(mm.ironTries ?? {}), [stage]: (mm.ironTries?.[stage] ?? 0) + 1 };
+      mm.ironLastTry = { at: Date.now(), stage, why: why.slice(0, 200) };
+      this.villages.save();
+    };
+    this.chores.set(v.name, { agent: worker.name, status: [status], what: `iron: ${stage}`, failed });
+    console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${iron} iron in storage)` : `makes a ${stage}`}`);
+    return true;
   }
 
   private idleWorker(v: Village): BotAgent | undefined {
@@ -594,6 +630,7 @@ export class MineflayerWorld implements WorldAdapter {
         return;
       }
     }
+    if (this.ironChores(v, worker)) return;
     // Exploring: one ring point at a time, FARM_TRIP_RANGE from home, the least known first, each point once (the bots at
     // home already see ~128 blocks: view distance 8, the design review's H3)
     // (only while a slot is free: there is nothing else to find for yet, the diff review's L4)

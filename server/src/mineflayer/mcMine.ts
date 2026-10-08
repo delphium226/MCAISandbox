@@ -5,7 +5,7 @@
  * stair or a branch at water, lava, a cave or anything built.
  */
 import { Vec3 } from 'vec3';
-import type { Area, Mine, MineLeg, Village } from '../village';
+import type { Area, IronLevel, Mine, MineLeg, Village } from '../village';
 import { upgradeMine, villageHome } from '../village';
 import { MINING_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
@@ -76,7 +76,7 @@ function unsafe(a: BotAgent, v: Village, m: Mine, p: Vec3, ceiling: boolean, mod
     if (o !== v && o.mine && mineAreas(o.mine).some((q) => p.x >= q.x1 && p.x <= q.x2 && p.z >= q.z1 && p.z <= q.z2 && p.y >= q.y && p.y <= q.y2)) return `${where} is at ${o.name}'s mine`;
   }
   // A tunnel (a turned one could pass under them) keeps off the stairs but the bottom step, where the first one starts
-  if (mode === 'tunnel' && keptStairs(m).some((s) => Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 1)) return `${where} is at the mine stairs`;
+  if (mode === 'tunnel' && keptStairs(m).some((s) => Math.abs(s.x - p.x) + Math.abs(s.z - p.z) <= 1 && (s.y1 === undefined || (p.y >= s.y1 - 2 && p.y <= s.y2! + 2)))) return `${where} is at the mine stairs`;
   if (wetAt(a, p)) return `${b.name} at ${where}`;
   if (b.boundingBox !== 'empty' && !DIGGABLE.has(b.name)) return `${b.name} at ${where} (not natural ground)`;
   for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
@@ -114,8 +114,35 @@ function downColumns(m: Mine, d: { x: number; z: number; steps: number }) {
 }
 
 /** Stair columns no tunnel may dig in or beside: all but each bottom step a level's first tunnel starts from. */
-function keptStairs(m: Mine) {
-  return [...stairColumns(m).slice(0, -1), ...(m.down ?? []).flatMap((d) => downColumns(m, d).slice(0, d.level !== undefined ? -1 : undefined))];
+function keptStairs(m: Mine): Array<{ x: number; z: number; y1?: number; y2?: number }> {
+  // (the iron level's stairs, given up ones too, only near their own height: they run sideways under the levels, and
+  // kept at every height they ended tunnels far above or below them, the diff review's M2)
+  const iron = (d: { x: number; z: number; y: number; dir: [number, number]; steps: number }, last: boolean) =>
+    ironColumns({ ...m.iron!, ...d }).slice(0, last ? undefined : -1).map((c, k) => ({ ...c, y1: d.y - (k + 1), y2: d.y - (k + 1) + 2 }));
+  return [...stairColumns(m).slice(0, -1), ...(m.down ?? []).flatMap((d) => downColumns(m, d).slice(0, d.level !== undefined ? -1 : undefined)),
+    // (finished ones too: their first steps stay open at the level's height, the final review)
+    ...(m.iron ? iron(m.iron, m.iron.level === undefined) : []),
+    ...(m.iron?.abandoned ?? []).flatMap((d) => iron(d, true))];
+}
+
+/** The iron level's stair columns, from its first step to its last (they run in its own direction, 10-08). */
+function ironColumns(i: IronLevel) {
+  return Array.from({ length: i.steps }, (_, k) => ({ x: i.x + i.dir[0] * (k + 1), z: i.z + i.dir[1] * (k + 1) }));
+}
+
+/** A main tunnel's box: its branches and a block around, to the end of the stretch being dug; floor to ceiling. */
+function legBox(l: MineLeg): Area & { y: number; y2: number } {
+  const [dx, dz] = l.dir;
+  const len = MAIN_STEP * (Math.floor(l.dug / PER) + 1) + 1;
+  const ends = [
+    { x: l.x - dx + dz * (BRANCH + 1), z: l.z - dz - dx * (BRANCH + 1) },
+    { x: l.x + dx * len - dz * (BRANCH + 1), z: l.z + dz * len + dx * (BRANCH + 1) },
+  ];
+  return {
+    x1: Math.min(...ends.map((e) => e.x)), z1: Math.min(...ends.map((e) => e.z)),
+    x2: Math.max(...ends.map((e) => e.x)), z2: Math.max(...ends.map((e) => e.z)),
+    y: l.y - 1, y2: l.y + 2,
+  };
 }
 
 /**
@@ -140,19 +167,26 @@ export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
       y: d.y - d.steps - 2, y2: d.y + 2,
     });
   }
-  for (const l of m.legs ?? []) {
-    const [dx, dz] = l.dir;
-    const len = MAIN_STEP * (Math.floor(l.dug / PER) + 1) + 1;
-    const ends = [
-      { x: l.x - dx + dz * (BRANCH + 1), z: l.z - dz - dx * (BRANCH + 1) },
-      { x: l.x + dx * len - dz * (BRANCH + 1), z: l.z + dz * len + dx * (BRANCH + 1) },
-    ];
+  for (const l of m.legs ?? []) out.push(legBox(l));
+  // The iron level: its stairs (from the step they start beside down to the last) and its tunnels (10-08)
+  const i = m.iron;
+  for (const d of i?.abandoned ?? []) {
+    const cols = [{ x: d.x, z: d.z }, ...ironColumns({ ...i!, ...d })];
     out.push({
-      x1: Math.min(...ends.map((e) => e.x)), z1: Math.min(...ends.map((e) => e.z)),
-      x2: Math.max(...ends.map((e) => e.x)), z2: Math.max(...ends.map((e) => e.z)),
-      y: l.y - 1, y2: l.y + 2,
+      x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
+      x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
+      y: d.y - d.steps - 2, y2: d.y + 2,
     });
   }
+  if (i && i.steps) {
+    const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+    out.push({
+      x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
+      x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
+      y: i.y - i.steps - 2, y2: i.y + 2,
+    });
+  }
+  for (const l of i?.legs ?? []) out.push(legBox(l));
   return out;
 }
 
@@ -163,7 +197,7 @@ const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 
  * Dig one planned cell (a pickaxe made if stone needs one); records what it gave and the ores it laid open. The drop
  * is left where it fell: the bot steps into the cell next and picks it up (walking to each drop took seconds a block).
  */
-async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand?: Vec3) {
+async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand?: Vec3, opts: { got?: Record<string, number>; strict?: boolean } = {}) {
   const b = a.bot.blockAt(p);
   if (!b || b.boundingBox === 'empty') return;
   const name = b.name;
@@ -185,13 +219,19 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
     if (!there()) throw away();
   };
   await back();
+  let forced = false;
   try {
     await mineBlock(a, p, signal, false, 20000, false);
   } catch (e) {
     const m2 = (e as Error).message;
     if (!/^needs \w+_pickaxe/.test(m2)) throw e;
+    // (the iron level never digs an iron or coal ore it cannot harvest: its iron would be lost, the design review's M2;
+    // gold or emerald a stone pickaxe cannot take is dug through as the cobblestone mine does, the diff review's H2)
+    if (opts.strict && KEEP.test(name)) throw Object.assign(new Error(`no pickaxe good enough for the ${name} at ${p.x},${p.y},${p.z} (${m2.slice(0, 80)})`), { tool: true });
     // Stone with no pickaxe at all: make one. An ore this pickaxe cannot harvest (copper with a wooden one, StageH18):
     // dug through anyway, its drop lost, rather than the tunnel stopping there
+    // (and none made from down there: the walk for logs is free to dig, the diff review's L1)
+    if (opts.strict && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) throw Object.assign(new Error(`no pickaxe left for the iron level at ${p.x},${p.y},${p.z}`), { tool: true });
     if (/^needs wooden_pickaxe/.test(m2) && !a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) {
       // Not the cell's fault when this fails (logs out of reach): the mine must not end a tunnel for it
       await makePickaxe(a, signal).catch((e: Error) => {
@@ -200,10 +240,15 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
       // Back from wherever making it took the bot, by the mine's own ways
       await back();
       await mineBlock(a, p, signal, false, 20000, false);
-    } else await mineBlock(a, p, signal, true, 20000, false);
+    } else {
+      await mineBlock(a, p, signal, true, 20000, false);
+      forced = true;
+    }
   }
-  const drop = name === 'stone' ? 'cobblestone' : name === 'deepslate' ? 'cobbled_deepslate' : name;
-  m.got[drop] = (m.got[drop] ?? 0) + 1;
+  // (a block dug without the tool it needs dropped nothing: counted as lost, not as its drop)
+  const drop = forced ? `lost ${name}` : dropOf(name);
+  const got = opts.got ?? m.got;
+  got[drop] = (got[drop] ?? 0) + 1;
   // Ores this cell laid open in the walls, floor and ceiling, each counted once: not when it touched air before (an
   // earlier cell, a cave). The atlas records every exposed ore by chunk when it summarises the chunk again (V.6)
   const v = a.village();
@@ -213,8 +258,26 @@ async function digCell(a: BotAgent, m: Mine, p: Vec3, signal: AbortSignal, stand
     const n = a.bot.blockAt(q);
     if (!n || !/_ore$/.test(n.name)) continue;
     const before = SIDES.some((e) => (e[0] !== -d[0] || e[1] !== -d[1] || e[2] !== -d[2]) && /^(air|cave_air)$/.test(a.bot.blockAt(q.offset(e[0], e[1], e[2]))?.name ?? ''));
-    if (!before) m.got[`seen ${n.name}`] = (m.got[`seen ${n.name}`] ?? 0) + 1;
+    if (!before) got[`seen ${n.name}`] = (got[`seen ${n.name}`] ?? 0) + 1;
   }
+}
+
+/** What a dug block gives (an ore its drop: raw iron, coal...; stone cobblestone). */
+function dropOf(name: string): string {
+  const ore = /^(?:deepslate_)?(\w+)_ore$/.exec(name);
+  if (ore) return { iron: 'raw_iron', copper: 'raw_copper', gold: 'raw_gold', lapis: 'lapis_lazuli' }[ore[1]] ?? ore[1];
+  return name === 'stone' ? 'cobblestone' : name === 'deepslate' ? 'cobbled_deepslate' : name;
+}
+
+/** Whether the bot stands in the iron level (its stairs or tunnels): a stuck bot there is teleported home (10-08). */
+export function inIronLevel(a: BotAgent): boolean {
+  const i = a.village()?.mine?.iron;
+  if (!i || !i.steps) return false;
+  const p = a.bot.entity.position.floored();
+  const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+  const near = cols.some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < i.y && p.y >= i.y - i.steps - 2;
+  const given = (i.abandoned ?? []).some((d) => [{ x: d.x, z: d.z }, ...ironColumns({ ...i, ...d })].some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < d.y && p.y >= d.y - d.steps - 2);
+  return near || given || i.legs.some((l) => { const b = legBox(l); return p.x >= b.x1 && p.x <= b.x2 && p.z >= b.z1 && p.z <= b.z2 && p.y >= b.y && p.y <= b.y2 + 1; });
 }
 
 /** Whether the bot stands in the mine: in one of its boxes, between the floor and the ceiling. */
@@ -627,6 +690,329 @@ const TIME_UP = 'time up';
 
 /** Reasons kept in the record and the village summary stay short (the workers' prompts have little room, F78). */
 const short = (s: string) => (s.length > 100 ? `${s.slice(0, 97)}...` : s);
+
+/** The iron level's floor (iron peaks at y 12-27 in 26.1, deepslate from about 8 down), the most steps its stairs take,
+ *  the highest a level may stop at when the stairs meet water or a cave (iron is still about 1-3 in 100 cells), and its
+ *  size: main tunnels and cells. */
+const IRON_Y = 18, IRON_MAX_STEPS = 60, IRON_SETTLE_Y = 40, IRON_LEGS = 6, IRON_CELLS = 320;
+/** Stairs tried at most (minevale3's ground is full of caves at y 40-45: three met them in VanI3). */
+const IRON_TRIES = 5;
+/** Deep enough for iron: stairs stopped at or below this make the level there (iron peaks at 12-27). */
+const IRON_GOOD_Y = 28;
+/** The iron and coal a tunnel keeps from its walls and ceiling. */
+const KEEP = /^(?:deepslate_)?(iron|coal)_ore$/;
+/** Villages whose iron level a bot is digging now (one at a time). */
+const ironBusy = new Set<string>();
+
+/**
+ * Where the iron stairs start (the design review's H1): from a cell the deepest level has dug, in a direction whose first 4
+ * steps (the ones still at that level's height) come no closer than diagonally to any other cell it has dug or any stair;
+ * nearest the bottom of the stairs first (beside it, sideways, when room: that side is then never turned at by the
+ * cobblestone mine). With two or three miners the mine turns tunnels off both sides of the bottom step (VanI1), so any
+ * dug cell may be the start: a tunnel's or branch's end going on outward. Null when none is clear.
+ */
+export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
+  const last = m.down?.filter((d) => d.level !== undefined).at(-1);
+  const b = last ? downColumns(m, last)[last.steps - 1] : stairColumns(m)[m.steps - 1];
+  const L = last ? last.level! : m.level!;
+  if (!b || L === undefined) return null;
+  const dug: Array<{ x: number; z: number }> = [...stairColumns(m), ...(m.down ?? []).flatMap((d) => downColumns(m, d))];
+  const level: Array<{ x: number; z: number }> = [{ x: b.x, z: b.z }];
+  for (const l of (m.legs ?? []).filter((q) => q.y === L)) {
+    level.push({ x: l.x, z: l.z });
+    for (let k = 0; k < l.dug; k++) level.push(tunnelCell(l, k));
+    // (and the next two stretches of a tunnel still going: the stairs must not take its way on)
+    if (!l.end) for (let k = l.dug; k < l.dug + 2 * PER; k++) dug.push(tunnelCell(l, k));
+  }
+  dug.push(...level);
+  // (and any stairs given up before, never started again the same way)
+  for (const d of m.iron?.abandoned ?? []) dug.push(...ironColumns({ ...m.iron!, ...d }));
+  const tried = (st: { x: number; z: number }, dir: [number, number]) => (m.iron?.abandoned ?? []).some((d) => d.x === st.x && d.z === st.z && d.dir[0] === dir[0] && d.dir[1] === dir[1]);
+  // (nor anywhere near where they stopped: the second and third stairs of VanI3 met the first one's cave, 2 blocks over)
+  const stops = (m.iron?.abandoned ?? []).map((d) => ({ x: d.x + d.dir[0] * Math.max(1, d.steps), z: d.z + d.dir[1] * Math.max(1, d.steps) }));
+  const offStops = (st: { x: number; z: number }, dir: [number, number]) => Array.from({ length: 45 }, (_, k) => ({ x: st.x + dir[0] * (k + 1), z: st.z + dir[1] * (k + 1) }))
+    .every((c) => stops.every((q) => Math.hypot(q.x - c.x, q.z - c.z) >= 8));
+  const [dx, dz] = m.dir;
+  const dirs: Array<[number, number]> = [[dz, -dx], [-dz, dx], [dx, dz], [-dx, -dz]];
+  const starts = level.filter((c, n) => level.findIndex((o) => o.x === c.x && o.z === c.z) === n)
+    .sort((p, q) => Math.abs(p.x - b.x) + Math.abs(p.z - b.z) - Math.abs(q.x - b.x) - Math.abs(q.z - b.z));
+  for (const st of starts)
+    for (const [n, dir] of dirs.entries()) {
+      if (tried(st, dir) || !offStops(st, dir)) continue;
+      const clear = [1, 2, 3, 4].every((k) => {
+        const c = { x: st.x + dir[0] * k, z: st.z + dir[1] * k };
+        return dug.every((d) => (d.x === st.x && d.z === st.z) || Math.abs(d.x - c.x) + Math.abs(d.z - c.z) >= 2);
+      });
+      if (clear) return { x: st.x, z: st.z, y: L, dir, ...(st.x === b.x && st.z === b.z && n < 2 ? { side: (n + 1) as 1 | 2 } : {}) };
+    }
+  return null;
+}
+
+/**
+ * The iron stairs, step by step (as the stairs down: dug standing on the step above, three cells a step, top first, each
+ * checked by unsafe), until a step stands on stone at y 18 or less. Stopped short by water, a cave or anything built: the
+ * level is dug at the last step if that is at y 40 or less, else the iron level is finished ("no way down"). Returns ''
+ * when the level is ready, TIME_UP, UNLOADED, or why it ended.
+ */
+async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, signal: AbortSignal, until: number): Promise<string> {
+  const reg = a.world.villages;
+  const [dx, dz] = i.dir;
+  const level = (y: number, x: number, z: number) => {
+    i.level = y;
+    i.legs.push({ x, z, y, dir: [dx, dz], dug: 0, ended: [] });
+    reg.note(v, `${a.name} dug the iron stairs ${i.steps} steps down to the iron level at y=${y}`);
+    reg.save();
+    return '';
+  };
+  const settle = (why: string) => {
+    if (why === UNLOADED) return why;
+    i.stopped = short(why);
+    const last = ironColumns(i).at(-1), y = i.y - i.steps;
+    // A level where the stairs stopped: at once when deep enough for iron (y 28 or less), else only when no try is left
+    // (VanI4 settled at y 39 on its second try and dug 87 cells past 3 iron ores in the whole stretch)
+    const tries = (i.abandoned?.length ?? 0) + 1;
+    if (last && (y <= IRON_GOOD_Y || (y <= IRON_SETTLE_Y && tries >= IRON_TRIES))) return level(y, last.x, last.z);
+    // Above y 40 (caves and aquifers are common at 36-51, VanI2): these stairs are given up as they are and new ones
+    // start elsewhere on the level, away from where these stopped, IRON_TRIES in all
+    i.abandoned = [...(i.abandoned ?? []), { x: i.x, z: i.z, y: i.y, dir: i.dir, steps: i.steps, why: short(why) }];
+    const next = i.abandoned.length < IRON_TRIES ? ironStart(m) : null;
+    // (no start left: a level at y 40 or less here after all, the diff review's M3)
+    if (!next && last && y <= IRON_SETTLE_Y) {
+      i.abandoned.pop();
+      return level(y, last.x, last.z);
+    }
+    if (next) {
+      Object.assign(i, { x: next.x, z: next.z, y: next.y, dir: next.dir, steps: 0 });
+      delete i.stopped;
+      const first = m.legs?.find((l) => next.side && l.x === next.x && l.z === next.z && l.y === next.y);
+      if (first && next.side) first.turned = (first.turned ?? 0) | next.side;
+      reg.note(v, `the iron stairs stopped at ${i.abandoned.at(-1)!.steps} steps (${why}); new ones start at ${next.x},${next.y},${next.z}, going ${compass(next.dir)}`);
+      reg.save();
+      return `the stairs met ${why}; new ones start at ${next.x},${next.y},${next.z} next trip`;
+    }
+    i.finished = short(`no way down: ${why}`);
+    reg.note(v, `the iron stairs stopped at ${i.steps} steps: ${why}; no way down`);
+    reg.save();
+    return why;
+  };
+  for (let k = i.steps + 1; k <= IRON_MAX_STEPS; k++) {
+    checkAbort(signal);
+    if (Date.now() > until) return TIME_UP;
+    const x = i.x + dx * k, z = i.z + dz * k, floor = i.y - 1 - k;
+    const stand = new Vec3(x - dx + 0.5, floor + 2, z - dz + 0.5);
+    await walkMine(a, stand, 1.2, signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const inStone = [1, 2].every((dy) => STONE.has(a.bot.blockAt(new Vec3(x, floor + dy, z))?.name ?? ''));
+    for (const dy of [3, 2, 1]) {
+      const p = new Vec3(x, floor + dy, z);
+      const why = unsafe(a, v, m, p, false, 'down', { x: x - dx, z: z - dz });
+      if (why) return settle(why);
+      if (dy === 3) {
+        const up = p.y + 1, above = a.bot.blockAt(new Vec3(x, up, z));
+        // (right over it, no climbing: the iron stairs run under untouched rock, an opening over a step is a cave, the
+        // diff review's M2)
+        if (!above) return UNLOADED;
+        if (above.boundingBox !== 'block' || FALLING.has(above.name)) return settle(`${above.name} over ${x},${up - 1},${z} (no solid ceiling)`);
+      }
+      await digCell(a, m, p, signal, stand, { got: i.got, strict: true });
+    }
+    await walkMine(a, new Vec3(x + 0.5, floor + 1, z + 0.5), 0.6, signal, 20000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const under = a.bot.blockAt(new Vec3(x, floor, z));
+    if (!under) return UNLOADED;
+    if (under.boundingBox !== 'block' || wetAt(a, under.position)) return settle(`no floor under ${x},${floor + 1},${z}`);
+    i.steps = k;
+    reg.save();
+    if (floor + 1 <= IRON_Y && inStone && STONE.has(under.name)) return level(floor + 1, x, z);
+  }
+  return settle(`no stone at y ${IRON_Y} within ${IRON_MAX_STEPS} steps`);
+}
+
+/**
+ * The iron and coal around the cell just dug, taken from where the bot stands before stepping in (within reach, no walk):
+ * its walls and the ceiling over the upper cell, its floor (each floor ore's hole filled at once with a carried
+ * cobblestone, charged: no pit is left, lesson 70), and on along the vein from each ore taken (veins hold 4-9 blocks; VanI5
+ * dug 102 cells at y 18 past 3 iron ores in their walls and floors). Each checked as a tunnel cell is (water, lava, air,
+ * protected ground; a ceiling over the upper ones), never forced (an ore the pickaxe cannot harvest is left).
+ */
+async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, got: Record<string, number>, signal: AbortSignal): Promise<number> {
+  const found: Array<{ q: Vec3; from: { x: number; z: number }; floor: boolean }> = [];
+  const add = (q: Vec3, from: { x: number; z: number }, floor: boolean) => {
+    if (q.y < L - 1 || !KEEP.test(a.bot.blockAt(q)?.name ?? '') || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
+    found.push({ q, from, floor });
+  };
+  for (const c of cells)
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+      if (dy > 0 && c.y !== L + 1) continue;
+      if (dy < 0 && c.y !== L) continue;
+      add(c.offset(dx, dy, dz), { x: c.x, z: c.z }, dy < 0);
+    }
+  const rcon = (cmd: string) => a.world.rcon.command(cmd).catch(() => '');
+  let kept = 0;
+  for (let n = 0; n < found.length && n < 24; n++) {
+    const { q, from, floor } = found[n];
+    checkAbort(signal);
+    if (a.bot.entity.position.offset(0, 1.62, 0).distanceTo(q.offset(0.5, 0.5, 0.5)) > 4.2) continue;
+    if (unsafe(a, v, m, q, !floor && q.y >= L + 1, 'tunnel', from)) continue;
+    // (a floor ore only with a cobblestone to fill its hole, and never the cell the bot stands on)
+    const feet = a.bot.entity.position.floored();
+    if (floor && (feet.offset(0, -1, 0).equals(q) || !a.bot.inventory.items().some((it) => it.name === 'cobblestone'))) continue;
+    const name = a.bot.blockAt(q)?.name ?? '';
+    try {
+      await mineBlock(a, q, signal, false, 0, false);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      continue;
+    }
+    if (floor && /Removed 1/i.test(await rcon(`clear ${a.name} cobblestone 1`))) {
+      if (/Changed/i.test(await rcon(`setblock ${q.x} ${q.y} ${q.z} minecraft:cobblestone`))) a.bot.world.setBlockStateId(q, a.world.registry.blocksByName.cobblestone.defaultState);
+      else await rcon(`give ${a.name} minecraft:cobblestone 1`);
+    }
+    const drop = dropOf(name);
+    got[drop] = (got[drop] ?? 0) + 1;
+    got[`kept ${name}`] = (got[`kept ${name}`] ?? 0) + 1;
+    kept++;
+    // On along the vein (not down out of a floor ore: its hole is filled)
+    // (never below the cell's floor: an unfilled hole in the next cell or under the bot ended tunnels, the diff review's M1;
+    // and only beside the cell or its approach, where the drop is picked up)
+    if (!floor)
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+        const r = q.offset(dx, dy, dz);
+        const beside = [...cells.map((c) => ({ x: c.x, z: c.z })), from].some((c) => Math.abs(c.x - r.x) <= 1 && Math.abs(c.z - r.z) <= 1);
+        if (r.y >= L && beside) add(r, { x: q.x, z: q.z }, false);
+      }
+  }
+  return kept;
+}
+
+/** The iron level's tunnel to dig on: the one still going, else a turn from one that ended (at most IRON_LEGS). */
+function nextIronLeg(a: BotAgent, v: Village, i: IronLevel): MineLeg | null {
+  const going = i.legs.find((l) => !l.end);
+  if (going) return going;
+  if (i.legs.length >= IRON_LEGS) return null;
+  for (const [n, l] of i.legs.entries())
+    for (const side of [1, 2] as const) {
+      if ((l.turned ?? 0) & side) continue;
+      l.turned = (l.turned ?? 0) | side;
+      const t = turnFrom(l, side, n === 0);
+      if (!t) continue;
+      i.legs.push(t);
+      a.world.villages.note(v, `${a.name} turned the iron level ${compass(t.dir)} at ${t.x},${t.y},${t.z}`);
+      return t;
+    }
+  return null;
+}
+
+/**
+ * One trip to the iron level (the iron age, 10-08; a chore once the village stands, run by dig_iron in mcBuild.ts): down
+ * the mine's stairs and the iron stairs (each walk with its own time, the review's M5), the stairs dug on first, then its
+ * tunnels cell by cell (the cobblestone mine's pattern and checks) keeping the iron and coal in their walls, until `want`
+ * raw iron are carried, the time is up, the inventory is nearly full or the level is finished; then back up to the top
+ * of the mine's stairs. Its own record (`mine.iron`): the cobblestone mine never sees it. Returns what happened.
+ */
+export async function ironTrip(a: BotAgent, v: Village, want: number, signal: AbortSignal, until: number): Promise<string> {
+  const m = v.mine;
+  if (!m || m.level === undefined) return 'the village has no mine at a level yet';
+  upgradeMine(m);
+  const reg = a.world.villages;
+  if (!m.iron) {
+    const s = ironStart(m);
+    m.iron = s ? { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: 0, got: {} } : { x: 0, z: 0, y: 0, dir: m.dir, steps: 0, legs: [], dug: 0, got: {}, finished: 'no clear way down beside the deepest level' };
+    // (the cobblestone mine never turns there: its tunnel would run into the iron stairs)
+    const first = m.legs?.find((l) => s && l.x === s.x && l.z === s.z && l.y === s.y);
+    if (s?.side && first) first.turned = (first.turned ?? 0) | s.side;
+    reg.note(v, s ? `the iron stairs start at ${s.x},${s.y},${s.z} on the mine's deepest level, going ${compass(s.dir)}` : 'no way down to the iron level beside the mine');
+    reg.save();
+  }
+  const i = m.iron;
+  if (i.finished) return `the iron level is finished: ${i.finished}`;
+  if (ironBusy.has(v.name)) return 'another worker is digging the iron level';
+  ironBusy.add(v.name);
+  const go = (p: Vec3, range: number, ms: number) => walkMine(a, p, range, signal, ms).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const top = new Vec3(m.top.x + 0.5, m.level + m.steps - 1, m.top.z + 0.5);
+  const carried = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
+  const start = carried();
+  let why = '';
+  try {
+    if (!inMine(a, m)) await go(top, 1.5, 90000);
+    await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000);
+    if (i.level === undefined) {
+      const r = await digIronStairs(a, v, m, i, signal, until);
+      if (r === TIME_UP) return (why = 'the time was up on the iron stairs');
+      if (r) return (why = r === UNLOADED ? 'the iron stairs are not loaded' : `the iron stairs stopped: ${r}`);
+    }
+    const bottom = ironColumns(i).at(-1)!;
+    await go(new Vec3(bottom.x + 0.5, i.level!, bottom.z + 0.5), 1.5, 120000);
+    let kept = 0;
+    while (true) {
+      checkAbort(signal);
+      if (carried() >= want) { why = `carrying ${carried()} raw iron`; break; }
+      if (Date.now() > until) { why = 'the time was up'; break; }
+      if (a.bot.inventory.emptySlotCount() < 4) { why = 'the inventory is nearly full'; break; }
+      if (i.dug >= IRON_CELLS) { i.finished = `${i.dug} tunnel cells dug`; break; }
+      const leg = nextIronLeg(a, v, i);
+      if (!leg) { i.finished = short(`every tunnel ended; the last met ${i.legs.at(-1)?.end ?? 'nothing'}`); break; }
+      const c = tunnelCell(leg, leg.dug);
+      if (leg.ended.includes(c.branch)) { leg.dug++; continue; }
+      const L = leg.y;
+      const cells = [new Vec3(c.x, L + 1, c.z), new Vec3(c.x, L, c.z)];
+      const open = cells.every((p) => a.bot.blockAt(p)?.boundingBox === 'empty');
+      if (!open) await go(new Vec3(c.from.x + 0.5, L, c.from.z + 0.5), 1.2, 60000);
+      const floor = a.bot.blockAt(new Vec3(c.x, L - 1, c.z));
+      const bad = cells.map((p, n) => unsafe(a, v, m, p, n === 0, 'tunnel', c.from)).find(Boolean) ?? (!floor ? UNLOADED : floor.boundingBox !== 'block' ? `no floor at ${c.x},${L - 1},${c.z}` : null);
+      if (bad === UNLOADED) { why = `the iron level at ${c.x},${L},${c.z} is not loaded`; break; }
+      if (bad) {
+        if (c.branch % 3 === 0) leg.end = short(bad);
+        else leg.ended.push(c.branch);
+        reg.save();
+        continue;
+      }
+      if (!open) {
+        try {
+          for (const p of cells) await digCell(a, m, p, signal, new Vec3(c.from.x + 0.5, L, c.from.z + 0.5), { got: i.got, strict: true });
+        } catch (e) {
+          if ((e as Error).message === 'cancelled' || (e as { tool?: boolean }).tool) throw e;
+          // The same cell failing on two trips ends its branch or tunnel (the diff review's M3: else every trip stops there)
+          const at = `${c.x},${L},${c.z}`;
+          i.stuckAt = { at, n: i.stuckAt?.at === at ? i.stuckAt.n + 1 : 1 };
+          if (i.stuckAt.n >= 2) {
+            if (c.branch % 3 === 0) leg.end = short(`${at}: ${(e as Error).message}`);
+            else leg.ended.push(c.branch);
+            delete i.stuckAt;
+          }
+          throw e;
+        }
+        // (from where it stands, before stepping in: the cell's floor is in reach and not underfoot)
+        kept += await keepOres(a, v, m, cells, L, i.got, signal);
+        // Into the cell's middle: its drops and the ores' (a wall's drop lands about a block off, the diff review's L3)
+        await go(new Vec3(c.x + 0.5, L, c.z + 0.5), 0.3, 20000);
+        i.dug++;
+      }
+      leg.dug++;
+      reg.save();
+    }
+    if (i.finished) reg.note(v, `the iron level is finished: ${i.finished}`);
+    return `${why || i.finished}; ${kept} ores kept from the walls`;
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    why = (e as Error).message;
+    return `stopped: ${why}`;
+  } finally {
+    ironBusy.delete(v.name);
+    reg.save();
+    // Back up to the top of the mine's stairs (not when stopped: the rescue or the next action takes it from there)
+    if (!signal.aborted) {
+      const b = ironColumns(i).at(-1);
+      if (b && i.level !== undefined) await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000).catch(() => undefined);
+      await go(top, 1.5, 120000).catch(() => undefined);
+    }
+    a.world.villages.note(v, `${a.name}'s iron trip: ${carried() - start} raw iron carried up (${why || 'done'})`);
+  }
+}
 
 export const MINE_SKILLS: Record<string, McSkill> = {
   dig_mine: { check: (x) => x.max_depth !== undefined && void num(x.max_depth, 'max_depth'), run: digMine },

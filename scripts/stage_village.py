@@ -167,6 +167,8 @@ p.add_argument("--after", type=float, default=0, help="keep watching this many m
 p.add_argument("--fixtures", action="store_true", help="before the run, put sugar cane (with water), pumpkins and a melon "
                                                        "on the ground 35-45 blocks off the site by command (sightings to farm)")
 p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
+p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
+                                          "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
 args = p.parse_args()
 test_site = None
 if args.site:
@@ -653,6 +655,13 @@ if args.after and reason == "every building is done":
     # (the early dirt and sand tasks may have taken a fixture's ground, the design review's M6)
     for kind, cells in fixtures.items():
         print(f"AFTER fixture {kind}: " + ", ".join(f"{x},{y},{z} {call(f'/block?x={x}&y={y}&z={z}').get('block')}" for x, y, z in cells), flush=True)
+    if args.stock:
+        w = names[-1]
+        for kv in args.stock.split(","):
+            item, n = kv.split(":")
+            print(f"AFTER stock: {rcon(f'give {w} minecraft:{item} {n}')}", flush=True)
+        time.sleep(2)
+        call(f"/agents/{w}/act", {"action": "deposit", "item": "all"})
     a0 = call(f"/atlas?village={args.village}&radius=176") or {}
     chunks0 = len(a0.get("chunks") or [])
     t2, slots_seen, ripened, explore_seen = time.time(), {}, set(), None

@@ -70,6 +70,38 @@ export interface Mine {
    * it stopped short (no level is tried after that).
    */
   down?: Array<{ x: number; z: number; y: number; steps: number; level?: number; stopped?: string }>;
+  /** The iron level (the iron age, 10-08): its own stairs, tunnels and record, never the cobblestone mine's. */
+  iron?: IronLevel;
+  /** The iron tools made from the village's iron (kept here: the first can be made from stored iron before any trip has
+   *  made the iron level's record, VanI7 made a second pickaxe instead of a bucket). */
+  ironMade?: string[];
+  /** Failed iron chores by stage, and the last (a back-off; on the mine, not the iron level: see ironMade). */
+  ironTries?: Record<string, number>;
+  ironLastTry?: { at: number; stage: string; why: string };
+}
+
+/**
+ * The iron level (10-08; a chore once the village stands): stairs from the deepest level's bottom step (x, z, at level
+ * y) in `dir`, sideways off that level's tunnels, one block down per step to about y 18, then tunnels there (legs) that
+ * keep the iron and coal in their walls. `got`: what its digging gave; `finished` once it has no more to give (or no way
+ * down).
+ */
+export interface IronLevel {
+  x: number;
+  z: number;
+  y: number;
+  dir: [number, number];
+  steps: number;
+  level?: number;
+  stopped?: string;
+  legs: MineLeg[];
+  dug: number;
+  got: Record<string, number>;
+  finished?: string;
+  /** Stairs given up above y 40 (water or a cave in the way), kept as they are dug: the next start keeps off them. */
+  abandoned?: Array<{ x: number; z: number; y: number; dir: [number, number]; steps: number; why: string }>;
+  /** The cell the last trip failed at, and how many trips in a row (two end its branch or tunnel). */
+  stuckAt?: { at: string; n: number };
 }
 
 /** One main tunnel of the mine and its branches, dug in a fixed order (V.5b). */

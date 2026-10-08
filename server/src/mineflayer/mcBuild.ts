@@ -14,8 +14,9 @@
  * in survival (tests).
  */
 import { Vec3 } from 'vec3';
-import type { Area, Design, Reservation, Structure } from '../village';
-import { mineAreas } from './mcMine';
+import type { Area, Design, Reservation, Structure, Village } from '../village';
+import { inIronLevel, ironTrip, mineAreas } from './mcMine';
+import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
 import { SLOT_KINDS, SLOT_ORDER, slotCell, slotPlan } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
@@ -408,6 +409,13 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     const f = Math.min(q - spare, store[n] ?? 0);
     if (f > 0) fetch[n] = f;
   }
+  // The coal or charcoal the plan burns, when storage holds it (the plan counts it as fuel, but smelting burns only what is
+  // carried: F178)
+  for (const fuel of ['coal', 'charcoal']) {
+    const want = plan.fuel.coal - (carried.coal ?? 0) - (carried.charcoal ?? 0) - (fetch.coal ?? 0) - (fetch.charcoal ?? 0);
+    const f = Math.min(Math.max(0, want), store[fuel] ?? 0);
+    if (f > 0) fetch[fuel] = (fetch[fuel] ?? 0) + f;
+  }
   // A furnace or table kept in the storage comes along too (it was counted as there, then smelting found none)
   if (plan.fuel.smelts && !near('furnace') && !carried.furnace && store.furnace) fetch.furnace = 1;
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !near('crafting_table') && !carried.crafting_table && store.crafting_table) fetch.crafting_table = 1;
@@ -431,13 +439,15 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   for (const [i, st] of steps.entries()) {
     checkAbort(signal);
     try {
-      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes }, signal);
+      // (every other craft and smelt told the spare kind too: the craft skill's own plank choice and smelting's fuel took
+      // the logs and planks fetched for later steps, F165, F169)
+      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes, wood: spareKind(i + 1) }, signal);
       else {
         // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
         // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
         const spare = `${spareKind(i + 1)}_log`;
         const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log') : st.input ?? '';
-        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs }, signal);
+        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1) }, signal);
       }
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
@@ -2449,6 +2459,109 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
   }
 }
 
+/** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
+const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
+const pickRank = (n: string) => PICKS.indexOf(n);
+
+/**
+ * At the storage hut, the pickaxes an iron trip needs (the design review's M2, M3): the best one kept in storage if it
+ * beats the best carried, and at least two of stone or better (a trip digs some 450 blocks; a wooden one would lose the
+ * iron ore it digs), made from storage when short.
+ */
+async function ironPickaxes(a: BotAgent, v: Village, job: Job, signal: AbortSignal): Promise<string> {
+  const notes: string[] = [];
+  await syncInventory(a);
+  const carried = () => a.bot.inventory.items().filter((it) => pickRank(it.name) >= 0);
+  const best = () => Math.max(-1, ...carried().map((it) => pickRank(it.name)));
+  const stored = Object.keys(storageContents(v)).filter((n) => pickRank(n) >= 0).sort((x, y) => pickRank(y) - pickRank(x))[0];
+  if (stored && pickRank(stored) > best()) {
+    await withdrawItems(a, v, { [stored]: 1 }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`not withdrawn: ${e.message.slice(0, 80)}`);
+    });
+    await syncInventory(a);
+  }
+  const good = carried().filter((it) => pickRank(it.name) >= 1).length;
+  if (good < 2) {
+    await standBy(a, job, signal);
+    const made = await makeFromStock(a, {}, { stone_pickaxe: 2 - good }, () => standBy(a, job, signal), signal).catch((e: Error) => {
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
+      notes.push(e.message.slice(0, 100));
+      return null;
+    });
+    if (made) notes.push(made);
+  }
+  if (!carried().some((it) => pickRank(it.name) >= 1)) throw new Error(`dig_iron: no stone pickaxe and none could be made from the village storage (3 cobblestone and 2 sticks at a crafting table)${notes.length ? `; ${notes.join('; ')}` : ''}`);
+  return notes.join('; ');
+}
+
+/**
+ * The iron age (10-08; a chore code queues once the village stands, mcWorld.ts ironChores): one trip to the iron level.
+ * At the storage hut first: everything carried deposited (room for the iron, the review's M7) and the pickaxes; then
+ * mcMine.ts ironTrip (the stairs down to y 18 and its tunnels, keeping the iron and coal in their walls) for up to
+ * `minutes`, or until `want` raw iron are carried; then everything deposited. Fails only when the trip gave nothing.
+ */
+async function digIron(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v?.mine || v.mine.level === undefined) throw new Error('dig_iron: the village has no mine at a level yet');
+  const minutes = args.minutes !== undefined ? Math.max(1, num(args.minutes, 'minutes')) : 6;
+  const want = args.want !== undefined ? Math.max(1, Math.floor(num(args.want, 'want'))) : 6;
+  const h = v.storageHut;
+  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.mine.hut, y: v.plots[0]?.y ?? v.mine.level, free: true, what: 'the iron level', task: 'dig_iron' };
+  await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  const picks = await ironPickaxes(a, v, job, signal);
+  const raw = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
+  const coal = () => a.bot.inventory.items().filter((it) => it.name === 'coal').reduce((n, it) => n + it.count, 0);
+  const before = { iron: v.mine.iron?.got.raw_iron ?? 0, dug: v.mine.iron?.dug ?? 0, steps: v.mine.iron?.steps ?? 0, gaveUp: v.mine.iron?.abandoned?.length ?? 0 };
+  let out = await ironTrip(a, v, want, signal, Date.now() + minutes * 60000);
+  // Still down there (its walks up failed, or it fell into a cave below the level): teleported home, never left 40 blocks
+  // down, nor walked up (VanI5: the deposit's walk from a cave at y 11 dug a shaft up under the storage hut; the diff
+  // review's M1)
+  // (below the plot's level by more than a step: on hilly ground the hut can stand lower than the mine's top, the final review)
+  const topY = Math.min(v.mine.level + v.mine.steps - 1, v.plots[0]?.y ?? Infinity);
+  if (inIronLevel(a) || a.bot.entity.position.y < topY - 4) out += `; ${(await teleportHome(a, signal)) ?? 'no home to go back to'}`;
+  const i = v.mine.iron;
+  const carried = { iron: raw(), coal: coal() };
+  const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+    return `not deposited: ${e.message.slice(0, 100)}`;
+  });
+  const progress = !!i && (i.steps > before.steps || i.dug > before.dug || (i.got.raw_iron ?? 0) > before.iron || (i.abandoned?.length ?? 0) > before.gaveUp);
+  const text = `iron trip: ${out}; stairs ${i?.steps ?? 0} steps${i?.level !== undefined ? ` (level y=${i.level})` : ''}, ${i?.dug ?? 0} tunnel cells, ${i?.got.raw_iron ?? 0} raw iron and ${i?.got.coal ?? 0} coal in all; brought up ${carried.iron} raw iron, ${carried.coal} coal${picks ? ` (${picks})` : ''}; ${stored}`;
+  if (!progress && !i?.finished) throw new Error(`dig_iron: no progress: ${text}`);
+  return text;
+}
+
+/**
+ * An iron tool made from the village's raw iron (the iron age, 10-08; a chore): at the storage hut, raw iron smelted to
+ * ingots at its furnace (fuel from storage: F178) and the tool crafted at its table (makeFromStock chains them), then
+ * put into storage by name (tools are kept back by "deposit all"), where miners take the best pickaxe from.
+ */
+async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('make_iron_tool: not in a village');
+  const item = str(args.item, 'item');
+  if (!/^(iron_pickaxe|bucket|shears|iron_axe|iron_shovel|iron_hoe)$/.test(item)) throw new Error(`make_iron_tool: not an iron tool: ${item}`);
+  const h = v.storageHut;
+  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${item}`, task: 'make_iron_tool' };
+  await standBy(a, job, signal);
+  if (v.storage?.chests.length) await refreshStorage(a, v, signal);
+  const made = await makeFromStock(a, {}, { [item]: 1 }, () => standBy(a, job, signal), signal);
+  if (!made) throw new Error(`make_iron_tool: the ${item} cannot be made from the village storage yet (${Object.entries(storageContents(v)).filter(([n]) => /iron|coal/.test(n)).map(([n, q]) => `${q} ${n}`).join(', ') || 'no iron'})`);
+  await syncInventory(a);
+  if (!a.bot.inventory.items().some((it) => it.name === item)) throw new Error(`make_iron_tool: ${made}, but no ${item} is carried`);
+  const stored = await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+    return `not deposited: ${e.message.slice(0, 100)}`;
+  });
+  if (v.mine) v.mine.ironMade = [...new Set([...(v.mine.ironMade ?? []), item])];
+  a.world.villages.note(v, `${a.name} made a ${item} from the village's iron`);
+  a.world.villages.save();
+  return `made a ${item} (${made}); ${stored}`;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -2465,5 +2578,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (the farm slots', chores as well: opportunistic farming, 10-08)
   start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startFarm },
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
+  // (the iron age's, chores too, 10-08)
+  dig_iron: { run: digIron },
+  make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },
 };
 

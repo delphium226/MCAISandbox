@@ -10,6 +10,7 @@ import { at, checkAbort, goals, sleep, walk } from './mcUtil';
 import { timeScale } from './mcRules';
 // Blocks the climb may dig through: natural terrain only, never anything built
 import { RESCUE_DIGGABLE as DIGGABLE } from './mcBlocks';
+import { inIronLevel } from './mcMine';
 
 /** Carried blocks it may pillar with (dirt and plain stone first; never planks, logs or glass). */
 const PILLAR = ['dirt', 'coarse_dirt', 'sand', 'red_sand', 'netherrack', 'andesite', 'diorite', 'granite', 'tuff', 'stone', 'cobblestone', 'cobbled_deepslate'];
@@ -208,12 +209,16 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
     done.push('swam up');
   }
   // (a village member with no path home at all walks nowhere useful: on to the climb or the teleport at once)
-  const sealed = homeGoal(a) ? (await isOut(a, signal)) === 'sealed' : false;
-  if (sealed) done.push('sealed in (no path home)');
+  // (nor one stuck in the iron level, 40 blocks down: a walk out or a climb would dig its own way through the rock, toward
+  // the aquifers; the iron design review's H3)
+  const deep = inIronLevel(a);
+  if (deep) done.push('stuck in the iron level');
+  const sealed = deep || (homeGoal(a) ? (await isOut(a, signal)) === 'sealed' : false);
+  if (sealed && !deep) done.push('sealed in (no path home)');
   else if (await walkOut(a, from, signal)) return { how: 'walked', text: `${[...done, 'walked out'].join(', then ')} to ${at(bot.entity.position)}` };
   // A village member on village ground is never dug or pillared out (the mine's roof, a plot): the teleport takes it home
-  const onVillage = !!a.village() && protectedAt(a, bot.entity.position.floored());
-  const c = onVillage ? { rose: 0, why: 'on village ground, not dug out' } : await climb(a, signal).catch((e: Error) => {
+  const onVillage = deep || (!!a.village() && protectedAt(a, bot.entity.position.floored()));
+  const c = onVillage ? { rose: 0, why: deep ? undefined : 'on village ground, not dug out' } : await climb(a, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return { rose: 0, why: e.message };
   });
@@ -221,10 +226,17 @@ export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: '
   if (c.rose && (await walkOut(a, bot.entity.position.clone(), signal)))
     return { how: 'climbed', text: `${[...done, 'walked out'].join(', then ')} to ${at(bot.entity.position)}` };
   // Last resort: a teleport, onto the surface beside home
+  const t = await teleportHome(a, signal);
+  if (!t) return { how: 'failed', text: `could not get out (${c.why ?? 'no way found'}) and has no home to go back to` };
+  return { how: 'teleported', text: `could not walk or climb out (${[...done, c.why].filter(Boolean).join('; ') || 'no way found'}): ${t} (last resort)` };
+}
+
+/** A teleport beside home (the storage hut's aisle, the chest, the plot); null with no home. */
+export async function teleportHome(a: BotAgent, signal: AbortSignal): Promise<string | null> {
   const h = home(a);
-  if (!h) return { how: 'failed', text: `could not get out (${c.why ?? 'no way found'}) and has no home to go back to` };
+  if (!h) return null;
   await a.world.rcon.command(h.y !== undefined ? `tp ${a.name} ${h.x + 0.5} ${h.y} ${h.z + 0.5}` : `spreadplayers ${h.x} ${h.z} 0 3 false ${a.name}`);
   await sleep(1000, signal);
-  await bot.waitForChunksToLoad();
-  return { how: 'teleported', text: `could not walk or climb out (${[...done, c.why].filter(Boolean).join('; ') || 'no way found'}): teleported to ${h.what} at ${at(bot.entity.position)} (last resort)` };
+  await a.bot.waitForChunksToLoad();
+  return `teleported to ${h.what} at ${at(a.bot.entity.position)}`;
 }

@@ -15,7 +15,7 @@ import { timeScale } from './mcRules';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
-  sleep, str, syncInventory, unmoved, walk, wetOver, wetSide,
+  sleep, str, syncInventory, unmoved, walk, wetAt, wetOver, wetSide,
 } from './mcUtil';
 import { FALLING, TREE_LOG, WILD_GROUND } from './mcBlocks';
 
@@ -756,7 +756,14 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     // Dry: no water comes in from above (through falling sand too), and a buried block (dug to) has none beside it either:
     // the Mayor tunnelled to sand under a lake bed and the lake poured in (F137). Shore sand in the open stays fine
     // (wetSide before exposedAt: it is almost always false, and buried stone matches by the ten thousand)
-    const dry = (p: Vec3) => !wetOver(a, p) && (!wetSide(a, p) || exposedAt(a, p.x, p.y, p.z));
+    // Beside water, only where that water is the open surface (air right over it): lake-edge sand, not sand beside a buried
+    // pocket or under the water line, whose dug cell floods and traps the digger (F179: a 3-deep trench filled from a pocket
+    // under the shore, Worker2 2.6 min; F166 at the same cell)
+    const surfaceOnly = (p: Vec3) => [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
+      const q = p.offset(dx, 0, dz);
+      return !wetAt(a, q) || /^(air|cave_air)$/.test(a.bot.blockAt(q.offset(0, 1, 0))?.name ?? '');
+    });
+    const dry = (p: Vec3) => !wetOver(a, p) && (!wetSide(a, p) || (exposedAt(a, p.x, p.y, p.z) && surfaceOnly(p)));
     // Only from home y - 16 up, as `near` takes them (the search skips the sections below)
     const ys = homeY === undefined ? undefined : { min: homeY - 16 };
     const tPick = performance.now();
@@ -1138,12 +1145,14 @@ async function ensurePlanks(a: BotAgent, planks: string, n: number, signal: Abor
   notes.push(`made ${logs * 4} ${planks}`);
 }
 
-async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: string[]) {
+async function ensureSticks(a: BotAgent, n: number, signal: AbortSignal, notes: string[], wood?: string) {
   const id = itemId(a, 'stick')!;
   const short = n - countItem(a, id);
   if (short <= 0) return;
   const times = Math.ceil(short / 4);
-  const p = bestPlanks(a, 2 * times);
+  // (of the wood kind the caller has to spare, when it has enough: F165)
+  const spare = wood ? itemId(a, `${wood}_planks`) : undefined;
+  const p = spare !== undefined && obtainable(a, spare) >= 2 * times ? { name: `${wood}_planks`, n: obtainable(a, spare) } : bestPlanks(a, 2 * times);
   if (!p || p.n < 2 * times) throw new Error(`needs ${2 * times} planks for ${times * 4} sticks (have ${p?.n ?? 0}, counting logs)`);
   await ensurePlanks(a, p.name, 2 * times, signal, notes);
   await craftSimple(a, 'stick', times, signal);
@@ -1205,6 +1214,11 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   if (!name) throw new Error(`unknown item ${raw}; use exact ids like oak_planks, stick, crafting_table, wooden_pickaxe`);
   const id = itemId(a, name)!;
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
+  // The wood kind to take for "any planks" (sticks, a sign's or a fence's planks of no set kind) when there is a choice:
+  // the kind the caller has to spare (makeFromStock's spareKind). The variant with the most planks and logs on hand took
+  // the logs fetched for a later step's planks (F165, F169); a tie-break only, never a kind that is short
+  const wood = typeof args.wood === 'string' && /^[a-z_]+$/.test(args.wood) ? args.wood : undefined;
+  const other = (r: Recipe) => (wood && needs(r).some(({ id: i }) => { const n = itemName(a, i); return n.endsWith('_planks') && n !== `${wood}_planks`; }) ? 1 : 0);
   await syncInventory(a);
   const all = a.bot.recipesAll(id, null, true);
   if (!all.length) throw new Error(`${name} has no crafting recipe${/ingot|glass|charcoal|stone$|brick$/.test(name) ? ' (try smelt)' : ''}`);
@@ -1217,7 +1231,7 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     // The recipe this inventory gets closest to (logs count as planks)
     // Ties go to the variant of what is carried (a pickaxe made of the acacia in hand, not "needs dark_oak_planks")
     const held = (r: Recipe) => needs(r).reduce((s, { id }) => s + obtainable(a, id), 0);
-    const scored = all.map((r) => ({ r, short: shortfall(a, r) })).sort((u, v) => u.short.length - v.short.length || exotic(a, u.r) - exotic(a, v.r) || held(v.r) - held(u.r));
+    const scored = all.map((r) => ({ r, short: shortfall(a, r) })).sort((u, v) => u.short.length - v.short.length || other(u.r) - other(v.r) || exotic(a, u.r) - exotic(a, v.r) || held(v.r) - held(u.r));
     const { r, short } = scored[0];
     if (short.length) {
       // A recipe that takes any planks says so
@@ -1232,7 +1246,7 @@ async function craft(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     }
     // The table first (it takes 4 planks), then sticks (they take planks), then the recipe's planks
     const table = r.requiresTable ? await ensureTable(a, signal, notes) : null;
-    for (const { id: need, count } of needs(r)) if (itemName(a, need) === 'stick' && name !== 'stick') await ensureSticks(a, count, signal, notes);
+    for (const { id: need, count } of needs(r)) if (itemName(a, need) === 'stick' && name !== 'stick') await ensureSticks(a, count, signal, notes, wood);
     for (const { id: need, count } of needs(r)) {
       const n = itemName(a, need);
       if (n.endsWith('_planks') && n !== name) await ensurePlanks(a, n, count, signal, notes);
@@ -1314,7 +1328,14 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       const addFuel = async (left: number) => {
         // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
         const items = furnace.items();
-        const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name));
+        // (planks or logs of the kind the caller has to spare first: the charcoal for the lamps burned the birch planks
+        // fetched for their fences, F169)
+        const spare = typeof args.fuel === 'string' ? args.fuel : '';
+        // (the spare kind's logs before other kinds' planks: those are fetched for later steps, the final review; never the
+        // logs being smelted)
+        const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => it.name === `${spare}_planks`)
+          ?? (spare ? items.find((it) => it.name === `${spare}_log` && it.type !== inId) : undefined)
+          ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name) && it.type !== inId) ?? items.find((it) => /_log$/.test(it.name));
         if (!fuel) return false;
         const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
         await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(left / perItem)));
