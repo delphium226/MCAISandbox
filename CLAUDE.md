@@ -424,6 +424,15 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     at 2x, Minevale31 (1x) 6/6 + lamps + signs + farm in 16.5 min, 0 failed actions. Crops grow with time frozen, only
     near agents. Lessons 90-92. Next (the user's order): harvest and bread, the opportunities analysis, opportunistic
     farming and exploring, the iron age.
+36. 2026-10-08 (twenty-first session; not pushed at the close, ask first; `main` untouched): harvest and bread and the
+    opportunities analysis. `f17f360` farming v2 (`harvest_farm`, a chore code queues on an idle worker at 3/4 ripe,
+    `loot give` per cell, resown charged a seed, bread at the hut's table; never counted for completion;
+    `stage_village.py --harvest`); the analysis (`runs/2026-10-08/s21/opportunities/`: Minevale26-31 with a schedule
+    simulation, 15 staged runs, the code side) and five of its opportunities (the user's picks): `33b70f6` the preparer
+    sets up the storage with its felled logs, `5f3e133` F164 whole buildings (`v.woodFor`), `8724395` the hut's stations
+    shared, `0ec7e0a` hand-gathered items while the plot is prepared and lamps once every build is claimed. Staged green
+    plains 8.9 -> 6.1 min at 2x (VanO4, harvest PASS), Minevale31's site with a wood kind 9.6 -> 7.2. No model-driven
+    run (the user's choice): Minevale32 first next session. Lessons 93-97.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -580,12 +589,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twentieth session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-first session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; VanF5's green village (6 of 6, with its street lamps, name signs and a wheat field at -1667..-1663, 6..12) stands on VanG's 40 site at -1677..-1638, 3..42 until the next reset (inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; VanO4's green village (6 of 6, with its street lamps, name signs and a harvested, resown wheat field at -1667..-1663, 6..12) stands on VanG's 40 site at -1677..-1638, 3..42 until the next reset (inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -902,6 +911,28 @@ Lessons from the adapter:
    the wheat crop as a seed source and tall grass and ferns as none (collect would have harvested the village's own
    field); `advance_time false` leaves random ticks running (crops grow with time frozen, ~25-45 min a crop at 1x), but
    only in chunks within simulation distance of a player or bot: a field no agent is near does not grow.
+93. **Work that must run after completion, or must not hold it, is a chore beside the board** (farming v2, 10-08): a
+   posted "Harvest the farm" task needed exemptions in completion, the mayor's wake-ups, cancelOpen and both claim gates,
+   and the design review still found races, a stall after completion and a posting loop. Code queues the skill on an
+   idle worker holding no task (nothing claimable unless complete), marks its args `chore: true` so the brains ignore
+   its events, locks the field and backs off after a failure (`MineflayerWorld.farmChores`). Lesson 66's pattern again.
+94. **Count a loot table's drops in the world before designing around them** (F168): two research reports read wheat's
+   seed bonus as 0-3, but it adds to the entry's count of 1 (1-4 seeds, 49 and 42 from 16 crops), so the zero-seed
+   case the design guarded against cannot happen. `loot give` reports stacks, not items: count with `clear <name> X 0`.
+95. **A staged test must reproduce the condition the fix is for** (F164): staged sites gave no village wood kind, so
+   every log already counted and the baseline looked fine (VanW1 7.5 min); a wood kind (`--site-at` sixth field) showed
+   the real cost (VanW2 9.6, 136 oak unused). Check the staged village's record (wood, layout, bills) matches the
+   model-driven run's before comparing.
+96. **An all-together rule can be a safety property** (F164's reviews): covering log tasks building by building let
+   one building's deposits close another's tasks and builds came up short; keep the aggregate per kind and move whole
+   buildings between kinds. Never move work under way (a builder holds the logs it withdrew, so the pool looks short:
+   VanW4 moved a house to oak and back), and enforce the choice where the work happens (chooseWood mixed kinds part by
+   part until it searched for one kind covering the whole building).
+97. **Rank opportunities on the critical path with a schedule replay of the run logs** (the opportunities analysis): the
+   runs are work-bound after the mine opens, so removing work (the preparer's logs, F164) moves the finish and shifting
+   it earlier does not; the predictions held (#1 1.7 min staged against 1.5-1.9). Starting work earlier needs its
+   ground protected earlier: gatherers working while the plot is prepared would have dug the plot's own dirt (the
+   review's High), so laid-out plots count as village ground before they are prepared.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

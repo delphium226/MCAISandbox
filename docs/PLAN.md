@@ -20,6 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-08 at the close of the twenty-first session: harvest and bread, the opportunities analysis and five
+of its opportunities; the notes below for the twentieth session stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`, not pushed (ask first; origin had `fab2359`): `f17f360` farming v2
+  (harvest_farm as a chore, MineflayerWorld.farmChores; `stage_village.py --harvest`), `33b70f6` the preparer sets up
+  the storage with its felled logs, `5f3e133` F164 whole buildings (`v.woodFor`; `--site-at` sixth field = the wood's
+  log count, gives a staged village a wood kind), `8724395` stations shared after the storage hut, `0ec7e0a` #3/#4
+  (hand-gathered items while the plot is prepared, lamps once every build is claimed), and the close-out (this record,
+  CLAUDE.md lessons 93-97, README, ARCHITECTURE). `main` untouched.
+- **Stack:** stopped cleanly (the test agent server by PID, the test Paper "All dimensions are saved"); the pinned
+  model servers were not started this session. No agents in either world.
+- **Where things stand:** a ripe field is harvested by an idle worker as a chore (also after completion), resown and
+  baked into bread; staged green plains complete in 6.1 min at 2x (8.9 at the start of the session), Minevale31's site
+  with a wood kind 7.2 (9.6 before F164). **No model-driven run since Minevale31 (16.5 min)**: the analysts' simulation
+  predicted ~11-12 min with #1 and F164.
+- **Next:** 1. **Minevale32** (model-driven 1x, minevale3, after a reset without MC_TIME_SCALE; the command in the
+  session prompt): compare with Minevale31's 16.5 min and check F164's moves and the early gathering with real models;
+  log analysis if it loses minutes. 2. The user's order after the analysis: **opportunistic farming and exploring**, then
+  **the iron age** (backlog). Smaller: F165/F169 (plank choice), F170 (no path out of the mine, once), F171-F173.
+- **How to test now:** staged runs as before; `--harvest` sets the field ripe after the build and checks the harvest;
+  `--site-at=X,Y,Z,SIZE,WOOD,WOODLOGS` gives a wood kind (F164 tests: Minevale31's site
+  `--site-at=-1628,65,47,40,birch,999`, baseline VanW2 9.6, now VanW5 7.2). Records, reviews and analyses:
+  `runs/2026-10-08/s21/`; the next prompt is `runs/2026-10-08/s21/NEXT_PROMPT.md`.
+- **Test world state:** minevale3 holds VanO4's green village (-1677..-1638, 3..42) with its harvested and resown farm:
+  reset before using it.
+
 (written 2026-10-08 at the close of the twentieth session: farming v1 added; the notes below for the nineteenth session
 stay valid where not overridden)
 
@@ -852,11 +878,15 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   in alternate rows, planted early, completion waits for the planting; Claude's: a hoe required, no farm in cold or
   desert biomes, water laid free by tend_farm). Crops grow with time frozen (random ticks ignore `advance_time`) but only
   within ~6 chunks of an agent.
-- **Harvest and bread** (farming v2, **next**, the user's order 10-08): code posts "Harvest the farm" when ~3/4 of the
+- ~~**Harvest and bread**~~: done 10-08 (`f17f360`, a chore rather than a posted task, see the decisions). The plan was
+  (farming v2, the user's order 10-08): code posts "Harvest the farm" when ~3/4 of the
   wheat is age 7 (a check beside `refreshNeeds`, no board change), `loot give <name> mine X Y Z` per ripe cell (no
   walking on the field), resow charged a seed, bread (3 wheat) at the hut's table into storage; never counted for
   completion; tested with crops set ripe by command. The water can become charged after the iron age.
-- **The opportunities analysis** (the user's, 10-08; after harvest and bread): read-only subagents go through the last
+- ~~**The opportunities analysis**~~: done 10-08 (twenty-first session; `runs/2026-10-08/s21/opportunities/`, five
+  opportunities built, see the decisions; left: a ready build pre-empting a fresh soft gather, seeds credited from
+  prepare_site's grass, one trip for several sand tasks, side pickups on walks, the mine keeping ores). The plan was
+  (the user's, 10-08; after harvest and bread): read-only subagents go through the last
   ~15 runs' logs (Minevale20-31, Van*) and measure where each agent's time goes (idle, waiting for a task, empty walks,
   storage round trips, a task claimed far off while a nearer one was ready, a needed block passed on the way); each
   pattern a candidate with its minutes per run, prototyped offline where possible, ranked by minutes saved against risk;
@@ -1227,6 +1257,18 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-08 (s20) | **VanF4** | as VanF3, the diff review's fixes | **6/6 + 6 lamps + 5 signs + farm** | **9.2 min** | the Mayor took both seed tasks and the hoe's log; planted at 6.4; 0 failed; `[dig]` 1, other counts 0; field 0 problems, wheat 0-5 |
 | 10-08 (s20) | **Minevale31** | model-driven 1x, minevale3, `24e7037` | **6/6 + 6 lamps + 5 signs + farm PASS** | **16.5 min** (30: 15.4) | site -1628,65,47 as 30, same layout and bills; laid out at 0.2; planted 16 at 11.3 (0.1 min); 0 failed actions; `[repath]` 1, other counts 0; ~1.0 min lost to the Mayor's seeds-first order (F163), 0.1 to the planting (`minevale31_analysis.md`) |
 | 10-08 (s20) | **VanF5** | staged as VanF4, `e28198e` (seeds in posting order, no hoe-log task) | **6/6 + 6 lamps + 5 signs + farm** | **8.9 min** (F4 9.2) | seeds by Worker2 and the Mayor from 3.9, planted at 5.8; 0 failed; `[dig]` 1, other counts 0; field 0 problems |
+| 10-08 (s21) | **VanH1** | staged green plains, 2x, minevale3, `--mayor --planner none --harvest`, the harvest code before the review fixes | **6/6 + lamps + signs + farm; HARVEST PASS** | **9.3 min** to the signs (F5 8.9) | planted 16 at 6.6; complete; field set ripe by `fill`, the chore fired at the next 30 s check (Worker1), harvest 0.5 min: 16 wheat, 49 seeds, 16 resown (ages 0-1), 5 bread + 1 wheat in storage; 0 failed; `[dig]` 1, other counts 0 |
+| 10-08 (s21) | **VanH2** | as VanH1 without `--mayor` (harvest before completion), the review fixes (`f17f360`) | **6/6 + lamps + signs + farm; HARVEST PASS** | **10.5 min** to the signs (no mayor gathering: V2.3m 10.9) | planted 16 at 5.9; harvest 0.3 min: 16 wheat, 42 seeds, 16 resown at age 0, 5 bread; 1 failed action: light_streets 3 birch_fence short, self-healed (F165's family); all counts 0 |
+| 10-08 (s21) | VanO1 | staged green plains 2x, opportunity #1 first version | stopped at ~1.5 min | - | the preparer's walk to the storage spot found no path (move_to's height rule missing); the storage task stayed on the board as designed; stopped, fixed (a hut layout's deposit walks to the aisle itself) |
+| 10-08 (s21) | **VanO2** | as VanO1, fixed (`33b70f6`) | **6/6 + lamps + signs + farm** | **7.2 min** (F5 8.9, H1 9.3) | storage set up by the preparer at 1.4 (was 2.1-2.7), mine open at 2.4 (was ~4.35), farm planted 4.8; 0 failed; `[dig]` 1, other counts 0 |
+| 10-08 (s21) | VanW1 | staged on Minevale31's site (-1628,65,47, 40, birch), 2x, `--mayor --planner none`, #1 | 6/6 + lamps + signs | 7.5 min | no village wood kind (staged sites gave none): any logs counted, so F164 did not show; the preparer felled 212 birch + 142 oak |
+| 10-08 (s21) | **VanW2** | as VanW1 with `--site-at=...,birch,999` (a wood kind, as model runs) = F164's baseline | 6/6 + lamps + signs | **9.6 min** | the mining hut waited to 2.4 for birch log tasks, mine 3.4, storage hut 5.5; 136 oak unused at the end; 0 failed |
+| 10-08 (s21) | VanW3 | as VanW2, F164 first version (per building in posting order) | 6/6 + lamps + signs | 7.3 min | logs covered at 1.5; library built in oak by chooseWood's fallback (no assignment); 1 failed deposit (no path out of the mine at y 59, not repeated, F170); the review found the per-building rule unsafe (H1, H2) |
+| 10-08 (s21) | VanW4 | as VanW2, F164 v2 (per kind, latest buildings moved) | 6/6 + lamps + signs | 7.2 min | meeting point and house 1 in oak; house 3 moved to oak and back while house 1's builder held the oak, then built birch with oak planks (mixed); 0 failed |
+| 10-08 (s21) | **VanW5** | as VanW2, F164 v3 (no undo while a build runs, one kind for a whole building) (`5f3e133` adds the final review's guards) | **6/6 + lamps + signs** | **7.2 min** (W2 9.6) | meeting point and both houses in oak, huts and library birch, every building one kind; 0 failed, all counts 0 |
+| 10-08 (s21) | **VanW6** | as VanW5 + #5 (no table or furnace billed after the storage hut) | **6/6 + lamps + signs** | **7.5 min** | 55 tasks posted (57), 16 cobblestone left (42): ~26 fewer gathered; time within noise; 0 failed, all counts 0 |
+| 10-08 (s21) | **VanO3** | staged green plains 2x, `--mayor --planner none --harvest`, #1 + F164 + #5 (`8724395`) | **6/6 + lamps + signs + farm; HARVEST PASS** | **7.0 min** (F5 8.9) | mining hut 1.5, storage hut 4.0, last build 6.6; harvest after completion 0.2 min (16 resown, 5 bread); 0 failed; `[dig]` 1, other counts 0 |
+| 10-08 (s21) | **VanO4** | as VanO3 + #3/#4 (`0ec7e0a`, before the diff review's narrowing guards) | **6/6 + lamps + signs + farm; HARVEST PASS** | **6.1 min** (O3 7.0) | seeds taken at 0.1 while the plot was prepared, sand and dirt at 1.6-1.8 (deposited at once: storage at 1.4); lamps claimed at 5.3 while house 1 was still being built; last build 5.7; 0 failed; `[dig]` 1, other counts 0 |
 
 ## Findings log
 
@@ -1646,6 +1688,26 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F173 (10-08, twenty-first session, the #3/#4 diff review) Left: the lamp job's runJob moves a player standing in a lamp
+  cell to its stand spot by the storage hut, so a builder walking a street over a lamp cell could be moved mid-walk (it
+  recovers); desert lamps over-count logs in the cover rule (sandstone posts); before a plot is prepared collect has no
+  depth floor (as before). Not seen in VanO4.
+- F172 (10-08, twenty-first session, the stations review) Accepted for now: the architect's budget checks and the vanilla
+  library's accept still count a design with its own table and furnace, plan_layout's one-landmark check now without
+  them (a design at 151-160 units may pass as a house); the mining hut bills no table (planks only).
+- F171 (10-08, twenty-first session, the F164 reviews) Left from F164: an undone move leaves the log tasks it closed as
+  done (the build recovers through requeue); `given` (a builder without the claim) can pick the other copy's label;
+  a one-kind plan reached without the search is not recorded; requeued gather tasks are labelled by the design name,
+  not the task label (pre-existing, copies 'cottage 1/2'); failed builds still reserve logs.
+- F170 (10-08, twenty-first session, VanW3) A deposit failed once "could not reach the storage hut (no path ... stopped
+  at -1621,59,37)": a miner at the mine's level found no path up to the hut; the next deposit worked. Watch for more.
+- F169 (10-08, twenty-first session, VanH2) light_streets failed once "short of 3 birch_fence (carrying 3, storage has
+  0)" and was re-run 0.5 min later: the lamps' fence planks went to something else made from storage first (F165's
+  family: the craft skill's own plank choice or a generic step taking the spare kind). Self-healed; backlog with F165.
+- F168 (10-08, twenty-first session, VanH1) Ripe wheat gives 1 wheat and **1-4** seeds (1 + binomial(3, 0.571), mean
+  2.7: 49 and 42 seeds from 16 crops), not 0-3 as reports a and c read it: the bonus adds to the entry's count of 1. A
+  harvest always pays its own resowing; a cell is left bare only when the server's counts fail (then it is sown
+  uncharged). Surplus ~27-33 seeds a harvest goes to the misc chest.
 - F167 (10-08, twentieth session, the diff review's rows test) Tight rows plots (street 2) leave no room for a 5x7
   field; those villages get no farm (rows are the fallback; street and green plans got one in all 15 offline layouts).
   Accepted.
@@ -1657,7 +1719,7 @@ CLAUDE.md when a phase ends.
   the stick recipe's planks itself (`bestPlanks`, ties to birch) and saws a birch log meant for the sign planks;
   `spareKind` guards only the plan's `any:` steps (lesson 88's class). The farm made it likelier (the hoe used the spare
   sticks). Harmless; to confirm, log `plan.steps` and the inventory before each makeFromStock step. Backlog.
-- F164 (10-08, twentieth session, the Minevale31 analysis) The "covered by stock" rule (village.ts ~307-334) counts only
+- F164 (10-08, twentieth session, the Minevale31 analysis; **fixed 10-08** `5f3e133`, whole buildings, see the decisions) The "covered by stock" rule (village.ts ~307-334) counts only
   the village's wood kind, so ~150 oak logs from prepare_site's felling never cover birch log tasks: the mining hut waited
   for three log tasks with 200+ logs in storage, ~1.5 min in Minevale30 and 31. Counting all logs would mix kinds in builds
   (the user's call): the first candidate of the opportunities analysis.
@@ -2211,6 +2273,29 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (twenty-first session) The opportunities analysis (`runs/2026-10-08/s21/opportunities/`: three read-only
+  analyses, Minevale26-31 with a schedule simulation, 15 staged runs, the code side; `ranking.md`). The user chose to
+  build #1, #2 (F164), #5 and #3/#4, F164 as whole buildings. Done: **#1 the preparer sets up the storage with its
+  felled logs** (`33b70f6`: VanO2 7.2 min against VanF5 8.9); **#2 F164** (`5f3e133`: per kind with the old
+  all-together rule, latest buildings moved to another kind that covers them, one kind per building in the builder;
+  VanW5 7.2 against VanW2 9.6 on Minevale31's site with a wood kind); **#5 the huts' stations shared** (buildings after
+  the storage hut bill no table or furnace; the hut's stations reach 64 blocks: VanW6 ~26 fewer cobblestone, time
+  within noise). Then (the user: build them without re-measuring) **#3 pre-gathering** (hand-gathered items only:
+  sand, red_sand, dirt, gravel, clay_ball, wheat_seeds; a deposit waits for the storage; unprepared layouts are village
+  ground for collect, the review's High) and **#4(b) lamps once every build is claimed** (`afterClaimed`; lamps
+  outside every claim ring and door walkway, checked offline; the lamps' logs kept back while their task is open;
+  #4(a), signs in the lamp job, skipped as conflicting) (`0ec7e0a`: VanO4 6.1 min). Staged green plains 8.9 -> 6.1 min
+  over the session. No model-driven run this session (the user's choice): Minevale32 first next session.
+- 10-08 (twenty-first session) Harvest and bread (the user's choices, all as recommended): a **chore**, not a board task
+  (`MineflayerWorld.farmChores`: every 30 s, fields read from the bots' views, at 3/4 ripe and at least 4 an idle worker
+  holding no task, with nothing claimable unless the village is complete, is given `harvest_farm`; brains ignore chore
+  events; completion, wake-ups and stop rules never see it; it runs after completion too); `loot give ... mine` per ripe
+  cell standing by the hut (no walking on the field), resown charged a seed; **all wheat baked** into bread at the hut's
+  table (only that table), the rest into storage; tests **staged with the field set ripe by command**
+  (`stage_village.py --harvest`), no model-driven run (a harvest never fires inside one; the user agreed to skip it).
+  The design review proposed the chore over a board task (races, a stall after completion, a posting loop); the diff
+  review's two mediums taken (a failed count no longer clears the field; never ahead of claimable board work), and its
+  lows 3-5, 7, 10. Next (the user): the opportunities analysis.
 - 10-08 (twentieth session) Farming v1 (the user's choices, all as recommended): seeds by soft gather tasks into storage
   (not gathered by the planter); a 5x7 field with 16 seeds in alternate rows; planted early (after the storage hut's
   build), completion waits for the planting; harvest and bread later, as v2. Claude's calls after the design review: a

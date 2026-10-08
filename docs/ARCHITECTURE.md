@@ -105,7 +105,7 @@ classDiagram
     isPlaceable(block) bool
     designBlocks?(survival) block list, states
     agentList() WorldAgent[]
-    materialTasks?(design, label, wood?) gather tasks
+    materialTasks?(design, label, wood?, stations?) gather tasks
     materialsNear?(by, want, x, y, z, range) counts
     vanillaLibrary?(biome) centre, houses
   }
@@ -189,7 +189,9 @@ flowchart TB
 | `damage`, `death`, `pickup`, `crafted`, `broke`, `killed`, `system` | text | urgency, replanning, the panel |
 
 Two optional `WorldAdapter` methods carry the survival economy, so `layout.ts` and the brain stay world-neutral:
-`materialTasks` turns a design's bill of materials into gather tasks, and `materialsNear` counts, up to the amounts
+`materialTasks` turns a design's bill of materials into gather tasks (in the village's wood kind; with `stations`,
+the default, a crafting table and, when something is smelted, a furnace are added: `plan_layout` passes false for every
+building after the storage hut, which uses the hut's), and `materialsNear` counts, up to the amounts
 wanted, the blocks `collect` would gather for each material near a point (as `collect` reaches them: anything within
 40 blocks, only exposed blocks farther out, nothing more than 16 below the ground), in the ground one agent has loaded.
 `plan_layout` uses it to refuse designs whose materials are not near the site, and the architect's brief uses it to
@@ -402,7 +404,8 @@ sequenceDiagram
   L->>S: materialsNear: are the materials near the site, as collect reaches them?
   L->>L: a green round the town centre (a 40 site), else streets; each building turned to face one (else rows)
   L->>B: prepare the plot (streets laid as dirt_path); set up the storage (4 chests into the storage hut's spots); gather for the hut, build it
-  L->>B: gather tasks per building (after the storage); builds at x, z (after the hut); "Light the streets" after every build; "Put up the signs" after the builds and the lamps; in survival seed and hoe-log tasks after the storage, "Plant the farm" after the hut
+  L->>B: gather tasks per building (logs after the storage, cobblestone after the mine, sand, dirt and seeds at once); builds at x, z (after the hut); "Light the streets" once every build is claimed; "Put up the signs" after the builds and the lamps; in survival "Plant the farm" after the hut
+  W->>S: prepare_site; with the felled logs in hand, the preparer runs the storage task's craft and deposit itself
   opt the site holds only some of the buildings
     L->>B: lay out the ones that fit (at least half); the rest wait as unplaced
     M->>S: find_site again
@@ -428,6 +431,10 @@ sequenceDiagram
   W->>S: light_streets layout=1 (posts and torches made from storage, one charged job)
   W->>S: put_up_signs layout=1 (a name sign beside each door, made from storage, the text checked on the server)
   W->>S: tend_farm layout=1 (earlier, after the hut: water and farmland laid free, a hoe, 16 wheat sown from stored seeds)
+  opt the field 3/4 ripe and nothing claimable (checked every 30 s)
+    W->>S: harvest_farm layout=1, queued by code as a chore (no board task, no model): loot each ripe cell, resow
+    S->>C: deposit the bread baked at the hut's table, the wheat and seeds
+  end
   alt the mayor declares it
     M->>B: declare_complete (checked: every layout build done, the lamps lit, the signs up, the farm planted)
   else code, on the mayor's next tick
@@ -444,7 +451,7 @@ coordinates, everyone else in the village is a worker.
 ```mermaid
 stateDiagram-v2
   [*] --> open: plan_layout or the mayor posts
-  open --> claimable: prerequisites done (a failed "soft" gather task counts, and a held one the storage covers) and its design drawn
+  open --> claimable: prerequisites done (a failed "soft" gather task counts, a held one the storage covers, and for the lamps a claimed build) and its design drawn
   claimable --> claimed: a free worker claims it (before planning), or the waiting mayor a gather task
   claimed --> done: the worker's plan completes
   claimed --> open: handed back (replanned 3 times, or the plan failed), 1st time
@@ -544,7 +551,10 @@ street plan's main streets, about every 8 blocks (`LAMP_SPACING`), corners and t
 every building, off the 3 cells out of each entrance door and off the mining hut's ground to the pad's edge
 (`placeAlong` returns each door and the mine's back strip for this). Where the world has the `light_streets` skill
 (Minecraft, survival), `postLayout` records the cells on the layout and posts a soft "Light the streets: N lamp posts"
-task after every build of it. `light_streets` (`mcBuild.ts`) builds every post in one job charged like a build (a fence
+task after every build of it, with `afterClaimed` (2026-10-08): a claimed Build prerequisite counts as met, since every
+lamp lies outside every building's claim ring and door walkway in all street and green layouts (checked offline), so
+the lamps go up while the last builds run; while the task is open `stockCovers` keeps a log a lamp back from the logs
+that cover the builds. `light_streets` (`mcBuild.ts`) builds every post in one job charged like a build (a fence
 of the village's wood with a torch; in the desert two cut sandstone), standing by the storage hut so the sticks,
 fences and charcoal are made at its table and furnace; it skips a cell that is not level or not free, sets missing
 blocks once more after a check, and marks the layout `lit`. Short of materials, it posts gather tasks and goes back on
@@ -582,8 +592,8 @@ channel freezes at low light) or desert and badlands (no grass for seeds), nor w
 plot and 3 round it left out (prepare_site cuts the plot's own grass; a null answer, as for a staged run's `api`
 poster, lets the farm go ahead). It records the field on the layout (`farm`: area, `water`, 16 `sow` cells in alternate
 rows nearest the water: bare farmland between rows grows faster) and, right after the storage hut's build, posts two
-soft "Gather 8 wheat_seeds for the farm" tasks after the storage (no task for the hoe's log: prepare_site's felled
-trees leave logs in storage), then "Plant the farm: 16 wheat" (`tend_farm layout=K`) after
+soft "Gather 8 wheat_seeds for the farm" tasks, claimable at once (gathered while the plot is prepared; no task for the
+hoe's log: prepare_site's felled trees leave logs in storage), then "Plant the farm: 16 wheat" (`tend_farm layout=K`) after
 the plot, the storage and the hut's build: it runs while the houses go up, off their path. `tend_farm` (`mcBuild.ts`)
 stands by the storage hut and lays the channel's water (dirt under it where the ground is not solid, and past its ends)
 and the farmland in one free job (landscaping: water would need a bucket, so iron), skipping a cell that is not soil at
@@ -598,9 +608,22 @@ order. Every
 bot's walks keep off every village's field (`exclusionAreasStep`, below). Completion, `declare_complete`,
 `stage_village.py` (whose `--stage build` stocks 16 seeds and a log) and `follow_workers.py` wait for the task as for the
 lamps and signs. Wheat grows with time frozen at day (random ticks ignore `advance_time`), but only within about 6
-chunks of an agent or player: rows ~23 min a crop at 1x, so no harvest within a village run. Harvesting and bread are
-not built yet. Staged VanF3/VanF4 (2x): 9.0 and 9.2 min with the farm planted; Minevale31 (1x, model-driven) 16.5 min,
-0 failed actions.
+chunks of an agent or player: rows ~23 min a crop at 1x, so no harvest within a village run. Staged VanF3/VanF4 (2x):
+9.0 and 9.2 min with the farm planted; Minevale31 (1x, model-driven) 16.5 min, 0 failed actions.
+
+**The harvest** (farming v2, 2026-10-08; the user's choice: a chore, not a task). `MineflayerWorld.farmChores`, run
+from the world's tick every 30 s, reads each planted field's wheat ages (state ids) from the view of any bot with the
+cells loaded (a field no one has loaded is skipped: it does not grow either). When 3/4 of the wheat (at least 4) is ripe,
+the planting is not still open and the board has nothing claimable, it queues `harvest_farm layout=K` with
+`chore: true` on an idle worker holding no task. A chore has no board task, so completion, the mayor's wake-ups and
+the stop rules never see it, and `TieredBrain.onEvent` leaves its events out of the plan, the failure count, the
+blocked calls and the failed-actions stat. `harvest_farm` (`mcBuild.ts`) is registered in `MC_SKILLS` but is not in
+`TOOLS`, so no model can call it and `/api/skills` does not list it. It locks the field (`harvesting`, one harvest a
+field), stands by the storage hut, gives each ripe cell's loot with `loot give <bot> mine` (vanilla's loot table: a
+wheat and 1-4 seeds; no walking on the field), sows the cell again charged a seed or clears it when none is left (never
+left ripe), bakes the wheat into bread at the hut's table and deposits everything. The layout's `farm` records
+`harvests`, `bread` and `lastHarvest` (a failed one waits 10 minutes, "nothing ripe" 2). `stage_village.py --harvest`
+sets the field ripe by command after the build and checks the bread and the resown cells.
 
 ## 5. Skills in each world
 
@@ -853,8 +876,9 @@ calling shell (servers run as a Claude session's background tasks were stopped a
 restored site gave the same plot, the same mine and the same time. The sites cover woods with sand, hills, a drop and a
 shelf (a plot against a drop, whose mine meets the hillside); `site.py` and `fell_trees.py` reach the test world's
 agent server through `MCAI_API`. `region_blocks.py --compare` checks a restore
-against the snapshot without a server. `stage_village.py --site-at X,Y,Z,SIZE` takes a site find_site gave elsewhere
-(in jungle, where a probe spawned by x,z lands on the canopy).
+against the snapshot without a server. `stage_village.py --site-at X,Y,Z,SIZE[,WOOD[,LOGS]]` takes a site find_site
+gave elsewhere (in jungle, where a probe spawned by x,z lands on the canopy; with the wood's log count the staged village
+gets a wood kind, as `plan_layout` gives one only with enough of it).
 
 The agent server runs every bot on one Node event loop, so a slow synchronous step stalls them all: it logs any stall
 over 2 s as a `[lag]` line with each agent's current action (`mineflayer/index.ts`). 2-3.5 s while bots join is
@@ -909,14 +933,14 @@ flowchart LR
 |---|---|---|
 | World rules | `mcRules.ts` | peaceful; no fall, drowning, fire or freeze damage; keep-inventory; no monster spawning or fire spread; read back and shown in `/api/status` |
 | Bill of materials | `mcMaterials.ts` | blocks per design (a door once for two cells; grass and `dirt_path` charged as dirt, stripped logs and bark blocks as logs by `chargedItem`), the cheapest recipe chain to raw materials (wood-kind variants merged into "any planks", smelting from the jar's recipes or the hand table without it (section 5), whole batches, leftovers reused, fuel), unobtainable and hard-to-find items flagged |
-| Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots), gather for the hut, build it around the chests; other buildings' gathering waits only for the storage, their builds for the hut |
+| Storage hut | `huts.ts`, `layout.ts` | a fixed 7x9x4 design (cobblestone floor, plank walls, log corners, plank roof, an open doorway in the middle of the south wall, no windows; the village's crafting table and furnace inside) with nine chest spots marked `_`, none side by side; added by code to a new village's first layout (the mayor does not name it, `design_building` refuses the name); tasks in order: prepare the plot, set up the storage (collect 10 logs, craft 4 chests, deposit puts them in the spots; in survival the preparer runs its craft and deposit steps at the end of `prepare_site` with the felled logs, `storageFromFelled`, and a failure there leaves the task on the board), gather for the hut, build it around the chests; other buildings' log gathering waits only for the storage, cobblestone for the mine, hand-gathered materials (sand, red sand, dirt, gravel, clay, seeds) for nothing (their deposit waits up to 10 minutes while the storage is set up), their builds for the hut; the hut's table and furnace serve every craft and smelt within 64 blocks (`villageStation`), so only the storage hut bills its own |
 | Mine | `huts.ts`, `mcMine.ts`, `layout.ts` | a wood-only 5x5 mining hut in the first layout, turned toward the plot's edge; `dig_mine` digs stairs to stone (7+ steps); `collect cobblestone` then extends main tunnels with 12-long branches every 3 cells, turns a new tunnel off one that ended, and digs the stairs on down to a new level when none can go on (see below) |
 | Storage | `mcStorage.ts` | sorted in a hut: material groups (logs, planks, cobblestone, sand, glass, terracotta, misc) given at a chest's first use; deposit routes each item to its group's chest, else a free chest, else a new chest crafted (from carried or stored logs) and put in the next free spot; withdraw goes to the chests that hold the item; `deposit item=all` leaves tools and junk (dirt, saplings, seeds), but not junk the depositor holds a task to collect (F132); a deposit that found no path says to walk back, not to craft a chest; a walk to a chest that stalls without moving the bot a block fails at once when the chest is over 6 blocks away (nearer, only the nearest side spot is tried), and is rethrown by every caller that would go on to other chests (`depositSorted`, `newChest`, `refreshStorage`, makePickaxe's and a build's making from stock), while a deposit that already put something away returns that with the stuck note (F143, F146). Villages from before the hut keep loose chests, placed by the first deposit and in a row when full. Chests are registered as 1x1 structures, contents recorded at every opening |
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees; a new village's first site may lie up to 256 blocks from the mayor's start, and the verdict (`memory.siteSearch`) decides whether workers scout first (section 4) |
 | Design limits | `tieredBrain.ts` (design checks), `designs.ts`, `buildingGen.ts`, `layout.ts` | the world's block list (`designBlocks`), raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration (made air in a hand drawing); a cost budget in place of the old 9x9 cap, in raw blocks to gather from `materialTasks` (`HOUSE_UNITS` 150, a landmark by its name, a hall, chapel, tower..., `LANDMARK_UNITS` 300; 250 and 400 before the generator; at most `MAX_SMELTS` 32 furnace runs), and `plan_layout` lays out one building over 150 a village; a style is fitted by code instead of refused (walls capped at `HOUSE_WALLS` 9 and `LANDMARK_WALLS` 11, `fitSmelts`, `shrinkStyle`); three tries with the problems; vanilla pieces pass the same checks in `mcWorld.vanillaLibrary` before they reach the library (a library or temple as a landmark) |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
-| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls; on a green or street plan, a soft street-lamp task after the builds (`placeLamps`, `light_streets`, section 4); on every layout a soft name-sign task after them (`placeSigns`, `put_up_signs`); on a first survival layout the wheat field, its soft seed and hoe-log tasks after the storage and the planting after the hut (`placeFarm`, `tend_farm`, section 4) |
-| Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack; charcoal from the log kind
+| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls; on a green or street plan, a soft street-lamp task once every build is claimed (`placeLamps`, `light_streets`, `afterClaimed`, section 4); on every layout a soft name-sign task after the builds and lamps (`placeSigns`, `put_up_signs`); on a first survival layout the wheat field, its soft seed tasks (claimable at once) and the planting after the hut (`placeFarm`, `tend_farm`, section 4); the ripe field harvested as a chore (`farmChores`, `harvest_farm`) |
+| Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`; with a village wood kind, logs per kind for all unbuilt buildings of that kind together, and while the village's kind is short, buildings not yet started move whole, the latest posted first, to another kind the storage holds enough of, `village.woodFor`, undone when it no longer covers and no build is under way; F164); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind chosen by `chooseWood`, the building's own kind (`woodFor`) first and one kind for the whole building when one covers every part (not a kind another unbuilt building counts on), else per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack; charcoal from the log kind
 with logs to spare, not the logs fetched for planks, F156), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests; a limited runner (`pick`, `notTheTask`) is the waiting mayor's gathering (section 3) |
 

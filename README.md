@@ -476,7 +476,8 @@ built like any other building. Later sites get rows.
 **Street lamps.** A green or street plan in Minecraft also gets lamps (`placeLamps`): posts beside the main streets
 about every 8 blocks, corners and the pad's edge first, 2 blocks from every building and off door walkways and the
 mining hut's ground. `plan_layout` records them on the layout and posts a soft "Light the streets: N lamp posts" task
-after every build; `light_streets` puts them all up in one job from the storage hut (a fence of the village's wood with
+that may start once every build is claimed (no lamp stands on a building's claimed ground or door walkway, so the lamps
+go up while the last builds run; their logs are kept back from the storage's cover counts); `light_streets` puts them all up in one job from the storage hut (a fence of the village's wood with
 a torch; in the desert two cut sandstone), charged like a build, checks the torches after, and goes back on the board
 behind gather tasks when the storage falls short. The village counts as complete once they are lit.
 
@@ -493,14 +494,22 @@ down the middle with farmland either side, on free pad ground nearest the storag
 walkways including the entrances, the mining hut's back strip, and 2 blocks from every building). There is none in
 snowy or desert villages (the channel freezes; no grass for seeds), nor where the grass near the site, the plot itself
 left out, is too thin for the seeds. `plan_layout` records it on the layout and posts two soft "Gather 8 wheat_seeds for
-the farm" tasks after the storage, then "Plant the farm: 16 wheat"
+the farm" tasks (claimable at once, gathered while the plot is prepared), then "Plant the farm: 16 wheat"
 right after the storage hut's build, so the wheat grows while the houses go up. `tend_farm` lays the water and the
 farmland free (landscaping), needs a hoe (from storage, or made at the hut's table), sows 16 wheat in alternate rows,
 each charged as a wheat seed, checks every cell on the server, and asks once each for missing seeds or the hoe's log.
 Seeds come from short grass, tall grass and ferns (never a village's own wheat), and the waiting mayor gathers them
 before anything else. No walk steps onto a farm (a bot standing on one may leave it). Wheat grows with time frozen at
-day, but only within about 6 chunks of an agent or player; harvesting and bread are not built yet. The village counts
-as complete once the farm is planted.
+day, but only within about 6 chunks of an agent or player. The village counts as complete once the farm is planted.
+
+**The harvest.** Every 30 seconds code reads each planted field's wheat from the bots' view; when 3/4 of it (at least 4)
+is ripe and the board has nothing claimable, an idle worker holding no task is given `harvest_farm` as a chore: no task
+on the board, so completion, the mayor's wake-ups and the watch scripts' stop rules never see it, and its failures are
+not counted as the run's. `harvest_farm` is queued by code only (it is not a model tool, so not in `/api/skills`). The
+worker stands by the storage hut, takes each ripe cell's loot from the server (`loot give ... mine`: vanilla's loot
+table, wheat and 1-4 seeds, without walking on the field), sows the cell again charged a seed (or clears it, never
+leaving it ripe), bakes the wheat into bread at the hut's table and deposits the bread, the wheat left over and the
+seeds. A failed harvest waits 10 minutes before the next try.
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -640,8 +649,11 @@ What building these agents taught, and what the code is built around:
   `--mayor` adds a tiered Mayor whose layout is posted and whose plan is empty, so it gathers while it waits
   (`--planner` is its planner, `--planner none` none; start the agent server with `MC_OLLAMA_ROUTES`).
   `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
-  its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD]` uses a site find_site gave
-  directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the canopy).
+  its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD[,LOGS]]` uses a site
+  find_site gave directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the
+  canopy; LOGS, the wood's log count near the site, gives the village a wood kind as in model-driven runs).
+  `--harvest` sets the farm ripe by command after the build and checks the harvest chore: bread in storage, the field
+  sown again.
 - **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
   (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
   villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
@@ -688,7 +700,7 @@ Agents are spawned and driven through the same REST API as in the sandbox (on po
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
 find_site, prepare_site, build_design, build_box, build, light_streets, put_up_signs and tend_farm (`GET /api/skills`), with the sandbox's names, arguments and
-failure messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
+failure messages. `harvest_farm` also exists but is no model tool: code queues it as a chore (the harvest, above). Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
@@ -783,7 +795,7 @@ four along each side wall and one at the back, none side by side (two chests sid
 chest). The design marks them `_`, cells the build leaves as they are, so the hut is built around chests already
 standing: `build_design` lets the village's chests stand there, and refuses to build when one is not at the level of
 the hut's floor (it would be buried under the floor layer). The village's crafting table and furnace stand in the
-middle of the hut: within 32 blocks of it every craft and smelt happens there (one smelter at a time), so no tables
+middle of the hut: within 64 blocks of it every craft and smelt happens there (one smelter at a time), so no tables
 and furnaces are left about the village; farther out a table is put down as before, never on village ground or in
 the mine.
 
@@ -840,31 +852,40 @@ down stood inside the future hut and raised its floor).
    set up the storage (collect 10 logs, craft 4 chests, deposit: the chests go into the hut's chest spots on
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
-   block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
-   gathering waits only for the storage, their builds for the hut. In survival, soft tasks gather the farm's seeds
-   after the storage, and "Plant the farm" follows the hut's build. Round a green or along streets, a
-   soft task puts up the street lamps once every building stands, and on every layout a last one the name signs beside
-   the doors.
+   block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. Logs wait for the storage and
+   cobblestone for the mine; what is gathered by hand (sand, dirt, gravel, clay, the farm's seeds) is gathered while
+   the plot is prepared, and its deposit waits until a storage chest holds something (at most 10 minutes). Builds wait
+   for the hut. Only the storage hut bills a crafting table and furnace: later buildings use the hut's. The preparer
+   ends `prepare_site` carrying the logs of the trees it felled, so it sets up the storage itself with them (the storage
+   task's craft and deposit steps), which also covers the first log tasks. In survival "Plant the farm" follows the
+   hut's build. Round a green or along streets, a soft task puts up the street lamps once every build has been claimed
+   (the lamps stand clear of every building's ground), and on every layout a last one the name signs beside the doors
+   once every building stands.
 3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
    asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
-   Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
+   Gathering stays within 96 blocks of the village and never mines inside its plots (nor on ground laid out but not
+   prepared yet, since gathering now starts before `prepare_site`); stone is mined for cobblestone,
    with a wooden pickaxe `collect` crafts itself when it has none. A gather task for a material that is not within
    reach is given up at once (it is "soft": the build checks its own materials), and only that task: the queue goes
    with it. For sand the first such failure also closes the village's other open sand tasks, and code posts no sand
    gathering again until the next layout. A build does not wait for a gather task still held by a worker when the
-   storage already covers that task. The mayor, waiting with an empty plan, takes gather tasks the same way, in the
+   storage already covers that task. With a village wood kind, logs are covered kind by kind (the storage must hold
+   the logs of every unbuilt building of that kind together); while the village's kind is short, buildings not yet
+   started move whole to another kind the storage holds enough of (the oak a preparer felled in a birch village had
+   sat unused). The mayor, waiting with an empty plan, takes gather tasks the same way, in the
    order posted (the farm's seeds after the huts' gathering).
 4. A **builder** at a site counts what it carries (on the server), takes what is missing from storage, crafts and
    smelts what can be made from what is there (planks, doors, glass, and the table and furnace for them), and places
-   the building block by block against its inventory. Each wood kind is chosen per part from what was gathered (an oak
-   design comes out in acacia where acacia grows).
+   the building block by block against its inventory. The wood kind is chosen from what was gathered (an oak design
+   comes out in acacia where acacia grows): the building's own kind first, and one kind for the whole building when
+   one covers every part, else part by part.
 5. If materials are still short, the build posts gather tasks for exactly the shortfall, puts itself back on the board
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
    the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand, and
    charcoal is made from the wood kind with logs to spare (not the logs fetched for planks).
 6. When every building stands (and the street lamps and name signs are up and the farm is planted), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
-   village running.
+   village running. The harvest is a chore and never holds completion.
 
 Acceptance runs (2026-09-28/29, "two matching cottages and a meeting hall" from nothing, a mayor and two workers, no
 manual help): with gpt-oss as the workers' planner, five runs built everything in 10.2-29.2 minutes, three of them in
@@ -885,7 +906,10 @@ VanG5 once collect kept out of the lake beside the plot), and the model-driven M
 minutes with no failed actions. With block lists and smelting from vanilla's data (2026-10-05): staged VanG6 and VanM3
 6/6 in 8.3 minutes at 2x, and Minevale23 (model-driven, 1x, on Minevale22's site) 6/6 in 14.9 minutes, with no failed
 actions. With the farm planted as well (2026-10-08): staged VanF3 and VanF4 in 9.0 and 9.2 minutes at 2x, and
-Minevale31 (model-driven, 1x) in 16.5 minutes, with no failed actions.
+Minevale31 (model-driven, 1x) in 16.5 minutes, with no failed actions. With the storage set up from felled logs,
+whole buildings in a spare wood kind, no table or furnace billed per house, hand gathering during the preparation and
+the lamps after the claims (2026-10-08, staged at 2x): VanO4 complete in 6.1 minutes (VanF5 8.9), the harvest passing,
+no failed actions.
 
 ### Models
 
