@@ -279,6 +279,14 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let want = carried();
   if (!want.size) throw new Error(`not carrying ${m.label} (carrying ${a.bot.inventory.items().map((it) => `${it.count} ${it.name}`).join(', ') || 'nothing'})`);
   const chestId = itemId(a, 'chest')!;
+  // Gathered while the plot was prepared (#3): wait while the storage is being set up, until a chest holds something (the
+  // first chest finishes the storage task while the preparer still puts down the others), at most 10 minutes
+  // (or set up under 2 minutes ago and still empty: not a village whose builders emptied every chest)
+  // (not a storage task whose prerequisite failed: it would never be set up)
+  const setting = () => v.tasks.some((t) => t.title === 'Set up the village storage' && (((t.status === 'open' || t.status === 'claimed')
+    && t.after.every((id) => { const p = v.tasks.find((q) => q.id === id); return !(p?.status === 'failed' && !p.soft); })) || (t.status === 'done' && Date.now() - t.updated < 120000)));
+  const stocked = () => !!v.storage?.chests.some((c) => Object.values(c.items).some((q) => q > 0));
+  if (!countItem(a, chestId)) for (const t0 = Date.now(); !stocked() && setting() && Date.now() - t0 < 600000; ) await sleep(2000, signal);
   if (!v.storage?.chests.length && !countItem(a, chestId))
     throw new Error(`the village has no storage chest yet: craft a chest (8 planks) and deposit again; deposit puts it down ${v.storageHut ? "in the storage hut's first chest spot" : 'near you, outside the plots'}`);
   const notes: string[] = [];

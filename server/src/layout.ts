@@ -228,7 +228,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const nth = (v.layouts?.length ?? 0) + 1;
     // Materials found nowhere near the last site are looked for again (F96)
     delete v.unavailable;
-    const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean }> = [];
+    const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean; afterClaimed?: boolean }> = [];
     tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them${street ? '; it lays the streets as dirt_path' : ''})`, after: [] });
     // One storage for the village: a later layout waits for the storage task already posted
     const storageTask = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
@@ -299,7 +299,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       for (let i = 0; i < parts; i++) {
         const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
         seeds.push(tasks.length);
-        tasks.push({ title: `Gather ${q} wheat_seeds for the farm${parts > 1 ? ` (${i + 1}/${parts})` : ''}`, detail: `collect block=wheat_seeds count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: storage !== undefined ? [storage] : [], soft: true });
+        // (claimable at once: gathered while the plot is prepared, deposited once the storage holds something, #3)
+        tasks.push({ title: `Gather ${q} wheat_seeds for the farm${parts > 1 ? ` (${i + 1}/${parts})` : ''}`, detail: `collect block=wheat_seeds count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: [], soft: true });
       }
       // (no task for the hoe's log: prepare_site's felled trees leave logs in storage, and a gather task "for the farm" is
       // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
@@ -322,7 +323,11 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       for (const t of materials.get(p.name)?.tasks ?? []) {
         gather.push(tasks.length);
         const stone = dig !== undefined && /^collect block=cobblestone /.test(t.detail);
-        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined ? [storage] : []), ...(stone ? [dig!] : [])], soft: true });
+        // Sand, dirt and the like are gathered while the plot is prepared (two agents idled there, the opportunities
+        // analysis #3); logs wait for the storage (the preparer's felled logs cover them), cobblestone for the mine
+        // (only what is gathered by hand: sandstone or terracotta would make each gatherer a pickaxe from fresh logs)
+        const early = /^collect block=(sand|red_sand|dirt|gravel|clay_ball|wheat_seeds) /.test(t.detail);
+        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined && !early ? [storage] : []), ...(stone ? [dig!] : [])], soft: true });
       }
       const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
       if (isHut) hutBuild = tasks.length;
@@ -347,7 +352,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
     const lampTask = tasks.length;
     if (lamps.length)
-      tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true });
+      // (once every build is claimed, not done: the lamps stand outside every building's claim ring and door walkway in
+      // every street and green layout, checked offline; the opportunities analysis #4)
+      tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true, afterClaimed: true });
     // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
     // layout, put up once every building stands, after the lamps (both jobs stand by the storage hut and draw its wood:
     // at once, the second to read the chests could come up short, the design review). Soft, as the lamps

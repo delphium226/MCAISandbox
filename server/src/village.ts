@@ -131,6 +131,8 @@ export interface Task {
   tries: number;
   result?: string;
   updated: number;
+  /** Its Build prerequisites count as met once claimed (the street lamps go up while the last builds run, #4). */
+  afterClaimed?: boolean;
 }
 export interface Village {
   name: string;
@@ -323,7 +325,11 @@ export class VillageRegistry {
       return m && label ? { item: m[1], n: Number(m[2]), label } : null;
     };
     const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
-    const wanted = new Map<string, number>();
+    // The street lamps' wood (a log a lamp, fences and charcoal for the torches, rounded up): they may go up while builds
+    // still draw on the storage (#4), so the logs covered for the builds leave it
+    // (while its task is open: once claimed, its holder has the wood or posts gathering for what is short)
+    const lampLogs = (v.layouts ?? []).reduce((s, l, i) => s + (l.lamps?.length && !l.lit && v.tasks.some((t) => t.status === 'open' && t.detail.startsWith(`light_streets layout=${i + 1} `)) ? l.lamps.length : 0), 0);
+    const wanted = new Map<string, number>(lampLogs ? [['logs', lampLogs]] : []);
     for (const t of v.tasks) {
       const g = gather(t);
       if (!g || !unbuilt.has(g.label)) continue;
@@ -353,7 +359,7 @@ export class VillageRegistry {
       }
       const builds = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && need.get(t.title.slice(6)));
       const kindOf = (label: string) => v.woodFor?.[label] ?? wood;
-      const total = (k: string) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0);
+      const total = (k: string) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? lampLogs : 0);
       let changed = false;
       for (const t of builds) {
         const label = t.title.slice(6), k = v.woodFor?.[label];
@@ -423,10 +429,11 @@ export class VillageRegistry {
       // 12-log task while the storage held enough (F97); the holder deposits what it brings, extra stock
       return p?.status === 'done' || (p?.status === 'failed' && !!p.soft) || (p?.status === 'claimed' && !!p.soft && !!covers(p));
     };
-    const ready = v.tasks.filter((t) => t.status === 'open' && t.after.every(finished) && !this.missingDesigns(v, t).length);
+    const begun = (id: string) => { const p = this.task(v, id); return p?.status === 'claimed' && /^Build /.test(p.title); };
+    const ready = v.tasks.filter((t) => t.status === 'open' && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length);
     // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
     for (const t of ready)
-      if (!this.aheadNoted.has(t.id)) {
+      if (!this.aheadNoted.has(t.id) && !t.afterClaimed) {
         const held = t.after.filter((id) => this.task(v, id)?.status === 'claimed');
         if (held.length) {
           this.aheadNoted.add(t.id);
@@ -454,11 +461,11 @@ export class VillageRegistry {
 
   /** Post tasks; `after` may name existing task ids or earlier tasks in the same batch by 0-based index. */
   /** Post tasks (at most `max` at once: a guard against models flooding the board; code posting a layout lifts it). */
-  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number>; soft?: boolean }>, by: string, max = 8): Task[] {
+  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number>; soft?: boolean; afterClaimed?: boolean }>, by: string, max = 8): Task[] {
     const made: Task[] = [];
     for (const t of tasks.slice(0, max)) {
       const after = (t.after ?? []).map((a) => (typeof a === 'number' ? made[a]?.id : String(a))).filter((id): id is string => !!id && !!(this.task(v, id) ?? made.find((m) => m.id === id)));
-      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now(), ...(t.soft ? { soft: true } : {}) };
+      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now(), ...(t.soft ? { soft: true } : {}), ...(t.afterClaimed ? { afterClaimed: true } : {}) };
       v.tasks.push(task);
       made.push(task);
     }

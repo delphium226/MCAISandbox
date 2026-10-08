@@ -185,7 +185,8 @@ function homeOf(a: BotAgent): { x: number; z: number } | null {
   const v = a.village();
   const c = v?.storage?.chests[0];
   if (c) return { x: c.x, z: c.z };
-  const p = v?.plots[0];
+  const p = v?.plots[0] ?? v?.layouts?.[0];
+  // (or its first layout, laid out but not prepared yet: gatherers work while the plot is prepared, #3)
   return p ? { x: (p.x1 + p.x2) / 2, z: (p.z1 + p.z2) / 2 } : null;
 }
 
@@ -730,7 +731,7 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
     const all = [...a.world.villages.villages.values()];
     // (the whole column under a plot: stone 5 blocks under one was reached by a shaft dug from its surface, Hutvale1)
     // (and every village's mine, floor to ceiling: its tunnels reach under the countryside, V.5b)
-    const built: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => v.plots).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 })), ...all.flatMap((v) => (v.mine ? mineAreas(v.mine) : []))];
+    const built: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [...all.flatMap((v) => v.structures), ...all.flatMap((v) => [...v.plots, ...(v.layouts ?? [])]).map((pl) => ({ x1: pl.x1 - 2, z1: pl.z1 - 2, x2: pl.x2 + 2, z2: pl.z2 + 2, y: -1000 })), ...all.flatMap((v) => (v.mine ? mineAreas(v.mine) : []))];
     // Nor far below the village: logs 45 blocks down a ravine or mineshaft cost a worker 10 minutes (Accept8)
     const homeY = vil?.plots[0]?.y ?? vil?.storage?.chests[0]?.y;
     const near = (p: Vec3) => (!home || Math.hypot(p.x - home.x, p.z - home.z) <= 96) && (homeY === undefined || p.y >= homeY - 16)

@@ -270,7 +270,9 @@ export class MineflayerWorld implements WorldAdapter {
       if (want > covered && !hopeless.has(item) && !open.length) {
         // Cobblestone after the mine is dug (it comes from there)
         const dig = item === 'cobblestone' ? v.tasks.find((t) => t.title === 'Dig the village mine' && (t.status === 'open' || t.status === 'claimed')) : undefined;
-        const tasks = gatherTasks({ [item]: want - covered }, 'the village', v.wood).map((t) => ({ ...t, soft: true, after: [...(storage && storage.status !== 'done' ? [storage.id] : []), ...(dig ? [dig.id] : [])] }));
+        // (logs and cobblestone wait for the storage; the rest is gathered meanwhile and deposited once it stands, #3)
+        const early = /^(sand|red_sand|dirt|gravel|clay_ball|wheat_seeds)$/.test(item);
+        const tasks = gatherTasks({ [item]: want - covered }, 'the village', v.wood).map((t) => ({ ...t, soft: true, after: [...(storage && storage.status !== 'done' && !early ? [storage.id] : []), ...(dig ? [dig.id] : [])] }));
         const made = reg.post(v, tasks, 'code', 20);
         reg.note(v, `code posted ${made.map((t) => t.id).join(', ')}: ${want} ${item} still to gather, ${covered} planned`);
         changed = true;
