@@ -299,7 +299,7 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
 | GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
 | DELETE | `/api/agents/:name` | Remove the agent |
 | GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
-| GET | `/api/block?x=&y=&z=` | The block at a position (name and state; `loaded: false` when its chunk is not loaded) |
+| GET | `/api/block?x=&y=&z=` | The block at a position (name and state, a sign's `text` in Minecraft; `loaded: false` when its chunk is not loaded) |
 | GET | `/api/blocks?x1=&y1=&z1=&x2=&y2=&z2=&states=` | Minecraft: a box of up to 65,536 blocks, as a list of names and an index into it per block (x fastest, then z, then y; -1 where no bot has the chunk loaded), for checks that compare before and after; `states=1` names blocks with their states (`oak_stairs[facing=north,half=bottom,shape=straight]`) |
 | GET | `/api/agents/:name/near?items=sand:64,stone:300&range=96` | Minecraft: plan_layout's material counts around where the agent stands, each item timed (`found`, `ms`) |
 | GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
@@ -480,6 +480,14 @@ after every build; `light_streets` puts them all up in one job from the storage 
 a torch; in the desert two cut sandstone), charged like a build, checks the torches after, and goes back on the board
 behind gather tasks when the storage falls short. The village counts as complete once they are lit.
 
+**Name signs.** Every layout in Minecraft, rows too, also gets a wall sign beside each building's entrance door naming
+its use (`placeSigns`, `signLabel`): "House", "Library" and so on for vanilla pieces, "Storage" and "Mine" for the huts,
+other designs their own name tidied; facing out, right of the door as seen from outside, then left, then over it, and
+off other buildings, walkways and lamps. `plan_layout` records them on the layout and posts a soft "Put up the signs: N
+signs" task after every build and the lamps; `put_up_signs` makes the signs at the storage hut's table from the
+village's wood (6 planks and a stick make 3), places them charged with their text (waxed, so a click does not edit
+it), checks each text on the server and writes a wrong one again. The village counts as complete once they are up too.
+
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
 curl -X POST localhost:8765/api/agents -d '{"name":"Mayor","brain":"tiered","gamemode":"creative","memory":{"village":"Birchwood","villageRole":"mayor"}}'
@@ -564,7 +572,8 @@ What building these agents taught, and what the code is built around:
   off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
   hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
   library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
-  also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' rules too.
+  also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' and the name
+  signs' rules too (each sign beside its door's way out, facing out, on no lamp, building or other door's walkway).
 - Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
   and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
   against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
@@ -660,7 +669,7 @@ npm run mc:agents    # agent API on http://localhost:8766/api, same routes as th
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
-find_site, prepare_site, build_design, build_box, build and light_streets (`GET /api/skills`), with the sandbox's names, arguments and
+find_site, prepare_site, build_design, build_box, build, light_streets and put_up_signs (`GET /api/skills`), with the sandbox's names, arguments and
 failure messages. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
@@ -813,8 +822,8 @@ down stood inside the future hut and raised its floor).
    the prepared plot); gather the hut's materials and build it around the chests; for each other building, gather its
    raw materials in parts two workers can share ("collect block=logs count=12, then deposit item=all", "collect
    block=cobblestone count=29, then deposit item=all"); then build it at its coordinates. The other buildings'
-   gathering waits only for the storage, their builds for the hut. Round a green or along streets, a last soft task
-   puts up the street lamps once every building stands.
+   gathering waits only for the storage, their builds for the hut. Round a green or along streets, a soft task puts
+   up the street lamps once every building stands, and on every layout a last one the name signs beside the doors.
 3. **Workers** claim the tasks in order and run each task's skill calls exactly as written; the executor model is
    asked only when one fails (it had faked gathering by withdrawing logs from storage and depositing them again).
    Gathering stays within 96 blocks of the village and never mines inside its plots; stone is mined for cobblestone,
@@ -831,7 +840,7 @@ down stood inside the future hut and raised its floor).
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
    the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand, and
    charcoal is made from the wood kind with logs to spare (not the logs fetched for planks).
-6. When every building stands (and the street lamps are lit), the mayor declares the objective complete (code checks it first), or code declares it:
+6. When every building stands (and the street lamps and name signs are up), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
    village running.
 

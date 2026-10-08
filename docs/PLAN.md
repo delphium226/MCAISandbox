@@ -20,6 +20,29 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-08 at the close of the nineteenth session: name signs added; the notes below for the eighteenth
+session stay valid where not overridden)
+
+- **Code:** committed on `tiered-brain-building`: `cfe8b8c` (name signs: `placeSigns`/`signLabel`/`holdsSign` in
+  streetPlan.ts, the soft "Put up the signs" task after every build and the lamps, the `put_up_signs` skill, wall signs
+  charged as the sign item, `/api/block` text, street_plan.mts's sign rules) and the close-out (this record, CLAUDE.md
+  lesson 89, README, ARCHITECTURE). Not pushed at the close unless the user said so (check `git status -sb`; ask before
+  any push). `main` untouched.
+- **Stack:** stopped cleanly at the close (the test agent server by PID, the test Paper "All dimensions are saved", the
+  pinned model servers). No agents in either world. `ollama_exec.py status` gave no WARNING this session.
+- **Where things stand:** every building of a village gets a waxed wall sign beside its entrance door ("House",
+  "Library", "Storage", "Mine"; other designs their own name), put up after the lamps by one worker in ~0.3 min.
+  Minevale30 (1x, minevale3's usual site) 6/6 + 6 lamps + 5 signs in 15.4 min, 0 failed actions; F156's fix confirmed
+  (lamps in one pass); F157 did not show.
+- **Next (the village-life list's agreed order; confirm with the user): farming**, the next item of the village-life list (research first: vanilla's
+  farm pieces, hoe, seeds from grass, water, planting and harvest as tasks; then design note, review, one question round).
+  Smaller: F157 (if it shows again), F158, F159, F161 (the signs' leftovers). The prompt for the twentieth session is
+  `runs/2026-10-08/s19/NEXT_PROMPT.md`; the signs' research, design and reviews are in `runs/2026-10-08/s19/`.
+- **How to test now:** as before; staged and model-driven runs wait for the sign task too; check sign columns with
+  `/api/block` (it shows `text`) or RCON `data get block X Y Z front_text.messages`; `street_plan.mts` checks signs.
+- **Test world state:** minevale3 holds Minevale30's village with lamps and signs (-1648..-1609, 27..66): reset before
+  using it.
+
 (written 2026-10-06 at the close of the eighteenth session: F155 fixed, street lamps added; the notes below for the
 seventeenth session stay valid where not overridden)
 
@@ -785,12 +808,10 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - ~~**Lamp posts** along the streets and the green's ring~~: done 10-06 (`980a5cd`, the user's choices: a fence of the
   village's wood with a torch, charged, about every 8 blocks, completion waits for them). Vanilla's per-biome lamp pieces
   later, with the iron age (snowy's lanterns; plains' wall torches need a wall_torch charge and supports-first order).
-- **A sign beside each building's door** naming its function (the user's; **next**, the user's choice at the 10-06 close):
-  6 planks + a stick make 3 signs; code sets the text by command. Notes so far (not researched): the "Ideas for the
-  signs" section of `runs/2026-10-06/s18/minevale29_analysis.md` (door cells, walkway clearing, 26.1's sign text format
-  and wall-sign charging to check in the jar); the lamps' pattern to follow (`light_streets`, `runs/2026-10-06/s18/
-  lamps_research.md` and `lamps_design*.md`). The session prompt: `runs/2026-10-06/s18/NEXT_PROMPT.md`.
-- **Farming** (the user's): vanilla's farm pieces as the layout; a hoe, seeds from grass, water beside the plot;
+- ~~**A sign beside each building's door** naming its function~~: done 10-08 (`cfe8b8c`, the user's choices: a wall
+  sign beside the entrance door, every building with a door labelled by its use, a separate soft task after the lamps,
+  waxed, completion waits). Leftovers: F161.
+- **Farming** (the user's; **next** in the agreed order): vanilla's farm pieces as the layout; a hoe, seeds from grass, water beside the plot;
   planting and harvesting as tasks.
 - **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
   furnaces, chests, bookshelves, wall torches from the mine's coal; beds need wool).
@@ -1134,6 +1155,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-06 (s18) | **Minevale28** | as Minevale27 | **6/6 PASS** | **14.4 min** | same site; laid out at 0.1 min, no design drawn; 0 failed actions; all counts 0 |
 | 10-06 (s18) | **VanL1** | staged green plains, 2x, minevale3 (VanG's site), `--mayor --planner none`, the lamp code | **6/6 + 6 lamps** | **8.6 min** (VanG10-13 7.7-8.6) | lamps lit in ~18 s at the end (fences, sticks, 2 charcoal, torches made from storage); six columns grass / birch_fence / torch on `/api/block`; 0 failed; `[dig]` 1 |
 | 10-06 (s18) | **Minevale29** | model-driven 1x, minevale3, `980a5cd` (lamps) | **6/6 + 6 lamps PASS** | **15.2 min** (27/28: 14.2/14.4) | site -1628,65,47; laid out at 0.2 min; buildings done at 14.2 as Minevale27; the lamp job's first try failed short of birch logs (F156: charcoal smelted the planks' logs), the executor's retry lit them 0.4 min later; 1 failed action; Mayor 3 `[stuck]` in a 1x1 pocket, 30 s, no rescue (F157); `[repath]` 1, `[dig]` 1, `[lag]` 0 |
+| 10-08 (s19) | **VanS1** | staged green plains, 2x, minevale3 (VanG's site), `--mayor --planner none`, the sign code | **6/6 + 6 lamps + 5 signs** | **8.6 min** (VanL1 8.6) | signs up in ~6 s after the lamps; every sign on `/api/block` and `data get` right block, facing and wall, but the vanilla houses read "Plains small / house" (F160, fixed); 0 failed; `[dig]` 1 |
+| 10-08 (s19) | **VanS2** | as VanS1, with F160's fix and the diff review's | **6/6 + 6 lamps + 5 signs** | **8.6 min** | "Mine", "Storage", "Library", "House", "House"; 0 failed; `[dig]` 1, other counts 0 |
+| 10-08 (s19) | **Minevale30** | model-driven 1x, minevale3, `cfe8b8c` (signs) | **6/6 + 6 lamps + 5 signs PASS** | **15.4 min** (29: 15.2) | site -1628,65,47; laid out at 0.2 min; buildings done at 14.6, lamps in one pass by 15.1 (F156's fix confirmed), signs by 15.4; 0 failed actions; `[stuck]` 0 (F157 did not show), `[stuck-world]` 0, `[dig]` 1, `[repath]` 0, `[rescue]` 0, `[lag]` 0 |
 
 ## Findings log
 
@@ -1553,6 +1577,15 @@ CLAUDE.md when a phase ends.
   the storage task's whole-tree felling brought 97 logs for 10 (6.7 min), a 9-log task 45. Jungle's giant trees cost
   minutes each (F62); neither score knows. Backlog: weigh tree kind (or tree blocks per log) in the site scores, or
   stop felling at the task's count on 2x2 trunks.
+- F161 (10-08, nineteenth session, the signs' diff review) Left from the name signs: `put_up_signs` (like
+  `light_streets`) reads the sign and wall cells before walking to the storage hut, so a worker far off (members range up
+  to 96 blocks) skips "not loaded" signs and the task still ends done; `holdsSign` judges a support by name (accepts
+  vines, glow lichen and crops; refuses sea lanterns and mushroom blocks; only house walls reach it); a village without
+  `v.wood` (staged) places oak signs swapped to the storage's wood (works, says "built with birch"). Backlog.
+- F160 (10-08, nineteenth session, VanS1) The design API records every posted design as `by: 'api'` whatever the body
+  says (mcApi.ts ~73), so the signs' vanilla labels (keyed on `by === 'vanilla'`) missed the staged runs' vanilla pieces:
+  "Plains small / house". Fixed before the commit: a vanilla piece is also known by its jar name
+  (`<biome>_<kind>_<n>`). Lesson 89.
 - F159 (10-06, eighteenth session, the lamp diff review) Left from the street lamps: `placeLamps` keeps off the 3 cells out
   of each building's entrance door only (that rule never excludes a cell: they are street or path cells already); six
   library houses have a second outside door, whose walkway gets no lamp today by geometry only (0 in 96 layouts).
@@ -1576,6 +1609,7 @@ CLAUDE.md when a phase ends.
   ~1280: coal, then the first planks, then the first log in the window) is not tied to the plan's fuel planks, so it can
   still burn the fetched planks or logs; storage coal is not fetched as fuel. A preferred fuel kind from makeFromStock
   would close it. Evidence: `runs/2026-10-06/s18/minevale29_analysis.md` section 1 (W:122-125 of `Minevale29.log`).
+  Confirmed 10-08 (Minevale30): the lamp job ran in one pass, 2 charcoal from spare logs, 0 failed actions.
 - F155 (10-06, seventeenth session, Minevale26) The mayor's late layout cost ~3.1 min: its second plan (0.2 min, the
   library just filled with vanilla plains pieces) returned "prepare_site, wait" without plan_layout; code dropped
   prepare_site and kept "wait", and plans 3-5 were "wait" or board-watching steps, while the executor improvised (find_site
@@ -2085,6 +2119,14 @@ CLAUDE.md when a phase ends.
   a style's walls are capped, houses 9 and landmarks 11; and the tested work is committed before the next model run
   (the user).
 
+- 10-08 (nineteenth session) Name signs (the user's choices, all as recommended): a wall sign on the outside wall
+  beside the entrance door (right as seen from outside, then left; the door's upper half, then its lower half, then over
+  the door), not a standing sign or one over the door (536/536 test layouts against 305 standing); every building with a
+  door, the huts too ("Storage", "Mine"), labelled by its use ("House", "Library", vanilla kinds; other designs their own
+  name), one line, capitalised; the town centre gets none; a separate soft task "Put up the signs" after every build and
+  after the lamps (both draw the storage's wood), on every layout kind; waxed; completion waits for it. The review's
+  street guard for wall signs was dropped (it left 207 of 536 without a sign). Next: farming, in the agreed order of
+  the village-life list.
 - 10-06 (eighteenth session) F155 (the user's choices among Claude's recommendations): the full package (wait-only plans
   as empty, the nudge naming the library, find_site's reason ending "now", the executor waiting for a pending replan, the
   review's fixes) and G4's skip; code calling plan_layout itself (c) to the backlog (the review: names from free text

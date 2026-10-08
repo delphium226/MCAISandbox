@@ -410,6 +410,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     waits); staged VanL1 8.6 min at 2x, Minevale29 (1x) 6/6 + 6 lamps in 15.2 min; `246c962` F156 (charcoal from spare
     logs), not run again (the user's choice). The user's village-life list (signs, farming, lighting inside buildings
     and mines, ...) is in PLAN.md's backlog. Lessons 85-88. Next: one model run for F156, then signs.
+34. 2026-10-08 (nineteenth session; see PLAN.md for push state): name signs. `cfe8b8c`: a waxed wall sign beside each
+    building's entrance door naming its use ("House", "Library", "Storage", "Mine"; other designs their own name;
+    `placeSigns`/`signLabel` in streetPlan.ts, the soft "Put up the signs" task after every build and the lamps on every
+    layout kind, `put_up_signs` charged at the storage hut and checked with `data get`; the user's choices, all as
+    recommended). Staged VanS1/VanS2 8.6 min at 2x; Minevale30 (1x) 6/6 + 6 lamps + 5 signs in 15.4 min, 0 failed
+    actions, F156's fix confirmed. Lesson 89. Next: farming (the village-life list's order).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -566,12 +572,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the eighteenth session (2026-10-06): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the nineteenth session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale29's green village (6 of 6, with its street lamps) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale30's green village (6 of 6, with its street lamps and name signs) stands on minevale3's 40 site at -1648..-1609, 27..66 until the next reset (VanG's 40 site is -1657,64,23, inside minevale3's restore radius), and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -870,6 +876,12 @@ Lessons from the adapter:
 88. **"Any" in a recipe plan must not mean "the first one carried"** (F156): charcoal's "any logs" took the birch fetched
    for fence planks. When a plan reserves some items of a kind for a later step, every generic step must choose from
    what is spare (makeFromStock's `spareKind`), fuel included (still open).
+89. **A rule keyed on a record's author must hold on every path in** (F160, 2026-10-08): the signs named vanilla pieces
+   by `design.by === 'vanilla'`, but the design API records every posted design as `by: 'api'`, so the staged runs'
+   vanilla houses read "Plains small / house"; the model-driven library keeps `vanilla`. Read the staged run's own
+   record before trusting a field (lesson 57), and key on something the data carries itself (the jar's piece name).
+   Sign text in 26.1 is plain SNBT strings (`messages:["Library","","",""]`, exactly four); a JSON string shows its
+   braces. Check signs on the server with `data get block X Y Z front_text.messages`.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
