@@ -4,8 +4,10 @@
  * huts on a 32x32 pad by layoutStreets, then checked: every building inside the pad, off the streets, STREET_GAP from the
  * others and the centre, its door's way out on a street, the storage hut unturned, the mining hut's back at the pad's
  * edge; and the streets reach the pad's edge; the street lamps (placeLamps, 10-06) off streets, walkways and the mine's
- * ground, 2 from every building, beside a street, spaced. Prints each plan as a map (letters buildings, "=" streets, "o"
- * door ways, "*" lamps, "s" name signs).
+ * ground, 2 from every building, beside a street, spaced; the farm (placeFarm, 10-08) inside the pad, off streets, the
+ * green, walkways and the mine's ground, 2 from every building, its channel down the middle, every farmland cell within 4
+ * of water, no lamp or sign on it. Prints each plan as a map (letters buildings, "=" streets, "o" door ways, "*" lamps,
+ * "s" name signs, "~" the farm's water, "w" sown farmland, "%" bare farmland).
  * Usage: node_modules/.bin/tsx scripts/checks/street_plan.mts [BIOME ...]   Env: SIZE (default 32), HOUSES (default
  * "small,small,landmark,other": which of the library's houses to lay out, in order), JAR.
  */
@@ -14,7 +16,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } f
 import type { Area, Design } from '../../server/src/village';
 import { MINING_HUT, STORAGE_HUT, miningHutDesign, storageHutDesign } from '../../server/src/huts';
 import { Materials, designBill, hardToGather, inWood, woodPart } from '../../server/src/mineflayer/mcMaterials';
-import { LAMP_SPACING, STREET_GAP, doorOf, placeLamps, placeSigns, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
+import { FARM_SIZE, LAMP_SPACING, STREET_GAP, doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
 import { DEFAULT_JAR, VILLAGE_BIOMES, vanillaLibrary } from '../../server/src/vanillaPieces';
 
 const reg = minecraftData('26.1');
@@ -117,7 +119,39 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   }
   // The street lamps (10-06): off streets, walkways and the mine's ground, 2 from every building, beside a main street,
   // LAMP_SPACING apart, inside the pad
-  const lamps = placeLamps(lay);
+  // Each building as build_design lays it, the centre last (it blocks a sign but gets none: plan_layout passes it with
+  // noSign)
+  const places = [...bld.map((p) => ({ design: designs.get(p.name)!, x: p.x, z: p.z, rot: (p.rotate ?? 0) / 90 })),
+    ...(centreArea && c ? [{ design: c.design, x: centreArea.x, z: centreArea.z, rot: (centreArea.rotate ?? 0) / 90, noSign: true }] : [])];
+  // The farm (10-08), as plan_layout places it: before the lamps, nearest the storage hut's door (a geometry check in every
+  // biome: plan_layout itself places none in snowy and desert villages)
+  const hutPlace = bld.find((p) => p.name === STORAGE_HUT);
+  const farm = placeFarm(places, lay.plot, { streets: lay.streets, green, back: lay.back, near: hutPlace ? { x: (hutPlace.x1 + hutPlace.x2) / 2, z: hutPlace.z2 + 3 } : undefined });
+  const onFarm = (x: number, z: number) => !!farm && x >= farm.x1 && x <= farm.x2 && z >= farm.z1 && z <= farm.z2;
+  const inWater = (x: number, z: number) => !!farm && x >= farm.water.x1 && x <= farm.water.x2 && z >= farm.water.z1 && z <= farm.water.z2;
+  if (!farm) problems.push('no farm');
+  else {
+    const at = `the farm ${farm.x1},${farm.z1}..${farm.x2},${farm.z2}`;
+    const [w, l] = [farm.x2 - farm.x1 + 1, farm.z2 - farm.z1 + 1];
+    if (!((w === FARM_SIZE[0] && l === FARM_SIZE[1]) || (w === FARM_SIZE[1] && l === FARM_SIZE[0]))) problems.push(`${at} is ${w}x${l}`);
+    if (farm.x1 <= lay.plot.x1 || farm.z1 <= lay.plot.z1 || farm.x2 >= lay.plot.x2 || farm.z2 >= lay.plot.z2) problems.push(`${at} not inside the pad`);
+    const alongZ = farm.water.x1 === farm.water.x2;
+    if (alongZ ? farm.water.x1 !== farm.x1 + 2 || farm.water.z1 !== farm.z1 || farm.water.z2 !== farm.z2 : farm.water.z1 !== farm.z1 + 2 || farm.water.x1 !== farm.x1 || farm.water.x2 !== farm.x2) problems.push(`${at}: the channel is not down its middle`);
+    for (let x = farm.x1; x <= farm.x2; x++)
+      for (let z = farm.z1; z <= farm.z2; z++) {
+        if (streetAt(lay.streets, x, z)) problems.push(`${at} on a street at ${x},${z}`);
+        if (inGreen(x, z)) problems.push(`${at} on the green at ${x},${z}`);
+        if (walkway.has(`${x},${z}`)) problems.push(`${at} on a door's walkway at ${x},${z}`);
+        if (mineBack && x >= mineBack.x1 && x <= mineBack.x2 && z >= mineBack.z1 && z <= mineBack.z2) problems.push(`${at} behind the mining hut at ${x},${z}`);
+        for (const q of all) if (Math.max(q.x1 - x, x - q.x2, q.z1 - z, z - q.z2, 0) < 2) problems.push(`${at} next to ${q.name} at ${x},${z}`);
+        // (hydrated: water within 4 across, at the same level)
+        if (!inWater(x, z) && (alongZ ? Math.abs(x - farm.water.x1) : Math.abs(z - farm.water.z1)) > 4) problems.push(`${at}: ${x},${z} is dry`);
+      }
+    if (farm.sow.length !== 16 || farm.sow.some(([x, z]) => !onFarm(x, z) || inWater(x, z))) problems.push(`${at}: ${farm.sow.length} sow cells, some not on farmland`);
+    if (new Set(farm.sow.map(([x, z]) => `${x},${z}`)).size !== farm.sow.length) problems.push(`${at}: a cell sown twice`);
+  }
+  const lamps = placeLamps(lay, undefined, undefined, farm ? [farm] : []);
+  for (const l of lamps) if (onFarm(l.x, l.z)) problems.push(`lamp ${l.x},${l.z} on the farm`);
   const main = lay.streets.filter((t) => !lay.paths.includes(t));
   for (const l of lamps) {
     const at = `lamp ${l.x},${l.z}`;
@@ -131,9 +165,8 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   }
   // The name signs (10-08): one per building, a wall sign beside its door's way out (or over it), facing out, inside the
   // pad, in no building, on no lamp and on no other building's door walkway
-  // (the centre, last, blocks a sign but gets none: plan_layout passes it with noSign)
-  const signs = placeSigns([...bld.map((p) => ({ design: designs.get(p.name)!, x: p.x, z: p.z, rot: (p.rotate ?? 0) / 90 })),
-    ...(centreArea && c ? [{ design: c.design, x: centreArea.x, z: centreArea.z, rot: (centreArea.rotate ?? 0) / 90, noSign: true }] : [])], lamps, lay.plot);
+  const signs = placeSigns(places, lamps, lay.plot);
+  for (const s of signs) if (s && onFarm(s.x, s.z)) problems.push(`${s.building}'s sign on the farm`);
   const FACE: Record<string, string> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
   bld.forEach((p, i) => {
     const s = signs[i];
@@ -165,7 +198,8 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     for (let x = lay.plot.x1; x <= lay.plot.x2; x++) {
       const k = all.findIndex((p) => x >= p.x1 && x <= p.x2 && z >= p.z1 && z <= p.z2);
       const ex = bld.some((p) => (p as unknown as { exit: [number, number] }).exit?.[0] === x && (p as unknown as { exit: [number, number] }).exit?.[1] === z);
-      row += lamps.some((l) => l.x === x && l.z === z) ? '*' : signs.some((t) => t?.x === x && t?.z === z) ? 's' : ex ? 'o' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
+      row += lamps.some((l) => l.x === x && l.z === z) ? '*' : signs.some((t) => t?.x === x && t?.z === z) ? 's' : ex ? 'o'
+        : inWater(x, z) ? '~' : farm?.sow.some(([sx, sz]) => sx === x && sz === z) ? 'w' : onFarm(x, z) ? '%' : k >= 0 ? (all[k] === centreArea ? '#' : letters[k]) : streetAt(lay.streets, x, z) ? '=' : inGreen(x, z) ? ',' : '.';
     }
     rows.push(row);
   }
@@ -173,7 +207,7 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   bld.forEach((p, i) => console.log(`  ${letters[i]} ${p.name} ${p.width}x${p.depth} at ${p.x},${p.z} rotate ${p.rotate}; sign ${signs[i] ? `${JSON.stringify(signs[i]!.text)} at ${signs[i]!.x},L${signs[i]!.layer},${signs[i]!.z} facing ${signs[i]!.facing}` : 'none'}`));
   if (lay.unplaced.length) console.log(`  not placed: ${lay.unplaced.join(', ')}; plain crossing streets instead (plan_layout takes them when they place more): ${planStreets(0, 0, SIZE, null, items).unplaced.length} not placed`);
   console.log(rows.map((r) => '    ' + r).join('\n'));
-  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps, ${signs.filter(Boolean).length} signs`);
+  console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps, ${signs.filter(Boolean).length} signs, farm ${farm!.x2 - farm!.x1 + 1}x${farm!.z2 - farm!.z1 + 1} at ${farm!.x1},${farm!.z1}`);
   if (problems.length) failed++;
 }
 process.exit(failed ? 1 : 0);

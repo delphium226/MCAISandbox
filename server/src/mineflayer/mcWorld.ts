@@ -75,8 +75,11 @@ export class MineflayerWorld implements WorldAdapter {
     });
   }
 
-  /** How many blocks collect would gather for each name lie near x,y,z, up to the number wanted (plan_layout's check). */
-  materialsNear(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number) {
+  /**
+   * How many blocks collect would gather for each name lie near x,y,z, up to the number wanted (plan_layout's check),
+   * outside `skip` (the farm's grass check: prepare_site cuts the plot's own plants).
+   */
+  materialsNear(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number, skip?: { x1: number; z1: number; x2: number; z2: number }) {
     const a = this.agents.get(by.toLowerCase());
     if (!a) return null;
     const out: Record<string, number> = {};
@@ -85,7 +88,8 @@ export class MineflayerWorld implements WorldAdapter {
         // What collect can get: near the surface (wood 36 blocks down in a mineshaft could not be reached), anything
         // close to the site, and farther out only blocks in the open (Accept12: sandstone buried under sand 50-90 blocks
         // away counted, and gatherers found "none within 96 blocks"); only as many as wanted
-        const keep = (p: Vec3) => { const d = Math.hypot(p.x - x, p.z - z); return p.y >= y - 16 && d <= range && (d <= 40 || exposed(a, p)); };
+        const off = (p: Vec3) => !skip || p.x < skip.x1 || p.x > skip.x2 || p.z < skip.z1 || p.z > skip.z2;
+        const keep = (p: Vec3) => { const d = Math.hypot(p.x - x, p.z - z); return p.y >= y - 16 && d <= range && off(p) && (d <= 40 || exposed(a, p)); };
         out[n] = nearestBlocks(a, collectTargets(a, n).blocks, 128, Math.max(1, Math.ceil(count)), keep, { min: y - 16 }).length;
       } catch {
         // An unknown name: not this check's business

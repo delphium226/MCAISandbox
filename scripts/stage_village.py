@@ -311,6 +311,9 @@ def stock_needed():
     # (and in a hut village, for the chests the deposit check crafts: 3 logs each)
     need[f"{wood}_log"] = need.get(f"{wood}_log", 0) + (13 if hut else 4)
     need["cobblestone"] = need.get("cobblestone", 0) + 8
+    # (and the farm's 16 seeds and a log for its hoe, 10-08: --stage build marks the seed tasks done)
+    need["wheat_seeds"] = need.get("wheat_seeds", 0) + 16
+    need[f"{wood}_log"] = need.get(f"{wood}_log", 0) + 1
     if args.mixed_wood:
         other = "spruce" if wood != "spruce" else "birch"
         for item in [i for i in need if i.endswith("_log")]:
@@ -493,7 +496,7 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
         print(f"{stamp()} BOARD {b}", flush=True)
     builds = [t for t in v["tasks"] if t["title"].startswith("Build ")]
     # (and the street lamps and signs, 10-06 and 10-08: the village is complete once they are up; a failed one is soft)
-    lamps = [t for t in v["tasks"] if t["title"].startswith(("Light the streets", "Put up the signs"))]
+    lamps = [t for t in v["tasks"] if t["title"].startswith(("Light the streets", "Put up the signs", "Plant the farm"))]
     if builds and all(t["status"] == "done" for t in builds) and all(t["status"] in ("done", "failed") for t in lamps):
         reason = "every building is done"
     elif time.time() - last_done > stall_minutes * 60:

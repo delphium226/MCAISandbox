@@ -303,9 +303,10 @@ export const LAMP_SPACING = 8;
  * path and plaza, `clear` blocks from every building (each build claims a block round its own area, and a post in a
  * 2-wide gap would grow an arm to a wall), off the 3 cells out of each door (build_design clears 2 of them), off the mining
  * hut's ground out to the pad's edge and the pad's own edge cells. Street corners and crossings first, then the pad's
- * edge (the village's entrances), then along the streets, `spacing` apart.
+ * edge (the village's entrances), then along the streets, `spacing` apart. Off `keep` (the farm: a post on farmland
+ * turns it to dirt).
  */
-export function placeLamps(lay: StreetLayout, spacing = LAMP_SPACING, clear = 2): Array<{ x: number; z: number }> {
+export function placeLamps(lay: StreetLayout, spacing = LAMP_SPACING, clear = 2, keep: Area[] = []): Array<{ x: number; z: number }> {
   const inArea = (a: Area | undefined, x: number, z: number) => !!a && x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
   const away = (x: number, z: number, a: Area) => Math.max(a.x1 - x, x - a.x2, a.z1 - z, z - a.z2, 0);
   const walk = new Set<string>();
@@ -315,7 +316,7 @@ export function placeLamps(lay: StreetLayout, spacing = LAMP_SPACING, clear = 2)
   const found: Array<{ x: number; z: number; score: number }> = [];
   for (let x = lay.plot.x1 + 1; x < lay.plot.x2; x++)
     for (let z = lay.plot.z1 + 1; z < lay.plot.z2; z++) {
-      if (onStreet(x, z) || walk.has(`${x},${z}`) || inArea(lay.back, x, z) || lay.places.some((p) => away(x, z, p) < clear)) continue;
+      if (onStreet(x, z) || walk.has(`${x},${z}`) || inArea(lay.back, x, z) || lay.places.some((p) => away(x, z, p) < clear) || keep.some((k) => inArea(k, x, z))) continue;
       const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([a, b]) => streetAt(main, x + a, z + b)).length;
       if (!sides) continue;
       const edge = Math.min(x - lay.plot.x1, lay.plot.x2 - x, z - lay.plot.z1, lay.plot.z2 - z);
@@ -399,6 +400,95 @@ export function holdsSign(block: string | undefined): boolean {
 const FACING: Record<string, SignSpot['facing']> = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' };
 
 /**
+ * A building as build_design lays it on the ground: its grid's area (the task's x, z the centre), every cell by layer
+ * ("x,layer,z" -> block, "_" or "."), each outside door with the way it opens, and the entrance (doorOf) turned.
+ */
+function placedGrid(p: SignPlace) {
+  const d = p.design, rot = ((p.rot % 4) + 4) % 4;
+  const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+  const x1 = p.x - Math.floor(W / 2), z1 = p.z - Math.floor(D / 2);
+  const cells = new Map<string, string>();
+  d.layers.forEach((layer, li) =>
+    layer.forEach((row, j) => {
+      for (let i = 0; i < row.length; i++) {
+        const [u, v] = turnCell(i, j, d.width, d.depth, rot);
+        cells.set(`${x1 + u},${li},${z1 + v}`, row[i] === '_' || row[i] === '.' ? row[i] : d.palette[row[i]] ?? 'air');
+      }
+    }),
+  );
+  const doors: Array<{ x: number; z: number; ox: number; oz: number }> = [];
+  const l1 = d.layers[1];
+  if (l1 && l1.length === d.depth) {
+    const outside = outsideCells(l1);
+    for (let j = 0; j < d.depth; j++)
+      for (let i = 0; i < d.width; i++) {
+        const ch = l1[j][i];
+        if (!ch || ch === '_' || ch === '.' || !/_door$/.test((d.palette[ch] ?? '').replace(/\[.*$/, ''))) continue;
+        const [ox, oz] = doorOutward(d, i, j, rot, outside, 1);
+        const [u, v] = turnCell(i, j, d.width, d.depth, rot);
+        doors.push({ x: x1 + u, z: z1 + v, ox, oz });
+      }
+  }
+  const { door, out } = doorOf(d);
+  const [u, v] = turnCell(door[0], door[1], d.width, d.depth, rot);
+  let [ox, oz] = out;
+  for (let r = 0; r < rot; r++) [ox, oz] = [-oz, ox];
+  return { area: { x1, z1, x2: x1 + W - 1, z2: z1 + D - 1 }, cells, doors, door: { x: x1 + u, z: z1 + v, ox, oz } };
+}
+
+/** The village's wheat field (the user's, 10-08): farmland either side of a water channel down its middle. */
+export interface FarmSpot extends Area {
+  /** The channel (water at the plot's level, laid by tend_farm). */
+  water: Area;
+  /** The cells sown, in rows across the channel with a bare row between (grows about twice as fast as a solid field). */
+  sow: Array<[number, number]>;
+}
+
+/** The field: 5 wide across the channel, 7 along it (the inside of vanilla's plains_small_farm_1). */
+export const FARM_SIZE: [number, number] = [5, 7];
+
+/**
+ * Where a layout's farm goes (the user's, 10-08): a 5x7 field on the pad, either way round, off the pad's edge, the
+ * streets, paths, plaza and green, 2 from every building's grid (each build claims a block round it), off 3 cells out of
+ * every outside door (build_design clears 2 of them, and walkers come out of each), off the mining hut's ground out to
+ * the pad's edge; the spot nearest `near` (the storage hut's door: its tiller stands there). Not a building: no
+ * structure, nothing to build. Null when none fits.
+ */
+export function placeFarm(places: SignPlace[], pad: Area, opts: { streets?: Area[]; green?: Area; back?: Area; near?: { x: number; z: number } } = {}): FarmSpot | null {
+  const inArea = (a: Area | undefined, x: number, z: number) => !!a && x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
+  const away = (x: number, z: number, a: Area) => Math.max(a.x1 - x, x - a.x2, a.z1 - z, z - a.z2, 0);
+  const grids = places.map(placedGrid);
+  const walk = new Set<string>();
+  // (and out of the entrance: the huts' doorways are open, no door block, the diff review's rows layout put the field 2
+  // cells in front of the storage hut's)
+  for (const g of grids) for (const d of [...g.doors, g.door]) for (const k of [1, 2, 3]) walk.add(`${d.x + d.ox * k},${d.z + d.oz * k}`);
+  const ok = (x: number, z: number) =>
+    x > pad.x1 && x < pad.x2 && z > pad.z1 && z < pad.z2 && !streetAt(opts.streets, x, z) && !inArea(opts.green, x, z) && !inArea(opts.back, x, z) &&
+    !walk.has(`${x},${z}`) && grids.every((g) => away(x, z, g.area) >= 2);
+  const near = opts.near ?? { x: (pad.x1 + pad.x2) / 2, z: (pad.z1 + pad.z2) / 2 };
+  let best: { farm: FarmSpot; d: number } | null = null;
+  for (const along of ['z', 'x'] as const) {
+    const [w, l] = along === 'z' ? FARM_SIZE : [FARM_SIZE[1], FARM_SIZE[0]];
+    for (let x1 = pad.x1 + 1; x1 + w - 1 < pad.x2; x1++)
+      for (let z1 = pad.z1 + 1; z1 + l - 1 < pad.z2; z1++) {
+        const a = { x1, z1, x2: x1 + w - 1, z2: z1 + l - 1 };
+        const d = Math.abs((a.x1 + a.x2) / 2 - near.x) + Math.abs((a.z1 + a.z2) / 2 - near.z);
+        if (best && d >= best.d) continue;
+        let free = true;
+        for (let x = a.x1; x <= a.x2 && free; x++) for (let z = a.z1; z <= a.z2 && free; z++) free = ok(x, z);
+        if (!free) continue;
+        const mid = along === 'z' ? a.x1 + 2 : a.z1 + 2;
+        const water = along === 'z' ? { x1: mid, x2: mid, z1: a.z1, z2: a.z2 } : { x1: a.x1, x2: a.x2, z1: mid, z2: mid };
+        const sow: Array<[number, number]> = [];
+        for (let r = 0; r < FARM_SIZE[1]; r += 2)
+          for (const c of [0, 1, 3, 4]) sow.push(along === 'z' ? [a.x1 + c, a.z1 + r] : [a.x1 + r, a.z1 + c]);
+        best = { farm: { ...a, water, sow }, d };
+      }
+  }
+  return best?.farm ?? null;
+}
+
+/**
  * Where each building's name sign goes (the user's, 10-08): a wall sign beside the entrance door (doorOf, the door the
  * street plan faces to its street; the huts' open doorway), facing out, hung on the wall cell next to the door: right of
  * it as seen from outside, then left, at the door's upper half (layer 2), then its lower half (layer 1), then over the
@@ -409,38 +499,11 @@ const FACING: Record<string, SignSpot['facing']> = { '1,0': 'east', '-1,0': 'wes
  */
 export function placeSigns(places: SignPlace[], lamps: Array<{ x: number; z: number }> = [], pad?: Area): Array<SignSpot | null> {
   const info = places.map((p) => {
-    const d = p.design, rot = ((p.rot % 4) + 4) % 4;
-    const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
-    // (build_design's grid: its centre is the task's x, z)
-    const x1 = p.x - Math.floor(W / 2), z1 = p.z - Math.floor(D / 2);
-    const cells = new Map<string, string>();
-    d.layers.forEach((layer, li) =>
-      layer.forEach((row, j) => {
-        for (let i = 0; i < row.length; i++) {
-          const [u, v] = turnCell(i, j, d.width, d.depth, rot);
-          cells.set(`${x1 + u},${li},${z1 + v}`, row[i] === '_' || row[i] === '.' ? row[i] : d.palette[row[i]] ?? 'air');
-        }
-      }),
-    );
+    const g = placedGrid(p);
     // Every door's walkway (build_design clears 2 cells out of each outside door, unless the design draws them)
     const walk: Array<[number, number]> = [];
-    const l1 = d.layers[1];
-    if (l1 && l1.length === d.depth) {
-      const outside = outsideCells(l1);
-      for (let j = 0; j < d.depth; j++)
-        for (let i = 0; i < d.width; i++) {
-          const ch = l1[j][i];
-          if (!ch || ch === '_' || ch === '.' || !/_door$/.test((d.palette[ch] ?? '').replace(/\[.*$/, ''))) continue;
-          const [ox, oz] = doorOutward(d, i, j, rot, outside, 1);
-          const [u, v] = turnCell(i, j, d.width, d.depth, rot);
-          for (const k of [1, 2]) walk.push([x1 + u + ox * k, z1 + v + oz * k]);
-        }
-    }
-    const { door, out } = doorOf(d);
-    const [u, v] = turnCell(door[0], door[1], d.width, d.depth, rot);
-    let [ox, oz] = out;
-    for (let r = 0; r < rot; r++) [ox, oz] = [-oz, ox];
-    return { p, area: { x1, z1, x2: x1 + W - 1, z2: z1 + D - 1 }, cells, walk, door: { x: x1 + u, z: z1 + v, ox, oz } };
+    for (const d of g.doors) for (const k of [1, 2]) walk.push([d.x + d.ox * k, d.z + d.oz * k]);
+    return { p, area: g.area, cells: g.cells, walk, door: g.door };
   });
   const lampAt = new Set(lamps.map((l) => `${l.x},${l.z}`));
   const taken = new Set<string>();

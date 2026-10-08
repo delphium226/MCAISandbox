@@ -250,7 +250,9 @@ const SCOUT_DEADLINE_MS = 20 * 60000;
 export function mayorGatherPick(ready: Task[]): Task[] {
   const gather = ready.filter((t) => t.soft && /^Gather \d+ /.test(t.title) && /^collect block=\S+ count=\d+, then deposit item=all/.test(t.detail));
   const stone = (t: Task) => /^collect block=cobblestone /.test(t.detail);
-  return [...gather.filter((t) => !stone(t)), ...gather.filter(stone)];
+  // The farm's seeds first (10-08): they are off the builds' path, so the mayor's spare time is best spent on them
+  const seeds = (t: Task) => /^collect block=wheat_seeds /.test(t.detail);
+  return [...gather.filter(seeds), ...gather.filter((t) => !stone(t) && !seeds(t)), ...gather.filter(stone)];
 }
 
 /** Scout tasks still being worked on: open, or held by an agent still in the world. */
@@ -441,7 +443,7 @@ Follow the usual progression: wood -> crafting table -> wooden pickaxe -> stone 
 Keep the agent alive (food, night, monsters) and fit the role.`;
 
 /** Skills a mayor's plan step may not use: gathering, crafting, building and land work are for the workers. */
-const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|gather|attack|give|equip)\b/i;
+const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|gather|attack|give|equip)\b/i;
 
 const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your
@@ -1255,7 +1257,7 @@ export class TieredBrain implements AgentBrain {
         // Checked in code: gpt-oss once declared the village complete with nothing built
         // (the street lamps and signs too: the user's, 10-06 and 10-08, the village is complete once they are up; a failed
         // lamp or sign task is soft)
-        const open = v.tasks.filter((t) => (/^Build /.test(t.title) && t.status !== 'done') || (/^(Light the streets|Put up the signs)/.test(t.title) && (t.status === 'open' || t.status === 'claimed')));
+        const open = v.tasks.filter((t) => (/^Build /.test(t.title) && t.status !== 'done') || (/^(Light the streets|Put up the signs|Plant the farm)/.test(t.title) && (t.status === 'open' || t.status === 'claimed')));
         if (open.length || !v.structures.some((st) => st.kind !== 'storage') || v.unplaced?.length) {
           const why = open.length ? `${open.map((t) => `${t.id} ${t.title} (${t.status})`).join('; ')} not done` : v.unplaced?.length ? '' : 'no building stands yet';
           const unplaced = v.unplaced?.length ? `${why ? '; ' : ''}${v.unplaced.join(', ')} not laid out yet (find a second site, then plan_layout)` : '';

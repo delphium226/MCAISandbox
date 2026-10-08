@@ -85,8 +85,9 @@ export function inWood(bill: Counts, wood: string | undefined): Counts {
   return out;
 }
 
-/** Placing one of these charges another item (grass and paths need silk touch or a shovel's use: charge dirt). */
-const CHARGE_AS: Record<string, string> = { grass_block: 'dirt', dirt_path: 'dirt' };
+/** Placing one of these charges another item (grass and paths need silk touch or a shovel's use: charge dirt; a sown crop
+ * its seed). */
+const CHARGE_AS: Record<string, string> = { grass_block: 'dirt', dirt_path: 'dirt', wheat: 'wheat_seeds' };
 
 export interface Option {
   kind: 'craft' | 'smelt';
@@ -461,7 +462,8 @@ export function gatherTasks(gather: Counts, label: string, wood?: string): Array
   const merged = gatherNames(gather, wood);
   const tasks: Array<{ title: string; detail: string }> = [];
   for (const [what, n] of Object.entries(merged)) {
-    const parts = Math.ceil(n / (/logs?$/.test(what) ? 12 : 32));
+    // (seeds: ~8 grass broken for each, so 8 a task stays inside collect's 5 minutes)
+    const parts = Math.ceil(n / (/logs?$/.test(what) ? 12 : what === 'wheat_seeds' ? 8 : 32));
     for (let i = 0; i < parts; i++) {
       const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
       const tool = PICKAXE.test(what) ? ' (mining it needs a pickaxe: if you have none, craft a wooden_pickaxe first; keep your tools)' : '';

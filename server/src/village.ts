@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
-import type { SignSpot } from './streetPlan';
+import type { FarmSpot, SignSpot } from './streetPlan';
 
 export interface Area {
   x1: number;
@@ -158,7 +158,9 @@ export interface Village {
   /** (`green`: the area a green village keeps free inside its ring street, V2.4) */
   /** (lamps: the street lamps' cells, `lit` once light_streets put them up; not structures: the plot covers them) */
   /** (signs: each building's name sign, `signed` once put_up_signs put them all up; not structures either) */
-  layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area; lamps?: Array<{ x: number; z: number }>; lit?: boolean; signs?: SignSpot[]; signed?: boolean }>;
+  layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area; lamps?: Array<{ x: number; z: number }>; lit?: boolean; signs?: SignSpot[]; signed?: boolean;
+    /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
+    farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean } }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

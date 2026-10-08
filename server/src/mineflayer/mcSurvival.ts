@@ -63,18 +63,22 @@ export async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, for
   if (tools && !force && !bot.inventory.items().some((it) => tools[it.type]))
     throw new Error(`needs ${weakestTool(a, block)} (or better) to harvest ${block.name}; without one it drops nothing`);
   const eye = bot.entity.position.offset(0, 1.62, 0);
+  // (what was there before the walk: a plant has no collision box either, and "dug on the way" by its empty box alone
+  // returned at once for every grass block, so seeds were never gathered, the farm's review)
+  const was = block.name;
   if (eye.distanceTo(pos.offset(0.5, 0.5, 0.5)) > 4.2) {
     const label = `${block.name} at ${at(pos)}`;
     try {
-      // Somewhere it can be seen from; failing that (it is buried), dig through the terrain to it
-      await walk(a, new goals.GoalLookAtBlock(pos, bot.world, { reach: 4 }), label, signal, walkMs);
+      // Somewhere it can be seen from; failing that (it is buried), dig through the terrain to it. A plant has no collision
+      // box, so the look goal's ray never meets it and the walk stood beside each grass block until "stuck" (VanF2): near it
+      await walk(a, block.boundingBox === 'empty' ? new goals.GoalNear(pos.x, pos.y, pos.z, 2) : new goals.GoalLookAtBlock(pos, bot.world, { reach: 4 }), label, signal, walkMs);
     } catch (e) {
       if (!/^no path/.test((e as Error).message)) throw e;
       await walk(a, new goals.GoalNear(pos.x, pos.y, pos.z, 2), label, signal, walkMs);
     }
   }
   block = bot.blockAt(pos)!;
-  if (block.boundingBox === 'empty') {
+  if (block.boundingBox === 'empty' && block.name !== was) {
     await pickUpDrops(a, pos.offset(0.5, 0.5, 0.5), signal); // dug on the way
     return `mined ${block.name} at ${at(pos)}`;
   }
@@ -140,6 +144,11 @@ export function collectTargets(a: BotAgent, raw: string): { blocks: number[]; it
   if (/^(logs?|wood|trees?|any_log)$/.test(n)) {
     for (const b of reg.blocksArray) if (TREE_LOG.has(b.name)) blocks.add(b.id);
     for (const b of blocks) items.add(reg.itemsByName[reg.blocks[b].name]?.id ?? -1);
+  } else if (/^(wheat_)?seeds?$/.test(n)) {
+    // Seeds from grass and ferns, as the jar's loot tables have them (1 in 8 each): minecraft-data adds the wheat crop
+    // (a village's own field, unripe too) and leaves out tall grass and ferns (the farm's research, 10-08)
+    for (const g of ['short_grass', 'tall_grass', 'fern', 'large_fern']) if (reg.blocksByName[g]) blocks.add(reg.blocksByName[g].id);
+    items.add(reg.itemsByName.wheat_seeds?.id ?? -1);
   } else {
     const name = reg.blocksByName[n] || reg.itemsByName[n] ? n : n.replace(/s$/, '');
     const block = reg.blocksByName[name];

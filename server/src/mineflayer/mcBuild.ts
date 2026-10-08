@@ -477,6 +477,8 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   for (const l of v?.layouts ?? []) for (const c of l.lamps ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
   // (and the name signs: one by a door at head height)
   for (const l of v?.layouts ?? []) for (const c of l.signs ?? []) taken.push({ x1: c.x, x2: c.x, z1: c.z, z2: c.z });
+  // (and the wheat field: no one waits on farmland, and the in-the-way teleport must not land there)
+  for (const l of v?.layouts ?? []) if (l.farm) taken.push({ x1: l.farm.x1, x2: l.farm.x2, z1: l.farm.z1, z2: l.farm.z2 });
   const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
   // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
   // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
@@ -1829,6 +1831,129 @@ async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: Ab
   return `put up ${up} sign${up === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}: ${out}`;
 }
 
+/**
+ * A village layout's wheat field (10-08, the user's): the channel's water and the farmland are landscaping (free: water
+ * needs a bucket, which needs iron; tilling uses no item), but the tiller must carry a hoe (from storage, or made at the
+ * storage hut's table from a log's worth of planks); each sown cell is charged a wheat_seeds. As many cells are sown as
+ * there are seeds; when short, the seeds are asked for once more (seed tasks posted, the task back on the board), then
+ * the farm goes ahead with what there is. The job stands by the storage hut (its table), the commands reach the field.
+ * Checked after on the server (farmland, water, wheat), what is missing set once more.
+ */
+async function tendFarm(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('tend_farm: not in a village');
+  const k = Math.floor(num(args.layout, 'layout'));
+  const farm = v.layouts?.[k - 1]?.farm;
+  if (!farm) throw new Error(`tend_farm: layout ${k} has no farm`);
+  const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+  if (!plot) throw new Error(`tend_farm: the farm at ${areaText(farm)} is not on a prepared plot yet; prepare the village plot first`);
+  const y = plot.y;
+  const inWater = (x: number, z: number) => x >= farm.water.x1 && x <= farm.water.x2 && z >= farm.water.z1 && z <= farm.water.z2;
+  const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
+  const soil = (n: string) => /^(grass_block|dirt|coarse_dirt|rooted_dirt|dirt_path|farmland)$/.test(n);
+  const solid = (x: number, yy: number, z: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox === 'block';
+  // Ground: each cell's at the plot's level (soil, or the channel's water already), nothing built above it
+  const till: Target[] = [];
+  const skipped: string[] = [];
+  for (let x = farm.x1; x <= farm.x2; x++)
+    for (let z = farm.z1; z <= farm.z2; z++) {
+      const ground = blockName(a, x, y, z), above = blockName(a, x, y + 1, z);
+      const wet = inWater(x, z);
+      if (ground === null || above === null) {
+        skipped.push(`${x},${z} (not loaded)`);
+        continue;
+      }
+      if (!(soil(ground) || (wet && ground === 'water')) || !(plant(above) || (!wet && above === 'wheat'))) {
+        skipped.push(`${x},${z} (${!soil(ground) && ground !== 'water' ? ground : above})`);
+        continue;
+      }
+      if (above !== 'air' && above !== 'cave_air' && above !== 'wheat') till.push({ x, y: y + 1, z, block: 'air' });
+      if (wet) {
+        // (on solid ground: sand or a cave under the channel lets it drain away, F137; and past its ends, a cut cell or air
+        // there lets it run out over the plot, the diff review)
+        if (!solid(x, y - 1, z)) till.push({ x, y: y - 1, z, block: 'dirt' });
+        for (const [ex, ez] of [[x - 1, z], [x + 1, z], [x, z - 1], [x, z + 1]])
+          if ((ex < farm.x1 || ex > farm.x2 || ez < farm.z1 || ez > farm.z2) && blockName(a, ex, y, ez) !== null && !solid(ex, y, ez)) till.push({ x: ex, y, z: ez, block: 'dirt' });
+        if (ground !== 'water') till.push({ x, y, z, block: 'water' });
+      } else if (ground !== 'farmland') till.push({ x, y, z, block: 'farmland[moisture=7]' });
+    }
+  const h = v.storageHut;
+  const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: farm.x1, z1: farm.z1, x2: farm.x2, z2: farm.z2 };
+  const task = `tend_farm layout=${k}`;
+  const job: Job = { targets: till, area, y, free: true, what: 'the farm', task };
+  const notes: string[] = [];
+  // A hoe carried (the server's count: lesson 13), else one from storage, else one made at the hut's table
+  const hoes = async () => Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:hoes 0`).catch(() => ''))?.[1] ?? 0);
+  if (till.some((t) => /^farmland/.test(t.block)) && !(await hoes())) {
+    const kept = Object.keys(storageContents(v)).find((n) => /_hoe$/.test(n));
+    if (kept) await withdrawItems(a, v, { [kept]: 1 }, signal);
+    if (!(await hoes())) {
+      await standBy(a, job, signal);
+      const made = await makeFromStock(a, {}, { wooden_hoe: 1 }, () => standBy(a, job, signal), signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        notes.push(e.message);
+        return null;
+      });
+      if (made) notes.push(made);
+    }
+    if (!(await hoes())) {
+      const again = farm.requeuedHoe ? '' : await requeueBuild(a, job, {}, { wooden_hoe: 1 }, signal);
+      if (again) {
+        farm.requeuedHoe = true;
+        a.world.villages.save();
+      }
+      throw new Error(`tend_farm: no hoe to till the farm with, and none could be made from the village storage (a wooden_hoe takes 2 planks and 2 sticks at a crafting table${notes.length ? `; ${notes.join('; ')}` : ''})${again}`);
+    }
+  }
+  let out = till.length ? await runJob(a, job, signal) : skipped.length ? 'nothing to lay' : 'the field was laid already';
+  await sleep(1000, signal);
+  // On the server (R.3; lesson 29): the water and farmland as set, once more where missing
+  const there = async (t: { x: number; y: number; z: number }, block: string) => /passed/i.test(await a.world.rcon.command(`execute if block ${t.x} ${t.y} ${t.z} minecraft:${block}`).catch(() => ''));
+  const missing: Target[] = [];
+  for (const t of till) if (t.block !== 'air' && !(await there(t, t.block.replace(/\[.*$/, '')))) missing.push(t);
+  if (missing.length) {
+    out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
+    await sleep(1000, signal);
+  }
+  // Sowing: the sow cells that are farmland now and bare, as many as there are seeds
+  const sow: Array<[number, number]> = [];
+  let sown = 0;
+  for (const [x, z] of farm.sow) {
+    if (!(await there({ x, y, z }, 'farmland'))) continue;
+    if (await there({ x, y: y + 1, z }, 'wheat')) sown++;
+    else if (blockName(a, x, y + 1, z) === 'air') sow.push([x, z]);
+  }
+  if (sow.length) {
+    if (v.storage?.chests.length) await refreshStorage(a, v, signal);
+    const carried = Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} wheat_seeds 0`).catch(() => ''))?.[1] ?? 0);
+    const have = carried + (storageContents(v).wheat_seeds ?? 0);
+    const n = Math.min(sow.length, have);
+    const sowJob: Job = { targets: sow.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block: 'wheat[age=0]' })), area, y, what: 'the farm', task };
+    if (n) {
+      out += `; ${await runJob(a, sowJob, signal)}`;
+      await sleep(1000, signal);
+      for (const t of sowJob.targets) if (await there(t, 'wheat')) sown++;
+    }
+    farm.planted = sown;
+    a.world.villages.save();
+    // Short of seeds: asked for once more (the field so far stays), then the farm goes ahead with what is sown
+    if (n < sow.length && !farm.requeuedSeeds) {
+      const again = await requeueBuild(a, { ...sowJob, targets: [] }, {}, { wheat_seeds: sow.length - n }, signal);
+      if (again) {
+        farm.requeuedSeeds = true;
+        a.world.villages.save();
+        throw new Error(`tend_farm: sowed ${sown} of ${farm.sow.length} cells; short of ${sow.length - n} wheat_seeds (seeds come from breaking grass).${again}`);
+      }
+    }
+    if (!sown) throw new Error(`tend_farm: no wheat could be sown (${have} wheat_seeds carried and in storage; seeds come from breaking grass)`);
+  }
+  // Nothing sown and nothing to sow on: the field is not there (every cell skipped), not a farm planted (the diff review)
+  if (!sown) throw new Error(`tend_farm: no wheat on the farm at ${areaText(farm)}: no cell could be tilled and sown (skipped ${skipped.slice(0, 6).join('; ') || 'none'})`);
+  farm.planted = sown;
+  a.world.villages.save();
+  return `planted ${sown} wheat on the farm at ${areaText(farm)}${notes.length ? ` (${notes.join('; ')})` : ''}${skipped.length ? ` (skipped ${skipped.slice(0, 6).join('; ')}${skipped.length > 6 ? ' ...' : ''})` : ''}: ${out}`;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
@@ -1839,5 +1964,6 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   build: { check: (x) => void str(x.structure, 'structure'), run: buildStructure },
   light_streets: { check: (x) => void num(x.layout, 'layout'), run: lightStreets },
   put_up_signs: { check: (x) => void num(x.layout, 'layout'), run: putUpSigns },
+  tend_farm: { check: (x) => void num(x.layout, 'layout'), run: tendFarm },
 };
 

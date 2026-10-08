@@ -204,6 +204,27 @@ export class BotAgent implements WorldAgent {
     return near;
   }
 
+  private farmCache: { at: number; boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> } = { at: 0, boxes: [] };
+
+  /**
+   * Every village's wheat field near this bot, at its plot's level (refreshed every 5 s): farmland turns to dirt under a
+   * jump or a step down onto it (walking never tramples), so walks keep off it.
+   */
+  farmGround() {
+    const now = Date.now();
+    if (now - this.farmCache.at < 5000) return this.farmCache.boxes;
+    const p = this.bot.entity?.position;
+    const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number }> = [];
+    for (const v of this.world.villages.villages.values())
+      for (const l of v.layouts ?? []) {
+        const f = l.farm;
+        const y = f && v.plots.find((q) => q.x1 <= f.x2 && q.x2 >= f.x1 && q.z1 <= f.z2 && q.z2 >= f.z1)?.y;
+        if (f && y !== undefined && (!p || Math.max(f.x1 - p.x, p.x - f.x2, f.z1 - p.z, p.z - f.z2) < 160)) boxes.push({ x1: f.x1, z1: f.z1, x2: f.x2, z2: f.z2, y });
+      }
+    this.farmCache = { at: now, boxes };
+    return boxes;
+  }
+
   /** Pathfinder movement rules for this bot (dig natural blocks only, no parkour, scaffold with dirt). */
   moves() {
     if (!this.movements) {
@@ -264,6 +285,17 @@ export class BotAgent implements WorldAgent {
       // and sealed the mine (Minevale19, 10-04). Placing there costs too much for any path to take it
       (m as unknown as { exclusionAreasPlace: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasPlace = [
         (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2 + 1)) ? 1000 : 0),
+      ];
+      // ...nor step onto a village's wheat field (the farm's review, 10-08): the cost is the moving body's (feet and head
+      // cells, from the channel's water up to head height over the farmland), and over 100 drops the move, so no path
+      // crosses it (with a mere cost, paths cut across and the pathfinder's jumps trample). A field the bot stands on is
+      // let off: the cost is paid on entering each cell, and from the middle of one every way out was banned (the diff review)
+      (m as unknown as { exclusionAreasStep: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasStep = [
+        (b) => {
+          const p = this.bot.entity?.position;
+          const on = (q: { x1: number; z1: number; x2: number; z2: number }, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
+          return this.farmGround().some((q) => on(q, b.position.x, b.position.z) && b.position.y >= q.y && b.position.y <= q.y + 2 && !(p && on(q, Math.floor(p.x), Math.floor(p.z)))) ? 1000 : 0;
+        },
       ];
       // Around water rather than through it: a gatherer that walked into a lake stayed stuck in it for ten minutes
       (m as unknown as { liquidCost: number }).liquidCost = 20; // (missing from the typings)

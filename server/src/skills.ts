@@ -50,4 +50,5 @@ export const TOOLS: ToolDef[] = [
   { name: 'build_box', description: "Fill the box between two corners with a block (hollow: only the shell, inside cleared), or clear it with block 'air'. For custom shapes: towers, pillars, bridges, extensions. label names it in the village record.", input_schema: obj({ x1: n, y1: n, z1: n, x2: n, y2: n, z2: n, block: s, hollow: { type: 'boolean' }, label: s }, ['x1', 'y1', 'z1', 'x2', 'y2', 'z2', 'block']) },
   { name: 'light_streets', description: 'Put up the street lamps of a village layout (a code-posted task: the posts and torches are made from the village storage).', input_schema: obj({ layout: n }, ['layout']) },
   { name: 'put_up_signs', description: 'Put up the name signs beside the doors of a village layout (a code-posted task: the signs are made from the village storage).', input_schema: obj({ layout: n }, ['layout']) },
+  { name: 'tend_farm', description: 'Lay, till and sow the wheat field of a village layout (the code-posted task "Plant the farm": seeds from the village storage).', input_schema: obj({ layout: n }, ['layout']) },
 ];

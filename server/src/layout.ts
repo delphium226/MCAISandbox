@@ -5,7 +5,7 @@
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { areaText, layoutBuildings, overlaps, type Layout, type Village } from './village';
-import { doorOf, placeLamps, placeSigns, planGreen, planStreets, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
+import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -257,6 +257,51 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const top = miningStairs(mining.x1, mining.z1, mineTurn);
       v.mine = { hut: { x1: mining.x1, z1: mining.z1, x2: mining.x2, z2: mining.z2 }, top: { x: top.x, z: top.z }, dir: top.dir, steps: 0, dug: 0, ended: [], got: {} };
     }
+    // Each building as build_design lays it (the signs and the farm keep to these)
+    const grids = lay.places.map((p) => ({ design: v.designs[p.name], x: p.x, z: p.z, rot: p.name === MINING_HUT ? mineTurn : (p.rotate ?? 0) / 90, noSign: p.name === centre?.design.name }));
+    // The wheat field (the user's, 10-08): one a village, a 5x7 field of farmland either side of a water channel, on free
+    // ground nearest the storage hut's door; its seeds gathered from grass (soft tasks after the storage) and sown early,
+    // while the houses go up (wheat grows only with agents near: ~25-45 min a crop at 1x). Not in cold biomes (the
+    // channel freezes) nor deserts (no grass for seeds), nor where the grass near the site is too thin for the seeds
+    // (collect breaks ~8 grass a seed; the plot's own grass is cut by prepare_site). Only where the world has the skill
+    let farm: FarmSpot | null = null;
+    const biome = (v.vanillaBiome ?? site.biome ?? '').toLowerCase();
+    if (economy && w.skills.some((t) => t.name === 'tend_farm') && !(v.layouts ?? []).some((l) => l.farm)) {
+      // (the mining hut's ground out to the pad's edge: its stairs run under it; rows record none, so from the stairs)
+      const m = mining && v.mine ? v.mine : undefined;
+      const back = street?.back ?? (m
+        ? m.dir[1] < 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: plot.z1, z2: m.hut.z1 - 1 } : m.dir[1] > 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: m.hut.z2 + 1, z2: plot.z2 }
+          : m.dir[0] > 0 ? { x1: m.hut.x2 + 1, x2: plot.x2, z1: m.hut.z1, z2: m.hut.z2 } : { x1: plot.x1, x2: m.hut.x1 - 1, z1: m.hut.z1, z2: m.hut.z2 }
+        : undefined);
+      const h = v.storageHut;
+      const near = h ? { x: (h.x1 + h.x2) / 2, z: h.z2 + 3 } : undefined;
+      farm = /snowy|frozen|ice|grove|peaks|desert|badlands/.test(biome) ? null : placeFarm(grids, plot, { streets: street?.streets, green: street?.green, back, near });
+      if (!farm) reg.note(v, `no farm on ${areaText(plot)}: ${/snowy|frozen|ice|grove|peaks|desert|badlands/.test(biome) ? `the ${biome} biome` : 'no free ground for a 5x7 field'}`);
+      // (null: no agent to count with, as the material check: the farm goes ahead)
+      const grass = farm && w.materialsNear ? w.materialsNear(by, { wheat_seeds: farm.sow.length * 10 }, site.x, site.y, site.z, 96, { x1: plot.x1 - 3, z1: plot.z1 - 3, x2: plot.x2 + 3, z2: plot.z2 + 3 }) : null;
+      if (farm && grass?.wheat_seeds !== undefined && grass.wheat_seeds < farm.sow.length * 10) {
+        reg.note(v, `no farm: only ${grass.wheat_seeds} grass plants within 96 blocks of the site (${farm.sow.length * 10} wanted for ${farm.sow.length} seeds)`);
+        farm = null;
+      }
+    }
+    // Its seed tasks and the planting, posted right after the storage hut's build (claimed in posting order, before the
+    // houses' gathering; the waiting mayor gathers seeds first)
+    let farmPosted = false;
+    const postFarm = () => {
+      if (!farm || farmPosted) return;
+      farmPosted = true;
+      const n = farm.sow.length, parts = Math.ceil(n / 8);
+      const seeds: number[] = [];
+      for (let i = 0; i < parts; i++) {
+        const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
+        seeds.push(tasks.length);
+        tasks.push({ title: `Gather ${q} wheat_seeds for the farm${parts > 1 ? ` (${i + 1}/${parts})` : ''}`, detail: `collect block=wheat_seeds count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: storage !== undefined ? [storage] : [], soft: true });
+      }
+      // (and the hoe's log: made from the houses' logs, a house came up one short, the diff review)
+      seeds.push(tasks.length);
+      tasks.push({ title: `Gather 1 logs for the farm`, detail: `collect block=${wood ? `${wood}_log` : 'logs'} count=1, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: storage !== undefined ? [storage] : [], soft: true });
+      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : []), ...seeds], soft: true });
+    };
     // Cobblestone is gathered in the mine once it is dug (a soft task: without it, outside as before)
     let dig: number | undefined;
     const copies = new Map<string, number>();
@@ -289,12 +334,14 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         dig = tasks.length;
         tasks.push({ title: 'Dig the village mine', detail: 'dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)', after: [build], soft: true });
       }
+      if (isHut) postFarm();
     }
+    postFarm();
     // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once every
     // building of the layout stands (builders' stand spots and doorways keep clear of them, and builds come first on the
     // storage); made from what the storage holds then, gathering posted only if it falls short (as a build's). Soft; the
     // village is complete once they are lit. Only where the world has the skill (not the sandbox)
-    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street) : [];
+    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
     const lampTask = tasks.length;
     if (lamps.length)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true });
@@ -302,7 +349,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // layout, put up once every building stands, after the lamps (both jobs stand by the storage hut and draw its wood:
     // at once, the second to read the chests could come up short, the design review). Soft, as the lamps
     const signs = economy && w.skills.some((t) => t.name === 'put_up_signs')
-      ? placeSigns(lay.places.map((p) => ({ design: v.designs[p.name], x: p.x, z: p.z, rot: p.name === MINING_HUT ? mineTurn : (p.rotate ?? 0) / 90, noSign: p.name === centre?.design.name })), lamps, lay.plot).filter((s): s is SignSpot => !!s)
+      ? placeSigns(grids, lamps, lay.plot).filter((s): s is SignSpot => !!s)
       : [];
     if (signs.length)
       tasks.push({ title: `Put up the signs: ${signs.length} signs`, detail: `put_up_signs layout=${nth} (a name sign beside each building's door, made from the village storage)`, after: [0, ...builds, ...(lamps.length ? [lampTask] : [])], soft: true });
@@ -321,7 +368,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

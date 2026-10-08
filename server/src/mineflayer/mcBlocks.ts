@@ -76,6 +76,8 @@ export const DEFS: BlockDef[] = [
     id: 'JUNK', kind: 'item',
     tags: ['saplings', 'leaves', 'flowers', 'eggs', 'chicken_food', 'dirt'],
     extras: ['leaf_litter', 'cocoa_beans', 'apple', 'sweet_berries', 'bush', 'gravel', 'flint', 'stick', 'feather', 'bone', 'string', 'rotten_flesh', 'dead_bush', 'short_grass', 'firefly_bush'],
+    // (the farm's seeds go into storage like any material: kept back, a planter's withdrawn seeds stayed in its pockets)
+    exclude: ['wheat_seeds'],
   },
   // mcStorage: deposit "all" keeps tools
   { id: 'TOOL', kind: 'item', tags: ['pickaxes', 'axes', 'shovels', 'hoes', 'swords'], extras: ['shears', 'flint_and_steel', 'fishing_rod', 'bucket', 'water_bucket'] },
@@ -120,7 +122,7 @@ export const HAND: Record<string, Rule> = {
   WALK_DIG: /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|snow|snow_block|stone|deepslate|tuff|andesite|diorite|granite|calcite|netherrack|moss_block|short_grass|tall_grass|fern|large_fern|dead_bush|.*_leaves|.*_ore)$/,
   WET: /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/,
   FALLING: /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|pointed_dripstone|\w+_concrete_powder)$/,
-  JUNK: /_sapling$|_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/,
+  JUNK: /_sapling$|(?<!^wheat)_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/,
   TOOL: /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/,
   WILD_GROUND: /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/,
   TREE_LOG: (n) => n.endsWith('_log') && !n.startsWith('stripped_'),

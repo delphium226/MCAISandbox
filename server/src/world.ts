@@ -153,7 +153,7 @@ export interface WorldAdapter {
    * below ground level y, counted up to the number wanted, in the ground agent `by` has loaded; null when that agent is
    * not here. For the survival economy.
    */
-  materialsNear?(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number): Record<string, number> | null;
+  materialsNear?(by: string, want: Record<string, number>, x: number, y: number, z: number, range: number, skip?: { x1: number; z1: number; x2: number; z2: number }): Record<string, number> | null;
   /**
    * Vanilla's village pieces for a biome (phase D, V2.3; a Minecraft biome name or one of plains, savanna, snowy, taiga,
    * desert): the town centre (a meeting point without water, with its street connectors) and the houses that pass the
