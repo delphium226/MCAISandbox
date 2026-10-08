@@ -26,6 +26,7 @@ import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from '
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
+import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
 import { timeScale } from './mcRules';
 
@@ -1406,8 +1407,48 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     v.plots = v.plots.filter((q) => !same(q));
     v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name });
     reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
+    if (a.gamemode !== 'creative' && Object.keys(logs).length) summary += await storageFromFelled(a, signal);
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
   return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
+}
+
+/**
+ * The preparer, carrying the logs of the trees it felled, sets up the village storage itself (the opportunities analysis,
+ * 10-08: a second worker collected 10 new logs for the chests while the preparer stood by with 200-380, and the
+ * storage, the mining hut and the mine all came ~1.5 min later): the open storage task's own steps, less its collect,
+ * then everything deposited, which covers the log tasks at once. The first chest finishes the storage task (placeChest).
+ * Anything failing is only noted: the plot is ready, and the storage task stays on the board as before.
+ */
+async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const task = v?.tasks.find((t) => t.title === 'Set up the village storage' && t.status === 'open');
+  if (!v || !task || v.storage?.chests.length) return '';
+  const calls = taskCalls(task.detail, new Set(['craft', 'move_to', 'deposit']));
+  const chests = Number(calls.find((c) => c.type === 'craft' && c.args.item === 'chest')?.args.count ?? 0);
+  const logs = Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:logs 0`).catch(() => ''))?.[1] ?? 0);
+  // (a chest is 8 planks, 2 logs; and a crafting table's log, made if none is near)
+  if (!chests || logs < chests * 2 + 1) return '';
+  try {
+    for (const c of calls) {
+      if (c.type === 'craft') await SURVIVAL_SKILLS.craft.run(a, c.args, signal);
+      // (into a storage hut the deposit walks to the chest spot's aisle itself; a loose chest goes down beside the agent,
+      // so it walks there first, its height read as move_to does: VanO1's walk to the spot's given y found no path)
+      else if (c.type === 'move_to') {
+        if (v.storageHut) continue;
+        const x = Math.floor(num(c.args.x, 'x')), z = Math.floor(num(c.args.z, 'z')), asked = Math.floor(num(c.args.y, 'y'));
+        await walk(a, new goals.GoalNear(x, standableY(a, x, asked, z) ?? asked, z, 1), `the storage spot at ${x},${z}`, signal, 90000);
+      }
+      else await STORAGE_SKILLS.deposit.run(a, c.args, signal);
+    }
+    const now = v.tasks.find((t) => t.id === task.id);
+    return now?.status === 'done' ? `; set up the village storage with the felled logs (${task.id} done)` : '';
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    console.log(`[prepare] ${a.name}: the storage not set up with the felled logs: ${(e as Error).message}`);
+    // (the first chest may have finished the task before a later step failed)
+    const left = v.tasks.find((t) => t.id === task.id)?.status === 'done' ? `${task.id} done` : `${task.id} stays on the board`;
+    return `; the storage not fully set up with the felled logs (${(e as Error).message.slice(0, 100)}): ${left}`;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
