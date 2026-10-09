@@ -134,7 +134,19 @@ export interface PenPlan {
   inner: Area;
 }
 
-/** A chicken pen on a 5x7 slot (10-09): a fence ring, its gate in the middle of the slot's end facing `face`. */
+/**
+ * The animals a pen holds (pens v2, 10-09; from the jar's tags: chicken_food, cow_food): the item they follow and breed
+ * on, and the most a 3x5 pen keeps. Never in SLOT_KINDS: a pen is not harvested.
+ */
+export const PEN_KINDS: Record<string, { lure: string; cap: number }> = {
+  chicken: { lure: 'wheat_seeds', cap: 6 },
+  cow: { lure: 'wheat', cap: 4 },
+};
+export const PEN_ORDER = Object.keys(PEN_KINDS);
+/** A chicken lays one by its variant (the jar's chicken_lay): temperate, warm, cold; a cake takes any. */
+export const EGGS = ['egg', 'brown_egg', 'blue_egg'];
+
+/** A pen on a 5x7 slot (10-09): a fence ring, its gate in the middle of the slot's end facing `face`. */
 export function penPlan(s: FarmSpot, face: Side): PenPlan {
   const alongZ = s.water.x1 === s.water.x2;
   // r = 0 is the north end of a slot along z, the west end of one along x

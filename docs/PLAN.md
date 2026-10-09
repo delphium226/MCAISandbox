@@ -1432,6 +1432,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-09 (s23) | **VanA5** | as VanA4b + the two-step entry (wait at the gate until within 3; teleported 2 inside, then the back row) | **annex at +1.5; a chicken led ~80 blocks in 21 hops and penned at +3.2; birch fences made at once** | **5.9 min** | 0 failed actions, 0 `[stuck]`/`[lag]`/`[rescue]` |
 | 10-09 (s23) | **Minevale34** | model-driven, 1x, minevale3, `MCAI_AFTER=20`, F188-F192 + the annex and pens | **6/6 + lamps + signs + farm; annex at +4.0; 2 wild chickens led 25 blocks and penned at +5.8; pumpkin farm at +15.3** | **10.6 min**, site -1628,47 | 0 failed actions to completion; storage hut with no "could not craft" (F191 held); 2 pumpkin starts failed on the hoe (F198); 2 iron trips (stairs to y 18, 27 cells, no iron yet); no crash in 30 min, 0 `[stuck]`/`[lag]`/`[rescue]` |
 | 10-09 (s23) | **VanA6** | staged on Minevale31's site with a wood kind (`--site-at=-1628,65,47,40,birch,999`), 2x, `--after 8 --fixtures`, F198/F199 | **6/6 + lamps + signs + farm; cane and pumpkin farms, annex at +2.1, a chicken penned at +3.1** | **6.3 min** (VanW9 7.5) | 0 failed actions, 0 `[stuck]`/`[lag]`/`[rescue]`; the pen's fences "could not craft" once, recovered (F201) |
+| 10-09 (s24) | pens_v2_facts | Gus on the test world, a flat pad, animals summoned (`runs/2026-10-09/scripts/pens_v2_facts.py`, `pens_v2_facts.md`) | feeding by activateEntity breeds (a chick in ~2 s), but "again" fed the chick; breeding by `data merge ... {InLove:600}` on Age-0 adults works for both kinds; eggs teleported to the bot are picked up; a bucket on a cow gives milk, no cooldown; **cows jam in a 1-wide open gate** | - | first run's breeding-by-command and cow-lure pens lay off the pad: run again |
+| 10-09 (s24) | VanC1 | staged on Minevale31's site with a wood kind, 2x, `--after 12 --fixtures`, **baseline** before F193 | 6/6 + lamps + signs + farm; cane and pumpkin farms, annex, 1 chicken penned, iron trips | 6.2 min | **busy after completion: Worker1 9.9, Worker2 0.0, Mayor 0.0 of 12.1 min** (the new AFTER busy line) |
+| 10-09 (s24) | VanC2 | as VanC1, `--after 15 --stock wheat:12,bucket:3,sugar_cane:2`, F193 + pens v2 first version | 6/6; annex and farm starts by two workers at once, the Mayor on an iron trip; chicken pen 1, cow pen 1 (wheat lure), 2 milk buckets | 6.3 min | busy Worker1 11.3, Worker2 0.7, Mayor 2.5 of 15.0; a stale chicken sighting failed and the shared back-off held both pens 10 min (the review's L1); one pen animal each, no breeding; a bucket kept by Worker2's failed bucket craft |
+| 10-09 (s24) | **VanC3** | as VanC2, `--after 20`, the review's fixes, a second lure into a pen of one, buckets held counted | **6/6; chicken pen 2 + a chick bred; cow pen 1, milked 3 x 3; 5 eggs; 2 cakes** (Mayor and Worker1) | **6.3 min** | **busy Worker1 7.4, Worker2 6.0, Mayor 2.6 of 20.0**; 0 `[stuck]`/`[lag]`/`[rescue]`; the cow pen stayed at 1 (F205); the Mayor's deposit from the mine before completion failed once (F206) |
 
 ## Findings log
 
@@ -2364,7 +2368,8 @@ CLAUDE.md when a phase ends.
   needs 2, bad sightings by column, a failed start far out teleports home. Leftover: cane drops lost beside water (VanP2's
   fixture gave 1 of 3; earlier runs 2-4).
 - F193 (10-08, Minevale33) One chore a village: Worker2 and the Mayor were idle 29 minutes after completion while Worker1
-  ran farms, five iron trips and a scout in turn. Open: per-agent chores of different kinds.
+  ran farms, five iron trips and a scout in turn. Fixed 10-09 (s24): per-agent chores (the decisions); staged VanC1 busy
+  9.9/0.0/0.0 of 12.1 min (Worker1/Worker2/Mayor), VanC3 7.4/6.0/2.6 of 20.0.
 - F194 (10-09, VanA1) The fixture chickens stood on a hill 10 above the annex: from the slope's foot only one was within
   the 10 blocks a chicken is tempted from (3D), and chickens do not come down a drop. Fixed: start_pen takes chickens
   within 10 across and 4 up or down; penChores takes sightings within 4 of the annex's level; the staged fixture is
@@ -2390,6 +2395,30 @@ CLAUDE.md when a phase ends.
 - F201 (10-09, VanA3, Minevale34, VanA6) The pen's fences fail once on the first pass ("could not craft 21 birch_fence
   ... needs 4x birch_planks") and the second pass makes them; the plan's arithmetic holds in either step order, so the
   shortfall lies in the craft skill's own plank and stick choices. Costs seconds. Open.
+- F202 (10-09, s24, pens_v2_facts) Feeding by `bot.activateEntity` works on 26.1 but picks the nearest animal, a baby
+  as readily as an adult (a seed went to the new chick); Mineflayer entities carry no Age. Breeding, milking and eggs
+  are done by command from the cell beyond the gate instead (`data merge ... {InLove:600}` on `nbt={Age:0}`, a bucket
+  cleared and a milk bucket given for an adult found by score, egg items teleported to the bot), charged to the
+  inventory; no bot goes into a closed pen (the design review's H1-H3).
+- F203 (10-09, pens_v2_facts) Two cows led to a pen jammed in its 1-wide open gate and never came in (twice; chickens walk
+  through). Fixed: after the entry, animals of the kind in or just outside the gate are teleported into the pen.
+- F204 (10-09, VanC2) A pen of one animal never breeds, and v1 allowed one lure trip. Fixed: a pen holding fewer than 2 is
+  lured into again; its gate stays shut until the bot is at it with the new animals (the penned ones would walk out),
+  and the count is judged against the pen's starting number. One back-off for both kinds held the chicken and cow pens
+  10 minutes after one failure: now by kind (`annex.penBy`, penBad entries `kind:x,z,t`).
+- F205 (10-09, VanC3) The cow pen held one cow for 12 minutes: no second cow trip (two fixture cows, one led). Not looked
+  into yet: the sighting filter (height within 4 of the annex, 8 from a bad spot) or a back-off. Open.
+- F206 (10-09, VanC3) Before completion the Mayor's deposit failed once "could not reach the storage hut ... stopped at
+  -1622,59,40" (inside the mine area, y 59). Not this session's change; once in VanC1-3. Open, watch.
+- F207 (10-09, s24, the diff review) Buckets are tools to `deposit all` and eggs junk, so a chore stopped after a withdraw
+  kept them with a worker for good (VanC2: Worker2 held a bucket after its failed bucket craft, and the iron age set out
+  to make one while three had been stocked). Fixed: the pens' chores and the cake deposit carried buckets, milk and eggs
+  by name first; the iron age counts buckets and milk buckets storage holds.
+- F208 (10-09, the fixes review) Left open: egg collection fires on any dropped item a bot sees in a chicken pen (a stray
+  item makes a "no eggs" run a minute until it despawns; the item's metadata would tell eggs apart), and a pen chore can
+  be queued on a slot whose start_pen still waits in the queue (the second fails "busy", no try counted). Fixed with it:
+  no iron trip while milking or the cake hold the buckets; a failed count no longer reads as an empty pen; an agent
+  whose chore ended is given no new one for 10 s.
 
 ## Decisions log
 
@@ -2682,6 +2711,18 @@ CLAUDE.md when a phase ends.
   closed by command when its cell is clear; annex and pen chores after the plant starts and before the iron age; one pen
   with chickens a village in v1; tries forgiven after an hour; failed sightings passed over within 8.
 - 10-09 F193 (per-agent chores) left for later: one chore a village keeps the chores simple to reason about.
+- 10-09 (s24; the user asked Claude to decide everything after the first question) F193: chores keyed by agent, each with
+  a key (`slot:k:j`, `farm:k`, `start`, `annex`, `pen`, `penwork:j`, `cake`, `iron`, `explore`); an idle member takes the
+  first chore of a kind no other holds; workers first, then **the Mayor after completion (the user's choice, every
+  kind)**; a complete Mayor takes no executor turn unless urgent; the lure never runs beside harvests or farm starts
+  (seeds tempt chickens), exploring never beside a lure; an ended chore's key is held 10 s while its skill unwinds.
+- 10-09 (s24) Pens v2 (Claude's choices): cows on the annex's second slot, lured with wheat from storage only; eggs,
+  breeding and milking by command from the cell beyond the gate (F202), never a bot in a closed pen; caps 6 chickens, 4
+  cows; breeding at most every 6000 ticks a pen with storage food, only Age-0 adults; eggs taken whenever a bot sees an
+  item in a chicken pen (1 min apart: eggs despawn after 5 min); milk into every bucket storage holds up to 3; the iron
+  age makes 3 buckets once a cow pen holds cows; a cake at the hut's table once storage holds 3 milk, an egg, 3 wheat
+  and 2 sugar or cane (at most 2 in storage); crafts give back their remainders (buckets); bread only from wheat beyond
+  16 kept in storage; a pen of one is lured into again (F204); animals stuck at the gate are teleported in (F203).
 
 ## Keeping this plan honest
 

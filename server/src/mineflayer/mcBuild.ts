@@ -18,7 +18,7 @@ import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
-import { SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
+import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign } from '../streetPlan';
 import type { BotAgent } from './botAgent';
@@ -2146,9 +2146,11 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
     }
     if (resown < charged && !unpaid) await rcon(`give ${a.name} wheat_seeds ${charged - resown}`);
     if (looted.length > charged) notes.push(`${looted.length - charged} cells left bare: no seed to sow them`);
-    // Bread at the storage hut's table (never a table put down elsewhere): three wheat a loaf
+    // Bread at the storage hut's table (never a table put down elsewhere): three wheat a loaf, from the wheat beyond the
+    // reserve storage keeps for the pens and the cake (pens v2: hunger does not drain in peaceful, bread can wait)
     let bread = 0;
-    const loaves = Math.floor((await count('wheat')) / 3);
+    const keep = Math.max(0, WHEAT_KEEP - (storageContents(v).wheat ?? 0));
+    const loaves = Math.floor(Math.max(0, (await count('wheat')) - keep) / 3);
     if (loaves && villageStation(a, 'crafting_table')) {
       const before = await count('bread');
       await SURVIVAL_SKILLS.craft.run(a, { item: 'bread', count: loaves }, signal).catch((e: Error) => {
@@ -2628,7 +2630,11 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const { v, k, j, slot, plot, key } = slotOf(a, args, 'start_pen');
   if (!slot.annex) throw new Error(`start_pen: farm slot ${j} is not on the annex`);
   if (slotBusy.has(key)) throw new Error(`start_pen: farm slot ${j} is busy`);
-  if (slot.kind && slot.kind !== 'chicken') throw new Error(`start_pen: farm slot ${j} already holds ${slot.kind}`);
+  const kind = args.kind === undefined ? 'chicken' : str(args.kind, 'kind');
+  const spec = PEN_KINDS[kind];
+  if (!spec) throw new Error(`start_pen: no pen for ${kind} (${PEN_ORDER.join(', ')})`);
+  const lure = spec.lure;
+  if (slot.kind && slot.kind !== kind) throw new Error(`start_pen: farm slot ${j} already holds ${slot.kind}`);
   const sx = Math.floor(num(args.x, 'x')), sz = Math.floor(num(args.z, 'z'));
   const P = penPlan(slot, slot.face ?? 'n');
   const y = plot.y + 1;
@@ -2638,7 +2644,13 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const tp = (c: [number, number]) => rcon(`tp ${name} ${c[0] + 0.5} ${y} ${c[1] + 0.5}`);
   const box = (q: Area) => `x=${q.x1},y=${y},z=${q.z1},dx=${q.x2 - q.x1},dy=2,dz=${q.z2 - q.z1}`;
   const gateCell = { x1: P.gate[0], z1: P.gate[1], x2: P.gate[0], z2: P.gate[1] };
-  const count = async (q: Area) => Number(/count: (\d+)/i.exec(await rcon(`execute if entity @e[type=minecraft:chicken,${box(q)}]`))?.[1] ?? 0);
+  const count = async (q: Area) => Number(/count: (\d+)/i.exec(await rcon(`execute if entity @e[type=minecraft:${kind},${box(q)}]`))?.[1] ?? 0);
+  // (-1 when the server gave no count: the pen's base must not read 0 for a pen holding animals, the fixes review's L1)
+  const known = async (q: Area) => {
+    const r = await rcon(`execute if entity @e[type=minecraft:${kind},${box(q)}]`);
+    const m = /count: (\d+)/i.exec(r);
+    return m ? Number(m[1]) : /Test failed/i.test(r) ? 0 : -1;
+  };
   // (a village with no wood kind recorded: the kind storage holds most wood of, not oak, whose craft failed first in VanA3;
   // kept on the pen, so the gate is always set again in its own wood)
   const stock = storageContents(v);
@@ -2651,14 +2663,14 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const notes: string[] = [];
   try {
     slotBusy.add(key);
-    slot.kind = 'chicken';
+    slot.kind = kind;
     slot.laying = true;
     slot.pen = { ...slot.pen, gate: P.gate, facing: P.facing, wood };
     save();
     // The ring (charged, at the storage hut), the gate open; anything grown inside the slot cleared
     const h = v.storageHut;
     const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
-    const job: Job = { targets: [], area, y: plot.y, what: 'the chicken pen', task: `start_pen layout=${k} slot=${j}` };
+    const job: Job = { targets: [], area, y: plot.y, what: `the ${kind} pen`, task: `start_pen layout=${k} slot=${j}` };
     if (!slot.pen.built) {
       const targets: Target[] = P.ring.map(([x, z]) => ({ x, y, z, block: `${wood}_fence` }));
       targets.push({ x: P.gate[0], y, z: P.gate[1], block: gate(true) });
@@ -2675,64 +2687,74 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
         throw new Error(`start_pen: the pen's gate at ${P.gate[0]},${y},${P.gate[1]} is not there after two passes`);
       slot.pen.built = true;
       save();
-    } else await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
-    gateOpen = true;
-    // Seeds left in the off-hand by a run cut off before its clean-up (a restart): back into the inventory (review M1)
-    const left = await rcon(`execute if items entity ${name} weapon.offhand minecraft:wheat_seeds`);
-    if (/passed/i.test(left)) {
+      gateOpen = true;
+    }
+    // (a pen with animals already keeps its gate shut until the bot is at it with the new ones: VanC2's pens held one
+    // animal each, too few to breed, so a second trip comes)
+    const counted = slot.pen.built ? await known(P.inner) : 0;
+    const base = counted < 0 || (counted === 0 && (slot.pen.animals ?? 0) > 0) ? (slot.pen.animals ?? 0) : counted;
+    if (!base && !gateOpen) {
+      await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
+      gateOpen = true;
+    }
+    // A lure left in the off-hand by a run cut off before its clean-up (a restart): back into the inventory (review M1;
+    // any kind's: a chicken start's seeds blocked every cow start, the diff review's L2)
+    for (const l of new Set(Object.values(PEN_KINDS).map((q) => q.lure))) {
+      const left = await rcon(`execute if items entity ${name} weapon.offhand minecraft:${l}`);
+      if (!/passed/i.test(left)) continue;
       await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
-      await rcon(`give ${name} minecraft:wheat_seeds ${Number(/count: (\d+)/i.exec(left)?.[1] ?? 1)}`);
+      await rcon(`give ${name} minecraft:${l} ${Number(/count: (\d+)/i.exec(left)?.[1] ?? 1)}`);
       await syncInventory(a);
     }
-    // The seeds: from storage, else a few from the grass (none are used up; the wheat field took every seed gathered
-    // before its first harvest, VanA2)
-    if ((await serverCount(a, 'wheat_seeds')) < 1) {
-      const store = storageContents(v).wheat_seeds ?? 0;
-      if (store) await withdrawItems(a, v, { wheat_seeds: Math.min(LURE_SEEDS, store) }, signal);
-      else
+    // The lure: from storage, else (seeds) a few from the grass (none are used up; the wheat field took every seed gathered
+    // before its first harvest, VanA2); wheat comes only from the field's harvests
+    if ((await serverCount(a, lure)) < 1) {
+      const store = storageContents(v)[lure] ?? 0;
+      if (store) await withdrawItems(a, v, { [lure]: Math.min(LURE_SEEDS, store) }, signal);
+      else if (lure === 'wheat_seeds')
         await SURVIVAL_SKILLS.collect.run(a, { block: 'wheat_seeds', count: 3 }, signal).catch((e: Error) => {
           if (e.message === 'cancelled') throw e;
           notes.push(`seeds: ${e.message.slice(0, 100)}`);
         });
     }
-    const seeds = Math.min(LURE_SEEDS, await serverCount(a, 'wheat_seeds'));
-    if (!seeds) throw new Error(`start_pen: no wheat_seeds to lure the chickens with (the storage holds none, and none came from the grass${notes.length ? `: ${notes.join('; ')}` : ''})`);
+    const seeds = Math.min(LURE_SEEDS, await serverCount(a, lure));
+    if (!seeds) throw new Error(`start_pen: no ${lure} to lure the ${kind}s with (the storage holds none${lure === 'wheat_seeds' ? ', and none came from the grass' : ''}${notes.length ? `: ${notes.join('; ')}` : ''})`);
     // To the chickens
     const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
-    await walk(a, new goals.GoalNearXZ(sx, sz, 4), `the chickens at ${sx},${sz}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+    await walk(a, new goals.GoalNearXZ(sx, sz, 4), `the ${kind}s at ${sx},${sz}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
       notes.push(`walk: ${e.message.slice(0, 100)}`);
     });
-    // The seeds in the off-hand, by command (an empty one only)
+    // The lure in the off-hand, by command (an empty one only)
     if (/passed/i.test(await rcon(`execute if items entity ${name} weapon.offhand *`))) throw new Error('start_pen: the off-hand holds something already');
-    const cleared = Number(/Removed (\d+)/i.exec(await rcon(`clear ${name} minecraft:wheat_seeds ${seeds}`))?.[1] ?? 0);
-    if (!cleared) throw new Error('start_pen: the seeds could not be taken from the inventory');
+    const cleared = Number(/Removed (\d+)/i.exec(await rcon(`clear ${name} minecraft:${lure} ${seeds}`))?.[1] ?? 0);
+    if (!cleared) throw new Error(`start_pen: the ${lure} could not be taken from the inventory`);
     held = cleared;
-    await rcon(`item replace entity ${name} weapon.offhand with minecraft:wheat_seeds ${held}`);
+    await rcon(`item replace entity ${name} weapon.offhand with minecraft:${lure} ${held}`);
     await sleep(1500, signal);
-    // The chickens near (not on any village's ground: penned ones are seen too, review H3), and at about the bot's height:
+    // The animals near (not on any village's ground: penned ones are seen too, review H3), and at about the bot's height:
     // ones on a hill 10 above it were out of the 10 blocks a chicken is tempted from, and do not come down a drop (VanA1)
     const me = () => a.bot.entity.position;
     const flat = (e: { position: Vec3 }) => Math.hypot(e.position.x - me().x, e.position.z - me().z);
     const near = (r: number) => Object.values(a.bot.entities)
-      .filter((e) => e.name === 'chicken' && flat(e) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
+      .filter((e) => e.name === kind && flat(e) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
       .sort((p, q) => flat(p) - flat(q));
     const where = (ids: number[]) => ids.map((id) => (a.bot.entities[id] ? `${at(a.bot.entities[id].position)} (${a.bot.entities[id].position.distanceTo(me()).toFixed(1)})` : `${id} gone`)).join(', ');
     let chosen = near(10).slice(0, 4).map((e) => e.id);
     if (!chosen.length) {
       // (they wander: to the nearest within 24 at any height, then a second look)
-      const e = Object.values(a.bot.entities).filter((c) => c.name === 'chicken' && flat(c) <= 24 && !onVillageGround(a, Math.floor(c.position.x), Math.floor(c.position.z))).sort((p, q) => flat(p) - flat(q))[0];
+      const e = Object.values(a.bot.entities).filter((c) => c.name === kind && flat(c) <= 24 && !onVillageGround(a, Math.floor(c.position.x), Math.floor(c.position.z))).sort((p, q) => flat(p) - flat(q))[0];
       if (e) {
-        await walk(a, new goals.GoalNearXZ(Math.floor(e.position.x), Math.floor(e.position.z), 3), 'the nearest chicken', signal, 20000).catch((er: Error) => {
+        await walk(a, new goals.GoalNearXZ(Math.floor(e.position.x), Math.floor(e.position.z), 3), `the nearest ${kind}`, signal, 20000).catch((er: Error) => {
           if (er.message === 'cancelled') throw er;
         });
         await sleep(1500, signal);
         chosen = near(10).slice(0, 4).map((c) => c.id);
       }
     }
-    if (!chosen.length) throw new Error(`start_pen: no chicken within 10 blocks of ${at(me())} (seen at ${sx},${sz})`);
+    if (!chosen.length) throw new Error(`start_pen: no ${kind} within 10 blocks of ${at(me())} (seen at ${sx},${sz})`);
     const led = chosen.length;
-    console.log(`[pen] ${name}: leads ${led} chicken${led > 1 ? 's' : ''} from ${at(me())}: ${where(chosen)}`);
+    console.log(`[pen] ${name}: leads ${led} ${kind}${led > 1 ? 's' : ''} from ${at(me())}: ${where(chosen)}`);
     // Home in hops: no digging, building or sprinting on the way (they keep up at ~2.5 m/s, the bot walks 4.3)
     Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, allowSprinting: false });
     const [ax, az] = P.approach;
@@ -2741,7 +2763,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     let hops = 0, still = 0;
     while (dist() > 1.5) {
       checkAbort(signal);
-      if (++hops > maxHops) throw new Error(`start_pen: could not lead the chickens home in ${maxHops} hops (${Math.round(dist())} blocks short)`);
+      if (++hops > maxHops) throw new Error(`start_pen: could not lead the ${kind}s home in ${maxHops} hops (${Math.round(dist())} blocks short)`);
       const from = me().clone();
       a.bot.pathfinder.setMovements(mv);
       a.bot.pathfinder.setGoal(new goals.GoalNearXZ(ax, az, 1));
@@ -2751,7 +2773,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       a.bot.pathfinder.setGoal(null);
       a.bot.clearControlStates();
       still = from.distanceTo(me()) < 1 ? still + 1 : 0;
-      if (still >= 4) throw new Error(`start_pen: stuck at ${at(me())} on the way home with the chickens`);
+      if (still >= 4) throw new Error(`start_pen: stuck at ${at(me())} on the way home with the ${kind}s`);
       // Wait for them (at most 8 s); one lost (gone or over 12 away) is left behind
       const w0 = Date.now();
       while (Date.now() - w0 < 8000) {
@@ -2760,7 +2782,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
         await sleep(250, signal);
       }
       console.log(`[pen] ${name}: hop ${hops} to ${at(me())}, ${Math.round(dist())} from the gate; ${where(chosen)}`);
-      if (!chosen.length) throw new Error(`start_pen: the chickens were lost on the way, ${Math.round(dist())} blocks from the pen`);
+      if (!chosen.length) throw new Error(`start_pen: the ${kind}s were lost on the way, ${Math.round(dist())} blocks from the pen`);
     }
     // Close up first (they hold at 2.5): a chicken trailing on the far side was 11 from the back row once the bot was
     // teleported there, out of the 10 blocks it is tempted from (VanA4b)
@@ -2770,23 +2792,39 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       if (chosen.every((id) => a.bot.entities[id].position.distanceTo(me()) <= 3)) break;
       await sleep(250, signal);
     }
-    if (!chosen.length) throw new Error('start_pen: the chickens were lost at the gate');
+    if (!chosen.length) throw new Error(`start_pen: the ${kind}s were lost at the gate`);
+    if (!gateOpen) {
+      await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
+      gateOpen = true;
+    }
     // In through the open gate behind the bot: teleported 2 cells inside (within 6 of them), then once they are in, to
     // the back row, so they go deep enough for the gate to close; closed when its cell is clear
     const toward = (u: number, w: number) => u + 2 * Math.sign(w - u);
     await tp([toward(P.gate[0], P.back[0]), toward(P.gate[1], P.back[1])]);
     const t1 = Date.now();
     while (Date.now() - t1 < 6000) {
-      if ((await count(P.inner)) >= chosen.length) break;
+      if ((await count(P.inner)) >= base + chosen.length) break;
       await sleep(500, signal);
     }
     await tp(P.back);
     const t2 = Date.now();
     while (Date.now() - t2 < 4000) {
-      if ((await count(P.inner)) >= chosen.length && !(await count(gateCell))) break;
+      if ((await count(P.inner)) >= base + chosen.length && !(await count(gateCell))) break;
       await sleep(500, signal);
     }
-    console.log(`[pen] ${name}: in the back row ${Math.round((Date.now() - t1) / 100) / 10} s: ${await count(P.inner)} inside, ${await count(gateCell)} in the gate; ${where(chosen)}`);
+    // Animals left in or just outside the open gate are put in by command: two cows led to the gate jammed in its cell and
+    // never came in (pens v2's live tests; chickens, 0.4 wide, walk through)
+    let nudged = 0;
+    if ((await count(P.inner)) < base + chosen.length) {
+      const xs = [P.gate[0], P.approach[0]], zs = [P.gate[1], P.approach[1]];
+      const near = { x1: Math.min(...xs) - 1, z1: Math.min(...zs) - 1, x2: Math.max(...xs) + 1, z2: Math.max(...zs) + 1 };
+      const c = [Math.floor((P.inner.x1 + P.inner.x2) / 2), Math.floor((P.inner.z1 + P.inner.z2) / 2)];
+      // ("Teleported 2 entities to ..." or, for one, "Teleported Cow to ...": the diff review's L5)
+      const r = await rcon(`tp @e[type=minecraft:${kind},${box(near)}] ${c[0] + 0.5} ${y} ${c[1] + 0.5}`);
+      nudged = /Teleported (\d+) entities/i.test(r) ? Number(/Teleported (\d+)/i.exec(r)![1]) : /Teleported /i.test(r) ? 1 : 0;
+      if (nudged) await sleep(1000, signal);
+    }
+    console.log(`[pen] ${name}: in the back row ${Math.round((Date.now() - t1) / 100) / 10} s: ${await count(P.inner)} inside${nudged ? ` (${nudged} put in from the gate)` : ''}, ${await count(gateCell)} in the gate; ${where(chosen)}`);
     let closed = false;
     for (let i = 0; i < 3 && !closed; i++) {
       if (!(await count(gateCell)) && !playersIn(a, [P.gate[0], y, P.gate[1]], 2).length) {
@@ -2805,14 +2843,14 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     save();
     // The seeds back in hand and into storage (the review's L8)
     await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
-    await rcon(`give ${name} minecraft:wheat_seeds ${held}`);
+    await rcon(`give ${name} minecraft:${lure} ${held}`);
     held = 0;
     await syncInventory(a).catch(() => {});
-    await STORAGE_SKILLS.deposit.run(a, { item: 'wheat_seeds' }, signal).catch((e: Error) => {
+    await STORAGE_SKILLS.deposit.run(a, { item: lure }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
-    if (!animals) throw new Error(`start_pen: none of the ${led} chickens led home came into the pen (${chosen.length} followed to the gate)`);
-    const done = `put ${animals} chicken${animals > 1 ? 's' : ''} into the pen on annex slot ${j} at ${areaText(slot)} (${led} led from ${sx},${sz}, ${hops} hops)`;
+    if (animals <= base) throw new Error(`start_pen: none of the ${led} ${kind}s led home came into the pen (${chosen.length} followed to the gate)`);
+    const done = `put ${animals - base} ${kind}${animals - base > 1 ? 's' : ''} into the pen on annex slot ${j} at ${areaText(slot)} (${led} led from ${sx},${sz}, ${hops} hops)`;
     a.world.villages.note(v, `${name} ${done}`);
     return `${done}${notes.length ? `: ${notes.join('; ')}` : ''}`;
   } catch (e) {
@@ -2825,10 +2863,9 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     delete slot.laying;
     const ann = v.layouts?.[0]?.annex;
     if (ann && why !== 'cancelled' && !signal.aborted) {
-      ann.penTries = (ann.penTries ?? 0) + 1;
-      ann.penLastTry = { at: Date.now(), why: why.slice(0, 200) };
-      // (chickens not found there, lost or not led in: that sighting is passed over next time, review M3)
-      if (/no chicken within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${sx},${sz},${Date.now()}`].slice(-20);
+      ann.penBy = { ...ann.penBy, [kind]: { tries: (ann.penBy?.[kind]?.tries ?? 0) + 1, at: Date.now(), why: why.slice(0, 200) } };
+      // (animals not found there, lost or not led in: that sighting is passed over next time, review M3)
+      if (/no (chicken|cow) within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${kind}:${sx},${sz},${Date.now()}`].slice(-20);
     }
     save();
     const home = villageHome(v, a.memory);
@@ -2845,11 +2882,252 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     if (gateOpen && !playersIn(a, [P.gate[0], y, P.gate[1]], 2).length) await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(false)}`);
     if (held) {
       await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
-      await rcon(`give ${name} minecraft:wheat_seeds ${held}`);
+      await rcon(`give ${name} minecraft:${lure} ${held}`);
     }
     await syncInventory(a).catch(() => {});
     slotBusy.delete(key);
   }
+}
+
+/** Wheat storage keeps for the pens and the cake: harvests bake bread only from what is beyond it (pens v2). */
+const WHEAT_KEEP = 16;
+
+/**
+ * A pen's own work (pens v2, 10-09; chores after completion): the bot walks to the cell beyond the pen's gate and the
+ * work is done there by command, charged to its inventory (the design review: no bot inside a closed pen, no clicking on
+ * animals Mineflayer cannot tell from their young). Returns the slot, its plan, a count of its animals and the selector
+ * of its inside.
+ */
+function penOf(a: BotAgent, args: Record<string, unknown>, what: string, kind?: string) {
+  const s = slotOf(a, args, what);
+  const { slot, plot, j } = s;
+  if (!slot.annex || !slot.kind || !PEN_KINDS[slot.kind] || !slot.pen?.built || (kind && slot.kind !== kind))
+    throw new Error(`${what}: annex slot ${j} holds no ${kind ?? 'animal'} pen`);
+  const P = penPlan(slot, slot.face ?? 'n');
+  const y = plot.y + 1;
+  const sel = `x=${P.inner.x1},y=${y},z=${P.inner.z1},dx=${P.inner.x2 - P.inner.x1},dy=2,dz=${P.inner.z2 - P.inner.z1}`;
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  // (-1 when the server gave no count: a failed command read as 0 wiped a pen's record, the diff review's M2)
+  const count = async (extra = '') => {
+    const r = await rcon(`execute if entity @e[type=minecraft:${slot.kind},${sel}${extra}]`);
+    const m = /count: (\d+)/i.exec(r);
+    return m ? Number(m[1]) : /Test failed/i.test(r) ? 0 : -1;
+  };
+  const toGate = (signal: AbortSignal) => walk(a, new goals.GoalNearXZ(P.approach[0], P.approach[1], 2), `the ${slot.kind} pen's gate`, signal, 60000)
+    .then(() => '').catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return `walk: ${e.message.slice(0, 80)}`;
+    });
+  return { ...s, P, y, sel, rcon, count, toGate, pen: slot.pen, kind: slot.kind };
+}
+
+/**
+ * Buckets, milk and eggs a member still carries, into storage by name (none leave by `deposit all`: buckets are tools,
+ * eggs junk): a chore stopped after a withdraw left them with a worker, and storage, which the milking and the cake are
+ * judged by, never saw them again (the diff review's M1). Run at the start of the pens' chores and the cake.
+ */
+async function depositKept(a: BotAgent, signal: AbortSignal): Promise<void> {
+  for (const item of ['bucket', 'milk_bucket', ...EGGS])
+    if ((await serverCount(a, item).catch(() => 0)) > 0)
+      await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+}
+
+/** Eggs lying in a chicken pen into storage: teleported to the bot by command, counted on the server, deposited by name
+ *  (eggs are junk to `deposit all`); an egg item despawns 5 minutes after it is laid (6000 ticks). */
+async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'collect_eggs', 'chicken');
+  if (slotBusy.has(key)) throw new Error(`collect_eggs: annex slot ${j} is busy`);
+  slotBusy.add(key);
+  try {
+    await depositKept(a, signal);
+    await roomForLoot(a, 'collect_eggs', signal);
+    const notes = [await toGate(signal)].filter(Boolean);
+    const got: Record<string, number> = {};
+    for (const egg of EGGS) {
+      const before = await serverCount(a, egg);
+      if (!/Teleported/i.test(await rcon(`tp @e[type=minecraft:item,${sel},nbt={Item:{id:"minecraft:${egg}"}}] ${a.name}`))) continue;
+      // (picked up after the item's pickup delay, 10 ticks)
+      for (let i = 0; i < 10; i++) {
+        await sleep(300, signal);
+        if ((got[egg] = (await serverCount(a, egg)) - before) > 0) break;
+      }
+      if (!got[egg]) delete got[egg];
+    }
+    const n = Object.values(got).reduce((s, q) => s + q, 0);
+    pen.eggs = (pen.eggs ?? 0) + n;
+    pen.eggsAt = Date.now();
+    a.world.villages.save();
+    if (!n) return `no eggs in the chicken pen on annex slot ${j}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    await syncInventory(a).catch(() => {});
+    for (const egg of Object.keys(got))
+      await STORAGE_SKILLS.deposit.run(a, { item: egg }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`${egg} not deposited: ${e.message.slice(0, 80)}`);
+      });
+    const out = `collected ${Object.entries(got).map(([e, q]) => `${q} ${e}`).join(', ')} from the chicken pen on annex slot ${j}`;
+    a.world.villages.note(v, `${a.name} ${out}`);
+    return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+  } finally {
+    slotBusy.delete(key);
+  }
+}
+
+/** Two adults of a pen bred (food charged: one each; put in love by command, the live tests: young within ~2 s). Only
+ *  ready adults (Age 0: young and parents on their 5-minute cooldown are not), and never beyond the pen's cap. */
+async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, sel, rcon, count, toGate, pen, kind } = penOf(a, args, 'breed_pen');
+  const { lure: food, cap } = PEN_KINDS[kind];
+  if (slotBusy.has(key)) throw new Error(`breed_pen: annex slot ${j} is busy`);
+  slotBusy.add(key);
+  let refund = 0;
+  try {
+    await depositKept(a, signal);
+    // (counted from the gate: the pen's entities are loaded there)
+    const notes = [await toGate(signal)].filter(Boolean);
+    const total = await count(), ready = await count(',nbt={Age:0}');
+    if (total < 0 || ready < 0) throw new Error(`breed_pen: the server gave no count of the ${kind}s in the pen on annex slot ${j}`);
+    pen.animals = total;
+    if (ready < 2 || total + 1 > cap) {
+      a.world.villages.save();
+      return ready < 2 ? `the ${kind} pen on annex slot ${j} has ${ready} adult${ready === 1 ? '' : 's'} ready to breed of ${total}` : `the ${kind} pen on annex slot ${j} is full (${total} of ${cap})`;
+    }
+    const have = await serverCount(a, food);
+    if (have < 2) await withdrawItems(a, v, { [food]: 2 - have }, signal);
+    if ((await serverCount(a, food)) < 2) throw new Error(`breed_pen: needs 2 ${food} to breed the ${kind}s (storage has ${storageContents(v)[food] ?? 0})`);
+    notes.push(await toGate(signal));
+    refund = Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} minecraft:${food} 2`))?.[1] ?? 0);
+    if (refund < 2) throw new Error(`breed_pen: could not take 2 ${food} from the inventory`);
+    const r = await rcon(`execute as @e[type=minecraft:${kind},${sel},nbt={Age:0},limit=2,sort=random] run data merge entity @s {InLove:600}`);
+    const fed = (r.match(/Modified entity data/gi) ?? []).length;
+    refund = 2 - fed;
+    if (fed < 2) throw new Error(`breed_pen: only ${fed} ${kind} could be fed (${r.slice(0, 80) || 'no answer'})`);
+    let now = total;
+    for (let i = 0; i < 16 && now <= total; i++) {
+      await sleep(500, signal);
+      now = Math.max(total, await count());
+    }
+    pen.bredAt = Date.now();
+    pen.born = (pen.born ?? 0) + Math.max(0, now - total);
+    pen.animals = now;
+    a.world.villages.save();
+    const out = `fed 2 ${kind}s ${food} in the pen on annex slot ${j}: ${now > total ? `${now - total} young born, ${now} in the pen` : 'no young yet'}`;
+    if (now > total) a.world.villages.note(v, `${a.name} ${out}`);
+    const said = notes.filter(Boolean);
+    return `${out}${said.length ? ` (${said.join('; ')})` : ''}`;
+  } finally {
+    // (food taken but not fed is given back)
+    if (refund > 0) await rcon(`give ${a.name} minecraft:${food} ${refund}`);
+    slotBusy.delete(key);
+  }
+}
+
+/** Milk from the cow pen into storage: each empty bucket storage holds becomes a milk bucket (an adult cow gives milk
+ *  with no cooldown; charged by command: a bucket taken, a milk bucket given), up to the cake's three. */
+async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'milk_cows', 'cow');
+  if (slotBusy.has(key)) throw new Error(`milk_cows: annex slot ${j} is busy`);
+  slotBusy.add(key);
+  let taken = 0;
+  try {
+    await depositKept(a, signal);
+    // (counted from the gate, where the pen's entities are loaded: the fixes review's L2)
+    const notes = [await toGate(signal)].filter(Boolean);
+    await rcon('scoreboard objectives add mcai_age dummy');
+    await rcon(`execute as @e[type=minecraft:cow,${sel}] store result score @s mcai_age run data get entity @s Age`);
+    const r = await rcon(`execute if entity @e[type=minecraft:cow,${sel},scores={mcai_age=0..}]`);
+    const adults = /count: (\d+)/i.test(r) ? Number(/count: (\d+)/i.exec(r)![1]) : /Test failed/i.test(r) ? 0 : -1;
+    if (adults < 0) throw new Error(`milk_cows: the server gave no count of the cows in the pen on annex slot ${j}`);
+    if (!adults) throw new Error(`milk_cows: no grown cow in the pen on annex slot ${j} (calves give no milk)`);
+    const store = storageContents(v);
+    const want = Math.max(0, 3 - (store.milk_bucket ?? 0) - (await serverCount(a, 'milk_bucket')));
+    if (!want) return 'the storage holds 3 milk buckets already';
+    const have = await serverCount(a, 'bucket');
+    if (have < want && store.bucket) await withdrawItems(a, v, { bucket: Math.min(want - have, store.bucket) }, signal);
+    const n = Math.min(want, await serverCount(a, 'bucket'));
+    if (!n) throw new Error('milk_cows: no empty bucket (the storage holds none; the iron age makes them)');
+    notes.push(await toGate(signal));
+    let milked = 0;
+    for (let i = 0; i < n; i++) {
+      taken = Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} minecraft:bucket 1`))?.[1] ?? 0);
+      if (!taken) break;
+      await rcon(`give ${a.name} minecraft:milk_bucket 1`);
+      taken = 0;
+      milked++;
+    }
+    pen.milk = (pen.milk ?? 0) + milked;
+    pen.milkAt = Date.now();
+    a.world.villages.save();
+    await syncInventory(a).catch(() => {});
+    for (const item of ['milk_bucket', 'bucket'])
+      if ((await serverCount(a, item)) > 0)
+        await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          notes.push(`${item} not deposited: ${e.message.slice(0, 80)}`);
+        });
+    const out = `milked the cows on annex slot ${j}: ${milked} milk bucket${milked === 1 ? '' : 's'}`;
+    a.world.villages.note(v, `${a.name} ${out}`);
+    const said = notes.filter(Boolean);
+    return `${out}${said.length ? ` (${said.join('; ')})` : ''}`;
+  } finally {
+    if (taken) await rcon(`give ${a.name} minecraft:bucket ${taken}`);
+    slotBusy.delete(key);
+  }
+}
+
+/** What a cake takes (the jar's recipe: 3 milk buckets, 2 sugar, an egg of any kind, 3 wheat), and what storage lacks. */
+export function cakeShort(store: Counts): string[] {
+  const short: string[] = [];
+  if ((store.milk_bucket ?? 0) < 3) short.push(`${3 - (store.milk_bucket ?? 0)} milk_bucket`);
+  if (!EGGS.some((e) => (store[e] ?? 0) > 0)) short.push('1 egg');
+  if ((store.wheat ?? 0) < 3) short.push(`${3 - (store.wheat ?? 0)} wheat`);
+  if ((store.sugar ?? 0) + (store.sugar_cane ?? 0) < 2) short.push(`${2 - (store.sugar ?? 0) - (store.sugar_cane ?? 0)} sugar or sugar_cane`);
+  return short;
+}
+
+/** A cake at the storage hut's table from storage (the payoff of the pens and the cane farm; the buckets go back). */
+async function bakeCake(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('bake_cake: not in a village');
+  const h = v.storageHut;
+  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the cake', task: 'bake_cake' };
+  await standBy(a, job, signal);
+  await depositKept(a, signal);
+  if (v.storage?.chests.length) await refreshStorage(a, v, signal);
+  const store = storageContents(v);
+  const short = cakeShort(store);
+  if (short.length) throw new Error(`bake_cake: the storage is short of ${short.join(', ')}`);
+  const egg = EGGS.find((e) => (store[e] ?? 0) > 0)!;
+  const sugar = Math.min(2, store.sugar ?? 0);
+  const want: Record<string, number> = { milk_bucket: 3, [egg]: 1, wheat: 3, sugar, sugar_cane: 2 - sugar };
+  for (const [item, q] of Object.entries(want)) want[item] = Math.max(0, q - (await serverCount(a, item)));
+  await withdrawItems(a, v, want, signal);
+  await syncInventory(a);
+  const notes: string[] = [];
+  try {
+    if ((await serverCount(a, 'sugar')) < 2) await SURVIVAL_SKILLS.craft.run(a, { item: 'sugar', count: 2 - (await serverCount(a, 'sugar')) }, signal);
+    const before = await serverCount(a, 'cake');
+    await SURVIVAL_SKILLS.craft.run(a, { item: 'cake', count: 1 }, signal);
+    if ((await serverCount(a, 'cake')) <= before) throw new Error('bake_cake: the craft made no cake');
+  } catch (e) {
+    // (what was withdrawn goes back by name: the egg is junk to `deposit all`, the diff review's L4)
+    if ((e as Error).message !== 'cancelled' && !signal.aborted)
+      for (const item of [...new Set(['milk_bucket', 'bucket', egg, 'wheat', 'sugar', 'sugar_cane'])])
+        if ((await serverCount(a, item).catch(() => 0)) > 0) await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch(() => undefined);
+    throw e;
+  }
+  v.cakes = (v.cakes ?? 0) + 1;
+  a.world.villages.save();
+  await syncInventory(a).catch(() => {});
+  for (const item of ['cake', 'bucket'])
+    if ((await serverCount(a, item)) > 0)
+      await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`${item} not deposited: ${e.message.slice(0, 80)}`);
+      });
+  a.world.villages.note(v, `${a.name} baked a cake (${v.cakes} in all)`);
+  return `baked a cake from the village storage (3 milk buckets, 2 sugar, 1 ${egg}, 3 wheat; the buckets back)${notes.length ? ` (${notes.join('; ')})` : ''}`;
 }
 
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
@@ -2957,7 +3235,8 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
-  if (v.mine) v.mine.ironMade = [...new Set([...(v.mine.ironMade ?? []), item])];
+  // (one entry a tool made: buckets are counted, a cake's milk takes three, pens v2)
+  if (v.mine) v.mine.ironMade = [...(v.mine.ironMade ?? []), item];
   a.world.villages.note(v, `${a.name} made a ${item} from the village's iron`);
   a.world.villages.save();
   return `made a ${item} (${made}); ${stored}`;
@@ -2981,6 +3260,11 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
   prepare_annex: { run: prepareAnnex },
   start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },
+  // (pens v2's, 10-09)
+  collect_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: collectEggs },
+  breed_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: breedPen },
+  milk_cows: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: milkCows },
+  bake_cake: { run: bakeCake },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

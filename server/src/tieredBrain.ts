@@ -981,6 +981,8 @@ export class TieredBrain implements AgentBrain {
     if (this.execPending) return;
     if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
     if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !this.urgent) return; // waiting
+    // (a complete village's mayor takes chores, F193: no executor turn queues its own actions behind one)
+    if (role === 'mayor' && v?.complete && !this.urgent) return;
     // A mayor's new plan is coming: the old plan's steps are stale (F155: plan 1's design step ran beside plan 2)
     if (role === 'mayor' && this.planPending && !this.urgent) return;
     const idle = a.idle();

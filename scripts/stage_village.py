@@ -565,6 +565,9 @@ def summon_chickens():
     time.sleep(1)
     out = [rcon(f'summon chicken {x}.5 {g + 1} {z + 2 * i}.5 {{Tags:["stagefix","luretest"],PersistenceRequired:1b}}') for i, g in enumerate(gs)]
     print(f"FIXTURE chicken at {x},{z}..{z + 6} (ground {min(gs)}..{max(gs)}): {'; '.join(o for o in out if o)[:200]}", flush=True)
+    # (two cows on the same ground, pens v2: a cow pen once storage holds wheat)
+    out = [rcon(f'summon cow {x}.5 {gs[i] + 1} {z + 2 * i}.5 {{Tags:["stagefix","luretest"],PersistenceRequired:1b,Age:0}}') for i in (0, 2)]
+    print(f"FIXTURE cow at {x},{z}..{z + 4}: {'; '.join(o for o in out if o)[:200]}", flush=True)
     rcon(f"forceload remove {x - 1} {z - 1} {x + 1} {z + 7}")
 
 
@@ -680,7 +683,8 @@ def annex_text(an):
     pen_last = an.get("penLastTry") or {}
     return (f"{an.get('state')} side {an.get('side')} {an.get('x1')}..{an.get('x2')},{an.get('z1')}..{an.get('z2')} y {an.get('y')} "
             f"tries={an.get('tries')}{' (' + str(last.get('why'))[:120] + ')' if last.get('why') else ''} bad={len(an.get('bad') or [])} "
-            f"penTries={an.get('penTries')}{' (' + str(pen_last.get('why'))[:120] + ')' if pen_last.get('why') else ''}")
+            f"penTries={an.get('penTries')}{' (' + str(pen_last.get('why'))[:120] + ')' if pen_last.get('why') else ''}"
+            f" penBy={json.dumps({k: [q.get('tries'), str(q.get('why'))[:100]] for k, q in (an.get('penBy') or {}).items()})}")
 
 
 def pen_inner(s):
@@ -693,18 +697,22 @@ def pen_inner(s):
 
 
 def pen_text(v, an, s):
-    """An annex slot: its kind, the pen's record and, once it has a gate, the chickens the server counts inside."""
+    """An annex slot: its kind, the pen's record and, once it has a gate, the animals the server counts inside (and the eggs
+    lying there)."""
     pen = s.get("pen") or {}
     t = (f"{s.get('kind') or 'free'} {s['x1']}..{s['x2']},{s['z1']}..{s['z2']} face {s.get('face')} animals={pen.get('animals')} "
-         f"built={pen.get('built')} laying={s.get('laying')} tries={s.get('tries')}")
+         f"built={pen.get('built')} laying={s.get('laying')} tries={s.get('tries')} eggs={pen.get('eggs')} born={pen.get('born')} milk={pen.get('milk')}")
     if pen.get("gate"):
         plot = next((p for p in v.get("plots") or [] if p.get("annex")), None)
         y = plot["y"] if plot else (an or {}).get("y")
         if y is None:
             return t + " gate " + str(pen["gate"]) + "; no annex plot y"
         x1, z1, x2, z2 = pen_inner(s)
-        n = rcon(f"execute if entity @e[type=chicken,x={x1},y={y},z={z1},dx={x2 - x1},dy=3,dz={z2 - z1}]")
+        box = f"x={x1},y={y},z={z1},dx={x2 - x1},dy=3,dz={z2 - z1}"
+        n = rcon(f"execute if entity @e[type={s.get('kind') or 'chicken'},{box}]")
         t += f" gate {pen['gate'][0]},{pen['gate'][1]} facing {pen.get('facing')}; inside: {n or 'no answer'}"
+        if s.get("kind") == "chicken":
+            t += f"; items: {rcon(f'execute if entity @e[type=item,{box}]') or 'no answer'}"
     return t
 
 
@@ -722,18 +730,29 @@ if args.after and reason == "every building is done":
     if args.fixtures:
         # (only chickens in loaded chunks are counted)
         print(f"AFTER fixture chicken: {rcon('execute if entity @e[type=chicken,tag=stagefix]') or 'no answer'}", flush=True)
+        print(f"AFTER fixture cow: {rcon('execute if entity @e[type=cow,tag=stagefix]') or 'no answer'}", flush=True)
     if args.stock:
         w = names[-1]
         for kv in args.stock.split(","):
             item, n = kv.split(":")
             print(f"AFTER stock: {rcon(f'give {w} minecraft:{item} {n}')}", flush=True)
         time.sleep(2)
-        call(f"/agents/{w}/act", {"action": "deposit", "item": "all"})
+        # (each by name: buckets are tools to "deposit all", eggs junk)
+        for kv in args.stock.split(","):
+            call(f"/agents/{w}/act", {"action": "deposit", "item": kv.split(":")[0]})
     a0 = call(f"/atlas?village={args.village}&radius=176") or {}
     chunks0 = len(a0.get("chunks") or [])
     t2, slots_seen, ripened, explore_seen, annex_seen, pens_seen = time.time(), {}, set(), None, None, {}
+    # (each agent's samples with an action running, F193: idle minutes per agent after completion)
+    busy, samples = {n: 0 for n in watched}, 0
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
+        listing = call("/agents")
+        if isinstance(listing, list):
+            samples += 1
+            for a in listing:
+                if a.get("name") in busy and a.get("action"):
+                    busy[a["name"]] += 1
         for n in watched:
             events = call(f"/agents/{n}/events?since={seen[n]}")
             for e in events if isinstance(events, list) else []:
@@ -777,6 +796,8 @@ if args.after and reason == "every building is done":
     for s in a1.get("animals") or []:
         animals[s["kind"]] = animals.get(s["kind"], 0) + 1
     print(f"AFTER atlas within 176: {chunks0} -> {len(a1.get('chunks') or [])} chunks; plants {plants}; animals {animals}", flush=True)
+    span = (time.time() - t2) / 60
+    print("AFTER busy: " + ", ".join(f"{n} {span * busy[n] / max(1, samples):.1f}" for n in watched) + f" of {span:.1f} min", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason})")

@@ -190,8 +190,13 @@ export type FarmSlot = FarmSpot & {
   /** On the annex (10-09): never a plant farm; `face` is its end facing the village, where a pen's gate goes. */
   annex?: boolean;
   face?: Side;
-  /** A pen (kind 'chicken'): its gate and the gate's facing, whether the ring stands, the animals counted inside. */
-  pen?: { gate: [number, number]; facing: string; wood?: string; built?: boolean; animals?: number; at?: number };
+  /**
+   * A pen (kind 'chicken' or 'cow', PEN_KINDS): its gate and the gate's facing, whether the ring stands, the animals
+   * counted inside; pens v2 (10-09): eggs taken in all and when, the last breeding and the young born of it, the last
+   * milking, and when each was last tried (a back-off).
+   */
+  pen?: { gate: [number, number]; facing: string; wood?: string; built?: boolean; animals?: number; at?: number;
+    eggs?: number; eggsAt?: number; bredAt?: number; born?: number; milk?: number; milkAt?: number; workAt?: Record<string, number> };
 };
 
 /**
@@ -208,7 +213,10 @@ export type Annex = Area & {
   bad?: string[];
   penTries?: number;
   penLastTry?: { at: number; why: string };
-  /** Where chickens were sought in vain ("x,z,time"): sightings within 8 of one are passed over for an hour. */
+  /** Failed pen starts by kind (pens v2: a cow pen's failures no longer hold the chickens back, the diff review's L1). */
+  penBy?: Record<string, { tries: number; at: number; why: string }>;
+  /** Where animals were sought in vain ("kind:x,z,time"; v1's "x,z,time" were chickens): sightings within 8 of one are
+   *  passed over for an hour. */
   penBad?: string[];
 };
 
@@ -219,6 +227,8 @@ export interface Village {
   complete?: boolean;
   /** Exploring once complete (opportunistic farming, 10-08): the ring points scouted (by index), and when it ended. */
   explore?: { visited: number[]; done?: boolean; last?: string };
+  /** Cakes baked at the storage hut (pens v2, 10-09: milk, sugar, an egg and wheat). */
+  cakes?: number;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;

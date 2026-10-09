@@ -1082,6 +1082,9 @@ function bestPlanks(a: BotAgent, n = 0): { name: string; n: number } | null {
  * of the inventory it put crafted planks back into the grid and made an oak_button of them, or crafted nothing, in
  * most of a series of chest crafts. A recipe that needs a table still needs one placed nearby (ensureTable).
  */
+/** Ingredients a craft hands back emptied (Item.craftRemainder in the 26.1.2 jar; pens v2's research). */
+const REMAINDER: Record<string, string> = { milk_bucket: 'bucket', water_bucket: 'bucket', lava_bucket: 'bucket', powder_snow_bucket: 'bucket', honey_bottle: 'glass_bottle' };
+
 async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | null, signal: AbortSignal): Promise<number> {
   checkAbort(signal);
   const rcon = a.world.rcon;
@@ -1105,6 +1108,8 @@ async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | nu
   const made = r.result.count * times;
   const before = countItem(a, r.result.id);
   await rcon.command(`give ${a.name} ${name} ${made}`);
+  // What a real craft leaves in the grid (the jar's craftRemainder): a cake's three milk buckets leave three buckets
+  for (const { item, n } of ingredients) if (REMAINDER[item]) await rcon.command(`give ${a.name} ${REMAINDER[item]} ${n}`);
   // Wait until the bot sees the result: a pickaxe crafted inside collect was not there yet for the very next dig
   for (let i = 0; i < 30 && countItem(a, r.result.id) < before + made; i++) await sleep(100, signal);
   await syncInventory(a);
@@ -1612,6 +1617,28 @@ export const SURVIVAL_SKILLS: Record<string, McSkill> = {
       const out = await a.world.rcon.command(`give ${a.name} ${item} ${n}`);
       if (!/gave/i.test(out)) throw new Error(`could not get ${item}: ${out}`);
       return `got ${n} ${item}`;
+    },
+  },
+  // (not in TOOLS: chores and live tests use it: feeding animals, milking a cow; pens v2, 10-09)
+  use_on: {
+    check: (x) => (str(x.kind, 'kind'), str(x.item, 'item'), undefined),
+    async run(a, args, signal) {
+      const bot = a.bot;
+      const kind = str(args.kind, 'kind').toLowerCase();
+      const item = resolveItem(a, str(args.item, 'item'));
+      const id = item ? itemId(a, item) : undefined;
+      if (id === undefined || !countItem(a, id)) throw new Error(`no ${String(args.item)} in inventory`);
+      const skip = new Set((Array.isArray(args.skip) ? args.skip : []).map(Number));
+      const target = args.id !== undefined ? bot.entities[num(args.id, 'id')] : Object.values(bot.entities)
+        .filter((e) => e !== bot.entity && e.name === kind && !skip.has(e.id) && e.position.distanceTo(bot.entity.position) < 6)
+        .sort((u, v) => u.position.distanceTo(bot.entity.position) - v.position.distanceTo(bot.entity.position))[0];
+      if (!target) throw new Error(`no ${kind} within 6 blocks`);
+      await bot.equip(id, 'hand');
+      await bot.lookAt(target.position.offset(0, target.height / 2, 0), true);
+      if (signal.aborted) throw new Error('cancelled');
+      await bot.activateEntity(target);
+      await new Promise((r) => setTimeout(r, 500));
+      return `used ${item} on ${kind} ${target.id} at ${target.position.distanceTo(bot.entity.position).toFixed(1)}; holding ${bot.heldItem ? `${bot.heldItem.count} ${bot.heldItem.name}` : 'nothing'}`;
     },
   },
 };
