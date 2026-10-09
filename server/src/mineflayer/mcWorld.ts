@@ -565,7 +565,8 @@ export class MineflayerWorld implements WorldAdapter {
     const home = chest ? { x: chest.x, z: chest.z } : villageHome(v, worker.memory);
     if (!home) return false;
     // (at about the annex's level, as the skill takes them, and not near a sighting that failed: review M3)
-    const bad = (ax.penBad ?? []).map((s) => s.split(',').map(Number));
+    // (an entry is "x,z,time": chickens wander, so a failed spot is forgiven after an hour)
+    const bad = (ax.penBad ?? []).map((s) => s.split(',').map(Number)).filter(([, , t]) => !t || now - t < 60 * 60000);
     const seen = this.atlas.animalSightings('chicken', home.x, home.z, 96, 30 * 60000, (x, z) => onVillageGround(worker, x, z) || bad.some(([bx, bz]) => Math.hypot(x - bx, z - bz) <= 8))
       .find((s) => Math.abs(s.y - (ax.y + 1)) <= 4);
     if (!seen) return false;
@@ -603,7 +604,9 @@ export class MineflayerWorld implements WorldAdapter {
               // (a village agent inside is put out first, the review's M2; then the gate shut in the pen's own wood)
               const out = penPlan(slot, slot.face ?? 'n').approach;
               const inside = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.bot.entity
-                && b.bot.entity.position.x >= slot.x1 && b.bot.entity.position.x < slot.x2 + 1 && b.bot.entity.position.z >= slot.z1 && b.bot.entity.position.z < slot.z2 + 1);
+                && b.bot.entity.position.x >= slot.x1 && b.bot.entity.position.x < slot.x2 + 1 && b.bot.entity.position.z >= slot.z1 && b.bot.entity.position.z < slot.z2 + 1
+                // (at the pen's level: a miner in a tunnel under the annex is not in the pen, lesson 102)
+                && Math.abs(b.bot.entity.position.y - (plot.y + 1)) <= 3);
               const cmds = [...inside.map((b) => `tp ${b.name} ${out[0] + 0.5} ${plot.y + 1} ${out[1] + 0.5}`),
                 `setblock ${slot.pen.gate[0]} ${plot.y + 1} ${slot.pen.gate[1]} minecraft:${slot.pen.wood ?? v.wood ?? 'oak'}_fence_gate[facing=${slot.pen.facing},open=false]`];
               void (async () => {

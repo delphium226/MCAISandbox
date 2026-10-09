@@ -384,6 +384,9 @@ export class Materials {
     let smelts = 0;
     const take = (n: string, want: number) => {
       const members = n.startsWith('any:') ? Object.keys(pool).filter((k) => FAMILIES[n].test(k)).sort((a, b) => pool[b] - pool[a]) : [n];
+      // "Any planks" from one kind only, the most held: a craft takes one wood kind (doCraft charges a recipe variant), so
+      // 1 oak and 1 birch plank are not the 2 a hoe or sticks need; what one kind lacks is sawn from a log (F198, Minevale34)
+      if (n === 'any:planks') members.splice(1);
       let got = 0;
       for (const k of members) {
         const t = Math.min(pool[k] ?? 0, want - got);

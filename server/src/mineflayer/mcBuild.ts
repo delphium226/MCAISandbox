@@ -438,8 +438,11 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
       - steps.slice(from).reduce((s, st) => s + (st.do === 'craft' && st.item === `${k}_planks` ? st.runs : 0), 0);
     // (a kind not carried at all never wins: with every kind at no spare the tie went to oak, the first in WOODS, and a
     // birch builder failed "needs 1x oak_log" on the storage hut's planks, Minevale30, 31 and 33, F191)
-    const held = (k: string) => (inv[`${k}_log`] ?? 0) * 4 + (inv[`${k}_planks`] ?? 0);
-    return [...WOODS].sort((u, w) => Number(held(w) > 0) - Number(held(u) > 0) || spare(w) - spare(u) || held(w) - held(u))[0];
+    const carried = (k: string) => (inv[`${k}_log`] ?? 0) * 4 + (inv[`${k}_planks`] ?? 0);
+    // (spare logs only: a kind whose logs are all kept for a later planks step must not win on them, F199; then a kind
+    // carried at all before one that is not, the diff review)
+    const held = (k: string) => Math.max(0, spare(k)) * 4 + (inv[`${k}_planks`] ?? 0);
+    return [...WOODS].sort((u, w) => Number(held(w) > 0) - Number(held(u) > 0) || Number(carried(w) > 0) - Number(carried(u) > 0) || spare(w) - spare(u) || held(w) - held(u) || carried(w) - carried(u))[0];
   };
   for (const [i, st] of steps.entries()) {
     checkAbort(signal);
@@ -2804,7 +2807,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
     await rcon(`give ${name} minecraft:wheat_seeds ${held}`);
     held = 0;
-    await syncInventory(a);
+    await syncInventory(a).catch(() => {});
     await STORAGE_SKILLS.deposit.run(a, { item: 'wheat_seeds' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
@@ -2825,7 +2828,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       ann.penTries = (ann.penTries ?? 0) + 1;
       ann.penLastTry = { at: Date.now(), why: why.slice(0, 200) };
       // (chickens not found there, lost or not led in: that sighting is passed over next time, review M3)
-      if (/no chicken within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${sx},${sz}`].slice(-20);
+      if (/no chicken within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${sx},${sz},${Date.now()}`].slice(-20);
     }
     save();
     const home = villageHome(v, a.memory);

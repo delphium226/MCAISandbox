@@ -208,7 +208,7 @@ export type Annex = Area & {
   bad?: string[];
   penTries?: number;
   penLastTry?: { at: number; why: string };
-  /** Where chickens were sought in vain ("x,z"): sightings within 8 of one are passed over. */
+  /** Where chickens were sought in vain ("x,z,time"): sightings within 8 of one are passed over for an hour. */
   penBad?: string[];
 };
 
