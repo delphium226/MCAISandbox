@@ -34,11 +34,13 @@ v1, F198/F199, Minevale34; the notes below for the twenty-second session stay va
   up to 4 chickens led in 4-block hops, the bot teleported 2 cells in and then to the back row, the gate closed by
   command), then the iron age. Minevale34 penned 2 wild chickens with real models at +5.8; staged VanA3/A5/A6 penned 1
   each, led 25-80 blocks. Eggs and breeding are v2 (the user's choice). Live facts: `runs/2026-10-08/s23/lure_facts.md`.
-- **Next (proposed at the close; the user chooses):** 1. **Pens v2**: eggs collected into storage (three egg kinds, junk
-  today: the pen design review's M5 says how to count them), breeding with `activateEntity` (test it live first), a second pen kind
-  (sheep or cows need wheat kept back from the bread). 2. **F193, per-agent chores**: Worker2 and the Mayor idle ~20-29
-  min after completion while one worker runs every chore. 3. **The beautifying plan** (B.1 flower beds first). 4. Small:
-  F201 (the fences' first-pass craft), F200, F192's cane drop pickup, F189's dry ring points, F187, F170-F173.
+- **Next (planned with the user at the close, 10-09):** 1. **F193, per-agent chores** (a second idle worker takes a chore
+  of another kind; Worker2 and the Mayor idle ~20-29 min after completion today). 2. **Pens v2: eggs, breeding and cows**
+  (live facts first: feeding with `activateEntity`, eggs counted and taken by command, cows following wheat, milking with
+  the bucket; then eggs into storage, breeding with a cooldown, a cow pen on the annex's second slot with a wheat reserve
+  kept from the bread, milk, and a cake from milk, sugar, an egg and wheat). 3. **One model-driven run** at the end (1x,
+  `MCAI_AFTER=30`). Smaller if time: F201, F200, F192's cane drop pickup, F189's dry ring points, F187, F170-F173. The
+  beautifying plan (B.1) after that.
   The prompt: `runs/2026-10-08/s23/NEXT_PROMPT.md`.
 - **How to test now:** `stage_village.py ... --mayor --after 8 --fixtures` (fixture chickens on level ground; ANNEX and PEN
   lines with a server count of each pen); `SIZE=40 node_modules/.bin/tsx scripts/checks/street_plan.mts` (annex and pen
