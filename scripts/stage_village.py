@@ -165,7 +165,8 @@ p.add_argument("--after", type=float, default=0, help="keep watching this many m
                                                       "chores (opportunistic farms, harvests, exploring) and the atlas's sightings; needs --mayor (only a "
                                                       "tiered mayor sets the village complete, and the chores wait for that)")
 p.add_argument("--fixtures", action="store_true", help="before the run, put sugar cane (with water), pumpkins and a melon "
-                                                       "on the ground 35-45 blocks off the site by command (sightings to farm)")
+                                                       "on the ground 35-45 blocks off the site by command (sightings to farm), "
+                                                       "and summon 4 chickens there (tagged stagefix, to lure into a pen)")
 p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
 p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
                                           "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
@@ -541,9 +542,36 @@ def plant_fixtures():
         rcon(f"forceload remove {x - 2} {z - 2} {x + 4} {z + 2}")
 
 
+def summon_chickens():
+    """Chickens to lure into a pen (the annex, 10-09): four, kept from despawning, 2 apart along z some 38-45 blocks off the
+    site's centre (off the other fixtures), on ground within 2 of the site's level: VanA1's spot was a hill 10 above the
+    annex, and chickens up there were out of the bot's tempt range and would not come down."""
+    gy = site.get("y", 64)
+    best = None
+    for dx, dz in ((-38, -8), (-38, 8), (-42, 20), (-10, -42), (20, -40), (40, 20), (-42, -24), (10, 42)):
+        x, z = int(site["x"]) + dx, int(site["z"]) + dz
+        rcon(f"forceload add {x - 1} {z - 1} {x + 1} {z + 7}")
+        time.sleep(1)
+        gs = [ground_at(x, z + 2 * i, gy) for i in range(4)]
+        rcon(f"forceload remove {x - 1} {z - 1} {x + 1} {z + 7}")
+        if all(g is not None and abs(g - gy) <= 2 for g in gs):
+            best = (x, z, gs)
+            break
+    if not best:
+        print("FIXTURE chicken: no spot within 2 of the site's level", flush=True)
+        return
+    x, z, gs = best
+    rcon(f"forceload add {x - 1} {z - 1} {x + 1} {z + 7}")
+    time.sleep(1)
+    out = [rcon(f'summon chicken {x}.5 {g + 1} {z + 2 * i}.5 {{Tags:["stagefix","luretest"],PersistenceRequired:1b}}') for i, g in enumerate(gs)]
+    print(f"FIXTURE chicken at {x},{z}..{z + 6} (ground {min(gs)}..{max(gs)}): {'; '.join(o for o in out if o)[:200]}", flush=True)
+    rcon(f"forceload remove {x - 1} {z - 1} {x + 1} {z + 7}")
+
+
 fixtures = {}
 if args.fixtures:
     plant_fixtures()
+    summon_chickens()
 
 # ---- workers
 names = [f"Worker{i + 1}" for i in range(args.workers)]
@@ -644,6 +672,42 @@ def ripen(v, k, s):
     return f"{len(out)} commands: {'; '.join(o for o in out[:3] if o)[:200]}"
 
 
+def annex_text(an):
+    """The annex record (layouts[0].annex, 10-09) in one line."""
+    if not an:
+        return "none"
+    last = an.get("lastTry") or {}
+    pen_last = an.get("penLastTry") or {}
+    return (f"{an.get('state')} side {an.get('side')} {an.get('x1')}..{an.get('x2')},{an.get('z1')}..{an.get('z2')} y {an.get('y')} "
+            f"tries={an.get('tries')}{' (' + str(last.get('why'))[:120] + ')' if last.get('why') else ''} bad={len(an.get('bad') or [])} "
+            f"penTries={an.get('penTries')}{' (' + str(pen_last.get('why'))[:120] + ')' if pen_last.get('why') else ''}")
+
+
+def pen_inner(s):
+    """A pen slot's inner 3x5 cells (penPlan's inner box): columns 1..3 across the middle line, rows 1..5 along it."""
+    w = s.get("water") or {}
+    if w.get("x1") == w.get("x2"):
+        # (5 across x, 7 along z)
+        return s["x1"] + 1, s["z1"] + 1, s["x1"] + 3, s["z1"] + 5
+    return s["x1"] + 1, s["z1"] + 1, s["x1"] + 5, s["z1"] + 3
+
+
+def pen_text(v, an, s):
+    """An annex slot: its kind, the pen's record and, once it has a gate, the chickens the server counts inside."""
+    pen = s.get("pen") or {}
+    t = (f"{s.get('kind') or 'free'} {s['x1']}..{s['x2']},{s['z1']}..{s['z2']} face {s.get('face')} animals={pen.get('animals')} "
+         f"built={pen.get('built')} laying={s.get('laying')} tries={s.get('tries')}")
+    if pen.get("gate"):
+        plot = next((p for p in v.get("plots") or [] if p.get("annex")), None)
+        y = plot["y"] if plot else (an or {}).get("y")
+        if y is None:
+            return t + " gate " + str(pen["gate"]) + "; no annex plot y"
+        x1, z1, x2, z2 = pen_inner(s)
+        n = rcon(f"execute if entity @e[type=chicken,x={x1},y={y},z={z1},dx={x2 - x1},dy=3,dz={z2 - z1}]")
+        t += f" gate {pen['gate'][0]},{pen['gate'][1]} facing {pen.get('facing')}; inside: {n or 'no answer'}"
+    return t
+
+
 # ---- after completion (opportunistic farming and exploring): the chores, the slots, the sightings
 if args.after and reason == "every building is done":
     for _ in range(40):
@@ -655,6 +719,9 @@ if args.after and reason == "every building is done":
     # (the early dirt and sand tasks may have taken a fixture's ground, the design review's M6)
     for kind, cells in fixtures.items():
         print(f"AFTER fixture {kind}: " + ", ".join(f"{x},{y},{z} {call(f'/block?x={x}&y={y}&z={z}').get('block')}" for x, y, z in cells), flush=True)
+    if args.fixtures:
+        # (only chickens in loaded chunks are counted)
+        print(f"AFTER fixture chicken: {rcon('execute if entity @e[type=chicken,tag=stagefix]') or 'no answer'}", flush=True)
     if args.stock:
         w = names[-1]
         for kv in args.stock.split(","):
@@ -664,7 +731,7 @@ if args.after and reason == "every building is done":
         call(f"/agents/{w}/act", {"action": "deposit", "item": "all"})
     a0 = call(f"/atlas?village={args.village}&radius=176") or {}
     chunks0 = len(a0.get("chunks") or [])
-    t2, slots_seen, ripened, explore_seen = time.time(), {}, set(), None
+    t2, slots_seen, ripened, explore_seen, annex_seen, pens_seen = time.time(), {}, set(), None, None, {}
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         for n in watched:
@@ -683,6 +750,20 @@ if args.after and reason == "every building is done":
                 if args.ripen and s.get("kind") and s.get("planted") and (k, j) not in ripened:
                     ripened.add((k, j))
                     print(f"AFTER RIPEN {k + 1}.{j + 1} {s['kind']}: {ripen(v, k, s)}", flush=True)
+        # The annex and its pens (10-09)
+        lay0 = (v.get("layouts") or [{}])[0]
+        an = lay0.get("annex")
+        t = annex_text(an)
+        if t != annex_seen:
+            annex_seen = t
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m ANNEX {t}", flush=True)
+        for j, s in enumerate(lay0.get("slots") or []):
+            if not s.get("annex"):
+                continue
+            t = pen_text(v, an, s)
+            if pens_seen.get(j) != t:
+                pens_seen[j] = t
+                print(f"AFTER {(time.time() - t2) / 60:4.1f}m PEN 1.{j + 1}: {t}", flush=True)
         ex = v.get("explore")
         if ex != explore_seen:
             explore_seen = ex

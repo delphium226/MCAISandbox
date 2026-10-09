@@ -252,10 +252,20 @@ export class BotAgent implements WorldAgent {
       // building (the storage hut's furnace was out of reach, StageH7). Open wooden doors, and the upper half of a
       // closed one, are passable; a closed lower half is "openable", which the pathfinder right-clicks open on its way
       const doors = new Set(this.world.registry.blocksArray.filter((b) => /_door$/.test(b.name) && b.name !== 'iron_door').map((b) => b.id));
+      // Fence gates: the pathfinder took any gate for a full block (it is not in its fence set; an open one has no shapes)
+      // and clicked closed ones open, never shutting them: a pen's gate would be left open by any walk past it (the pen
+      // design's review, 10-09). An open gate is passable, a closed one a wall no walk opens
+      const gates = new Set(this.world.registry.blocksArray.filter((b) => /_fence_gate$/.test(b.name)).map((b) => b.id));
       const getBlock = m.getBlock.bind(m);
       m.getBlock = (pos, dx, dy, dz) => {
         const b = getBlock(pos, dx, dy, dz) as ReturnType<typeof getBlock> & { type?: number; safe: boolean; physical: boolean; openable: boolean };
-        if (b?.type !== undefined && doors.has(b.type)) {
+        if (b?.type !== undefined && gates.has(b.type)) {
+          const p = (b as unknown as { getProperties?: () => Record<string, unknown> }).getProperties?.() ?? {};
+          const open = p.open === true || p.open === 'true';
+          b.safe = open;
+          b.physical = !open;
+          b.openable = false;
+        } else if (b?.type !== undefined && doors.has(b.type)) {
           const p = (b as unknown as { getProperties?: () => Record<string, unknown> }).getProperties?.() ?? {};
           if (p.open === true || p.open === 'true' || p.half === 'upper') {
             b.safe = true;

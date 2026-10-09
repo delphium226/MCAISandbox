@@ -6,7 +6,9 @@
  * edge; and the streets reach the pad's edge; the street lamps (placeLamps, 10-06) off streets, walkways and the mine's
  * ground, 2 from every building, beside a street, spaced; the farm (placeFarm, 10-08) inside the pad, off streets, the
  * green, walkways and the mine's ground, 2 from every building, its channel down the middle, every farmland cell within 4
- * of water, no lamp or sign on it. Prints each plan as a map (letters buildings, "=" streets, "o" door ways, "*" lamps,
+ * of water, no lamp or sign on it; the annex (10-09) candidates round the pad and the chicken pens on their two slots
+ * (annexCandidates, annexSlots, penPlan: sizes, the 3-block distance, slot borders and orientation, the fence ring, the gate
+ * facing the pad, the cells a luring bot uses). Prints each plan as a map (letters buildings, "=" streets, "o" door ways, "*" lamps,
  * "s" name signs, "~" the farm's water, "w" sown farmland, "%" bare farmland).
  * Usage: node_modules/.bin/tsx scripts/checks/street_plan.mts [BIOME ...]   Env: SIZE (default 32), HOUSES (default
  * "small,small,landmark,other": which of the library's houses to lay out, in order), JAR.
@@ -16,7 +18,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } f
 import type { Area, Design } from '../../server/src/village';
 import { MINING_HUT, STORAGE_HUT, miningHutDesign, storageHutDesign } from '../../server/src/huts';
 import { Materials, designBill, hardToGather, inWood, woodPart } from '../../server/src/mineflayer/mcMaterials';
-import { SLOT_ORDER, slotPlan } from '../../server/src/farmSlots';
+import { ANNEX, FACING_PLOT, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotPlan, type Side } from '../../server/src/farmSlots';
 import { FARM_SIZE, LAMP_SPACING, STREET_GAP, doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, streetAt, type PlanItem } from '../../server/src/streetPlan';
 import { DEFAULT_JAR, VILLAGE_BIOMES, vanillaLibrary } from '../../server/src/vanillaPieces';
 
@@ -51,6 +53,94 @@ function accept(d: Design, centre: boolean): boolean {
   plan = materials.plan({ ...bill, crafting_table: 1, ...(plan.fuel.smelts ? { furnace: 1 } : {}) });
   const units = Object.values(plan.gather).reduce((t, q) => t + q, 0) + 1;
   return !plan.problems.length && !hardToGather(plan.gather).length && units <= (isLandmark(d.name) ? LANDMARK_UNITS : HOUSE_UNITS) && plan.fuel.smelts <= MAX_SMELTS;
+}
+
+/**
+ * The annex and its pens (10-09) round a plot: every candidate 13x9, its inner edge 3 out (off the plot and its 2-block
+ * margin), within the plot's extent along it; two 5x7 slots with a 1-cell border and gap, the 7-long axis pointing at the
+ * plot; each pen's ring and gate the slot's 20 outer cells, the gate in the middle of the end facing the plot, the cells
+ * outside it on the plot's side and off both slots, the back cell inside the inner 3x5, the gate facing into the pen.
+ */
+function checkAnnex(plot: Area): { candidates: number; pens: number; problems: string[] } {
+  const problems: string[] = [];
+  const inA = (a: Area, [x, z]: [number, number]) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
+  const cands = annexCandidates(plot);
+  const DIR: Record<Side, [number, number]> = { n: [0, -1], s: [0, 1], w: [-1, 0], e: [1, 0] };
+  const NAME: Record<string, string> = { '0,-1': 'north', '0,1': 'south', '-1,0': 'west', '1,0': 'east' };
+  let pens = 0;
+  // (one candidate per side and slide position: 4 sides each sliding over the plot's length less 12)
+  const want = 2 * (plot.x2 - plot.x1 + 1 - ANNEX[0] + 1) + 2 * (plot.z2 - plot.z1 + 1 - ANNEX[0] + 1);
+  if (cands.length !== want) problems.push(`annex: ${cands.length} candidates, expected ${want}`);
+  const keys = new Set<string>();
+  for (const c of cands) {
+    const at = `annex ${c.side} ${c.x1},${c.z1}..${c.x2},${c.z2}`;
+    const key = `${c.side} ${c.x1},${c.z1},${c.x2},${c.z2}`;
+    if (keys.has(key)) problems.push(`${at} listed twice`);
+    keys.add(key);
+    const [w, d] = [c.x2 - c.x1 + 1, c.z2 - c.z1 + 1];
+    const ns = c.side === 'n' || c.side === 's';
+    if (ns ? w !== ANNEX[0] || d !== ANNEX[1] : w !== ANNEX[1] || d !== ANNEX[0]) problems.push(`${at} is ${w}x${d}`);
+    // off the plot and its margin
+    if (c.x1 <= plot.x2 + 2 && plot.x1 - 2 <= c.x2 && c.z1 <= plot.z2 + 2 && plot.z1 - 2 <= c.z2) problems.push(`${at} overlaps the plot or its margin`);
+    const gap = c.side === 'n' ? plot.z1 - c.z2 : c.side === 's' ? c.z1 - plot.z2 : c.side === 'w' ? plot.x1 - c.x2 : c.x1 - plot.x2;
+    if (gap !== 3) problems.push(`${at} ${gap} from the plot edge, not 3`);
+    if (ns ? c.x1 < plot.x1 || c.x2 > plot.x2 : c.z1 < plot.z1 || c.z2 > plot.z2) problems.push(`${at} beyond the plot's extent`);
+    const slots = annexSlots(c);
+    if (slots.length !== 2) { problems.push(`${at}: ${slots.length} slots`); continue; }
+    const face = FACING_PLOT[c.side];
+    const [fx, fz] = DIR[face];
+    for (const s of slots) {
+      const sat = `${at} slot ${s.x1},${s.z1}..${s.x2},${s.z2}`;
+      const [sw, sd] = [s.x2 - s.x1 + 1, s.z2 - s.z1 + 1];
+      const alongZ = s.water.x1 === s.water.x2;
+      if (ns ? sw !== 5 || sd !== 7 || !alongZ : sw !== 7 || sd !== 5 || alongZ) problems.push(`${sat} is ${sw}x${sd}, ${alongZ ? 'along z' : 'along x'}: its 7-long axis does not point at the plot`);
+      if (alongZ ? s.water.x1 !== s.x1 + 2 || s.water.z1 !== s.z1 || s.water.z2 !== s.z2 : s.water.z1 !== s.z1 + 2 || s.water.x1 !== s.x1 || s.water.x2 !== s.x2) problems.push(`${sat}: its middle line is not down its middle`);
+      if (s.face !== face) problems.push(`${sat} faces ${s.face}, not ${face}`);
+      // the 1-cell border along the annex's depth (both ends) and on the outer side of each slot along its length
+      if (ns ? s.z1 !== c.z1 + 1 || s.z2 !== c.z2 - 1 : s.x1 !== c.x1 + 1 || s.x2 !== c.x2 - 1) problems.push(`${sat}: no 1-cell border at its ends`);
+      if (ns ? s.x1 < c.x1 + 1 || s.x2 > c.x2 - 1 : s.z1 < c.z1 + 1 || s.z2 > c.z2 - 1) problems.push(`${sat}: no 1-cell border at its side`);
+    }
+    const [a, b] = slots;
+    if (a.x1 <= b.x2 && b.x1 <= a.x2 && a.z1 <= b.z2 && b.z1 <= a.z2) problems.push(`${at}: its slots overlap`);
+    const between = ns ? Math.max(b.x1 - a.x2, a.x1 - b.x2) - 1 : Math.max(b.z1 - a.z2, a.z1 - b.z2) - 1;
+    if (between !== 1) problems.push(`${at}: a ${between}-cell gap between its slots`);
+    if (ns ? Math.min(a.x1, b.x1) !== c.x1 + 1 || Math.max(a.x2, b.x2) !== c.x2 - 1 : Math.min(a.z1, b.z1) !== c.z1 + 1 || Math.max(a.z2, b.z2) !== c.z2 - 1) problems.push(`${at}: its slots leave no 1-cell border at the sides`);
+    for (const s of slots) {
+      const other = s === a ? b : a;
+      const sat = `${at} pen ${s.x1},${s.z1}`;
+      const p = penPlan(s, s.face);
+      pens++;
+      const outer = new Set<string>();
+      for (let x = s.x1; x <= s.x2; x++) for (let z = s.z1; z <= s.z2; z++) if (x === s.x1 || x === s.x2 || z === s.z1 || z === s.z2) outer.add(`${x},${z}`);
+      const ring = new Set(p.ring.map(([x, z]) => `${x},${z}`));
+      if (p.ring.length !== 19 || ring.size !== 19) problems.push(`${sat}: ${p.ring.length} ring cells (${ring.size} distinct), not 19`);
+      if (ring.has(`${p.gate[0]},${p.gate[1]}`)) problems.push(`${sat}: the gate is in the ring`);
+      const both = new Set([...ring, `${p.gate[0]},${p.gate[1]}`]);
+      if (both.size !== 20 || outer.size !== 20 || [...both].some((k) => !outer.has(k))) problems.push(`${sat}: the ring and gate are not the slot's 20 outer cells`);
+      // the gate: the middle of the slot's end facing the plot
+      const mid: [number, number] = face === 'n' ? [(s.x1 + s.x2) / 2, s.z1] : face === 's' ? [(s.x1 + s.x2) / 2, s.z2] : face === 'w' ? [s.x1, (s.z1 + s.z2) / 2] : [s.x2, (s.z1 + s.z2) / 2];
+      if (p.gate[0] !== mid[0] || p.gate[1] !== mid[1]) problems.push(`${sat}: the gate at ${p.gate} not ${mid} (the middle of the end facing the plot)`);
+      if (p.facing !== NAME[`${-fx},${-fz}`]) problems.push(`${sat}: the gate faces ${p.facing}, not into the pen (${NAME[`${-fx},${-fz}`]})`);
+      // the cells a luring bot uses: just outside the gate and one beyond, toward the plot, off both slots, on the annex's
+      // border or its margin, never on the plot
+      const expect = (n: number): [number, number] => [p.gate[0] + fx * n, p.gate[1] + fz * n];
+      for (const [name, cell, n] of [['outside', p.outside, 1], ['approach', p.approach, 2]] as Array<[string, [number, number], number]>) {
+        const e = expect(n);
+        if (cell[0] !== e[0] || cell[1] !== e[1]) problems.push(`${sat}: ${name} ${cell} not ${e}, on the plot's side`);
+        if (inA(s, cell) || inA(other, cell)) problems.push(`${sat}: ${name} ${cell} inside a slot`);
+        if (!inA({ x1: c.x1 - 2, z1: c.z1 - 2, x2: c.x2 + 2, z2: c.z2 + 2 }, cell)) problems.push(`${sat}: ${name} ${cell} off the annex and its margin`);
+        if (inA(plot, cell)) problems.push(`${sat}: ${name} ${cell} on the plot`);
+      }
+      if (!inA(c, p.outside)) problems.push(`${sat}: outside ${p.outside} not on the annex's border`);
+      const [iw, id] = [p.inner.x2 - p.inner.x1 + 1, p.inner.z2 - p.inner.z1 + 1];
+      if (ns ? iw !== 3 || id !== 5 : iw !== 5 || id !== 3) problems.push(`${sat}: the inner box is ${iw}x${id}, not 3x5`);
+      if (p.inner.x1 !== s.x1 + 1 || p.inner.x2 !== s.x2 - 1 || p.inner.z1 !== s.z1 + 1 || p.inner.z2 !== s.z2 - 1) problems.push(`${sat}: the inner box is not inside the ring`);
+      if (!inA(p.inner, p.back)) problems.push(`${sat}: back ${p.back} not inside the inner box`);
+      // (the back cell at the far end, away from the gate)
+      if (Math.abs(p.back[0] - p.gate[0]) + Math.abs(p.back[1] - p.gate[1]) !== 5) problems.push(`${sat}: back ${p.back} not at the far end's inner row`);
+    }
+  }
+  return { candidates: cands.length, pens, problems };
 }
 
 let failed = 0;
@@ -226,6 +316,9 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
     }
     if (!s.text.length || s.text.length > 2 || s.text.some((t) => !t)) problems.push(`${at} text ${JSON.stringify(s.text)}`);
   });
+  // The annex (10-09) round the pad and the pens on its slots
+  const annex = checkAnnex(lay.plot);
+  problems.push(...annex.problems);
   // The map
   const letters = 'ABCDEFGHIJ';
   const rows: string[] = [];
@@ -243,6 +336,7 @@ for (const biome of process.argv.slice(2).length ? process.argv.slice(2) : [...V
   bld.forEach((p, i) => console.log(`  ${letters[i]} ${p.name} ${p.width}x${p.depth} at ${p.x},${p.z} rotate ${p.rotate}; sign ${signs[i] ? `${JSON.stringify(signs[i]!.text)} at ${signs[i]!.x},L${signs[i]!.layer},${signs[i]!.z} facing ${signs[i]!.facing}` : 'none'}`));
   if (lay.unplaced.length) console.log(`  not placed: ${lay.unplaced.join(', ')}; plain crossing streets instead (plan_layout takes them when they place more): ${planStreets(0, 0, SIZE, null, items).unplaced.length} not placed`);
   console.log(rows.map((r) => '    ' + r).join('\n'));
+  console.log(`  annex: ${annex.candidates} candidates round the ${lay.plot.x2 - lay.plot.x1 + 1}x${lay.plot.z2 - lay.plot.z1 + 1} pad, ${annex.pens} pens checked, ${annex.problems.length ? `${annex.problems.length} problems` : 'ok'}`);
   console.log(problems.length ? `  PROBLEMS: ${problems.join('; ')}` : `  ok: ${bld.length} of ${items.length} placed, ${lamps.length} lamps, ${signs.filter(Boolean).length} signs, farm ${farm!.x2 - farm!.x1 + 1}x${farm!.z2 - farm!.z1 + 1} at ${farm!.x1},${farm!.z1}, ${slots.length} farm slots`);
   if (problems.length) failed++;
 }

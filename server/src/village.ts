@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
+import type { Side } from './farmSlots';
 
 export interface Area {
   x1: number;
@@ -18,6 +19,8 @@ export interface Plot extends Area {
   id: string;
   y: number;
   preparedBy: string;
+  /** The annex prepared beside the village after completion for its pens (10-09): not a plot to build on. */
+  annex?: boolean;
 }
 export interface Structure extends Area {
   id: string;
@@ -184,6 +187,29 @@ export type FarmSlot = FarmSpot & {
   bad?: string[];
   harvests?: number;
   lastHarvest?: { at: number; ok: boolean; why?: string };
+  /** On the annex (10-09): never a plant farm; `face` is its end facing the village, where a pen's gate goes. */
+  annex?: boolean;
+  face?: Side;
+  /** A pen (kind 'chicken'): its gate and the gate's facing, whether the ring stands, the animals counted inside. */
+  pen?: { gate: [number, number]; facing: string; wood?: string; built?: boolean; animals?: number; at?: number };
+};
+
+/**
+ * The annex (10-09, the user's choice): an extra 13x9 plot prepared beside the village's plot after completion, with two
+ * slots for pens. `state` 'preparing' until prepare_site finished it; `bad`: rectangles that failed (by "x1,z1");
+ * `penTries`, `penLastTry`: failed pen starts, a village's back-off.
+ */
+export type Annex = Area & {
+  y: number;
+  side: Side;
+  state: 'preparing' | 'ready';
+  tries?: number;
+  lastTry?: { at: number; why: string };
+  bad?: string[];
+  penTries?: number;
+  penLastTry?: { at: number; why: string };
+  /** Where chickens were sought in vain ("x,z"): sightings within 8 of one are passed over. */
+  penBad?: string[];
 };
 
 export interface Village {
@@ -225,7 +251,9 @@ export interface Village {
       /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */
       harvests?: number; bread?: number; lastHarvest?: { at: number; ok: boolean; why?: string } };
     /** Farm slots kept free for whatever is found (opportunistic farming, 10-08): a kind once a farm is started there. */
-    slots?: FarmSlot[] }>;
+    slots?: FarmSlot[];
+    /** The annex beside this layout's plot (the first layout only). */
+    annex?: Annex }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -633,7 +661,9 @@ export class VillageRegistry {
   summary(v: Village, forAgent?: string, compact = false): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
-    if (v.plots.length) lines.push('Prepared plots (level ground; build inside them):', ...v.plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
+    // (not the annex: it is for the pens, 10-09)
+    const plots = v.plots.filter((p) => !p.annex);
+    if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
     const built = compact ? v.structures.filter((s) => s.kind !== 'storage') : v.structures;
     if (built.length) lines.push('Buildings (do not overlap them):', ...built.map((s) => `- ${s.kind} at ${areaText(s)}${compact ? '' : ` by ${s.builtBy}`}`));
     if (v.unplaced?.length) lines.push(`Not laid out yet (no room on the first site; they need a second site, then plan_layout): ${v.unplaced.join(', ')}`);

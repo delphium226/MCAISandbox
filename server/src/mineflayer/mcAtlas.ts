@@ -450,6 +450,18 @@ export class Atlas {
     return out.sort((a, b) => Math.hypot(a[0] - x, a[2] - z) - Math.hypot(b[0] - x, b[2] - z));
   }
 
+  /**
+   * Animals of a kind seen within `radius` of x, z in the last `maxAge` ms, nearest first, except where `skip` says
+   * (a village's ground and its pens: penned chickens are seen too, the pen design's review H3).
+   */
+  animalSightings(kind: string, x: number, z: number, radius: number, maxAge: number, skip?: (x: number, z: number) => boolean): Array<AnimalSighting & { id: string }> {
+    const now = Date.now();
+    const out: Array<AnimalSighting & { id: string }> = [];
+    for (const [id, s] of this.animals)
+      if (s.kind === kind && now - s.t <= maxAge && Math.hypot(s.x - x, s.z - z) <= radius && !skip?.(Math.floor(s.x), Math.floor(s.z))) out.push({ ...s, id });
+    return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+  }
+
   /** How the atlas is doing: chunks known and waiting, and the cost of a summary (ms). */
   status() {
     const t = [...this.times].sort((a, b) => a - b);

@@ -18,7 +18,7 @@ import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
-import { SLOT_KINDS, SLOT_ORDER, slotCell, slotPlan } from '../farmSlots';
+import { SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign } from '../streetPlan';
 import type { BotAgent } from './botAgent';
@@ -26,7 +26,7 @@ import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
-import { at, checkAbort, goals, nearestBlocks, num, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
+import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
@@ -1029,7 +1029,8 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const pad = (q: Area) => ({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2 });
   const all = [...a.world.villages.villages.values()];
   const taken: Area[] = [
-    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? [] : o.plots)]).map(pad),
+    // (its own annex too: it lies outside the layouts, 10-09)
+    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? o.plots.filter((q) => q.annex) : o.plots)]).map(pad),
     ...(v ? v.reservations.filter((r) => r.by !== a.name && r.until > now) : []),
   ];
   const logIds = survival ? a.world.registry.blocksArray.filter((b) => TREE_LOG.has(b.name)).map((b) => b.id) : [];
@@ -1326,11 +1327,17 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     else if (targets[i].block === 'air' && block !== 'air') targets[i] = { x, y: yy, z, block };
   };
   let columns = 0, protectedCols = 0, felled = 0;
+  // A felled tree's crawl never takes a cell in or beside a building (an annex is prepared beside a standing village,
+  // 10-09: a tree touching it could reach a house's log frame or roof, lesson 30)
+  const builtCells = [...a.world.villages.villages.values()].flatMap((o) => o.structures);
+  const nearBuilt = (x: number, yy: number, z: number) => builtCells.some((s) => x >= s.x1 - 1 && x <= s.x2 + 1 && z >= s.z1 - 1 && z <= s.z2 + 1 && yy >= s.y - 1);
   // The village's streets on this plot (the street plan, V2.3): dirt_path instead of grass, laid with the levelling
   const lay = a.village()?.layouts?.find((l) => l.x1 === x0 && l.z1 === z0 && l.x2 === x1 && l.z2 === z1);
   const street = (x: number, z: number) => !!lay?.streets?.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
   let paved = 0;
   const treeLogs = new Set<string>();
+  // (every cell a crawl reached, kept or not: a cell skipped beside a building would start a crawl again, the review's L6)
+  const crawled = new Set<string>();
   const drops: string[] = [];
   // Columns left as they are (built blocks, chests, margin over a drop): the check after the job passes them over
   const kept = new Set<string>();
@@ -1370,10 +1377,12 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
       for (const yy of cut) {
         const n = blockName(a, x, yy, z)!;
         // Trees touching the plot are felled whole, so no canopy is left floating
-        if ((isLog(n) || isLeaves(n)) && !treeLogs.has(`${x},${yy},${z}`)) {
+        if ((isLog(n) || isLeaves(n)) && !crawled.has(`${x},${yy},${z}`)) {
           const tree = treeAt(a, x, yy, z);
           if (tree.length) felled++;
           for (const [tx, ty, tz] of tree) {
+            crawled.add(`${tx},${ty},${tz}`);
+            if (nearBuilt(tx, ty, tz)) continue;
             treeLogs.add(`${tx},${ty},${tz}`);
             add(tx, ty, tz, 'air');
           }
@@ -1456,8 +1465,10 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   const v = a.village();
   if (v) {
     const reg = a.world.villages;
-    v.plots = v.plots.filter((q) => !same(q));
-    v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name });
+    // (in place when prepared again: plots[0] is the village's own plot to everything that reads it, the annex's research)
+    const i = v.plots.findIndex(same);
+    if (i >= 0) v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
+    else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}) });
     reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
     if (a.gamemode !== 'creative' && Object.keys(logs).length) summary += await storageFromFelled(a, signal);
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
@@ -2470,6 +2481,374 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
   }
 }
 
+/** The village preparing its annex (one at a time; the chore's lock, held inside the skill, lesson 67). */
+export const annexBusy = new Set<string>();
+
+/**
+ * Where the annex goes (10-09): annexCandidates round the village's plot, scored on one column survey. Taken: every
+ * village's buildings (+ 2), other villages' plots and layouts (+ 2), ground others reserved, this village's mine hut and
+ * stairs; the annex itself must be loaded, dry, untaken, unbuilt, and its claim (+ 2) loaded and dry with ground within
+ * plot.y - 4 .. + 5. Lowest score wins: earthwork, trees, and the walk from the storage hut's door.
+ */
+async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal): Promise<{ rect: Area & { side: Side }; score: number } | null> {
+  const bad = new Set(v.layouts?.[0]?.annex?.bad ?? []);
+  const cands = annexCandidates(plot).filter((c) => !bad.has(`${c.x1},${c.z1}`));
+  if (!cands.length) return null;
+  const cx = Math.floor((plot.x1 + plot.x2) / 2), cz = Math.floor((plot.z1 + plot.z2) / 2);
+  const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + 13 + 4;
+  const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
+  const all = [...a.world.villages.villages.values()];
+  const now = Date.now();
+  const taken: Area[] = [
+    ...all.flatMap((o) => o.structures).map((s) => pad(s, 2)),
+    ...all.filter((o) => o !== v).flatMap((o) => [...(o.layouts ?? []), ...o.plots]).map((q) => pad(q, 2)),
+    // (and its own second site, laid out or prepared: the review's L1)
+    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !p.annex)].map((q) => pad(q, 2)),
+    ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
+    // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
+    ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - 4) : []),
+  ];
+  const g = await surveyGround(a, cx, cz, r, taken, signal);
+  const m = g.n + 1;
+  const rectSum = (P: Int32Array, q: Area) => {
+    const i = q.x1 - g.x0, j = q.z1 - g.z0, w = q.x2 - q.x1 + 1, h = q.z2 - q.z1 + 1;
+    return P[(j + h) * m + i + w] - P[j * m + i + w] - P[(j + h) * m + i] + P[j * m + i];
+  };
+  const inGrid = (q: Area) => q.x1 >= g.x0 && q.z1 >= g.z0 && q.x2 < g.x0 + g.n && q.z2 < g.z0 + g.n;
+  const h = v.storageHut;
+  const door = h ? { x: h.x1 + 3, z: h.z2 + 1 } : { x: cx, z: cz };
+  let best: { rect: Area & { side: Side }; score: number } | null = null;
+  for (const c of cands) {
+    const claim = pad(c, 2);
+    if (!inGrid(claim)) continue;
+    if (rectSum(g.sums.taken, c) || rectSum(g.sums.built, c) || rectSum(g.sums.unloaded, claim) || rectSum(g.sums.wet, claim)) continue;
+    let earth = 0, ok = true;
+    for (let z = claim.z1; z <= claim.z2 && ok; z++)
+      for (let x = claim.x1; x <= claim.x2; x++) {
+        const k = (z - g.z0) * g.n + (x - g.x0);
+        // (a taken cell of the margin is a building's walkway or the plot's own margin: prepare_site keeps built columns)
+        if (g.kind[k] === 3) continue;
+        const dy = g.y[k] - plot.y;
+        if (dy < -4 || dy > 5) {
+          ok = false;
+          break;
+        }
+        earth += Math.abs(dy);
+      }
+    if (!ok) continue;
+    const mid = c.side === 's' ? { x: c.x1 + 6, z: c.z1 } : c.side === 'n' ? { x: c.x1 + 6, z: c.z2 } : c.side === 'e' ? { x: c.x1, z: c.z1 + 6 } : { x: c.x2, z: c.z1 + 6 };
+    const score = earth + 0.3 * rectSum(g.sums.trees, claim) + 0.5 * (Math.abs(mid.x - door.x) + Math.abs(mid.z - door.z));
+    if (!best || score < best.score) best = { rect: c, score };
+  }
+  return best;
+}
+
+/**
+ * The annex (10-09, the user's choice; a chore code queues once the village is complete): a 13x9 plot beside the
+ * village's own, prepared by prepare_site at the plot's level, with two slots for pens. The rectangle is recorded before
+ * the work (a restart prepares the same one again: prepare_site skips what is done); one that fails for its ground is
+ * marked bad and another is chosen next time.
+ */
+async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const lay = v?.layouts?.[0];
+  if (!v || !lay) throw new Error('prepare_annex: the village has no layout');
+  const plot = v.plots.find((p) => !p.annex && overlaps(p, lay));
+  if (!plot) throw new Error('prepare_annex: the village plot is not prepared');
+  if (annexBusy.has(v.name)) throw new Error('prepare_annex: the annex is being prepared');
+  annexBusy.add(v.name);
+  const save = () => a.world.villages.save();
+  try {
+    let ax = lay.annex;
+    if (ax?.state === 'ready') return `the annex at ${areaText(ax)} is ready`;
+    const home = villageHome(v, a.memory);
+    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+      await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    if (!ax || ax.x2 < ax.x1) {
+      const spot = await annexSpot(a, v, plot, signal);
+      if (!spot) throw new Error(`prepare_annex: no room for a 13x9 annex beside the plot at ${areaText(plot)} (every side taken, wet, too steep or built on)`);
+      ax = lay.annex = { ...lay.annex, x1: spot.rect.x1, z1: spot.rect.z1, x2: spot.rect.x2, z2: spot.rect.z2, y: plot.y, side: spot.rect.side, state: 'preparing' };
+      save();
+      console.log(`[annex] ${v.name}: ${a.name} prepares the annex at ${areaText(ax)} (${ax.side} of the plot, score ${Math.round(spot.score)})`);
+    }
+    const w = ax.x2 - ax.x1 + 1, d = ax.z2 - ax.z1 + 1;
+    const out = await prepareSite(a, { x: ax.x1 + Math.floor(w / 2), z: ax.z1 + Math.floor(d / 2), width: w, depth: d, y: ax.y, margin: 2, annex: true }, signal);
+    const rec = v.plots.find((p) => p.x1 === ax!.x1 && p.z1 === ax!.z1 && p.x2 === ax!.x2 && p.z2 === ax!.z2);
+    if (rec) rec.annex = true;
+    lay.slots ??= [];
+    if (!lay.slots.some((s) => s.annex)) lay.slots.push(...annexSlots({ ...ax, side: ax.side }).map((s) => ({ ...s, annex: true })));
+    ax.state = 'ready';
+    save();
+    a.world.villages.note(v, `${a.name} prepared the annex at ${areaText(ax)} for the pens`);
+    // (the felled trees' logs)
+    const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return '';
+    });
+    return `prepared the annex at ${areaText(ax)} (${ax.side} of the plot) with 2 pen slots: ${out.replace(/^plot ready: /, '')}${stored ? '; deposited what it carried' : ''}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    if (why !== 'cancelled' && !signal.aborted) {
+      // (an empty rectangle: none chosen yet, or the last one given up)
+      const ax = (lay.annex ??= { x1: 0, z1: 0, x2: -1, z2: -1, y: plot.y, side: 'n', state: 'preparing' });
+      // Ground that cannot be made ready: another rectangle next time
+      if (ax.state !== 'ready' && ax.x2 >= ax.x1 && /cannot be prepared here|cannot be made dry|not ready after two passes|whole area is covered|too much work/.test(why)) {
+        ax.bad = [...(ax.bad ?? []), `${ax.x1},${ax.z1}`].slice(-20);
+        ax.x2 = ax.x1 - 1;
+      }
+      ax.tries = (ax.tries ?? 0) + 1;
+      ax.lastTry = { at: Date.now(), why: why.slice(0, 200) };
+    }
+    save();
+    throw e;
+  } finally {
+    annexBusy.delete(v.name);
+  }
+}
+
+/** The most seeds a luring bot holds (none are used up: TemptGoal only looks at the hands). */
+const LURE_SEEDS = 8;
+
+/**
+ * A chicken pen on a free annex slot (10-09, the user's choices: one lure trip of up to 4; eggs and breeding later; a
+ * chore code queues once the annex is ready). The slot is recorded as a pen first (its walk ban holds from the start,
+ * the design review's H2); at the storage hut the ring of the village's wood goes up by command, charged, its gate open;
+ * then the bot walks to the chickens seen at x, y, z, holds wheat seeds in its off-hand (set by command: walks never swap
+ * it, review M9) and leads up to 4 home in 4-block hops, waiting for them after each; from the cell beyond the gate it is
+ * teleported to the back row, the chickens follow it in through the open gate (the live tests: all 4 within 3 s), the
+ * gate is closed by command once no chicken or player stands in it, and the bot is teleported out. Never through the gate
+ * on foot: a walk takes a gate for a full block (review H1).
+ */
+async function startPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, k, j, slot, plot, key } = slotOf(a, args, 'start_pen');
+  if (!slot.annex) throw new Error(`start_pen: farm slot ${j} is not on the annex`);
+  if (slotBusy.has(key)) throw new Error(`start_pen: farm slot ${j} is busy`);
+  if (slot.kind && slot.kind !== 'chicken') throw new Error(`start_pen: farm slot ${j} already holds ${slot.kind}`);
+  const sx = Math.floor(num(args.x, 'x')), sz = Math.floor(num(args.z, 'z'));
+  const P = penPlan(slot, slot.face ?? 'n');
+  const y = plot.y + 1;
+  const name = a.name;
+  const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  const save = () => a.world.villages.save();
+  const tp = (c: [number, number]) => rcon(`tp ${name} ${c[0] + 0.5} ${y} ${c[1] + 0.5}`);
+  const box = (q: Area) => `x=${q.x1},y=${y},z=${q.z1},dx=${q.x2 - q.x1},dy=2,dz=${q.z2 - q.z1}`;
+  const gateCell = { x1: P.gate[0], z1: P.gate[1], x2: P.gate[0], z2: P.gate[1] };
+  const count = async (q: Area) => Number(/count: (\d+)/i.exec(await rcon(`execute if entity @e[type=minecraft:chicken,${box(q)}]`))?.[1] ?? 0);
+  // (a village with no wood kind recorded: the kind storage holds most wood of, not oak, whose craft failed first in VanA3;
+  // kept on the pen, so the gate is always set again in its own wood)
+  const stock = storageContents(v);
+  const held4 = (k: string) => 4 * (stock[`${k}_log`] ?? 0) + (stock[`${k}_planks`] ?? 0);
+  const wood = slot.pen?.wood ?? v.wood ?? [...WOODS].sort((p, q) => held4(q) - held4(p))[0];
+  const gate = (open: boolean) => `${wood}_fence_gate[facing=${P.facing},open=${open}]`;
+  let gateOpen = false, held = 0;
+  const mv = a.moves();
+  const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers, allowSprinting: mv.allowSprinting };
+  const notes: string[] = [];
+  try {
+    slotBusy.add(key);
+    slot.kind = 'chicken';
+    slot.laying = true;
+    slot.pen = { ...slot.pen, gate: P.gate, facing: P.facing, wood };
+    save();
+    // The ring (charged, at the storage hut), the gate open; anything grown inside the slot cleared
+    const h = v.storageHut;
+    const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
+    const job: Job = { targets: [], area, y: plot.y, what: 'the chicken pen', task: `start_pen layout=${k} slot=${j}` };
+    if (!slot.pen.built) {
+      const targets: Target[] = P.ring.map(([x, z]) => ({ x, y, z, block: `${wood}_fence` }));
+      targets.push({ x: P.gate[0], y, z: P.gate[1], block: gate(true) });
+      for (let x = P.inner.x1; x <= P.inner.x2; x++)
+        for (let z = P.inner.z1; z <= P.inner.z2; z++) {
+          const n = blockName(a, x, y, z);
+          if (n && n !== 'air' && n !== 'cave_air') targets.push({ x, y, z, block: 'air' });
+        }
+      notes.push(await runJob(a, { ...job, targets }, signal));
+      await sleep(1000, signal);
+      const missing = targets.filter((t) => !alreadyThere(a, t, true));
+      if (missing.length) notes.push(`again: ${await runJob(a, { ...job, targets: missing }, signal)}`);
+      if (!/passed/i.test(await rcon(`execute if block ${P.gate[0]} ${y} ${P.gate[1]} #minecraft:fence_gates`)))
+        throw new Error(`start_pen: the pen's gate at ${P.gate[0]},${y},${P.gate[1]} is not there after two passes`);
+      slot.pen.built = true;
+      save();
+    } else await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
+    gateOpen = true;
+    // Seeds left in the off-hand by a run cut off before its clean-up (a restart): back into the inventory (review M1)
+    const left = await rcon(`execute if items entity ${name} weapon.offhand minecraft:wheat_seeds`);
+    if (/passed/i.test(left)) {
+      await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
+      await rcon(`give ${name} minecraft:wheat_seeds ${Number(/count: (\d+)/i.exec(left)?.[1] ?? 1)}`);
+      await syncInventory(a);
+    }
+    // The seeds: from storage, else a few from the grass (none are used up; the wheat field took every seed gathered
+    // before its first harvest, VanA2)
+    if ((await serverCount(a, 'wheat_seeds')) < 1) {
+      const store = storageContents(v).wheat_seeds ?? 0;
+      if (store) await withdrawItems(a, v, { wheat_seeds: Math.min(LURE_SEEDS, store) }, signal);
+      else
+        await SURVIVAL_SKILLS.collect.run(a, { block: 'wheat_seeds', count: 3 }, signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          notes.push(`seeds: ${e.message.slice(0, 100)}`);
+        });
+    }
+    const seeds = Math.min(LURE_SEEDS, await serverCount(a, 'wheat_seeds'));
+    if (!seeds) throw new Error(`start_pen: no wheat_seeds to lure the chickens with (the storage holds none, and none came from the grass${notes.length ? `: ${notes.join('; ')}` : ''})`);
+    // To the chickens
+    const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
+    await walk(a, new goals.GoalNearXZ(sx, sz, 4), `the chickens at ${sx},${sz}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`walk: ${e.message.slice(0, 100)}`);
+    });
+    // The seeds in the off-hand, by command (an empty one only)
+    if (/passed/i.test(await rcon(`execute if items entity ${name} weapon.offhand *`))) throw new Error('start_pen: the off-hand holds something already');
+    const cleared = Number(/Removed (\d+)/i.exec(await rcon(`clear ${name} minecraft:wheat_seeds ${seeds}`))?.[1] ?? 0);
+    if (!cleared) throw new Error('start_pen: the seeds could not be taken from the inventory');
+    held = cleared;
+    await rcon(`item replace entity ${name} weapon.offhand with minecraft:wheat_seeds ${held}`);
+    await sleep(1500, signal);
+    // The chickens near (not on any village's ground: penned ones are seen too, review H3), and at about the bot's height:
+    // ones on a hill 10 above it were out of the 10 blocks a chicken is tempted from, and do not come down a drop (VanA1)
+    const me = () => a.bot.entity.position;
+    const flat = (e: { position: Vec3 }) => Math.hypot(e.position.x - me().x, e.position.z - me().z);
+    const near = (r: number) => Object.values(a.bot.entities)
+      .filter((e) => e.name === 'chicken' && flat(e) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
+      .sort((p, q) => flat(p) - flat(q));
+    const where = (ids: number[]) => ids.map((id) => (a.bot.entities[id] ? `${at(a.bot.entities[id].position)} (${a.bot.entities[id].position.distanceTo(me()).toFixed(1)})` : `${id} gone`)).join(', ');
+    let chosen = near(10).slice(0, 4).map((e) => e.id);
+    if (!chosen.length) {
+      // (they wander: to the nearest within 24 at any height, then a second look)
+      const e = Object.values(a.bot.entities).filter((c) => c.name === 'chicken' && flat(c) <= 24 && !onVillageGround(a, Math.floor(c.position.x), Math.floor(c.position.z))).sort((p, q) => flat(p) - flat(q))[0];
+      if (e) {
+        await walk(a, new goals.GoalNearXZ(Math.floor(e.position.x), Math.floor(e.position.z), 3), 'the nearest chicken', signal, 20000).catch((er: Error) => {
+          if (er.message === 'cancelled') throw er;
+        });
+        await sleep(1500, signal);
+        chosen = near(10).slice(0, 4).map((c) => c.id);
+      }
+    }
+    if (!chosen.length) throw new Error(`start_pen: no chicken within 10 blocks of ${at(me())} (seen at ${sx},${sz})`);
+    const led = chosen.length;
+    console.log(`[pen] ${name}: leads ${led} chicken${led > 1 ? 's' : ''} from ${at(me())}: ${where(chosen)}`);
+    // Home in hops: no digging, building or sprinting on the way (they keep up at ~2.5 m/s, the bot walks 4.3)
+    Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, allowSprinting: false });
+    const [ax, az] = P.approach;
+    const dist = () => Math.hypot(me().x - (ax + 0.5), me().z - (az + 0.5));
+    const maxHops = Math.ceil(dist() / 4) + 15;
+    let hops = 0, still = 0;
+    while (dist() > 1.5) {
+      checkAbort(signal);
+      if (++hops > maxHops) throw new Error(`start_pen: could not lead the chickens home in ${maxHops} hops (${Math.round(dist())} blocks short)`);
+      const from = me().clone();
+      a.bot.pathfinder.setMovements(mv);
+      a.bot.pathfinder.setGoal(new goals.GoalNearXZ(ax, az, 1));
+      const t0 = Date.now();
+      // (a hop: 4 blocks of the pathfinder's own way home, or 5 s)
+      while (Date.now() - t0 < 5000 && from.distanceTo(me()) < 4 && dist() > 1.5) await sleep(100, signal);
+      a.bot.pathfinder.setGoal(null);
+      a.bot.clearControlStates();
+      still = from.distanceTo(me()) < 1 ? still + 1 : 0;
+      if (still >= 4) throw new Error(`start_pen: stuck at ${at(me())} on the way home with the chickens`);
+      // Wait for them (at most 8 s); one lost (gone or over 12 away) is left behind
+      const w0 = Date.now();
+      while (Date.now() - w0 < 8000) {
+        chosen = chosen.filter((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 12);
+        if (chosen.every((id) => a.bot.entities[id].position.distanceTo(me()) <= 4)) break;
+        await sleep(250, signal);
+      }
+      console.log(`[pen] ${name}: hop ${hops} to ${at(me())}, ${Math.round(dist())} from the gate; ${where(chosen)}`);
+      if (!chosen.length) throw new Error(`start_pen: the chickens were lost on the way, ${Math.round(dist())} blocks from the pen`);
+    }
+    // Close up first (they hold at 2.5): a chicken trailing on the far side was 11 from the back row once the bot was
+    // teleported there, out of the 10 blocks it is tempted from (VanA4b)
+    const w1 = Date.now();
+    while (Date.now() - w1 < 8000) {
+      chosen = chosen.filter((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 12);
+      if (chosen.every((id) => a.bot.entities[id].position.distanceTo(me()) <= 3)) break;
+      await sleep(250, signal);
+    }
+    if (!chosen.length) throw new Error('start_pen: the chickens were lost at the gate');
+    // In through the open gate behind the bot: teleported 2 cells inside (within 6 of them), then once they are in, to
+    // the back row, so they go deep enough for the gate to close; closed when its cell is clear
+    const toward = (u: number, w: number) => u + 2 * Math.sign(w - u);
+    await tp([toward(P.gate[0], P.back[0]), toward(P.gate[1], P.back[1])]);
+    const t1 = Date.now();
+    while (Date.now() - t1 < 6000) {
+      if ((await count(P.inner)) >= chosen.length) break;
+      await sleep(500, signal);
+    }
+    await tp(P.back);
+    const t2 = Date.now();
+    while (Date.now() - t2 < 4000) {
+      if ((await count(P.inner)) >= chosen.length && !(await count(gateCell))) break;
+      await sleep(500, signal);
+    }
+    console.log(`[pen] ${name}: in the back row ${Math.round((Date.now() - t1) / 100) / 10} s: ${await count(P.inner)} inside, ${await count(gateCell)} in the gate; ${where(chosen)}`);
+    let closed = false;
+    for (let i = 0; i < 3 && !closed; i++) {
+      if (!(await count(gateCell)) && !playersIn(a, [P.gate[0], y, P.gate[1]], 2).length) {
+        await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(false)}`);
+        closed = true;
+      } else await sleep(1000, signal);
+    }
+    if (!closed) await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(false)}`);
+    gateOpen = false;
+    await tp(P.approach);
+    await sleep(3000, signal);
+    const animals = await count(P.inner);
+    slot.pen = { ...slot.pen, animals, at: Date.now() };
+    slot.from = [sx, Math.floor(num(args.y, 'y')), sz];
+    delete slot.laying;
+    save();
+    // The seeds back in hand and into storage (the review's L8)
+    await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
+    await rcon(`give ${name} minecraft:wheat_seeds ${held}`);
+    held = 0;
+    await syncInventory(a);
+    await STORAGE_SKILLS.deposit.run(a, { item: 'wheat_seeds' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    if (!animals) throw new Error(`start_pen: none of the ${led} chickens led home came into the pen (${chosen.length} followed to the gate)`);
+    const done = `put ${animals} chicken${animals > 1 ? 's' : ''} into the pen on annex slot ${j} at ${areaText(slot)} (${led} led from ${sx},${sz}, ${hops} hops)`;
+    a.world.villages.note(v, `${name} ${done}`);
+    return `${done}${notes.length ? `: ${notes.join('; ')}` : ''}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    // The ring stays once up (a pen with no chickens yet, tried again later); before that the slot is free again
+    if (!slot.pen?.built) {
+      delete slot.kind;
+      delete slot.pen;
+    }
+    delete slot.laying;
+    const ann = v.layouts?.[0]?.annex;
+    if (ann && why !== 'cancelled' && !signal.aborted) {
+      ann.penTries = (ann.penTries ?? 0) + 1;
+      ann.penLastTry = { at: Date.now(), why: why.slice(0, 200) };
+      // (chickens not found there, lost or not led in: that sighting is passed over next time, review M3)
+      if (/no chicken within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${sx},${sz}`].slice(-20);
+    }
+    save();
+    const home = villageHome(v, a.memory);
+    if (!signal.aborted && why !== 'cancelled' && home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 48)
+      await teleportHome(a, signal).catch(() => null);
+    throw e;
+  } finally {
+    Object.assign(mv, saved);
+    a.bot.pathfinder.setGoal(null);
+    // (no signal-aware waits here: a stop must not skip them, review M4)
+    // A bot stopped inside the pen is put outside first: there is no way out on foot (review M2)
+    const pos = a.bot.entity?.position;
+    if (pos && pos.x >= slot.x1 && pos.x < slot.x2 + 1 && pos.z >= slot.z1 && pos.z < slot.z2 + 1) await tp(P.approach);
+    if (gateOpen && !playersIn(a, [P.gate[0], y, P.gate[1]], 2).length) await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(false)}`);
+    if (held) {
+      await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
+      await rcon(`give ${name} minecraft:wheat_seeds ${held}`);
+    }
+    await syncInventory(a).catch(() => {});
+    slotBusy.delete(key);
+  }
+}
+
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
@@ -2597,6 +2976,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (the farm slots', chores as well: opportunistic farming, 10-08)
   start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startFarm },
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
+  prepare_annex: { run: prepareAnnex },
+  start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

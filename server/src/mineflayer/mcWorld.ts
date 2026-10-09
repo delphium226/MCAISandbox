@@ -12,9 +12,9 @@ import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import type { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed } from './mcSurvival';
-import { nearestBlocks, stateAt } from './mcUtil';
-import { harvesting, slotBusy } from './mcBuild';
-import { SLOT_KINDS, SLOT_ORDER } from '../farmSlots';
+import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
+import { annexBusy, harvesting, slotBusy } from './mcBuild';
+import { SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
@@ -529,6 +529,53 @@ export class MineflayerWorld implements WorldAdapter {
     return true;
   }
 
+  /**
+   * The annex (10-09, the user's choice: pens beside the village, not on its plot's slots): once complete, an idle worker
+   * prepares it (prepare_annex); 10 minutes after a failure, given up after 3.
+   */
+  private annexChores(v: Village, worker: BotAgent): boolean {
+    const lay = v.layouts?.[0];
+    if (!lay || !v.plots.some((p) => !p.annex) || lay.annex?.state === 'ready' || annexBusy.has(v.name)) return false;
+    const ax = lay.annex;
+    if (ax?.tries && ax.lastTry && Date.now() - ax.lastTry.at > 60 * 60000) ax.tries = 0;
+    if ((ax?.tries ?? 0) >= 3 || (ax?.lastTry && Date.now() - ax.lastTry.at < 10 * 60000)) return false;
+    this.chores.set(v.name, { agent: worker.name, status: [worker.enqueue('prepare_annex', { chore: true })], what: 'prepare the annex' });
+    console.log(`[annex] ${v.name}: ${worker.name} prepares the annex${ax && ax.x2 >= ax.x1 ? ` at ${ax.x1},${ax.z1}..${ax.x2},${ax.z2} (again)` : ''}`);
+    return true;
+  }
+
+  /**
+   * A chicken pen on the annex (10-09; v1: one pen with chickens a village): a free annex slot (or a pen left empty) is
+   * started from the nearest chickens seen in the last 30 minutes within 96 blocks of the storage, off every village's
+   * ground (penned ones are seen too, the pen review's H3; the skill finds the seeds to lure them with); 10
+   * minutes after a failure, given up after 3 (`annex.penTries`).
+   */
+  private penChores(v: Village, worker: BotAgent): boolean {
+    const lay = v.layouts?.[0];
+    const ax = lay?.annex;
+    if (!lay || ax?.state !== 'ready') return false;
+    const now = Date.now();
+    if (ax.penTries && ax.penLastTry && now - ax.penLastTry.at > 60 * 60000) ax.penTries = 0;
+    if ((ax.penTries ?? 0) >= 3 || (ax.penLastTry && now - ax.penLastTry.at < 10 * 60000)) return false;
+    const slots = (lay.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
+    if (slots.some(({ slot }) => slot.kind === 'chicken' && (slot.pen?.animals ?? 0) > 0)) return false;
+    const pick = slots.find(({ slot }) => slot.kind === 'chicken' && !slot.laying) ?? slots.find(({ slot }) => !slot.kind);
+    if (!pick || slotBusy.has(`${v.name}:1:${pick.j}`)) return false;
+    const chest = v.storage?.chests[0];
+    const home = chest ? { x: chest.x, z: chest.z } : villageHome(v, worker.memory);
+    if (!home) return false;
+    // (at about the annex's level, as the skill takes them, and not near a sighting that failed: review M3)
+    const bad = (ax.penBad ?? []).map((s) => s.split(',').map(Number));
+    const seen = this.atlas.animalSightings('chicken', home.x, home.z, 96, 30 * 60000, (x, z) => onVillageGround(worker, x, z) || bad.some(([bx, bz]) => Math.hypot(x - bx, z - bz) <= 8))
+      .find((s) => Math.abs(s.y - (ax.y + 1)) <= 4);
+    if (!seen) return false;
+    const [x, y, z] = [Math.floor(seen.x), Math.floor(seen.y), Math.floor(seen.z)];
+    this.chores.set(v.name, { agent: worker.name, status: [worker.enqueue('start_pen', { layout: 1, slot: pick.j, x, y, z, chore: true })], what: 'start a chicken pen' });
+    console.log(`[pen] ${v.name}: chicken seen at ${x},${y},${z}; ${worker.name} starts a pen on annex slot ${pick.j}`);
+    this.villages.note(v, `chickens seen at ${x},${y},${z}: ${worker.name} leads them into a pen on the annex (a chore)`);
+    return true;
+  }
+
   private idleWorker(v: Village): BotAgent | undefined {
     return [...this.agents.values()].find((a) => a.village()?.name === v.name && a.memory.villageRole !== 'mayor' && !!a.bot.entity && a.idle()
       && !v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name));
@@ -549,7 +596,24 @@ export class MineflayerWorld implements WorldAdapter {
     for (const [i, lay] of layouts.entries())
       for (const [jj, slot] of (lay.slots ?? []).entries()) {
         if (slot.laying && !slotBusy.has(`${v.name}:${i + 1}:${jj + 1}`)) {
-          if (!slot.planted) delete slot.kind;
+          // (a pen whose ring stands keeps it; its gate is shut, the count waits for the next try: the pen design's H2)
+          if (slot.kind === 'chicken' && slot.pen?.built) {
+            const plot = v.plots.find((p) => p.annex && p.x1 <= slot.x1 && p.x2 >= slot.x2 && p.z1 <= slot.z1 && p.z2 >= slot.z2);
+            if (plot) {
+              // (a village agent inside is put out first, the review's M2; then the gate shut in the pen's own wood)
+              const out = penPlan(slot, slot.face ?? 'n').approach;
+              const inside = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.bot.entity
+                && b.bot.entity.position.x >= slot.x1 && b.bot.entity.position.x < slot.x2 + 1 && b.bot.entity.position.z >= slot.z1 && b.bot.entity.position.z < slot.z2 + 1);
+              const cmds = [...inside.map((b) => `tp ${b.name} ${out[0] + 0.5} ${plot.y + 1} ${out[1] + 0.5}`),
+                `setblock ${slot.pen.gate[0]} ${plot.y + 1} ${slot.pen.gate[1]} minecraft:${slot.pen.wood ?? v.wood ?? 'oak'}_fence_gate[facing=${slot.pen.facing},open=false]`];
+              void (async () => {
+                for (const c of cmds) await this.rcon.command(c).catch(() => '');
+              })();
+            }
+          } else if (!slot.planted) {
+            delete slot.kind;
+            delete slot.pen;
+          }
           delete slot.laying;
           this.villages.save();
         }
@@ -606,7 +670,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (!worker) return;
     // A free slot started with a kind found near the village
     const free = layouts.flatMap((lay, i) => (lay.slots ?? []).map((slot, jj) => ({ slot, k: i + 1, j: jj + 1 })))
-      .find(({ slot, k, j }) => !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && (slot.tries ?? 0) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
+      .find(({ slot, k, j }) => !slot.annex && !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && (slot.tries ?? 0) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
     if (free) {
       const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
       const bad = new Set(layouts.flatMap((l) => (l.slots ?? []).flatMap((q) => q.bad ?? [])));
@@ -632,6 +696,8 @@ export class MineflayerWorld implements WorldAdapter {
         return;
       }
     }
+    // The annex and its pen before the iron age (a trip ties the chores up for minutes, again and again: the pen review's M2)
+    if (this.annexChores(v, worker) || this.penChores(v, worker)) return;
     if (this.ironChores(v, worker)) return;
     // Exploring: one ring point at a time, FARM_TRIP_RANGE from home, the least known first, each point once (the bots at
     // home already see ~128 blocks: view distance 8, the design review's H3)
