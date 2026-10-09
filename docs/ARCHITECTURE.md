@@ -440,8 +440,8 @@ sequenceDiagram
   else code, on the mayor's next tick
     B-->>M: every layout build done, nothing open: declared complete by code
   end
-  opt once complete, chores one at a time (no board task, no model)
-    W->>S: start_farm / harvest_slot (a farm slot from an atlas sighting within 160), prepare_annex, start_pen (chickens led in), dig_iron / make_iron_tool, scout a ring point
+  opt once complete, chores: one an agent, workers and then the Mayor, one agent a key (no board task, no model)
+    W->>S: start_farm / harvest_slot (a farm slot from an atlas sighting within 160), prepare_annex, start_pen (chickens or cows led in), collect_eggs / breed_pen / milk_cows, bake_cake, dig_iron / make_iron_tool, scout a ring point
   end
 ```
 
@@ -476,13 +476,14 @@ stateDiagram-v2
 | Storage | `deposit`, `withdraw`, builders (Minecraft) | The village's chests, each one's material group in a sorted storage, and what each held when last opened; shown chest by chest in the planners' village summary and the panel. |
 | Storage hut (`storageHut`) | `plan_layout` (a new village's first economy layout) | The hut's footprint and its nine chest spots in the order chests go down; `deposit` fills them, the stuck rescue teleports to its door. |
 | Reservations | building skills while they run | Ground another agent is working on; `find_site` and other jobs avoid it (renewed while working, 3-minute expiry). |
-| Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. A street plan's plot also keeps its streets, door paths and plaza (`streets`), which `prepare_site` lays as `dirt_path`, and a green village's plot the green inside its ring (`green`), kept free. Such a plot also holds its street lamps' cells (`lamps`, Minecraft) and `lit` once `light_streets` put them up; builders' stand spots keep off them. Any plot also holds its buildings' name signs (`signs`: cell, wall layer, facing, text; Minecraft) and `signed` once `put_up_signs` put them all up; stand spots keep off them too. A village's first survival layout may also hold its wheat field (`farm`: the 5x7 area, the water channel and the 16 sow cells; `planted`, the cells confirmed sown, and whether the seeds and the hoe were asked for again); stand spots and every bot's walks keep off it. Beside it, up to two farm slots (`slots`: the same shape, the kind once started, the planted and fruit cells, where the first plants came from, tries and harvests); stand spots keep off every slot, walks off a started one. The first layout may also hold its annex (`annex`: the 13x9 area, its level and side of the plot, `state` preparing or ready, tries, rectangles that failed, the pen tries and the sightings that failed), whose two slots are appended to `slots` with `annex: true`, `face` (the end facing the plot) and, once a pen is started, `kind: "chicken"` and `pen` (the gate and its facing, the wood, whether the ring stands, the animals counted inside). |
+| Layouts (`layouts`) | `plan_layout` | Each laid-out plot with its buildings, before any ground is prepared: site searches and later layouts, this village's or another's, keep off it. A street plan's plot also keeps its streets, door paths and plaza (`streets`), which `prepare_site` lays as `dirt_path`, and a green village's plot the green inside its ring (`green`), kept free. Such a plot also holds its street lamps' cells (`lamps`, Minecraft) and `lit` once `light_streets` put them up; builders' stand spots keep off them. Any plot also holds its buildings' name signs (`signs`: cell, wall layer, facing, text; Minecraft) and `signed` once `put_up_signs` put them all up; stand spots keep off them too. A village's first survival layout may also hold its wheat field (`farm`: the 5x7 area, the water channel and the 16 sow cells; `planted`, the cells confirmed sown, and whether the seeds and the hoe were asked for again); stand spots and every bot's walks keep off it. Beside it, up to two farm slots (`slots`: the same shape, the kind once started, the planted and fruit cells, where the first plants came from, tries and harvests); stand spots keep off every slot, walks off a started one. The first layout may also hold its annex (`annex`: the 13x9 area, its level and side of the plot, `state` preparing or ready, tries, rectangles that failed, the pen tries and the sightings that failed), whose two slots are appended to `slots` with `annex: true`, `face` (the end facing the plot) and, once a pen is started, `kind` (`chicken` or `cow`, `PEN_KINDS` in `farmSlots.ts`) and `pen` (the gate and its facing, the wood, whether the ring stands, the animals counted inside; eggs taken, the last breeding and the young born, the last milking, and when each kind of work was last queued, `workAt`); the annex's failed pen starts are kept by kind (`penBy`, `penBad` entries `kind:x,z,time`). |
 | Plan (`plan`, `vanillaBiome`) | `fillVanilla` (both), `POST /api/village/:v/layout` (`plan`) | "street": the first plot is laid out round a green or by the street plan; the biome the vanilla library came from, whose town centre the plan uses. |
 | Unplaced (`unplaced`) | `plan_layout` | Buildings that did not fit on the site: shown in the village summary, laid out by code at the mayor's next successful `find_site`; completion waits for them. |
 | Unavailable (`unavailable`) | `collect` (Minecraft) | Materials found nowhere near the village (sand): the first failed collect closes their other open gather tasks, and code posts no gathering for them until the next layout clears the list. |
 | Scouting (`scouted`, `scoutRerun`, `scoutDone`) | the mayor's brain | When code posted scout tasks, ran `find_site` again after them, and when that search ended; scouting happens once per village. |
 | Mine (`mine`) | `dig_mine`, `collect cobblestone` (Minecraft) | The mining hut, the stairs (first step, direction, steps, `level` once in stone), the main tunnels (`legs`: start, level, direction, cells dug in their fixed order, branches cut short, why it ended, turns tried), the stairs down to deeper levels (`down`: start, steps, `level` or why they stopped), what the mine gave and the ores its cells laid open (`got`), and why it stopped; mines from before V.5b load as one leg (`upgradeMine`). Who digs which tunnel is kept in memory only, per trip. The iron level has its own record (`iron`: its stairs, the stairs given up, its tunnels, cells dug, what it gave, whether it is finished), which the cobblestone mine never reads, and the iron chores theirs (`ironMade`, `ironTries`, `ironLastTry`, section 9). |
 | Exploring (`explore`) | the world's chores (Minecraft) | The ring points visited, the last trip, and `done` once all 8 are visited. |
+| Cakes (`cakes`) | `bake_cake` (Minecraft) | Cakes baked at the storage hut in all. |
 
 Every village member stays within `VILLAGE_RANGE` (96 blocks, `village.ts`) of the village's home, `villageHome`: the
 first layout or plot, else the first storage chest, else where the mayor started (`memory.origin`). `move_to` and
@@ -625,7 +626,8 @@ blocked calls and the failed-actions stat. `harvest_farm` (`mcBuild.ts`) is regi
 `TOOLS`, so no model can call it and `/api/skills` does not list it. It locks the field (`harvesting`, one harvest a
 field), stands by the storage hut, gives each ripe cell's loot with `loot give <bot> mine` (vanilla's loot table: a
 wheat and 1-4 seeds; no walking on the field), sows the cell again charged a seed or clears it when none is left (never
-left ripe), bakes the wheat into bread at the hut's table and deposits everything. The layout's `farm` records
+left ripe), bakes into bread at the hut's table only the wheat beyond `WHEAT_KEEP` (16 kept in storage for the cow lure,
+breeding and the cake; pens v2) and deposits everything. The layout's `farm` records
 `harvests`, `bread` and `lastHarvest` (a failed one waits 10 minutes, "nothing ripe" 2). `stage_village.py --harvest`
 sets the field ripe by command after the build and checks the bread and the resown cells.
 
@@ -637,12 +639,21 @@ after the lamps, each a `placeFarm` of the field's shape near it, off the field,
 sugar cane, pumpkin, melon, carrots, potatoes, beetroots) and each kind's cell plan (`slotPlan`): crops on the wheat's
 pattern on farmland, cane in the two columns beside the water on dirt, stems on those columns' inner rows with dirt fruit
 cells round them. Sightings come from the atlas (section 7: `plants` per chunk, animals by uuid). `MineflayerWorld.slotChores`,
-after the wheat's harvest pass every 30 s, runs one chore a village at a time (`chores`, from the queued actions' own
-states, so a stop frees it, lesson 67) on an idle worker holding no task, with `chore: true` as the harvest: first a ripe
+after the wheat's harvest pass every 30 s, gives every idle member holding no task and no chore one chore
+(`idleWorker`, `nextChore`), with `chore: true` as the harvest. Since F193 (2026-10-09) `chores` is keyed by agent: each
+entry holds a key naming what it works on (`slot:k:j`, `farm:k`, `start`, `annex`, `pen` for the lure, `penwork:j`,
+`cake`, `iron`, `explore`), and `choreKeys` gives the keys of a village's chores still under way (from the queued
+actions' own states, so a stop frees them, lesson 67; an ended chore's key, and its agent, are held 10 s more while its
+skill's clean-up runs). A member takes the first chore of a key no other holds; workers first, then, once the village
+is complete, the Mayor (the user's choice; `TieredBrain` then gives a complete village's mayor no executor turn unless
+urgent, so no model call queues actions behind its chore). Some keys exclude others: no harvest or farm start beside
+the lure (their seeds tempt chickens), no exploring beside a lure or a start, no iron trip while milking or the cake
+holds the buckets. The order in `nextChore`: first a ripe
 slot (`harvest_slot`, by the wheat's rule; cane two high, at least 2 fruit); then, once the village is complete, a free
 slot started with the first kind not farmed yet whose nearest sighting within `FARM_TRIP_RANGE` (160, `village.ts`) of
 the storage passes collect's own filter (`collectFilter`; a kind with none is skipped for 10 minutes; sugar cane needs
-a sighting of at least 2 blocks over the stalks' bases, F192); then the annex and its pen (below); then the iron chores
+a sighting of at least 2 blocks over the stalks' bases, F192); then the annex, the pens and their work and the cake
+(below); then the iron chores
 (section 9); then, only while a slot is free, exploring: `scout` to one of 8 ring points 160 from home (the least
 known first, each once, `v.explore`) and back (the bots at home already see ~128 blocks, so a 96 ring would find
 nothing); the walk back carries `home: true` and is teleported home when it ends more than 12 short (F189: a worker
@@ -656,13 +667,14 @@ deposits. Neither is in `TOOLS`. A start cut off by a restart frees its slot aga
 are forgiven after an hour. `stage_village.py --fixtures --after N --ripen` tests them (plants are rare near the test
 sites, F176), `watch_village.py` with `MCAI_AFTER`.
 
-**The annex and chicken pens** (v1, 2026-10-09; design `runs/2026-10-08/s23/annex_pen_design.md`, the live chicken
-facts in `lure_facts.md` there; the user's choices: pens on an annex beside the plot, not on its slots; one lure trip
-of up to 4 chickens; eggs and breeding later, v2). In `slotChores`, after the slots' starts and before the iron age (a
-trip ties the chores up for minutes), `annexChores` queues `prepare_annex` with `chore: true` on an idle worker once
-the village is complete and its first layout has no ready annex, and `penChores` then queues `start_pen` on an annex
-slot; one chore a village at a time, both backing off 10 minutes after a failure, given up after 3, forgiven after an
-hour. Neither is in `TOOLS`.
+**The annex and the pens** (v1 2026-10-09, design `runs/2026-10-08/s23/annex_pen_design.md`, the live chicken facts in
+`lure_facts.md` there; v2 the same day, design `runs/2026-10-09/pens_v2_design.md`, live facts in `pens_v2_facts.md`,
+findings F202-F208; the user's choices: pens on an annex beside the plot, not on its slots). In `nextChore`, after the
+slots' starts and before the iron age, `annexChores` queues `prepare_annex` (key `annex`) with `chore: true` once the
+village is complete and its first layout has no ready annex; `penChores` then queues `start_pen` (key `pen`) for the
+first kind in `PEN_ORDER` (chicken, then cow) whose pen holds fewer than 2 animals, on that kind's slot or a free one;
+`penWorkChores` queues a pen's own work (key `penwork:j`) and the cake (key `cake`). Annex failures back off 10 minutes,
+are given up after 3 and forgiven after an hour; pen starts the same, by kind (`annex.penBy`). None is in `TOOLS`.
 
 - `prepare_annex` (`mcBuild.ts`): `annexCandidates` (`farmSlots.ts`) lists 13x9 rectangles, the long side along the
   plot's edge and the inner edge 3 out (past prepare_site's 2-block margin), on each of the four sides, sliding by 1;
@@ -673,28 +685,54 @@ hour. Neither is in `TOOLS`.
   `annex.bad`. It is prepared with `prepare_site` at the plot's level (felling never takes cells beside a building), the
   felled logs deposited, and recorded as an `annex: true` plot with two 5x7 slots (`annexSlots`: a 1-cell border and gap,
   the long axis pointing at the plot). A restart during 'preparing' runs the same rectangle again.
-- `start_pen` (`mcBuild.ts`) runs on a free annex slot when the atlas has a chicken within 96 of the storage chest from
-  the last 30 minutes, off every village's ground, at about the annex's height and not near a sighting that failed
-  (`penBad`). It records the pen first (`kind: "chicken"`, `laying`, so the walk ban holds from the start), then at the
+- `start_pen kind=chicken|cow` (`mcBuild.ts`) runs when the atlas has an animal of the kind within 96 of the storage
+  chest from the last 30 minutes, off every village's ground, at about the annex's height and not near a sighting of the
+  kind that failed (`penBad`); a cow start needs wheat in storage (`PEN_KINDS`: chickens follow wheat seeds, taken from
+  storage or a few from the grass; cows wheat, which only the field's harvests give). It records the pen first (`kind`,
+  `laying`, so the walk ban holds from the start), then at the
   storage hut puts up the ring of fences and an open gate (`penPlan`: the gate in the middle of the end facing the plot,
   facing in; charged, made by `makeFromStock` in the village's wood or the kind storage holds most of) and clears the
-  inside to plain ground. Seeds go into the off-hand by command (`item replace entity ... weapon.offhand`; tempted
-  chickens follow a bot holding them at ~2 blocks, up to 10 away). It walks to the sighting, picks up to 4 chickens at
+  inside to plain ground. The lure goes into the off-hand by command (`item replace entity ... weapon.offhand`; tempted
+  animals follow a bot holding it at ~2 blocks, up to 10 away). It walks to the sighting, picks up to 4 animals at
   about its height and leads them home in 4-block hops with no digging, building or sprinting, waiting up to 8 s after
-  each until they are within 4 (a chicken over 12 away is left). At the gate the bot is teleported 2 cells inside, then
-  to the back row; once the chickens are in and the gate cell is clear, the gate is closed by command, the bot is
-  teleported to the cell outside, and the chickens inside are counted on the server (`execute if entity
-  @e[type=chicken,...]`) into `pen.animals`. With none inside the ring stays for a retry and the sighting is marked bad;
-  the seeds go back into storage either way. A pen left `laying` by a stop is closed (any agent inside teleported out)
-  by the next pass.
+  each until they are within 4 (one over 12 away is left). At the gate the bot is teleported 2 cells inside, then
+  to the back row; animals of the kind in or just outside the gate cell are teleported in (two cows jammed in the 1-wide
+  gate in the live tests, F203), the gate is closed by command once its cell is clear, the bot is teleported to the cell
+  outside, and the animals inside are counted on the server (`execute if entity @e[type=<kind>,...]`) into
+  `pen.animals` (a count the server did not give reads -1, never 0). A pen already holding animals keeps its gate shut
+  until the bot is at it with the new ones (F204), and the result is judged against the starting count. With none led in
+  the ring stays for a retry and the sighting is marked bad; the lure goes back into storage either way. A pen left
+  `laying` by a stop is closed (any agent inside teleported out) by the next pass.
+- A pen's work (pens v2, F202): `bot.activateEntity` feeds the nearest animal, a baby as readily as an adult, and
+  Mineflayer's entities carry no age, so the work is done by command while the agent stands on the cell beyond the gate
+  (where the pen's entities are loaded), charged to its inventory, and no agent goes into a closed pen. `penWorkChores`
+  takes the first due: `collect_eggs` when any bot sees an item in a chicken pen (at most a minute apart; eggs despawn
+  after 5): the egg items (`EGGS`: egg, brown_egg, blue_egg) are teleported to the agent, counted with `clear <name> X 0`
+  and deposited by name (F208: any item seen there triggers it, open); `milk_cows` when storage holds a bucket and fewer
+  than 3 milk buckets (every 2 minutes): each bucket withdrawn is cleared and a milk bucket given for an adult cow found
+  by score (`Age` stored into a scoreboard); `breed_pen` with 2 or more animals under the cap (6 chickens, 4 cows) and 2
+  of their food in storage, at most every 5 game minutes (the parents' 6000-tick cooldown): two adults with `Age:0` get
+  `data merge entity @s {InLove:600}`, one food each is charged and the rest given back, and the young born are counted
+  into `pen.born`. The cake (`bake_cake`, at most 2 in storage, 5 minutes apart) withdraws 3 milk buckets, 2 sugar (cane
+  crafted into sugar when short), an egg and 3 wheat (`cakeShort`) and crafts it at the hut's table; `v.cakes` counts
+  them. `doCraft` (`mcSurvival.ts`) now gives back a recipe's remainders (`REMAINDER`, from the jar's craftRemainder:
+  milk, water, lava and powder snow buckets leave a bucket, a honey bottle a glass bottle). Buckets are tools to
+  `deposit all` and eggs junk, so every pen chore and the cake first deposit any buckets, milk and eggs carried by name
+  (F207). `ironChores` makes three buckets instead of one once a cow pen holds cows, counting stored buckets and milk
+  buckets as made.
 - Walks (`moves()` in `botAgent.ts`): an open fence gate is passable, a closed one solid and never opened (the
   pathfinder took any gate for a full block and clicked closed ones open, leaving them open). A started slot is already
   off every walk (`exclusionAreasStep`).
 
-`stage_village.py --fixtures` also summons 4 chickens on level ground near the site (persistent, tagged `stagefix`),
-and with `--after N` prints `ANNEX` and `PEN` lines (the record, and the chickens the server counts inside);
+`stage_village.py --fixtures` also summons 4 chickens and 2 cows on level ground near the site (persistent, tagged
+`stagefix`), and with `--after N` prints `ANNEX` and `PEN` lines (the record with the back-offs by kind, the animals
+of the pen's kind the server counts inside, eggs, young and milk, and the items lying in a chicken pen) and an `AFTER
+busy` line (each agent's minutes with an action running, sampled every 3 s); `--stock` deposits each item by name.
 `street_plan.mts` checks the annex and pen geometry for every biome and size. Staged VanA3 and VanA5 (2x, green plains):
-the annex ready 1.5 minutes after completion, a wild chicken led 50 and 80 blocks and penned, 0 failed actions.
+the annex ready 1.5 minutes after completion, a wild chicken led 50 and 80 blocks and penned, 0 failed actions. Staged
+VanC3 (2x, `--after 20`, `--stock wheat:12,bucket:3,sugar_cane:2`): a chick bred, 5 eggs, three milkings of 3, 2 cakes,
+no `[stuck]`, `[lag]` or `[rescue]`; busy 7.4, 6.0 and 2.6 minutes of 20 (Worker1, Worker2, Mayor) against VanC1's 9.9,
+0 and 0 of 12.1 with one chore a village. Its cow pen held one cow (F205, open).
 
 ## 5. Skills in each world
 
@@ -936,9 +974,10 @@ the economy's code is checked in one to ten minutes with no model involved (its 
 from a file, such as a vanilla piece, and `--plan street --biome B` the street plan (a green on a 40 site); `--mayor` adds a tiered Mayor with
 its layout posted and an empty plan, which gathers while it waits, `--planner none` for no planner; `--harvest` ripens
 the wheat by command and checks the harvest; with `--mayor`, `--after N` watches the chores N minutes past completion,
-`--fixtures` puts farm plants down near the site first and summons 4 chickens (the `ANNEX` and `PEN` lines report the
-annex and the pen), `--ripen` ripens each newly planted slot once and `--stock
-ITEM:N,...` stocks storage at completion, e.g. `raw_iron:3` for the iron tools; `watch_village.py` takes `MCAI_AFTER`). The benches (`modelbench`,
+`--fixtures` puts farm plants down near the site first and summons 4 chickens and 2 cows (the `ANNEX` and `PEN` lines
+report the annex and the pens, `AFTER busy` each agent's busy minutes), `--ripen` ripens each newly planted slot once
+and `--stock ITEM:N,...` stocks storage at completion, each item deposited by name, e.g. `raw_iron:3` for the iron
+tools; `watch_village.py` takes `MCAI_AFTER`). The benches (`modelbench`,
 `execbench`, `planbench`, `mayorbench`, `designbench`) replay the brain's real prompts against a model in seconds per
 case (`mayorbench` with the vanilla library's prompt line and case, `VANILLA=0` without, the F155 cases with `ONLY=F155`,
 and a tally per case of what each answer did); `designbench` offers both design tools as the brain does (`STYLES=0` for hand drawing only, `REVISE=1` for the
@@ -1027,7 +1066,7 @@ flowchart LR
 | Site search | `mcBuild.ts` (`surveyGround`, `bestSite`) | a height grid built once with prefix sums and sliding min/max (each column's real top; kelp and seagrass count as water), every centre within 112 blocks checked, a height range of 4 allowed; off every village's buildings, layouts and plots; in survival 30 log blocks within 48 (each log judged by its own column's ground and the site's level: no more than 16 below either); when nothing good is near, the atlas's best areas for an agent in no village or a mayor's first site (`mcSiteAtlas.ts`, section 7), else up to two 40-block legs toward land or trees; a new village's first site may lie up to 256 blocks from the mayor's start, and the verdict (`memory.siteSearch`) decides whether workers scout first (section 4) |
 | Design limits | `tieredBrain.ts` (design checks), `designs.ts`, `buildingGen.ts`, `layout.ts` | the world's block list (`designBlocks`), raw materials whitelisted (logs, stone, sand, sandstone, dirt, gravel, terracotta), no workstations or containers as decoration (made air in a hand drawing); a cost budget in place of the old 9x9 cap, in raw blocks to gather from `materialTasks` (`HOUSE_UNITS` 150, a landmark by its name, a hall, chapel, tower..., `LANDMARK_UNITS` 300; 250 and 400 before the generator; at most `MAX_SMELTS` 32 furnace runs), and `plan_layout` lays out one building over 150 a village; a style is fitted by code instead of refused (walls capped at `HOUSE_WALLS` 9 and `LANDMARK_WALLS` 11, `fitSmelts`, `shrinkStyle`); three tries with the problems; vanilla pieces pass the same checks in `mcWorld.vanillaLibrary` before they reach the library (a library or temple as a landmark) |
 | Materials near the site | `mcWorld.materialsNear` | counts up to the amounts needed, as `collect` reaches blocks; wood may be a quarter short |
-| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls; on a green or street plan, a soft street-lamp task once every build is claimed (`placeLamps`, `light_streets`, `afterClaimed`, section 4); on every layout a soft name-sign task after the builds and lamps (`placeSigns`, `put_up_signs`); on a first survival layout the wheat field, its soft seed tasks (claimable at once) and the planting after the hut (`placeFarm`, `tend_farm`, section 4), and up to two farm slots beside it; the ripe field harvested as a chore (`farmChores`, `harvest_farm`), and once complete the slots started from atlas sightings and harvested, the annex and a chicken pen on it, the iron chores and exploring (`slotChores`, `start_farm`, `harvest_slot`, `annexChores`, `prepare_annex`, `penChores`, `start_pen`, `ironChores`, section 4 and below) |
+| Layout and tasks | `layout.ts`, `streetPlan.ts`, `mcWorld.materialTasks` | a green (on a 40 site) or the street plan for a vanilla village's first plot (section 4: the town centre, streets laid by `prepare_site` as `dirt_path`, buildings turned to face them); otherwise rows with streets (narrower when that fits; generated buildings packed by their walls, the overhang's eaves over the street); partial layouts with the rest kept as unplaced; land, storage, gather (soft, in shareable parts) and build tasks, each as exact skill calls; on a green or street plan, a soft street-lamp task once every build is claimed (`placeLamps`, `light_streets`, `afterClaimed`, section 4); on every layout a soft name-sign task after the builds and lamps (`placeSigns`, `put_up_signs`); on a first survival layout the wheat field, its soft seed tasks (claimable at once) and the planting after the hut (`placeFarm`, `tend_farm`, section 4), and up to two farm slots beside it; the ripe field harvested as a chore (`farmChores`, `harvest_farm`), and once complete the slots started from atlas sightings and harvested, the annex with chicken and cow pens on it, eggs, breeding, milk and a cake, the iron chores and exploring, one chore an agent by key, the Mayor too once complete (`slotChores`, `nextChore`, `start_farm`, `harvest_slot`, `annexChores`, `prepare_annex`, `penChores`, `start_pen`, `penWorkChores`, `collect_eggs`, `breed_pen`, `milk_cows`, `bake_cake`, `ironChores`, section 4 and below) |
 | Survival building | `mcBuild.ts` | builds do not wait for a held gather task the storage already covers (`stockCovers` in `village.ts`; with a village wood kind, logs per kind for all unbuilt buildings of that kind together, and while the village's kind is short, buildings not yet started move whole, the latest posted first, to another kind the storage holds enough of, `village.woodFor`, undone when it no longer covers and no build is under way; F164); registered chests may stand on a design's `_` cells (refused if one is not at the floor's level), crafting tables and furnaces kept off village plots and buildings and out of the mine (`onVillageGround`, `stepOffVillageGround`, `freeSpotNearby` in `mcUtil.ts`), wood kind chosen by `chooseWood`, the building's own kind (`woodFor`) first and one kind for the whole building when one covers every part (not a kind another unbuilt building counts on), else per part (a swap keeps "stripped_": `woodPart`, `woodName`), server-side counting, withdrawing, crafting and smelting from storage (fuel topped up from every plank stack; charcoal from the log kind
 with logs to spare, not the logs fetched for planks, F156; `makeFromStock` tells the craft and smelt skills that spare kind, so sticks and fuel no longer take the logs or planks fetched for later steps either, F165/F169; the spare kind is one the builder carries, and planks and sticks are made before the table and furnace, whose craft otherwise sawed a log kept for a later step, F191; stored coal or charcoal is fetched as fuel, F178), charging each run, requeueing a shortfall, open windows when there is no glass |
 | Scripted workers | `taskBrain.ts` | run a task's skill calls without a model, for staged tests; a limited runner (`pick`, `notTheTask`) is the waiting mayor's gathering (section 3) |
@@ -1064,8 +1103,9 @@ so do three that stopped at the same cell inside the mine; a bot stuck outside i
 **The iron age** (v1, 2026-10-08; design `runs/2026-10-08/s22/iron_design.md`, the decision in `docs/PLAN.md`,
 F180-F186). The mine's levels (y 56-64) meet about 0-1 iron in 100 cells; iron peaks at y 12-27 in 26.1. Once the
 village is complete, `MineflayerWorld.ironChores` (called from `slotChores` after the farm slots' starts and the annex
-and its pen, before exploring; one chore a village at a time) queues on an idle worker, as a chore: `make_iron_tool item=iron_pickaxe` once
-storage holds 3 raw iron or ingots, then `item=bucket` (made tools in `mine.ironMade`, F184); while short, `dig_iron`
+and the pens' chores, before exploring; key `iron`, never while milking or the cake holds the buckets) queues on an
+idle member, as a chore: `make_iron_tool item=iron_pickaxe` once storage holds 3 raw iron or ingots, then `item=bucket`
+(made tools in `mine.ironMade`, F184; three buckets once a cow pen holds cows, stored buckets and milk counted); while short, `dig_iron`
 (4-minute trips, `want` the iron still needed). A stage backs off 10 minutes after a failure, is given up after 3 and
 forgiven after an hour. `make_iron_tool` (`mcBuild.ts`) stands by the storage hut, and `makeFromStock` smelts the raw
 iron at the hut's furnace and crafts the tool at its table; the tool goes into storage by name, and a trip's start takes

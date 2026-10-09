@@ -20,6 +20,31 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-09 at the close of the twenty-fourth session: F193 per-agent chores and pens v2; the user asked Claude
+to decide everything after the first question; the notes below for the twenty-third session stay valid where not
+overridden)
+
+- **Code:** on `tiered-brain-building`: `119df92` F193 per-agent chores and pens v2 (eggs, breeding, a cow pen, milk, a
+  cake), and the close-out (this record, CLAUDE.md lessons 109-112, README, ARCHITECTURE). Not pushed: ask first. `main`
+  untouched.
+- **Stack:** stopped cleanly at the close (the test agent server by PID, the test Paper "All dimensions are saved", the
+  pinned model servers). No agents in either world.
+- **Where things stand:** after completion every idle member takes a chore of a kind nobody holds (workers first, then
+  the Mayor); Minevale35 (1x, model-driven) 6/6 in **11.0 min**, 0 failed actions, then all three on chores at once (iron
+  trips, annex, pen, farm, all 8 scouts, eggs). Pens hold chickens or cows; eggs, breeding and milking are done by
+  command from beyond the gate; a cake at the storage hut once storage holds 3 milk, an egg, 3 wheat and 2 sugar. Staged
+  VanC3 showed the whole chain (a chick bred, 3 x 3 milk, 5 eggs, 2 cakes). Live facts: `runs/2026-10-09/pens_v2_facts.md`.
+- **Next (proposed; the user picks):** 1. F205 (pens of one: sightings above the annex) and one more model-driven run
+  long enough for a wheat harvest (`MCAI_AFTER=45`) to see a cow pen, breeding and a cake with real models. 2. F209 /
+  F189's dry ring points. 3. The beautifying plan (B.1) or the smaller items (F208, F201, F200, F192's cane drops, F187,
+  F170-F173). The prompt: `runs/2026-10-09/NEXT_PROMPT.md`.
+- **How to test now:** staged `--after 20 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` (VanC3: complete at 6.3,
+  pens, milk and cakes within 20 min after); `AFTER busy:` gives each agent's busy minutes;
+  `runs/2026-10-09/scripts/pens_v2_facts.py` for live animal facts; `runs/2026-10-09/scripts/restart_agents.py` restarts
+  only the test agent server.
+- **Test world state:** minevale3 holds Minevale35's village on Minevale31's site with an annex (a chicken pen) and a
+  pumpkin farm: reset before using it.
+
 (written 2026-10-09 at the close of the twenty-third session: Minevale33, its fixes F188-F192, the annex and chicken pens
 v1, F198/F199, Minevale34; the notes below for the twenty-second session stay valid where not overridden)
 
@@ -1436,6 +1461,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-09 (s24) | VanC1 | staged on Minevale31's site with a wood kind, 2x, `--after 12 --fixtures`, **baseline** before F193 | 6/6 + lamps + signs + farm; cane and pumpkin farms, annex, 1 chicken penned, iron trips | 6.2 min | **busy after completion: Worker1 9.9, Worker2 0.0, Mayor 0.0 of 12.1 min** (the new AFTER busy line) |
 | 10-09 (s24) | VanC2 | as VanC1, `--after 15 --stock wheat:12,bucket:3,sugar_cane:2`, F193 + pens v2 first version | 6/6; annex and farm starts by two workers at once, the Mayor on an iron trip; chicken pen 1, cow pen 1 (wheat lure), 2 milk buckets | 6.3 min | busy Worker1 11.3, Worker2 0.7, Mayor 2.5 of 15.0; a stale chicken sighting failed and the shared back-off held both pens 10 min (the review's L1); one pen animal each, no breeding; a bucket kept by Worker2's failed bucket craft |
 | 10-09 (s24) | **VanC3** | as VanC2, `--after 20`, the review's fixes, a second lure into a pen of one, buckets held counted | **6/6; chicken pen 2 + a chick bred; cow pen 1, milked 3 x 3; 5 eggs; 2 cakes** (Mayor and Worker1) | **6.3 min** | **busy Worker1 7.4, Worker2 6.0, Mayor 2.6 of 20.0**; 0 `[stuck]`/`[lag]`/`[rescue]`; the cow pen stayed at 1 (F205); the Mayor's deposit from the mine before completion failed once (F206) |
+| 10-09 (s24) | **Minevale35** | model-driven, 1x, minevale3, `MCAI_AFTER=30`, F193 + pens v2 (gpt-oss mayor, qwen3:30b executors) | **6/6 + lamps + signs + farm; after: annex at +0.8 (Worker2), pumpkin farm (Worker1), a chicken penned at +2.6, the Mayor's iron trips (iron pickaxe +16.0, bucket +21.9), all 8 ring points scouted by +24.7 by two workers, 4 eggs collected** | **11.0 min** (Minevale34 10.6), site -1628,47 | 0 failed actions to completion; all three agents on chores at once; no breeding (one chicken: the others stood 6-8 above the annex, F205), no cow pen or cake (no wheat harvested in 30 min); 10 `[stuck]`, all scouting: Worker2 ~6 min at -1471,62,36 on ring point 2, then teleported home (F209) |
 
 ## Findings log
 
@@ -2406,8 +2432,10 @@ CLAUDE.md when a phase ends.
   lured into again; its gate stays shut until the bot is at it with the new animals (the penned ones would walk out),
   and the count is judged against the pen's starting number. One back-off for both kinds held the chicken and cow pens
   10 minutes after one failure: now by kind (`annex.penBy`, penBad entries `kind:x,z,t`).
-- F205 (10-09, VanC3) The cow pen held one cow for 12 minutes: no second cow trip (two fixture cows, one led). Not looked
-  into yet: the sighting filter (height within 4 of the annex, 8 from a bad spot) or a back-off. Open.
+- F205 (10-09, VanC3, Minevale35) A pen of one gets no second trip when the other animals stand higher: in Minevale35 the
+  chickens seen within 96 were at y 72-74 and the cow at 71, the annex's level 66; penChores takes sightings within 4 of
+  it (F194's rule, from chickens on a hill not coming down). Likely VanC3's cow too. Open: allow sightings higher when a
+  path down exists, or lure from below them (the tempt range is 10 in 3D).
 - F206 (10-09, VanC3) Before completion the Mayor's deposit failed once "could not reach the storage hut ... stopped at
   -1622,59,40" (inside the mine area, y 59). Not this session's change; once in VanC1-3. Open, watch.
 - F207 (10-09, s24, the diff review) Buckets are tools to `deposit all` and eggs junk, so a chore stopped after a withdraw
@@ -2419,6 +2447,8 @@ CLAUDE.md when a phase ends.
   be queued on a slot whose start_pen still waits in the queue (the second fails "busy", no try counted). Fixed with it:
   no iron trip while milking or the cake hold the buckets; a failed count no longer reads as an empty pen; an agent
   whose chore ended is given no new one for 10 s.
+- F209 (10-09, Minevale35) A scout stalled ~6 min at -1471,62,36 on ring point 2 (-1469,46; sea level), 6 `[stuck]` lines,
+  then F189's teleport home. F189's leftover: ring points on dry land, or a shorter give-up on the way out.
 
 ## Decisions log
 

@@ -280,6 +280,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   `watch_village.py` takes `MCAI_AFTER=MINUTES`. Iron trips dig on the wall clock: an iron age takes ~20 min after
   completion even at 2x. Offline: `runs/2026-10-08/s22/iron_start_check.mts [villages.json]` (where the iron stairs would
   start in every recorded mine), `ores_along.py X1 Y1 Z1 X2 Y2 Z2` (ores in the snapshot).
+  Since pens v2 (2026-10-09): `--fixtures` also summons 2 cows by the 4 chickens, `--stock wheat:12,bucket:3,sugar_cane:2`
+  deposits each item by name (the cow pen, milk and a cake without a harvest or the iron age), the PEN lines show eggs,
+  young and milk, and `AFTER busy:` gives each agent's busy minutes after completion. Live animal facts:
+  `runs/2026-10-09/scripts/pens_v2_facts.py X Z [feed|cmdbreed|eggs|cowlure|cowfeed|milk]` (Gus in no village, a pad);
+  `use_on` (not in TOOLS) clicks an item on the nearest entity of a kind for such tests.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
 - While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
@@ -460,6 +465,15 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     later): `prepare_annex` and `start_pen` chores, fence gates as walls to walks, lure tests 1-3 with Gus. `5d156ca` F198
     ("any planks" from one kind) and F199. Minevale34 (1x) 6/6 in 10.6 min, 2 wild chickens penned with real models;
     staged VanA3/A5/A6 penned chickens led 25-80 blocks. Lessons 104-108.
+39. 2026-10-09 (twenty-fourth session; not pushed at the close, ask first; `main` untouched; the user asked Claude to decide
+    everything after the first question, the Mayor's chores, recorded in PLAN.md's decisions): `119df92` F193 per-agent
+    chores (a key each; workers, then the Mayor once complete; staged busy minutes after completion 9.9/0.0/0.0 of 12.1 ->
+    7.4/6.0/2.6 of 20) and pens v2 (live facts first: activateEntity feeds babies too, cows jam in a 1-wide gate; eggs,
+    breeding and milking by command from beyond the gate, cows lured with wheat, a pen of one lured into again, a cake
+    with the buckets given back, bread only beyond 16 wheat, three buckets once cows are penned). Staged VanC3: a chick
+    bred, 5 eggs, 3 x 3 milk, 2 cakes. Minevale35 (1x) 6/6 in 11.0 min, 0 failed actions, then all three agents on chores
+    at once (iron pickaxe and bucket, annex, a chicken pen, 4 eggs, all 8 scouts by +24.7); no cow pen or breeding with
+    real models yet (no wheat harvested in 30 min; other chickens 6-8 above the annex, F205). Lessons 109-112.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -616,12 +630,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-third session (2026-10-09): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-fourth session (2026-10-09): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; VanA6's street village (6 of 6, lamps, signs, a wheat field, cane and pumpkin farms, an annex at -1659..-1651, 40..52 with a penned chicken) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale35's street village (6 of 6, lamps, signs, a wheat field, a pumpkin farm, an annex at -1659..-1651, 40..52 with a penned chicken) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -1002,6 +1016,21 @@ Lessons from the adapter:
    do not: an offline replay of the planner over a grid of inventories (31 failing ones) found the case and checked the fix.
 108. **A test agent in a complete village is one of its workers** (F196): Gus, spawned as a member of Minevale33 for a lure
    test, was given its chores and went scouting mid-test. Single-agent tests spawn in no village (or an incomplete one).
+109. **Ask what a command can do before making the bot do it** (F202, 2026-10-09): feeding by `activateEntity` worked live,
+   but Mineflayer's entities carry no Age, so the bot fed a chick the seed meant for an adult; `execute as @e[...,nbt=
+   {Age:0},limit=2] run data merge entity @s {InLove:600}` breeds exactly the two ready adults. Breeding, milking and eggs
+   run by command from the cell beyond the gate, charged to the inventory, as crafting and building already do.
+110. **A new kind of animal is a new geometry: test each live** (F203): chickens (0.4 wide) walk through a 1-wide open gate
+   behind the bot; two cows (0.9) jammed in the gate cell and never came in. The lure ends by teleporting animals stuck at
+   the gate into the pen.
+111. **Measure idle time before adding work, and lock what waits in the queue** (F193): one AFTER line of busy minutes per
+   agent showed Worker2 and the Mayor at 0 of 12 minutes. The skills' own locks are taken only when an action runs, so
+   per-agent chores carry a key each that covers the time a chore waits in the queue; a stopped agent's statuses fail at
+   once while its skill's finally still runs, so an ended chore's key and agent are held 10 s.
+112. **What `deposit all` skips leaks out of the village** (F207): buckets are tools and eggs junk, so a chore stopped after
+   a withdraw left them with a worker; storage, by which the milking and the cake are judged, never saw them again, and
+   the iron age set out to make a bucket while three were stocked. Chores deposit such items by name at their start and
+   end, and checks count what the village holds, not only what code recorded making.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

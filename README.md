@@ -508,14 +508,18 @@ on the board, so completion, the mayor's wake-ups and the watch scripts' stop ru
 not counted as the run's. `harvest_farm` is queued by code only (it is not a model tool, so not in `/api/skills`). The
 worker stands by the storage hut, takes each ripe cell's loot from the server (`loot give ... mine`: vanilla's loot
 table, wheat and 1-4 seeds, without walking on the field), sows the cell again charged a seed (or clears it, never
-leaving it ripe), bakes the wheat into bread at the hut's table and deposits the bread, the wheat left over and the
-seeds. A failed harvest waits 10 minutes before the next try.
+leaving it ripe), bakes wheat into bread at the hut's table (only wheat beyond 16 kept in storage for the pens and the
+cake) and deposits the bread, the wheat left over and the seeds. A failed harvest waits 10 minutes before the next try.
 
 **Farm slots and exploring.** Where a layout gets the wheat field it also keeps up to two free 5x7 farm slots near it
 (placed after the lamps, so no lamp is lost), with no kind given yet. The bots record what they see as they work: the
 atlas keeps the farmable plants of each chunk (sugar cane, pumpkins, melons, carrots, potatoes, beetroots and a few
-more) and the animals near the bots. Once the village is complete, code gives an idle worker chores, one at a time a
-village: a free slot is started with the first kind not farmed yet (sugar cane, pumpkin, melon, then the crops) that
+more) and the animals near the bots. Once the village is complete, code gives idle members chores: each agent holds at
+most one, and each chore holds a key for what it works on (a slot, the field, a farm start, the annex, the lure, a
+pen's work, the cake, the iron age, exploring), so no two agents take the same work but several work at once. Workers
+come first; the Mayor takes chores too once the village is complete (its executor then takes no model turn unless
+something urgent comes). Chores that would get in each other's way never run together: no harvest or farm start beside
+a lure (their seeds tempt the animals), no exploring beside it. A free slot is started with the first kind not farmed yet (sugar cane, pumpkin, melon, then the crops) that
 was seen within 160 blocks of home on ground `collect` may take from (`start_farm`: the worker walks to the sighting,
 collects the first plants there, makes pumpkin or melon seeds by hand, walks home and lays the slot as the wheat field
 is laid, then plants it, charged one item a cell); a ripe slot is harvested (`harvest_slot`: crops looted and resown,
@@ -526,19 +530,34 @@ blocks short, or a farm start that failed far out, is teleported home (a worker 
 Sugar cane is counted in the atlas by the blocks above each stalk's base (what a cut takes; a 1-high stalk is not
 recorded), a cane start needs at least 2, and a sighting that gave too little is passed over by its column.
 
-**The annex and chicken pens.** Once the village is complete and the farm slots' starts are done, an idle worker prepares
+**The annex and the pens.** Once the village is complete and the farm slots' starts are done, an idle worker prepares
 an annex as a chore (`prepare_annex`): a 13x9 rectangle beside the plot, 3 blocks out from its edge, levelled to the
 plot's height. Code chooses it from the four sides, sliding along each edge: every village's buildings, plots and
 reservations and the mine are kept clear, the ground must be dry and within a few blocks of the plot's level, and the
 lowest score wins (earthwork, trees to fell, and the walk from the storage hut). The annex holds two 5x7 slots for pens,
-each with its end facing the village; no plant farm is ever started on them. Then, if a chicken was seen within 96
-blocks of the storage in the last half hour, a worker starts a pen on a free annex slot (`start_pen`): at the storage
-hut it puts up the ring of fences with the gate open (charged, made from storage), takes wheat seeds into its off-hand
-by command, walks to the sighting and leads up to 4 chickens home in 4-block hops, waiting after each until they are
-close. At the gate it is teleported inside, then to the pen's back row; once the chickens have followed it in, the gate
-is closed by command and the worker teleported out, and the chickens inside are counted on the server. Walks treat an
-open fence gate as passable and a closed one as a wall they never open (the pathfinder used to leave gates open). One
-pen a village in v1, before the iron age; eggs and breeding are later (v2).
+each with its end facing the village; no plant farm is ever started on them. Then, if a chicken (or, for the second
+slot, a cow) was seen within 96 blocks of the storage in the last half hour, an agent starts a pen of that kind on a
+free annex slot (`start_pen kind=chicken|cow`): at the storage hut it puts up the ring of fences with the gate open
+(charged, made from storage), takes the lure into its off-hand by command (wheat seeds for chickens, from storage or the
+grass; wheat for cows, from storage only, so no cow trip before the field's first harvest), walks to the sighting and
+leads up to 4 animals home in 4-block hops, waiting after each until they are close. At the gate it is teleported
+inside, then to the pen's back row; animals left in or just outside the gate are teleported in (cows jam in a 1-wide
+gate; chickens walk through), the gate is closed by command, the agent teleported out, and the animals inside are
+counted on the server. A pen holding fewer than 2 is lured into again (one animal never breeds); its gate stays shut
+until the agent is at it with the new ones. Failed starts back off by kind. Walks treat an open fence gate as passable
+and a closed one as a wall they never open (the pathfinder used to leave gates open).
+
+**Eggs, breeding, milk and a cake.** A pen's own work is done from the cell beyond its gate, by command, and charged to
+the agent's inventory: no agent goes into a closed pen (Mineflayer cannot tell a calf from a cow, and feeding by hand fed
+the new chick). `collect_eggs` runs when a bot sees an item in a chicken pen (eggs despawn after 5 minutes): the eggs are
+teleported to the agent, counted on the server and deposited by name. `breed_pen` puts two ready adults (Age 0) in love
+while the pen is under its cap (6 chickens, 4 cows) and storage holds their food, charging one each, at most every 5
+minutes. `milk_cows` turns each empty bucket storage holds into a milk bucket, up to 3. `bake_cake` makes a cake at the
+storage hut's table once storage holds 3 milk buckets, an egg, 3 wheat and 2 sugar (or cane), and keeps at most 2 cakes
+there. Crafts now give back what a real craft leaves in the grid (a cake's three milk buckets leave three buckets; a
+honey bottle its glass bottle). Buckets, milk and eggs go into storage by name, since `deposit all` keeps buckets as
+tools and eggs as junk. The pens' chores come after the farm slots' starts and before the iron age, which makes three
+buckets instead of one once a cow pen holds cows (counting the buckets and milk storage already holds).
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -685,11 +704,14 @@ What building these agents taught, and what the code is built around:
   canopy; LOGS, the wood's log count near the site, gives the village a wood kind as in model-driven runs).
   `--harvest` sets the farm ripe by command after the build and checks the harvest chore: bread in storage, the field
   sown again. `--after MINUTES` (with `--mayor`) keeps watching the chores after completion and reports the farm slots,
-  the sightings, the iron record, the annex and pens (`ANNEX` and `PEN` lines, the chickens inside counted on the
-  server) and the exploring; `--fixtures` puts sugar cane, pumpkins and a melon down 35-45 blocks off the site by
-  command first (farm plants are rare near the test sites) and summons 4 chickens on level ground to lure, `--ripen` sets each newly planted slot ripe
-  once, and `--stock ITEM:N,...` puts items into storage at completion (`raw_iron:3` tests the iron tools without
-  digging). `watch_village.py` takes `MCAI_AFTER=MINUTES` for the same after a model-driven run.
+  the sightings, the iron record, the annex and pens (`ANNEX` and `PEN` lines: the animals inside counted on the
+  server by kind, eggs taken, young born, milk, and the items lying in a chicken pen), the exploring, and an `AFTER
+  busy` line with each agent's busy minutes after completion; `--fixtures` puts sugar cane, pumpkins and a melon down
+  35-45 blocks off the site by command first (farm plants are rare near the test sites) and summons 4 chickens and 2
+  cows on level ground to lure, `--ripen` sets each newly planted slot ripe once, and `--stock ITEM:N,...` puts items
+  into storage at completion, each deposited by name (`raw_iron:3` tests the iron tools without digging;
+  `wheat:12,bucket:3,sugar_cane:2` the cow pen, milk and the cake). `watch_village.py` takes `MCAI_AFTER=MINUTES` for
+  the same after a model-driven run.
 - **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
   (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
   villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
@@ -736,9 +758,10 @@ Agents are spawned and driven through the same REST API as in the sandbox (on po
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
 find_site, prepare_site, build_design, build_box, build, light_streets, put_up_signs and tend_farm (`GET /api/skills`), with the sandbox's names, arguments and
-failure messages. `harvest_farm`, `start_farm`, `harvest_slot`, `prepare_annex`, `start_pen`, `dig_iron` and `make_iron_tool` also
-exist but are no model tools: code queues them as chores (the harvest, the farm slots, the annex and pens and the iron
-age, above). Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
+failure messages. `harvest_farm`, `start_farm`, `harvest_slot`, `prepare_annex`, `start_pen`, `collect_eggs`, `breed_pen`, `milk_cows`,
+`bake_cake`, `dig_iron` and `make_iron_tool` also exist but are no model tools: code queues them as chores (the
+harvest, the farm slots, the annex and pens, the cake and the iron age, above); `use_on` (an item used on the nearest
+animal of a kind) is for live tests. Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
@@ -870,8 +893,8 @@ in the atlas (see the control panel). In the staged and model-driven runs of 202
 mine, and the first tunnel of one village met a hillside after 28 cells and turned.
 
 **The iron age.** The cobblestone mine's levels (about y 56-64) meet almost no iron, which is commonest at y 12-27. Once
-the village is complete, code sends an idle worker on iron trips as chores (after the farm slots' starts and the annex
-and its pen, before exploring): `dig_iron` deposits what the worker carries at the storage hut, takes the best pickaxe
+the village is complete, code sends an idle member on iron trips as chores (after the farm slots' starts, the annex and the pens' chores,
+before exploring; never while milking or the cake holds the buckets): `dig_iron` deposits what the worker carries at the storage hut, takes the best pickaxe
 stored there (stone ones are made until the pickaxes carried have about 250 uses left, a trip's digging) and digs for up to 4 minutes. A trip first digs the iron level's own stairs,
 from a dug cell of the deepest level, sideways off the tunnels still in use, one block down a step to y 18. Stairs that
 meet a cave or water above y 28 are given up (kept and protected as they are) and new ones start elsewhere, at least 8
@@ -880,7 +903,8 @@ it digs tunnels in the cobblestone mine's pattern (up to 6 tunnels and 320 cells
 their walls, ceilings and floors (a floor ore's hole is filled with a cobblestone, charged) and following each vein.
 A worker left below the mine after a trip, or stuck in the iron level, is teleported home rather than walked: a walk up
 from y 11 once dug a shaft under the storage hut. Once storage holds 3 raw iron, `make_iron_tool` makes an iron pickaxe
-(raw iron smelted at the hut's furnace, the pickaxe crafted at its table, stored by name), then a bucket. Stored coal
+(raw iron smelted at the hut's furnace, the pickaxe crafted at its table, stored by name), then a bucket (three once a
+cow pen holds cows: a cake takes three milk buckets). Stored coal
 now serves as fuel for every smelt from storage.
 
 **Materials still to gather.** Code keeps a list of what the village still needs gathered (`refreshNeeds` in
@@ -943,8 +967,9 @@ down stood inside the future hut and raised its floor).
 6. When every building stands (and the street lamps and name signs are up and the farm is planted), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
    village running. The harvest is a chore and never holds completion.
-7. After completion the workers carry on with chores code gives them: harvests, farm slots started from what the
-   atlas has seen, the annex and a chicken pen, iron trips and the iron tools, and exploring (above).
+7. After completion the workers and the Mayor carry on with chores code gives them, one each: harvests, farm slots
+   started from what the atlas has seen, the annex with a chicken and a cow pen, eggs, breeding, milk and cakes, iron
+   trips and the iron tools, and exploring (above).
 
 Acceptance runs (2026-09-28/29, "two matching cottages and a meeting hall" from nothing, a mayor and two workers, no
 manual help): with gpt-oss as the workers' planner, five runs built everything in 10.2-29.2 minutes, three of them in
@@ -971,7 +996,11 @@ the lamps after the claims (2026-10-08, staged at 2x): VanO4 complete in 6.1 min
 no failed actions; model-driven, Minevale32 (1x) in 11.2 minutes (Minevale31 16.5), no failed actions. After
 completion (staged at 2x, with sightings put down by command): VanX4 started and harvested a sugar cane and a pumpkin
 farm, and VanI7 dug the iron stairs to y 18 on their fifth try (caves stopped the first four), took 6 raw iron from
-144 cells and made an iron pickaxe (from stocked iron) and a bucket, with no failed actions.
+144 cells and made an iron pickaxe (from stocked iron) and a bucket, with no failed actions. With chores per agent and
+pens v2 (2026-10-09, staged at 2x, 20 minutes after completion): VanC3 bred a chick in its chicken pen, took 5 eggs,
+milked its cow pen three times and baked 2 cakes, and the agents were busy 7.4, 6.0 and 2.6 minutes of the 20 (the
+Mayor last) where one chore a village had kept one worker busy (VanC1: 9.9, 0 and 0 of 12.1); the cow pen held only
+one cow (two were summoned).
 
 ### Models
 
@@ -1020,7 +1049,7 @@ their lowest and highest y, and which village's mine has dug in the chunk; the p
 3 coal (y 41 to 52)"). On the surface it records the farmable plants of each chunk (the first plant of each column),
 also shown under the pointer, and the animals near the bots (seen every 5 seconds, dropped after 10 seconds missing near a
 bot). `find_site` uses the atlas to choose where to look when the land around an agent has no good site
-(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings and a chicken pen from its
+(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings and chicken and cow pens from its
 animal sightings; finding other materials from it
 is a later step.
 
