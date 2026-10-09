@@ -451,6 +451,15 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     village's iron; VanI7 6 raw iron from 144 cells, both tools made), F178, F179, F165/F169 (the spare wood kind passed to
     the craft and smelt skills; VanW7/VanW8: signs and lamps in one pass) and F184-F186. The village beautifying plan is
     in PLAN.md's backlog (the user's request). Lessons 98-103.
+38. 2026-10-09 (twenty-third session; pushed at the close, the user's instruction; `main` untouched): Minevale33 (1x,
+    model-driven, `MCAI_AFTER=30`) 6/6 in **10.6 min**, 0 failed actions to completion; its after phase ran a pumpkin farm,
+    the iron age (iron pickaxe and bucket at +22.9) and a scout, then the agent server crashed (F188). `91d1399` fixes
+    F188-F192 (walk bans skip the pathfinder's unloaded-chunk stub; scouts and failed farm starts teleport home; pickaxes by
+    uses; planks before stations; cane counted by takeable blocks). `ecb7cf7` the annex and chicken pens v1 (the user's
+    choices: pens on a 13x9 annex prepared beside the plot after completion; one lure trip of up to 4; eggs and breeding
+    later): `prepare_annex` and `start_pen` chores, fence gates as walls to walks, lure tests 1-3 with Gus. `5d156ca` F198
+    ("any planks" from one kind) and F199. Minevale34 (1x) 6/6 in 10.6 min, 2 wild chickens penned with real models;
+    staged VanA3/A5/A6 penned chickens led 25-80 blocks. Lessons 104-108.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -607,12 +616,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-second session (2026-10-08): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-third session (2026-10-09): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; VanW8's street village (6 of 6, lamps, signs, a harvested wheat field) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
+them, or test on the test world (`mc/testserver`, restored per site; VanA6's street village (6 of 6, lamps, signs, a wheat field, cane and pumpkin farms, an annex at -1659..-1651, 40..52 with a penned chicken) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -975,6 +984,24 @@ Lessons from the adapter:
 103. **A record made by the first step must exist before the first step** (F184): the iron pickaxe was made from stored
    iron before any trip had created `mine.iron`, so "made" was written nowhere and a second pickaxe was made. Keep
    state a chore reads on the record that always exists (the mine), not on one a later stage creates.
+104. **A callback handed to a library runs inside its tick, and an exception there takes the whole server down** (F188,
+   2026-10-09): the pathfinder passes a stub with no `position` for a block in an unloaded chunk, and the farm-field walk
+   ban read it; every agent and the API went with it. Code given to a library must accept everything the library can pass
+   it (stubs, nulls), not only what our own calls produce.
+105. **Lead animals by the server's rule, never through a gate on foot** (the pens, 2026-10-09): TemptGoal looks 10 blocks
+   in 3D from the player's feet at either hand, so chickens 10 above the bot on a hill never came (F194), and one trailing
+   on the far side was 11 from the pen's back row once the bot was there (VanA4b). The pathfinder took a fence gate for a
+   full block and clicked closed ones open, never shutting them (F197). What worked: seeds in the off-hand by command, hops
+   with waits, and teleporting the bot into the pen (2 cells in, then the back row) so the chickens follow through the open
+   gate; the live tests (`runs/2026-10-08/s23/lure_facts.md`) settled each step before code.
+106. **A chore must not wait on what another chore uses up** (F195): the pen waited for seeds in storage, and the wheat
+   field took every seed before its first harvest. When a skill needs only a little of something common, let it get it
+   itself (start_pen gathers 3 seeds from the grass).
+107. **A pool that merges kinds must match how the consumer spends it** (F198): the planner counted 1 oak + 1 birch plank as
+   the 2 "any planks" a hoe needs, but every craft takes one kind. Real runs leave odd mixed inventories that staged runs
+   do not: an offline replay of the planner over a grid of inventories (31 failing ones) found the case and checked the fix.
+108. **A test agent in a complete village is one of its workers** (F196): Gus, spawned as a member of Minevale33 for a lure
+   test, was given its chores and went scouting mid-test. Single-agent tests spawn in no village (or an incomplete one).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

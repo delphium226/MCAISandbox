@@ -521,7 +521,24 @@ collects the first plants there, makes pumpkin or melon seeds by hand, walks hom
 is laid, then plants it, charged one item a cell); a ripe slot is harvested (`harvest_slot`: crops looted and resown,
 cane cut from the top down, pumpkins and melons taken); and while a slot is still free and nothing else is to do, a
 worker explores, scouting 8 points on a 160-block ring round the village once each so the atlas learns more land.
-None of these is a model tool or a board task, so none holds completion.
+None of these is a model tool or a board task, so none holds completion. A scout whose walk home ends more than 12
+blocks short, or a farm start that failed far out, is teleported home (a worker once floated in a lake for 4 minutes).
+Sugar cane is counted in the atlas by the blocks above each stalk's base (what a cut takes; a 1-high stalk is not
+recorded), a cane start needs at least 2, and a sighting that gave too little is passed over by its column.
+
+**The annex and chicken pens.** Once the village is complete and the farm slots' starts are done, an idle worker prepares
+an annex as a chore (`prepare_annex`): a 13x9 rectangle beside the plot, 3 blocks out from its edge, levelled to the
+plot's height. Code chooses it from the four sides, sliding along each edge: every village's buildings, plots and
+reservations and the mine are kept clear, the ground must be dry and within a few blocks of the plot's level, and the
+lowest score wins (earthwork, trees to fell, and the walk from the storage hut). The annex holds two 5x7 slots for pens,
+each with its end facing the village; no plant farm is ever started on them. Then, if a chicken was seen within 96
+blocks of the storage in the last half hour, a worker starts a pen on a free annex slot (`start_pen`): at the storage
+hut it puts up the ring of fences with the gate open (charged, made from storage), takes wheat seeds into its off-hand
+by command, walks to the sighting and leads up to 4 chickens home in 4-block hops, waiting after each until they are
+close. At the gate it is teleported inside, then to the pen's back row; once the chickens have followed it in, the gate
+is closed by command and the worker teleported out, and the chickens inside are counted on the server. Walks treat an
+open fence gate as passable and a closed one as a wall they never open (the pathfinder used to leave gates open). One
+pen a village in v1, before the iron age; eggs and breeding are later (v2).
 
 ```sh
 curl -X POST localhost:8765/api/village -d '{"name":"Birchwood","objective":"two matching cottages and a meeting hall"}'
@@ -612,7 +629,9 @@ What building these agents taught, and what the code is built around:
   the farm's: 5x7 inside the pad, off streets, the green, walkways and the mine's ground, 2 from every building, its
   channel down the middle, every farmland cell within 4 of the water, 16 sow cells, no lamp or sign on it (the map shows
   `~` water, `w` sown and `%` bare farmland; a farm is expected in every biome, though plan_layout places none in snowy
-  and desert villages).
+  and desert villages). It also checks the annex and the chicken pen for every biome and size: the annex's candidates
+  beside the plot, its two slots, and each pen's ring, gate (in the middle of the end facing the plot) and the cells
+  outside it.
 - Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
   and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
   against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
@@ -666,8 +685,9 @@ What building these agents taught, and what the code is built around:
   canopy; LOGS, the wood's log count near the site, gives the village a wood kind as in model-driven runs).
   `--harvest` sets the farm ripe by command after the build and checks the harvest chore: bread in storage, the field
   sown again. `--after MINUTES` (with `--mayor`) keeps watching the chores after completion and reports the farm slots,
-  the sightings, the iron record and the exploring; `--fixtures` puts sugar cane, pumpkins and a melon down 35-45 blocks
-  off the site by command first (farm plants are rare near the test sites), `--ripen` sets each newly planted slot ripe
+  the sightings, the iron record, the annex and pens (`ANNEX` and `PEN` lines, the chickens inside counted on the
+  server) and the exploring; `--fixtures` puts sugar cane, pumpkins and a melon down 35-45 blocks off the site by
+  command first (farm plants are rare near the test sites) and summons 4 chickens on level ground to lure, `--ripen` sets each newly planted slot ripe
   once, and `--stock ITEM:N,...` puts items into storage at completion (`raw_iron:3` tests the iron tools without
   digging). `watch_village.py` takes `MCAI_AFTER=MINUTES` for the same after a model-driven run.
 - **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
@@ -716,8 +736,9 @@ Agents are spawned and driven through the same REST API as in the sandbox (on po
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
 place, craft, smelt, eat, attack, explore, scout, follow, give, equip, drop, get_item, deposit, withdraw, dig_mine,
 find_site, prepare_site, build_design, build_box, build, light_streets, put_up_signs and tend_farm (`GET /api/skills`), with the sandbox's names, arguments and
-failure messages. `harvest_farm`, `start_farm`, `harvest_slot`, `dig_iron` and `make_iron_tool` also exist but are no
-model tools: code queues them as chores (the harvest, the farm slots and the iron age, above). Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
+failure messages. `harvest_farm`, `start_farm`, `harvest_slot`, `prepare_annex`, `start_pen`, `dig_iron` and `make_iron_tool` also
+exist but are no model tools: code queues them as chores (the harvest, the farm slots, the annex and pens and the iron
+age, above). Spawn with `"reset": true` for a fresh start (a name keeps its inventory and position otherwise). A
 spawn without a height lands on the surface; over water it takes the nearest dry land within 16, then 64 blocks, else
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
@@ -849,9 +870,9 @@ in the atlas (see the control panel). In the staged and model-driven runs of 202
 mine, and the first tunnel of one village met a hillside after 28 cells and turned.
 
 **The iron age.** The cobblestone mine's levels (about y 56-64) meet almost no iron, which is commonest at y 12-27. Once
-the village is complete, code sends an idle worker on iron trips as chores (after the farm slots' starts, before
-exploring): `dig_iron` deposits what the worker carries at the storage hut, takes the best pickaxe stored there (two
-stone ones or better are made if needed) and digs for up to 4 minutes. A trip first digs the iron level's own stairs,
+the village is complete, code sends an idle worker on iron trips as chores (after the farm slots' starts and the annex
+and its pen, before exploring): `dig_iron` deposits what the worker carries at the storage hut, takes the best pickaxe
+stored there (stone ones are made until the pickaxes carried have about 250 uses left, a trip's digging) and digs for up to 4 minutes. A trip first digs the iron level's own stairs,
 from a dug cell of the deepest level, sideways off the tunnels still in use, one block down a step to y 18. Stairs that
 meet a cave or water above y 28 are given up (kept and protected as they are) and new ones start elsewhere, at least 8
 blocks from where earlier ones stopped, up to 5 tries; only the last try may settle for a level at y 40 or below. Then
@@ -917,12 +938,13 @@ down stood inside the future hut and raised its floor).
    behind them, and returns what it took to storage. If only glass is missing and there is no sand near the village,
    the windows are left open instead. Smelting keeps topping its fuel up from every stack of planks in hand, and
    charcoal, sticks and fuel come from the wood kind with logs to spare (not the logs or planks fetched for later
-   steps); coal in storage is fetched as fuel too.
+   steps), one the builder carries; planks and sticks are made before the crafting table and furnace, so the
+   table does not saw logs kept for a later step; coal in storage is fetched as fuel too.
 6. When every building stands (and the street lamps and name signs are up and the farm is planted), the mayor declares the objective complete (code checks it first), or code declares it:
    the check runs on every tick of the mayor's brain, so a mayor busy with something else does not leave a finished
    village running. The harvest is a chore and never holds completion.
 7. After completion the workers carry on with chores code gives them: harvests, farm slots started from what the
-   atlas has seen, iron trips and the iron tools, and exploring (above).
+   atlas has seen, the annex and a chicken pen, iron trips and the iron tools, and exploring (above).
 
 Acceptance runs (2026-09-28/29, "two matching cottages and a meeting hall" from nothing, a mayor and two workers, no
 manual help): with gpt-oss as the workers' planner, five runs built everything in 10.2-29.2 minutes, three of them in
@@ -998,7 +1020,8 @@ their lowest and highest y, and which village's mine has dug in the chunk; the p
 3 coal (y 41 to 52)"). On the surface it records the farmable plants of each chunk (the first plant of each column),
 also shown under the pointer, and the animals near the bots (seen every 5 seconds, dropped after 10 seconds missing near a
 bot). `find_site` uses the atlas to choose where to look when the land around an agent has no good site
-(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings; finding other materials from it
+(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings and a chicken pen from its
+animal sightings; finding other materials from it
 is a later step.
 
 ## Project layout
@@ -1024,7 +1047,7 @@ world: agents, skills including the building engine, REST API), `brains.ts` (bra
 `layout.ts` (plan_layout), `huts.ts` (the storage hut, drawn by code), `taskBrain.ts` (scripted village worker for tests, and the mayor's gathering), `designs.ts` (design format, checks, elevations and lint),
 `buildingGen.ts` (buildings drawn by code from a style), `vanillaData.ts` (reads vanilla's data from the server's jar),
 `vanillaPieces.ts` (Minecraft's village pieces as designs), `streetPlan.ts` (the green and the street plan),
-`farmSlots.ts` (the farm slots' kinds and where each plants)
+`farmSlots.ts` (the farm slots' kinds and where each plants, the annex's places and the pens' plan)
 and `schematic.ts` with `nbt.ts` (schematic import). The Mineflayer adapter for real Minecraft is in
 `server/src/mineflayer/` (including `mcRules.ts`, `mcMaterials.ts`, `mcStorage.ts` and `mcBuild.ts` for the village
 economy, `mcBlocks.ts` for its block lists, and `mcAtlas.ts` with `mcSiteAtlas.ts` for the shared atlas and sites from it), the local server's scripts in `mc/`; the control panel is

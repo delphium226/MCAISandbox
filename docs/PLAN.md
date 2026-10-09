@@ -20,6 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-09 at the close of the twenty-third session: Minevale33, its fixes F188-F192, the annex and chicken pens
+v1, F198/F199, Minevale34; the notes below for the twenty-second session stay valid where not overridden)
+
+- **Code:** on `tiered-brain-building`: `91d1399` fixes from Minevale33 (F188 the agent-server crash on unloaded blocks,
+  F189 scouts teleport home, F190 pickaxes by uses, F191 planks before stations, F192 cane sightings), `ecb7cf7` the annex
+  and chicken pens v1, `5d156ca` F198/F199 and the pen review's small fixes, and the close-out (this record, CLAUDE.md
+  lessons 104-108, README, ARCHITECTURE). Pushed at the close (the user's instruction this session). `main` untouched.
+- **Stack:** stopped cleanly at the close. No agents in either world.
+- **Where things stand:** Minevale33 and Minevale34 (1x, model-driven, minevale3's usual site) both complete in **10.6 min**,
+  0 failed actions to completion. After completion: plant starts on the plot's slots, then an **annex** (13x9 beside the
+  plot, chosen in code) and a **chicken pen** on it (ring charged at the storage hut, seeds in the off-hand by command,
+  up to 4 chickens led in 4-block hops, the bot teleported 2 cells in and then to the back row, the gate closed by
+  command), then the iron age. Minevale34 penned 2 wild chickens with real models at +5.8; staged VanA3/A5/A6 penned 1
+  each, led 25-80 blocks. Eggs and breeding are v2 (the user's choice). Live facts: `runs/2026-10-08/s23/lure_facts.md`.
+- **Next (proposed at the close; the user chooses):** 1. **Pens v2**: eggs collected into storage (three egg kinds, junk
+  today: the pen design review's M5 says how to count them), breeding with `activateEntity` (test it live first), a second pen kind
+  (sheep or cows need wheat kept back from the bread). 2. **F193, per-agent chores**: Worker2 and the Mayor idle ~20-29
+  min after completion while one worker runs every chore. 3. **The beautifying plan** (B.1 flower beds first). 4. Small:
+  F201 (the fences' first-pass craft), F200, F192's cane drop pickup, F189's dry ring points, F187, F170-F173.
+  The prompt: `runs/2026-10-08/s23/NEXT_PROMPT.md`.
+- **How to test now:** `stage_village.py ... --mayor --after 8 --fixtures` (fixture chickens on level ground; ANNEX and PEN
+  lines with a server count of each pen); `SIZE=40 node_modules/.bin/tsx scripts/checks/street_plan.mts` (annex and pen
+  geometry). Staged green plains ~6 min to completion at 2x, the annex and pen ~3 min more. `[pen]` lines log each hop.
+- **Test world state:** minevale3 holds VanA6's village on Minevale31's site (-1648..-1609, 27..66) with its annex at
+  -1659..-1651, 40..52 and a penned chicken: reset before using it.
+
 (written 2026-10-08 at the close of the twenty-second session: Minevale32, opportunistic farming and exploring v1, the iron
 age v1, F165/F169, F178, F179; the user asked for no questions this session, so every choice was the recommended one,
 recorded in the decisions; the notes below for the twenty-first session stay valid where not overridden)
@@ -944,7 +970,8 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - **Gardens and fences**: a fenced front garden with flowers the agents pick.
 - **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
 - **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
-- **Animal pens** (next after Minevale33, set 10-08 at the twenty-second session's close; chickens first): sheep, cows,
+- **Animal pens**: v1 done 10-09 (`ecb7cf7`, chickens on the annex; see the decisions and `runs/2026-10-08/s23/`); v2
+  (eggs, breeding, sheep and cows) next. What was known before v1: sheep, cows,
   chickens fenced near the farm (eggs, food; wool for beds once shears exist). **Known already, don't re-derive**
   (`runs/2026-10-08/s22/research/sightings.md`, `farmslots.md`, `plants_scan.md`):
   - Tempt items, from the 26.1.2 jar's item tags: `chicken_food` = wheat/melon/pumpkin/beetroot/torchflower seeds and
@@ -1392,6 +1419,16 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-08 (s22) | **VanW7** | staged on Minevale31's site with a wood kind (`--site-at=...,birch,999`), 2x, `--harvest --after 12 --stock raw_iron:6`, F165/F169 + the made-tools fix | **6/6 + lamps + signs + farm; HARVEST PASS; iron pickaxe then bucket** | **6.5 min** (VanW5 7.2) | signs and lamps made in one pass (F165/F169 fixed); the bucket 0.5 min after the pickaxe (F184 fixed); a 1-high wild cane stalk gave no cane (soft, marked bad); all counts 0 |
 | 10-08 (s22) | VanW8 | as VanW7 without `--after`, + the final review's fixes (the craft hint only when a kind looked spare) | 6/6 + lamps + signs + farm; HARVEST PASS | 7.2 min | the fences came a plank short ("could not craft 6 birch_fence ... have 3"), lit on the second pass: the hint gate reverted; 4 `[stuck]` east of the plot (F187) |
 | 10-08 (s22) | **VanW9** | as VanW8 with the craft hint always passed | **6/6 + lamps + signs + farm; HARVEST PASS** | **7.5 min** | lamps, signs and the hoe each made in one pass (no "could not craft"); 0 failed, all counts 0 |
+| 10-08 (s23) | **Minevale33** | model-driven, 1x, minevale3, `MCAI_AFTER=30` (gpt-oss mayor and architect, qwen3:30b executors) | **6/6 + lamps + signs + farm; pumpkin farm from a wild sighting 140 out; iron pickaxe and bucket at +22.9; crashed at +29** | **10.6 min** (Minevale32 11.2), site -1628,47 | 0 failed actions to completion; after: 2 cane starts failed (F192), 5 iron trips, 8 raw iron from 145 cells, 2 "no pickaxe left" (F190), the scout floated 4 min in a lake (F189), then the agent server crashed (F188); Worker2 and the Mayor idle 29 min (F193). `runs/2026-10-08/s23/analysis_Minevale33.md` |
+| 10-09 (s23) | lure1-3 | Gus on the test world (lure tests 1-3: `runs/2026-10-08/s23/lure*.log`, `lure_facts.md`) | chickens follow seeds at 1.9-2.5; 4 led through 4-block hops; teleported to the back row, all 4 inside in ~3 s; gate closed by command holds them | - | test 1 confounded (Gus a member of the complete village got its chores) |
+| 10-09 (s23) | VanP2 | staged green plains 2x, `--after 25 --fixtures`, F188-F192 | 6/6 complete; pickaxes topped up per trip; iron pickaxe and bucket | 6.5 min | the fixture cane start brought 1 of 3 (drops lost, F192's leftover); 0 `[stuck]`/`[lag]`, no crash |
+| 10-09 (s23) | VanA1 | staged, `--after 15 --fixtures`, annex + pens first version | annex west of the plot ready at +1.4; the pen ring up; 1 chicken led, none in | 6.4 min | the fixture chickens on a hill 10 above the annex (F194); stopped |
+| 10-09 (s23) | VanA2 | as VanA1, chickens within 4 in height, the fixture on level ground | annex ready at +1.3; no pen started | 6.1 min | storage held no seeds after the field took them (F195); iron trips instead |
+| 10-09 (s23) | **VanA3** | as VanA2, start_pen gathers its own seeds | **annex at +1.6; a wild chicken led 50 blocks in 12 hops (2.2-4.0 behind) and penned at +2.6; it stayed** | **6.8 min** | 0 failed actions, 0 `[stuck]`/`[lag]`/`[rescue]` |
+| 10-09 (s23) | VanA4 / VanA4b | as VanA3 + the diff review's fixes (VanA4 stopped by a machine shutdown; VanA4b after it) | annex at +1.7; a chicken led 65 blocks across the village in 16 hops, 3.7 behind at the gate, none in | 6.2 min | from the far side the chicken was 11 from the back row after the teleport, out of tempt range: entry in two steps (VanA5) |
+| 10-09 (s23) | **VanA5** | as VanA4b + the two-step entry (wait at the gate until within 3; teleported 2 inside, then the back row) | **annex at +1.5; a chicken led ~80 blocks in 21 hops and penned at +3.2; birch fences made at once** | **5.9 min** | 0 failed actions, 0 `[stuck]`/`[lag]`/`[rescue]` |
+| 10-09 (s23) | **Minevale34** | model-driven, 1x, minevale3, `MCAI_AFTER=20`, F188-F192 + the annex and pens | **6/6 + lamps + signs + farm; annex at +4.0; 2 wild chickens led 25 blocks and penned at +5.8; pumpkin farm at +15.3** | **10.6 min**, site -1628,47 | 0 failed actions to completion; storage hut with no "could not craft" (F191 held); 2 pumpkin starts failed on the hoe (F198); 2 iron trips (stairs to y 18, 27 cells, no iron yet); no crash in 30 min, 0 `[stuck]`/`[lag]`/`[rescue]` |
+| 10-09 (s23) | **VanA6** | staged on Minevale31's site with a wood kind (`--site-at=-1628,65,47,40,birch,999`), 2x, `--after 8 --fixtures`, F198/F199 | **6/6 + lamps + signs + farm; cane and pumpkin farms, annex at +2.1, a chicken penned at +3.1** | **6.3 min** (VanW9 7.5) | 0 failed actions, 0 `[stuck]`/`[lag]`/`[rescue]`; the pen's fences "could not craft" once, recovered (F201) |
 
 ## Findings log
 
@@ -2303,6 +2340,53 @@ CLAUDE.md when a phase ends.
   table was spent as the builder's work table (the bill now adds one); opening a door counted as placing a block
   (the pathfinder's "blocks left" went to -1); the door click shut doors already open (it now skips them); the rescue
   into the hut went in front of a doorway that may not be levelled (now the aisle just inside).
+- F188 (10-08, twenty-third session, Minevale33) **The agent server crashed** on a scout's walk home: mineflayer-pathfinder's
+  `getBlock` returns a stub with no `position` for a block in an unloaded chunk, and the farm-field walk ban read
+  `b.position.x` inside the pathfinder's tick (needs a village field within 160 and a path into unloaded chunks: the
+  160-block exploring trips). Fixed (`91d1399`): all three walk bans skip the stub.
+- F189 (10-08, Minevale33) A scout's ring point lay in a shallow lake; on the way home the bot floated 4 minutes (the
+  pathfinder planned along the lake floor under it; walkRetrying's legs have no swim-out; the rescue counts only failed
+  actions). Fixed (`91d1399`): an exploring chore's walk home that ends more than 12 short teleports home. Open: ring points
+  on dry land, swim-out in the legs.
+- F190 (10-08, Minevale33) Two of five iron trips stopped "no pickaxe left": `ironPickaxes` counted pickaxes, and a worn
+  carried one counted as one of the two (makeFromStock also counted it as stock). Fixed (`91d1399`): uses left, topped up
+  to 250 with stone pickaxes; VanP2 made 2, then 1, as worn.
+- F191 (10-08, Minevale30, 31, 33) The storage hut's "could not craft 4 planks ... oak_planks": makeFromStock sorted the
+  table first, its craft sawed the log kept for the "any planks" step, and spareKind's tie went to oak (none carried).
+  Fixed (`91d1399`): planks and sticks before the stations, a kind not carried never wins. Leftover: put_up_signs' "could
+  not craft 12 oak_planks" in birch villages (7 staged runs; signs are oak by name), cosmetic.
+- F192 (10-08, Minevale33) The cane start failed twice on a single 2-high stalk (a start needs 2; collect never takes a
+  base): try 1 broke the top and lost the drop, the atlas then saw the base and the bad-sighting key held y, so it counted
+  as new. Fixed (`91d1399`): cane in the atlas counts the blocks over each stalk's base (1-high not recorded), a cane start
+  needs 2, bad sightings by column, a failed start far out teleports home. Leftover: cane drops lost beside water (VanP2's
+  fixture gave 1 of 3; earlier runs 2-4).
+- F193 (10-08, Minevale33) One chore a village: Worker2 and the Mayor were idle 29 minutes after completion while Worker1
+  ran farms, five iron trips and a scout in turn. Open: per-agent chores of different kinds.
+- F194 (10-09, VanA1) The fixture chickens stood on a hill 10 above the annex: from the slope's foot only one was within
+  the 10 blocks a chicken is tempted from (3D), and chickens do not come down a drop. Fixed: start_pen takes chickens
+  within 10 across and 4 up or down; penChores takes sightings within 4 of the annex's level; the staged fixture is
+  summoned on ground within 2 of the site's level.
+- F195 (10-09, VanA2) No pen started: storage held no wheat seeds (the field took every seed before its first harvest).
+  Fixed: start_pen gathers 3 from the grass when storage has none (luring uses none up).
+- F196 (10-09, lure test 1) A test agent that is an idle member of a complete village is given its chores (Gus went
+  scouting mid-test): single-agent tests spawn in no village or an incomplete one.
+- F197 (10-09, the pen design review) The pathfinder took any fence gate for a full block (not in its fence set) and
+  clicked closed ones open, never shutting them: a walk past a pen would have let the chickens out. Fixed in `moves()`:
+  an open gate is passable, a closed one a wall no walk opens. Chickens are never led through a gate on foot: the bot is
+  teleported to the pen's back row and they follow it in.
+- F198 (10-09, Minevale34) Two pumpkin starts failed "could not craft 1 wooden_hoe": the worker carried odd planks of
+  two kinds and no logs; the materials planner counted 1 oak + 1 birch as the 2 "any planks" a hoe needs, so it planned no
+  plank craft and fetched nothing, while every recipe variant (doCraft charges one) takes one kind. Not 91d1399's (an
+  offline replay failed the same with the old code). Fixed: "any planks" draws from one kind, the rest sawn from a log.
+- F199 (10-09, the hoe analysis) After F191, spareKind's tie-break counted logs kept for a later planks step, so that kind
+  could win and the stick step saw a reserved log (VanA3's "could not craft 12 oak_planks ... made 8 so far"). Fixed:
+  spare logs only, the carried total as the last tie-breaker.
+- F200 (10-09, the F198 review) "Any planks" from one kind also applies to fuel, which smelting can take mixed: with
+  storage holding sand and mixed planks but no logs or coal, glass now plans a log gather and a build leaves its windows
+  open; a village with a wood kind may post a few extra logs. Rare; a separate fuel node would be exact. Open.
+- F201 (10-09, VanA3, Minevale34, VanA6) The pen's fences fail once on the first pass ("could not craft 21 birch_fence
+  ... needs 4x birch_planks") and the second pass makes them; the plan's arithmetic holds in either step order, so the
+  shortfall lies in the craft skill's own plank and stick choices. Costs seconds. Open.
 
 ## Decisions log
 
@@ -2587,6 +2671,14 @@ CLAUDE.md when a phase ends.
   look and are charged as logs (the builder's wood swap keeps the prefix); every piece turned so its entrance faces south
   (V2.3 turns it to its street with build_design's rotate). Doors with no way out face across their wall. Snow and ice
   houses are left to fail the checks.
+- 10-09 Animal pens (the user's choices): pens on an **annex**, a 13x9 plot prepared beside the village after completion
+  with two slots (not the plot's own slots: plants keep those), chosen in code from the four sides by earthwork, trees and
+  the walk from the storage hut; one lure trip of up to 4 chickens (a retry only when none got in); eggs and breeding
+  later (v2). Claude's: chickens first; the ring charged at the storage hut with the gate open; seeds in the off-hand by
+  command; 4-block hops waiting for the chickens; the bot teleported into the pen's back row and out again, the gate
+  closed by command when its cell is clear; annex and pen chores after the plant starts and before the iron age; one pen
+  with chickens a village in v1; tries forgiven after an hour; failed sightings passed over within 8.
+- 10-09 F193 (per-agent chores) left for later: one chore a village keeps the chores simple to reason about.
 
 ## Keeping this plan honest
 
