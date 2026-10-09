@@ -40,7 +40,8 @@ v1, F198/F199, Minevale34; the notes below for the twenty-second session stay va
   the bucket; then eggs into storage, breeding with a cooldown, a cow pen on the annex's second slot with a wheat reserve
   kept from the bread, milk, and a cake from milk, sugar, an egg and wheat). 3. **One model-driven run** at the end (1x,
   `MCAI_AFTER=30`). Smaller if time: F201, F200, F192's cane drop pickup, F189's dry ring points, F187, F170-F173. The
-  beautifying plan (B.1) after that.
+  beautifying plan (B.1) after that. This plan and the prompt's tracker update were pushed with the session (the user's
+  instruction, 10-09).
   The prompt: `runs/2026-10-08/s23/NEXT_PROMPT.md`.
 - **How to test now:** `stage_village.py ... --mayor --after 8 --fixtures` (fixture chickens on level ground; ANNEX and PEN
   lines with a server count of each pen); `SIZE=40 node_modules/.bin/tsx scripts/checks/street_plan.mts` (annex and pen
