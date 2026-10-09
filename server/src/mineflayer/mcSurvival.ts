@@ -12,6 +12,7 @@ import { mineAreas, mineCanGive, mineFor } from './mcMine';
 import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
+import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
 import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
@@ -1484,10 +1485,17 @@ async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   });
   await Promise.race([bot.waitForChunksToLoad().catch(() => {}), sleep(10000, signal)]);
   for (let i = 0; i < 25 && a.world.atlas.pending > 0; i++) await sleep(200, signal);
-  const here = bot.entity.position;
+  // (a copy: Mineflayer moves the position object in place, and a teleport home would show as where it stopped)
+  const here = bot.entity.position.clone();
   const walked = Math.round(Math.hypot(here.x - from.x, here.z - from.z));
   const left = Math.round(Math.hypot(here.x - x, here.z - z));
   const added = a.world.atlas.chunks.size - before;
+  // An exploring chore's walk home that got nowhere near: teleported home (F189: Worker1 floated in a lake by its ring
+  // point for 4 minutes, the pathfinder planning along the lake floor under it, and no rescue counts a walk's own legs)
+  if (args.home === true && args.chore === true && left > 12) {
+    const t = await teleportHome(a, signal);
+    if (t) return `walked ${walked} blocks toward home and stopped at ${at(here)}, ${left} short (${stopped || 'no way on'}); ${t}`;
+  }
   return left <= 12
     ? `scouted to ${at(here)} (${walked} blocks walked); ${added} chunks of land added to the atlas`
     : `scouted ${walked} blocks toward ${x},${z} and stopped at ${at(here)}, ${left} short (${stopped || 'no way on'}); ${added} chunks of land added to the atlas`;

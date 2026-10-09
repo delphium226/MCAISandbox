@@ -39,8 +39,9 @@ export interface ChunkSummary {
   /** Ores exposed to air anywhere in the column (cave walls, ravines, cliffs, mine tunnels) by kind, deepslate ores with
    *  the others: how many blocks, the lowest and the highest y (V.6). Missing in summaries from before. */
   ores?: Record<string, [number, number, number]>;
-  /** Farmable plants seen from above (PLANT_KINDS): the columns whose first plant is of that kind, and the first such
-   *  cell (x, y, z). Missing in summaries from before (opportunistic farming, 10-08). */
+  /** Farmable plants seen from above (PLANT_KINDS): the columns whose first plant is of that kind (for sugar cane the
+   *  blocks over each stalk's base instead, F192), and the first such cell (x, y, z). Missing in summaries from before
+   *  (opportunistic farming, 10-08). */
   plants?: Record<string, [number, number, number, number]>;
   /** The village whose mine has dug in this chunk (kept through later summaries). */
   mine?: string;
@@ -67,6 +68,8 @@ const OTHER = MATERIALS.length;
 export const ORE_KINDS = ['coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald'];
 /** The plants recorded where agents pass (block names: crops by their block, the fruit blocks, not their stems). */
 export const PLANT_KINDS = ['sugar_cane', 'pumpkin', 'melon', 'carrots', 'potatoes', 'beetroots', 'sweet_berry_bush', 'cocoa', 'bamboo'];
+/** Sugar cane's index in `plant` (1 + its index in PLANT_KINDS). */
+const CANE = PLANT_KINDS.indexOf('sugar_cane') + 1;
 /** The animals recorded where agents pass (entity names). */
 export const ANIMAL_KINDS = new Set(['chicken', 'cow', 'sheep', 'pig', 'rabbit', 'goat', 'horse']);
 export interface AnimalSighting {
@@ -248,7 +251,7 @@ export class Atlas {
     const hSum = new Float64Array(16), hN = new Uint8Array(16), votes = new Uint8Array(16 * (OTHER + 4));
     const V_WATER = OTHER + 1, V_LAVA = OTHER + 2, V_TREES = OTHER + 3, W = OTHER + 4;
     const logYs: number[] = [], logKs: number[] = [];
-    const p = { x: 0, y: 0, z: 0 };
+    const p = { x: 0, y: 0, z: 0 }, q = { x: 0, y: 0, z: 0 };
     for (p.z = 0; p.z < 16; p.z++)
       for (p.x = 0; p.x < 16; p.x++) {
         const cell = (p.z >> 2) * 4 + (p.x >> 2);
@@ -261,7 +264,16 @@ export class Atlas {
           if (!planted && plant[id]) {
             planted = true;
             const k = plant[id];
-            if (!plantN[k]++) plantAt.set([cx * 16 + p.x, p.y, cz * 16 + p.z], k * 3);
+            if (k === CANE) {
+              // Cane counts the blocks a cut takes, those over the stalk's base (collect never takes a base): a 1-high stalk
+              // gives nothing and is not recorded (F192)
+              let n = 0;
+              for (q.x = p.x, q.z = p.z, q.y = p.y - 1; q.y >= yBottom && plant[col.getBlockStateId(q)] === CANE; q.y--) n++;
+              if (n) {
+                if (!plantN[k]) plantAt.set([cx * 16 + p.x, p.y, cz * 16 + p.z], k * 3);
+                plantN[k] += n;
+              }
+            } else if (!plantN[k]++) plantAt.set([cx * 16 + p.x, p.y, cz * 16 + p.z], k * 3);
           }
           if (c === PASS) continue;
           if (c === LEAF) {
@@ -428,7 +440,7 @@ export class Atlas {
       for (const [id] of [...this.animals].sort((a, b) => a[1].t - b[1].t).slice(0, this.animals.size - ANIMALS_MAX)) this.animals.delete(id);
   }
 
-  /** Plant sightings of a kind within `radius` blocks of x, z, nearest first: [x, y, z, columns in that chunk]. */
+  /** Plant sightings of a kind within `radius` blocks of x, z, nearest first: [x, y, z, columns in that chunk (cane: blocks over the stalks' bases)]. */
   sightings(kind: string, x: number, z: number, radius: number): Array<[number, number, number, number]> {
     const out: Array<[number, number, number, number]> = [];
     for (const s of this.near(x, z, radius)) {

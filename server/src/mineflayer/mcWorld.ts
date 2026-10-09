@@ -618,7 +618,9 @@ export class MineflayerWorld implements WorldAdapter {
         const skip = `${v.name}:${kind}`;
         if (farmed.has(kind) || (this.slotSkip.get(skip) ?? 0) > now || !home) continue;
         const seen = this.atlas.sightings(kind, Math.floor(home.x), Math.floor(home.z), FARM_TRIP_RANGE)
-          .find(([x, y, z]) => ok({ x, y, z }) && !bad.has(`${kind}@${x},${y},${z}`));
+          // (bad by column, F192; cane by the blocks a cut can take, which must cover the two a start needs: the atlas counts
+          // a stalk's blocks above its base for cane, and a one-stalk sighting of two blocks gave one and failed twice)
+          .find(([x, y, z, n]) => ok({ x, y, z }) && !bad.has(`${kind}@${x},${z}`) && !bad.has(`${kind}@${x},${y},${z}`) && (kind !== 'sugar_cane' || n >= 2));
         if (!seen) {
           this.slotSkip.set(skip, now + 10 * 60000);
           continue;
@@ -651,7 +653,8 @@ export class MineflayerWorld implements WorldAdapter {
     ex.last = `${worker.name} to ${next.x},${next.z}`;
     this.villages.save();
     const out = worker.enqueue('scout', { x: next.x, z: next.z, chore: true });
-    const back = worker.enqueue('scout', { x: Math.round(home.x), z: Math.round(home.z), chore: true });
+    // (home: true, teleported home when the walk back fails: Worker1 floated in a lake 4 min, F189)
+    const back = worker.enqueue('scout', { x: Math.round(home.x), z: Math.round(home.z), chore: true, home: true });
     this.chores.set(v.name, { agent: worker.name, status: [out, back], what: `explore ${next.x},${next.z}` });
     console.log(`[explore] ${v.name}: ${worker.name} scouts ${next.x},${next.z} (${ex.visited.length} of 8), then home`);
   }

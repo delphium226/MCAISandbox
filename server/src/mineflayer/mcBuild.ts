@@ -425,7 +425,9 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     await back();
   }
   // The table and the furnace first (smelting does not depend on the furnace in the recipe chain)
-  const station = (st: { item: string }) => Number(!/^(crafting_table|furnace)$/.test(st.item));
+  // (but after the planks and sticks, which need no station: sorted ahead of the "any planks" step that makes its own
+  // planks, the table's craft sawed a log kept for that step, which then failed for want of a spare kind, F191)
+  const station = (st: { item: string }) => (/_planks$|^any:planks$|^stick$/.test(st.item) ? 0 : /^(crafting_table|furnace)$/.test(st.item) ? 1 : 2);
   const steps = [...plan.steps].sort((x, y) => station(x) - station(y));
   const made: string[] = [];
   // "Any planks" (sticks, a chest, fuel) come from the kind with logs to spare: not the logs kept for log parts, nor
@@ -434,7 +436,10 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     const inv = inventoryCounts(a);
     const spare = (k: string) => (inv[`${k}_log`] ?? 0) - (need[`${k}_log`] ?? 0)
       - steps.slice(from).reduce((s, st) => s + (st.do === 'craft' && st.item === `${k}_planks` ? st.runs : 0), 0);
-    return [...WOODS].sort((u, w) => spare(w) - spare(u))[0];
+    // (a kind not carried at all never wins: with every kind at no spare the tie went to oak, the first in WOODS, and a
+    // birch builder failed "needs 1x oak_log" on the storage hut's planks, Minevale30, 31 and 33, F191)
+    const held = (k: string) => (inv[`${k}_log`] ?? 0) * 4 + (inv[`${k}_planks`] ?? 0);
+    return [...WOODS].sort((u, w) => Number(held(w) > 0) - Number(held(u) > 0) || spare(w) - spare(u) || held(w) - held(u))[0];
   };
   for (const [i, st] of steps.entries()) {
     checkAbort(signal);
@@ -2233,7 +2238,8 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     }
     const items = await serverCount(a, spec.item);
     if (items < 2) {
-      slot.bad = [...(slot.bad ?? []), `${kind}@${sighting}`].slice(-20);
+      // (by column, not cell: the atlas saw the cut stalk's base next and it counted as a new sighting, F192)
+      slot.bad = [...(slot.bad ?? []), `${kind}@${sx},${sz}`].slice(-20);
       badSighting = true;
       throw new Error(`start_farm: brought ${items} ${spec.item} from the ${kind} at ${sighting} (2 needed)${notes.length ? `; ${notes.join('; ')}` : ''}`);
     }
@@ -2369,6 +2375,11 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
       slot.lastTry = { at: Date.now(), kind, why: why.slice(0, 200) };
     }
     save();
+    // A start that failed out at the sighting is not left there: the next chore (a pumpkin start) set off 297 blocks from
+    // its plants (Minevale33, F192)
+    const home = villageHome(v, a.memory);
+    if (!signal.aborted && why !== 'cancelled' && home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 48)
+      await teleportHome(a, signal).catch(() => null);
     throw e;
   } finally {
     slotBusy.delete(key);
@@ -2462,6 +2473,8 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
+/** Pickaxe uses an iron trip starts with: trip 3 of Minevale33 dug 207 blocks in 5 minutes (a new iron pickaxe's 250 is enough). */
+const TRIP_USES = 250;
 
 /**
  * At the storage hut, the pickaxes an iron trip needs (the design review's M2, M3): the best one kept in storage if it
@@ -2481,10 +2494,16 @@ async function ironPickaxes(a: BotAgent, v: Village, job: Job, signal: AbortSign
     });
     await syncInventory(a);
   }
-  const good = carried().filter((it) => pickRank(it.name) >= 1).length;
-  if (good < 2) {
+  // Counted by the uses left, not by pickaxes: a worn stone pickaxe counted as one of the two, so none was made and two of
+  // Minevale33's five trips stopped "no pickaxe left" after a few steps (F190). A trip digs up to ~250 blocks
+  const left = (it: { maxDurability?: number; durabilityUsed?: number | null }) => Math.max(0, (it.maxDurability ?? 131) - (it.durabilityUsed ?? 0));
+  const uses = carried().filter((it) => pickRank(it.name) >= 1).reduce((s, it) => s + left(it as never), 0);
+  const make = Math.min(2, Math.ceil(Math.max(0, TRIP_USES - uses) / 131));
+  if (make > 0) {
     await standBy(a, job, signal);
-    const made = await makeFromStock(a, {}, { stone_pickaxe: 2 - good }, () => standBy(a, job, signal), signal).catch((e: Error) => {
+    // (the carried stone pickaxes as the need, so that they are not counted as stock for the new ones)
+    const have = inventoryCounts(a).stone_pickaxe ?? 0;
+    const made = await makeFromStock(a, have ? { stone_pickaxe: have } : {}, { stone_pickaxe: make }, () => standBy(a, job, signal), signal).catch((e: Error) => {
       if (e.message === 'cancelled' || unmoved(e)) throw e;
       notes.push(e.message.slice(0, 100));
       return null;

@@ -284,12 +284,12 @@ export class BotAgent implements WorldAgent {
       // Never dig into any village's ground on the way somewhere: a cobblestone gatherer standing on a prepared plot dug
       // a shaft from its surface to the stone 5 blocks under it, beside the storage hut (Hutvale1, 2026-09-29)
       (m as unknown as { exclusionAreasBreak: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasBreak = [
-        (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
+        (b) => (b.position && this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2)) ? 100 : 0),
       ];
       // ...nor build on it: a builder walking to its stand spot pillared up with dirt in front of the mining hut's doorway
       // and sealed the mine (Minevale19, 10-04). Placing there costs too much for any path to take it
       (m as unknown as { exclusionAreasPlace: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasPlace = [
-        (b) => (this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2 + 1)) ? 1000 : 0),
+        (b) => (b.position && this.protectedGround().some((q) => b.position.x >= q.x1 && b.position.x <= q.x2 && b.position.z >= q.z1 && b.position.z <= q.z2 && b.position.y >= q.y && (q.y2 === undefined || b.position.y <= q.y2 + 1)) ? 1000 : 0),
       ];
       // ...nor step onto a village's wheat field (the farm's review, 10-08): the cost is the moving body's (feet and head
       // cells, from the channel's water up to head height over the farmland), and over 100 drops the move, so no path
@@ -297,6 +297,9 @@ export class BotAgent implements WorldAgent {
       // let off: the cost is paid on entering each cell, and from the middle of one every way out was banned (the diff review)
       (m as unknown as { exclusionAreasStep: Array<(b: { position: { x: number; y: number; z: number } }) => number> }).exclusionAreasStep = [
         (b) => {
+          // (a block in an unloaded chunk is the pathfinder's stub, with no position: reading it threw inside the
+          // pathfinder's tick and took the whole agent server down on a scout's walk home, Minevale33, F188)
+          if (!b.position) return 0;
           const p = this.bot.entity?.position;
           const on = (q: { x1: number; z1: number; x2: number; z2: number }, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
           return this.farmGround().some((q) => on(q, b.position.x, b.position.z) && b.position.y >= q.y && b.position.y <= q.y + 2 && !(p && on(q, Math.floor(p.x), Math.floor(p.z)))) ? 1000 : 0;
