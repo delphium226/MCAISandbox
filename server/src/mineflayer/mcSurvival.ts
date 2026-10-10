@@ -1484,7 +1484,16 @@ async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const before = a.world.atlas.chunks.size;
   const far = Math.hypot(x - from.x, z - from.z);
   let stopped = '';
-  await walk(a, new goals.GoalNearXZ(x, z, 8), `${x},${z}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+  const inWater = () => !!(bot.entity as unknown as { isInWater?: boolean }).isInWater;
+  // A chore's walk home that starts in water (its ring point in a lake): teleported at once, no legs planned from the lake
+  // (F209: 115 s of them before F189's teleport)
+  if (args.home === true && args.chore === true && inWater()) {
+    const t = await teleportHome(a, signal);
+    if (t) return `started home in the water at ${at(from)}; ${t}`;
+  }
+  // (an exploring chore's goal nearly as wide as its own "scouted" rule, 12: the walk to a ring point in a lake spent
+  // minutes on the last 2 blocks to the lake floor, F209; 11, as a node 12 off leaves the bot 12.5 away, "13 short")
+  await walk(a, new goals.GoalNearXZ(x, z, args.chore === true ? 11 : 8), `${x},${z}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     stopped = e.message.slice(0, 120);
   });

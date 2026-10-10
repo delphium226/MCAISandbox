@@ -261,7 +261,10 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
         if (!bandSeen || (lv >= bandSeen[0] && lv <= bandSeen[1])) tally.levelAt = levelSeen;
       } else {
         far = Math.max(far, Math.hypot(p.x - start.x, p.z - start.z));
-        if (Math.hypot(p.x - last.x, p.z - last.z) > 0.5) {
+        // (in water, 2 blocks: a bot bobbing and drifting in a 1.5-block cell kept resetting the timer for 45-140 s a walk,
+        // F209)
+        const inWater = !!(bot.entity as unknown as { isInWater?: boolean }).isInWater;
+        if (Math.hypot(p.x - last.x, p.z - last.z) > (inWater ? 2 : 0.5)) {
           last = p.clone();
           lastMove = Date.now();
           tally.band = null;
