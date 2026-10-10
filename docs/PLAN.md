@@ -25,9 +25,11 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 - **Decided:** gpt-oss:120b-cloud for every role from now on (the decisions log, 10-10 s26). **Proposed:** Phase A, agents
   that choose (below Phase D's section), from a literature review in `runs/2026-10-10/s26/reports/` (gitignored).
 - **Code:** A.0 done and tested, **uncommitted** (modelUsage.ts, tieredBrain.ts, the panel, benches, scripts, docs).
-- **Stack:** the test world (minevale3, Minevale37's village on it: reset before use) and the pinned local model servers
-  are running; no agents in the world.
-- **Next:** A.0b, the scaling probe, then A.1 (decision log and baseline). The user chose Phase A first.
+- **Stack:** the test world is running (minevale3 holds Minevale37's village and the probe's felled trees: reset before
+  use); the local model servers are stopped; no agents in the world.
+- **Next:** the roadmap's step 1: S.0 with A.1 (measure). A.0 is committed (`fd5f80f`, not pushed); A.0b done (12 bots,
+  no stalls); Phases S and E written (the user's goals: 25 agents, more kinds of work, Sid-style emergence).
+  The local model servers are stopped (the user's choice); Worker5-10 are whitelisted on the test server only.
 
 (written 2026-10-10 at the close of the twenty-fifth session: F205, F209, Minevale36 and the control panel's redesign;
 the notes below for the twenty-fourth session stay valid where not overridden)
@@ -1019,7 +1021,15 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     `execbench`, `planbench`, `mayorbench`; three agents calling at once, for latency under load.
   - Exit: the benches at least the local models' scores; Minevale37 (1x, model-driven, every role on gpt-oss) complete in
     about 11 min with 0 failed actions, its tokens and cost recorded; CLAUDE.md's run commands updated.
-- [ ] A.0b **Scaling probe** (~an hour; the user's question, 10-10: can the approach take more agents?). With every role
+- [x] A.0b **Scaling probe**: done 10-10 (s26; `runs/2026-10-10/s26/scale_probe.py`, `.log`). 3, 6, 9 and 12 bots in no
+  village, all collecting logs at once for 90 s a level (every one felled real trees): **0 `[lag]` lines and 0 `[stuck]`
+  at every level**, the API's p90 0.02-0.03 s (worst 0.04), Paper's tick 1.7 ms average and 2.9 ms worst at 12 (of
+  50). One agent server holds 12 working bots. The cloud: 10-12 calls at once all answered, no 429, worst 5.3 s;
+  **Ollama Cloud's Pro plan allows 3 concurrent requests** (Max and Team 10), the rest queue (a fixed, unpublished queue
+  size; over it requests are rejected), which matches the bench's throughput levelling at ~2.5-3; no published RPM or
+  TPM limits since the credits of 08-31 (ollama.com/pricing, 10-10). Not covered: find_site and prepare_site scans,
+  builds and model calls at scale; the probe felled trees within minevale3's restore radius (reset before use).
+  The plan was (the user's question, 10-10: can the approach take more agents?). With every role
   on the cloud and calls only at decision points, the model is no longer the limit (A.0's concurrency bench: 3 calls at
   once 1.1x slower, 6 at once 4x, no errors). What may be: one Node process runs every bot (pathfinder and scans on one
   event loop; lesson 16; a stall over ~30 s makes Paper drop every bot) and Paper's own tick. Measure: the concurrency
@@ -1149,6 +1159,737 @@ models judging completion, free agent chat, and changes to the build phase beyon
 estimate at gpt-oss's $0.15/$0.60 per million tokens): decisions, reflections and the Mayor's calls for three agents
 come to ~0.3M input and ~35k output tokens an hour, about $0.06; the monthly $60 credit covers hundreds of hours, and
 A.0's budget guards against a runaway loop.
+
+## Roadmap for Phases A, S and E (Claude's, 10-10, the user away)
+
+The user's goals (10-10): agents that choose and pursue their own goals (Phase A); 25 agents doing many different
+activities in parallel, with more kinds of work (Phase S, first at 12); and Project Sid-style emergence through the brain
+and communication architecture (Phase E). The measured starting point: 12 agents finish the village no faster than 3
+(Van12a 6.1 min, Van3a 6.0, staged at 2x), because the build is one serial chain and the objective too small. The three
+phases share steps; this is the order (each step tested up the ladder before the next):
+1. **Measure:** S.0 with A.1 (busy minutes, critical path, the decision log, the new `[mine]`, `[furnace]`, `[pickaxe]`
+   lines) and the baselines Van12b/c, Van3b/c.
+2. **Break the chain and make 25 safe:** S.1-S.6 (contention, the mine for many miners, glass once, the tail, stations,
+   the huts' ground first) beside E.0 (the model call gate for 3 cloud slots, chat heard within 48 blocks, a board that
+   does not recompute on every claim, debounced saves) and E.1 (25 names, max-players, the panel at 25).
+3. **Choices and size:** A.2 (the menu, with instances), S.7 (12 model-driven agents), S.8 (two plots at once).
+4. **The society's brain and talk:** E.2-E.7 (memory and the clock, social awareness, the controller, acts and
+   proximity talk, reflection and meetings and rules, culture), which take over A.3's "others", A.4, A.6 and A.7's
+   culture as Phase E says; A.3's gauges and A.5's projects stay.
+5. **More kinds of work:** S.9-S.16 (the workshop, research, smelting, string, the library, iron and copper goods, the
+   deep mine, the spell book), each a menu option kind and a project kind; they can interleave with step 4.
+6. **The experiments:** E.8-E.10 at 25 agents (specialisation with the social module on and off, a rule changed by vote,
+   culture spreading), and A.8's comparisons for the smaller villages.
+
+## Phase S: twelve agents in parallel, and more kinds of work (proposed 2026-10-10, twenty-sixth session; the user away, Claude's choices)
+
+The user's goals (10-10): (1) twelve agents working on as many tasks in parallel as possible, with task chains broken up where that makes sense; (2) more kinds of work, "like research, advanced manufacturing, and spell book development, and any others typical in the game". Today twelve agents perform like three. The staged Van12a run (2x, Mayor and 11 scripted workers) was complete in 6.1 min. Van3a, the same village with 2 workers, took 6.0. Van12a's agents were busy about 40% of the time, Van3a's about 88%. The build is one serial chain (plot, mining hut, stairs, the hut's cobblestone, storage hut, houses, signs), and the standard objective gives only about 6 build tasks. The evidence is in `runs/2026-10-10/s26/` (`parallel_map.md`, `candidates_verified.md`, the two logs, `capacity*.mts`, and two designs with their judges' reports). The logs and the code confirm two losses and suggest a third:
+- Duplicate glass smelts: three 6-glass batches for 14 panes (confirmed).
+- Hut cobblestone used up by pickaxes: about 14 gone, and the hut came up 1-4 short (t9491 asked for 4), costing a 0.6 min requeue (confirmed).
+- A mine limited by faces (a hypothesis). Per-miner rate fell from about 20 cells a minute (Van3a) to about 7, and 9 miners together dug about 62 a minute. The busy wait is never logged (`mcMine.ts:550-555`), and the same window has a competing cause: storage held 8 cobblestone at 2.1, so most miners made wooden pickaxes. S.0's `[mine]` line decides between them.
+
+More agents alone cannot make completion earlier. Van12a is bound by its serial chain, not by work (lesson 97: only removing work on the critical path moves the finish). So Phase S does three things in order:
+- shorten the chain (S.1-S.6);
+- give twelve agents a village big enough to need them (S.7-S.8);
+- add families of work that do not run out (S.9-S.16), each one an A.2 menu option kind and an A.5 project kind.
+
+**Measure of goal 1:** Van12 should finish clearly ahead of Van3, measured against S.0's Van12b/c and Van3b/c (not Van12a's 6.1 and Van3a's 6.0), and busy time before completion should rise.
+
+Rules for every step:
+- Models decide; code does the counting and geometry (lesson 1).
+- Peaceful survival with no damage: no mob drops except from passive animals.
+- Building and crafting are charged to inventories by command.
+- Staged runs with scripted workers come before model-driven runs.
+- No server edits while a run is going.
+
+**The test for every step:** `MCAI_API=http://127.0.0.1:8767/api MC_TIME_SCALE=2 python scripts/reset_site.py minevale3`, then Van12a's command as `Van12<step>` (`--workers 11 --mayor --stage full`, `--site-at=-1630,65,35,40,birch`, the same three vanilla designs) and as `Van3<step>` with `--workers 2`, two runs each. Also count `[stuck]`, `[lag]`, `[dig]` and failed actions, and run the typecheck.
+- A step predicted to save 0.3 min or more passes when both runs save at least half of the prediction against the previous step's runs (S.0's for S.1).
+- Smaller steps pass on their mechanism log lines, because a two-run gap of under ±0.2 cannot judge them.
+- Van3 must never get worse beyond S.0's noise band.
+
+- [ ] S.0 **Measure first** (~half a session; agent behaviour unchanged). Run it with A.1, which needs the same busy-minute counts.
+  - `stage_village.py` and `watch_village.py`:
+    - per-agent busy and idle minutes for the whole run;
+    - a critical-path printer that reads the board's stamps;
+    - a stall rule per agent, and `MCAI_SAME_FAIL` honoured in the stage script;
+    - spawns on a ring outside the plot's margin, on ground read from the world, with the command's answer checked (lessons 37 and 51).
+  - New log lines only:
+    - `[furnace] X waited Ns held by Y`;
+    - `[mine] X waits for a face (held, live, turns)`;
+    - `[pickaxe] X took 3 cobblestone from storage (left N)`, and `X made a wooden pickaxe (storage had N cobblestone)`;
+    - at a build shortfall, the storage record set against the server's counts;
+    - RCON queue depth and p90/p99 latency every 30 s.
+  - Exit:
+    - Van12b/c and Van3b/c give the baseline and noise band for every later pass rule and for goal 1. The new spawns and stop rules make Van12a and Van3a incomparable.
+    - The new lines confirm or refute the two losses and settle the face-limit hypothesis against the pickaxe cause. If the result changes the picture, re-order S.1-S.3 before writing any code.
+
+- [ ] S.1 **Small contention fixes** (~half a session).
+  - `makePickaxe` (`mcSurvival.ts:236-247`) takes a stone pickaxe from storage first. Otherwise it uses storage cobblestone only beyond what the claimed and claimable builds still need, the same rule as `spareKind` (lesson 88), then cobblestone in hand, then makes a wooden pickaxe.
+    - Storage holds no pickaxes today (`deposit all` keeps tools, `mcStorage.ts:265`), so the rule gets a supply: a soft task, "Make 4 stone_pickaxe into storage" (deposited by name), posted once storage holds the hut's cobblestone plus 12 and claimed by an idle worker.
+  - `syncGather` (`mcWorld.ts:277`) rounds a remainder under 8 up to 8, or adds it to an open task of the same item. Dropping it would turn a 1-4 shortfall into the requeue this step removes.
+  - In a hut village the storage task counts as done only once `storageFromFelled` has finished depositing. That removes Van12a's 5 log trips the felled logs already covered (about 6-8 agent-minutes).
+  - `collect` no longer says "cannot be gathered here" when the only candidates it dropped were held by other gatherers (`takenByOther`, `mcSurvival.ts:781`, `:829-831`). It says they are taken, and `noneToGather` does not act on that message.
+  - `placeChest` claims its spot before walking.
+  - Exit:
+    - no "short of materials for the storage_hut";
+    - no log task claimed after 1.0 and then closed as covered;
+    - no "Gather 1-4 cobblestone" tasks;
+    - `[pickaxe]` shows no storage cobblestone taken while a build is short;
+    - mine cells per minute not below S.0's;
+    - `mine.py` passes.
+
+- [ ] S.2 **The mine for many miners** (~1 session; the prediction stands only if S.0 confirms the face limit).
+  - Branch helpers:
+    - When every tunnel is held, `nextLeg` gives a waiting miner an unfinished branch at an already dug junction instead of `'busy'`.
+    - Holder keys become `tunnel:branch`. The tunnel's own holder takes a branch's key as it reaches it, so it never enters a helper's branch.
+    - `MineLeg.dug`, one in-order counter, becomes a main-tunnel count plus progress per branch, in `village.ts:110-125`, with an `upgradeMine`-style migration. `m.dug` stays as the total for its readers (`mcSurvival.ts:679,683`, `village.ts:711`), and `turnFrom` reads the per-branch progress (`mcMine.ts:463-465`).
+    - `emptyTrips`, `awayAt` and `downFails` are kept per miner and branch (today per village, `:684-687`).
+    - A helper never takes a branch whose junction is not dug, and a branch ending never ends its tunnel (F82, lesson 36).
+  - A claim gate: no more cobblestone tasks open than faces + 2, with one claim always allowed when the count reads 0.
+    - `village.ts` must not import Mineflayer. The gate is a registry callback, `claimLimit?: (v, t) => boolean` on `VillageRegistry`, set in the `MineflayerWorld` constructor the way `refreshNeeds?` is (`village.ts:322`, `mcWorld.ts:71`) and called inside `claimable`.
+  - Every runner, not only the Mayor's (`tieredBrain.ts:743`), treats "the mine is busy" as not the task's fault. Today a scripted worker's soft give-up counts as finished and releases its build short of cobblestone (`village.ts:524`).
+    - The handed-back task gets a per-agent cooldown that is released when a face frees. Without it the same idle worker reclaims the task at once (`taskBrain.ts:188`, 20 Hz).
+    - The busy message is left out of the loop guard's key.
+  - Exit:
+    - `scripts/checks/mine.py` extended to N bots: every cell from the plan, one holder per cell, no cell dug twice.
+    - Van12: cells per minute at least 1.7x the 62 baseline, cobblestone task times 0.6-0.9 min (today 0.6-1.9), hand-backs counted and none repeated by one agent within the cooldown, no new `[stuck]` lines in the tunnels.
+    - Prediction about 5.3 with S.1.
+
+- [ ] S.3 **Glass made once for the village** (~1 session). This is the first manufacturing task.
+  - `makeFromStock` takes the furnace lock itself before it withdraws anything, then reads storage again for the target item. Today `smelt` takes the lock (`mcSurvival.ts:1314-1316`) after `makeFromStock` has already withdrawn the sand (`mcBuild.ts:414-422`). `smelt` called alone takes the lock after its walk, not before (`:1316`, `:1327`).
+  - `makeFromStock` also:
+    - deposits by name, while still at the hut, any made parts beyond the build's own bill (panes, glass, doors, slabs, stairs);
+    - never deposits what the next claimed task counts as carried (lesson 64).
+  - Glass panes are billed for the whole village and rounded once (14 panes = 6 glass = 6 sand, not 3 × 6), in `materialTasks`, `refreshNeeds` and `stockCovers` together. Run `materials.mts` before and after (lesson 76).
+  - A soft task, "Make 16 glass_pane into storage" (withdraw sand and fuel, smelt with the spare wood kind as fuel, craft, deposit by name), posted once the furnace is ready. The lamps' charcoal joins it.
+    - No build waits for it yet. Before S.5 the furnace exists only once the hut is built (`mcSurvival.ts:1014-1027`), and houses open at that same moment (`layout.ts:341`). S.5 adds the wait.
+  - Exit:
+    - exactly one 6-glass smelt per run;
+    - `[furnace]` total wait under 0.2 min;
+    - no requeue for glass;
+    - prediction about 4.6.
+
+- [ ] S.4 **The tail: lamps early, a sign per building** (~half a session).
+  - First, a fix: `ownGather` (`tieredBrain.ts:1009`) closes only gather tasks. Today it would mark a half-done lamp or sign job done at completion.
+  - Lamps wait for the plot, storage and `villageStation('furnace')`, not for every build to be claimed.
+    - Without the station gate, `light_streets` smelts charcoal through `makeFromStock`, which bills a furnace of its own while `villageStation` returns null (`mcBuild.ts:401-402`). That would cost 8 of the hut's cobblestone and put a furnace off the plot.
+    - Before S.5 the gate means "after the hut". Lamps become truly early with S.5's furnace.
+    - Lamps' wood stays reserved in `stockCovers` while the task is claimed, not only while it is open (`village.ts:424-428`).
+  - One sign task per building, after its own build only.
+    - `put_up_signs building=`, identical in `skills.ts` for both worlds.
+    - The signs' wood is reserved like the lamps', open or claimed. Signs came after the lamps because two jobs reading the chests at once came up short (`layout.ts:378-382`).
+    - A per-sign record replaces `lay.signed`, followed through completion (`mcBuild.ts:1936`), `light_streets` (`:1873`), the summary (`village.ts:258`) and the panel (lesson 57).
+    - Completion requires every building's sign record. Today a failed soft task counts (`tieredBrain.ts:1012`), so a failed sign task is re-opened instead.
+    - Spare signs (one craft makes 3) are deposited.
+  - The Mayor's gatherer may take lamp and sign tasks once the `ownGather` fix is in and no gather task is open (lesson 66: beside its plan, never inside it).
+  - Exit:
+    - no furnace made by a lamp task;
+    - lamps start within 0.1 min of the furnace standing, and once S.5 is in, finish before the first house ends;
+    - each sign within 0.1 min of its building;
+    - completion never declared with a sign missing (`data get`);
+    - the Mayor's busy minutes above 0 during the builds.
+
+- [ ] S.5 **Stations before the storage hut** (~1 session).
+  - The hut's crafting table cell T and furnace cell F (layer 1, the chests' layer, plot level + 1) are filled early:
+    - the table by the storage set-up, from the felled logs;
+    - the furnace from the stairs' cobblestone, crafted and placed by the miner after it walks out to the hut, never underground (lesson 101). If the stairs gave fewer than 8, it withdraws the rest from storage.
+    - Both placements are confirmed on the server (lessons 29 and 80), and nothing is set inside a player (lesson 44).
+  - The stations are billed as their own consumer, closed when they are placed, in `materialTasks`, `refreshNeeds` and `stockCovers`. Otherwise the hut's gather tasks still ask for them and S.1's spare rule counts a phantom need. Run `materials.mts` before and after (lessons 57 and 76).
+  - The hut build skips a T or F cell where the right station already stands, and places the station itself when it is missing. That is the fallback when a worker set up storage instead.
+  - The build gets a level check for stations like the one for chests (lesson 33).
+  - `villageStation` reads the cell once the hut's ground is prepared, without needing the hut's structure record (`:1017`). Every consumer is followed through, including the panel (lesson 57).
+  - Houses and the wheat field wait for storage plus the stations, not for `hutBuild`. Builds that use panes now wait for S.3's pane task. The hut stays first in posting order (lesson 91).
+  - Exit:
+    - the furnace stands by about 2.2;
+    - panes are in storage before any house starts;
+    - no table or furnace outside the hut (`/api/blocks` round the plot);
+    - no gather task for the stations after they stand;
+    - `render_design.py` on the built hut;
+    - prediction about 4.1.
+
+- [ ] S.6 **The huts' ground first** (~1-1.5 sessions; the riskiest step, so it comes last in the chain work).
+  - First task: "Prepare the huts' ground". It covers both huts' footprints and claim rings, a street corridor between them, and corridors from each hut to the nearest edge of the layout (F154).
+    - Once any part is recorded, `protectedGround` makes the whole layout no-dig (`botAgent.ts:185-205`), so gatherers leaving the huts must not have to cross unprepared forest to get out.
+    - Its level is the mode over the whole layout, written on the layout record.
+    - Its plot record goes into `v.plots` before any tunnelling. `unsafe()` defers cells under an unprepared plot, treating them as busy until the plot record covers them. It never ends the leg, because faces are capped (one turn per side, `MAX_LEGS` 12 a level).
+  - Storage set-up and the mining hut wait only for that task. `dig_mine` keeps `after: [build]` on the mining hut, because `digMine` refuses without the hut's structure (`mcMine.ts:290-307`).
+  - "Prepare the rest of the plot" goes out as up to 4 rectangle tasks, each one free for any agent:
+    - Each rectangle leaves out the huts' box plus its claim ring, with margin 0 on the side facing it. `prepare_site` reserves one rectangle plus its margin (`mcBuild.ts:1417`), and `runJob` refuses overlapping reservations (`:582-585`, `village.ts:373-381`).
+    - They leave out `mineAreas`, so no fill can seal the stairs (F131).
+    - Each ends with `deposit item=logs`, since `storageFromFelled` skips once storage exists and would strand about 300 logs.
+    - Their records merge into one plot record, so the `plots[0]` readers still see one plot.
+  - Streets: `mcBuild.ts:1338` finds the layout that contains the prepared area, so partial prepares lay their `dirt_path`. Lamps wait for whichever task lays the streets; re-check S.4 here.
+  - Log tasks for houses and the landmark wait for the rest of the plot. Only the huts' and chests' logs open earlier, which keeps out the wasted log trips S.1 removed.
+  - Before writing code, check the wood offline: count the logs the huts' ground fells on minevale3 against the chests plus the mining hut's 26 logs. If they fall short, post that gap as hand log tasks at t=0.
+  - Exit:
+    - `site.py` and `top_map.py` find no pits;
+    - all felled logs end in storage, and no log task is closed as covered;
+    - the mine is open by about 1.4, and no tunnel is ended under the plot;
+    - no `[stuck]` anywhere in the unprepared rest or on the corridors;
+    - streets laid;
+    - the same pass on the shelf site;
+    - prediction 3.6-4.0 (the 3.1-3.3 lower bound leaves no slack);
+    - Van12 at least 1.3 min ahead of Van3.
+
+- [ ] S.7 **Twelve model-driven agents** (~half a session).
+  - At most 3 model calls in flight across the process (Ollama Cloud Pro), the Mayor's plans and designs first. A call's timeout starts at dispatch, not at queueing.
+  - An RCON request timeout that drops late replies by id goes in only if S.0 shows a latency tail. A timed-out `clear` or `give` is counted again on the server before any refund (lesson 4).
+  - This runs before A.6's felling rules, overriding A.8's "~6 a village" (see Decisions).
+  - Exit:
+    - `concurrency.mts` with 12 calls at once;
+    - a staged `--brain tiered` run with 11 workers: no task handed back because a call was refused;
+    - Minevale38 (1x, model-driven, 11 workers) complete with 0 failed actions;
+    - `Worker3`-`Worker11` whitelisted first.
+
+- [ ] S.8 **A village sized for twelve: two plots at once** (~1-1.5 sessions).
+  - `plan_layout` lays out every plot in one call when the Mayor names more buildings than one plot holds.
+    - Plot 1 takes the huts, the landmark and about 4 houses; plot 2 sits beside it and takes about 7 houses and a centre.
+    - Plots come from find_site's best squares that do not overlap.
+    - Every prepare task is posted at once, and the serial `unplaced` path stays as the fallback.
+  - The Mayor's prompt (`tieredBrain.ts:304`) gives these capacities. There is one lamp task per plot.
+  - Before the model-driven run, count offline the logs within 96 of both plots against the 16-build bill (lesson 99).
+  - In the existing hut: second cobblestone and logs chests in its free spots, and a lock per chest.
+  - Furnaces, judged at the test's speed: 41 pooled panes (18 glass) plus charcoal take about 1.85 min on one furnace at 2x, 3.7 at 1x (furnaces run on the tick rate, lesson 40).
+    - Two more furnaces go in the hut's dead cells (1,4) and (5,4) only if Van12L's `[furnace]` waits exceed 0.2 min.
+    - Then run `rotate_design.py` and the renderer, since the hut never turns (lesson 68).
+  - Pickaxes:
+    - a soft task, "Make 8 wooden_pickaxe into storage", from the felled logs, claimed by an idle worker once storage exists (never inside `storageFromFelled`, off the critical path);
+    - S.1's stone batch raised to 8.
+  - `stage_village.py` takes a second `--site-at`.
+  - Exit:
+    - "Van12L" (a library and 11 houses on plot 1 and the plot east of it, about 16 builds) complete in 6 min or less at 2x;
+    - at least 70% busy before completion;
+    - 0 failed actions;
+    - the same village with 3 agents about 17 min, which is the goal-1 gap.
+
+Goal 2 below is a tech tree. Families come in order of how much parallel work they offer soonest and how feasible they are in peaceful at minevale3. Each is tested alone with `--stock` to skip earlier tiers, measured by the `AFTER busy:` line, yield and failures, in a staged 12-agent after-phase (`--mayor --after 30 --fixtures`). A family that runs before completion must leave completion within the noise band. New families are off by flag in A.8's comparison runs.
+
+- [ ] S.9 **The workshop: `make` and the tech record** (~1 session). This is the framework.
+  - One composite skill, `make item= count=`: withdraw the inputs, make the item at the hut through `makeFromStock`, deposit it by name (lesson 112). Crafting stays charged by RCON.
+  - Offered as a chore with an instance key (`make:<item>`, lesson 111). After completion first, as an A.2 option.
+  - Before completion (`make` and S.10's surveys) only when all of these hold:
+    - the inputs are spare beyond the open builds' needs;
+    - one idle worker stays in reserve;
+    - the chore's estimate fits before the next task can open;
+    - the chore stops when a task opens, with the stop noticed as idle (lesson 67).
+  - `v.tech` records the first time the village makes each item (when and by whom). It is the village's tech tree, and the panel shows it.
+  - Room: the annex's two slots hold the chicken and cow pens. Decide here on a second annex or a works plot, built with `prepare_annex`'s machinery, for S.11's furnaces and S.14's sheep pen.
+  - Tier 0 goods:
+    - stone tools, and a wooden sword for S.12;
+    - charcoal and torches;
+    - glass, panes and glass bottles;
+    - chests and barrels;
+    - smooth stone and stone bricks;
+    - mud bricks (dirt and a water bottle make mud; mud and wheat make packed mud; 4 packed mud make mud bricks). Minevale3's 25 clay lie under or beside the east lake (F136), so clay bricks come only where S.10 finds dry clay;
+    - a composter, for bone meal without mobs;
+    - ladders.
+  - Exit: storage gains match the bills on the server's counts; 0 requeues traced to `make`; busy agents after completion at least 9 of 12.
+
+- [ ] S.10 **Research: surveys and yield experiments** (~1-1.5 sessions). This is what "research" means here.
+  - Survey tasks are typed questions with answers code checks. A task is done when the atlas holds a new record. Examples:
+    - "nearest lava source the mine reaches" (none within 96 of minevale3 lies above y 31);
+    - "bee nests within 160";
+    - "cobwebs within 96 and their depth";
+    - "dry clay";
+    - "geodes";
+    - "sugar cane";
+    - "chests in structures".
+  - The atlas gains sighting kinds for nests, cobwebs, geodes, lava sources, clay and chests.
+  - Yield experiments: dig a sample tunnel in a y band and record ore per cell, so the deep mine picks its depth from what was measured (lesson 99).
+  - The tech tree is `v.tech`, not advancements. Crafting by `/give`, building by `/setblock`, breeding by `data merge` and enchanting by `item modify` fire no player triggers, and the monster advancements are out of reach in peaceful.
+    - Advancements are shown only where a live test shows the agents' real actions earn them (`inventory_changed` fires on `/give`). Never `advancement grant`.
+  - Surveys need neither the mine nor the hut, so they may run during the build under S.9's rules, posted behind the critical path. Range stays at 96 (lesson 22). Underground trips end with the depth check and a teleport home (lesson 101).
+  - Copy the atlas before any reset (lesson 115).
+  - Exit: 4-8 surveys at once during a Van12 build with completion within noise; every survey's answer matches the snapshot (`region_blocks.py`).
+
+- [ ] S.11 **The smelting works, ore side-yield and XP** (~1 session).
+  - A furnace row on S.9's works plot with one lock per furnace. A blast furnace (5 iron + furnace + 3 smooth stone) for ores and a smoker for food.
+  - Iron-age tunnels also keep copper, lapis and redstone, with redstone only with an iron pickaxe. Lesson 102 applies: no veins chased into floors.
+  - Copper (32k blocks within 96 of minevale3) carries the decorative lines later.
+  - XP budget, measured live: XP comes only from real furnace takes (`takeOutput`; 0.1 per glass, so level 8's 112 XP is about 1,100 glass), mining coal, lapis and redstone ores, and real fishing. Crafting, breeding and building are commands and give none.
+  - Exit:
+    - parallel smelt chores, one per furnace;
+    - `--stock raw_iron:10` gives ingots by the jar's ratios;
+    - no station outside the works plot or hut;
+    - XP per agent-hour recorded for S.16.
+
+- [ ] S.12 **String and fishing** (~1 session).
+  - Cobwebs drop string only to a sword (`requiresCorrectToolForDrops`; by hand they take about 20 s and drop nothing). String comes from a wooden sword (2 planks + 1 stick).
+    - The planner's string <- cobweb rule carries the tool and replaces the UNOBTAINABLE entry (`mcMaterials.ts:52`).
+    - Within 96 of minevale3 there are 57 cobwebs, all in a mineshaft at y 12-34, 30-50 blocks under the surface (nearest about 70 away). `collect`'s filter (home level - 16, `mcSurvival.ts:214-215`) excludes them.
+    - So string is one bounded trip chore (sword equipped, the depth check and teleport home, lesson 101) for about 57 string, never an endless menu option. Walks through cobwebs need lesson 114's coarser stall rule.
+  - String opens up:
+    - fishing rods;
+    - the loom;
+    - leads (5 string make 2, no slime ball in 26.1), for simpler animal lures.
+    - Candles need honeycomb (see bees, later), and bundles need leather, so they wait for the leather supply.
+  - Fishing, one agent per pond with no cap (lakes at about -1680,-16 and -1552,40). Test Mineflayer's `fish()` live first.
+    - Real fishing yields fish, XP, junk and treasure books. Junk is about 10% of catches; leather is about 1% (about 95 catches, roughly 30 fisher-minutes a leather at 1x) and ink sacs about 0.1%. Junk is also the only renewable string, at about 0.5%.
+    - If `fish()` fails, fish by command: `execute as <name> run loot give <name> fish minecraft:gameplay/fishing ... mainhand`, charged rod durability, timed by vanilla's 5-30 s wait. With no hook it gives **fish and junk only, no treasure and no XP**.
+  - Exit:
+    - 4+ fishers at once;
+    - string and fish in storage matching the server's counts;
+    - no stall in the mineshaft;
+    - leather per fisher-hour recorded for S.13;
+    - whether live `fish()` works recorded for S.16's XP.
+
+- [ ] S.13 **The library: paper, books, shelves** (~1-1.5 sessions). The first half of the spell book.
+  - There is no sugar cane within 96 of minevale3, so cane farms come from the 160-block sightings (or `--fixtures`). Then paper, books (3 paper + 1 leather), bookshelves and a lectern placed in the library building.
+  - Leather binds, not cane (about 0.9 cane a minute from 16 plants). With culling off it comes only from fishing junk:
+    - one shelf (3 books) is about 1.5 fisher-hours;
+    - 15 shelves are about 22-24.
+    - The first target is the enchanting table's book plus 1-2 shelves. Larger libraries are A.5 projects sized by S.12's measured rate.
+  - Butchering surplus cows comes behind `MCAI_CULL`, **off by default**: the pen keeps a breeding pair and at least 4 adults, and nothing else is ever killed. Put the choice to the user before S.13.
+  - A book and quill needs a feather, and every feather source here is a kill. It is dropped unless the user extends `MCAI_CULL` to chickens. A.7's chronicle stays in `villages.json` or on signs.
+  - Cane harvests leave the bottom block.
+  - Exit: `--stock sugar_cane:30,leather:7` gives 7 books: 2 shelves (or 1 shelf and a lectern) and 1 spare book, placed and checked with `execute if block`.
+
+- [ ] S.14 **Iron and copper goods, and textiles** (~1.5 sessions).
+  - Shears, then a sheep pen on S.9's works plot (6 sheep within 96, 21 within 160; test the gate geometry live, lesson 110), then wool, beds, carpets and banners.
+  - Dyes come from what the site holds. Within 96: wildflowers (yellow, about 1,630), lilac (magenta, 20), lily of the valley (white, 15), plus bone meal (white) and lapis (blue, and light blue mixed with white). There is no red, green, orange, pink, lime, cyan, purple or brown here. Measure bone meal on grass before counting on other flowers.
+  - The Mayor picks a banner or bed from a vocabulary code builds from the 32 `no_item_required` patterns and the dyes S.10's survey found. Code compiles it to `/setblock` and charges the dyes as well as the wool.
+  - Lanterns, chains, cauldrons, a stonecutter, a smithing table; copper lanterns and chests.
+  - These go into buildings as interiors and lamps v2.
+  - Iron is the binding cost: iron goods come only after the iron pickaxe and buckets.
+  - Exit: `--stock iron_ingot:10` gives shears, a sheep pen and a bed in a house; the iron age's own goals are still met.
+
+- [ ] S.15 **The deep mine** (~1.5-2 sessions).
+  - Stairs from the iron level (y 18) down to about y -58, with several starts (lesson 100), then one branch per miner.
+  - The iron mine is separate code with no holders (`nextIronLeg`, `ironBusy`, one `stuckAt`). This step brings S.2's holders and branch record to it explicitly.
+  - Lava is handled with a carried water bucket. The jar's `is_fire` damage tag includes lava, so `fire_damage false` should cover it; test only the walking and pathing live.
+  - Stone-pickaxe tunnels never break diamonds.
+  - Every miner is teleported home at the end (lesson 101).
+  - Exit: 3-6 miners at depth, no `[stuck]` clusters on the deep stair, diamonds and deep lapis and redstone in storage.
+
+- [ ] S.16 **Obsidian and the spell book** (~2 sessions). This is "spell book development".
+  - `cast_obsidian`: no lava within 96 of minevale3 is reachable from the surface (all at y 31 or lower), so the lava comes from where S.15's mine meets it.
+    - Either cast at that level (pour water by bucket, confirm on the server, mine it with a diamond pickaxe, teleport home), or carry a lava bucket up and cast in a lined pit by the hut.
+  - The enchanting table needs a book, 2 diamonds and 4 obsidian.
+  - Enchanting by charged command, after a live syntax test (lesson 109):
+    - code checks the table, the shelf geometry and `xp query`;
+    - it clears lapis and levels;
+    - it applies vanilla's `enchant_with_levels` with `item modify`.
+  - XP comes only from S.11's sources and real fishing (if S.12's live `fish()` works). The enchanter is the agent with the most XP: an A.4 role.
+  - Anvil combining by code using vanilla's arithmetic.
+  - The village's "spell book" is a catalogue of the enchantments it holds. Models choose what to pursue (an A.2 option or an A.5 project), and code says what is feasible.
+  - Start with a bare table (levels 1-8). Shelves follow S.13.
+  - Exit: `--stock diamond:2,obsidian:4,book:3,lapis_lazuli:6 --xp 30` (a new `stage_village.py` option, via `xp add`) gives an enchanted pickaxe and a book, both checked on the server.
+
+**Later, not scheduled:** each waits for a measurement or for a site.
+- Bees, honey and candles (candles need honeycomb; 1 nest within 96).
+- Cartography (the atlas already does the mapping).
+- Rails and redstone; the hopper egg collector alone is 0.5.
+- Archaeology and trading (minevale3 has no suspicious blocks or villages within 320); the wandering trader as a 0.5 chore.
+- The Nether: harmless in peaceful, but 4-6 sessions.
+
+**Interleaving with Phase A.**
+- S.0 runs together with A.1: the same busy counts, plus the `[choice]` log.
+- S.1-S.6 change only the build phase, and A.2-A.7 only the after-phase, so S.1-S.6 go first. They are a clean, measurable win, and A.8's comparisons need a stable build in front of them.
+- A.8's rounds all use one setup: restored minevale3, the 6-building village, new families off by flag. S.8 changes the village and the hut, so A.8's round after A.2 runs before S.8.
+- A.2's instance keys must land before S.9. Every family from S.9 on is written as `options(v, agent)`/`run(option)` with instance keys (`survey:<question>`, `fish:<pond>`, `furnace:<k>`, `branch:<n>`, `cane:<farm>`, `make:<item>`). Each family is also added to A.5's vocabulary as a project kind with a completion check code makes:
+  - "keep N of X";
+  - "a library of N shelves" (sized by leather);
+  - "a sheep pen";
+  - "an enchanted pickaxe";
+  - "a deep level".
+- Suggested order:
+  1. S.0 with A.1;
+  2. S.1-S.6;
+  3. S.7;
+  4. A.2 (with instances), then A.8's round after A.2;
+  5. S.8;
+  6. S.9-S.12;
+  7. A.3 and A.4 (A.8's rounds on the fixed setup);
+  8. S.13-S.14;
+  9. A.5;
+  10. S.15-S.16 as A.5's first multi-branch project.
+- A.8's scale item is S.7-S.8.
+
+**Size:** S.0-S.8 about 7-8 sessions; S.9-S.16 about 10-12.
+
+**Decisions (Claude's, the user away)**
+- **Design B's order and guards as the backbone, with Design A's attack on the head (S.5, S.6) last.** B's steps are smaller and judged by mechanism. Only A attacks the 2.0 min serial head, the largest block left once the mine and furnace are fixed.
+- **S.1 before S.2, with its own stone-pickaxe supply.** The pickaxe drain is hidden behind the mine today and lands on the critical path once the mine is faster. Without the supply, the spare rule would send every miner to make a wooden pickaxe.
+- **Baseline from S.0's runs.** S.0 moves the spawns and changes the stop rules, so Van12a and Van3a no longer compare.
+- **Pass rules: half the prediction for steps of 0.3 min or more, mechanism lines below that.** A's rule could neither pass nor fail steps of 0.05-0.1 min.
+- **Stations placed early, billed on their own, not houses freed from the hut.** This keeps the hut's own stations, gets glass made before the builds, and comes with a fallback when the stations are missing. Builds wait for panes only from S.5 on.
+- **More furnaces only at two plots, and only if measured at the test's speed (S.8).** With pooled panes one furnace hardly queues.
+- **One mine with branches, not a second mine.** 6-8 faces cover two plots; a second mine touches about 10 files.
+- **A.6's "~6 agents a village before felling rules" overridden for S.7-S.8 on the test world.** A reset restores the trees. S.8's offline log count guards the bill.
+- **Culling off by default; leather from fishing first, and the library sized by it.** It keeps the peaceful premise. The user decides on cows (and on chickens, for feathers) before S.13.
+- **String counts as gatherable (cobwebs, with a sword), as a bounded trip.** The jar's loot tables show it; the validator refuses by "no source in range" (lesson 21).
+- **The tech tree is `v.tech`.** Command paths fire few advancements.
+- **Mud bricks before clay bricks at minevale3.** Its clay is under water.
+- **Brewing dropped.** There are no blazes in peaceful, so no stand and no fuel.
+- **Enchanting by charged command with vanilla's own function.** Mineflayer's windows are unreliable on 26.1 (lesson 4).
+
+**Rejected, and why**
+- **Debounced `reg.save()`.** It gives up "saved on every change", and nothing measured binds on it.
+- **An RCON pool and an RCON timeout before measuring.** A socket reset forces a re-login with requests in flight, and a timed-out `clear` or `give` hits the refund path.
+- **Wooden pickaxes crafted inside `storageFromFelled`.** Those crafts sit on the critical path; S.8 makes them in a soft task instead.
+- **A furnace crafted at the stair bottom.** It would put a crafting table in the mine (lesson 101).
+- **Splitting one building between builders.** It adds walks and rounding, and `pendingBuilds` and reservations refuse it.
+- **Mine levels dug in parallel, and outside stone.** F180-F183, F64, F66 and F136-F138.
+- **Variety chores before completion with no stop rule.** Four builds open at once when the hut finishes, and workers on chores would delay them.
+- **A storage reservation ledger now.** The spare rules of S.1 and S.9 and the lamp and sign reservations cover it until a run shows false shortfalls.
+- **Advancements as the tech tree, and `advancement grant`.** The command paths cannot earn them honestly.
+
+## Phase E: emergence with 25 agents (brain and communication) (proposed 2026-10-10, twenty-sixth session; Claude's, the user away; revised after three reviews)
+
+The user's goals (10-10): 25 agents doing many different activities in parallel, and the emergent behaviour Project Sid reported (arXiv 2411.00114), reached by changing the brain and communication architectures. Sid reported three things:
+- roles that differentiated and persisted, but only with its social modules on;
+- a tax rule amended by vote, which the agents then followed in their own deposits;
+- seeded memes and a religion that spread through conversation.
+
+The analyses (`runs/2026-10-10/s26/`: the Sid analysis, the gap analysis, communications design C, the cost model) agree on three points:
+1. Sid's mechanism is a social-awareness block feeding goal generation, plus one controller decision that also writes the agent's speech.
+2. Sid's 5-10 s cadence is impossible on Ollama Cloud Pro: 9,000-18,000 calls an hour against a ceiling of about 4,000.
+3. Most of what Sid called emergent was seeded. That includes the community goal, the constitution, the influencers and the religion. Our claims must therefore rest on ablations and null baselines, measured by code, not on an LLM labelling LLM output.
+
+Phase E sits on top of Phase A and Phase S:
+- From Phase A it uses A.1's decision log, A.2's menu (the `choose` call, `choices`/`runChoice`), A.3's gauges and A.5's project validator.
+- From Phase S it uses the task families and instances that give 25 agents enough parallel work. Without them most agents would sit idle and nothing could emerge from them.
+
+**How it changes Phase A** (so the two plans do not duplicate):
+- **Kept as written:** A.1, A.2, A.5, and A.3's gauges.
+- **A.3's personalities:** become an experimental factor in E.8 (identical against distinct). A.3's "what the others are doing" bullet moves to E.3.
+- **A.4:** its journal, kind table and village clock are built in E.2, made persistent. Its nightly reflection is extended in E.6. Roles are named by code, and shown to the agent only in one experimental condition.
+- **A.6:** replaced by E.5 and E.6.
+- **A.7:** its culture bullet is replaced by E.7. The daylight question stays A.7's. E fixes a 20-minute village day kept by code.
+- **A.8:** its "Scale" paragraph is replaced by E.1 and E.8-E.10. A.8's ladder of comparisons stays for the smaller villages.
+
+Design rules on top of Phase A's:
+1. **One decision call per decision point. It returns `{reason, choice, act?, say?}`.** Speech, a social act and the action come from the same call (Sid's cognitive controller). Calls happen at decision points only, never on a timer, and no more often than one model decision per agent every 90 s.
+2. **Messages never start another agent's model call.** There are three bounded exceptions, each capped per conversation pair:
+   - a request addressed to an idle agent (at most once in 5 minutes);
+   - a human's chat line (code picks 1-3 responders);
+   - an agent's name in a line (case-sensitive, agent names only).
+
+   Acts per hour can then never exceed decisions per hour, which makes lesson 4's storm impossible by construction.
+3. **Facts are global and checked by code. Culture is per agent.** Each agent sees only what it has heard, so convergence on names and sayings has to emerge; code never shows a winner.
+4. **Code labels and measures every outcome:** activity kinds, deposits counted on the server, uses of a cultural item. No model judges an outcome.
+5. **The brain modules stay world-free** (lesson 66: add beside the brain's state, not inside it). The new modules are:
+   - `modelCall.ts`: every model call and the gate;
+   - `controller.ts`: per agent;
+   - `social.ts`: awareness, profiles, acts, validator;
+   - `society.ts`: per village, holding the dispatcher, meetings, reflection schedule and chronicle.
+
+   They talk to the world only through optional `WorldAdapter` hooks.
+
+Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes through typecheck, a bench or check, a scripted staged run, then a model-driven staged run (`stage_village.py --brain tiered --after N`, Worker1-11 on the test world), then a model-driven run where the exit asks for one):
+
+- [ ] E.0 **Scale safety, all in code** (~1-2 sessions). No behaviour change at 3 agents.
+  - **Model calls:** `complete`, `completeOllama`, `completeAnthropic`, `parseSpec` and `timed()`'s accounting move out of `tieredBrain.ts:75-140` into a world-free `modelCall.ts`. TieredBrain (architect retries included), the controller and society all call it. `modelUsage.ts` stays the ledger, with no imports and no timers.
+  - **Call gate** (in `modelCall.ts`, acquired before `fetch` so the 300 s timeout does not run during the wait):
+    - 3 calls in flight on Pro. One slot is held for human replies, the Mayor's plan and design calls, executor turns and decisions. Ballots, reflections and the chronicle share at most 2.
+    - Priority order: human reply, plan and design, executor turn after a failure, decision, ballot, reflection, chronicle.
+    - A decision's 20 s fallback counts from the call being sent. A request still queued after 60 s is withdrawn unsent and billed nothing. In both cases the fixed order runs (rule 9) and the choice is tagged as a fallback.
+    - Gate wait p90 is logged per call kind.
+  - **Chat routing** (in `mcWorld`, which sees every agent; every bot hears every line today, `botAgent.ts:343`):
+    - Hearing is filtered at 48 blocks, as the chat skill already says. An undefined `distance` (speaker out of view) counts as out of range.
+    - A human line tags 1-3 chosen agents' events with `data.wake: true`: the addressee, else the nearest within 48. The brain wakes only on that flag, not on any non-agent speaker (`tieredBrain.ts:862`).
+    - Name wakes become case-sensitive and match agent names only: today "mayor" in a line wakes the Mayor.
+    - Turn caps per conversation pair.
+  - **Chat in prompts:** chat gets its own short section, so chat lines stop pushing `action_failed` out of the 20-event window.
+  - **Contention failures** (mine busy, ground reserved, tree taken): the skills' errors carry a code (`data.code` in `mcSkills`), not text to match. Every brain treats them as "hand back, back off this resource". They do not go to an executor turn or count toward a give-up.
+  - **Board:**
+    - `refreshNeeds` and `coveredByStock` move from `claimable()` into the storage- and needs-update paths, so `claimable()` becomes a pure read.
+    - A version counter bumps on task, storage-record and needs changes, and idle agents claim only when it moves. TaskBrain claims every tick today (`taskBrain.ts:188`); TieredBrain claims only on a wake.
+    - Done tasks are not archived: prerequisites, `stockCovers`, duplicate checks and completion all read them. Prompts and the panel show only open and recent tasks.
+  - **Saves:**
+    - `villages.json` (`village.ts:342`, written on every change, 2.2 MB in the main world) gets a debounced asynchronous save with a short window. It writes to a temp file and renames it, and flushes on exit. A kill on Windows skips the exit handler, so the window stays short.
+    - The atlas already saves at most every 30 s.
+  - **Token budget:** `MC_TOKEN_BUDGET_HOUR` defaults to 150k x agents (experiments set 250k x agents, below). Each agent gets a share (2x fair) it can borrow against.
+    - As the budget nears, it degrades in order: chronicle, reflections, acts, then menus to the fixed order. Every step is logged as a run event.
+    - Seeded and influencer agents are exempt from share cuts.
+  - **Spend ledger:** append-only, one JSONL file per day, written by `usage.record` and kept across restarts. `MC_SPEND_CAP_USD` (per month, and per programme) is checked in `usage.check`.
+  - **Observations:** `compactObservation` summarises players ("12 villagers within 32; nearest W7, W3") so they do not crowd out animals and drops. The compact summary aggregates reservations.
+  - Evidence: the gap analysis (8 failure modes at 25, all in code); lessons 4, 16 and 32; A.0b's cloud bench (6 calls at once ran 4x slower; over the queue size requests are rejected).
+  - Exit:
+    - VanH4's staged run is unchanged in time.
+    - A scripted test with 12 bots and a human line makes 1-3 calls, not 12.
+    - 25 concurrent calls through `modelCall.ts`: no rejection, priorities and the held slot honoured in the log, and withdrawn requests never sent.
+- [ ] E.1 **Infrastructure for 25 and the panel** (~1 session).
+  - **Paper:** `max-players=30` in `mc/server` and `mc/testserver`.
+  - **Whitelist:** Worker5-24 on the main server; Worker12-24 on the test server, which already has Worker5-11.
+  - **Spawns:** staggered, one every 2-3 s.
+  - **Pathfinder:** the patch-package patch is extended so `AStar.compute()` reads a shared, process-wide per-tick allowance on every call. `tickTimeout` is copied into each search when it starts, so setting it per tick would never reach a search already running. The allowance is 15-20 ms a tick, round-robin, tuned by the probe. find_site and prepare_site scans are staggered.
+  - **RCON:** every request gets a timeout. Today one lost reply over the one serialised socket stalls every agent. If the probe shows queueing, a pool of 2-3 connections keeps each agent's commands in order.
+  - **Probe:** `scale_probe.py` is extended to 18 and 25 bots on the test world, with builds, deposits, find_site and model calls. It records:
+    - RSS, `mspt` and `[lag]`;
+    - the API's p90;
+    - RCON queue depth and p90;
+    - `/api/overview`'s size and serialise time.
+  - **Panel at 25:**
+    - `?agents=` on `/api/maps` and `/api/overview`, so maps (about 2 ms each) are computed only for visible cards;
+    - prompts and replies moved to a per-agent drill-down endpoint;
+    - designs sent once with an ETag;
+    - a compact grid filtered by activity;
+    - a village feed of choices and acts;
+    - per-agent token rows;
+    - later, E.5's social tab: inbox, commitments, profiles, board, ballots, rules with compliance, lore with adoption curves, and the interaction graph.
+  - Evidence: A.0b (12 bots: 0 `[lag]`, Paper tick 2.9 ms worst, but collecting only); the cost model's risk list (pathfinder bursts, synchronous saves, an unmeasured 0.3-0.6 GB of RSS); lesson 16.
+  - Exit:
+    - 25 bots work for 10 minutes with no `[lag]` over 3.5 s, API p90 under 0.1 s, `mspt` under 25, and RCON p90 under 50 ms with builds and deposits running.
+    - The panel's screenshot is readable at 25 cards (headless Edge).
+    - If stalls show, worker threads come before a second process: two writers would overwrite each other's whole-file saves.
+- [ ] E.2 **Agent state, memory and the clock** (~1 session; takes A.4's journal, table and clock).
+  - **`memory.intent = {kind, what, why, since, source}`:** written by the controller, and by `mcWorld`'s `setChore` directly (chores run in the world, so no hook is needed). Today chores bypass the brain and an agent cannot say what it is doing.
+  - **Stores** (`social.ts`), keyed by village, run id and agent:
+    - append-only JSONL for the choice and commitment ledgers;
+    - a debounced temp-and-rename snapshot of the per-agent journal (typed, importance by code, capped per agent) and the per-kind table (attempts, successes, minutes, yield).
+
+    Memory use is bounded. A run starts empty unless a carry-over is configured. `reset_site.py` clears the entries of the villages it removes.
+  - **Village clock** (`society.ts`): a 20-minute day (Minecraft's day at 1x). Dawn: the intention. Day: decisions. Dusk: the ballot window. Night: reflections. Every agent has its own offset inside each window. Bodies keep working throughout.
+  - **Logs:** every decision, act, ballot and cultural use goes to a per-run `acts.jsonl` beside A.1's `[choice]` JSONL, with the full logged prompt for each call.
+  - **Respawn:** `respawn_agents.py VILLAGE` brings back 25 named agents after an agent-server restart without `reset`.
+  - Evidence: PIANO's shared Agent State; the gap analysis (no current intention, nothing persisted, `memory.notes` rewritten wholesale).
+  - Exit:
+    - An agent server restart mid-run, followed by a respawn, keeps every agent's journal and table.
+    - The panel shows each agent's intent during chores.
+- [ ] E.3 **Social awareness** (~1 session; replaces A.3's "others" bullet).
+  - **The awareness block** (`social.ts` `awareness(agent)`), capped at about 300 tokens:
+    - counts by activity kind ("mining 6; farming 3; pens 0, nobody");
+    - up to 5 profiles, chosen in this order: open acts with this agent, nearby, most interactions;
+    - Riedl's sentence: "consider what the others are doing and have promised".
+
+    The village's needs (A.3's gauges) are not part of the block and go into every prompt in every condition.
+  - **Profiles** (about 25 tokens each), kept by code from what the agent saw or heard as verified fact: top 2 kinds, kept or broken commitments to it, helped or helped-by, last met. The model edits only `feel` (-2..2) and a 12-word note, at reflection, at most 3 edits a night. "Top 2 kinds" is close to a role label, so the prompt audit logs it as role-adjacent.
+  - **Roles inferred in code:** the modal kind over the last 5 model choices. They are shown back to the agent ("you have become the village's miner") only in E.8's condition (e).
+  - **Switch `MCAI_SOCIAL`:**
+    - `on`;
+    - `noblock`: the block removed, nothing else;
+    - `countsonly`: profiles removed;
+    - `off`: all social perception removed. That covers the block, A.2's "who else is on it", in-flight picks, the inbox, gossip and acts. Reservations and F193 keys stay, since they are mechanical.
+
+    Each condition's prompt diff against `on` is logged.
+  - Evidence: Sid's ablation (roles "did not persist ... and were homogeneous" without the social modules); Riedl (differentiation came from prompt content); the cost model (25x24 LLM profiles add O(n²) calls, while code profiles cost none).
+  - Exit:
+    - A prompt-size test holds the cap at 25 agents.
+    - Scripted staged runs at each switch setting differ from `on` only in the listed fields.
+- [ ] E.4 **The controller: coherence and goal generation** (~1-2 sessions; extends A.2's `choose`).
+  - **`controller.ts` `decide(agent, point)`** takes these inputs:
+    - the persona line (identical in test conditions) and the community goal;
+    - the agent's last 5 choices with their outcomes;
+    - E.3's awareness block and the gauges;
+    - the rules in force;
+    - at most 4 inbox items;
+    - at most 3 lessons;
+    - A.2's options, which include open requests addressed to the agent, open commitments, and a "propose" option (from A.5's step on).
+
+    It returns `{reason, choice, act?, say?}` at low reasoning, with the choice as a schema enum. A size test fails if the full prompt at 25 agents goes over its budget (3.5k tokens).
+  - **Rate:**
+    - Model decisions come at least 90 s apart per agent, capped at 30 an hour. A chore that ends sooner repeats its instance, tagged `repeat`, until the interval has passed.
+    - A choice that ends in under 30 s with zero yield counts as a failure toward the kind's cooldown.
+    - Every ledger entry is tagged with its source: model, repeat, timeout, withdrawn, budget, invalid or scripted.
+  - **Coherence checks** in code:
+    - A `say` must concern the chosen option or the carried act. Off-topic lines are dropped and the drop rate is logged per condition. Typed `advocate` acts (for or against a rule) and `saying` acts are exempt from this filter and budgeted by the validator.
+    - A promise in `say` with no act becomes an offer if it is well formed, and is dropped otherwise.
+    - Open commitments head the menu ("you promised W4 10 logs, due in 6 min"). One that passes its due time closes as broken, and the counterparty gets a report.
+  - **Goal generation:**
+    - the nightly intention (E.6) becomes a menu weight;
+    - an event-triggered goal refresh, at most once in 10 minutes, after 3 failures, a request, a new sighting or a vote result, at each agent's own offset;
+    - the propose slot.
+
+    Never on a timer.
+  - **Against herding:** only the reservation step is serialised, and it runs in code. An option is reserved when its decision starts (lesson 4's claim before planning). In-flight picks are shown, except under `MCAI_SOCIAL=off`. A pick taken in the meantime gets one re-ask. Options are shuffled with a seeded RNG. Up to 3 calls run at once.
+  - **Scripted controller:** a deterministic seeded picker over the same menus and keys. It emits acts, proposals and ballots from a script, so every later step's plumbing can be tested without models. It is also E.8's null picker.
+  - **Build phase:** workers keep run-as-written and central assignment. A code dispatcher hands out the board at 25. The Mayor keeps layout and `add_need`; its summary is O(agents + tasks), estimated at 8-15k tokens at 25.
+  - Evidence: Sid's CC ("say one thing but do something else"); MineCollab and TeamCraft (central assignment kept redundancy at 0.01); CAREB-MAS (authority follows agenda control).
+  - Exit:
+    - `socialbench.mts` (at least 10 samples a case, lesson 20): at least 95% valid; `say` consistent with the choice at least 90% before the drop filter; no position over 1.5x chance.
+    - In a model-driven staged 12-agent after-phase: no two agents hold the same instance, no stall, and a fallback share of 5% or less.
+- [ ] E.5 **Acts, the board and proximity talk** (~1-2 sessions; replaces A.6's acts).
+  - **Channels**, all in design C's types in `social.ts`:
+    - typed private acts: request, offer, accept, decline, release, report;
+    - a notice board, shown as a ranked digest of 4 items;
+    - proximity inform, gossip, `advocate` and `saying`, heard within 16 blocks;
+    - name acts.
+  - **One validator** for every act:
+    - **budget:** the day limits of design C §7.2;
+    - **loop guard:** the same act twice in an hour is refused;
+    - **claims:** every claim (stock, sighting, did, kept or broke, place) is checked through `WorldAdapter.verifyClaim?`. A false claim is refused and the speaker told the truth, and the refusal counts toward a fabrication rate;
+    - **local recovery:** storage answers an item request it already covers;
+    - **novelty:** hearers who already know an item are skipped.
+  - **Delivery:**
+    - requests and offers arrive as menu options under F193-style keys;
+    - code closes commitments from world evidence (a deposit seen, a chore done) and writes reports;
+    - verified gossip updates the hearer's `heardKept` and `heardBroke` (local reputation).
+  - **Inbox shaping:** at most 4 items, by priority. No wake for anything but rule 2's exceptions. No social acts while an agent holds a build task, except a help request after its own retry failed.
+  - Evidence: Moltbook (free chat gave parallel monologue); the AI Village (one invented fact spread to every agent); Cross et al. (verified gossip raised cooperation); Shi et al. (agents' announcements are often broken).
+  - Exit:
+    - A scripted staged run: every act type delivered, closed and logged; 0 false claims delivered.
+    - A model-driven staged 12-agent run: requests made and met; acts per agent-hour at or below decisions; a broken commitment's gossip changes a hearer's later choice at least once.
+- [ ] E.6 **Reflection, meetings and rules** (~2 sessions; replaces A.6's meetings and rules, extends A.4's reflection).
+  - **Nightly reflection** (medium reasoning, on E.2's clock with per-agent offsets; A.4's inputs plus touched profiles and gossip heard). It outputs:
+    - lesson edits;
+    - profile edits;
+    - an intention;
+    - at most 1 proposal;
+    - at most 3 endorsements or objections;
+    - at most 1 adopted belief or saying.
+  - **Proposals:** typed, with numeric params in a band code allows. Code writes the neutral text and a dry-run preview over the last 3 days.
+  - **Agenda:** a proposal needs at least 2 endorsements from other agents. No agent may fill more than 25% of the ballot items over 3 days. At most 3 items a meeting.
+  - **Ballot:** secret and simultaneous, one call per agent (options shuffled, reason before choice). Quorum is half the voting members; a rule needs 60%; a tie keeps the status quo. Only aggregates are revealed.
+  - **Rules:**
+    - `quota`, `floor`, `zone` and `duty` are enforced by code (`WorldAdapter.enforceRule?`: options leave the menu, skills refuse and name the rule);
+    - `levy` and `norm` are measured only: compliance is the agents' own choice.
+  - **Personal chests:** `v.personal[agent]`, a structure (builds and site search keep off it) kept outside `storage`, so it never counts as village stock, `withdraw` refuses anyone but the owner, and it is never a home chest.
+    - They are double chests in a small generated hut (`huts.ts`) on the annex, which is prepared after completion.
+    - A gathering chore's end decision offers neutrally named options, "deposit all M logs", "deposit N of your M logs" (the rate in force) and "keep them", recorded as `split: all|levy|keep`. The share is counted on the server (`clear <name> X 0` before and after the deposit).
+    - Personal projects (A.5) may spend from the agent's own chest, so keeping has a use.
+  - Evidence: Sid's appendix pipeline; CAREB-MAS (no single drafter); OASIS (secret ballots against herding); GovSim (resource rules in code); "Corrupted by Reasoning" (gpt-oss may free-ride; E.9 measures it).
+  - Exit:
+    - A scripted staged run holds a vote that changes a code-enforced quota, and the skills obey it.
+    - socialbench ballot and feedback cases at least 95% valid.
+    - The dusk window at 25 clears in about 30 s on Pro without touching the held slot.
+- [ ] E.7 **Culture** (~1 session; replaces A.7's culture).
+  - **Cultural items:** place names (the finder names a feature once a day; competing names coexist, and each agent sees the one it last heard or used), sayings, beliefs and customs.
+  - **A custom is also a menu action** with a world effect code can count: a flower pot beside the agent's door, a torch on the shrine stone at the green. It is offered to every agent from t=0 in every condition, so exposure never adds an option.
+  - **Exposure and adoption:**
+    - Exposure means the key token is present in that agent's logged prompt, whatever the channel.
+    - Adoption is counted from the raw model output (`say`, posts, names, reflection, chronicle), and only when the key token is absent from that call's prompt.
+    - Transmission counts only from lines actually delivered, after a recorded exposure.
+  - **Paths:** every path a token can take into a prompt is listed in code and switchable per item: proximity talk, the board, the chronicle, profile notes, gossip in reflection inputs, proposals and rules, and place names in prompts.
+  - **Lore:** at most 30 active items, evicted least-recently-used.
+  - **Chronicle:** one entry a day by a rotating writer. Code builds a digest of the day's recorded events (at most 3k tokens of counts and top events), and the entry is checked against it. One revision at most; after that the entry is dropped and logged. It is written into a book in the library.
+  - **Seeding API:** `POST /api/village/:v/seed {agents, item, persona}`; seeded agents are marked in the ledger.
+  - Evidence: Generative Agents (a seeded party reached 13 of 25, density from 0.167 to 0.74); Ashery (unseeded conventions by round 15, tipping at committed minorities of 2-67%, and collective bias without contact); Moltbook (no shared memory meant no adaptation).
+  - Exit:
+    - In a model-driven staged 12-agent run, names converge or are measured not to.
+    - The token audit holds with a path switched off.
+    - The user judges a day's chronicle accurate.
+
+**Experiment protocol** (E.8-E.10, fixed before the first run):
+- **Start state:** one post-completion snapshot of a 25-agent village (world region files, `villages.json`, `atlas.json`, an empty `social.json`), restored byte-identically for every run of every condition. Its hash is recorded with each run. There is no build phase, so no unequal histories, no Mayor build turns and no build cost.
+- **Replicates, not seeds:** the cloud model cannot be seeded. Every code RNG (option shuffle, null picker, spawn order) is seeded per replicate and logged.
+- **Analysis:**
+  - Each experiment has one primary metric and one primary contrast, with 5 replicates per arm; secondary conditions get 3.
+  - The test is a one-sided exact permutation test on run-level values (5 against 5: smallest p 1/252) at α 0.05.
+  - The analysis script's hash is committed before the first run.
+- **Run validity** (a run fails any of these and is void and replaced):
+  - fallback share of choices over 5%;
+  - any budget degradation step fired;
+  - the spend cap reached;
+  - a prompt audit failure.
+- **Blocks:** conditions run in randomised blocks, one replicate of each condition per block, order shuffled. The commit hash is frozen per experiment and recorded. The model metadata the API returns and the latency distributions are logged per run. A code change mid-experiment means the primary contrast is re-run.
+- **Metrics:** computed over model decisions only, and over non-seeded agents only. The Mayor is reported separately: its name and history are seeded authority, and its role prompt differs. Each metric is reported beside its value under the null picker.
+- **Budget:** `MC_TOKEN_BUDGET_HOUR` at 250k x agents, so degradation should never fire, with `MC_SPEND_CAP_USD` as the real limit.
+
+- [ ] E.8 **Experiment 1: specialisation** (~1-2 sessions of runs).
+  - **Pilot** (after E.4): 12 agents, (a), (b2) and (c), 1 replicate each. It checks the pipeline, fallback share, cost per hour and decision rate. Its numbers feed the cost table, and no claim is made from it.
+  - **Full run** (after E.7): 25 agents (Mayor, Worker1-24), 90-minute after-phases (4.5 days), the same community goal.
+  - **Conditions:**
+    - (a) `MCAI_SOCIAL=on`, identical personas (5);
+    - (b2) `off`, all social perception removed (5): the Sid replication;
+    - (b1) `noblock` (3);
+    - (f) `countsonly` (3);
+    - (c) null: the scripted controller over the same menus and keys (5, no model cost);
+    - (d) on, distinct persona lines, with A.3's code weights by kind equalised (3);
+    - (e) on, roles shown back at night (3).
+  - **Primary:** the bias-corrected specialisation index I(agent; kind) / H(kind), judged against a permutation null that shuffles agent labels within time windows. The contrast is (a) against (b2).
+  - **Secondary metrics** (`autonomy_metrics.py`, from the choice ledger):
+    - role entropy across agents over time (Sid's measure);
+    - persistence over fixed windows of 5 model decisions, and time-weighted by minutes rather than by calendar day (a 20-minute iron trip fills a day);
+    - the models' own role names from reflection, for comparison only.
+  - **Claims per contrast:**
+    - (a) against (b2) supports a social-emergence claim.
+    - (a) against (b1) and (f) tests the block's content and its profiles.
+    - (a) or (b2) against (c) supports only "the model plus its own history and code ranking (last 5 choices, success rates, mine holders) yields persistence".
+    - (d) is a manipulation check.
+  - **Prompt audit** (`prompt_audit.py`), which fails a run on a leak:
+    - in (a)-(b2), any inferred role label ("the village's miner", "you have become") outside the fixed prompt templates, and "top 2 kinds" logged;
+    - in (b2), any other agent's name or activity in any prompt.
+  - Exit: (a) beats (b2) on the primary at p < 0.05; or the finding that it does not, recorded with the numbers.
+- [ ] E.9 **Experiment 2: a rule changed by vote, and its compliance** (~1-2 sessions of runs).
+  - **Setup:** 25 agents, 100-minute runs, a `levy` rule starting at 20%. The agenda is opened to levy proposals on day 2. Ballot at day 2's dusk; days 3-5 under the result.
+  - **Influencers:** 3 of 25 (Sid's 12%) get a persona line for or against the levy and speak through E.5's `advocate` act in proximity talk. They do not vote, and the log notes whether their votes could have swung the ballot.
+  - **Conditions:**
+    - voted, pro influencers (5);
+    - imposed: code applies each voted run's resulting rate at the same moment, with no vote (5, yoked);
+    - voted, anti influencers (3);
+    - frozen rule (3);
+    - voted with `MCAI_SOCIAL=off` (3).
+  - **Primary:** P(deposit all or the rate) against P(keep) per trip on days 3-5, over non-seeded agents. This does not depend on the rate. The contrast is voted (pro) against imposed: the vote's own effect.
+  - **Secondary:**
+    - the deposited share per trip from server counts, before and after;
+    - share of trips at or above the rate in force;
+    - voted against frozen;
+    - the direction of pro against anti.
+  - **Missing treatment:** a run with no levy item on the ballot or no quorum is reported as a "no vote" outcome and replaced, up to 2 per condition. Beyond that, the finding is that votes do not happen.
+  - Exit: the primary contrast at p < 0.05 with pro and anti in the predicted direction; or a free-riding or option-following finding for gpt-oss, recorded.
+- [ ] E.10 **Experiment 3: culture spreading** (~1-2 sessions of runs).
+  - **Setup:** 25 agents, 90 minutes. A saying and its custom are seeded in committed agents.
+  - **Conditions:**
+    - k = 4 committed (5);
+    - channel-off: every path in E.7's list off for the item and for place names, which also serves as the naming null with no transmission (5);
+    - neutral exposure: code announces the saying to the same exposure sets, with no committed agent, to measure the base echo rate (3);
+    - unseeded (3);
+    - k = 2 (3);
+    - k = 6 (3).
+  - **Primary:** custom uptake counted in the world among non-seeded agents by the run's end. The contrast is k = 4 against channel-off. The token audit must show the key token in no non-seeded prompt in channel-off.
+  - **Secondary:**
+    - keyword adoption by E.7's rule;
+    - adoption curve and time to 50% from exposure sets;
+    - conversion of exposure into adoption;
+    - interaction-graph density by day;
+    - naming convergence as the excess of the modal-name share over channel-off's.
+  - **Optional:** a between-group comparison with two villages of 12 and 13 (the second Mayor named "Mayor2", whitelisted), given neutral names so a name cannot prime the culture.
+  - Exit: the primary at p < 0.05, and naming convergence measured against its null.
+
+**Cost per hour** (gpt-oss at $0.15 in and $0.60 out per million tokens, Pro's 3 slots; to be recomputed from the pilot and A.1's measured chore lengths):
+
+| Item | Calls per agent-hour | Tokens in / out per call |
+|---|---|---|
+| Decisions (A.2, carrying the act and the line) | 12 (cap 30) | 3.1-3.5k / 0.3k |
+| Idle wakes by a request | about 0.5 | 3.1k / 0.3k |
+| Ballots | about 2 | 2k / 0.2k |
+| Reflections (3 days an hour) | 3 | 6k / 1k |
+| Executor turns after failures | 2-6 | 3k / 0.25k |
+| Chronicle | 0.12 | 5k (capped digest) / 0.6k |
+
+- **Typical, 25 agents:** about 500-650 calls an hour, about 1.9M tokens in and 0.2M out, about **$0.40 an hour**.
+- **Failure-heavy, with decisions at the cap:** about $0.70 an hour. That is within the experiment budget of 6.25M tokens an hour.
+- **Load:** steady use takes about 15-22% of Pro's slots. Peaks: about 30 s of queue at dusk and about 100 s at night, spread over per-agent offsets. The held slot keeps decisions out of those queues.
+- **The programme, counted from the matrix above** (snapshot starts, no build phases):
+
+  | Experiment | Model runs | Run-hours |
+  |---|---|---|
+  | E.8 pilot | 2 | 3 |
+  | E.8 full | 22, plus 5 null runs at no model cost | 33 |
+  | E.9 | 19 | 32 |
+  | E.10 | 22 | 33 |
+
+  That is about 100 model run-hours, about $40-70. With E.0-E.7's runs and socialbench on top, it spans two months of the $60 credit, under the spend cap.
+  - If the pilot's cost per hour runs high, the first cuts are E.10's k = 2 and k = 6 and E.8's (f).
+  - A build phase at 25 (for the snapshot) adds executor and Mayor turns: record them.
+- **Rejected:** Sid's 5-10 s cadence would cost about $5 an hour, 28M tokens, and saturate Pro.
+
+**Decisions (Claude's, the user away):**
+1. **Event-driven decisions, not PIANO's concurrent modules on a clock.** Sid's cadence costs 14x the budget and saturates Pro, and our skills run to completion anyway. What PIANO lacks in our stack is the bottleneck, not concurrency. Decisions get a floor of 90 s and a cap of 30 an hour.
+   - Rejected: Sid's cadence; a 60 s social cadence (3.5x the budget).
+2. **Social awareness built by code, model profiles edited only at night.** It is free, cannot hallucinate, and is what Sid's ablation turned off.
+   - Rejected: LLM likeability profiles for 600 pairs; batched social calls for 5 agents, which correlate the agents' goals and work against independent specialisation.
+3. **Roles labelled from code activity kinds.**
+   - Rejected: GPT-4o-style role inference from goals, which is an LLM grading LLM output.
+4. **No free chat.** Typed acts, proximity talk, a board and secret ballots, with at most one act a decision. Evidence: lesson 4, Moltbook, MineCollab.
+   - Rejected: talk-driven coordination; chat waking listeners.
+5. **No LLM election manager, and the Mayor is an ordinary member after completion.** Agenda power is spread by endorsements and a 25% cap (CAREB-MAS), and the Mayor is reported apart from the metrics.
+   - Rejected: Sid's neutral drafter; the Mayor as convener.
+6. **Compliance must be the agents' choice for a replication to mean anything.** Hence personal chests outside village storage, a measured levy with neutral option names, and an imposed control beside the vote.
+   - Rejected: enforcing the levy in code, which makes compliance trivially 100%.
+7. **One village of 25 for E.8 and E.9.** Two villages only for E.10's optional between-group comparison, with neutral names.
+   - Rejected: districts of 5-8 from the start, which would dilute both experiments.
+8. **One agent server and Pro.** The gate, its held slot and budget shares come first.
+   - Rejected for now: a second process (two writers to whole-file saves) and the Max plan (needed only for a social cadence of 60 s or less, or several villages of 25).
+9. **Claims are differences from controls, fixed before the runs.** Every experiment runs from one snapshot, with a pre-registered primary metric and test, 5 replicates against a full social ablation and a null picker, and validity checks on fallbacks and degradation. Seeded content is reported as seeded, and seeded agents are left out of the outcomes. Sid's reception called its culture "prompt engineering". Our claims are differences from controls, not anecdotes.
+
+Order and size: about 13-16 sessions in all.
+1. E.0 and E.1, beside Phase S.
+2. A.1-A.2, then A.3's gauges.
+3. E.2, E.3 and E.4, then E.8's pilot.
+4. A.5, then E.5, E.6 and E.7.
+5. The snapshot, then E.8's full run, E.9 and E.10.
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
@@ -1701,6 +2442,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10 (s26) | **A.0 benches** | gpt-oss:120b-cloud at think low and medium against the local models, N=10 a case (`runs/2026-10-10/s26/bench/`) | executor: qwen3:30b 40/40 (1.7 s), gpt-oss low 30/40 (0/10 "step already done": asks for a replan), medium **40/40** (1.9 s); worker plans: qwen3.8 29/30 (9.7 s), gpt-oss low **30/30** (1.8 s), medium 28/30; mayor: low **105/150**, medium 90/150 (medium re-posts instead of waiting: "layout under way" 0/10 against 6/10, "requeued" 4/10 against 10/10); designs: 50/50 valid at both, 7 retries at medium, 26 at low | defaults **exec medium, plan low, design medium** | concurrency: 3 calls at once 1.1x slower, 6 at once 4x (3.7 s worst), no 429s; the cloud ignores `num_ctx` (an 18,292-token prompt read whole) |
 | 10-10 (s26) | **VanA0** | staged, 2x, minevale3, `--mayor --after 12 --fixtures`, A.0's code (gpt-oss mayor) | 3/3 + annex, a chicken pen (2 led in 9 hops), a chick bred, an egg | complete at **2.9 min** | 0 failed; no model call (staged layout through the API); the STOPPED and USAGE lines print |
 | 10-10 (s26) | **Minevale37** | model-driven, 1x, minevale3, **every role on gpt-oss** at the A.0 defaults, `MCAI_AFTER=30`; `random_tick_speed 30` set by RCON at completion (the user's choice), stopped at +10.2 by the user's choice | **6/6 + lamps + signs + farm**; after: a chicken pen (2 led in), bred to 3, 2 eggs; 3 scouts (one home from water by teleport); an iron trip (stairs to y 18, coal, no iron yet); **the wheat harvested at +10.2** (13 ripe; it never ripened unaided in 30 min before) | **10.4 min** (Minevale36 10.6), site -1630,35 | **0 failed actions**; 4 `[stuck]`, 1 `[dig]`, 0 `[lag]`; **3 model calls in all** (the Mayor: 2 plans, 1 executor turn), 7,494 tokens in, 561 out, **~$0.0015** |
+| 10-10 (s26) | **Van12a** | staged, 2x, minevale3 at Minevale37's site (`--site-at=-1630,65,35,40,birch`), street plan, plains houses 1 and 3 and library 2, `--mayor --planner none --workers 11` (12 agents) | 6/6 + lamps + signs + farm | **6.1 min** | 1 failed (storage hut short of a furnace's cobblestone, requeued); 7 of 11 workers and the Mayor idle after 3.0-4.6 min; the serial chain: plot 1.1, mining hut 1.2, stairs 2.1, cobblestone emptied by 3.8, last house 3.9-5.9, signs 6.1 |
+| 10-10 (s26) | **Van3a** | the same as Van12a with `--workers 2` (3 agents) | 6/6 + lamps + signs + farm | **6.0 min** | 1 failed (the Mayor stuck on a deposit walk); **12 agents = 3 agents**: the build is a serial chain and the objective gives ~6 build tasks (Phase S) |
 
 ## Findings log
 
@@ -3046,6 +3789,17 @@ CLAUDE.md when a phase ends.
   timers where walking speed does not matter; digging stays on the wall clock (F91). Proposed: an `MCAI_FAST=1` switch
   for the watch and stage scripts in place of `MCAI_RIPEN`; A.8's comparisons use one fixed setting for every variant.
   Minevale37 was stopped at +10.2 after completion (the user's choice: no need to wait out the 30 minutes).
+- 10-10 (s26) The user's goals, set while the session ran: 12, then **25 agents doing many different activities in
+  parallel**, task chains broken where logical, **more kinds of work** ("research, advanced manufacturing, spell book
+  development, and others typical in the game"), and **Project Sid-style emergence** through the brain and
+  communication architecture. The user then went away and let Claude decide.
+- 10-10 (s26, Claude's) Phase S and Phase E designed by two workflows (two designs judged and merged for S; Sid
+  replication, gap, communications and cost analyses for E; three adversarial reviews each; the material in
+  `runs/2026-10-10/s26/phase{S,E}_*.md`) and merged with Phase A under one roadmap. Research is read as surveys and
+  yield experiments, advanced manufacturing as a workshop of crafting and smelting chains, spell book development as
+  the library and the enchanting table (obsidian by lava casting, diamonds from the deep mine); brewing needs a blaze
+  rod from the Nether and stays out. Agents beyond Worker4 are named Worker5-24 (whitelisted per world); Paper's
+  max-players (16) is raised before 25. Emergence claims rest on ablations and null baselines measured by code.
 
 ## Keeping this plan honest
 
