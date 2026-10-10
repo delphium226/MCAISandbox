@@ -580,7 +580,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /**
    * A chicken pen on the annex (10-09; v1: one pen with chickens a village): a free annex slot (or a pen left empty) is
-   * started from the nearest chickens seen in the last 30 minutes within 96 blocks of the storage, off every village's
+   * started from the nearest chickens seen in the last 30 minutes within 96 blocks of the annex, off every village's
    * ground (penned ones are seen too, the pen review's H3; the skill finds the seeds to lure them with); 10
    * minutes after a failure, given up after 3 (`annex.penBy`, by kind).
    */
@@ -590,11 +590,12 @@ export class MineflayerWorld implements WorldAdapter {
     if (!lay || ax?.state !== 'ready') return false;
     const now = Date.now();
     const slots = (lay.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
-    const chest = v.storage?.chests[0];
-    const home = chest ? { x: chest.x, z: chest.z } : villageHome(v, worker.memory);
-    if (!home) return false;
+    // (measured from the annex, where the pens are: Minevale35's only cow stood 96.4 from the storage chest, F205)
+    const home = { x: (ax.x1 + ax.x2) / 2, z: (ax.z1 + ax.z2) / 2 };
     const store = storageContents(v);
-    // (at about the annex's level, as the skill takes them, and not near a sighting that failed: review M3)
+    // (from 4 below to 8 above the pen's level, level ones first, and not near a sighting that failed: review M3. Animals
+    // follow a lure down any walkable slope or stair but not off a sheer face; the snapshot's within 96 stood at most 8
+    // above, all with a way down, F205)
     // (an entry is "x,z,time": animals wander, so a failed spot is forgiven after an hour)
     const bad = (ax.penBad ?? []).map((s) => (s.includes(':') ? s : `chicken:${s}`).split(':')).map(([k, c]) => [k, ...c.split(',').map(Number)] as [string, number, number, number])
       .filter(([, , , t]) => !t || now - t < 60 * 60000);
@@ -610,8 +611,9 @@ export class MineflayerWorld implements WorldAdapter {
       else if (by && (by.tries >= 3 || now - by.at < 10 * 60000)) continue;
       const pick = slots.find(({ slot }) => slot.kind === kind && !slot.laying) ?? slots.find(({ slot }) => !slot.kind);
       if (!pick || slotBusy.has(`${v.name}:1:${pick.j}`)) continue;
-      const seen = this.atlas.animalSightings(kind, home.x, home.z, 96, 30 * 60000, (x, z) => onVillageGround(worker, x, z) || bad.some(([bk, bx, bz]) => bk === kind && Math.hypot(x - bx, z - bz) <= 8))
-        .find((s) => Math.abs(s.y - (ax.y + 1)) <= 4);
+      const near = this.atlas.animalSightings(kind, home.x, home.z, 96, 30 * 60000, (x, z) => onVillageGround(worker, x, z) || bad.some(([bk, bx, bz]) => bk === kind && Math.hypot(x - bx, z - bz) <= 8));
+      const dy = (s: { y: number }) => s.y - (ax.y + 1);
+      const seen = near.find((s) => Math.abs(dy(s)) <= 4) ?? near.find((s) => dy(s) >= -4 && dy(s) <= 8);
       if (!seen) continue;
       const [x, y, z] = [Math.floor(seen.x), Math.floor(seen.y), Math.floor(seen.z)];
       this.setChore(v, worker, 'pen', [worker.enqueue('start_pen', { layout: 1, slot: pick.j, kind, x, y, z, chore: true })], `start a ${kind} pen`);

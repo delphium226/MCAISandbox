@@ -167,6 +167,12 @@ p.add_argument("--after", type=float, default=0, help="keep watching this many m
 p.add_argument("--fixtures", action="store_true", help="before the run, put sugar cane (with water), pumpkins and a melon "
                                                        "on the ground 35-45 blocks off the site by command (sightings to farm), "
                                                        "and summon 4 chickens there (tagged stagefix, to lure into a pen)")
+p.add_argument("--fixture-dy", default="-2:2", help="with --fixtures: LO:HI, the chickens' and cows' ground LO..HI above "
+                                                   "the site's level (5:8 puts them on a rise above the annex, F205)")
+p.add_argument("--fixture-at", default="", help="with --fixtures: X,Z for the chickens and cows instead of a search (still "
+                                                "checked against --fixture-dy; use = for a negative X)")
+p.add_argument("--fixture-clear", action="store_true", help="with --fixtures: kill the chickens and cows within 120 of the site "
+                                                            "first, so only the fixtures can fill a pen (F205's review H2)")
 p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
 p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
                                           "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
@@ -547,18 +553,39 @@ def summon_chickens():
     site's centre (off the other fixtures), on ground within 2 of the site's level: VanA1's spot was a hill 10 above the
     annex, and chickens up there were out of the bot's tempt range and would not come down."""
     gy = site.get("y", 64)
+    lo, hi = (int(v) for v in args.fixture_dy.split(":"))
+    if args.fixture_clear:
+        sx_, sz_ = int(site["x"]), int(site["z"])
+        rcon(f"forceload add {sx_ - 120} {sz_ - 120} {sx_ + 120} {sz_ + 120}")
+        time.sleep(3)
+        for kind in ("chicken", "cow"):
+            print(f"FIXTURE clear {kind}: {rcon(f'kill @e[type={kind},x={sx_},y={gy},z={sz_},distance=..120]')}", flush=True)
+        rcon(f"forceload remove {sx_ - 120} {sz_ - 120} {sx_ + 120} {sz_ + 120}")
     best = None
-    for dx, dz in ((-38, -8), (-38, 8), (-42, 20), (-10, -42), (20, -40), (40, 20), (-42, -24), (10, 42)):
+    # (the usual spots, then rings 45-60 out for ground above the site: F205's chickens and cow stood 5-8 above the annex;
+    # within 60 so the pen chore's 96 from the annex (25-30 off the centre) covers them; soil only, not a tree's crown:
+    # review H1)
+    spots = [(-38, -8), (-38, 8), (-42, 20), (-10, -42), (20, -40), (40, 20), (-42, -24), (10, 42)]
+    spots += [(round(r * math.cos(a * math.pi / 8)), round(r * math.sin(a * math.pi / 8))) for r in (45, 52, 60) for a in range(16)]
+    if args.fixture_at:
+        fx, fz = (int(v) for v in args.fixture_at.split(","))
+        # (a few blocks round it: a tree or a step there, VanH1)
+        spots = sorted(((fx + ox - int(site["x"]), fz + oz - int(site["z"])) for ox in range(-6, 7, 2) for oz in range(-6, 7, 2)),
+                       key=lambda d: abs(d[0] + int(site["x"]) - fx) + abs(d[1] + int(site["z"]) - fz))
+    for dx, dz in spots:
         x, z = int(site["x"]) + dx, int(site["z"]) + dz
         rcon(f"forceload add {x - 1} {z - 1} {x + 1} {z + 7}")
         time.sleep(1)
         gs = [ground_at(x, z + 2 * i, gy) for i in range(4)]
+        # (grass_block is not in 26.1's #minecraft:dirt: VanH2 found no spot on a grassy rise)
+        soil = all(g is not None and lo <= g - gy <= hi for g in gs) and all(any("passed" in rcon(f"execute if block {x} {g} {z + 2 * i} {b}").lower() for b in ("minecraft:grass_block", "#minecraft:dirt"))
+                   for i, g in enumerate(gs))
         rcon(f"forceload remove {x - 1} {z - 1} {x + 1} {z + 7}")
-        if all(g is not None and abs(g - gy) <= 2 for g in gs):
+        if soil and all(lo <= g - gy <= hi for g in gs):
             best = (x, z, gs)
             break
     if not best:
-        print("FIXTURE chicken: no spot within 2 of the site's level", flush=True)
+        print(f"FIXTURE chicken: no spot {lo}..{hi} above the site's level", flush=True)
         return
     x, z, gs = best
     rcon(f"forceload add {x - 1} {z - 1} {x + 1} {z + 7}")

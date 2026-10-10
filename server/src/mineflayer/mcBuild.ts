@@ -2635,7 +2635,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   if (!spec) throw new Error(`start_pen: no pen for ${kind} (${PEN_ORDER.join(', ')})`);
   const lure = spec.lure;
   if (slot.kind && slot.kind !== kind) throw new Error(`start_pen: farm slot ${j} already holds ${slot.kind}`);
-  const sx = Math.floor(num(args.x, 'x')), sz = Math.floor(num(args.z, 'z'));
+  const sx = Math.floor(num(args.x, 'x')), sy = Math.floor(num(args.y, 'y')), sz = Math.floor(num(args.z, 'z'));
   const P = penPlan(slot, slot.face ?? 'n');
   const y = plot.y + 1;
   const name = a.name;
@@ -2659,7 +2659,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const gate = (open: boolean) => `${wood}_fence_gate[facing=${P.facing},open=${open}]`;
   let gateOpen = false, held = 0;
   const mv = a.moves();
-  const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers, allowSprinting: mv.allowSprinting };
+  const saved = { canDig: mv.canDig, scafoldingBlocks: mv.scafoldingBlocks, allow1by1towers: mv.allow1by1towers, allowSprinting: mv.allowSprinting, maxDropDown: mv.maxDropDown };
   const notes: string[] = [];
   try {
     slotBusy.add(key);
@@ -2719,11 +2719,17 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     }
     const seeds = Math.min(LURE_SEEDS, await serverCount(a, lure));
     if (!seeds) throw new Error(`start_pen: no ${lure} to lure the ${kind}s with (the storage holds none${lure === 'wheat_seeds' ? ', and none came from the grass' : ''}${notes.length ? `: ${notes.join('; ')}` : ''})`);
-    // To the chickens
+    // To the animals, up to their height (F205: up to 8 above the pen; a walk that stopped at a ledge's foot left them out of
+    // the 4 in y they are chosen from), without a dirt tower (a sheer face they could not come down); on no path, near
+    // them across as before
     const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
-    await walk(a, new goals.GoalNearXZ(sx, sz, 4), `the ${kind}s at ${sx},${sz}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+    await walk(a, new goals.GoalNear(sx, sy, sz, 4), `the ${kind}s at ${sx},${sy},${sz}`, signal, 30000 + 700 * Math.round(far), { scaffold: false }).catch(async (e: Error) => {
       if (e.message === 'cancelled') throw e;
       notes.push(`walk: ${e.message.slice(0, 100)}`);
+      if (/no path/i.test(e.message))
+        await walk(a, new goals.GoalNearXZ(sx, sz, 4), `the ${kind}s at ${sx},${sz}`, signal, 30000 + 700 * Math.round(Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz))).catch((er: Error) => {
+          if (er.message === 'cancelled') throw er;
+        });
     });
     // The lure in the off-hand, by command (an empty one only)
     if (/passed/i.test(await rcon(`execute if items entity ${name} weapon.offhand *`))) throw new Error('start_pen: the off-hand holds something already');
@@ -2736,31 +2742,35 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     // ones on a hill 10 above it were out of the 10 blocks a chicken is tempted from, and do not come down a drop (VanA1)
     const me = () => a.bot.entity.position;
     const flat = (e: { position: Vec3 }) => Math.hypot(e.position.x - me().x, e.position.z - me().z);
+    // (within 9 in 3D: the tempt rule's 10 with a margin, F205's review M5)
     const near = (r: number) => Object.values(a.bot.entities)
-      .filter((e) => e.name === kind && flat(e) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
+      .filter((e) => e.name === kind && e.position.distanceTo(me()) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
       .sort((p, q) => flat(p) - flat(q));
     const where = (ids: number[]) => ids.map((id) => (a.bot.entities[id] ? `${at(a.bot.entities[id].position)} (${a.bot.entities[id].position.distanceTo(me()).toFixed(1)})` : `${id} gone`)).join(', ');
-    let chosen = near(10).slice(0, 4).map((e) => e.id);
+    let chosen = near(9).slice(0, 4).map((e) => e.id);
     if (!chosen.length) {
       // (they wander: to the nearest within 24 at any height, then a second look)
       const e = Object.values(a.bot.entities).filter((c) => c.name === kind && flat(c) <= 24 && !onVillageGround(a, Math.floor(c.position.x), Math.floor(c.position.z))).sort((p, q) => flat(p) - flat(q))[0];
       if (e) {
-        await walk(a, new goals.GoalNearXZ(Math.floor(e.position.x), Math.floor(e.position.z), 3), `the nearest ${kind}`, signal, 20000).catch((er: Error) => {
+        await walk(a, new goals.GoalNear(Math.floor(e.position.x), Math.floor(e.position.y), Math.floor(e.position.z), 3), `the nearest ${kind}`, signal, 20000, { scaffold: false }).catch((er: Error) => {
           if (er.message === 'cancelled') throw er;
         });
         await sleep(1500, signal);
-        chosen = near(10).slice(0, 4).map((c) => c.id);
+        chosen = near(9).slice(0, 4).map((c) => c.id);
       }
     }
-    if (!chosen.length) throw new Error(`start_pen: no ${kind} within 10 blocks of ${at(me())} (seen at ${sx},${sz})`);
+    if (!chosen.length) throw new Error(`start_pen: no ${kind} within 9 blocks of ${at(me())} (seen at ${sx},${sy},${sz})`);
     const led = chosen.length;
     console.log(`[pen] ${name}: leads ${led} ${kind}${led > 1 ? 's' : ''} from ${at(me())}: ${where(chosen)}`);
-    // Home in hops: no digging, building or sprinting on the way (they keep up at ~2.5 m/s, the bot walks 4.3)
-    Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, allowSprinting: false });
+    // Home in hops: no digging, building or sprinting on the way (they keep up at ~2.5 m/s, the bot walks 4.3), and no drop
+    // over 3, the most an animal's own path takes (a 6-block face held them at its edge; F205's live facts)
+    const startY = me().y;
+    Object.assign(mv, { canDig: false, scafoldingBlocks: [], allow1by1towers: false, allowSprinting: false, maxDropDown: 3 });
     const [ax, az] = P.approach;
     const dist = () => Math.hypot(me().x - (ax + 0.5), me().z - (az + 0.5));
     const maxHops = Math.ceil(dist() / 4) + 15;
     let hops = 0, still = 0;
+    const away = new Map<number, number>();
     while (dist() > 1.5) {
       checkAbort(signal);
       if (++hops > maxHops) throw new Error(`start_pen: could not lead the ${kind}s home in ${maxHops} hops (${Math.round(dist())} blocks short)`);
@@ -2773,25 +2783,32 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       a.bot.pathfinder.setGoal(null);
       a.bot.clearControlStates();
       still = from.distanceTo(me()) < 1 ? still + 1 : 0;
-      if (still >= 4) throw new Error(`start_pen: stuck at ${at(me())} on the way home with the ${kind}s`);
-      // Wait for them (at most 8 s); one lost (gone or over 12 away) is left behind
+      if (still >= 4) throw new Error(`start_pen: stuck at ${at(me())} on the way home with the ${kind}s${startY - y > 4 && me().y - y > 3 ? ` (no way down with drops of 3 or less from y ${Math.floor(startY)})` : ''}`);
+      // Wait for them (at most 8 s); one lost (gone or over 12 away) at the end of two waits in a row is left behind (one
+      // coming down a slope the long way trails for a hop: F205's review M3)
       const w0 = Date.now();
       while (Date.now() - w0 < 8000) {
-        chosen = chosen.filter((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 12);
-        if (chosen.every((id) => a.bot.entities[id].position.distanceTo(me()) <= 4)) break;
+        if (chosen.every((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 4)) break;
         await sleep(250, signal);
       }
+      chosen = chosen.filter((id) => {
+        const off = !a.bot.entities[id] || a.bot.entities[id].position.distanceTo(me()) > 12;
+        away.set(id, off ? (away.get(id) ?? 0) + 1 : 0);
+        return (away.get(id) ?? 0) < 2;
+      });
       console.log(`[pen] ${name}: hop ${hops} to ${at(me())}, ${Math.round(dist())} from the gate; ${where(chosen)}`);
-      if (!chosen.length) throw new Error(`start_pen: the ${kind}s were lost on the way, ${Math.round(dist())} blocks from the pen`);
+      if (!chosen.length)
+        throw new Error(`start_pen: the ${kind}s were lost on the way, ${Math.round(dist())} blocks from the pen${startY - y > 4 ? ` (did not follow down from y ${Math.floor(startY)})` : ''}`);
     }
     // Close up first (they hold at 2.5): a chicken trailing on the far side was 11 from the back row once the bot was
     // teleported there, out of the 10 blocks it is tempted from (VanA4b)
     const w1 = Date.now();
     while (Date.now() - w1 < 8000) {
-      chosen = chosen.filter((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 12);
-      if (chosen.every((id) => a.bot.entities[id].position.distanceTo(me()) <= 3)) break;
+      if (chosen.every((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 3)) break;
       await sleep(250, signal);
     }
+    // (the last hop's stragglers get this wait too: dropped only when still beyond 12 or gone after it, the diff review's M1)
+    chosen = chosen.filter((id) => a.bot.entities[id] && a.bot.entities[id].position.distanceTo(me()) <= 12);
     if (!chosen.length) throw new Error(`start_pen: the ${kind}s were lost at the gate`);
     if (!gateOpen) {
       await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
