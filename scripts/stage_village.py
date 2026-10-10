@@ -35,15 +35,23 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 planner, MCAI_EXEC_MODEL its executor; only a local model there needs the agent server
                                 started with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
-Stops early when every building is done, when an agent fails the same way 3 times, or after MCAI_STALL_MIN minutes
-(default 3) without a successful action. Workers are left in the world: remove them afterwards (panel or DELETE).
+Stops early when every building is done, when an agent fails the same way MCAI_SAME_FAIL times (default 3), after
+MCAI_STALL_MIN minutes (default 3) without a successful action by anyone, or when one agent holding a task or running an
+action has had none for MCAI_AGENT_STALL_MIN minutes (default MCAI_STALL_MIN, at least 10; an agent with nothing to do is
+not stalled, and "cannot be gathered here" or "the mine is busy" count as work).
+The agents spawn on a ring 4 blocks outside the plot (beyond prepare_site's margin), on ground read from the world and
+checked after the spawn (S.0). At the end: each agent's busy and idle minutes (BUSY lines; an agent is busy while an
+action runs), the critical path through the board's tasks (CRIT lines), and STOCK lines of the storage during the run for
+scripts/checks/autonomy_metrics.py. Workers are left in the world: remove them afterwards (panel or DELETE).
 """
-import argparse, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
+import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
 # Chat and model text can hold any character; the Windows console encoding cannot
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
+from autonomy_metrics import BoardStamps, BusyClock, critical_path_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
 TESTHUT = {
@@ -205,6 +213,9 @@ elif args.x is None or args.z is None:
     p.error("give X and Z, or --site NAME")
 buildings = [b.strip() for b in args.buildings.split(",") if b.strip()]
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
+# (at least 10: one action can run longer than MCAI_STALL_MIN with no success, a mine trip 6 minutes on the wall clock)
+agent_stall = float(os.environ.get("MCAI_AGENT_STALL_MIN", max(stall_minutes, 10)))
+same_fail = int(os.environ.get("MCAI_SAME_FAIL", "3"))
 
 
 def call(path, body=None, method=None):
@@ -263,6 +274,123 @@ def usage_lines(u, agents):
 
 def rcon(cmd):
     return subprocess.run([sys.executable, os.path.join(ROOT, "mc", "rcon.py"), cmd], capture_output=True, text=True).stdout.strip()
+
+
+_rc = None
+
+
+def rcon_fast(cmd):
+    """One RCON connection kept open, for the spawn's many block tests (rcon() starts a process per command)."""
+    global _rc
+    try:
+        if _rc is None:
+            spec = importlib.util.spec_from_file_location("mc_rcon", os.path.join(ROOT, "mc", "rcon.py"))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _rc = mod.Rcon()
+        return _rc.command(cmd)
+    except Exception:
+        _rc = None
+        return rcon(cmd)
+
+
+def ring_points(area, count, out=4):
+    """`count` points spread evenly round the rectangle `out` blocks outside `area` (x1..x2, z1..z2): beyond the plot and
+    prepare_site's 2-block margin, so no agent starts on ground a preparer levels or fills. Each with its outward step."""
+    x1, z1, x2, z2 = area["x1"] - out, area["z1"] - out, area["x2"] + out, area["z2"] + out
+    w, d = x2 - x1, z2 - z1
+    per = 2 * (w + d)
+    pts = []
+    for i in range(count):
+        s = (i + 0.5) * per / count
+        if s < w:
+            p = (x1 + s, z2, 0, 1)
+        elif s < w + d:
+            p = (x2, z2 - (s - w), 1, 0)
+        elif s < 2 * w + d:
+            p = (x2 - (s - w - d), z1, 0, -1)
+        else:
+            p = (x1, z1 + (s - 2 * w - d), -1, 0)
+        pts.append((int(round(p[0])), int(round(p[1])), p[2], p[3]))
+    return pts
+
+
+def stand_ground(x, z, y0):
+    """The y to stand at on x, z: one above the first block down from y0 + 32 that is not open (air, plants without a
+    collision box, snow), so every block over it is open, as watch_village.column_y reads a column (a fixed height put
+    agents inside a hill, F84; a search upward from inside one could stop in a cave). None when y0 + 32 is itself inside a
+    hill, in water or lava, on a lily pad or anything else over water, on a tree's crown, a cactus or a harmful plant, or
+    with no ground within reach (the server's block tests; the chunk must be loaded)."""
+    test = lambda y, b: "passed" in rcon_fast(f"execute if block {x} {y} {z} {b}").lower()
+    top, g = y0 + 32, None
+    if not test(top, "#minecraft:replaceable"):
+        return None
+    for y in range(top - 1, y0 - 24, -1):
+        if test(y, "#minecraft:replaceable"):
+            continue
+        # (26.1's #replaceable holds no flowers, tall flowers or saplings: open too, tested only where a block is not
+        # replaceable; #replaceable_by_trees also holds the leaves, so a crown is caught first)
+        if any(test(y, b) for b in ("#minecraft:leaves", "minecraft:sweet_berry_bush", "minecraft:wither_rose", "minecraft:cactus")):
+            return None
+        if test(y, "#minecraft:replaceable_by_trees") or test(y, "#minecraft:saplings"):
+            continue
+        g = y
+        break
+    if g is None:
+        return None
+    # (#replaceable holds water and lava, so the scan above goes down to a lake's bed)
+    if any(test(g + k, b) for k in (1, 2) for b in ("minecraft:water", "minecraft:lava")):
+        return None
+    if any(test(g, b) for b in ("#minecraft:logs", "minecraft:bamboo", "minecraft:sugar_cane", "minecraft:lily_pad")) or test(g - 1, "minecraft:water"):
+        return None
+    return g + 1
+
+
+def ring_spawns(area, agents, y0):
+    """A stand spot on the ring for each agent, read from the world (lesson 37): {name: (x, y, z)}, y None where no ground
+    was found within 6 blocks outward or 4 along the ring (the server's surface spawn there)."""
+    pts = ring_points(area, len(agents))
+    box = (area["x1"] - 15, area["z1"] - 15, area["x2"] + 15, area["z2"] + 15)
+    rcon(f"forceload add {box[0]} {box[1]} {box[2]} {box[3]}")
+    for _ in range(20):
+        if all("passed" in rcon_fast(f"execute if loaded {px} {y0} {pz}").lower() for px, pz, _, _ in pts):
+            break
+        time.sleep(0.5)
+    spots = {}
+    for n, (px, pz, nx, nz) in zip(agents, pts):
+        spot = None
+        for k in range(7):
+            for s in (0, 2, -2, 4, -4):
+                x, z = px + nx * k - nz * s, pz + nz * k + nx * s
+                y = stand_ground(x, z, y0)
+                if y is not None:
+                    spot = (x, y, z)
+                    break
+            if spot:
+                break
+        spots[n] = spot or (px, None, pz)
+        print(f"SPAWN {n}: {f'ground at {spot[0]},{spot[1]},{spot[2]}' if spot else f'no ground near {px},{pz}: the server surface spawn there'}", flush=True)
+    rcon(f"forceload remove {box[0]} {box[1]} {box[2]} {box[3]}")
+    return spots
+
+
+def check_spawn(n, spot):
+    """Where the agent stands after its spawn, against the spot (lesson 51: a spawn can silently go elsewhere); one teleport
+    by command if it is off, its answer printed."""
+    x, y, z = spot
+    for attempt in range(2):
+        a = next((q for q in (call("/agents") or []) if isinstance(q, dict) and q.get("name") == n), None)
+        p = (a or {}).get("position")
+        if p and math.hypot(p["x"] - (x + 0.5), p["z"] - (z + 0.5)) <= (1.5 if y is not None else 20) and (y is None or abs(p["y"] - y) <= 1.5):
+            print(f"SPAWN CHECK {n}: at {p['x']:.1f},{p['y']:.1f},{p['z']:.1f}", flush=True)
+            return True
+        where = f"{p['x']:.1f},{p['y']:.1f},{p['z']:.1f}" if p else "nowhere (no position)"
+        if attempt or y is None:
+            print(f"SPAWN WARNING {n}: at {where}, not at {x},{y},{z}", flush=True)
+            return False
+        print(f"SPAWN WARNING {n}: at {where}, not at {x},{y},{z}; tp: {rcon(f'tp {n} {x + 0.5} {y} {z + 0.5}') or 'no answer'}", flush=True)
+        time.sleep(2)
+    return False
 
 
 def bring_player(agent):
@@ -653,6 +781,19 @@ if args.fixtures:
 names = [f"Worker{i + 1}" for i in range(args.workers)]
 exec_model = os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-cloud")
 reasoning = {"reasoning": os.environ["MCAI_REASONING"]} if os.environ.get("MCAI_REASONING") else {}
+watched = names + (["Mayor"] if args.mayor else [])
+# Spawns on a ring outside the plot and its margin (S.0: a line of 12 at x + 2i ran off the plot into trees and water)
+lay0 = (call(f"/village/{args.village}").get("layouts") or [None])[-1]
+half = site.get("size", size) // 2
+area = lay0 if lay0 and "x1" in lay0 else {"x1": site["x"] - half, "z1": site["z"] - half, "x2": site["x"] + half - 1, "z2": site["z"] + half - 1}
+spots = ring_spawns(area, watched, int(site.get("y", 64)))
+
+
+def spawn_at(spot):
+    x, y, z = spot
+    return {"x": x + 0.5, **({"y": y} if y is not None else {}), "z": z + 0.5}
+
+
 # The run's usage counts from here
 usage_since = int(time.time() * 1000)
 for i, n in enumerate(names):
@@ -661,19 +802,21 @@ for i, n in enumerate(names):
     if args.brain == "tiered":
         mem.update({"planModel": args.planner, "execModel": exec_model})
     r = call("/agents", {"name": n, "role": "builder", "brain": args.brain, "gamemode": "survival", "reset": True,
-                         "position": {"x": site["x"] + 0.5 + 2 * i, "z": site["z"] + 0.5 + 8}, "memory": mem})
+                         "position": spawn_at(spots[n]), "memory": mem})
     print(f"{n}: {r}", flush=True)
+    check_spawn(n, spots[n])
 if args.mayor:
     # The layout is the Mayor's own (posted with by=Mayor) and its plan is empty: the brain sees a mayor waiting for its
     # workers, which gathers meanwhile (V2.3m)
     call("/agents/Mayor", method="DELETE")
     r = call("/agents", {"name": "Mayor", "role": "mayor", "brain": "tiered", "gamemode": "survival", "reset": True,
-                         "position": {"x": site["x"] + 0.5 - 2, "z": site["z"] + 0.5 + 8},
+                         "position": spawn_at(spots["Mayor"]),
                          "memory": {"village": args.village, "villageRole": "mayor", "buildSpeed": 4, "planModel": args.planner,
                                     "execModel": exec_model, **reasoning,
                                     "plan": {"goal": "wait for the workers", "steps": [], "by": "external"}}})
     print(f"Mayor: {r}", flush=True)
-watched = names + (["Mayor"] if args.mayor else [])
+    check_spawn("Mayor", spots["Mayor"])
+print(f"RUN village={args.village} agents={','.join(watched)} start={usage_since}", flush=True)
 bring_player(names[0])
 
 # ---- watch
@@ -681,6 +824,27 @@ t0, seen, board, reason, last_done = time.time(), {n: 0 for n in watched}, "", "
 fails = {}
 last_need = None
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
+# S.0's measurements: busy and idle time per agent, the board's stamps for the critical path, each agent's last success
+clock, stamps, last_ok, complete_at = BusyClock(watched), BoardStamps(), {n: time.time() for n in watched}, None
+stock_seen = [None, 0.0]
+
+
+def storage_totals(v):
+    tot = {}
+    for c in (v.get("storage") or {}).get("chests", []):
+        for k, q in c["items"].items():
+            tot[k] = tot.get(k, 0) + q
+    return tot
+
+
+def stock_line(v, force=False):
+    """The storage's totals, when they changed and at most every 30 s (the value curve of autonomy_metrics.py)."""
+    tot = storage_totals(v)
+    if tot != stock_seen[0] and (force or time.time() - stock_seen[1] >= 30):
+        stock_seen[:] = [tot, time.time()]
+        print(f"STOCK {stamp()} {json.dumps(tot, sort_keys=True)}", flush=True)
+
+
 while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     time.sleep(3)
     for n in watched:
@@ -692,16 +856,33 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
             if e["type"] in ("action_done", "action_failed", "system"):
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:240]}", flush=True)
             if e["type"] == "action_done":
-                last_done = time.time()
+                last_done = last_ok[n] = time.time()
             # A material that is not within reach is given up by design (soft gather tasks; the build goes without):
             # not a stuck agent (StageT3 and T4 were stopped on sand)
             # (nor a busy mine: a third miner, the gathering Mayor, hands its task back and comes back later, V2.3m)
-            if e["type"] == "action_failed" and "cannot be gathered here" not in e["text"] and "the mine is busy" not in e["text"]:
+            # (both are an agent at work for the per-agent stall rule too: a miner waits up to 2 minutes for a face twice)
+            if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"]):
+                last_ok[n] = time.time()
+            elif e["type"] == "action_failed":
                 k = (n, e["text"][:80])
                 fails[k] = fails.get(k, 0) + 1
-                if fails[k] >= 3:
-                    reason = f"{n} failed the same way 3 times: {e['text'][:160]}"
+                if fails[k] >= same_fail:
+                    reason = f"{n} failed the same way {same_fail} times: {e['text'][:160]}"
+    listing = call("/agents")
+    clock.sample(listing, "before")
     v = call(f"/village/{args.village}")
+    stamps.update(v["tasks"])
+    stock_line(v)
+    # The stall rule per agent: one that holds a task or runs an action and has had no success for agent_stall minutes
+    # (with 12 agents one success reset the village's clock for all); one with nothing to do is idle, not stalled
+    holding = {t["claimedBy"]: t["id"] for t in v["tasks"] if t["status"] == "claimed" and t.get("claimedBy")}
+    running = {a.get("name"): a.get("action") for a in listing} if isinstance(listing, list) else {}
+    for n in watched:
+        if n not in holding and not running.get(n):
+            last_ok[n] = time.time()
+        elif reason == "time limit" and time.time() - last_ok[n] > agent_stall * 60:
+            what = f"holding {holding[n]}" if n in holding else f"running {(running.get(n) or {}).get('type', 'an action')}"
+            reason = f"{n} stalled: no successful action for {agent_stall:g} minutes while {what}"
     need = " ".join(f"{q} {n}" for n, q in sorted(((v.get("needed") or {}).get("items") or {}).items()))
     if need != last_need:
         last_need = need
@@ -721,7 +902,9 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     lamps = [t for t in v["tasks"] if t["title"].startswith(("Light the streets", "Put up the signs", "Plant the farm"))]
     if builds and all(t["status"] == "done" for t in builds) and all(t["status"] in ("done", "failed") for t in lamps):
         reason = "every building is done"
-    elif time.time() - last_done > stall_minutes * 60:
+        complete_at = time.time()
+        print(f"{stamp()} COMPLETE at {stamp().strip()}", flush=True)
+    elif reason == "time limit" and time.time() - last_done > stall_minutes * 60:
         reason = f"stalled: no successful action for {stall_minutes:g} minutes"
 
 if reason == "every building is done" and hut and args.stage == "build" and not args.no_deposit_check:
@@ -820,11 +1003,14 @@ if args.after and reason == "every building is done":
     a0 = call(f"/atlas?village={args.village}&radius=176") or {}
     chunks0 = len(a0.get("chunks") or [])
     t2, slots_seen, ripened, explore_seen, annex_seen, pens_seen = time.time(), {}, set(), None, None, {}
+    print(f"AFTER start at {stamp().strip()}", flush=True)
+    clock.restart()
     # (each agent's samples with an action running, F193: idle minutes per agent after completion)
     busy, samples = {n: 0 for n in watched}, 0
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         listing = call("/agents")
+        clock.sample(listing, "after")
         if isinstance(listing, list):
             samples += 1
             for a in listing:
@@ -837,6 +1023,7 @@ if args.after and reason == "every building is done":
                 if e["type"] in ("action_done", "action_failed"):
                     print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
         v = call(f"/village/{args.village}")
+        stock_line(v)
         for k, lay in enumerate(v.get("layouts") or []):
             for j, s in enumerate(lay.get("slots") or []):
                 t = slot_text(s)
@@ -877,10 +1064,15 @@ if args.after and reason == "every building is done":
     print("AFTER busy: " + ", ".join(f"{n} {span * busy[n] / max(1, samples):.1f}" for n in watched) + f" of {span:.1f} min", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
+stamps.update(v["tasks"])
+stock_line(v, force=True)
 u = usage_report(usage_since, watched)
+print(f"RUN village={args.village} end={int(time.time() * 1000)}", flush=True)
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}){usage_suffix(u)}")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {(t.get('result') or '')[:120]}")
+for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at):
+    print(line)
 storage = {}
 for c in (v.get("storage") or {}).get("chests", []):
     for k, q in c["items"].items():
@@ -889,12 +1081,15 @@ print("STORAGE", storage)
 for i, c in enumerate((v.get("storage") or {}).get("chests", [])):
     print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}")
 for n in watched:
-    st = (call(f"/agents/{n}/memory") or {}).get("stats") or {}
+    mem = call(f"/agents/{n}/memory") or {}
+    st = mem.get("stats") or {}
     out_tokens = sum(st.get(k + "OutTokensTotal", 0) for k in ("plan", "design", "exec"))
     refused = f", budget-refused {st['budgetRefused']}" if st.get("budgetRefused") else ""
+    # (the stuck rescues by how, from the agent's memory: interventions for autonomy_metrics.py)
+    rescues = {k: q for k, q in (mem.get("rescues") or {}).items() if k != "last"}
     print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
           f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
-          f"out tokens {out_tokens}{refused}")
+          f"refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
 for line in usage_lines(u, watched):
     print(line)
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])

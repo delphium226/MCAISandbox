@@ -10,6 +10,13 @@ export class Rcon {
   private nextId = 1;
   private waiting = new Map<number, (body: string) => void>();
   private chain: Promise<unknown> = Promise.resolve();
+  // Measurement only (S.0): commands queued or running now, the most at once and each command's wait (queue and
+  // reply, ms) since the last stats() call
+  private queued = 0;
+  private queueMax = 0;
+  private latencies: number[] = [];
+  /** A quietCommand read is running. */
+  private quiet = false;
 
   constructor(private host: string, private port: number, private password: string) {}
 
@@ -64,14 +71,56 @@ export class Rcon {
     });
   }
 
-  /** Run a server command (without the leading slash) and return its output. */
-  command(cmd: string): Promise<string> {
+  private enqueue(cmd: string): Promise<string> {
     const run = this.chain.then(async () => {
       await this.connect();
       return String(await this.request(2, cmd));
     });
     this.chain = run.catch(() => undefined);
     return run;
+  }
+
+  /** Run a server command (without the leading slash) and return its output. */
+  command(cmd: string): Promise<string> {
+    const start = Date.now();
+    this.queued++;
+    this.queueMax = Math.max(this.queueMax, this.queued);
+    const run = this.enqueue(cmd);
+    const done = () => {
+      this.queued--;
+      this.latencies.push(Date.now() - start);
+    };
+    run.then(done, done);
+    return run;
+  }
+
+  /**
+   * A read for a log line only (S.0): sent once no other command is queued or running (looked at every 200 ms, for up to
+   * `waitMs`; '' if the queue never empties), one at a time, and left out of stats(), so it does not hold up the agents'
+   * commands or change the figures they are measured by. A command sent while it runs still waits for its reply.
+   */
+  async quietCommand(cmd: string, waitMs = 60000): Promise<string> {
+    const until = Date.now() + waitMs;
+    while (this.queued > 0 || this.quiet) {
+      if (Date.now() > until) return '';
+      await new Promise((ok) => setTimeout(ok, 200));
+    }
+    this.quiet = true;
+    try {
+      return await this.enqueue(cmd);
+    } finally {
+      this.quiet = false;
+    }
+  }
+
+  /** The queue's peak depth and the commands' p90/p99 wait since the last call; starts a new window. */
+  stats(): { queueMax: number; p90: number; p99: number; commands: number } {
+    const l = this.latencies.sort((p, q) => p - q);
+    const pct = (f: number) => (l.length ? l[Math.min(l.length - 1, Math.ceil(f * l.length) - 1)] : 0);
+    const out = { queueMax: this.queueMax, p90: pct(0.9), p99: pct(0.99), commands: l.length };
+    this.latencies = [];
+    this.queueMax = this.queued;
+    return out;
   }
 
   close() {

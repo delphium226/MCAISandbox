@@ -228,7 +228,7 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
   // storage held 100+ logs and the mine's cobblestone (Minevale2: five remakes of 1.7-3.2 minutes, F85)
   const v = a.village();
   const fromStock = async (want: Record<string, number>) => {
-    if (v?.storage?.chests.length) await withdrawItems(a, v, want, signal).catch((e: Error) => {
+    if (v?.storage?.chests.length) return await withdrawItems(a, v, want, signal).catch((e: Error) => {
       // (a stall that did not move the bot fails the action, so the rescue comes soon: F146)
       if (e.message === 'cancelled' || unmoved(e)) throw e;
     });
@@ -247,7 +247,11 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
     ...(getStone ? { cobblestone: 3 } : {}),
     ...(log && (bestPlanks(a)?.n ?? 0) < want && kindHave < want ? { [log[0]]: Math.min(log[1], Math.ceil((want - kindHave) / 4)) } : {}),
   };
-  if (Object.keys(fetch).length) await fromStock(fetch);
+  if (Object.keys(fetch).length) {
+    const took = await fromStock(fetch);
+    // S.0: pickaxes as a drain on the cobblestone the builds need
+    if (getStone && v) console.log(`[pickaxe] ${a.name} took ${(took?.got as Record<string, number> | undefined)?.cobblestone ?? 0} cobblestone from storage (left ${storageContents(v).cobblestone ?? 0})`);
+  }
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
   for (let i = 0; i < 3; i++) {
@@ -261,9 +265,11 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
       return;
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
+      console.log(`[pickaxe] ${a.name} could not make a stone pickaxe: ${(e as Error).message.slice(0, 160)}`);
     }
   }
   await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
+  console.log(`[pickaxe] ${a.name} made a wooden pickaxe (storage had ${stock.cobblestone ?? 0} cobblestone)`);
 }
 
 /** Blocks a bot could not get to, by position, until when (10 minutes): the next collect does not walk to them again. */
@@ -1277,10 +1283,15 @@ const FUELS = ['coal', 'charcoal', 'coal_block'];
 
 /** Furnaces in use, by position: smelting at the village's furnace goes in turns. */
 const furnaceLocks = new Map<string, Promise<void>>();
+/** Who holds each furnace now (for the `[furnace]` wait line only). */
+const furnaceHolders = new Map<string, string>();
 
 /** Wait until the furnace at `key` is free, then hold it; returns the release. */
-async function furnaceLock(key: string, signal: AbortSignal): Promise<() => void> {
-  const prev = furnaceLocks.get(key) ?? Promise.resolve();
+async function furnaceLock(key: string, signal: AbortSignal, who: string): Promise<() => void> {
+  const waiting = furnaceLocks.get(key);
+  const prev = waiting ?? Promise.resolve();
+  const heldBy = furnaceHolders.get(key) ?? 'a smelter about to start';
+  const t0 = Date.now();
   let release!: () => void;
   const mine = new Promise<void>((r) => (release = r));
   const chain = prev.then(() => mine);
@@ -1292,9 +1303,16 @@ async function furnaceLock(key: string, signal: AbortSignal): Promise<() => void
     await abortable(prev, signal);
   } catch (e) {
     release();
+    if (waiting) console.log(`[furnace] ${who} waited ${((Date.now() - t0) / 1000).toFixed(1)}s held by ${heldBy}, then gave up (${(e as Error).message})`);
     throw e;
   }
-  return release;
+  // S.0: how long smelters queue at the village's furnace
+  if (waiting) console.log(`[furnace] ${who} waited ${((Date.now() - t0) / 1000).toFixed(1)}s held by ${heldBy}`);
+  furnaceHolders.set(key, who);
+  return () => {
+    if (furnaceHolders.get(key) === who) furnaceHolders.delete(key);
+    release();
+  };
 }
 
 async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
@@ -1313,7 +1331,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
   const home = villageStation(a, 'furnace');
   // One smelter at a time at the village's furnace: two builders' inputs, fuel and glass got mixed up there
-  const release = home ? await furnaceLock(at(home.position), signal) : () => undefined;
+  const release = home ? await furnaceLock(at(home.position), signal, a.name) : () => undefined;
   try {
     let furnaceBlock = home ?? nearestBlockNamed(a, 'furnace', STATION_REACH);
     if (!home && furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;

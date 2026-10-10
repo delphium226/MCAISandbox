@@ -70,6 +70,13 @@ setInterval(() => {
   console.log(`[lag] ${new Date(now).toISOString().slice(11, 19)} event loop blocked for ~${late} ms; ${doing || 'no agents'}`);
 }, 1000);
 
+// RCON's queue and wait every 30 s (S.0: building, crafting and charging all go through its one connection); quiet
+// when no command ran
+setInterval(() => {
+  const s = rcon.stats();
+  if (s.commands) console.log(`[rcon] queue max ${s.queueMax}, p90 ${s.p90} ms, p99 ${s.p99} ms, ${s.commands} commands`);
+}, 30_000);
+
 http
   .createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);

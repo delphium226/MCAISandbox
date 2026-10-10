@@ -245,6 +245,38 @@ async function carriedCounts(a: BotAgent, items: string[]): Promise<Counts> {
 
 const listCounts = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n}`).join(', ');
 
+/**
+ * At a build shortfall, the storage record for the short items set against what the server says the chests hold (S.0:
+ * did the record lose items, or was the village really short?). Read in the background with quietCommand, each chest
+ * only while RCON has nothing else to do, so the agents' commands are not held up; each chest's record is taken at its
+ * reply, so deposits made between the reads count on both sides (one still in progress can differ for a moment). The
+ * storage record at the shortfall itself is given as well.
+ */
+function logShortfall(a: BotAgent, v: Village | undefined, what: string, need: Counts, carried: Counts, left: Counts) {
+  const items = Object.keys(left);
+  const atShort = v ? storageContents(v) : {};
+  const chests = (v?.storage?.chests ?? []).map((c) => ({ x: c.x, y: c.y, z: c.z }));
+  void (async () => {
+    const record: Counts = {};
+    const onServer: Counts = {};
+    let unread = 0;
+    for (const c of chests) {
+      const r = await a.world.rcon.quietCommand(`data get block ${c.x} ${c.y} ${c.z} Items`).catch(() => '');
+      // (an empty chest has no Items: "Found no elements matching Items")
+      if (!/following block data|no elements/i.test(r)) { unread++; continue; }
+      const kept = v?.storage?.chests.find((q) => q.x === c.x && q.y === c.y && q.z === c.z)?.items ?? {};
+      for (const n of items) record[n] = (record[n] ?? 0) + (kept[n] ?? 0);
+      for (const m of r.matchAll(/\{([^{}]*)\}/g)) {
+        const id = /id: "minecraft:([a-z0-9_]+)"/.exec(m[1])?.[1];
+        if (id && items.includes(id)) onServer[id] = (onServer[id] ?? 0) + Number(/count: (\d+)/.exec(m[1])?.[1] ?? 1);
+      }
+    }
+    const each = items.map((n) => `${n} need ${need[n] ?? 0}, carried ${carried[n] ?? 0}, storage record ${atShort[n] ?? 0} at the shortfall, `
+      + `${record[n] ?? 0} as each chest was read, chests on the server ${onServer[n] ?? 0}`);
+    console.log(`[shortfall] ${a.name} short for ${what}: ${each.join('; ')}${unread ? ` (${unread} of ${chests.length} chests not read; both sides leave them out)` : ''}`);
+  })();
+}
+
 /** Planks per crafting batch and items it makes, for a wooden part (6 planks make 3 doors; sticks at half a plank). */
 const PLANK_BATCH: Record<string, [number, number]> = {
   planks: [1, 1], door: [6, 3], slab: [3, 6], stairs: [6, 4], fence: [5, 3], fence_gate: [4, 1], trapdoor: [6, 2], pressure_plate: [2, 1], button: [1, 1],
@@ -696,6 +728,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       if (why) {
         const left: Counts = {};
         for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
+        logShortfall(a, v, job.what ?? job.design ?? 'this', need, inv, left);
         // Short only of glass (no sand near the village): leave the windows open rather than fail the building
         if (Object.keys(left).every((n) => /^glass(_pane)?$/.test(n))) {
           place = place.map((t) => (/^glass(_pane)?$/.test(chargedItem(t.block)) ? { ...t, optional: true } : t));

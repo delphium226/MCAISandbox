@@ -1207,7 +1207,7 @@ Rules for every step:
 - Smaller steps pass on their mechanism log lines, because a two-run gap of under ±0.2 cannot judge them.
 - Van3 must never get worse beyond S.0's noise band.
 
-- [ ] S.0 **Measure first** (~half a session; agent behaviour unchanged). Run it with A.1, which needs the same busy-minute counts.
+- [x] S.0 **Measure first**: done 10-10/11 (s26). Baselines (staged, 2x, minevale3 at -1630,35; `runs/2026-10-10/s26/`): **Van12b 6.4 / Van12c 6.0 min, 44-45% busy; Van3b 5.7 / Van3c 5.9 min, 90-92% busy**: 12 agents average 6.2, 3 agents 5.8. Both causes confirmed: six miners waited 35-85 s for a face in each 12-agent run (`[mine] ... waits for a face (held 3, live 3, turns 4)`), and storage's first cobblestone went to pickaxes (left 5, 2, 0; then wooden pickaxes; Van12b's storage hut short of its furnace, `[shortfall]`). RCON never queued deeper than 2 (p99 under 20 ms). The order S.1, S.2 stands. The plan was: **Measure first** (~half a session; agent behaviour unchanged). Run it with A.1, which needs the same busy-minute counts.
   - `stage_village.py` and `watch_village.py`:
     - per-agent busy and idle minutes for the whole run;
     - a critical-path printer that reads the board's stamps;
@@ -2444,6 +2444,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10 (s26) | **Minevale37** | model-driven, 1x, minevale3, **every role on gpt-oss** at the A.0 defaults, `MCAI_AFTER=30`; `random_tick_speed 30` set by RCON at completion (the user's choice), stopped at +10.2 by the user's choice | **6/6 + lamps + signs + farm**; after: a chicken pen (2 led in), bred to 3, 2 eggs; 3 scouts (one home from water by teleport); an iron trip (stairs to y 18, coal, no iron yet); **the wheat harvested at +10.2** (13 ripe; it never ripened unaided in 30 min before) | **10.4 min** (Minevale36 10.6), site -1630,35 | **0 failed actions**; 4 `[stuck]`, 1 `[dig]`, 0 `[lag]`; **3 model calls in all** (the Mayor: 2 plans, 1 executor turn), 7,494 tokens in, 561 out, **~$0.0015** |
 | 10-10 (s26) | **Van12a** | staged, 2x, minevale3 at Minevale37's site (`--site-at=-1630,65,35,40,birch`), street plan, plains houses 1 and 3 and library 2, `--mayor --planner none --workers 11` (12 agents) | 6/6 + lamps + signs + farm | **6.1 min** | 1 failed (storage hut short of a furnace's cobblestone, requeued); 7 of 11 workers and the Mayor idle after 3.0-4.6 min; the serial chain: plot 1.1, mining hut 1.2, stairs 2.1, cobblestone emptied by 3.8, last house 3.9-5.9, signs 6.1 |
 | 10-10 (s26) | **Van3a** | the same as Van12a with `--workers 2` (3 agents) | 6/6 + lamps + signs + farm | **6.0 min** | 1 failed (the Mayor stuck on a deposit walk); **12 agents = 3 agents**: the build is a serial chain and the objective gives ~6 build tasks (Phase S) |
+| 10-10/11 (s26) | **Van12b, Van12c** | S.0 baselines: Van12a's command with S.0's measuring (ring spawns, per-agent stall 8, `[mine]`, `[pickaxe]`, `[furnace]`, `[shortfall]`, `[rcon]`, BUSY and CRITICAL PATH lines) | 6/6 each | **6.4, 6.0 min** | 44%, 45% busy before completion; critical path 6-7 tasks held back to back; 6 miners waited 35-85 s for a face; pickaxes drained storage cobblestone |
+| 10-10/11 (s26) | **Van3b, Van3c** | the same with 2 workers | 6/6 each | **5.7, 5.9 min** | 90%, 92% busy; critical path 9 tasks, 2.6-2.8 min of waiting for a claim |
 
 ## Findings log
 

@@ -514,6 +514,30 @@ function release(a: BotAgent, v: Village) {
 }
 
 /**
+ * Waits for a face, by bot, and when each began (S.0's `[mine]` lines only: is the mine limited by its faces?). The
+ * start line counts the deepest level's tunnels held by other bots, those still going, and the turns still to come
+ * (sides not yet turned, up to the tunnel limit).
+ */
+const faceWaits = new Map<string, number>();
+function faceWaitStart(a: BotAgent, m: Mine, downBy: string | undefined) {
+  if (faceWaits.has(a.name)) return;
+  faceWaits.set(a.name, Date.now());
+  if (downBy) { console.log(`[mine] ${a.name} waits for the stairs down (dug by ${downBy})`); return; }
+  const y = Math.min(...m.legs!.map((l) => l.y));
+  const legs = m.legs!.filter((l) => l.y === y);
+  const held = legs.filter((l) => !l.end && holders.has(l) && holders.get(l) !== a.name).length;
+  const live = legs.filter((l) => !l.end).length;
+  const sides = legs.reduce((n, l) => n + ((l.turned ?? 0) & 1 ? 0 : 1) + ((l.turned ?? 0) & 2 ? 0 : 1), 0);
+  console.log(`[mine] ${a.name} waits for a face (held ${held}, live ${live}, turns ${Math.max(0, Math.min(MAX_LEGS - legs.length, sides))})`);
+}
+function faceWaitEnd(a: BotAgent, outcome: string) {
+  const t = faceWaits.get(a.name);
+  if (t === undefined) return;
+  faceWaits.delete(a.name);
+  console.log(`[mine] ${a.name} waited ${((Date.now() - t) / 1000).toFixed(1)}s: ${outcome}`);
+}
+
+/**
  * collect in the mine: extend the tunnels cell by cell (two blocks each, standing in the cell before) until `want` more
  * cobblestone are carried or 6 minutes pass. A branch that meets water, lava, a cave, village ground or a hillside
  * (no ceiling) ends there; a main tunnel meeting one ends, and the next turns left or right at one of its junctions
@@ -525,6 +549,7 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
   try {
     return await mineTrip(a, v, want, have, signal);
   } finally {
+    faceWaitEnd(a, 'the trip ended');
     release(a, v);
   }
 }
@@ -548,12 +573,14 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
     const downBy = downHolders.get(v.name);
     // Another bot holds every tunnel there is to dig, or digs the stairs down: wait for it (up to 2 minutes a trip)
     if (next === 'busy' || (!next && downBy && downBy !== a.name)) {
-      if (m.stopped) { why = m.stopped; break; }
-      if (waited >= 120000) { why = `the mine is busy (${next === 'busy' ? 'its tunnels are being dug' : `${downBy} digs the stairs down`}); collect again later`; away = true; break; }
+      faceWaitStart(a, m, next === 'busy' ? undefined : downBy);
+      if (m.stopped) { faceWaitEnd(a, 'the mine stopped'); why = m.stopped; break; }
+      if (waited >= 120000) { faceWaitEnd(a, 'gave up, the mine is busy'); why = `the mine is busy (${next === 'busy' ? 'its tunnels are being dug' : `${downBy} digs the stairs down`}); collect again later`; away = true; break; }
       await new Promise((r) => setTimeout(r, 5000));
       waited += 5000;
       continue;
     }
+    faceWaitEnd(a, next ? 'got a tunnel' : 'no tunnel left at this level');
     const leg = next;
     let down = '';
     if (!leg && m.dug < MAX_CELLS && !downs.some((d) => d.stopped) && (downs.some((d) => d.level === undefined) || downs.length < MAX_LEVELS - 1)) {

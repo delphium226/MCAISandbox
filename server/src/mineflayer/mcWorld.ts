@@ -16,6 +16,7 @@ import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
 import { PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
 import { timeScale } from './mcRules';
+import { choiceId, countsDelta, itemCounts, logChoice, logChoiceEnd } from './mcChoiceLog';
 import { TieredBrain } from '../tieredBrain';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
@@ -47,6 +48,21 @@ export interface SpawnOptions {
   memory?: Record<string, unknown>;
   /** Start afresh: empty inventory, full health and food, at the world spawn (a name keeps its player data otherwise). */
   reset?: boolean;
+}
+
+/**
+ * A chore's place in the decision log (A.1): its choice id and start, the storage and the agent's inventory then (for the
+ * yield at its end), and the village's chores that overlapped it.
+ */
+type ChoiceState = { id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string> };
+
+/** What an agent carries as Mineflayer sees it (no server command: measurement only); null if it cannot be read. */
+function heldCounts(a: BotAgent): Counts | null {
+  try {
+    return itemCounts(a.bot.inventory.items());
+  } catch {
+    return null;
+  }
 }
 
 export class MineflayerWorld implements WorldAdapter {
@@ -405,6 +421,11 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[farm] check failed:', e);
     }
+    try {
+      this.endChoices();
+    } catch (e) {
+      console.error('[choice] end check failed:', e);
+    }
     // Animals each bot can see, every 5 s (sightings for opportunistic farming, 10-08)
     if (Date.now() - this.animalsAt >= 5000) {
       this.animalsAt = Date.now();
@@ -487,7 +508,7 @@ export class MineflayerWorld implements WorldAdapter {
    * `annex`, `pen`, `iron` or `explore`; no two chores of a village hold the same key (the skills' own locks are taken
    * only when an action runs, so a key also covers the time it waits in the queue).
    */
-  private chores = new Map<string, { agent: string; village: string; key: string; status: ActionStatus[]; what: string; failed?: (why: string) => void }>();
+  private chores = new Map<string, { agent: string; village: string; key: string; status: ActionStatus[]; what: string; failed?: (why: string) => void; choice: ChoiceState }>();
   /** Keys of chores just ended, by "village|key", held until the time given. */
   private cooling = new Map<string, number>();
   /** Kinds with no sighting in range, by "village:kind": not searched for again until then. */
@@ -513,6 +534,7 @@ export class MineflayerWorld implements WorldAdapter {
       // (a stopped or removed agent's statuses fail at once while its skill's finally still runs its commands (a teleport,
       // the gate, the slot's lock): the key is held 10 s more, the design review's M3 and the diff review's L3)
       this.chores.delete(id);
+      this.endChoice(c);
       this.cooling.set(`${v.name}|${c.key}`, Date.now() + 10000);
       this.cooling.set(`agent|${id}`, Date.now() + 10000);
       const bad = c.status.find((q) => q.state === 'failed');
@@ -522,7 +544,55 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private setChore(v: Village, worker: BotAgent, key: string, status: ActionStatus[], what: string, failed?: (why: string) => void) {
-    this.chores.set(worker.name.toLowerCase(), { agent: worker.name, village: v.name, key, status, what, failed });
+    const id = worker.name.toLowerCase();
+    // (idleWorker never offers an agent holding a chore, so nothing is replaced; if one were, its end is logged)
+    const old = this.chores.get(id);
+    if (old) this.endChoice(old);
+    const choice: ChoiceState = { id: choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, with: new Set() };
+    // (the village's chores under way meanwhile: their deposits show in this one's storage change, and its in theirs)
+    for (const o of this.chores.values())
+      if (o.village === v.name && !o.choice.ended) {
+        o.choice.with.add(choice.id);
+        choice.with.add(o.choice.id);
+      }
+    this.chores.set(id, { agent: worker.name, village: v.name, key, status, what, failed, choice });
+    // The decision log (A.1): today's picker takes the first feasible chore in a fixed order. `options` stays empty:
+    // listing the other feasible kinds would mean running their checks, and several of them write state as they look
+    // (slotSkip, the explore ring's visited and done, a pen's workAt, the cake's back-off); A.2's menu brings them.
+    logChoice({ id: choice.id, agent: worker.name, village: v.name, t: choice.t, key, what, kind: key.split(':')[0], reason: 'fixed order', options: [] });
+  }
+
+  /**
+   * A chore's `[choice-end]` record, once: from choreKeys when it drops the chore, or from the tick as soon as its actions
+   * have ended (choreKeys runs only every 30 s and only for villages with agents in the world, so the tick gives the
+   * minutes and catches chores whose agents were all removed). Logging only: the chore stays in `chores` until choreKeys
+   * drops it.
+   */
+  private endChoice(c: { agent: string; village: string; status: ActionStatus[]; choice: ChoiceState }) {
+    if (c.choice.ended) return;
+    c.choice.ended = true;
+    const bad = c.status.find((q) => q.state === 'failed');
+    const done = c.status.every((q) => q.state === 'done');
+    const message = bad?.message ?? (done ? c.status[c.status.length - 1]?.message ?? '' : 'agent gone');
+    const ok = !bad && done;
+    const agent = this.agents.get(c.agent.toLowerCase());
+    const v = this.villages.get(c.village);
+    const held = agent ? heldCounts(agent) : null;
+    logChoiceEnd({
+      id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(),
+      // (a stop or a removal fails every action as "cancelled", which the chores' own failed callbacks ignore too)
+      cut: !ok && (!agent || bad?.message === 'cancelled'),
+      yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried: held ? countsDelta(c.choice.carried, held) : null, with: [...c.choice.with] },
+    });
+  }
+
+  /** Chores whose actions have ended (or whose agent is gone) get their end record now (see endChoice). */
+  private endChoices() {
+    for (const [id, c] of this.chores) {
+      if (c.choice.ended) continue;
+      const going = c.status.some((q) => q.state === 'queued' || q.state === 'running');
+      if (!going || !this.agents.has(id)) this.endChoice(c);
+    }
   }
 
   /**
