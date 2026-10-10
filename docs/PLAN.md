@@ -27,7 +27,8 @@ the notes below for the twenty-fourth session stay valid where not overridden)
   annex), `479b87c` F209 (water progress, scout range, teleport home from water), `2039bee`, `95fa904`, `9ca781f` and the
   icons-and-key commit (the panel's simple view, drill-down detailed view, trails, Auto framing, activities overlay,
   fullscreen, map icons and key), and the close-out (this record, CLAUDE.md lessons 113-117, README restructured as an
-  AI-agent project with fresh screenshots in `docs/images/`, ARCHITECTURE). Not pushed: ask first. `main` untouched.
+  AI-agent project with fresh screenshots in `docs/images/`, ARCHITECTURE). **Pushed, and `main` fast-forwarded to the
+  branch** at the close (the user's instruction, 2026-10-10: `main` = `tiered-brain-building` = `0ebb540` + this note).
 - **Stack:** stopped cleanly at the close. No agents in either world.
 - **Where things stand:** Minevale36 (1x, model-driven, minevale3's usual site) 6/6 in **10.6 min**, **0 failed actions in
   55.7 min**; after completion: two chickens led down from +5 and bred to 5, 6 eggs, all 8 scouting trips (Worker1 passed

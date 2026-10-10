@@ -479,7 +479,7 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     bred, 5 eggs, 3 x 3 milk, 2 cakes. Minevale35 (1x) 6/6 in 11.0 min, 0 failed actions, then all three agents on chores
     at once (iron pickaxe and bucket, annex, a chicken pen, 4 eggs, all 8 scouts by +24.7); no cow pen or breeding with
     real models yet (no wheat harvested in 30 min; other chickens 6-8 above the annex, F205). Lessons 109-112.
-40. 2026-10-10 (twenty-fifth session; not pushed at the close, ask first; `main` untouched): F205 (`15c65a4`: pens take
+40. 2026-10-10 (twenty-fifth session; pushed, and `main` fast-forwarded to the branch at the close, the user's instruction): F205 (`15c65a4`: pens take
     animals from 4 below to 8 above the annex, measured from the annex; live slope tests and an offline scan first), F209
     (`479b87c`: walks in water need 2 blocks of progress, scouts stop within 11 of a ring point, a home leg from water
     teleports), and the control panel (`2039bee`, `95fa904`, `9ca781f` and the icons commit: a simple view for the whole
