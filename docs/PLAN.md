@@ -38,6 +38,9 @@ overridden)
   long enough for a wheat harvest (`MCAI_AFTER=45`) to see a cow pen, breeding and a cake with real models. 2. F209 /
   F189's dry ring points. 3. The beautifying plan (B.1) or the smaller items (F208, F201, F200, F192's cane drops, F187,
   F170-F173). The prompt: `runs/2026-10-09/NEXT_PROMPT.md`.
+- **Saved from the session's scratchpad** (gitignored): `runs/2026-10-09/s24_scratch/` (`research2/cake.mts` replays the
+  materials planner offline, F207-style checks; `research2/tags.mts` reads tags and recipes from the jar; `research/*.txt`
+  the jar's Cow, AbstractCow, Items, EntityType, WalkNodeEvaluator disassemblies; the edit scripts and review diffs).
 - **How to test now:** staged `--after 20 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` (VanC3: complete at 6.3,
   pens, milk and cakes within 20 min after); `AFTER busy:` gives each agent's busy minutes;
   `runs/2026-10-09/scripts/pens_v2_facts.py` for live animal facts; `runs/2026-10-09/scripts/restart_agents.py` restarts
@@ -999,7 +1002,9 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
 - **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
 - **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
 - **Animal pens**: v1 done 10-09 (`ecb7cf7`, chickens on the annex; see the decisions and `runs/2026-10-08/s23/`); v2
-  (eggs, breeding, sheep and cows) next. What was known before v1: sheep, cows,
+  (eggs, breeding, cows, milk, a cake) done 10-09 (`119df92`; `runs/2026-10-09/`: design, live facts, research, reviews;
+  open F205: a pen of one gets no second trip when the other animals stand above the annex's level +-4). Left: sheep
+  (wool needs shears: iron), pigs (carrots/potatoes), more pens than the annex's two slots. What was known before v1: sheep, cows,
   chickens fenced near the farm (eggs, food; wool for beds once shears exist). **Known already, don't re-derive**
   (`runs/2026-10-08/s22/research/sightings.md`, `farmslots.md`, `plants_scan.md`):
   - Tempt items, from the 26.1.2 jar's item tags: `chicken_food` = wheat/melon/pumpkin/beetroot/torchflower seeds and
