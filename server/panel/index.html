@@ -92,24 +92,55 @@
   /* Simple mode: the village at a glance */
   body.simple .detailed-only { display: none !important; }
   body:not(.simple) .simple-only { display: none !important; }
-  .progress { height: 12px; background: var(--panel-2); border-radius: 6px; overflow: hidden; border: 1px solid var(--line); margin: 6px 0 4px; }
+  .progress { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 12px; }
   .progress i { display: block; height: 100%; background: var(--good); }
-  .blist { margin: 6px 0 0; padding: 0; list-style: none; }
-  .blist li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .village { display: grid; gap: 14px; margin-top: 16px; }
+  .vhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: center; padding: 14px 18px; }
+  .vhead .progress { grid-column: 1 / -1; margin-top: 4px; }
+  .vtitle { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+  .vname { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .vobj { flex-basis: 100%; font-size: 13px; }
+  .stats { display: flex; gap: 22px; flex-wrap: wrap; }
+  .stat { display: grid; justify-items: end; }
+  .stat b { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .stat span { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .state { --c: var(--idle); display: inline-block; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+  .state.big { font-size: 12px; padding: 1px 10px; }
+  .vgrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .col { display: grid; gap: 14px; min-width: 0; }
+  .col .card > .label { margin-bottom: 8px; }
+  .bchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bchip { font-size: 13px; border-radius: 6px; padding: 2px 9px; background: var(--panel-2); border: 1px solid var(--line); }
+  .bchip.done::before { content: "\2713  "; color: var(--good); font-weight: 700; }
+  .blist { margin: 0; padding: 0; list-style: none; }
+  .blist li { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
   .blist li:last-child { border-bottom: 0; }
-  .blist .bname { font-weight: 600; min-width: 130px; }
-  .who { width: 100%; border-collapse: collapse; }
-  .who td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 14px; }
-  .who tr:last-child td { border-bottom: 0; }
-  .who .nm { font-weight: 650; white-space: nowrap; }
-  .who .doing { width: 100%; }
+  .blist .bname { font-weight: 600; }
+  .bstate.done { color: var(--good); } .bstate.failed { color: var(--bad); } .bstate.claimed { color: var(--accent); } .bstate.open { color: var(--muted); }
+  .life { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 16px; margin: 0; }
+  .life > div { border-left: 2px solid var(--line); padding-left: 10px; min-width: 0; }
+  .life dt { font-size: 12px; color: var(--muted); }
+  .life dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .life dd .sub { display: block; font-weight: 400; }
+  .stock { display: grid; gap: 8px; }
+  .stock-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+  .mats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mats span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .who { margin: 0; padding: 0; list-style: none; }
+  .who li { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .who li:last-child { border-bottom: 0; }
+  .who-name { display: grid; min-width: 0; overflow-wrap: anywhere; } .who-name b { font-weight: 650; }
+  .who-doing { min-width: 0; overflow-wrap: anywhere; }
+  .who-state { display: grid; justify-items: end; gap: 2px; }
+  .happened li { font-size: 13px; color: var(--muted); }
+  .happened li:first-child { color: var(--text); }
   .flag { font-size: 12px; border-radius: 4px; padding: 0 6px; margin-left: 6px; white-space: nowrap; border: 1px solid var(--warn); color: var(--warn); }
   .flag.bad { border-color: var(--bad); color: var(--bad); }
-  .mats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .mats span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
-  .vgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
   @media (max-width: 700px) {
     .vgrid { grid-template-columns: 1fr; }
+    .vhead { grid-template-columns: 1fr; }
+    .stat { justify-items: start; }
+    .stock-row { grid-template-columns: 1fr; gap: 2px; }
     .grid { grid-template-columns: 1fr; }
     main { padding: 12px 16px; }
     .feed li { grid-template-columns: 1fr; gap: 0; }
@@ -690,21 +721,26 @@ async function refreshMaps() {
 // ---- the simple view ----
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const words = (s) => String(s ?? '').replace(/^minecraft:/, '').replace(/_/g, ' ');
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/** A building's name as people say it: "plains_small_house_1" -> "Small house 1". */
+const buildingName = (id) => cap(words(String(id).replace(/^(plains|savanna|desert|taiga|snowy)_/, '')));
 /** What an action is, in plain words ("Gathering 12 acacia logs"). */
-function actionWords(t, args = {}) {
+function actionWords(t, args) {
+  args = args ?? {};
   const n = args.count ? `${args.count} ` : '';
   const item = words(args.block ?? args.item ?? '');
   switch (t) {
-    case 'collect': return `Gathering ${n}${item === 'logs' ? 'logs' : item}`;
+    case 'collect': return `Gathering ${n}${item === 'logs' ? 'logs' : item || 'materials'}`;
     case 'mine': return 'Mining';
     case 'deposit': return 'Putting things in the storage chest';
     case 'withdraw': return `Taking ${n}${item} from the storage`;
-    case 'build_design': return `Building the ${words(args.design ?? args.name ?? 'building')}`;
+    case 'build_design': return `Building the ${buildingName(args.design ?? args.name ?? 'building').toLowerCase()}`;
     case 'build': case 'build_box': return 'Building';
     case 'prepare_site': return 'Clearing and levelling the building plot';
     case 'find_site': return 'Looking for building land';
     case 'move_to': return 'Walking';
     case 'explore': return 'Exploring';
+    case 'scout': return args.home ? 'Walking home from scouting' : 'Scouting the land round the village';
     case 'craft': return `Crafting ${n}${item}`;
     case 'smelt': return `Smelting ${n}${item}`;
     case 'place': return `Placing ${item}`;
@@ -712,9 +748,26 @@ function actionWords(t, args = {}) {
     case 'wait': return 'Waiting';
     case 'eat': return 'Eating';
     case 'follow': return `Following ${words(args.player)}`;
-    default: return words(t);
+    case 'dig_mine': return 'Digging the village mine';
+    case 'dig_iron': return 'Mining deep for iron';
+    case 'make_iron_tool': return `Making an iron ${words(args.item ?? 'tool').replace(/^iron /, '')}`;
+    case 'tend_farm': return 'Planting the wheat field';
+    case 'harvest_farm': return 'Harvesting the wheat field';
+    case 'start_farm': return `Starting a ${words(args.kind ?? 'new')} farm`;
+    case 'harvest_slot': return 'Harvesting a farm';
+    case 'prepare_annex': return 'Clearing land for the animal pens';
+    case 'start_pen': return `Leading ${words(args.kind ?? 'animal')}s into a pen`;
+    case 'collect_eggs': return 'Collecting eggs';
+    case 'milk_cows': return 'Milking the cows';
+    case 'breed_pen': return 'Breeding the animals';
+    case 'bake_cake': return 'Baking a cake';
+    case 'light_streets': return 'Putting up street lamps';
+    case 'put_up_signs': return 'Putting up name signs';
+    default: return cap(words(t));
   }
 }
+/** The agent's state for the pill: the brain's own, or (scripted workers) acting or waiting. */
+const agentState = (a) => (a.dead ? 'dead' : a.status?.state || (a.currentAction ? 'acting' : 'waiting'));
 function doingWords(a) {
   const st = a.status || {};
   if (a.dead) return 'Dead';
@@ -722,7 +775,7 @@ function doingWords(a) {
   if (st.state === 'planning') return 'Thinking about what to do next';
   if (st.state === 'thinking') return 'Deciding the next step';
   if (a.brain === 'idle' || !a.brain) return 'Idle (controlled by hand)';
-  if (a.villageRole === 'mayor') return a.plan && a.plan.steps && a.plan.steps.length ? 'Planning the village' : 'Overseeing the village: waiting for the workers';
+  if (a.villageRole === 'mayor') return a.plan && a.plan.steps && a.plan.steps.length ? 'Planning the village' : 'Overseeing the village';
   if (a.task) return `Between steps of: ${a.task.title}`;
   return 'Waiting for work';
 }
@@ -740,72 +793,113 @@ function flags(a) {
 function simpleAgents(agents) {
   if (!agents.length) return '<div class="empty">No agents are running.</div>';
   const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
-  return `<table class="who">${agents.slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name)).map((a) => {
+  return `<ul class="who">${agents.slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name)).map((a) => {
     const st = a.status || {};
-    const color = STATE_COLORS[st.state] || 'var(--idle)';
-    return `<tr>
-      <td><span class="dot" style="background:${color}" title="${esc(st.state || '')}"></span></td>
-      <td class="nm">${esc(a.name)}<div class="sub">${esc(a.villageRole || a.role)}</div></td>
-      <td class="doing">${esc(doingWords(a))}${flags(a)}${a.task && a.currentAction ? `<div class="sub">${esc(a.task.title)}</div>` : ''}</td>
-      <td class="sub" style="white-space:nowrap">${st.since ? ago(st.since) : ''}</td></tr>`;
-  }).join('')}</table>`;
+    const state = agentState(a);
+    const color = STATE_COLORS[state] || 'var(--idle)';
+    const sub = a.task && a.currentAction ? a.task.title : '';
+    return `<li>
+      <div class="who-name"><b>${esc(a.name)}</b><span class="sub">${esc(a.villageRole || a.role)}</span></div>
+      <div class="who-doing">${esc(doingWords(a))}${flags(a)}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+      <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
+  }).join('')}</ul>`;
 }
-/** Each building the village laid out, and where it stands. */
+/** Each building the village laid out, and where it stands: [name, state class, words]. */
 function buildingStates(v) {
   const byId = new Map(v.tasks.map((t) => [t.id, t]));
   return v.tasks.filter((t) => /^Build /.test(t.title)).map((t) => {
-    const name = t.title.slice(6);
-    let state;
-    if (t.status === 'done') state = '<span style="color:var(--good)">built</span>';
-    else if (t.status === 'failed') state = '<span style="color:var(--bad)">failed: the mayor will look at it</span>';
-    else if (t.status === 'claimed') state = `<span style="color:var(--accent)">being built by ${esc(t.claimedBy)}</span>`;
-    else {
-      const pre = t.after.map((id) => byId.get(id)).filter((x) => x && /^Gather /.test(x.title));
-      const done = pre.filter((x) => x.status === 'done' || x.status === 'failed').length;
-      const land = t.after.map((id) => byId.get(id)).find((x) => x && /^Prepare /.test(x.title) && x.status !== 'done');
-      state = land ? 'waiting for the land to be levelled'
-        : pre.length && done < pre.length ? `gathering materials (${done} of ${plural(pre.length, 'task')} done)`
-        : 'ready to build';
-    }
-    return `<li><span class="bname">${esc(name)}</span><span>${state}</span></li>`;
-  }).join('');
+    const name = buildingName(t.title.slice(6));
+    if (t.status === 'done') return [name, 'done', 'built'];
+    if (t.status === 'failed') return [name, 'failed', 'failed: the mayor will look at it'];
+    if (t.status === 'claimed') return [name, 'claimed', `being built by ${t.claimedBy}`];
+    const pre = (t.after || []).map((id) => byId.get(id)).filter((x) => x && /^Gather /.test(x.title));
+    const done = pre.filter((x) => x.status === 'done' || x.status === 'failed').length;
+    const land = (t.after || []).map((id) => byId.get(id)).find((x) => x && /^Prepare /.test(x.title) && x.status !== 'done');
+    return [name, 'open', land ? 'waiting for the land to be levelled'
+      : pre.length && done < pre.length ? `gathering materials (${done} of ${plural(pre.length, 'task')} done)` : 'ready to build'];
+  });
 }
-const MATS = [['logs', (n) => /_log$/.test(n)], ['planks', (n) => /_planks$/.test(n)], ['cobblestone', (n) => n === 'cobblestone'], ['sand', (n) => n === 'sand'], ['glass', (n) => n === 'glass']];
+/** Storage by use: building materials, food and farm, tools and metal (anything else is left out of the summary). */
+const STOCK = [
+  ['Building', [['logs', (n) => /_log$/.test(n)], ['planks', (n) => /_planks$/.test(n)], ['cobblestone', (n) => n === 'cobblestone'], ['sand', (n) => n === 'sand'], ['glass', (n) => /^glass(_pane)?$/.test(n)]]],
+  ['Food and farm', [['wheat', (n) => n === 'wheat'], ['seeds', (n) => /_seeds$/.test(n)], ['bread', (n) => n === 'bread'], ['eggs', (n) => /egg$/.test(n)], ['milk', (n) => n === 'milk_bucket'], ['cake', (n) => n === 'cake'], ['sugar cane', (n) => n === 'sugar_cane'], ['pumpkins', (n) => n === 'pumpkin'], ['melon', (n) => /^melon(_slice)?$/.test(n)]]],
+  ['Tools and metal', [['raw iron', (n) => n === 'raw_iron'], ['iron ingots', (n) => n === 'iron_ingot'], ['coal', (n) => /^(coal|charcoal)$/.test(n)], ['buckets', (n) => n === 'bucket'], ['iron tools', (n) => /^iron_(pickaxe|axe|shovel|hoe|sword)$/.test(n)]]],
+];
+/** What the village does after its buildings: the field, farms, pens, the iron age, lamps and signs. */
+function villageLife(v) {
+  const items = [];
+  (v.layouts || []).forEach((lay, k) => {
+  const site = k ? ` (site ${k + 1})` : '';
+  const f = lay.farm;
+  if (f) items.push([`Wheat field${site}`, f.planted ? `${f.planted} planted` : 'not planted yet',
+    f.harvests ? `${plural(f.harvests, 'harvest')}${f.bread ? `, ${f.bread} bread baked` : ''}` : '']);
+  for (const s of lay.slots || []) {
+    if (!s.kind) continue;
+    if (s.annex) {
+      const p = s.pen || {};
+      const animal = s.kind === 'cow' ? 'cow' : 'chicken';
+      const extra = [p.born ? `${p.born} born` : '', p.eggs ? `${plural(p.eggs, 'egg')} collected` : '', p.milk ? `${p.milk} milk` : ''].filter(Boolean).join(', ');
+      items.push([`${cap(animal)} pen`, s.laying ? 'animals being led in' : p.built ? plural(p.animals || 0, animal) : 'being fenced', extra]);
+    } else items.push([`${cap(words(s.kind))} farm${site}`, `${s.planted || 0} planted`, s.harvests ? plural(s.harvests, 'harvest') : '']);
+  }
+  if (lay.lamps?.length) items.push([`Street lamps${site}`, lay.lit ? `${lay.lamps.length} lit` : `${lay.lamps.length} planned`, '']);
+  if (lay.signs?.length) items.push([`Name signs${site}`, lay.signed ? `${lay.signs.length} up` : `${lay.signs.length} planned`, '']);
+  });
+  const made = v.mine?.ironMade || [];
+  if (v.mine?.iron || made.length) items.push(['Iron', made.length ? `made ${made.map(words).join(', ')}` : 'digging for it', '']);
+  if (!items.length) return '';
+  return `<div class="card"><div class="label">Village life</div><dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl></div>`;
+}
 function simpleVillage(v, agents) {
-  const builds = v.tasks.filter((t) => /^Build /.test(t.title));
-  const built = builds.filter((t) => t.status === 'done').length;
+  const builds = buildingStates(v);
+  const built = builds.filter(([, s]) => s === 'done').length;
   const pct = builds.length ? Math.round((built / builds.length) * 100) : 0;
+  const tasksDone = v.tasks.filter((t) => t.status === 'done').length;
+  const working = agents.filter((a) => a.currentAction).length;
   const sum = {};
   for (const c of v.storage?.chests || []) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
-  const mats = MATS.map(([label, test]) => [label, Object.entries(sum).filter(([n]) => test(n)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0);
-  const tasksDone = v.tasks.filter((t) => t.status === 'done').length;
+  const stock = STOCK.map(([group, kinds]) => [group, kinds.map(([label, test]) => [label, Object.entries(sum).filter(([n]) => test(n)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0)]).filter(([, ks]) => ks.length);
   // What the village still needs gathered (computed by the agent server, plan step V.3)
   const needed = Object.entries((v.needed && v.needed.items) || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
   // What happened: the village log (tasks and buildings) and chat, newest first
-  const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 5).map((e) => `chat: ${e.text}`);
-  const happened = [...chat, ...v.log.slice(-10).reverse()].slice(0, 12);
-  return `<div class="card">
-    <div class="card-head"><span class="name">${esc(v.name)}</span><span class="spacer"></span>
-      ${v.complete ? '<span class="pill" style="background:var(--done)">complete</span>' : ''}</div>
-    <div class="detail">${esc(v.objective || 'no objective yet')}</div>
-    ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>
-      <div class="sub">${built} of ${plural(builds.length, 'building')} built · ${tasksDone} of ${plural(v.tasks.length, 'task')} done</div>
-      <ul class="blist">${buildingStates(v)}</ul>` : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
-    ${mats.length ? `<div class="section"><div class="label">In the storage</div><div class="mats">${mats.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>` : ''}
-    ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(n)}</span>`).join('')}</div></div>` : ''}
-    ${happened.length ? `<div class="section"><div class="label">What happened lately</div><ul class="list">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
-  </div>`;
+  const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 4).map((e) => `chat: ${e.text}`);
+  const happened = [...chat, ...(v.log || []).slice(-8).reverse()].slice(0, 8);
+  const state = v.complete ? ['complete', 'var(--done)'] : builds.length ? ['building', 'var(--acting)'] : ['planning', 'var(--planning)'];
+  const stat = (n, label, title = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span></div>`;
+  return `<div class="card vhead">
+      <div class="vtitle"><span class="vname">${esc(v.name)}</span><span class="state big" style="--c:${state[1]}">${state[0]}</span>
+        <div class="sub vobj">${esc(v.objective || 'no objective yet')}</div></div>
+      <div class="stats">${stat(builds.length ? `${built}/${builds.length}` : '–', 'buildings')}${stat(`${tasksDone}/${v.tasks.length}`, 'tasks done')}${stat(`${working}/${agents.length}`, 'agents working')}${stat(Object.values(sum).reduce((t, q) => t + q, 0), 'items stored')}</div>
+      ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>` : ''}
+    </div>
+    <div class="vgrid">
+      <div class="col">
+        <div class="card"><div class="label">Buildings</div>
+          ${builds.length ? (built === builds.length
+            ? `<div class="bchips">${builds.map(([n]) => `<span class="bchip done">${esc(n)}</span>`).join('')}</div>`
+            : `<ul class="blist">${builds.map(([n, s, w]) => `<li><span class="bname">${esc(n)}</span><span class="bstate ${s}">${esc(w)}</span></li>`).join('')}</ul>`)
+          : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
+          ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(words(n))}</span>`).join('')}</div></div>` : ''}
+        </div>
+        ${villageLife(v)}
+        ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
+      </div>
+      <div class="col">
+        <div class="card"><div class="label">Who is doing what</div>${simpleAgents(agents)}</div>
+        ${happened.length ? `<div class="card"><div class="label">What happened lately</div><ul class="list happened">${happened.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+      </div>
+    </div>`;
 }
 function renderSimple(d) {
   const inVillage = (v) => d.agents.filter((a) => a.village === v.name);
   const loose = d.agents.filter((a) => !a.village || !d.villages.some((v) => v.name === a.village));
-  $('simple').innerHTML = (d.villages.length
-    ? d.villages.map((v) => `<h2>${esc(v.name)}</h2><div class="vgrid">${simpleVillage(v, inVillage(v))}<div class="card"><div class="label">Who is doing what</div>${simpleAgents(inVillage(v))}</div></div>`).join('')
-    : '') + (loose.length || !d.villages.length ? `<h2>Agents</h2><div class="card">${simpleAgents(loose)}</div>` : '');
+  $('simple').innerHTML = (d.villages.length ? d.villages.map((v) => `<section class="village">${simpleVillage(v, inVillage(v))}</section>`).join('') : '')
+    + (loose.length || !d.villages.length ? `<h2>Agents in no village</h2><div class="card">${simpleAgents(loose)}</div>` : '');
 }
 
 function render(d) {
   lastData = d;
+  $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
   if (simple) {
     renderSimple(d);
     return drawWorld();
@@ -815,7 +909,6 @@ function render(d) {
   $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid" style="grid-template-columns:1fr">${d.villages.map(renderVillage).join('')}</div>` : '';
   const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 60);
   $('feed').innerHTML = all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>';
-  $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
   drawMaps();
   drawWorld();
 }
