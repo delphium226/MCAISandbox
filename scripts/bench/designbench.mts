@@ -6,7 +6,7 @@
  * roof shape read from the layers, materials, blocks, gather units (Materials.plan: logs, cobblestone, sand... summed)
  * and seconds. OLD=1 uses the prompt and checks of before D.1 (the sandbox's prompt, the 9x9 cap) for comparison.
  * Usage: node_modules/.bin/tsx scripts/bench/designbench.mts [model ...]   (default ollama gpt-oss:120b-cloud)
- * Env: N (samples per case, default 10), CASES (comma list of case names), OLLAMA_URL, PEEK=1 (print every design),
+ * Env: N (samples per case, default 10), CASES (comma list of case names), OLLAMA_URL, THINK, PEEK=1 (print every design),
  * OUT (a JSON file for every design, to compare runs). Since D.2 the architect also has submit_style (the building
  * generator, as design() offers it); STYLES=0 offers submit_design alone (the D.1 setup, with the style note still in
  * the prompt: for the D.1 prompt itself, bench the old code from git archive). REVISE=1 runs D.3's revision round
@@ -19,9 +19,9 @@ import { layoutBuildings, type Design } from '../../server/src/village';
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from '../../server/src/buildingGen';
 import { shrinkStyle, smallerStyle } from '../../server/src/tieredBrain';
 import { Materials, designBill, designBlockList, hardToGather } from '../../server/src/mineflayer/mcMaterials';
+import { chat as benchChat, header, percentile, REPEAT } from './benchUtil.mts';
 
-const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
-const N = Number(process.env.N ?? 10);
+const N = REPEAT(10);
 const OLD = !!process.env.OLD;
 // The 9x9 cap before D.1 (tieredBrain.ts SURVIVAL_MAX)
 const SURVIVAL_MAX = 9;
@@ -82,22 +82,10 @@ function userPrompt(c: (typeof CASES)[string]): string {
 }
 
 async function chat(model: string, system: string, user: string, styleOnly = false) {
-  const t0 = Date.now();
-  const res = await fetch(`${OLLAMA}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model, stream: false, think: false, keep_alive: '30m',
-      options: { num_ctx: 8192, temperature: 0.4 },
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      tools: (styleOnly ? [STYLE_TOOL] : OLD || process.env.STYLES === '0' ? [DESIGN_TOOL] : [STYLE_TOOL, DESIGN_TOOL]).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
-    }),
-    signal: AbortSignal.timeout(300000),
-  });
-  const d = (await res.json()) as any;
-  if (d.error) throw new Error(d.error);
-  const calls = (d.message?.tool_calls ?? []).map((c: any) => ({ name: c.function.name, input: typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments) : c.function.arguments }));
-  return { ms: Date.now() - t0, calls };
+  const r = await benchChat(model, system, user, styleOnly ? [STYLE_TOOL] : OLD || process.env.STYLES === '0' ? [DESIGN_TOOL] : [STYLE_TOOL, DESIGN_TOOL], { kind: 'design' });
+  // (a failed call is a failed try, as before)
+  if (!r.ok) throw new Error(r.error);
+  return { ms: r.ms, calls: r.calls, out: r.outputTokens };
 }
 
 /** The brain's checks on a design (tieredBrain design()). */
@@ -145,10 +133,11 @@ const models = process.argv.slice(2).length ? process.argv.slice(2) : ['gpt-oss:
 const cases = (process.env.CASES ? process.env.CASES.split(',') : Object.keys(CASES)).filter((c) => CASES[c]);
 const all: unknown[] = [];
 for (const model of models) {
-  console.log(`\n=== ${model}  (${N} per case)`);
+  header('designbench', model, 'design');
+  console.log(`${N} per case`);
   for (const cn of cases) {
     const c = CASES[cn];
-    const rows: Array<{ ok: boolean; tries: number; s: number; d?: Design; roof?: string; gather?: number; logs?: number; cobble?: number; mats?: string[]; err?: string; via?: string; style?: BuildingStyle; revised?: boolean; notes?: number; kept?: boolean }> = [];
+    const rows: Array<{ ok: boolean; tries: number; s: number; d?: Design; roof?: string; gather?: number; logs?: number; cobble?: number; mats?: string[]; err?: string; via?: string; style?: BuildingStyle; revised?: boolean; notes?: number; kept?: boolean; outTok?: number }> = [];
     // A valid design described for the table
     const describe = (design: Design, style: BuildingStyle | undefined, tries: number, s: number) => {
       const g = cost(design).plan.gather;
@@ -156,7 +145,7 @@ for (const model of models) {
       return { ok: true, tries, s, d: design, via: style ? 'style' : 'layers', style, roof: style ? `${style.roof}${style.overhang ? '+overhang' : ''}` : roofShape(design), gather: Object.values(g).reduce((t, q) => t + q, 0), logs: sum(/log|stem/), cobble: sum(/cobblestone|^stone$/), mats: [...new Set(Object.values(design.palette))].sort() };
     };
     for (let k = 0; k < N; k++) {
-      let user = userPrompt(c), s = 0, tries = 0, last: string[] = [];
+      let user = userPrompt(c), s = 0, tries = 0, last: string[] = [], outTok = 0;
       let firstValid: (typeof rows)[number] | null = null;
       let out: (typeof rows)[number] | null = null;
       // tieredBrain.ts DESIGN_TRIES (2 before D.1)
@@ -165,6 +154,7 @@ for (const model of models) {
         try {
           const r = await chat(model, OLD ? DESIGN_SYSTEM : designSystem(designBlockList(c.survival), true), user, !!firstValid?.style);
           s += r.ms / 1000;
+          outTok += r.out;
           const call = r.calls.find((x: any) => x.name === 'submit_design' || x.name === 'submit_style');
           // A style is drawn by code first (tieredBrain.ts design())
           let input = call?.input, style: BuildingStyle | undefined, refused: string[] = [];
@@ -207,6 +197,7 @@ for (const model of models) {
       // (a revision that failed its checks: the first valid design stands)
       if (!out && firstValid) out = { ...firstValid, tries, s, revised: true, kept: true };
       out ??= { ok: false, tries, s, err: last.slice(0, 2).join('; ') };
+      out.outTok = outTok;
       rows.push(out);
       all.push({ model, case: cn, ...out, d: out.d ? { width: out.d.width, depth: out.d.depth, height: out.d.height, blocks: out.d.blocks, palette: out.d.palette, layers: out.d.layers, description: out.d.description } : undefined });
       const d = out.d;
@@ -217,7 +208,7 @@ for (const model of models) {
     const mean = (f: (r: (typeof rows)[number]) => number) => (ok.length ? ok.reduce((t, r) => t + f(r), 0) / ok.length : 0);
     const roofs: Record<string, number> = {};
     for (const r of ok) roofs[r.roof!] = (roofs[r.roof!] ?? 0) + 1;
-    console.log(`  ${cn}: valid ${ok.length}/${rows.length} (${rows.filter((r) => r.ok && r.tries > 1).length} after a retry; ${ok.filter((r) => r.via === 'style').length} by style; ${ok.filter((r) => r.revised).length} shown back, ${ok.filter((r) => r.kept).length} kept the first; ${ok.filter((r) => (r.notes ?? 0) > 0).length} with lint notes left); roofs ${JSON.stringify(roofs)}; mean ${mean((r) => r.d!.blocks).toFixed(0)} blocks, gather ${mean((r) => r.gather!).toFixed(0)}, ${mean((r) => r.d!.width * r.d!.depth).toFixed(0)} cells of footprint, ${mean((r) => r.d!.height).toFixed(1)} layers; ${(rows.reduce((t, r) => t + r.s, 0) / rows.length).toFixed(1)} s a design`);
+    console.log(`  ${cn}: valid ${ok.length}/${rows.length} (${rows.filter((r) => r.ok && r.tries > 1).length} after a retry; ${ok.filter((r) => r.via === 'style').length} by style; ${ok.filter((r) => r.revised).length} shown back, ${ok.filter((r) => r.kept).length} kept the first; ${ok.filter((r) => (r.notes ?? 0) > 0).length} with lint notes left); roofs ${JSON.stringify(roofs)}; mean ${mean((r) => r.d!.blocks).toFixed(0)} blocks, gather ${mean((r) => r.gather!).toFixed(0)}, ${mean((r) => r.d!.width * r.d!.depth).toFixed(0)} cells of footprint, ${mean((r) => r.d!.height).toFixed(1)} layers; ${(rows.reduce((t, r) => t + r.s, 0) / rows.length).toFixed(1)} s a design (p50 ${percentile(rows.map((r) => r.s), 0.5).toFixed(1)}, p90 ${percentile(rows.map((r) => r.s), 0.9).toFixed(1)}), ~${Math.round(rows.reduce((t, r) => t + (r.outTok ?? 0), 0) / rows.length)} output tokens a design`);
   }
 }
 if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify(all, null, 1));

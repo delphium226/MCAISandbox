@@ -20,10 +20,14 @@ the session ends. When a run teaches something new, the plan changes with it (it
      `mc/server/logs/latest.log`; `mc/server/console.log` is stale). **Start servers with `scripts/detach.py`, not the
      Bash tool's `run_in_background`**: a background task is stopped at its 30-minute limit, and Paper was killed
      unsaved that way (F90).
-  2. `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
+  2. only when a role runs on a local model: since A.0 every role defaults to gpt-oss:120b-cloud;
+     `python scripts/ollama_exec.py start` (the two pinned local model servers; it unloads them from the app first)
   3. `MC_API_HOST=0.0.0.0 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" python scripts/detach.py runs/<date>/agentserver-N.log node node_modules/tsx/dist/cli.mjs server/src/mineflayer/index.ts`
      (agent server + panel on 8766; restart it after editing server files: it does not watch; add `MC_TIME_SCALE=2`
-     for staged runs and checks at double speed, never for model-driven acceptance runs)
+     for staged runs and checks at double speed, never for model-driven acceptance runs; `MC_OLLAMA_ROUTES` is
+     harmless when every role is on the cloud, and a named local model needs it). The hourly budget
+     `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
+     is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own
   agent server on 8767, generated from the same seed; `MCAI_API=http://127.0.0.1:8767/api python
   scripts/reset_site.py SITE` (add `MC_TIME_SCALE=2` and/or `MC_OLLAMA_ROUTES` as needed) restores a site from the
@@ -32,12 +36,12 @@ the session ends. When a run teaches something new, the plan changes with it (it
   settings and the site's probe point). Sites: `scripts/test_sites.json`.
   4. a test: first the staged one without models, `python scripts/stage_village.py <Village> -160 -100 --stage build`
      (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
-     `MCAI_API=http://127.0.0.1:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud
-     MCAI_GAMEMODE=survival MCAI_STALL_MIN=5 MCAI_SAME_FAIL=6 python scripts/watch_village.py <Village> -160 -100 2 90
-     "two matching cottages and a meeting hall" ollama:qwen3.8:27b` (10-40 min: ~300-block villages 10-15 min,
-     500+ blocks or log roofs 25-40). Without `MCAI_GAMEMODE` it runs in creative (free blocks, a few minutes). The
-     watcher probes for land (in survival it skips ground with too few trees) and spawns the village at the site
-     it found, not at X Z.
+     `MCAI_API=http://127.0.0.1:8766/api MCAI_GAMEMODE=survival MCAI_STALL_MIN=5 MCAI_SAME_FAIL=6 python
+     scripts/watch_village.py <Village> -160 -100 2 90 "two matching cottages and a meeting hall"` (10-40 min:
+     ~300-block villages 10-15 min, 500+ blocks or log roofs 25-40). Without `MCAI_GAMEMODE` it runs in creative
+     (free blocks, a few minutes). The watcher probes for land (in survival it skips ground with too few trees) and
+     spawns the village at the site it found, not at X Z. The STOPPED line ends with the run's tokens and cost
+     (from `/api/usage?since=`); the panel header shows the totals since the agent server started, not per run.
   To restart the agent server after a server edit: stop the process on port 8766
   (`Get-NetTCPConnection -LocalPort 8766 -State Listen`), start step 3 again with `run_in_background`.
   Stop: `python mc/rcon.py stop` (saves the world), `python scripts/ollama_exec.py stop`, the agent server by PID.
@@ -112,12 +116,19 @@ the session ends. When a run teaches something new, the plan changes with it (it
   was broken twice in the 2026-09-27 session without effect on the runs).
 - Write prose (README, comments) plainly; match the surrounding comment density.
 
-## Local models (the user's machine)
+## Models (gpt-oss for every role; local models as a fallback)
 
+- **Every role defaults to `ollama:gpt-oss:120b-cloud`** (the user's decision, 2026-10-10, A.0): mayor, architect,
+  workers' planner and executors. Each call kind has a reasoning level (Ollama's `think`; `MC_REASONING`, per agent
+  `memory.reasoning`), because gpt-oss ignores `think:false` (69/51/20 output tokens at false/medium/low). Tokens and
+  cost show in the panel header and `GET /api/usage`; prices come from `MC_TOKEN_PRICES` ($0.15/$0.60 per M tokens
+  for gpt-oss; thinking bills as output; costs are a lower bound, errored calls count 0). The hourly budget
+  (`MC_TOKEN_BUDGET_HOUR`) pauses cloud calls when spent: agents back off and code-posted work goes on; a 429 or 5xx
+  hands a task back instead of failing it.
 - Two RTX 3090s (24 GB each); GPU 1 also drives the display. Ollama (0.34.x) at localhost:11434, models in `F:\AI Models`.
-- Installed: `qwen3:30b-instruct` (MoE, ~19 GB; the executor), `qwen3.8:27b` (dense, ~22 GB at 8k; the workers'
+- Installed: `qwen3:30b-instruct` (MoE, ~19 GB; the executor until A.0; now a fallback), `qwen3.8:27b` (dense, ~22 GB at 8k; the workers'
   planner), `gemma4:31b` (dense, ~21 GB, only ~10 tok/s: the old planner/architect), and cloud models through the
-  Ollama app: `gpt-oss:120b-cloud` (the user's paid subscription; the mayor's planner and architect), kimi, deepseek,
+  Ollama app: `gpt-oss:120b-cloud` (the user's paid subscription; every role), kimi, deepseek,
   mistral-large, minimax. Pull models through the API (`POST /api/pull`), not the CLI.
 - **Local models run on their own servers** (`scripts/ollama_exec.py start|stop|status`): qwen3:30b on GPU 1 (it also
   drives the display) at port 11435 with `OLLAMA_NUM_PARALLEL=3`, qwen3.8 on GPU 0 at port 11436; the Ollama app
@@ -129,7 +140,9 @@ the session ends. When a run teaches something new, the plan changes with it (it
   once ~1.7x the throughput of three in sequence; qwen3.8 worker plan ~7-10 s; gpt-oss mayor plan ~3.5 s, designs
   ~9 s. In a village run executors took 6-11 s per turn on one shared model: benchmarks alone understate queueing.
 - Keep `num_ctx` at 8192 (`MC_OLLAMA_CTX`): at 16384 gemma spills to the CPU and runs ~7x slower. Two gemma instances do
-  not fit, so `OLLAMA_NUM_PARALLEL` does not help it.
+  not fit, so `OLLAMA_NUM_PARALLEL` does not help it. Local models only: Ollama Cloud ignores `num_ctx` (an
+  18,292-token prompt was read whole at 8192); the 8k warning fires only for local models, and a cloud prompt over
+  8192 logs one warning per agent and kind (lesson 32).
 - **Pinned models stay loaded** (the brain sends `keep_alive: -1` for routed models; the servers start with
   `OLLAMA_KEEP_ALIVE=-1`): after an idle unload, qwen3.8 once reloaded partly into system RAM and every worker plan
   timed out. `ollama_exec.py start` warms each model with a ~3k-token prompt: the first long prompt after loading
@@ -207,7 +220,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 10. **Evaluating a model**: time it on the real prompts and tools (`scripts/bench/`: `modelbench.mts` planner and
    architect, `execbench.mts` executor turns from situations that went wrong, `planbench.mts` worker plans; run with
    `node_modules/.bin/tsx scripts/bench/<name>.mts <model>...` and `OLLAMA_URL=` for a pinned server; `PEEK=1` prints
-   raw tool calls). Look at the raw tool calls before judging: most "failures" of new models were format quirks.
+   raw tool calls; `THINK=false|low|medium|high`, gpt-oss defaulting to the brain's level per call kind; `N=` samples;
+   the benches follow `MC_OLLAMA_ROUTES`; `concurrency.mts [model] [N] [ROUNDS]` times N calls at once against one
+   alone; `scripts/checks/model_usage.mts` checks the usage ledger offline). Look at the raw tool calls before
+   judging: most "failures" of new models were format quirks.
    Results so far: gemma4:31b 10 tok/s but reliable designs; qwen3.8:27b 20 tok/s, best worker plans, designs need a
    retry; qwen3:30b fastest and fine as executor, poor designs and loose plans; gpt-oss:120b-cloud fastest planner and
    architect (~3.5 s / ~9 s).
@@ -292,9 +308,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   (`fill X1 Y X1 X2 Y Z2 minecraft:wheat[age=7] replace minecraft:wheat`) to reach the cow pen and the cake.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
-- While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
-  user); the final runs use qwen3.8:27b. In village runs the workers' planner is no longer called at all (`plan 0x0ms`:
-  code-posted tasks run as written, the executor handles failures), so planner choice does not show in them.
+- Every role is gpt-oss:120b-cloud by default (A.0). For a local run, name the models (`MCAI_EXEC_MODEL=ollama:qwen3:30b-instruct`,
+  WORKER_PLANNER `ollama:qwen3.8:27b`) and start the pinned servers. In village runs the workers' planner is hardly
+  called (`plan 0x0ms`: code-posted tasks run as written, the executor handles failures).
 
 ## State of the work
 

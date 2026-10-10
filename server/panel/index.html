@@ -24,6 +24,8 @@
     --planning: #a58cff; --thinking: #6c9cff; --acting: #4cc27f; --waiting: #7d8591; --idle: #9aa3ae; --done: #4fc3cf; --backoff: #ff6b60;
   }
   * { box-sizing: border-box; }
+  /* (author display rules such as .chip's beat the browser's own [hidden] rule) */
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
   header h1 { font-size: 16px; margin: 0; font-weight: 650; }
@@ -200,6 +202,7 @@
 <header>
   <h1>Agent control panel</h1>
   <span class="chip" id="world"><span class="dot"></span> connecting…</span>
+  <span class="chip" id="usage" hidden></span>
   <span id="models" class="detailed-only"></span>
   <span class="spacer"></span>
   <span class="chip detailed-only" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
@@ -285,6 +288,7 @@ function ago(ms) {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 const bar = (v, max, color) => `<span class="bar" title="${v}/${max}"><i style="width:${Math.max(0, Math.min(100, (v / max) * 100))}%;background:${color}"></i></span>`;
+const fmtTok = (n) => (n < 1000 ? String(n) : n < 1e6 ? (n / 1e3).toFixed(1) + 'k' : (n / 1e6).toFixed(2) + 'M');
 const fmtArgs = (args) => Object.entries(args || {}).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' ');
 const det = (key, title, body, openByDefault = false) => {
   const open = openDetails.has(key) || (openByDefault && !openDetails.has('!' + key));
@@ -309,9 +313,13 @@ function renderPlan(p) {
 function renderStats(s) {
   if (!s) return '<div class="empty">no model calls yet</div>';
   const n = (k) => s[k] ?? 0;
+  const tier = (k) => `${n(k + 'Calls')} calls, avg ${Math.round(n(k + 'MsAvg') / 100) / 10}s, ~${n(k + 'PromptTokensAvg')} in / ${n(k + 'OutTokensAvg')} out tokens`;
+  const sum = (suffix) => ['plan', 'design', 'exec'].reduce((t, k) => t + n(k + suffix), 0);
   return `<dl class="kv">
-    <dt>planner</dt><dd>${n('planCalls')} calls, avg ${Math.round(n('planMsAvg') / 100) / 10}s, ~${n('planPromptTokensAvg')} tokens</dd>
-    <dt>executor</dt><dd>${n('execCalls')} calls, avg ${Math.round(n('execMsAvg') / 100) / 10}s, ~${n('execPromptTokensAvg')} tokens</dd>
+    <dt>planner</dt><dd>${tier('plan')}</dd>
+    ${n('designCalls') > 0 ? `<dt>designer</dt><dd>${tier('design')}</dd>` : ''}
+    <dt>executor</dt><dd>${tier('exec')}</dd>
+    <dt>tokens</dt><dd>${fmtTok(sum('PromptTokensTotal'))} in / ${fmtTok(sum('OutTokensTotal'))} out${n('budgetRefused') ? `, ${n('budgetRefused')} refused by the budget` : ''}</dd>
     <dt>actions</dt><dd><span style="color:var(--good)">${n('actionsDone')} done</span>, <span style="color:var(--bad)">${n('actionsFailed')} failed</span>, ${n('repeatsRefused')} repeats refused</dd>
     <dt>steps</dt><dd>${n('stepsDone')} done (${n('stepsAutoDone')} marked automatically)</dd>
     ${s.designs || s.designsFailed ? `<dt>designs</dt><dd>${n('designs')} drawn, ${n('designsFailed')} failed</dd>` : ''}
@@ -344,7 +352,9 @@ function renderAgent(a) {
   const decisions = (st.recentDecisions || []).slice().reverse().map((d) => `<li>${esc(d)}</li>`).join('');
   const blocked = (st.blockedCalls || []).map((b) => `<li>${esc(b)}</li>`).join('');
   const inv = invList.map(([n, c]) => `<span class="tag">${esc(n)} ${c}</span>`).join('') + (a.inventoryKinds > invList.length ? ` <span class="sub">+${a.inventoryKinds - invList.length} more</span>` : '');
-  const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)` : '';
+  const r = st.reasoning;
+  const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)${st.models.design ? `, ${esc(st.models.design)} (designer)` : ''}` +
+    (r ? ` · reasoning exec ${esc(r.exec)}, plan ${esc(r.plan)}, design ${esc(r.design)}` : '') : '';
   const watch = world?.kind === 'minecraft' ? `<button data-act="watch" data-agent="${esc(a.name)}" title="Spectate this agent in the game">Watch</button>` : '';
   const s = a.stats || {};
   const n = (x) => s[x] ?? 0;
@@ -401,7 +411,7 @@ function renderAgent(a) {
       <span title="health">♥ ${a.health}</span><span title="food">🍗 ${a.food}</span>
       <span class="mono" title="position">${where}</span>
       <span title="failures since the last plan"${(st.failuresSincePlan || 0) >= 3 ? ' class="bad"' : ''}>${st.failuresSincePlan ?? 0} fails</span>
-      <span title="executor calls and their average time">exec ${n('execCalls')} × ${Math.round(n('execMsAvg') / 100) / 10}s</span>
+      <span title="executor calls and their average time, ~${n('execOutTokensAvg')} output tokens a turn">exec ${n('execCalls')} × ${Math.round(n('execMsAvg') / 100) / 10}s</span>
       <span title="actions done / failed">${n('actionsDone')} done${n('actionsFailed') ? ` · <span class="bad">${n('actionsFailed')} failed</span>` : ''}</span>
     </div>
     ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
@@ -417,8 +427,9 @@ function renderAgent(a) {
 function seenBody(c) {
   if (!c) return '<div class="empty">no call yet</div>';
   const calls = (c.calls || []).map((x) => `<li>${esc(x.name)}(${esc(JSON.stringify(x.input))})</li>`).join('');
-  return `<div class="sub">${esc(c.model)}${c.ms != null ? `, ${Math.round(c.ms / 100) / 10}s` : ''}${c.promptTokens ? `, ${c.promptTokens} prompt tokens` : ''}, ${ago(c.at)} ago; the fixed system prompt for its role is not shown</div>
+  return `<div class="sub">${esc(c.model)}${c.ms != null ? `, ${Math.round(c.ms / 100) / 10}s` : ''}${c.promptTokens ? `, ${c.promptTokens} prompt tokens` : ''}${c.outputTokens != null ? `, ${c.outputTokens} output tokens` : ''}${c.think ? `, reasoning ${esc(c.think)}` : ''}, ${ago(c.at)} ago; the fixed system prompt for its role is not shown</div>
     <pre class="prompt" data-scroll="prompt:${esc(String(c.at))}">${esc(c.prompt)}</pre>
+    ${c.thinking ? det('seen:thinking', "model's reasoning", `<pre class="prompt" data-scroll="thinking:${esc(String(c.at))}">${esc(c.thinking)}</pre>`) : ''}
     <div class="label">It answered</div>${calls ? `<ul class="list mono">${calls}</ul>` : ''}${c.text ? `<div class="sub">${esc(c.text)}</div>` : ''}${!calls && !c.text ? '<div class="empty">nothing</div>' : ''}`;
 }
 
@@ -1266,10 +1277,33 @@ async function refresh() {
     const d = await api('/api/overview');
     recordTrails(d);
     render(d);
+    drawUsage(d.usage);
     $('error').innerHTML = '';
   } catch (err) {
     $('error').innerHTML = `<div class="warnbox">Cannot reach the agent server: ${esc(err.message)}</div>`;
   }
+}
+
+// Token use since the agent server started (all agents, not per run) and the hourly cloud budget
+function drawUsage(u) {
+  const el = $('usage');
+  const t = u?.total;
+  if (!t || (t.calls || 0) + (t.errors || 0) + (t.refused || 0) === 0) { el.hidden = true; return; }
+  const h = u.lastHour || {};
+  const b = u.budget || {};
+  let text = `tokens ${fmtTok((t.promptTokens || 0) + (t.outputTokens || 0))} since start · ${fmtTok((h.promptTokens || 0) + (h.outputTokens || 0))} last hour · ~$${(t.cost ?? 0).toFixed(2)}`;
+  const pct = b.tokensPerHour ? Math.round((100 * (b.usedInWindow || 0)) / b.tokensPerHour) : null;
+  if (pct != null) text += ` · ${pct}% of hourly budget`;
+  if (b.blocked && b.retryAt) text += ` · paused until ${new Date(b.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  else if (b.blocked) text += ' · paused';
+  el.textContent = text;
+  el.style.color = b.blocked ? 'var(--bad)' : pct != null && pct >= 80 ? 'var(--warn)' : '';
+  const lines = Object.entries(u.byModel || {}).map(([m, x]) =>
+    `${m}: ${x?.calls ?? 0} calls, ${fmtTok(x?.promptTokens ?? 0)} in / ${fmtTok(x?.outputTokens ?? 0)} out, ~$${(x?.cost ?? 0).toFixed(3)}`);
+  if (u.unpriced?.length) lines.push(`unpriced: ${u.unpriced.join(', ')}`);
+  if (u.since) lines.push(`since ${new Date(u.since).toLocaleString()}`);
+  el.title = lines.join('\n');
+  el.hidden = false;
 }
 
 async function refreshHeader() {
@@ -1288,7 +1322,7 @@ async function refreshHeader() {
   try {
     const m = await api('/api/models');
     $('models').innerHTML = m.ok
-      ? (m.models.length ? m.models.map((x) => `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB${x.server && x.server !== '11434' ? ` <span class="sub">:${esc(x.server)}</span>` : ''}</span>`).join(' ') + (m.error ? ` <span class="chip" style="color:var(--bad)">${esc(m.error)}</span>` : '') : '<span class="chip">Ollama: no models loaded</span>')
+      ? (m.models.length ? m.models.map((x) => x.cloud ? `<span class="chip" title="Ollama Cloud"><span class="dot" style="background:var(--good)"></span><b>${esc(x.name)}</b> cloud</span>` : `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB${x.server && x.server !== '11434' ? ` <span class="sub">:${esc(x.server)}</span>` : ''}</span>`).join(' ') + (m.error ? ` <span class="chip" style="color:var(--bad)">${esc(m.error)}</span>` : '') : '<span class="chip">Ollama: no models loaded</span>')
       : `<span class="chip" style="color:var(--bad)">${esc(m.error)}</span>`;
   } catch {}
 }

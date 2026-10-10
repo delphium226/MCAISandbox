@@ -5,8 +5,11 @@ MCAI_GAMEMODE=survival (real Minecraft's village economy: materials are gathered
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
 Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30);
 MCAI_NO_PROBE=1 starts the village at X,Z itself instead (scouting tests).
-WORKER_PLANNER defaults to gemma4:31b. Other models: MCAI_MAYOR_MODEL (the mayor's planner), MCAI_DESIGN_MODEL (the
-architect) and MCAI_EXEC_MODEL (every executor), e.g. MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud.
+Every role defaults to ollama:gpt-oss:120b-cloud: WORKER_PLANNER, MCAI_MAYOR_MODEL (the mayor's planner),
+MCAI_DESIGN_MODEL (the architect) and MCAI_EXEC_MODEL (every executor). Name a local model for a fallback run
+(MCAI_EXEC_MODEL=ollama:qwen3:30b-instruct, WORKER_PLANNER ollama:qwen3.8:27b): that needs the agent server started with
+MC_OLLAMA_ROUTES and `python scripts/ollama_exec.py start`. MCAI_REASONING (e.g. exec=medium) overrides the brain's
+reasoning levels. The STOPPED line ends with the run's tokens and cost (/api/usage since the spawn).
 """
 import json, os, math, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -14,16 +17,18 @@ import json, os, math, re, subprocess, sys, time, urllib.error, urllib.request
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
-worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gemma4:31b"
+worker_planner = sys.argv[7] if len(sys.argv) > 7 else "ollama:gpt-oss:120b-cloud"
 site_size = int(sys.argv[8]) if len(sys.argv) > 8 else 30
-mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gemma4:31b")
+mayor_planner = os.environ.get("MCAI_MAYOR_MODEL", "ollama:gpt-oss:120b-cloud")
 gamemode = os.environ.get("MCAI_GAMEMODE", "creative")
 stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
 same_fail = int(os.environ.get("MCAI_SAME_FAIL", "3"))
 # Minutes to keep watching after completion (opportunistic farming, 10-08): the chores, no stall or same-fail rule
 after = float(os.environ.get("MCAI_AFTER", "0"))
-BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
-        "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gemma4:31b"), "buildSpeed": 4}
+BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-cloud"),
+        "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gpt-oss:120b-cloud"), "buildSpeed": 4}
+if os.environ.get("MCAI_REASONING"):
+    BASE["reasoning"] = os.environ["MCAI_REASONING"]
 
 
 def call(path, body=None, method=None):
@@ -38,6 +43,50 @@ def call(path, body=None, method=None):
             if isinstance(e, urllib.error.HTTPError) or attempt == 3:
                 raise
             time.sleep(5)
+
+
+def usage_report(since_ms, agents):
+    """The run's model usage from the agent server's ledger (A.0); None when the server has no /api/usage."""
+    try:
+        return call(f"/usage?since={since_ms}&agents={','.join(agents)}")
+    except Exception:
+        return None
+
+
+def fmt_tok(n):
+    return f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.1f}k" if n >= 1e3 else str(n)
+
+
+def usage_suffix(u):
+    if not u or "total" not in u:
+        return "; tokens n/a"
+    t = u["total"]
+    s = (f"; tokens {fmt_tok(t['promptTokens'])} in / {fmt_tok(t['outputTokens'])} out in {t['calls']} calls"
+         f", ~${t.get('cost', 0):.3f}")
+    if t.get("refused"):
+        s += f", {t['refused']} refused by the budget"
+    if t.get("errors"):
+        s += f", {t['errors']} errors"
+    if u.get("unpriced"):
+        s += f" (unpriced: {', '.join(u['unpriced'])})"
+    if u.get("partial"):
+        s += " (partial)"
+    return s
+
+
+def usage_lines(u, agents):
+    """One line per agent: calls and tokens in/out per call kind."""
+    if not u or "total" not in u:
+        return []
+    out = []
+    for n in agents:
+        k = (u.get("byAgentKind") or {}).get(n) or {}
+        parts = []
+        for kind in ("plan", "design", "exec"):
+            d = k.get(kind) or {}
+            parts.append(f"{kind} {d.get('calls', 0)}x {fmt_tok(d.get('promptTokens', 0))}/{fmt_tok(d.get('outputTokens', 0))}")
+        out.append(f"USAGE {n}: " + ", ".join(parts))
+    return out
 
 
 def bring_player(agent):
@@ -119,6 +168,8 @@ def find_land(x, z):
 x, z, ground = (x, z, None) if os.environ.get("MCAI_NO_PROBE") == "1" else find_land(x, z)
 call("/village", {"name": village, "objective": objective})
 names = ["Mayor"] + [f"Worker{i + 1}" for i in range(workers)]
+# The run's usage counts from here (the probe's idle Mayor makes no model calls)
+usage_since = int(time.time() * 1000)
 for i, n in enumerate(names):
     mem = {**BASE, "village": village, "planModel": mayor_planner if i == 0 else worker_planner, **({"villageRole": "mayor"} if i == 0 else {})}
     try:
@@ -128,7 +179,7 @@ for i, n in enumerate(names):
         print(f"{n}: {e.code} {e.read()[:100]}")
 bring_player("Mayor")
 print(f"spawned {', '.join(names)} in village {village}; mayor plans with {mayor_planner}, workers with {worker_planner}, "
-      f"designs by {BASE['designModel']}, executors {BASE['execModel']}, {gamemode}", flush=True)
+      f"designs by {BASE['designModel']}, executors {BASE['execModel']}, {gamemode}, reasoning {BASE.get('reasoning', 'default')}", flush=True)
 
 t0, seen, board, reason, chats = time.time(), {n: 0 for n in names}, "", "time limit", 0
 last_done = time.time()
@@ -199,7 +250,8 @@ if after and reason == "objective declared complete":
     reason += f", then {after:g} min after"
 
 v = call(f"/village/{village}")
-print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}); {chats} chat messages heard")
+u = usage_report(usage_since, names)
+print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}); {chats} chat messages heard{usage_suffix(u)}")
 print("TASKS")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {t['detail'][:140]}")
@@ -214,6 +266,12 @@ print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"
 for n in names:
     try:
         st = call(f"/agents/{n}/memory").get("stats") or {}
-        print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, designs {st.get('designs', 0)}, refused {st.get('repeatsRefused', 0)}")
+        out_tokens = sum(st.get(k + "OutTokensTotal", 0) for k in ("plan", "design", "exec"))
+        refused = f", budget-refused {st['budgetRefused']}" if st.get("budgetRefused") else ""
+        print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
+              f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
+              f"designs {st.get('designs', 0)}, refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}")
     except urllib.error.HTTPError:
         pass
+for line in usage_lines(u, names):
+    print(line)

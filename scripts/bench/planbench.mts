@@ -1,6 +1,9 @@
+// Worker plans for code-posted village tasks: are they tight (1-2 steps naming the task's own skill and coordinates)?
+// Usage: tsx planbench.mts model1 model2 ...   Env: N (samples per case, default 10), THINK, OLLAMA_URL, PEEK=1.
 import { TOOLS } from '../../server/src/skills';
+import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
 
-const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
+const TIMES = REPEAT(10);
 const SKILLS = TOOLS.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 const SYSTEM = `You are the strategic planner for a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A separate, faster executor model carries out your plan one step at a time using these skills:
@@ -14,7 +17,7 @@ You are a worker in a village building project, doing the task you have claimed 
 marked done when your plan's steps are all complete, so the steps must fully accomplish it (usually 1-3 steps, e.g.
 "prepare_site x=.. z=.. width=.. depth=.." or "build_design cottage at x=.. z=.."). Use the coordinates, plots and designs
 the task and the village summary give; never build over another building or on ground someone else is working on.`;
-const tool = { type: 'function', function: { name: 'set_plan', description: "Set the agent's goal and an ordered list of steps.", parameters: { type: 'object', properties: { goal: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } } }, required: ['goal', 'steps'] } } };
+const tool = { name: 'set_plan', description: "Set the agent's goal and an ordered list of steps.", input_schema: { type: 'object', properties: { goal: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } } }, required: ['goal', 'steps'] } };
 const VILLAGE = `Village Oakridge, objective: two matching cottages and a meeting hall
 Prepared plots (level ground; build inside them):
 - plot10: x 86..113, z -4..23, ground y=70, by Worker1
@@ -32,16 +35,22 @@ const CASES = [
    (s: string[]) => s.length <= 2 && /build_design/.test(s.join(' ')) && /meeting_hall/.test(s.join(' ')) && !s.some((x) => /explore|find_site/.test(x))],
 ] as const;
 for (const model of process.argv.slice(2)) {
-  console.log(`\n=== ${model}`);
-  let right = 0, n = 0, time = 0;
+  header('planbench', model, 'plan');
+  const tally = new Tally();
   for (const [name, user, ok] of CASES)
-    for (let rep = 0; rep < 2; rep++) {
-      const t0 = Date.now();
-      const d = await (await fetch(`${OLLAMA}/api/chat`, { method: 'POST', body: JSON.stringify({ model, stream: false, think: false, keep_alive: '30m', options: { num_ctx: 8192, temperature: 0.4 }, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }], tools: [tool] }) })).json() as any;
-      const c = d.message?.tool_calls?.[0]?.function; const args = typeof c?.arguments === 'string' ? JSON.parse(c.arguments) : c?.arguments;
-      const steps: string[] = (args?.steps ?? []).map(String); const s = (Date.now() - t0) / 1000; const good = ok(steps);
-      n++; time += s; if (good) right++;
-      console.log(`${s.toFixed(1).padStart(5)}s ${good ? 'ok   ' : 'WEAK '} ${name}: ${steps.map((x, i) => `${i + 1}. ${x}`).join(' | ').slice(0, 200)}`);
+    for (let rep = 0; rep < TIMES; rep++) {
+      const r = await chat(model, SYSTEM, user, [tool], { kind: 'plan' });
+      if (!r.ok) {
+        tally.add(r, false);
+        console.log(`error ${name}: ${r.error}`);
+        continue;
+      }
+      // (gpt-oss may write steps as objects, as the brain's stepText allows)
+      const steps: string[] = ((r.calls[0]?.input?.steps as unknown[]) ?? []).map((s) => (typeof s === 'string' ? s : JSON.stringify(s)));
+      const good = ok(steps);
+      tally.add(r, good);
+      console.log(`${(r.ms / 1000).toFixed(1).padStart(5)}s ${good ? 'ok   ' : 'WEAK '} ${name}: ${steps.map((x, i) => `${i + 1}. ${x}`).join(' | ').slice(0, 200)}`);
+      if (PEEK) console.log(`    raw calls: ${JSON.stringify(r.calls)}${r.thinking ? `\n    thinking: ${r.thinking.slice(0, 400)}` : ''}`);
     }
-  console.log(`${model}: ${right}/${n} tight plans, average ${(time / n).toFixed(1)}s`);
+  console.log(tally.line(`${model} tight plans`));
 }

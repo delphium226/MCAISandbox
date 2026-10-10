@@ -20,6 +20,15 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-10 during the twenty-sixth session, before any code; to be rewritten at its close)
+
+- **Decided:** gpt-oss:120b-cloud for every role from now on (the decisions log, 10-10 s26). **Proposed:** Phase A, agents
+  that choose (below Phase D's section), from a literature review in `runs/2026-10-10/s26/reports/` (gitignored).
+- **Code:** A.0 done and tested, **uncommitted** (modelUsage.ts, tieredBrain.ts, the panel, benches, scripts, docs).
+- **Stack:** the test world (minevale3, Minevale37's village on it: reset before use) and the pinned local model servers
+  are running; no agents in the world.
+- **Next:** A.0b, the scaling probe, then A.1 (decision log and baseline). The user chose Phase A first.
+
 (written 2026-10-10 at the close of the twenty-fifth session: F205, F209, Minevale36 and the control panel's redesign;
 the notes below for the twenty-fourth session stay valid where not overridden)
 
@@ -950,6 +959,197 @@ them stay private (D.5's rule). Decisions in the decisions log (10-04). Steps, e
       tables for "which blocks drop this item" (collect); texture colours averaged from the user's client jar for the
       renderer (D.8).
 
+## Phase A: agents that choose (proposed 2026-10-10, twenty-sixth session; the order and the open choices are the user's)
+
+The user's goal (10-10): once the village stands and the farming runs, the agents decide for themselves what to do and
+go and do it, and get better at it as they go. Today `nextChore` (mcWorld.ts) hands idle members chores in a fixed
+order (slot starts, annex, pens, pen work, iron, scouting) and no model is called after completion. **Base assumption
+from 10-10 (the user's): gpt-oss:120b-cloud for every role.** The design rests on a literature review,
+`runs/2026-10-10/s26/reports/LLM agent autonomy literature.md` (~140 sources, 2023-2026, its six research notes beside
+it; gitignored). Its finding in one line: every system with rich autonomy wraps the model in code that offers feasible
+options, checks results and holds state; nobody has published a village like ours, so A.8's comparison is new.
+
+Design rules (each from a lesson or the review):
+1. **The model chooses; code offers, checks and runs** (lesson 1; SayCan, HERAKLES, Lyfe Agents). Only code judges
+   completion: model-written success checks matched humans 72.7% of the time (OMNI-EPIC), and long-running frontier
+   agents claimed false completions (AI Village).
+2. **One call per decision point** (a chore ended, failed or was interrupted; a request arrived; dusk; night), never on a
+   timer (Lyfe Agents ~$0.5 against ~$25 an agent-hour; the AI Village's idle nudges misfired).
+3. **Menus**: 4-8 named options with facts, shuffled every call, the reason before the choice, the choice an enum in a
+   JSON schema, each choice logged with its position (Zheng et al.; in Magentic Marketplace every model took the first
+   of several proposals 60-100% of the time; Tam et al. on reason-first output).
+4. **Novelty comes from code** (Affordable Generative Agents: sampling changed the wording, not the behaviour): options
+   from new sightings and needs, cooldowns, a learning-progress weight per kind (OMNI: 55 tasks learned against 4 for
+   uniform choice), a kind banned for an hour after 3 failures (ODYSSEY).
+5. **Code selects memory; the model curates lessons** as short bullets with counters, edited, never rewritten (LightMem:
+   Mem0 43 against full history 75 on Qwen3-30B; ACE: a one-pass rewrite shrank 18,282 tokens to 122 and fell below no
+   learning).
+6. **Typed social acts and one-round secret ballots, not free chat** (MineCollab: detailed plan-sharing cost over 15%;
+   majority voting gives most of debate's gain; the 553 messages of lesson 4).
+7. **Rules on shared resources live in code**; agents vote on their numbers (GovSim: every open model up to 72B collapsed
+   the commons; reasoning models free-ride in public-goods games; gpt-oss untested).
+8. **Every agent may propose, through one validator** (CAREB-MAS: decision authority tracked who proposed).
+9. **A fallback always**: the fixed chore order whenever a call fails or times out, the cloud is down, or the hour's token
+   budget is spent.
+10. **Short prompts though 128k is available** (context rot; Vending-Bench's larger memory windows did worse); the room is
+   for the nightly reflection and the project archive.
+11. **Distinct agents by design**, since all three run one model: personality as code-side weights, one persona line and
+   code-written reminders of the agent's own pattern (persona prompts move questionnaires more than behaviour; reminders
+   cut drift 87%, Leins et al.).
+
+Steps (each up the ladder before the next: typecheck, offline bench or check, staged after-phase on minevale3 with
+`stage_village.py ... --mayor --after N --fixtures` against A.1's baseline, then a model-driven run with `MCAI_AFTER`):
+
+- [x] A.0 **gpt-oss for every role** (~1 session). Done 10-10 (s26): `modelUsage.ts` (reasoning levels, token ledger,
+  hourly budget with hysteresis, `/api/usage`), tieredBrain's calls through it, the panel's usage chip and per-tier
+  rows, benches with `THINK` and output tokens (`benchUtil.mts`, `concurrency.mts`), gpt-oss defaults in the scripts and
+  docs. Benches chose **exec medium, plan low, design medium** (run record); budget test 4a (Gus tripping and recovering
+  twice) and the local fallback passed; Minevale37 10.4 min, 0 failed, $0.0015. Not run: the spec's budget tests 4b-4d
+  (a worker's hand-written task held through refused replans, a designer refused mid-design, the mayor's gatherer while
+  its planner is blocked); the code paths were reviewed but not exercised.
+  - A reasoning level per call kind in place of `think: false`, which gpt-oss ignores (10-10 test: false gave 69 output
+    tokens, "medium" 51, "low" 20): low for executor turns and menu choices, medium for the Mayor's plans, reflection
+    and projects, settled by the benches.
+  - Token accounting per call, agent and run (Ollama's `prompt_eval_count` and `eval_count`) in the panel and the run
+    record; an hourly token budget beyond which agents fall back to the fixed order.
+  - gpt-oss as the default executor and planner in tieredBrain, `watch_village.py` and `stage_village.py`; the local
+    routes stay usable as a fallback; the 8k context check only for local models (check that the cloud honours
+    `num_ctx` before raising it).
+  - Benches at low and medium, at least 10 samples a case (lesson 20), raw calls checked (`PEEK=1`, lesson 11):
+    `execbench`, `planbench`, `mayorbench`; three agents calling at once, for latency under load.
+  - Exit: the benches at least the local models' scores; Minevale37 (1x, model-driven, every role on gpt-oss) complete in
+    about 11 min with 0 failed actions, its tokens and cost recorded; CLAUDE.md's run commands updated.
+- [ ] A.0b **Scaling probe** (~an hour; the user's question, 10-10: can the approach take more agents?). With every role
+  on the cloud and calls only at decision points, the model is no longer the limit (A.0's concurrency bench: 3 calls at
+  once 1.1x slower, 6 at once 4x, no errors). What may be: one Node process runs every bot (pathfinder and scans on one
+  event loop; lesson 16; a stall over ~30 s makes Paper drop every bot) and Paper's own tick. Measure: the concurrency
+  bench at 10-12 calls at once; 10-12 bots on the test world (names whitelisted), first idle, then all walking and
+  collecting at once, counting `[lag]` lines, the API's response time and Paper's tick time (`mspt`/`tps`). Exit: a
+  number of agents one agent server holds without stalls over ~2 s, or the finding that bots must be split across
+  processes (a second agent server per village).
+- [ ] A.1 **Decision log and the baseline** (~half a session; no behaviour change).
+  - Every chore decision logged as a `[choice]` record (agent, time, the options offered with their facts, the choice,
+    the reason, "fixed order" for today's picker), closed with its outcome, minutes and yield; also a per-run JSONL.
+  - `scripts/checks/autonomy_metrics.py`: activity entropy and specialisation per agent, cumulative unique (activity,
+    target) pairs, the village value curve (storage priced in mcMaterials' raw units) and its drawdowns, a goal ledger
+    (chosen, done, failed, abandoned), refused repeats and interventions per agent-hour (rescues, teleports), idle
+    minutes (the `AFTER busy:` line).
+  - Baseline: three staged after-phases with the fixed order (`--after 45 --fixtures --stock ...`) and one model-driven
+    run (`MCAI_AFTER=45`).
+  - Exit: the metrics for all four in the run record.
+- [ ] A.2 **The menu: chores become choices** (~1-2 sessions; the spine of the phase).
+  - World (mcWorld.ts): each chore kind split into `options(v, agent)`, its feasible instances with facts (what and where,
+    materials on hand and in storage, distance, the agent's own success rate and minutes for the kind, the expected
+    effect, who else is on it, when it was last done and how it went), and `run(option)`. Today's order becomes one
+    picker over the same options (baseline and fallback). Exposed as `WorldAdapter.choices?(agent)` and
+    `runChoice?(agent, id)`, so tieredBrain stays world-free. F193's keys stay: only options no one holds.
+  - Brain (tieredBrain.ts): a `choose` call when an idle member of a complete village holds no chore: the persona line,
+    the village's state, the options shuffled with names (no letters), the agent's last outcomes, what the others are
+    doing; schema `{reason, choice}` with the choice an enum; reasoning low; a timeout or an invalid answer runs the
+    fixed order.
+  - Code guards: cooldowns per kind, the learning-progress weight, the 3-failure ban, scouting options that say "nothing
+    new on the last N trips".
+  - Options as instances, not one slot per kind (for scaling): today's keys let one agent explore, one go for iron, one
+    work the pens, and the mine one miner a tunnel, so a fifth agent would sit idle. Several scouting points, harvests and
+    pen jobs at once, a second tunnel or level for a second miner; a key then names the instance (`explore:3`).
+  - Panel: each agent's last menu (with positions), choice and reason; a position-bias count.
+  - `scripts/bench/choicebench.mts`: menus recorded in A.1's runs replayed in shuffled orders, at least 10 samples a
+    case: valid answers, position bias, and sensible picks where there is a clear answer (a ripe field and nothing
+    urgent: harvest; cows penned and no bucket: iron).
+  - Exit: at least 95% valid; no slot chosen above ~1.5x chance among equal options; a staged after-phase with no stalls
+    and a value curve at least the baseline's; one model-driven run.
+  - Open (asked when the step starts): a "something else" slot that leads to a proposal (A.5) from the start or later;
+    whether workers also choose among ready board tasks before completion (recommended later, after A.8's first
+    comparison).
+- [ ] A.3 **Gauges and personalities** (~1 session).
+  - Village gauges in code beside `refreshNeeds`: food in storage per agent (bread, cake, eggs, milk), tools (iron
+    pickaxe, buckets, shears), farms and pens running, light, storage room, land explored round the ring; each with a
+    target, a value and a trend, shown as words with numbers (D2A). Each option carries its expected effect; code
+    scores options by deficit x effect x personality weight x learning progress and shows the top 5-8 (HERAKLES;
+    BioBlue: models balancing several targets drift to maximising one).
+  - Personalities: one line each in the prompt; weights and thresholds in code (curiosity: exploring and new kinds; care:
+    animals and farms; diligence: the stock gauges; pride: the village's look and projects); a reminder of the agent's
+    own pattern on a fixed schedule.
+  - "What the others are doing and have promised" in every menu (Project Sid's specialisation; Riedl's one sentence).
+  - Exit: staged A/B (identical against distinct personalities, two runs each): distinct ones give more different
+    activity histograms; low gauges draw matching choices; the value curve not below A.2's.
+  - Open: personas written by the user, proposed by Claude for approval (recommended: fixed across runs so they
+    compare), or generated each run.
+- [ ] A.4 **Journal, lessons and roles** (~1-2 sessions).
+  - A village clock: a day every N real minutes, kept by code (Minecraft time stays frozen unless A.7 says otherwise),
+    for recency, reflection and meetings.
+  - A journal per agent written by code (typed events: chores with outcome, minutes and yield; first times; sightings;
+    requests and replies), importance scored by code; a per-agent, per-kind table (attempts, successes, minutes, yield)
+    that feeds the menu's facts.
+  - A nightly reflection per agent (medium reasoning): the table, the day's records and the current lessons in; at most
+    5 insights, add/update/delete edits to at most 10 lesson bullets with helpful and harmful counters (ExpeL, ACE), a
+    role name from its histogram, and an intention for tomorrow (a weight on the menu, not a command) out. Code applies
+    the edits, checks entries against the world and expires old ones.
+  - Lessons reach the menu (the 2-3 most relevant) and the executor's turns after a failure, so the build phase gains
+    too; roles show on the panel (house signs later: the backlog's Roles item).
+  - Exit: over a 2-3 hour staged after-phase, success rates and minutes per trip improve for the kinds that failed
+    early; no lesson contradicts the world when checked; roles persist across days.
+- [ ] A.5 **Projects** (~2 sessions). Proposed by models, checked and compiled by code.
+  - A fixed vocabulary compiled into existing machinery, each with a completion condition code checks: a building (a
+    vanilla piece or a drawn design on the annex or a second plot, through find_site and plan_layout), a farm or pen
+    (more slots, a second annex), stock (add_need: keep N of X), a beautifying piece (B.1-B.7 as they land), a path to a
+    named place, exploring (a direction or a sighting), the mine (a new tunnel or level).
+  - One proposal slot per agent, used at the nightly reflection; a validator (materials within reach, unobtainable
+    items refused, room on the site, a time estimate from the bill and measured rates) with a neutral preview written by
+    code, a refusal that names the reason and an alternative (lesson 2), up to two repairs, and an archive of proposals
+    done, failed and refused shown to proposers, with a novelty check against it (OMNI-EPIC).
+  - Accepted projects become board tasks or chores, so they reach everyone as menu options. Optional: an empty objective
+    lets the Mayor propose the village itself.
+  - This is phase 3's compiler: a player's request (3.3, 3.4) later goes through the same validator.
+  - `scripts/bench/projectbench.mts`: proposals from recorded village states, scored valid, novel against the archive,
+    feasible.
+  - Exit: in a staged 2-hour after-phase, at least two projects proposed, validated and finished; none counted done that
+    the server does not show.
+- [ ] A.6 **Requests, meetings and village rules** (~1-2 sessions).
+  - Typed acts: request, offer, accept or decline with a reason, report done, ask the Mayor for help after a failure,
+    propose, vote. Code routes each to the addressee's next menu as an option, closes it (accepted, done, expired),
+    keeps a ledger of commitments, and checks any claim about the world before the others see it (the AI Village's
+    invented contact list cost 8+ hours). Chat stays throttled; a decision may carry one short spoken line for the
+    watcher (Project Sid's controller).
+  - A meeting at dusk: an agenda by code (open proposals, gauge alarms, rule changes), proposals collected before anyone
+    sees the others', shown shuffled with previews by code, one statement each, a secret simultaneous ballot, the result
+    enforced by code; the first speaker rotates.
+  - Village rules as numbers over a small API (logs felled per area a day, saplings replanted per tree, stock floors, how
+    near the green trees may be felled), voted at meetings, enforced by code, shown in every menu (GovSim-SelfGovern,
+    CRSEC); the starting values are code's.
+  - Exit: requests made and met in a staged run; a vote held and its rule enforced; messages per hour no higher than
+    today's.
+- [ ] A.7 **Day, night and culture** (~1 session).
+  - Open (the user's): Minecraft's daylight cycle back on (harmless in peaceful; the lamps stand; beds later need wool,
+    so shears, so iron) or the code clock alone. Dawn: journal summary, gauges, intention; day: choices at chore
+    boundaries; dusk: the meeting; night: reflection, lessons, roles, the chronicle, fresh contexts (Cursor's fresh
+    starts; Sinha et al.: models copy their own earlier errors).
+  - Culture seeded and recorded by code: places named by the agent that finds them, kept in the atlas and used in
+    prompts (naming balanced: one agent of three is 33%, above most measured tipping points); a nightly chronicle entry
+    by gpt-oss from recorded events, novel against earlier entries, written into a book in the library by command; caps
+    on what culture creates (the AI Village's expansion arms race).
+  - Exit: the user reads a few days of chronicle and finds it accurate and worth reading; all three use the same names.
+- [ ] A.8 **The comparison** (recurring: after A.2, A.3 and A.5, and at the end). On restored minevale3, the same
+  after-phase length (60-90 min) and several seeds: (1) scripted chores, (2) menu, (3) with gauges and personalities,
+  (4) with journal and lessons, (5) with projects and social acts; A.1's metrics for each, then a pairwise ranking of
+  replays by the user. Then 2-4 hour runs with stop rules for autonomy (no decision for N minutes, the same failure
+  repeated, the budget spent), read against the AI Village's failure list (invented state, goal neglect, false
+  completion, metric gaming, loops). Later: one worker on a local model against the all-gpt-oss village.
+  **Scale** (the user's, 10-10), once A.0b says one agent server holds it and A.2's options are instances: 5-6 agents a
+  village (Worker3-6, whitelisted; a house each eventually), then two villages of 3-5 (the backlog's "two villages",
+  with requests and trade between them). Specialisation and culture only emerged in Project Sid with 25-50 agents, so
+  scale is what makes A.3-A.7's roles, rules and culture measurable at all. The research's warning: in MineCollab
+  success fell from up to 90% to under 30% going from 2 to 5 agents coordinating by talk, while central assignment kept
+  repeated work near zero (TeamCraft); our board, keys and typed acts are the central kind, and a meeting costs one call
+  an agent. More agents fell trees faster: A.6's felling and replanting rules come before more than ~6 a village.
+
+Order and size: A.0 to A.7 in order with A.8 between them, about 10-12 sessions; A.2-A.3 already give agents that choose
+for reasons, A.4-A.5 agents that learn and invent, A.6-A.7 a society. Out of scope: code written by models (Voyager),
+models judging completion, free agent chat, and changes to the build phase beyond lessons in failure turns. Cost (an
+estimate at gpt-oss's $0.15/$0.60 per million tokens): decisions, reflections and the Mayor's calls for three agents
+come to ~0.3M input and ~35k output tokens an hour, about $0.06; the monthly $60 credit covers hundreds of hours, and
+A.0's budget guards against a runaway loop.
+
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
 (Deferred by the user on 2026-10-02: batch R and step 2.4 come first.)
@@ -1498,6 +1698,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10 (s25) | **VanH3** | staged 2x, minevale3, F205 (band -4..+8, 96 from the annex, 3D walk, drops <= 3), `--after 20 --fixtures --fixture-at=-1688,61 --fixture-dy 5:8 --fixture-clear --stock wheat:12,bucket:3,sugar_cane:2` | **6/6; 4 pen trips, 0 failed: chickens from -1736,70 (+4) and -1722,71 (+5), cows from -1682,71 (+5, 95 from the annex) and -1692,73 (+7); a chick and 2 calves bred, 10 eggs, 9 milk, 2 cakes** | **6.4 min** (VanC3 6.3) | busy Worker1 6.9, Worker2 7.1, Mayor 4.3 of 20; 1 `[stuck]`, 4 `[dig]`, 0 `[lag]`/`[rescue]`; wild animals were taken before the fixtures (nearer the annex, or seen first) |
 | 10-10 (s25) | VanH4 | staged 2x, minevale3, F205 + F209, `--after 20 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` | 6/6; pens, eggs, milk; no scouting (both farm slots filled: exploring runs only while a slot is free) | 6.2 min | busy Worker1 10.5, Worker2 3.1, Mayor 4.2 of 20; 0 `[stuck]`/`[lag]`/`[rescue]` |
 | 10-10 (s25) | **Minevale36** | model-driven, 1x, minevale3, `MCAI_AFTER=45`, F205 + F209 (gpt-oss mayor, qwen3:30b executors) | **6/6 + lamps + signs + farm; after: 2 chickens from +5, bred to 5, 6 eggs; all 8 scouts (Worker1 through Minevale35's lake point, no stall); iron pickaxe + 3 buckets; the field ripened by command at +26.2 (the user's choice), harvested at +26.7; a cow pen of one (from +6), 3 milk; no cake** | **10.6 min** (Minevale35 11.0), site -1628,47 | **0 failed actions in 55.7 min**; 1 `[stuck]`, 1 `[dig]`, 1 `[repath]`, 0 `[lag]`/`[rescue]`; the Mayor's planner called twice, its executor once, the workers' models never |
+| 10-10 (s26) | **A.0 benches** | gpt-oss:120b-cloud at think low and medium against the local models, N=10 a case (`runs/2026-10-10/s26/bench/`) | executor: qwen3:30b 40/40 (1.7 s), gpt-oss low 30/40 (0/10 "step already done": asks for a replan), medium **40/40** (1.9 s); worker plans: qwen3.8 29/30 (9.7 s), gpt-oss low **30/30** (1.8 s), medium 28/30; mayor: low **105/150**, medium 90/150 (medium re-posts instead of waiting: "layout under way" 0/10 against 6/10, "requeued" 4/10 against 10/10); designs: 50/50 valid at both, 7 retries at medium, 26 at low | defaults **exec medium, plan low, design medium** | concurrency: 3 calls at once 1.1x slower, 6 at once 4x (3.7 s worst), no 429s; the cloud ignores `num_ctx` (an 18,292-token prompt read whole) |
+| 10-10 (s26) | **VanA0** | staged, 2x, minevale3, `--mayor --after 12 --fixtures`, A.0's code (gpt-oss mayor) | 3/3 + annex, a chicken pen (2 led in 9 hops), a chick bred, an egg | complete at **2.9 min** | 0 failed; no model call (staged layout through the API); the STOPPED and USAGE lines print |
+| 10-10 (s26) | **Minevale37** | model-driven, 1x, minevale3, **every role on gpt-oss** at the A.0 defaults, `MCAI_AFTER=30`; `random_tick_speed 30` set by RCON at completion (the user's choice), stopped at +10.2 by the user's choice | **6/6 + lamps + signs + farm**; after: a chicken pen (2 led in), bred to 3, 2 eggs; 3 scouts (one home from water by teleport); an iron trip (stairs to y 18, coal, no iron yet); **the wheat harvested at +10.2** (13 ripe; it never ripened unaided in 30 min before) | **10.4 min** (Minevale36 10.6), site -1630,35 | **0 failed actions**; 4 `[stuck]`, 1 `[dig]`, 0 `[lag]`; **3 model calls in all** (the Mayor: 2 plans, 1 executor turn), 7,494 tokens in, 561 out, **~$0.0015** |
 
 ## Findings log
 
@@ -2824,6 +3027,25 @@ CLAUDE.md when a phase ends.
 - 10-10 (s25) Minevale36's wheat field ripened by command at +26 min to reach the cow pen with real models (the user's
   choice); an `MCAI_RIPEN` option for `watch_village.py` proposed.
 - 10-10 (s25) README restructured as an AI-agent project first (the user's request), with fresh panel screenshots.
+- 10-10 (s26) **Base assumption: gpt-oss:120b-cloud for every role** (executors, the workers' planner, the Mayor's planner
+  and architect; the user's decision after the literature review and the cost estimate, ~$0.06 an hour at decision
+  points). Replaces 10-03's "new roles go to local models"; the local servers stay as a fallback. gpt-oss ignores
+  `think: false` (a one-line test: 69 output tokens against 51 at "medium" and 20 at "low"), so A.0 sets a reasoning
+  level per call kind.
+- 10-10 (s26) Phase A, agents that choose, proposed (the user's request: "make the agents more intelligent and
+  autonomous"); its place against the twenty-fifth session's proposals (`MCAI_RIPEN`, F213, F211) and the open choices
+  in A.2, A.3 and A.7 are the user's.
+- 10-10 (s26) The user chose Phase A before the twenty-fifth session's leftovers, and the scaling work in it (A.0b's
+  probe, instances in A.2, 5-6 agents a village and two villages in A.8).
+- 10-10 (s26) A.0's reasoning defaults from the benches, against the spec's guess (exec low, plan medium): exec
+  **medium** (low missed "step already done" 10 times in 10), plan **low** (a medium mayor re-posted work instead of
+  waiting), design **medium** (low needed nearly four times the retries). Decision rule: low unless more than 10 points
+  below medium.
+- 10-10 (s26) Speeding up the time after completion (the user's question): `gamerule random_tick_speed` (default 3; 30
+  grows crops, cane, pumpkins and saplings ~10x) set by RCON once a village is complete, `MC_TIME_SCALE=2` for animal
+  timers where walking speed does not matter; digging stays on the wall clock (F91). Proposed: an `MCAI_FAST=1` switch
+  for the watch and stage scripts in place of `MCAI_RIPEN`; A.8's comparisons use one fixed setting for every variant.
+  Minevale37 was stopped at +10.2 after completion (the user's choice: no need to wait out the 30 minutes).
 
 ## Keeping this plan honest
 

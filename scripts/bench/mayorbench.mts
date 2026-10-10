@@ -1,13 +1,14 @@
 // The mayor's planner on the situations that went wrong in village runs, with the brain's real system prompt and tools,
 // several times each: does it find a site and draw designs first, call plan_layout (not write tasks itself), and wait
 // while the layout's tasks are under way? Run: node_modules/.bin/tsx scripts/bench/mayorbench.mts [model] [times]
-// (default ollama gpt-oss:120b-cloud, 5 times; OLLAMA_URL for another server). PEEK=1 prints the raw tool calls.
+// (default ollama gpt-oss:120b-cloud, 5 times; [times] wins over N). OLLAMA_URL for another server, THINK for the
+// reasoning level; PEEK=1 prints the raw tool calls.
 import { TOOLS } from '../../server/src/skills';
 import { plannerPrompt } from '../../server/src/tieredBrain';
+import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
 
 const MODEL = process.argv[2] ?? 'gpt-oss:120b-cloud';
-const TIMES = Number(process.argv[3] ?? 5);
-const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
+const TIMES = process.argv[3] ? Number(process.argv[3]) : REPEAT(5);
 // (VANILLA=0: the prompt without V2.3's line about the vanilla library, as before it)
 const VANILLA = process.env.VANILLA !== '0';
 const { system, tools } = plannerPrompt('mayor', TOOLS, true, VANILLA);
@@ -129,36 +130,33 @@ const CASES: Array<[string, string, (c: Call[]) => boolean]> = [
   ].join('\n\n'), (c) => names(c).split(',').includes('meeting_hall') && !posted(c)],
 ];
 
-console.log(`=== ${MODEL}, ${TIMES} times each`);
-let good = 0, total = 0;
+header('mayorbench', MODEL, 'plan');
+console.log(`${TIMES} times each`);
+const all = new Tally();
 for (const [label, user, ok] of CASES) {
   if (process.env.ONLY && !new RegExp(process.env.ONLY, 'i').test(label)) continue;
-  let n = 0;
-  const times: number[] = [];
+  const tally = new Tally();
   // What each answer did, whether it passed or not (F155: plan_layout, a design step, only waiting, or something else)
   const kinds: Record<string, number> = {};
   for (let i = 0; i < TIMES; i++) {
-    const t0 = Date.now();
-    const res = await fetch(`${OLLAMA}/api/chat`, {
-      method: 'POST',
-      body: JSON.stringify({
-        model: MODEL, stream: false, think: false, options: { num_ctx: 8192, temperature: 0.4 },
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
-      }),
-    });
-    const data = (await res.json()) as { message?: { tool_calls?: Array<{ function: { name: string; arguments: unknown } }> } };
-    const calls: Call[] = (data.message?.tool_calls ?? []).map((c) => ({ name: c.function.name, input: (typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments) : c.function.arguments) as Record<string, unknown> }));
-    times.push(Date.now() - t0);
+    const r = await chat(MODEL, system, user, tools, { kind: 'plan' });
+    if (!r.ok) {
+      tally.add(r, false);
+      all.add(r, false);
+      kinds.error = (kinds.error ?? 0) + 1;
+      console.log(`  ERR  ${label}: ${r.error}`);
+      continue;
+    }
+    const calls: Call[] = r.calls;
     const pass = ok(calls);
-    if (pass) n++;
+    tally.add(r, pass);
+    all.add(r, pass);
     const kind = layout(calls) ? 'layout' : posted(calls) ? 'post' : steps(calls).some((s) => /design_building/.test(s)) ? 'design'
       : steps(calls).some((s) => /find_site/.test(s)) ? 'find_site' : steps(calls).every((s) => !/\b(explore|move_to|chat)\b/.test(s)) ? 'wait' : 'other';
     kinds[kind] = (kinds[kind] ?? 0) + 1;
-    if (process.env.PEEK || !pass) console.log(`  ${pass ? 'ok  ' : 'FAIL'} ${label}: ${JSON.stringify(calls).slice(0, 400)}`);
+    if (PEEK || !pass) console.log(`  ${pass ? 'ok  ' : 'FAIL'} ${label}: ${JSON.stringify(calls).slice(0, 400)}`);
+    if (PEEK && r.thinking) console.log(`       thinking: ${r.thinking.slice(0, 400)}`);
   }
-  good += n;
-  total += TIMES;
-  console.log(`${n}/${TIMES}  ${label}  (${(times.reduce((s, t) => s + t, 0) / times.length / 1000).toFixed(1)}s avg; ${Object.entries(kinds).map(([k, q]) => `${q} ${k}`).join(', ')})`);
+  console.log(`${tally.line(label)}; ${Object.entries(kinds).map(([k, q]) => `${q} ${k}`).join(', ')}`);
 }
-console.log(`${MODEL}: ${good}/${total}`);
+console.log(all.line(MODEL));

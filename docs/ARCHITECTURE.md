@@ -48,9 +48,9 @@ flowchart LR
   panel --- mcagents
 
   subgraph Models["Models"]
-    app["Ollama app :11434<br/>cloud relay: gpt-oss:120b-cloud"]
-    exec["Executor server :11435<br/>qwen3:30b-instruct, GPU 1, 3 slots"]
-    plan["Planner server :11436<br/>qwen3.8:27b, GPU 0"]
+    app["Ollama app :11434<br/>cloud relay: gpt-oss:120b-cloud<br/>(every role by default)"]
+    exec["Executor server :11435 (fallback)<br/>qwen3:30b-instruct, GPU 1, 3 slots"]
+    plan["Planner server :11436 (fallback)<br/>qwen3.8:27b, GPU 0"]
     claude["Claude API<br/>(llm brain only)"]
   end
   brains --> app
@@ -849,18 +849,25 @@ flowchart LR
   subgraph brain["TieredBrain (per call)"]
     route{"MC_OLLAMA_ROUTES<br/>model -> server"}
   end
-  route -- "qwen3:30b-instruct" --> exec["Executor server :11435<br/>ollama.exe serve<br/>GPU 1 (also the display)<br/>OLLAMA_NUM_PARALLEL=3"]
-  route -- "qwen3.8:27b" --> plan["Planner server :11436<br/>ollama.exe serve<br/>GPU 0, 1 slot"]
-  route -- "anything else,<br/>e.g. gpt-oss:120b-cloud" --> app["Ollama app :11434"]
+  route -- "qwen3:30b-instruct" --> exec["Executor server :11435 (fallback)<br/>ollama.exe serve<br/>GPU 1 (also the display)<br/>OLLAMA_NUM_PARALLEL=3"]
+  route -- "qwen3.8:27b" --> plan["Planner server :11436 (fallback)<br/>ollama.exe serve<br/>GPU 0, 1 slot"]
+  route -- "anything else,<br/>e.g. gpt-oss:120b-cloud<br/>(every role by default)" --> app["Ollama app :11434"]
   app --> cloud["Ollama cloud<br/>(subscription)"]
   route -. "anthropic:..." .-> claudeapi["Claude API<br/>(billed separately)"]
 ```
 
-| Role | Model (as used in the Elmfield and Ashvale runs) | Why |
-|---|---|---|
-| Mayor's planner, architect | `gpt-oss:120b-cloud` | ~3.5 s per plan, ~9 s per design, valid designs; about 10x faster than gemma4:31b |
-| Workers' planner | `qwen3.8:27b` | tight one-step plans (6/6 against 2/6 for qwen3:30b); in the village economy it is not called at all (`plan 0x0ms` in every acceptance run), since tasks posted by code carry their own steps; it will matter for tasks players ask for in chat |
-| Executors | `qwen3:30b-instruct` | a mixture of experts (~3B active): ~2 s a turn, as accurate as larger models when the plan is clear |
+| Role | Model (the defaults since 2026-10-10) | Reasoning | Why |
+|---|---|---|---|
+| Mayor's planner, architect | `gpt-oss:120b-cloud` | medium | ~3.5 s per plan, ~9 s per design, valid designs; about 10x faster than gemma4:31b |
+| Workers' planner | `gpt-oss:120b-cloud` | medium | in the village economy it is hardly called (`plan 0x0ms` in every acceptance run), since tasks posted by code carry their own steps; it will matter for tasks players ask for in chat |
+| Executors | `gpt-oss:120b-cloud` | low | one model for every role, no local GPUs needed; executor turns are rare in village runs and are judged by `execbench.mts` |
+
+Fallback: `qwen3:30b-instruct` executor (a mixture of experts, ~3B active: ~2 s a turn) and `qwen3.8:27b` planner (tight
+one-step plans, 6/6 against 2/6 for qwen3:30b) on the `ollama_exec.py` servers, used when a run names them. Every tiered-brain call
+goes through a token ledger (`server/src/modelUsage.ts`): tokens and cost by model, agent and kind of call
+(`GET /api/usage`, the panel's header), and an hourly budget of cloud tokens (`MC_TOKEN_BUDGET_HOUR`) that pauses
+model calls when spent while code-posted work goes on (the `llm` brain's Claude calls are neither counted nor budgeted).
+The reasoning level per kind of call is `MC_REASONING`.
 
 `scripts/ollama_exec.py start` runs the two local models on their own `ollama.exe serve` instances, pinned to a GPU
 by UUID (CUDA and nvidia-smi number the cards differently here), after unloading them from the Ollama app: left to

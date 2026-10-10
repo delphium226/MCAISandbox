@@ -3,17 +3,20 @@
  * agent server, and the data behind it. Everything here uses the world interface, so the page works for either world.
  *
  *   GET /panel          the page
- *   GET /api/overview   every agent (body, brain state, plan, task, recent events, stats) and their villages
- *   GET /api/models     the models Ollama has loaded (name, VRAM)
+ *   GET /api/overview   every agent (body, brain state, plan, task, recent events, stats), their villages, token usage
+ *   GET /api/models     the models Ollama has loaded (name, VRAM, cloud)
  *   GET /api/maps       a top-down map around every agent (?radius=, default 24)
+ *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B)
+ *   POST /api/usage/budget  {tokensPerHour: number|null, windowMs?}: set the hourly cloud token budget (tests)
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WorldAdapter, WorldAgent } from './world';
-import { sendJson } from './api';
+import { readJson, sendJson } from './api';
 import { OLLAMA_ROUTES } from './tieredBrain';
+import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
 import type { Design } from './village';
 
@@ -76,20 +79,24 @@ export function overview(w: WorldAdapter) {
   // Each design with its elevations as text (D.3: what the architect is shown)
   const villages = [...w.villages.villages.values()].filter((v) => names.has(v.name))
     .map((v) => ({ ...v, designs: Object.fromEntries(Object.entries(v.designs).map(([k, d]) => [k, { ...d, elevations: safeElevations(d) }])) }));
-  return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages };
+  return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, usage: usage.summary() };
 }
 
 /** The models loaded in every Ollama instance in use (the main one and any in MC_OLLAMA_ROUTES). */
 async function loadedModels() {
   const urls = [...new Set([OLLAMA_URL, ...OLLAMA_ROUTES.values()])];
-  const models: Array<{ name: string; server: string; sizeMB: number; vramMB: number; expires: string }> = [];
+  const models: Array<{ name: string; server: string; sizeMB: number; vramMB: number; expires: string; cloud: boolean }> = [];
   const errors: string[] = [];
   for (const url of urls) {
     try {
       const res = await fetch(`${url}/api/ps`, { signal: AbortSignal.timeout(3000) });
       const data = (await res.json()) as { models?: Array<{ name: string; size: number; size_vram: number; expires_at: string }> };
       const server = new URL(url).port || url;
-      for (const x of data.models ?? []) models.push({ name: x.name, server, sizeMB: Math.round(x.size / 2 ** 20), vramMB: Math.round(x.size_vram / 2 ** 20), expires: x.expires_at });
+      // A cloud model is listed with no VRAM: flag it so the page does not read it as spilled to the CPU
+      for (const x of data.models ?? []) {
+        const cloud = isCloudModel(x.name) || (x.size_vram === 0 && /cloud/.test(x.name));
+        models.push({ name: x.name, server, sizeMB: Math.round(x.size / 2 ** 20), vramMB: Math.round(x.size_vram / 2 ** 20), expires: x.expires_at, cloud });
+      }
     } catch (e) {
       errors.push(`Ollama is not answering at ${url} (${(e as Error).message})`);
     }
@@ -99,6 +106,13 @@ async function loadedModels() {
 
 /** Serve the panel routes; returns false for anything else. */
 export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  if (req.method === 'POST' && url.pathname === '/api/usage/budget') {
+    const b = await readJson(req).catch(() => null); // bad JSON is answered below as a bad value
+    const n = b?.tokensPerHour === null ? null : Number(b?.tokensPerHour);
+    if (n !== null && !(n >= 0)) return sendJson(res, 400, { error: 'tokensPerHour: a number >= 0 or null' }), true;
+    usage.setBudget(n === 0 ? null : n, b?.windowMs ? Number(b.windowMs) : undefined);
+    return sendJson(res, 200, usage.summary().budget), true;
+  }
   if (req.method !== 'GET') return false;
   if (url.pathname === '/panel' || url.pathname === '/panel/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -119,6 +133,11 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       else mapCache.set(a.name, { at: now, radius, map: (maps[a.name] = a.mapAround(radius)) });
     }
     return sendJson(res, 200, maps), true;
+  }
+  if (url.pathname === '/api/usage') {
+    const since = Number(url.searchParams.get('since')) || undefined;
+    const agents = url.searchParams.get('agents')?.split(',').map((s) => s.trim()).filter(Boolean);
+    return sendJson(res, 200, usage.report({ since, agents })), true;
   }
   return false;
 }

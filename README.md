@@ -92,11 +92,15 @@ agent, one chore each, with a key so that no two agents take the same work.
 | Chores | Harvests, farms, pens, the iron age and scouting after completion | `mineflayer/mcWorld.ts`, `farmSlots.ts` |
 | Shared atlas | A summary of every chunk the bots have seen: ground, wood, ores, plants, animals | `mineflayer/mcAtlas.ts`, `mcSiteAtlas.ts` |
 
-**Models.** Each role takes `<provider>:<model>`: Ollama (local or cloud models) or Anthropic's Claude. The villages
-run with `gpt-oss:120b-cloud` on Ollama's cloud as the mayor's planner and architect (about 3.5 s a plan and 9 s a
-design) and `qwen3:30b-instruct` on a local GPU as every executor; the local models run on their own Ollama servers,
-each pinned to one GPU. There are also a single-model brain on Claude, scripted brains, and an `idle` brain for driving
-an agent from outside through the REST API.
+**Models.** Each role takes `<provider>:<model>`: Ollama (local or cloud models) or Anthropic's Claude. Since
+2026-10-10 every role runs on `gpt-oss:120b-cloud` on Ollama's cloud by default (the mayor's planner and architect,
+the workers' planners and every executor), with a reasoning level per kind of call (medium for executor turns and designs,
+low for plans, as the benchmarks chose). The tokens and estimated cost of every tiered-brain call show in the control panel's header, and
+an hourly token budget pauses those calls when it is spent while work posted by code goes on (the `llm` brain's Claude
+calls are not counted). The local models
+(`qwen3:30b-instruct` as executor, `qwen3.8:27b` as planner, each on its own Ollama server pinned to one GPU) are a
+fallback, used when a run names them. There are also a single-model brain on Claude, scripted brains, and an `idle`
+brain for driving an agent from outside through the REST API.
 
 ![The detailed view with the Mayor's "Planner saw" tab open](docs/images/panel-detailed.png)
 *The detailed view: the Mayor's "Planner saw" tab shows the exact prompt `gpt-oss:120b-cloud` got after its site search
@@ -169,21 +173,22 @@ npm run mc:server    # start the server (stop it with: python mc/rcon.py stop, w
 npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
 ```
 
-Open the control panel at http://localhost:8766/panel. To run a whole village with the models above, start the two
-local models on their pinned Ollama servers (see [Models](#models)), the agent server with routes to them instead of
-the plain `npm run mc:agents`, and the village watcher:
+Open the control panel at http://localhost:8766/panel. To run a whole village with the models above (every role on
+`gpt-oss:120b-cloud`, which needs the Ollama app running and signed in), start the agent server and the village
+watcher; the local models are needed only when a run names them (see [Models](#models)):
 
 ```bash
-python scripts/ollama_exec.py start
+# only for local models: python scripts/ollama_exec.py start
 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" npm run mc:agents
-MCAI_API=http://localhost:8766/api MCAI_GAMEMODE=survival MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud \
-  MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud \
-  python scripts/watch_village.py MyVillage 120 0 2 60 "two matching cottages and a meeting hall" ollama:qwen3.8:27b
+MCAI_API=http://localhost:8766/api MCAI_GAMEMODE=survival \
+  python scripts/watch_village.py MyVillage 120 0 2 60 "two matching cottages and a meeting hall"
 ```
 
 `watch_village.py` searches for land from the X Z it is given, spawns a mayor and two workers, streams what they do, and
-stops when the village is complete or the run stalls. Without `MCAI_GAMEMODE=survival` the village is built in creative
-from free blocks, in a few minutes. [Testing agents](#testing-agents) describes the other scripts.
+stops when the village is complete or the run stalls; its STOPPED line ends with the run's tokens and estimated cost.
+Without `MCAI_GAMEMODE=survival` the village is built in creative from free blocks, in a few minutes. For a run on the
+local models, name them (`MCAI_EXEC_MODEL=ollama:qwen3:30b-instruct`, and `ollama:qwen3.8:27b` as the last argument,
+the workers' planner). [Testing agents](#testing-agents) describes the other scripts.
 
 The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HOST` (127.0.0.1; `0.0.0.0` serves the
 panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
@@ -340,25 +345,40 @@ pickaxe). Models write steps and tasks in their own formats (as objects, as skil
 tool call); the brain normalises them.
 
 **Settings** take `<provider>:<model>`, where the provider is `ollama` (local or `:cloud` models) or `anthropic`:
-- `MC_EXEC_MODEL` sets the executor (default `ollama:gemma4:31b`) and `MC_PLAN_MODEL` the planner (default: the
+- `MC_EXEC_MODEL` sets the executor (default `ollama:gpt-oss:120b-cloud`) and `MC_PLAN_MODEL` the planner (default: the
   executor's model). `anthropic:claude-sonnet-5`, for example, pairs a local executor with a Claude planner. `none`
   turns off automatic planning, so plans come only from `POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}`.
 - Per agent, `execModel`, `planModel` and `designModel` in its memory override them, so agents on different models share
   a world: `POST /api/agents {"name":"Qwen","brain":"tiered","memory":{"execModel":"ollama:qwen3:30b-instruct"}}`.
-  `memory.stats` records call counts, average latency and how many actions succeeded or failed.
+  `memory.stats` records, per tier (planner, designer, executor), call counts, average latency and prompt and output
+  tokens, how many calls the budget refused (`budgetRefused`), and how many actions succeeded or failed.
+- `MC_REASONING` sets the reasoning level (Ollama's `think`: `low`, `medium` or `high`) per kind of call, default
+  `exec=medium,plan=low,design=medium` (chosen by the benchmarks); `memory.reasoning` (the same string, or an object) overrides it per agent. Only
+  gpt-oss models take a level (they ignore `think: false`, so they always reason); other models get no thinking.
+- `MC_TOKEN_PRICES` prices cloud models in dollars per million input/output tokens (default
+  `gpt-oss:120b-cloud=0.15/0.60`); thinking is billed as output, and the costs shown are a lower bound (failed calls
+  count no tokens). Local models cost nothing.
+- `MC_TOKEN_BUDGET_HOUR` caps cloud tokens (prompt and output) in any hour, default 2,000,000; `0` or `off` turns it
+  off. When it is spent, model calls pause: agents back off until the hour's use falls below 80% of the cap, and work
+  posted by code goes on. The cap is soft (calls already running are not counted) and per agent server.
+  `MC_TOKEN_WINDOW_MS` shortens the hour, for tests only.
+- `GET /api/usage[?since=<epoch ms>&agents=A,B]` reports tokens, calls, errors, refusals and cost by model, agent and
+  kind of call (`partial: true` when older calls have been pruned); `POST /api/usage/budget {"tokensPerHour": N}`
+  changes the budget at runtime, for tests (`null` or `0` turns it off).
 - `MC_OLLAMA_URL` (default `http://localhost:11434`), `MC_OLLAMA_ROUTES` (models served by other Ollama instances, e.g.
-  `qwen3:30b-instruct=http://127.0.0.1:11435`), `MC_OLLAMA_CTX` (context length, default `8192`: on a 24 GB GPU this
-  keeps a ~20 GB model entirely on the GPU; at 16384 part of it spills to the CPU and it runs several times slower) and
-  `MC_OLLAMA_TIMEOUT` (seconds per call, default `300`).
+  `qwen3:30b-instruct=http://127.0.0.1:11435`), `MC_OLLAMA_CTX` (context length, local models only, default `8192`: on
+  a 24 GB GPU this keeps a ~20 GB model entirely on the GPU; at 16384 part of it spills to the CPU and it runs several
+  times slower; Ollama's cloud ignores it) and `MC_OLLAMA_TIMEOUT` (seconds per call, default `300`).
 
 Set `objective` in the agent's memory (for example `"build a small village"`) to steer every plan toward it. The
 current plan and notes are in its memory (`GET /api/agents/:name/memory`).
 
-**Choosing local models.** Measured on RTX 3090s (24 GB each) with Ollama:
+**Choosing models.** Measured on RTX 3090s (24 GB each) with Ollama:
 
 | Model | Decision time | Notes |
 |---|---|---|
 | `gpt-oss:120b-cloud` | ~3.5 s a plan, ~9 s a design | Fastest planner and architect; runs on Ollama's cloud (prompts leave the machine) |
+| `gpt-oss:120b-cloud` as executor | TODO(A.0 benches) | TODO(A.0 benches): execbench score and turn time at reasoning low and medium |
 | `qwen3.8:27b` (dense) | ~20 s a plan | The tightest worker plans (6/6 in a benchmark) |
 | `qwen3:30b-instruct` (MoE, ~3B active) | 1-2 s a turn | Fast and fine as executor; loose plans, poor designs |
 | `gemma4:31b` (dense) | 14-18 s | Reliable designs, but slow |
@@ -935,19 +955,24 @@ actions; a chick and two calves were bred, and it took 10 eggs and 9 milk and ba
 ### Models
 
 Each brain role can use its own model (`"<provider>:<model>"`, per agent in memory: `planModel`, `execModel`,
-`designModel`). The combination that built a whole village fastest so far:
+`designModel`) and its own reasoning level (`MC_REASONING`, per agent `memory.reasoning`). The defaults since
+2026-10-10:
 
-| Role | Model | Runs on |
-|---|---|---|
-| Mayor's planner and architect | `ollama:gpt-oss:120b-cloud` | Ollama cloud (a subscription; prompts leave the machine) |
-| Workers' planner | `ollama:qwen3.8:27b` | local, GPU 0 |
-| Executors | `ollama:qwen3:30b-instruct` | local, GPU 1, three requests at once |
+| Role | Model | Reasoning | Runs on |
+|---|---|---|---|
+| Mayor's planner and architect | `ollama:gpt-oss:120b-cloud` | medium (plans and designs) | Ollama cloud (a subscription; prompts leave the machine) |
+| Workers' planner | `ollama:gpt-oss:120b-cloud` | medium | Ollama cloud |
+| Executors | `ollama:gpt-oss:120b-cloud` | low | Ollama cloud |
+
+Fallback: `qwen3:30b-instruct` executor, `qwen3.8:27b` planner on the `ollama_exec.py` servers.
 
 In village runs the workers' planner is not called at all (tasks posted by code carry their own steps) and the
 executors only step in after a failure, so the choice of those models shows little there; it will matter for tasks
-players ask for in chat.
+players ask for in chat. The control panel's header shows the tokens used since the agent server started, the last
+hour's share of the budget and the estimated cost (per model in its tooltip); the watch scripts print each run's own
+figures, and one `USAGE` line per agent with its calls and prompt/output tokens for each kind of call.
 
-`scripts/ollama_exec.py start` runs the two local models on their own Ollama servers (ports 11435 and 11436), each
+For the fallback, `scripts/ollama_exec.py start` runs the two local models on their own Ollama servers (ports 11435 and 11436), each
 pinned to one GPU (with `OLLAMA_VULKAN=0`: Ollama's Vulkan backend, on by default, ignores the GPU pinning and once
 put the executor on the planner's card), and checks they fit; the Ollama app keeps relaying cloud models. Run
 `python scripts/ollama_exec.py status` before a series of runs: Ollama can report a model as fully in VRAM when
@@ -964,7 +989,15 @@ that point the agents at them are in [Running it](#real-minecraft).
 - All watch scripts use the sandbox API by default; set `MCAI_API=http://localhost:8766/api` for real Minecraft.
 - `scripts/bench/` compares models on the brain's real prompts and tools: `modelbench.mts` (mayor planning and
   designs), `execbench.mts` (executor turns) and `planbench.mts` (worker plans), e.g.
-  `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct` (`OLLAMA_URL=` for another Ollama server).
+  `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct`. The benches send each model to its
+  `MC_OLLAMA_ROUTES` server (`OLLAMA_URL=` overrides it), print a header with the model, reasoning level, server and
+  time, and report each case's score with average and p50/p90 latency and prompt and output tokens.
+  `THINK=false|low|medium|high` sets gpt-oss's reasoning (by default the brain's level for that kind of call; other models take none),
+  `N=` the samples per case (10 by default; mayorbench 5, or its second argument), `PEEK=1` prints the raw tool calls
+  and the start of the model's reasoning. `concurrency.mts [model] [N] [ROUNDS]` sends one executor prompt (~2.5k
+  tokens) alone, then N at once, and reports the slowdown, the throughput factor and any 429 or 5xx answers.
+  `scripts/checks/model_usage.mts` checks the token ledger and budget offline. Scores are not comparable with benches
+  run before 2026-10-10: the executor's prompt and tools changed, and gpt-oss always reasoned at medium then.
   `designbench.mts` runs the architect's real prompts (cottage and meeting-hall briefs, survival and creative) N times
   a model and reports each design's footprint, roof shape (flat, stepped or pitched with stairs), blocks, gather cost
   and validity (`OLD=1` for the prompt before stair roofs, `OUT=` for JSON): before stair roofs, 0 of 40 designs had a
@@ -1119,7 +1152,9 @@ Most of this world is ocean or hills, so start village tests where there is land
 | GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
 | POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`, round a green when `size` is 40 or more; `"rows"` clears it) |
 | POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
-| GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
+| GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models (cloud models flagged `cloud`), and the token usage summary |
+| GET | `/api/usage?since=&agents=` | Model calls, tokens, errors, budget refusals and cost, by model, agent and kind of call, since the server started or since an epoch-ms time; the hourly budget's state |
+| POST | `/api/usage/budget` `{tokensPerHour, windowMs?}` | For tests: change the hourly token budget (`null` or `0` turns it off) |
 | GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there, farmable plants), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map, and the animals the bots have seen |
 | GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
 

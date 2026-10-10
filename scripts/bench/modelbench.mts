@@ -1,22 +1,23 @@
 /**
  * Compare models for the planner / architect jobs: raw speed, a mayor planning turn (post_tasks with coordinates) and
  * two designs checked by the project's own validator. Usage: tsx modelbench.ts model1 model2 ...
+ * Env: THINK (the reasoning level; unset, the brain's level for plans and designs), OLLAMA_URL, PEEK=1.
  */
 import { DESIGN_SYSTEM, DESIGN_TOOL, validateDesign } from '../../server/src/designs';
 import { TOOLS } from '../../server/src/skills';
-
-const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
+import type { CallKind } from '../../server/src/modelUsage';
+import { benchThink, header, urlFor } from './benchUtil.mts';
 
 
 const obj = (p: Record<string, unknown>, r: string[] = []) => ({ type: 'object', properties: p, required: r });
 
-async function chat(model: string, system: string, user: string, tools: Array<{ name: string; description?: string; input_schema: unknown }>, maxTokens?: number) {
+async function chat(model: string, system: string, user: string, tools: Array<{ name: string; description?: string; input_schema: unknown }>, kind: CallKind, maxTokens?: number) {
   const t0 = Date.now();
-  const res = await fetch(`${OLLAMA}/api/chat`, {
+  const res = await fetch(`${urlFor(model)}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model, stream: false, think: false, keep_alive: '30m',
+      model, stream: false, think: benchThink(model, kind), keep_alive: '30m',
       options: { num_ctx: 8192, temperature: 0.4, ...(maxTokens ? { num_predict: maxTokens } : {}) },
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
@@ -71,18 +72,18 @@ const BRIEFS: Array<[string, string]> = [
 ];
 
 for (const model of process.argv.slice(2)) {
-  console.log(`\n=== ${model}`);
+  header('modelbench', model, ['plan', 'design']);
   try {
     // Warm up (loads the model; its load time is reported, not counted)
-    const w = await chat(model, 'You are terse.', 'Say ok.', [], 5);
+    const w = await chat(model, 'You are terse.', 'Say ok.', [], 'plan', 5);
     console.log(`load ${w.loadS.toFixed(1)}s`);
-    const p = await chat(model, PLANNER, MAYOR_USER, MAYOR_TOOLS);
+    const p = await chat(model, PLANNER, MAYOR_USER, MAYOR_TOOLS, 'plan');
     if (process.env.PEEK) console.log(JSON.stringify(p.calls, null, 1).slice(0, 2500)); // raw tool calls
     console.log(`mayor turn: ${(p.ms / 1000).toFixed(1)}s (prompt ${p.promptTok} tok in ${p.promptS.toFixed(1)}s, ${p.outTok} tok out at ${p.tokPerS.toFixed(0)} tok/s): ${judgeTasks(p.calls)}`);
     for (const [name, brief] of BRIEFS) {
       let user = `Design a building named "${name}". Brief: ${brief}`;
       for (let attempt = 1; attempt <= 2; attempt++) {
-        const r = await chat(model, DESIGN_SYSTEM, user, [DESIGN_TOOL]);
+        const r = await chat(model, DESIGN_SYSTEM, user, [DESIGN_TOOL], 'design');
         const call = r.calls.find((c: any) => c.name === 'submit_design');
         const v = call ? validateDesign({ ...call.input, name }, 'bench', { isPlaceable: () => true }) : { errors: ['no submit_design call'] as string[] };
         const ok = 'design' in v && v.design;

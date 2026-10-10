@@ -3,18 +3,22 @@
  * model turns the current step plus the latest observation into skill calls every few seconds.
  *
  * Each tier can run on a different model and provider, set as "<provider>:<model>":
- *   MC_EXEC_MODEL   executor, default "ollama:gemma4:31b"
+ *   MC_EXEC_MODEL   executor, default "ollama:gpt-oss:120b-cloud"
  *   MC_PLAN_MODEL   planner, default: same as the executor. "none" disables automatic planning, so plans only come
  *                   from outside (POST /api/agents/:name/memory {"plan": {"goal": "...", "steps": ["..."]}}).
  * Providers: "ollama" (local or :cloud models via the Ollama server) and "anthropic" (Claude, needs credentials).
  * Other settings: MC_OLLAMA_URL (default http://localhost:11434), MC_OLLAMA_ROUTES (models served by other Ollama
- * instances, e.g. "qwen3:30b-instruct=http://127.0.0.1:11435": a second instance on its own GPU with parallel requests
- * for the executors, see scripts/ollama_exec.py), MC_OLLAMA_CTX (context length, default 8192:
- * enough for these prompts, and it keeps a ~20 GB model like gemma4:31b entirely on a 24 GB GPU),
+ * instances, e.g. "qwen3:30b-instruct=http://127.0.0.1:11435": a local model on its own GPU with parallel requests,
+ * see scripts/ollama_exec.py), MC_OLLAMA_CTX (context length of local models, default 8192),
  * MC_PLAN_INTERVAL_MS (replan when no step completes for this long, default 180000), MC_LLM_INTERVAL_MS (idle executor interval).
+ * Model usage (modelUsage.ts): MC_REASONING (gpt-oss's reasoning level per call kind, default
+ * "exec=medium,plan=low,design=medium"), MC_TOKEN_PRICES ("model=in/out" in $ per million tokens), MC_TOKEN_BUDGET_HOUR
+ * (default 2,000,000 cloud tokens an hour; 0 or off disables it: past it, model calls pause and the agents back off while
+ * code-posted work goes on) and MC_TOKEN_WINDOW_MS (the budget's window, tests only).
  *
  * Per agent, memory.execModel and memory.planModel (same form) override these, so agents on different models can share
- * a world; memory.stats records call counts, average latency and action outcomes for comparing models.
+ * a world, and memory.reasoning ("exec=medium" or {exec: 'medium'}) the reasoning levels; memory.stats records call
+ * counts, average latency, prompt and output tokens per tier (plan, design, exec) and action outcomes for comparing models.
  *
  * memory.objective (a sentence, e.g. "build a small village") steers every plan.
  * memory.designModel sets the model that draws designs (default: the planner).
@@ -30,6 +34,7 @@ import { STORAGE_HUT } from './huts';
 import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { TaskBrain, taskCalls } from './taskBrain';
+import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, isCloudModel, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
@@ -50,7 +55,7 @@ const PLAN_INTERVAL_MS = Number(process.env.MC_PLAN_INTERVAL_MS ?? 180000);
 
 interface ModelSpec { provider: 'ollama' | 'anthropic'; model: string }
 interface ToolCall { name: string; input: Record<string, unknown> }
-interface Reply { calls: ToolCall[]; text: string; promptTokens?: number; loadMs?: number }
+interface Reply { calls: ToolCall[]; text: string; promptTokens?: number; outputTokens?: number; loadMs?: number; thinking?: string }
 
 function parseSpec(s: string | undefined): ModelSpec | null {
   if (!s || s === 'none') return null;
@@ -60,24 +65,29 @@ function parseSpec(s: string | undefined): ModelSpec | null {
   return { provider: s.startsWith('claude-') ? 'anthropic' : 'ollama', model: s };
 }
 
-const EXEC_SPEC = parseSpec(process.env.MC_EXEC_MODEL ?? 'ollama:gemma4:31b')!;
+const EXEC_SPEC = parseSpec(process.env.MC_EXEC_MODEL ?? 'ollama:gpt-oss:120b-cloud')!;
 const PLAN_SPEC = process.env.MC_PLAN_MODEL === undefined ? EXEC_SPEC : parseSpec(process.env.MC_PLAN_MODEL);
 const label = (s: ModelSpec) => `${s.provider}:${s.model}`;
 
 let anthropic: Anthropic | null = null;
 
-async function complete(spec: ModelSpec, system: string, user: string, tools: ToolDef[]): Promise<Reply> {
-  return spec.provider === 'ollama' ? completeOllama(spec.model, system, user, tools) : completeAnthropic(spec.model, system, user, tools);
+/** The level reaches Ollama's reasoning models only (thinkFor); Claude keeps its own low effort. */
+async function complete(spec: ModelSpec, system: string, user: string, tools: ToolDef[], level: ReasoningLevel): Promise<Reply> {
+  return spec.provider === 'ollama' ? completeOllama(spec.model, system, user, tools, level) : completeAnthropic(spec.model, system, user, tools);
 }
 
-async function completeOllama(model: string, system: string, user: string, tools: ToolDef[]): Promise<Reply> {
+/** Cloud models seen replying without eval_count (warned once each). */
+const noEvalCount = new Set<string>();
+
+async function completeOllama(model: string, system: string, user: string, tools: ToolDef[], level: ReasoningLevel): Promise<Reply> {
   const res = await fetch(`${ollamaUrl(model)}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       stream: false,
-      think: false,
+      // (gpt-oss ignores think:false and reasons at medium: it is given a level per call kind instead)
+      think: thinkFor(model, level),
       // A model on its own pinned server stays loaded: reloaded after an idle unload, it once came back partly in
       // system RAM (a planner call then took over 3 minutes); the shared app unloads after 30 minutes as before
       keep_alive: OLLAMA_ROUTES.has(model) ? -1 : '30m',
@@ -89,15 +99,23 @@ async function completeOllama(model: string, system: string, user: string, tools
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as {
-    message?: { content?: string; tool_calls?: Array<{ function: { name: string; arguments: unknown } }> };
+    message?: { content?: string; thinking?: string; tool_calls?: Array<{ function: { name: string; arguments: unknown } }> };
     prompt_eval_count?: number;
+    eval_count?: number;
     load_duration?: number;
   };
-  // Ollama silently drops the start of prompts that overflow the context window.
-  if ((data.prompt_eval_count ?? 0) > OLLAMA_CTX * 0.9) console.warn(`[tiered] ${model}: prompt used ${data.prompt_eval_count}/${OLLAMA_CTX} tokens; raise MC_OLLAMA_CTX`);
+  // Ollama silently drops the start of prompts that overflow a local model's context window (the cloud ignores num_ctx)
+  if (!isCloudModel(model) && (data.prompt_eval_count ?? 0) > OLLAMA_CTX * 0.9) console.warn(`[tiered] ${model}: prompt used ${data.prompt_eval_count}/${OLLAMA_CTX} tokens; raise MC_OLLAMA_CTX`);
+  if (isCloudModel(model) && data.eval_count === undefined && !noEvalCount.has(model)) {
+    noEvalCount.add(model);
+    console.warn(`[tiered] ${model}: the reply carries no eval_count; output tokens and the budget undercount`);
+  }
   const text = data.message?.content ?? '';
   const calls: ToolCall[] = (data.message?.tool_calls ?? []).map((c) => ({ name: c.function.name, input: toArgs(c.function.arguments) }));
-  return { calls: calls.length ? calls : callsFromText(text), text, promptTokens: data.prompt_eval_count, loadMs: (data.load_duration ?? 0) / 1e6 };
+  return {
+    calls: calls.length ? calls : callsFromText(text), text, promptTokens: data.prompt_eval_count, outputTokens: data.eval_count,
+    loadMs: (data.load_duration ?? 0) / 1e6, thinking: data.message?.thinking,
+  };
 }
 
 async function completeAnthropic(model: string, system: string, user: string, tools: ToolDef[]): Promise<Reply> {
@@ -114,14 +132,24 @@ async function completeAnthropic(model: string, system: string, user: string, to
   });
   const u = response.usage;
   const promptTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-  if (response.stop_reason === 'refusal') return { calls: [], text: '(request declined)', promptTokens };
+  if (response.stop_reason === 'refusal') return { calls: [], text: '(request declined)', promptTokens, outputTokens: u.output_tokens };
   const calls: ToolCall[] = [];
   let text = '';
   for (const b of response.content) {
     if (b.type === 'tool_use') calls.push({ name: b.name, input: (b.input ?? {}) as Record<string, unknown> });
     else if (b.type === 'text') text += b.text;
   }
-  return { calls, text, promptTokens };
+  return { calls, text, promptTokens, outputTokens: u.output_tokens };
+}
+
+/**
+ * Failures worth trying again soon (rate limits, server errors, a connection lost): a task is handed back rather than
+ * given up. Timeouts are not: a call that ran 300 s will likely run that long again.
+ */
+function isTransient(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err);
+  return /^Ollama (429|5\d\d)\b/.test(msg) || ((err as Error)?.name === 'TypeError' && /fetch failed/i.test(msg))
+    || [429, 500, 502, 503, 504, 529].includes((err as { status?: number })?.status ?? 0);
 }
 
 function toArgs(a: unknown): Record<string, unknown> {
@@ -405,11 +433,11 @@ const VANILLA_FIRST_SITE = 40;
 const firstSite = (a: WorldAgent) => (a.world.vanillaLibrary?.('plains') ? VANILLA_FIRST_SITE : MAYOR_FIRST_SITE);
 const MAYOR_EXEC = new Set(['move_to', 'follow', 'chat', 'wait', 'explore', 'find_site', 'look_at', 'step_done', 'design_building', 'request_replan']);
 
-interface ToolSets { exec: ToolDef[]; mayorExec: ToolDef[]; chat: ToolDef[]; planSystem: string }
+export interface ToolSets { exec: ToolDef[]; mayorExec: ToolDef[]; chat: ToolDef[]; planSystem: string }
 const toolSets = new WeakMap<ToolDef[], ToolSets>();
 
-/** The executor's tools and the planner's prompt for a world's skills (built once per world). */
-function toolsFor(skills: ToolDef[]): ToolSets {
+/** The executor's tools and the planner's prompt for a world's skills (built once per world; exported for the benches). */
+export function toolsFor(skills: ToolDef[]): ToolSets {
   let t = toolSets.get(skills);
   if (!t) {
     const exec = [...skills, ...BRAIN_TOOLS];
@@ -445,7 +473,7 @@ Keep the agent alive (food, night, monsters) and fit the role.`;
 /** Skills a mayor's plan step may not use: gathering, crafting, building and land work are for the workers. */
 const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|gather|attack|give|equip)\b/i;
 
-const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
+export const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your
 last turn (including whether your previous actions succeeded or failed), and a JSON observation.
 
@@ -617,11 +645,22 @@ export function postedTasks(raw: unknown[]): Array<{ title: string; detail: stri
 }
 
 /** One model call as the control panel shows it (the system prompt is fixed per role, so only the user prompt). */
-interface ModelCall { at: number; ms: number; model: string; prompt: string; promptTokens?: number; calls: ToolCall[]; text: string }
+interface ModelCall {
+  at: number; ms: number; model: string; prompt: string; promptTokens?: number; outputTokens?: number; calls: ToolCall[]; text: string;
+  /** The reasoning level sent ('off' for models without one) and the start of the model's reasoning. */
+  think: string; thinking?: string;
+}
 
-const modelCall = (spec: ModelSpec, start: number, prompt: string, r: Reply): ModelCall => ({
-  at: start, ms: Date.now() - start, model: label(spec), prompt, promptTokens: r.promptTokens, calls: r.calls, text: r.text.slice(0, 2000),
+const modelCall = (spec: ModelSpec, start: number, prompt: string, r: Reply, think: false | ReasoningLevel): ModelCall => ({
+  at: start, ms: Date.now() - start, model: label(spec), prompt, promptTokens: r.promptTokens, outputTokens: r.outputTokens, calls: r.calls,
+  text: r.text.slice(0, 2000), think: think || 'off', thinking: r.thinking?.slice(0, 2000),
 });
+
+/** A task's calls when it spells every one out with arguments (code-posted tasks): they are the plan, no model needed. */
+function exactCalls(task: Task, skills: Set<string>): ReturnType<typeof taskCalls> | null {
+  const calls = taskCalls(task.detail, skills);
+  return calls.length && calls.every((c) => Object.keys(c.args).length) ? calls : null;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Brain
@@ -641,6 +680,15 @@ export class TieredBrain implements AgentBrain {
   private planPending = false;
   private lastExec = 0;
   private lastPlan = 0;
+  /** No planner or executor call before these (after an error, or while the hourly budget is spent). */
+  private planBackoffUntil = 0;
+  private execBackoffUntil = 0;
+  /** The last budget episode this agent pushed an event for (one "paused" event an episode). */
+  private budgetEpisode = 0;
+  /** What makePlan changed before its model call, put back when the call is refused or fails transiently. */
+  private planUndo: { seenPlan: number; replanTask?: string } | null = null;
+  /** Tiers already warned about a cloud prompt too long for a local fallback. */
+  private ctxWarned = new Set<CallKind>();
   private seenExec = 0;
   private seenPlan = 0;
   private urgent = false;
@@ -711,21 +759,66 @@ export class TieredBrain implements AgentBrain {
     return { exec, plan };
   }
 
+  /** The model that draws designs: memory.designModel, else the planner's, else the executor's. */
+  private designSpec(a: WorldAgent): ModelSpec {
+    // Drawing is the hardest job: memory.designModel can give it a stronger model than the agent's planner
+    return (typeof a.memory.designModel === 'string' && parseSpec(a.memory.designModel)) || this.specs(a).plan || this.specs(a).exec;
+  }
+
+  private reasoning(a: WorldAgent): Reasoning {
+    return parseReasoning(a.memory.reasoning, REASONING);
+  }
+
   private stat(a: WorldAgent, key: string, add = 1) {
     const s = (a.memory.stats ??= {}) as Record<string, number>;
     s[key] = (s[key] ?? 0) + add;
     return s;
   }
 
-  private async timed(a: WorldAgent, tier: 'exec' | 'plan', run: () => Promise<Reply>): Promise<Reply> {
+  /**
+   * The hourly budget refused a call: back off until it frees (between 20-30 s and 5 min, jittered so agents do not all
+   * try again at once), and tell the agent once an episode.
+   */
+  private onBudget(a: WorldAgent, tier: CallKind, err: BudgetExceeded) {
+    this.stat(a, 'budgetRefused');
+    const now = Date.now();
+    const until = now + Math.min(300000, Math.max(tier === 'plan' ? 30000 : 20000, err.retryAt - now)) + Math.random() * 5000;
+    if (tier === 'plan') this.planBackoffUntil = until;
+    else this.execBackoffUntil = until;
+    this.lastError = `budget: ${err.message}`;
+    if (err.episode !== this.budgetEpisode) {
+      this.budgetEpisode = err.episode;
+      a.pushEvent('system', `Model calls paused: ${err.message}. Work posted by code goes on.`);
+    }
+  }
+
+  /** One model call, checked against the budget, timed and counted (memory.stats and the usage ledger). */
+  private async timed(a: WorldAgent, tier: CallKind, spec: ModelSpec, run: () => Promise<Reply>): Promise<Reply> {
+    usage.check(spec.model, a.name, tier);
     const t0 = Date.now();
-    const out = await run();
+    let out: Reply;
+    try {
+      out = await run();
+    } catch (err) {
+      usage.error(spec.model, a.name, tier, Date.now() - t0);
+      throw err;
+    }
+    const ms = Date.now() - t0;
     const s = this.stat(a, `${tier}Calls`);
     // Model load time (a cold start on Ollama can take a minute) would swamp the per-decision latency.
-    this.stat(a, `${tier}MsTotal`, Math.max(0, Date.now() - t0 - (out.loadMs ?? 0)));
+    this.stat(a, `${tier}MsTotal`, Math.max(0, ms - (out.loadMs ?? 0)));
     this.stat(a, `${tier}PromptTokensTotal`, out.promptTokens ?? 0);
+    this.stat(a, `${tier}OutTokensTotal`, out.outputTokens ?? 0);
     s[`${tier}MsAvg`] = Math.round(s[`${tier}MsTotal`] / s[`${tier}Calls`]);
     s[`${tier}PromptTokensAvg`] = Math.round(s[`${tier}PromptTokensTotal`] / s[`${tier}Calls`]);
+    s[`${tier}OutTokensAvg`] = Math.round(s[`${tier}OutTokensTotal`] / s[`${tier}Calls`]);
+    usage.record({ model: spec.model, agent: a.name, kind: tier, promptTokens: out.promptTokens ?? 0, outputTokens: out.outputTokens ?? 0, ms });
+    // The cloud reads a long prompt whole, but a local fallback would cut its start off at num_ctx
+    const n = out.promptTokens ?? 0;
+    if (isCloudModel(spec.model) && n > OLLAMA_CTX && !this.ctxWarned.has(tier)) {
+      this.ctxWarned.add(tier);
+      console.warn(`[tiered] ${a.name} ${tier}: ${n}-token prompt on ${spec.model}, over the ${OLLAMA_CTX} a local fallback holds (lesson 32)`);
+    }
     return out;
   }
 
@@ -925,7 +1018,7 @@ export class TieredBrain implements AgentBrain {
       }
     }
 
-    if (PLAN && !this.planPending && now >= this.lastPlan && !v?.complete) {
+    if (PLAN && !this.planPending && now >= this.lastPlan && now >= this.planBackoffUntil && !v?.complete) {
       let why: string | null = null;
       const free = role === 'worker' && (!plan || complete || !plan.steps.length);
       if (!plan) why = 'there is no plan yet';
@@ -954,9 +1047,13 @@ export class TieredBrain implements AgentBrain {
       else if (plan.by !== 'external' && (plan.steps.length || (role === 'mayor' && !laidOut && !v!.tasks.some((t) => t.status === 'claimed'))) && now - this.lastProgress > PLAN_INTERVAL_MS
         && !(plan.by === 'task' && !a.idle() && now - this.lastProgress < 3 * PLAN_INTERVAL_MS))
         why = `no step has been completed for ${Math.round((now - this.lastProgress) / 60000)} minutes`;
-      // Workers take the next task before planning (so two workers never plan the same one); with none, they wait
+      // Workers take the next task before planning (so two workers never plan the same one); with none, they wait.
+      // While the planner's budget is spent, only tasks that need no model (code-posted, run as written): a task needing a
+      // plan would only be handed back again
       if (why && free) {
-        const next = a.world.villages.claimable(v!)[0];
+        const blocked = !!usage.blocked(PLAN.model);
+        const names = new Set(a.world.skills.map((t) => t.name));
+        const next = a.world.villages.claimable(v!).find((t) => !blocked || exactCalls(t, names));
         if (next) {
           a.world.villages.claim(v!, next.id, a.name);
           this.claimedTask = next.id;
@@ -971,26 +1068,29 @@ export class TieredBrain implements AgentBrain {
     // The mayor gathers while it waits (V2.3m): soft gather tasks, run as written beside its empty plan. Whatever ends that
     // (a plan with steps from the planner or the memory API, the village complete, a second site needed, the switch
     // off) hands the task back
+    // `urgent` holds code-posted work back only while the executor can answer it: a refused or backing-off turn keeps the
+    // flag for later, and without this a chat line during a budget pause froze every run-as-written step until it ended
+    const urgentNow = this.urgent && now >= this.execBackoffUntil && !usage.blocked(EXEC.model);
     const mayGather = role === 'mayor' && !!v && !v.complete && !!plan && !plan.steps.length && laidOut && !v.unplaced?.length
       && a.gamemode !== 'creative' && !!a.world.materialTasks && a.memory.mayorGathers !== false;
     if (role === 'mayor' && this.gatherer.held && !mayGather)
       this.gatherer.handBack(a, v?.complete ? 'the village is complete' : plan?.steps.length ? 'the mayor has its own steps to do' : 'the mayor stops gathering');
-    // (no new task while a plan is coming or due: a pending wake-up goes first)
-    if (mayGather) this.gatherer.tick(a, !this.planPending && !this.replanReason && !this.urgent && !this.execPending);
+    // (no new task while a plan is coming or due: a pending wake-up goes first, unless the planner is backing off)
+    if (mayGather) this.gatherer.tick(a, !this.planPending && !(this.replanReason && now >= this.planBackoffUntil) && !urgentNow && !this.execPending);
 
     if (this.execPending) return;
-    if (!plan && PLAN && !this.urgent) return; // wait for the first plan unless something needs a reply
-    if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !this.urgent) return; // waiting
+    if (!plan && PLAN && !urgentNow) return; // wait for the first plan unless something needs a reply
+    if (plan && (!plan.steps.length || (role === 'worker' && complete)) && !urgentNow) return; // waiting
     // (a complete village's mayor takes chores, F193: no executor turn queues its own actions behind one)
-    if (role === 'mayor' && v?.complete && !this.urgent) return;
+    if (role === 'mayor' && v?.complete && !urgentNow) return;
     // A mayor's new plan is coming: the old plan's steps are stale (F155: plan 1's design step ran beside plan 2)
-    if (role === 'mayor' && this.planPending && !this.urgent) return;
+    if (role === 'mayor' && this.planPending && !urgentNow) return;
     const idle = a.idle();
     // A task code posted is run as written: its calls are exact ("collect block=cobblestone count=29, then deposit
     // item=all"), and executors changed them (one withdrew 11 logs from storage and deposited them again, which counted
     // as gathering; one collected 6 of 29). Each step runs once this way; after a failure the executor takes the step
     // over (explore, try elsewhere), with the failure in its events.
-    if (plan?.by === 'task' && idle && !this.urgent && plan.step < plan.steps.length) {
+    if (plan?.by === 'task' && idle && !urgentNow && plan.step < plan.steps.length) {
       const key = `${plan.taskId}:${plan.tick}:${plan.step}`;
       const call = taskCalls(plan.steps[plan.step], new Set(a.world.skills.map((t) => t.name)))[0];
       if (call && !this.ranAsWritten.has(key)) {
@@ -1006,17 +1106,37 @@ export class TieredBrain implements AgentBrain {
         }
       }
     }
-    if (!idle && !this.urgent) return;
+    if (!idle && !urgentNow) return;
+    if (now < this.execBackoffUntil) return;
     if (now - this.lastExec < (this.urgent ? 1500 : EXEC_INTERVAL_MS)) return;
+    // The budget is checked before the turn starts, so a refusal leaves `urgent` and the unseen events for the next one
+    try {
+      usage.check(EXEC.model, a.name, 'exec');
+    } catch (e) {
+      if (e instanceof BudgetExceeded) {
+        this.onBudget(a, 'exec', e);
+        return;
+      }
+      throw e;
+    }
+    const wasUrgent = this.urgent;
     this.urgent = false;
     this.lastExec = now;
     this.execPending = true;
     this.execStartedAt = now;
     this.execute(a, EXEC)
       .catch((err: unknown) => {
+        // (refused inside the turn: only if the budget tripped between the check above and the call)
+        if (err instanceof BudgetExceeded) {
+          this.urgent ||= wasUrgent;
+          this.onBudget(a, 'exec', err);
+          return;
+        }
+        const transient = isTransient(err);
+        if (transient) this.urgent ||= wasUrgent;
         this.lastError = `executor: ${(err as Error).message}`;
         a.pushEvent('system', `Executor error (${label(EXEC)}): ${(err as Error).message}`);
-        this.lastExec = Date.now() + 20000; // back off
+        this.execBackoffUntil = Date.now() + 20000 + (transient ? Math.random() * 5000 : 0);
       })
       .finally(() => (this.execPending = false));
   }
@@ -1028,15 +1148,38 @@ export class TieredBrain implements AgentBrain {
     this.replanReason = null;
     this.makePlan(a, spec, old, why)
       .catch((err: unknown) => {
-        this.lastError = `planner: ${(err as Error).message}`;
-        a.pushEvent('system', `Planner error (${label(spec)}): ${(err as Error).message}`);
-        this.lastPlan = Date.now() + 30000; // back off
         const v = a.village();
-        if (v && this.claimedTask && this.plan(a)?.taskId !== this.claimedTask) a.world.villages.giveUp(v, this.claimedTask, a.name, 'could not plan it');
+        const budget = err instanceof BudgetExceeded;
+        // A refused call or one that may well work in a minute (429, 5xx, connection lost) is not the task's fault: what
+        // makePlan changed is put back, the mayor keeps its reason, and a task just claimed goes back on the board
+        // without a try (giving it up would fail it the second time)
+        const soft = budget || isTransient(err);
+        const message = String((err as Error)?.message ?? err);
+        if (soft) {
+          if (this.planUndo) {
+            this.seenPlan = this.planUndo.seenPlan;
+            const id = this.planUndo.replanTask;
+            if (id) {
+              const n = (this.taskReplans.get(id) ?? 1) - 1;
+              if (n > 0) this.taskReplans.set(id, n);
+              else this.taskReplans.delete(id);
+            }
+          }
+          if (villageRole(a) === 'mayor') this.replanReason ??= why;
+          if (v && this.claimedTask && this.plan(a)?.taskId !== this.claimedTask)
+            a.world.villages.unclaim(v, this.claimedTask, a.name, budget ? 'the hourly model budget is spent' : `the model call failed: ${message.slice(0, 60)}`);
+        } else if (v && this.claimedTask && this.plan(a)?.taskId !== this.claimedTask) a.world.villages.giveUp(v, this.claimedTask, a.name, 'could not plan it');
+        if (budget) this.onBudget(a, 'plan', err);
+        else {
+          this.lastError = `planner: ${message}`;
+          a.pushEvent('system', `Planner error (${label(spec)}): ${message}`);
+          this.planBackoffUntil = Date.now() + 30000 + (soft ? Math.random() * 5000 : 0);
+        }
       })
       .finally(() => {
         this.planPending = false;
         this.claimedTask = undefined;
+        this.planUndo = null;
       });
   }
 
@@ -1057,9 +1200,10 @@ export class TieredBrain implements AgentBrain {
       state = 'thinking';
       detail = `the executor (${label(exec)}) is choosing the next actions`;
       since = this.execStartedAt;
-    } else if (this.lastPlan > now || this.lastExec > now) {
+    } else if (this.planBackoffUntil > now || this.execBackoffUntil > now) {
       state = 'backing off';
-      detail = `after an error, waiting before trying again: ${this.lastError}`;
+      // (lastError says why: "budget: ..." while the hourly budget is spent, else the error)
+      detail = `waiting before trying again: ${this.lastError}`;
     } else if (!a.idle()) {
       state = 'acting';
       const g = role === 'mayor' && this.gatherer.held ? v?.tasks.find((t) => t.id === this.gatherer.held) : undefined;
@@ -1084,7 +1228,8 @@ export class TieredBrain implements AgentBrain {
     return {
       state, detail, since,
       role: role ?? 'solo',
-      models: { exec: label(exec), plan: planSpec ? label(planSpec) : 'none' },
+      models: { exec: label(exec), plan: planSpec ? label(planSpec) : 'none', design: label(this.designSpec(a)) },
+      reasoning: this.reasoning(a),
       lastPlanReason: this.planWhy || null,
       lastPlanAt: this.lastPlan && this.lastPlan <= now ? this.lastPlan : null,
       nextReplanReason: this.replanReason,
@@ -1122,6 +1267,7 @@ export class TieredBrain implements AgentBrain {
   }
 
   private async makePlan(a: WorldAgent, spec: ModelSpec, old: Plan | undefined, why: string) {
+    this.planUndo = { seenPlan: this.seenPlan };
     const all = a.events.filter((e) => e.id > this.seenPlan);
     if (all.length) this.seenPlan = all[all.length - 1].id;
     const events = this.eventsFor(a, all);
@@ -1144,6 +1290,8 @@ export class TieredBrain implements AgentBrain {
     if (role === 'worker' && !this.claimedTask && old?.taskId && v?.tasks.find((t) => t.id === old.taskId)?.status === 'claimed') {
       const n = (this.taskReplans.get(old.taskId) ?? 0) + 1;
       this.taskReplans.set(old.taskId, n);
+      // (a replan the budget refuses does not count: taken back in startPlan)
+      this.planUndo.replanTask = old.taskId;
       if (n >= 3) {
         a.world.villages.giveUp(v, old.taskId, a.name, `stuck after ${n} attempts; last problem: ${why}`);
         a.memory.plan = { ...old, steps: [], taskId: undefined };
@@ -1157,8 +1305,8 @@ export class TieredBrain implements AgentBrain {
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
     // A task code posted (plan_layout, a short build) spells out its skill calls: they are the plan. The planner turned
     // "build_design cottage" into its own furnace-and-smelting recipe and failed the build twice
-    const calls = task ? taskCalls(task.detail, new Set(a.world.skills.map((t) => t.name))) : [];
-    if (task && role === 'worker' && calls.length && calls.every((c) => Object.keys(c.args).length)) {
+    const calls = task ? exactCalls(task, new Set(a.world.skills.map((t) => t.name))) : null;
+    if (task && role === 'worker' && calls) {
       const steps = calls.map((c) => `${c.type} ${Object.entries(c.args).map(([k, val]) => `${k}=${val}`).join(' ')}`);
       a.memory.plan = { goal: `${task.id}: ${task.title}`, steps, step: 0, by: 'task', tick: a.world.ticks, taskId: task.id } satisfies Plan;
       this.lastPlan = Date.now();
@@ -1169,8 +1317,9 @@ export class TieredBrain implements AgentBrain {
     // (the vanilla line only where the pieces can be read: the library is cached after the first read)
     const { system, tools } = plannerPrompt(role, a.world.skills, a.gamemode !== 'creative' && !!a.world.materialTasks, !!a.world.vanillaLibrary?.('plains'));
     const planStart = Date.now();
-    const reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
-    this.lastPlanCall = modelCall(spec, planStart, user, reply);
+    const level = this.reasoning(a).plan;
+    const reply = await this.timed(a, 'plan', spec, () => complete(spec, system, user, tools, level));
+    this.lastPlanCall = modelCall(spec, planStart, user, reply, thinkFor(spec.model, level));
     const reg = a.world.villages;
     for (const c of reply.calls) {
       if (!v) break;
@@ -1452,8 +1601,7 @@ export class TieredBrain implements AgentBrain {
 
   /** Ask the architect model for a design, check it (one retry with the problems), and store it in the library. */
   private async design(a: WorldAgent, name: string, brief: string): Promise<string> {
-    // Drawing is the hardest job: memory.designModel can give it a stronger model than the agent's planner
-    const spec = (typeof a.memory.designModel === 'string' && parseSpec(a.memory.designModel)) || this.specs(a).plan || this.specs(a).exec;
+    const spec = this.designSpec(a);
     const v = a.village();
     const library = v?.designs ?? (a.memory.designs as Record<string, Design> | undefined) ?? {};
     const key = name.trim().toLowerCase();
@@ -1491,14 +1639,21 @@ export class TieredBrain implements AgentBrain {
     for (let attempt = 0; attempt < DESIGN_TRIES; attempt++) {
       let reply: Awaited<ReturnType<typeof complete>>;
       try {
-        reply = await this.timed(a, 'plan', () => complete(spec, system, user, tools));
+        reply = await this.timed(a, 'design', spec, () => complete(spec, system, user, tools, this.reasoning(a).design));
       } catch (e) {
+        // The budget refused it: not the design's fault, so not a failed design; the executor backs off with it
+        if (e instanceof BudgetExceeded) {
+          this.onBudget(a, 'design', e);
+          const t = new Date(e.retryAt);
+          return `design "${name}" not drawn: the hourly model budget is spent; try design_building again after ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+        }
         // A failed call is one try (Minevale12: a cloud 500 lost the first cottage design and the layout came 2 min late),
-        // after a short wait; a timeout ends the design (three would hold the executor for 15 minutes)
+        // after a short wait (longer for a rate limit or a server error); a timeout ends the design (three would hold the
+        // executor for 15 minutes)
         const message = String((e as Error)?.message ?? e).slice(0, 200);
         problems = [...problems.filter((p) => !p.startsWith("the architect's model call failed")), `the architect's model call failed: ${message}`];
         if (/aborted due to timeout|TimeoutError/i.test(message)) break;
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, isTransient(e) ? 15000 : 5000));
         continue;
       }
       const call = reply.calls.find((c) => (c.name === 'submit_design' && tools.includes(DESIGN_TOOL)) || (styles && c.name === 'submit_style'));
@@ -1630,6 +1785,7 @@ export class TieredBrain implements AgentBrain {
   }
 
   private async execute(a: WorldAgent, spec: ModelSpec) {
+    const seenBefore = this.seenExec;
     const all = a.events.filter((e) => e.id > this.seenExec);
     if (all.length) this.seenExec = all[all.length - 1].id;
     const events = this.eventsFor(a, all);
@@ -1650,8 +1806,16 @@ export class TieredBrain implements AgentBrain {
     const ts = toolsFor(a.world.skills);
     const tools = !plan || !plan.steps.length ? ts.chat : villageRole(a) === 'mayor' ? ts.mayorExec : ts.exec;
     const execStart = Date.now();
-    const reply = await this.timed(a, 'exec', () => complete(spec, EXEC_SYSTEM, user, tools));
-    this.lastExecCall = modelCall(spec, execStart, user, reply);
+    const level = this.reasoning(a).exec;
+    let reply: Reply;
+    try {
+      reply = await this.timed(a, 'exec', spec, () => complete(spec, EXEC_SYSTEM, user, tools, level));
+    } catch (err) {
+      // A refused or transient failure: the next turn sees these events again
+      if (err instanceof BudgetExceeded || isTransient(err)) this.seenExec = seenBefore;
+      throw err;
+    }
+    this.lastExecCall = modelCall(spec, execStart, user, reply, thinkFor(spec.model, level));
     const done: string[] = [];
     // (a design marks its own step done: a step_done after it in the same reply is for that step, not the next)
     let marked = false;

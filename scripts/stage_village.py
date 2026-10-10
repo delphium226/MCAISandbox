@@ -26,12 +26,14 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 building stands, Worker1 deposits mixed items and the chests are checked for sorting
   --no-deposit-check            skip that check
   --brain tasks|tiered          tasks (default): scripted workers that run each task's skill calls, no model;
-                                tiered: model-driven workers (MCAI_EXEC_MODEL, --planner)
+                                tiered: model-driven workers (MCAI_EXEC_MODEL, default ollama:gpt-oss:120b-cloud,
+                                and --planner; MCAI_REASONING, e.g. exec=medium, overrides the reasoning levels)
   --planner MODEL               the tiered workers' planner (default ollama:gpt-oss:120b-cloud)
   --workers N                   default 2 (Worker1, Worker2)
   --mayor                       also a tiered Mayor (V2.3m), its layout posted by it and its plan empty: it gathers while
                                 it waits (soft gather tasks run as written, no model calls expected; --planner is its
-                                planner, MCAI_EXEC_MODEL its executor: start the agent server with MC_OLLAMA_ROUTES)
+                                planner, MCAI_EXEC_MODEL its executor; only a local model there needs the agent server
+                                started with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
 Stops early when every building is done, when an agent fails the same way 3 times, or after MCAI_STALL_MIN minutes
 (default 3) without a successful action. Workers are left in the world: remove them afterwards (panel or DELETE).
@@ -213,6 +215,50 @@ def call(path, body=None, method=None):
             return json.loads(r.read() or "null")
     except urllib.error.HTTPError as e:
         return {"error": e.read().decode()[:300], "status": e.code}
+
+
+def usage_report(since_ms, agents):
+    """The run's model usage from the agent server's ledger (A.0); None when it cannot be read."""
+    try:
+        return call(f"/usage?since={since_ms}&agents={','.join(agents)}")
+    except Exception:
+        return None
+
+
+def fmt_tok(n):
+    return f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.1f}k" if n >= 1e3 else str(n)
+
+
+def usage_suffix(u):
+    if not u or "total" not in u:
+        return "; tokens n/a"
+    t = u["total"]
+    s = (f"; tokens {fmt_tok(t['promptTokens'])} in / {fmt_tok(t['outputTokens'])} out in {t['calls']} calls"
+         f", ~${t.get('cost', 0):.3f}")
+    if t.get("refused"):
+        s += f", {t['refused']} refused by the budget"
+    if t.get("errors"):
+        s += f", {t['errors']} errors"
+    if u.get("unpriced"):
+        s += f" (unpriced: {', '.join(u['unpriced'])})"
+    if u.get("partial"):
+        s += " (partial)"
+    return s
+
+
+def usage_lines(u, agents):
+    """One line per agent: calls and tokens in/out per call kind."""
+    if not u or "total" not in u:
+        return []
+    out = []
+    for n in agents:
+        k = (u.get("byAgentKind") or {}).get(n) or {}
+        parts = []
+        for kind in ("plan", "design", "exec"):
+            d = k.get(kind) or {}
+            parts.append(f"{kind} {d.get('calls', 0)}x {fmt_tok(d.get('promptTokens', 0))}/{fmt_tok(d.get('outputTokens', 0))}")
+        out.append(f"USAGE {n}: " + ", ".join(parts))
+    return out
 
 
 def rcon(cmd):
@@ -605,11 +651,15 @@ if args.fixtures:
 
 # ---- workers
 names = [f"Worker{i + 1}" for i in range(args.workers)]
+exec_model = os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-cloud")
+reasoning = {"reasoning": os.environ["MCAI_REASONING"]} if os.environ.get("MCAI_REASONING") else {}
+# The run's usage counts from here
+usage_since = int(time.time() * 1000)
 for i, n in enumerate(names):
     call(f"/agents/{n}", method="DELETE")
-    mem = {"village": args.village, "buildSpeed": 4}
+    mem = {"village": args.village, "buildSpeed": 4, **reasoning}
     if args.brain == "tiered":
-        mem.update({"planModel": args.planner, "execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct")})
+        mem.update({"planModel": args.planner, "execModel": exec_model})
     r = call("/agents", {"name": n, "role": "builder", "brain": args.brain, "gamemode": "survival", "reset": True,
                          "position": {"x": site["x"] + 0.5 + 2 * i, "z": site["z"] + 0.5 + 8}, "memory": mem})
     print(f"{n}: {r}", flush=True)
@@ -620,7 +670,7 @@ if args.mayor:
     r = call("/agents", {"name": "Mayor", "role": "mayor", "brain": "tiered", "gamemode": "survival", "reset": True,
                          "position": {"x": site["x"] + 0.5 - 2, "z": site["z"] + 0.5 + 8},
                          "memory": {"village": args.village, "villageRole": "mayor", "buildSpeed": 4, "planModel": args.planner,
-                                    "execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:qwen3:30b-instruct"),
+                                    "execModel": exec_model, **reasoning,
                                     "plan": {"goal": "wait for the workers", "steps": [], "by": "external"}}})
     print(f"Mayor: {r}", flush=True)
 watched = names + (["Mayor"] if args.mayor else [])
@@ -827,7 +877,8 @@ if args.after and reason == "every building is done":
     print("AFTER busy: " + ", ".join(f"{n} {span * busy[n] / max(1, samples):.1f}" for n in watched) + f" of {span:.1f} min", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
-print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason})")
+u = usage_report(usage_since, watched)
+print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}){usage_suffix(u)}")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {(t.get('result') or '')[:120]}")
 storage = {}
@@ -839,5 +890,11 @@ for i, c in enumerate((v.get("storage") or {}).get("chests", [])):
     print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}")
 for n in watched:
     st = (call(f"/agents/{n}/memory") or {}).get("stats") or {}
-    print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}")
+    out_tokens = sum(st.get(k + "OutTokensTotal", 0) for k in ("plan", "design", "exec"))
+    refused = f", budget-refused {st['budgetRefused']}" if st.get("budgetRefused") else ""
+    print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
+          f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
+          f"out tokens {out_tokens}{refused}")
+for line in usage_lines(u, watched):
+    print(line)
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])

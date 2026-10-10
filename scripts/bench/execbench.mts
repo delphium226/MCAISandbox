@@ -1,30 +1,16 @@
 /**
  * Executor benchmark: real executor system prompt and skill tools, worker situations taken from the Oakridge run where
  * the executors went wrong. Scores whether the first call is the right skill with sensible arguments, and the latency.
- * Usage: tsx execbench.mts model1 model2 ...
+ * Usage: tsx execbench.mts model1 model2 ...   Env: N (samples per case, default 10), THINK, OLLAMA_URL, PEEK=1.
+ * Since A.0 the prompt and tools are the brain's own (EXEC_SYSTEM, toolsFor), so scores are not comparable with runs
+ * before it; and gpt-oss numbers before A.0 were effectively at "medium" (Ollama ignores think:false for gpt-oss).
  */
 import { TOOLS } from '../../server/src/skills';
+import { EXEC_SYSTEM, toolsFor } from '../../server/src/tieredBrain';
+import { chat, header, PEEK, REPEAT, Tally } from './benchUtil.mts';
 
-const OLLAMA = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
-
-const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
-A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your
-last turn (including whether your previous actions succeeded or failed), and a JSON observation.
-
-Call skill tools to make progress on the CURRENT step; calls run in order as a queue, so prefer 1-3 purposeful calls.
-When the observation shows the current step is already done, call step_done (you may also queue the first action of the next step).
-If the step is impossible or makes no sense any more, call request_replan with the reason.
-Urgent things come first: reply briefly and in character when someone talks to you, eat when food is low, and fight or flee
-monsters that attack you. If an action failed, try a different approach instead of repeating it. Use exact item and block ids.
-For building, prefer one build or build_box call over many place calls; their results say how many blocks were placed or skipped.`;
-
-const obj = (p: Record<string, unknown>, r: string[] = []) => ({ type: 'object', properties: p, required: r, additionalProperties: false });
-const EXTRA = [
-  { name: 'step_done', description: 'Mark the current plan step as complete (only when the observation shows it is done).', input_schema: obj({}) },
-  { name: 'design_building', description: 'Have the architect draw a new building design and add it to the design library, ready for build_design.', input_schema: obj({ name: { type: 'string' }, brief: { type: 'string' } }, ['name', 'brief']) },
-  { name: 'request_replan', description: 'Ask the planner for a new plan because the current step is impossible or the situation changed.', input_schema: obj({ reason: { type: 'string' } }, ['reason']) },
-];
-const tools = [...TOOLS, ...EXTRA];
+const tools = toolsFor(TOOLS).exec;
+const TIMES = REPEAT(10);
 
 const VILLAGE = `Village Oakridge, objective: two matching cottages and a meeting hall
 Prepared plots (level ground; build inside them):
@@ -59,37 +45,33 @@ const CASES: Array<{ name: string; user: string; ok: (c: { name: string; input: 
   },
 ];
 
-async function turn(model: string, user: string) {
-  const t0 = Date.now();
-  const res = await fetch(`${OLLAMA}/api/chat`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model, stream: false, think: false, keep_alive: '30m', options: { num_ctx: 8192, temperature: 0.4 },
-      messages: [{ role: 'system', content: EXEC_SYSTEM }, { role: 'user', content: user }],
-      tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
-    }),
-    signal: AbortSignal.timeout(300000),
-  });
-  const d = (await res.json()) as any;
-  if (d.error) throw new Error(d.error);
-  const calls = (d.message?.tool_calls ?? []).map((c: any) => ({ name: c.function.name, input: typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments) : c.function.arguments }));
-  return { s: (Date.now() - t0) / 1000, calls, promptTok: d.prompt_eval_count, outTok: d.eval_count };
-}
+const turn = (model: string, user: string) => chat(model, EXEC_SYSTEM, user, tools, { kind: 'exec' });
 
 for (const model of process.argv.slice(2)) {
-  console.log(`\n=== ${model}`);
-  await turn(model, 'Say ok.').catch(() => {}); // load
-  let right = 0, total = 0, time = 0;
-  for (const c of CASES)
-    for (let rep = 0; rep < 2; rep++) {
-      try {
-        const r = await turn(model, c.user);
-        const bad = c.ok(r.calls);
-        total++; time += r.s; if (!bad) right++;
-        console.log(`${r.s.toFixed(1).padStart(5)}s ${bad ? 'WRONG' : 'ok   '} ${c.name}: ${r.calls.map((x: any) => `${x.name}(${JSON.stringify(x.input)})`).join(' ').slice(0, 170) || '(no call)'}${bad ? ` -- ${bad}` : ''}`);
-      } catch (e) {
-        console.log(`error ${c.name}: ${(e as Error).message}`);
+  header('execbench', model, 'exec');
+  await turn(model, 'Say ok.'); // load
+  const tally = new Tally();
+  const perCase: string[] = [];
+  for (const c of CASES) {
+    let right = 0;
+    for (let rep = 0; rep < TIMES; rep++) {
+      const r = await turn(model, c.user);
+      if (!r.ok) {
+        tally.add(r, false);
+        console.log(`error ${c.name}: ${r.error}`);
+        continue;
+      }
+      const bad = c.ok(r.calls);
+      tally.add(r, !bad);
+      if (!bad) right++;
+      console.log(`${(r.ms / 1000).toFixed(1).padStart(5)}s ${bad ? 'WRONG' : 'ok   '} ${c.name}: ${r.calls.map((x) => `${x.name}(${JSON.stringify(x.input)})`).join(' ').slice(0, 170) || '(no call)'}${bad ? ` -- ${bad}` : ''}`);
+      if (PEEK) {
+        console.log(`    raw calls: ${JSON.stringify(r.calls)}${r.text ? `\n    text: ${r.text.slice(0, 400)}` : ''}`);
+        if (r.thinking) console.log(`    thinking (${r.thinking.length} chars): ${r.thinking.slice(0, 400)}`);
       }
     }
-  console.log(`${model}: ${right}/${total} right, average ${(time / Math.max(1, total)).toFixed(1)}s per executor turn`);
+    perCase.push(`${right}/${TIMES} ${c.name}`);
+  }
+  console.log(perCase.map((x) => `  ${x}`).join('\n'));
+  console.log(tally.line(model));
 }
