@@ -82,6 +82,16 @@
   .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
   .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
   #wmAuto.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .wm-acts { position: absolute; top: 30px; right: 10px; max-width: min(340px, 45%); pointer-events: none; display: grid; gap: 2px;
+    background: color-mix(in srgb, var(--panel) 86%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  .wm-acts:empty { display: none; }
+  .wm-acts div { display: grid; grid-template-columns: 10px max-content minmax(0, 1fr); gap: 6px; align-items: baseline; }
+  .wm-acts i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, .6); }
+  .wm-acts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  #worldmap .card:fullscreen, #worldmap .card.wm-full { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column;
+    padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px)); background: var(--panel); }
+  #worldmap .card:fullscreen .wm-box, #worldmap .card.wm-full .wm-box { flex: 1; min-height: 0; }
+  #worldmap .card:fullscreen canvas.world, #worldmap .card.wm-full canvas.world { height: 100%; }
   .wm-bar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
   .wm-box { position: relative; }
   canvas.world { display: block; width: 100%; height: 560px; border-radius: 6px; border: 1px solid var(--line); background: #1e1e24; cursor: grab; touch-action: none; }
@@ -202,11 +212,13 @@
           <button id="wmHome" title="Centre on the running agents' village">Agents</button>
           <button id="wmIn" title="Zoom in">+</button>
           <button id="wmOut" title="Zoom out">&minus;</button>
+          <button id="wmFull" title="Show the map on the whole screen (Esc returns)">Fullscreen</button>
           <button id="wmTrail" title="How far back the agents' trails go (the page keeps them while it is open)">Trail</button>
           <span class="sub">drag to pan, wheel to zoom (either turns Auto off); north is up</span>
         </div>
         <div class="wm-box">
           <canvas class="world" id="wmCanvas" aria-label="Map of every chunk the bots have seen, with the villages and agents"></canvas>
+          <div class="wm-acts" id="wmActs" aria-live="off"></div>
           <div class="wm-tip" id="wmTip" hidden></div>
         </div>
         <div class="atlas-keys" id="wmKeys"></div>
@@ -595,7 +607,9 @@ function autoView() {
   // (never closer than 48 blocks across: a mayor with no ground yet, agents in no village)
   { const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; add(cx - 24, cz - 24, cx + 24, cz + 24); }
   const pad = 12, cv = $('wmCanvas'), w = cv.clientWidth || 800, h = cv.clientHeight || 560;
-  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, k: clampK(Math.min(w / (x1 - x0 + 2 * pad), h / (z1 - z0 + 2 * pad))) };
+  const top = Math.min(h / 3, ($('wmActs')?.offsetHeight || 0) + 34);
+  const k = clampK(Math.min(w / (x1 - x0 + 2 * pad), (h - top) / (z1 - z0 + 2 * pad)));
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2 - top / 2 / k, k };
 }
 wm.auto = store.get('panel.wmAuto', '1') === '1';
 function setAuto(on) {
@@ -762,6 +776,19 @@ function zoomWorld(f, px, py) {
   $('wmIn').onclick = () => { setAuto(false); zoomWorld(1.5); };
   $('wmOut').onclick = () => { setAuto(false); zoomWorld(1 / 1.5); };
   $('wmAuto').onclick = () => { setAuto(!wm.auto); drawWorld(); };
+  const mapCard = $('worldmap').querySelector('.card');
+  const fullLabel = () => {
+    $('wmFull').textContent = document.fullscreenElement === mapCard || mapCard.classList.contains('wm-full') ? 'Exit fullscreen' : 'Fullscreen';
+    // (the page behind the window-filling fallback does not scroll)
+    document.documentElement.style.overflow = mapCard.classList.contains('wm-full') ? 'hidden' : '';
+  };
+  $('wmFull').onclick = async () => {
+    if (document.fullscreenElement) { await document.exitFullscreen().catch(() => {}); return; }
+    if (mapCard.classList.contains('wm-full')) { mapCard.classList.remove('wm-full'); fullLabel(); return; }
+    try { await mapCard.requestFullscreen(); } catch { mapCard.classList.add('wm-full'); fullLabel(); }
+  };
+  document.addEventListener('fullscreenchange', fullLabel);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mapCard.classList.contains('wm-full')) { mapCard.classList.remove('wm-full'); fullLabel(); } });
   setAuto(wm.auto);
   if (window.ResizeObserver) new ResizeObserver(() => drawWorld()).observe(cv);
 }
@@ -1064,7 +1091,16 @@ function render(d) {
   for (const [k, top] of scrolls) { const el = document.querySelector(`[data-scroll="${CSS.escape(k)}"]`); if (el) el.scrollTop = top; }
   if (focus) document.querySelector(focus)?.focus();
 }
+/** Who is doing what, in the world map's corner (each dot the agent's trail colour). */
+function drawActivity(d) {
+  const el = $('wmActs');
+  if (!el) return;
+  const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
+  const agents = (d.agents || []).slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name));
+  el.innerHTML = agents.map((a) => `<div><istyle="background:${agentColor(a.name)}"></i><b>${esc(a.name)}</b><span>${esc(doingWords(a))}</span></div>`).join('');
+}
 function renderNow(d) {
+  drawActivity(d);
   $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
   if (simple) {
     renderSimple(d);
