@@ -1,101 +1,219 @@
 # MCAI Sandbox
 
-A Minecraft-style voxel sandbox that runs in the browser, backed by an authoritative Node.js server. It is built to host
-**human players and AI-controlled agents in the same world**, as a base for multi-agent experiments in the spirit of
+Teams of LLM agents that found and run villages in Minecraft. A mayor agent chooses the land and the buildings and lays
+the village out; worker agents gather, craft and smelt the materials, keep them in a shared storage and build every
+building from it in survival, each block paid for from their inventories. Once the village stands they keep it going:
+they farm, pen and breed animals, dig for iron and make iron tools, and scout the land around. The project is a base for
+multi-agent experiments in the spirit of
 [Project Sid: Many-agent simulations toward AI civilization](https://arxiv.org/html/2411.00114v1).
 
-All textures, skins, sounds, music and the UI font are generated procedurally in code; no Mojang assets are used.
+The agents play real Minecraft Java Edition 26.1 (a local Paper server, each agent a
+[Mineflayer](https://github.com/PrismarineJS/mineflayer) bot) and a browser voxel sandbox written for this project as a
+quick test bed. The brains, skills and REST API are the same in both worlds, and a live control panel shows what every
+agent is doing and what its models were asked.
 
-![Landscape](docs/screenshot-landscape.png)
-![Sunset over the ocean](docs/screenshot-sunset.png)
+![The control panel's simple view](docs/images/panel-simple.png)
+*The control panel's simple view at the end of a model-driven run (Minevale36, 2026-10-10): the six buildings, the
+village's farms, pens, iron tools, lamps and signs, what the storage holds, and what the agents did last.*
 
-## Quick start
+## What the agents do
+
+A run starts with an objective, such as "two matching cottages and a meeting hall", and three agents with empty
+inventories: a Mayor and two workers. Nothing is placed for them.
+
+1. **The mayor picks the land.** It runs `find_site`, which surveys the ground around it (and the shared atlas of land
+   the bots have seen) for a level, dry site with enough trees near it. Code then fills the village's design library
+   with Minecraft's own village houses for that biome, and the mayor chooses which to build (or has its architect model
+   draw a building they do not cover). It calls `plan_layout`, and code places the buildings round a green or along
+   streets, adds a storage hut, a mining hut, a wheat field, street lamps and name signs, checks that the materials are
+   near, and posts the work as tasks on the village's board.
+2. **The workers do the work.** They claim the tasks in order: level the plot (felling whole trees, cutting and
+   filling), set up the storage chests, gather logs, dig the village mine for cobblestone, gather sand for glass, plant
+   the field, then build each building from the storage. A builder crafts and smelts what its building needs from what
+   is stored and is charged for every block it places; a shortfall posts tasks for exactly what is missing. The mayor
+   gathers too while it waits.
+3. **The village is complete** when every building stands, the lamps are lit, the signs are up and the field is
+   planted. Code checks this: a mayor cannot declare a village complete that is not.
+4. **Then village life.** Code gives each idle agent a chore: harvest the wheat and bake bread, start farms of sugar
+   cane, pumpkins or melons the bots saw nearby, prepare an annex beside the village and lead chickens and cows into
+   pens there, breed them, collect eggs, milk the cows and bake a cake, dig stairs down to y 18 for iron and make an
+   iron pickaxe and buckets, and scout points on a ring round the village so the atlas learns more land.
+
+**Measured results.** On a fixed test site (the same land restored before each run), at normal game speed, with
+`gpt-oss:120b-cloud` as the mayor's planner and architect and `qwen3:30b-instruct` as the executors, the last three
+model-driven runs (Minevale34-36, 2026-10-09/10) completed the village (two houses, a library as the hall, the town
+centre and the two huts, with the lamps, the signs and the field) in 10.6, 11.0 and 10.6 minutes, with no failed
+actions up to completion. Minevale36 then ran on for 45 minutes after completion, with no failed action in the whole
+55.7 minutes: two chickens were led into a pen and bred to five, six eggs collected, a cow penned and milked three
+times, a pumpkin farm started, an iron pickaxe and three buckets made from iron the agents dug, and all eight scouting
+points visited. (Its wheat field was set ripe by command 26 minutes after completion, to test the cow pen sooner: cows
+are lured with wheat, and wheat grows slowly.) The first runs of this kind, in late September 2026, took 10-40 minutes,
+and the runs that failed each found a code bug; every run is recorded in [docs/PLAN.md](docs/PLAN.md).
+
+## How the agents work
+
+Each agent is a player in the world, with a body, an inventory and the same rules as a human player. A server-side
+**brain** decides what it does, and the body carries that out as **skills**: small programs with a clear goal and a
+clear result, such as `collect block=logs count=12`, `craft item=chest count=4`, `find_site`, `prepare_site` or
+`build_design design=plains_small_house_1 x=-1615 z=54`. To a language model the skills are its tools. Their names and
+arguments are the same in both worlds, so a brain written once runs in either. Every skill ends with a success message
+or a failure message that says what is wrong and what to do next ("short of materials for the cottage: 35
+acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log; craft 36 acacia_planks"). Those messages
+are how a model sees that something went wrong (Project Sid calls this action awareness).
+
+The LLM brain the villages use has **two tiers**. A planner model, slow and careful, writes a goal and 3-8 concrete
+steps (and long-term notes); an executor model, fast and local, turns the current step into 1-3 tool calls, marks steps
+done or asks for a new plan. The planner runs again when the plan is finished or stuck: after 3 failures, after 3
+minutes without progress, or when the task board changes. Each role can use its own model, set per agent.
+
+A village has two **roles**. The mayor finds the site, has buildings designed, lays the village out and reviews the
+task board; workers claim the next open task *before* planning, so two never plan the same one. Tasks that code posts
+spell out their own skill calls, and a worker runs them as written: its executor is asked only when one fails. This is
+the project's main rule, learned run by run: **models decide, code does the arithmetic and the geometry**. Models
+miscount, misplace things and invent ids, so code works out recipes and bills of materials, scores sites, places
+buildings, turns doors and stairs, and checks a model's designs; the models choose the site, the buildings and their
+styles, and what to do when something fails. In Minevale36 the mayor's planner was called twice and its executor once
+(the site search, then the `plan_layout` call shown below), and the workers' models were not called at all, because
+nothing they ran failed.
+
+Agents left to themselves loop, repeat and talk over each other, so **guards** in code refuse a repeated failing call,
+make the planner review after failures, limit chat, keep agents without a plan from freelancing, reserve the ground
+being worked on, keep village members within 96 blocks of home and rescue an agent stuck in a pit or a lake. Work that
+must go on after completion, or must not hold it up, is a **chore** rather than a task: code queues the skill on an idle
+agent, one chore each, with a key so that no two agents take the same work.
+
+| Part | What it does | Code (under `server/src/`) |
+|---|---|---|
+| Body and skills | The player in the world; skills as the models' tools, each ending in a success or failure message | `world.ts`, `skills.ts`, `agents.ts` (sandbox), `mineflayer/` (Minecraft) |
+| Two-tier brain | The planner writes the plan, the executor turns steps into tool calls; loop guards; model routing | `tieredBrain.ts` |
+| Village record | Plots, buildings, the design library, the task board, storage, reserved ground | `village.ts` |
+| Layout and designs | `plan_layout` places buildings round a green or along streets; designs are checked, drawn by code from a model's style, or taken from Minecraft's village pieces | `layout.ts`, `streetPlan.ts`, `designs.ts`, `buildingGen.ts`, `vanillaPieces.ts` |
+| Village economy | Bills of materials and recipe chains, sorted storage, the village mine | `mineflayer/mcMaterials.ts`, `mcStorage.ts`, `mcMine.ts` |
+| Chores | Harvests, farms, pens, the iron age and scouting after completion | `mineflayer/mcWorld.ts`, `farmSlots.ts` |
+| Shared atlas | A summary of every chunk the bots have seen: ground, wood, ores, plants, animals | `mineflayer/mcAtlas.ts`, `mcSiteAtlas.ts` |
+
+**Models.** Each role takes `<provider>:<model>`: Ollama (local or cloud models) or Anthropic's Claude. The villages
+run with `gpt-oss:120b-cloud` on Ollama's cloud as the mayor's planner and architect (about 3.5 s a plan and 9 s a
+design) and `qwen3:30b-instruct` on a local GPU as every executor; the local models run on their own Ollama servers,
+each pinned to one GPU. There are also a single-model brain on Claude, scripted brains, and an `idle` brain for driving
+an agent from outside through the REST API.
+
+![The detailed view with the Mayor's "Planner saw" tab open](docs/images/panel-detailed.png)
+*The detailed view: the Mayor's "Planner saw" tab shows the exact prompt `gpt-oss:120b-cloud` got after its site search
+(the plains houses now in the library) and its answer, a `plan_layout` call naming two sibling houses and the library.*
+
+[In depth](#in-depth) below covers every part in detail, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) shows how
+the system fits together, with diagrams.
+
+## Watching them: the control panel
+
+Everything the agents do can be followed live, without joining the game.
+
+http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) shows, for every agent: what its brain is
+doing (planning, thinking, acting, waiting: since when and why), its plan as a checklist, its task, the current action,
+a live top-down map (terrain, facing, mobs, players, the target, village plots and buildings), the exact prompt its
+executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
+plus the village task board, the design library (each design's elevations as text, as the architect sees them) and
+the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
+
+The panel has two views (`/panel#simple`, the default, and `/panel#detailed`; the last one chosen is remembered). The
+simple view follows a village through its whole life, not only its build: a summary strip (the village, its state, the
+objective, buildings standing, tasks done, agents working, items stored), the buildings by readable name ("Small house
+1", as chips once all stand), "village life" (the wheat field, the farm slots, the pens with their animals, young born,
+eggs and milk, the iron tools, street lamps and name signs), storage grouped by use (building, food and farm, tools and
+metal), and who is doing what, each agent with a state pill and its action or chore in plain words, beside the recent
+log (each line clamped to two, the full line on hover). The detailed view shows each agent and village as a short
+summary card with tabs that open one at a time: an agent's Plan, Brain, Executor saw, Planner saw, Decisions, Events,
+Inventory, Map and Stats; a village's Tasks (filtered Now, Open, Done, Failed or All), Buildings, Storage, Plots,
+Designs, Ground and Log. A tab is drawn only while open (an agent's map is fetched only then), a second click closes it,
+and the open tabs are remembered; the event feed sits behind a toggle.
+
+![The world map](docs/images/panel-map.png)
+*The world map at the end of Minevale36: the village's plot with its buildings, storage chests, mine, wheat field and
+pumpkin farm; the annex to the west with the chicken pen and the cow pen; other animals the bots have seen; each
+agent's colour and what it is doing in the corner; and the key.*
+
+In Minecraft the panel shows one world map of everything the bots have seen (the shared atlas,
+`mcAtlas.ts`): every chunk a bot receives is summarised in about 0.4 ms, again a minute after its blocks change, and
+kept in `mc/server/atlas.json`), with every village's plots, buildings and storage chests and the agents drawn on it;
+drag to pan, wheel to zoom, and the pointer shows the ground and the logs and sand of the chunk under it. "Auto" (on by
+default) frames the map to keep every agent and its village in view, zooming out when one wanders off and back in when
+it returns, never closer than the village; any pan or zoom by hand turns it off. Each agent leaves a fading trail of
+where it has been, on the world map and on its own map (Trail 1, 5 or 15 minutes, or off; the page keeps the trails
+while it is open, and a teleport breaks the line), and the map's top-right corner lists each agent in its trail colour
+with what it is doing. Fullscreen gives the map the whole screen (Esc returns). Small drawn icons mark the chickens,
+cows, pigs and sheep the agents have seen in the last half hour, the wheat field and the farms by kind, the pens with
+their animal, the mine and the storage chests, and a key in the bottom-right corner explains them and the ground
+colours (it folds away, and Auto framing keeps clear of it). Underground,
+a summary records the ores exposed to air (in cave walls, ravines, cliffs and mine tunnels) by kind, with how many and
+their lowest and highest y, and which village's mine has dug in the chunk; the pointer shows these too ("exposed ores:
+3 coal (y 41 to 52)"). On the surface it records the farmable plants of each chunk (the first plant of each column),
+also shown under the pointer, and the animals near the bots (seen every 5 seconds, dropped after 10 seconds missing near a
+bot). `find_site` uses the atlas to choose where to look when the land around an agent has no good site
+(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings and chicken and cow pens from its
+animal sightings; finding other materials from it
+is a later step.
+
+## Running it
+
+### Real Minecraft
+
+The agents join a private local Paper server as bots. You need Node.js, Python 3 and, for the models, Ollama (or
+Anthropic credentials for the Claude brain).
+
+```bash
+npm install
+npm run mc:setup     # once: portable Java 25 and a Paper 26.1.2 server in mc/ (listens on 127.0.0.1 only)
+# accept the Minecraft EULA: eula=true in mc/server/eula.txt
+npm run mc:server    # start the server (stop it with: python mc/rcon.py stop, which saves the world)
+npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
+```
+
+Open the control panel at http://localhost:8766/panel. To run a whole village with the models above, start the two
+local models on their pinned Ollama servers (see [Models](#models)), the agent server with routes to them instead of
+the plain `npm run mc:agents`, and the village watcher:
+
+```bash
+python scripts/ollama_exec.py start
+MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" npm run mc:agents
+MCAI_API=http://localhost:8766/api MCAI_GAMEMODE=survival MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud \
+  MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud \
+  python scripts/watch_village.py MyVillage 120 0 2 60 "two matching cottages and a meeting hall" ollama:qwen3.8:27b
+```
+
+`watch_village.py` searches for land from the X Z it is given, spawns a mayor and two workers, streams what they do, and
+stops when the village is complete or the run stalls. Without `MCAI_GAMEMODE=survival` the village is built in creative
+from free blocks, in a few minutes. [Testing agents](#testing-agents) describes the other scripts.
+
+The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HOST` (127.0.0.1; `0.0.0.0` serves the
+panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
+`server.properties`, `villages.json` and `atlas.json` it uses; `mc/rcon.py` and `mc/start.py` read it too, e.g.
+`mc/testserver` for the test world), `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
+see [Testing agents](#testing-agents)) and `MC_VANILLA_JAR` (the jar vanilla's data is read from, below;
+`mc/server/versions/26.1.2/paper-26.1.2.jar` by default, relative paths taken from the repository's root).
+
+### The browser sandbox
 
 ```bash
 npm install
 npm run dev          # game server on :8765 + Vite client on :5173
 ```
 
-Open http://localhost:5173, pick a name and press **Play**. Open more tabs to add more players.
+Open http://localhost:5173, pick a name and press **Play**. Open more tabs to add more players. The agent API is at
+http://localhost:8765/api and the control panel at http://localhost:8765/panel; server options and the production
+build are in [the sandbox's section](#the-browser-sandbox-the-test-bed).
 
-For production, build the client once and let the game server serve it:
+## In depth
 
-```bash
-npm run build        # outputs dist/
-npm start            # http://localhost:8765 serves the game, the WebSocket and the API
-```
-
-Server options (flags or `MC_*` environment variables):
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--port` | `8765` | HTTP + WebSocket port |
-| `--world` | `world` | World save folder (`server/worlds/<name>`) |
-| `--seed` | random | Number or text seed (only used when a new world is created) |
-| `--view-distance` | `10` | Chunks sent to human players |
-| `--pvp` | `true` | Player-vs-player damage |
-| `--agents` | `0` | Number of AI agents to spawn at start-up |
-| `--agent-brain` | `worker` | Brain for those agents (`worker`, `companion`, `idle`, `llm`) |
-
-For example: `npx tsx server/src/index.ts --world test --seed hello`.
-
-## What's in the game
-
-- **World:** infinite procedurally generated terrain with 15 biomes: oceans, beaches, plains, forests, birch forests, taiga, snowy taiga and plains, deserts, savanna, windswept hills, snowy peaks, swamps and meadows. It has rivers, caves (spaghetti tunnels and large caverns), underground lava lakes, ore veins, and oak, birch and spruce trees. Flowers, grass, sugar cane, cacti and pumpkins are scattered around.
-- **Survival:**
-  - Health, hunger and saturation, with natural regeneration.
-  - Damage from falling, drowning, lava, fire and starvation.
-  - Death drops your items and shows a respawn screen.
-  - Beds set your spawn point and skip the night.
-- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs, stairs), and two slabs merge into a full block. Doors are two blocks tall and open and close; fences and cobblestone walls connect to their neighbours.
-- **Crafting:** 95 shaped and shapeless crafting recipes plus 21 smelting recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, doors, stairs, fences, walls, food and building blocks.
-  - 2×2 grid in the inventory, 3×3 grid on the crafting table.
-  - Shift-click crafts in bulk; drag with the mouse to split stacks.
-- **Smelting:** a furnace with fuel burn time and cooking progress: ores, food, sand to glass, and more.
-- **Containers:** chests.
-- **Experience:** XP orbs from mining ores, killing mobs and smelting fly to the nearest player and fill a green XP bar with a level number (Minecraft level formula); you drop some XP when you die.
-- **Creative mode:** a tabbed, searchable item palette and flying.
-- **Mobs:** pig, cow, sheep (dyed and shearable), chicken, zombie, skeleton (shoots arrows), creeper (explodes) and spider.
-  - Animals wander, panic when hit and follow you when you hold wheat or seeds.
-  - Monsters spawn in the dark, and undead mobs burn in daylight.
-- **Simulation:**
-  - Water and lava flow; lava meeting water makes obsidian or cobblestone.
-  - Sand and gravel fall, and leaves decay.
-  - Grass spreads, crops, saplings, sugar cane and cacti grow, and farmland hydrates.
-  - TNT explodes and sets off nearby TNT.
-- **Multiplayer:** see other players with skins, name tags, held items and animations. There is chat, a player list (Tab) and server commands (`/help`).
-- **Saving:** the world is saved to disk: chunks you changed, player data, and container contents.
-
-### Graphics
-WebGL2 through Three.js, with a custom deferred-style pipeline:
-
-- **Terrain:** smooth lighting and ambient occlusion using Minecraft-style sky and block light that spreads across chunks. Chunks are meshed in Web Workers.
-- **Shadows:** real-time sun and moon shadows with two cascades and PCF filtering.
-- **Water:** animated waves, refraction of the scene below, colour absorption with depth, Fresnel reflections of the sky, **screen-space reflections** and sun highlights. Being underwater adds fog.
-- **Sky and time of day:** a sky model with sunrise and sunset glow, a square sun and moon, twinkling stars, and a 20-minute day/night cycle.
-- **Clouds:** Minecraft-style block clouds.
-- **Weather:** rain and snow (snow in cold biomes), thunderstorms with lightning, an overcast sky, ground that looks wet, and rain sounds. Use `/weather clear|rain|thunder`.
-- **Foliage and lava:** leaves and plants sway in the wind; lava glows and flows.
-- **Post-processing:** HDR tone mapping (ACES), bloom, god rays, vignette and dithering.
-- **Particles:** block-break debris, torch flames and smoke, explosions, bubbles and critical-hit sparks.
-- **Title screen:** a rotating 3D panorama of a world generated locally.
-- **Settings:** each effect can be turned off in *Options*.
-
-Controls: WASD, Space, Shift (sneak), Ctrl or double-tap W (sprint), mouse, 1–9 or the scroll wheel, E (inventory),
-Q (drop), T or / (chat), F1 (hide the HUD), F3 (debug screen), F5 (camera view), Tab (player list), middle-click (pick block).
-
-Useful commands: `/gamemode creative|survival|spectator`, `/time set day|night`, `/give <item> [count]`, `/tp x y z`,
-`/summon <mob>`, `/weather rain`, `/gamerule doMobSpawning false`, `/agent ...` (see below).
-
-## AI agents
-
-(For how the agent system is built in code, with diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).)
+The rest of this README describes the agents part by part: how an agent works, its skills and brains, the guards and
+the design principles behind them, villages, the Minecraft adapter, the village economy, models, testing and the REST
+API.
 
 Agents are **real players**. Each has a body in the world, an inventory, health and hunger, and follows the same rules
 as a human player: it walks, digs, crafts and talks through the same game mechanics, and everyone sees it do so. There
 is no browser behind it. A server-side **brain** decides what it does, and the body carries that out as **skills**.
-The same agents, brains and REST API work in two worlds: this browser sandbox, and real Minecraft Java Edition (see
-[Real Minecraft](#real-minecraft-experimental)).
+The same agents, brains and REST API work in two worlds: real Minecraft Java Edition (see
+[the adapter](#real-minecraft-the-adapter)) and the browser sandbox.
 
 ### How an agent works
 
@@ -209,7 +327,7 @@ summary (plots, buildings, the design library, the storage contents, the task bo
 others are working on), the previous plan, the events since it last planned and a trimmed observation. The executor's
 prompt has the objective, the village summary, its task, the plan, its recent decisions, any calls that are blocked for
 repeating, the events since its last turn and a trimmed observation. The exact prompt and answer of each agent's last
-planner and executor call are on the [control panel](#control-panel).
+planner and executor call are on the [control panel](#watching-them-the-control-panel).
 
 **When the planner runs:** when there is no plan; when a plan is complete; when the executor asks for a new plan; after
 3 failed actions; when no step has been completed for 3 minutes (`MC_PLAN_INTERVAL_MS`); and for village roles, when the
@@ -277,45 +395,25 @@ Agents left to themselves loop, repeat and talk over each other. These rules are
   village's ground (the mine, a plot, a building) is not climbed out, and the climb never digs or pillars into any
   village's ground: the teleport takes it home. The brain is told what happened.
 
-### In-game commands
-```
-/agent spawn Alex farmer worker     # name, role, brain
-/agent do Alex collect block=logs count=8
-/agent do Alex give player=@me item=oak_log count=4
-/agent list
-/agent stop Alex
-/agent remove Alex
-```
+### Design principles
 
-### REST API (control agents from any language)
-| Method | Endpoint | Purpose |
-|---|---|---|
-| POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?, reset?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`; in Minecraft, `reset` clears its saved inventory and position) |
-| GET | `/api/agents` | List agents |
-| GET | `/api/agents/:name/observe?radius=16` | Observation: position, health, food, inventory, visible blocks (counts and nearest), nearby entities, current action, recent events |
-| POST | `/api/agents/:name/act` `{action, ...args, replace?}` (or an array) | Queue skills |
-| POST | `/api/agents/:name/stop` | Cancel the current and queued actions |
-| GET | `/api/agents/:name/events?since=<id>` | Event stream: chat heard, damage, pickups, crafts, action done or failed, deaths |
-| GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
-| DELETE | `/api/agents/:name` | Remove the agent |
-| GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
-| GET | `/api/block?x=&y=&z=` | The block at a position (name and state, a sign's `text` in Minecraft; `loaded: false` when its chunk is not loaded) |
-| GET | `/api/blocks?x1=&y1=&z1=&x2=&y2=&z2=&states=` | Minecraft: a box of up to 65,536 blocks, as a list of names and an index into it per block (x fastest, then z, then y; -1 where no bot has the chunk loaded), for checks that compare before and after; `states=1` names blocks with their states (`oak_stairs[facing=north,half=bottom,shape=straight]`) |
-| GET | `/api/agents/:name/near?items=sand:64,stone:300&range=96` | Minecraft: plan_layout's material counts around where the agent stands, each item timed (`found`, `ms`) |
-| GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
-| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage (chest by chest, with each one's material group in a storage hut), reservations and recent events |
-| POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
-| POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
-| GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
-| GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
-| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`, round a green when `size` is 40 or more; `"rows"` clears it) |
-| POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
-| GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
-| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there, farmable plants), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map, and the animals the bots have seen |
-| GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
+What building these agents taught, and what the code is built around:
 
-**Scale:** in the sandbox, the per-tick pathfinding budget and fast block search keep the server at about 8 ms per
-tick with 30 autonomous agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
+- **Models decide; code does arithmetic and geometry.** Models miscount crafting quantities and row lengths, place
+  doors inside walls, overlap buildings and invent item ids. So skills make the missing planks, designs use spaced
+  symbols or are drawn by code from a style the model chooses (or come from the game's own village pieces), doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
+  counts every block. The weaker the model, the higher-level the skills should be.
+- **Failure messages are the model's eyes.** A failure says what is short or where the problem is, and what to do next
+  ("short of materials for the cottage: 35 acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log;
+  craft 36 acacia_planks"). Project Sid calls this action awareness.
+- **Agents loop unless stopped**, and several agents race for the same work: hence the guards above, claiming tasks
+  before planning, and reserving ground.
+- **Prepare land like a player:** find a site, fell whole trees and level the ground, then build. Building on unprepared
+  ground left pillars, floating canopies and trapped agents.
+- **Check a model's raw output before judging it.** Most "failures" of new models were format quirks (layers sent as a
+  string, tasks written as skill calls), now normalised in code.
+- **Test the code without the models.** Scripted workers (`tasks` brain) and staged villages check the economy in
+  minutes; model-driven runs then test behaviour.
 
 ### Villages: agents building together
 
@@ -526,7 +624,9 @@ is laid, then plants it, charged one item a cell); a ripe slot is harvested (`ha
 cane cut from the top down, pumpkins and melons taken); and while a slot is still free and nothing else is to do, a
 worker explores, scouting 8 points on a 160-block ring round the village once each so the atlas learns more land.
 None of these is a model tool or a board task, so none holds completion. A scout whose walk home ends more than 12
-blocks short, or a farm start that failed far out, is teleported home (a worker once floated in a lake for 4 minutes).
+blocks short, or a farm start that failed far out, is teleported home (a worker once floated in a lake for 4 minutes),
+and a scout whose walk home starts in water is teleported home at once. An exploring scout stops within 11 blocks of
+its ring point (its "scouted" rule is 12), so a point in a lake no longer keeps it swimming for the last few blocks.
 Sugar cane is counted in the atlas by the blocks above each stalk's base (what a cut takes; a 1-high stalk is not
 recorded), a cane start needs at least 2, and a sighting that gave too little is passed over by its column.
 
@@ -536,11 +636,14 @@ plot's height. Code chooses it from the four sides, sliding along each edge: eve
 reservations and the mine are kept clear, the ground must be dry and within a few blocks of the plot's level, and the
 lowest score wins (earthwork, trees to fell, and the walk from the storage hut). The annex holds two 5x7 slots for pens,
 each with its end facing the village; no plant farm is ever started on them. Then, if a chicken (or, for the second
-slot, a cow) was seen within 96 blocks of the storage in the last half hour, an agent starts a pen of that kind on a
-free annex slot (`start_pen kind=chicken|cow`): at the storage hut it puts up the ring of fences with the gate open
-(charged, made from storage), takes the lure into its off-hand by command (wheat seeds for chickens, from storage or the
-grass; wheat for cows, from storage only, so no cow trip before the field's first harvest), walks to the sighting and
-leads up to 4 animals home in 4-block hops, waiting after each until they are close. At the gate it is teleported
+slot, a cow) was seen within 96 blocks of the annex's centre in the last half hour, on ground from 4 below to 8 above
+the annex (animals at its level first; chickens and cows led from a rise 6 high followed the bot down 1-high steps), an
+agent starts a pen of that kind on a free annex slot (`start_pen kind=chicken|cow`): at the storage hut it puts up the
+ring of fences with the gate open (charged, made from storage), takes the lure into its off-hand by command (wheat seeds
+for chickens, from storage or the grass; wheat for cows, from storage only, so no cow trip before the field's first
+harvest), walks to the sighting (to the animals' height, placing no scaffolding), chooses up to 4 animals within 9
+blocks of it and leads them home in 4-block hops, stepping down at most 3 blocks at a time and waiting after each hop
+until they are close (one is left behind only after two waits more than 12 away). At the gate it is teleported
 inside, then to the pen's back row; animals left in or just outside the gate are teleported in (cows jam in a 1-wide
 gate; chickens walk through), the gate is closed by command, the agent teleported out, and the animals inside are
 counted on the server. A pen holding fewer than 2 is lured into again (one animal never breeds); its gate stays shut
@@ -583,176 +686,7 @@ plants and water keep whatever is on site. The response lists the substitutions 
 `skip_bottom=N` to drop ground layers saved with the build. Stairs and logs lose their orientation; doors face outward.
 Check each build's licence before sharing it further.
 
-### Design principles
-
-What building these agents taught, and what the code is built around:
-
-- **Models decide; code does arithmetic and geometry.** Models miscount crafting quantities and row lengths, place
-  doors inside walls, overlap buildings and invent item ids. So skills make the missing planks, designs use spaced
-  symbols or are drawn by code from a style the model chooses (or come from the game's own village pieces), doors are moved in code, `find_site` scores sites, `plan_layout` places buildings and the bill of materials
-  counts every block. The weaker the model, the higher-level the skills should be.
-- **Failure messages are the model's eyes.** A failure says what is short or where the problem is, and what to do next
-  ("short of materials for the cottage: 35 acacia_planks (carrying 1, storage has 0). To get them: gather 9 acacia_log;
-  craft 36 acacia_planks"). Project Sid calls this action awareness.
-- **Agents loop unless stopped**, and several agents race for the same work: hence the guards above, claiming tasks
-  before planning, and reserving ground.
-- **Prepare land like a player:** find a site, fell whole trees and level the ground, then build. Building on unprepared
-  ground left pillars, floating canopies and trapped agents.
-- **Check a model's raw output before judging it.** Most "failures" of new models were format quirks (layers sent as a
-  string, tasks written as skill calls), now normalised in code.
-- **Test the code without the models.** Scripted workers (`tasks` brain) and staged villages check the economy in
-  minutes; model-driven runs then test behaviour.
-
-### Testing agents
-
-`scripts/` has the harnesses used to develop the agents (Python, standard library only; the game server must be running):
-
-- `watch_survival.py NAME [MAX_MINUTES] [TARGET]` spawns a tiered survival agent and tracks unique items until it
-  holds TARGET (default stone_pickaxe) or stalls.
-- All watch scripts use the sandbox API by default; set `MCAI_API=http://localhost:8766/api` for real Minecraft.
-- `scripts/bench/` compares models on the brain's real prompts and tools: `modelbench.mts` (mayor planning and
-  designs), `execbench.mts` (executor turns) and `planbench.mts` (worker plans), e.g.
-  `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct` (`OLLAMA_URL=` for another Ollama server).
-  `designbench.mts` runs the architect's real prompts (cottage and meeting-hall briefs, survival and creative) N times
-  a model and reports each design's footprint, roof shape (flat, stepped or pitched with stairs), blocks, gather cost
-  and validity (`OLD=1` for the prompt before stair roofs, `OUT=` for JSON): before stair roofs, 0 of 40 designs had a
-  pitched roof; after, 20 of 20 survival designs had stair gables. It offers `submit_style` as the brain does
-  (`STYLES=0` for drawing by hand only), with the same fitting of styles to the budget; `REVISE=1` runs the revision
-  round and `TRIES=1` prints each try's refusal. The last bench (the cottage, hall and the mayor's cottage brief): 30 of
-  30 designs by style, no lint notes left, 3-4 s each.
-- `scripts/checks/gen_designs.mts` checks the building generator offline (no server; run with `node_modules/.bin/tsx`):
-  every roof type at several sizes, with and without an overhang, validated and costed as the architect's designs are,
-  then one door in an outer wall with room in front of it, every stair facing uphill (and the shapes the server will
-  give them), whole walls, a covered inside and no lint notes; then every stored design is validated again. `STYLE=` or
-  `DESIGN=` prints one design, and with `OUT=` writes it with what its build should show (for `rotate_design.py`).
-- `scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG] [--colours jar|hand]` draws a design (from
-  a villages.json or a JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and
-  the north-west, offline, in flat colours, into `runs/renders/` unless `--out` says otherwise. Each block's top and side
-  colours are averaged from the textures in the Minecraft 26.1.2 client jar (`scripts/vanilla_colours.py`; Paper's jar
-  has no textures), read at run time and kept in memory only; `MC_CLIENT_JAR` points at the jar (the launcher's
-  `versions/26.1.2` folder by default). Without the jar, or with `--colours hand` (`MCAI_RENDER_COLOURS=hand`), a hand
-  table of colours is used; `contact_sheet.py` takes `--colours` too. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
-  Paper jar (size, blocks, jigsaw blocks per piece), read in place and never copied out.
-- `scripts/checks/vanilla_pieces.mts [BIOME ...]` (offline, run with `node_modules/.bin/tsx`) imports every house piece
-  of each biome as `vanillaLibrary` does and checks it as the architect's survival designs are checked: a line per piece
-  and a summary per biome (how many import, are valid and pass, at what cost) with the substitutions made. `KIND=town_centers`
-  imports the town centres with their street connectors, `PIECE=` prints one piece's layers, and `OUT=DIR` writes each
-  design as JSON with an index (keep DIR out of the repository) for `scripts/contact_sheet.py DIR`, which tiles their
-  renders by biome with a caption each, and for `rotate_design.py --design`. `scripts/checks/street_plan.mts [BIOME ...]`
-  (offline) lays each biome's library out with both huts by the street plan and checks it: every building inside the pad,
-  off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
-  hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
-  library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
-  also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' and the name
-  signs' rules too (each sign beside its door's way out, facing out, on no lamp, building or other door's walkway), and
-  the farm's: 5x7 inside the pad, off streets, the green, walkways and the mine's ground, 2 from every building, its
-  channel down the middle, every farmland cell within 4 of the water, 16 sow cells, no lamp or sign on it (the map shows
-  `~` water, `w` sown and `%` bare farmland; a farm is expected in every biome, though plan_layout places none in snowy
-  and desert villages). It also checks the annex and the chicken pen for every biome and size: the annex's candidates
-  beside the plot, its two slots, and each pen's ring, gate (in the middle of the end facing the plot) and the cells
-  outside it.
-- Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
-  and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
-  against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
-  smelting table against the jar's recipes and the old hand table, which it must keep, exit 1 if not; crafting from
-  minecraft-data against the jar's; every stored design's and vanilla piece's bill planned each way) and
-  `vanilla_drops.mts [ITEM ...]` (the blocks `collect` goes for against the blocks whose loot tables drop the item).
-  Run them after changing `mcBlocks.ts`, the smelting or `collect`'s targets.
-- `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
-  dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
-  objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
-  storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft); the land probe then
-  also skips ground with too few trees, and the village spawns at the site it found, not at X,Z. `MCAI_NO_PROBE=1`
-  skips the probe and starts the village at X,Z itself, poor land or not (for scouting tests).
-- `attach_village.py VILLAGE MINUTES_SO_FAR` follows a village whose agents are already running (when a watcher was
-  stopped mid-run): it prints their new events until the village is complete or nothing succeeds for 5 minutes.
-- `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
-  running): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs), `layout_small_sites.py VILLAGE`
-  (partial layouts and second sites), `materials_near_site.py` (plan_layout's material counts), `treeless_site.py` and
-  `smelt_fuel.py`, `atlas.py` and `fell_trees.py` (whole trees and fallen ones); `mine.py VILLAGE [ROUNDS [COUNT]]` (Gus collects cobblestone in the
-  village mine; each round must come from the planned tunnel cells, with nothing else changed at the mine's level) and
-  `atlas_ores.py VILLAGE` or `--near X Z [RADIUS]` (the atlas's exposed ores against the blocks, read with
-  `/api/blocks`); `site.py X Z SIZE` (Gus runs find_site, and the ground, height range, trees and wood count it
-  reports are compared with the blocks over the site and prepare_site's margin); `search_cost.py X Z [ITEMS]` (how long
-  plan_layout's material counts and find_site's searches take at a spot, through `/api/agents/Gus/near`);
-  `rotate_design.py X Z Y [--design FILE | --style JSON]` (a stair-gabled test house, a design from a file or a style
-  for the generator, built at four turns, its facing blocks and stair shapes compared with `/api/blocks?states=1`). `site.py` and `fell_trees.py` take
-  `MCAI_API`, so they run on the test world too; `fell_trees.py` takes `FELL_Y` (a known ground height + 1: in jungle a
-  drop from y 120 lands Gus on the canopy). Run the relevant one after changing find_site,
-  prepare_site, layout.ts, smelting, the atlas, felling, the mine, block searches or build_design's turning.
-  Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
-  the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
-  village's workers on after the stage runner's stall rule stopped it.
-- `test_rescue.py [pit|box|pool|tunnel]` traps Gus with RCON and checks the stuck rescue (`tunnel` is a sealed
-  cobblestone tunnel: a walk along it must not count as getting out); each case waits up to 5.5 minutes.
-- `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered] [--mayor]` (real
-  Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
-  places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
-  plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
-  workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
-  is tested in one to ten minutes. Built-in test designs: `testhut` (5x5) and `testhall` (9x9) with flat roofs,
-  `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs; drawn by the building
-  generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
-  `--design-file FILE.json` adds a design from a file (a vanilla piece written by `vanilla_pieces.mts` with `OUT=`),
-  and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default), or
-  round a green when the site is 40 across (`--site-at X,Y,Z,40`).
-  `--mayor` adds a tiered Mayor whose layout is posted and whose plan is empty, so it gathers while it waits
-  (`--planner` is its planner, `--planner none` none; start the agent server with `MC_OLLAMA_ROUTES`).
-  `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
-  its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD[,LOGS]]` uses a site
-  find_site gave directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the
-  canopy; LOGS, the wood's log count near the site, gives the village a wood kind as in model-driven runs).
-  `--harvest` sets the farm ripe by command after the build and checks the harvest chore: bread in storage, the field
-  sown again. `--after MINUTES` (with `--mayor`) keeps watching the chores after completion and reports the farm slots,
-  the sightings, the iron record, the annex and pens (`ANNEX` and `PEN` lines: the animals inside counted on the
-  server by kind, eggs taken, young born, milk, and the items lying in a chicken pen), the exploring, and an `AFTER
-  busy` line with each agent's busy minutes after completion; `--fixtures` puts sugar cane, pumpkins and a melon down
-  35-45 blocks off the site by command first (farm plants are rare near the test sites) and summons 4 chickens and 2
-  cows on level ground to lure, `--ripen` sets each newly planted slot ripe once, and `--stock ITEM:N,...` puts items
-  into storage at completion, each deposited by name (`raw_iron:3` tests the iron tools without digging;
-  `wheat:12,bucket:3,sugar_cane:2` the cow pen, milk and the cake). `watch_village.py` takes `MCAI_AFTER=MINUTES` for
-  the same after a model-driven run.
-- **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
-  (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
-  villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
-  sets it up, snapshots it, says what is running and lists the region files each site covers.
-  `python scripts/reset_site.py SITE` stops the test servers, copies the site's region, entity and poi files back from
-  the snapshot (whole 512x512 regions, so sites sharing one are restored together), removes the villages tests made
-  there and their atlas chunks, and starts the test Paper and agent server again, detached, so they outlive the shell
-  and the session that started them (a server run as a session's background task was stopped at its 30-minute limit).
-  `scripts/test_sites.json` records the sites (woods with sand, hills, a drop, and "shelf", a plot against a drop
-  whose mine meets the hillside: run it with `--buildings testhut,testhut,testhall`) and each one's find_site result.
-  Without a recorded result, the land probes of `stage_village.py` and `watch_village.py` give find_site up to 300 s
-  (it may walk to an atlas candidate). A run:
-  `MC_TIME_SCALE=2 python scripts/reset_site.py minevale3`, then `python scripts/stage_village.py Fixed1 --site minevale3`.
-  `scripts/checks/region_blocks.py` reads blocks from saved region files without a server; `--world` picks a world
-  and `--compare OTHER` lists the blocks that differ, e.g. a restored site against the snapshot.
-- **Running at 2x.** `MC_TIME_SCALE=2` on the agent server runs the Paper server at 40 ticks a second (set over RCON at
-  every start, back to 20 without it) and the bots' physics at the same speed (`patches/mineflayer+4.39.0.patch`,
-  applied by patch-package on install; Mineflayer is pinned to 4.39.0). Digging stays in real time, because Paper times
-  a dig by the wall clock and refuses one finished early. Measured: walking 1.94x faster, a staged build 1.5 instead
-  of 2.2 minutes, mining unchanged. Use it for staged runs and checks only; model-driven acceptance runs stay at 1x.
-- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong, with
-  the prompt's line about the vanilla library and a case for it (`VANILLA=0` for the prompt without them), the F155
-  cases (`ONLY=F155`: a site found, the library filled, nothing laid out) and a tally of what each answer did per case.
-- `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
-  stuck. `bench_agent.py` compares models on survival progression.
-- `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
-  schematic format.
-
-Most of this world is ocean or hills, so start village tests where there is land (the village watcher searches for it).
-
-## Real Minecraft (experimental)
-
-The same agents can play real Minecraft Java Edition (26.1) through [Mineflayer](https://github.com/PrismarineJS/mineflayer),
-on a private local server. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it fits together, with diagrams.
-
-```bash
-npm run mc:setup     # once: portable Java 25 and a Paper 26.1.2 server in mc/ (listens on 127.0.0.1 only)
-# accept the Minecraft EULA: eula=true in mc/server/eula.txt
-npm run mc:server    # start the server (stop it with: python mc/rcon.py stop, which saves the world)
-npm run mc:agents    # agent API on http://localhost:8766/api, same routes as the sandbox
-```
+### Real Minecraft: the adapter
 
 Agents are spawned and driven through the same REST API as in the sandbox (on port 8766), and brains written against
 the world interface (`tiered`, `llm`, `idle`) run unchanged. Skills: move_to, chat, wait, look_at, mine, collect,
@@ -766,13 +700,6 @@ spawn without a height lands on the surface; over water it takes the nearest dry
 drops the bot in from above (a refused spawn once left a bot where its name last stood, 1,300 blocks away). Survival
 bots have a self-defence reflex: they fight back with a weapon, or run. Join with a 26.1.2 client at `localhost` to
 watch (`POST /api/watch {"player": ..., "agent": ...}` puts you in spectator mode next to an agent).
-
-The agent server's settings: `MC_PORT` (25565), `MC_API_PORT` (8766), `MC_API_HOST` (127.0.0.1; `0.0.0.0` serves the
-panel and API to the local network, with no login), `MC_SERVER_DIR` (`mc/server`: the server folder whose
-`server.properties`, `villages.json` and `atlas.json` it uses; `mc/rcon.py` and `mc/start.py` read it too, e.g.
-`mc/testserver` for the test world), `MC_TIME_SCALE` (1; 2 runs the server and the bots at double speed for tests,
-see [Testing agents](#testing-agents)) and `MC_VANILLA_JAR` (the jar vanilla's data is read from, below;
-`mc/server/versions/26.1.2/paper-26.1.2.jar` by default, relative paths taken from the repository's root).
 
 **Vanilla's data.** Where the game has the answer, the adapter reads it from the game: `server/src/vanillaData.ts` reads
 entries, JSON files and tags (resolved through the tags they name) from the Paper jar on this machine at runtime and
@@ -800,7 +727,8 @@ differently:
   going around water (and swimming out of it), and splitting long walks into legs. No walk digs into or places blocks
   on a village's ground (plots, buildings, the mine), and none steps onto a village's wheat field (a jump or a step down
   onto farmland turns it to dirt; a bot already standing on the field may walk off it). The watchdog calls a walk stuck after 10 seconds without
-  progress across the ground or onto a new block level (a bot hopping in place is not progress), and its error says
+  progress across the ground or onto a new block level (a bot hopping in place is not progress; in water only 2 blocks
+  across count, since a bot bobbing and drifting in one spot kept a scout's walk alive for minutes), and its error says
   how far the walk got. A walk whose path has run out short of the goal, with no search going on, searches again after
   a second (twice a walk at most, logged as `[repath]`). mineflayer-pathfinder 2.4.5 is patched
   (`patches/mineflayer-pathfinder+2.4.5.patch`, applied by patch-package on install) so that a path holds copies of the
@@ -1000,7 +928,9 @@ farm, and VanI7 dug the iron stairs to y 18 on their fifth try (caves stopped th
 pens v2 (2026-10-09, staged at 2x, 20 minutes after completion): VanC3 bred a chick in its chicken pen, took 5 eggs,
 milked its cow pen three times and baked 2 cakes, and the agents were busy 7.4, 6.0 and 2.6 minutes of the 20 (the
 Mayor last) where one chore a village had kept one worker busy (VanC1: 9.9, 0 and 0 of 12.1); the cow pen held only
-one cow (two were summoned).
+one cow (two were summoned). With animals taken from up to 8 above the annex (2026-10-10, staged at 2x, the fixtures on
+a rise): VanH3 was complete in 6.4 minutes and made 4 pen trips, 3 of them to animals 5-7 blocks up, with no failed
+actions; a chick and two calves were bred, and it took 10 eggs and 9 milk and baked 2 cakes.
 
 ### Models
 
@@ -1022,36 +952,273 @@ pinned to one GPU (with `OLLAMA_VULKAN=0`: Ollama's Vulkan backend, on by defaul
 put the executor on the planner's card), and checks they fit; the Ollama app keeps relaying cloud models. Run
 `python scripts/ollama_exec.py status` before a series of runs: Ollama can report a model as fully in VRAM when
 Windows has moved most of it into shared system memory (an executor ran at 2.7 tokens a second, one turn took 187 s),
-so the script compares each card's memory with its model and prints a WARNING; then stop and start them. Then point
-the agents at them:
+so the script compares each card's memory with its model and prints a WARNING; then stop and start them. The commands
+that point the agents at them are in [Running it](#real-minecraft).
+
+### Testing agents
+
+`scripts/` has the harnesses used to develop the agents (Python, standard library only; the game server must be running):
+
+- `watch_survival.py NAME [MAX_MINUTES] [TARGET]` spawns a tiered survival agent and tracks unique items until it
+  holds TARGET (default stone_pickaxe) or stalls.
+- All watch scripts use the sandbox API by default; set `MCAI_API=http://localhost:8766/api` for real Minecraft.
+- `scripts/bench/` compares models on the brain's real prompts and tools: `modelbench.mts` (mayor planning and
+  designs), `execbench.mts` (executor turns) and `planbench.mts` (worker plans), e.g.
+  `node_modules/.bin/tsx scripts/bench/execbench.mts qwen3:30b-instruct` (`OLLAMA_URL=` for another Ollama server).
+  `designbench.mts` runs the architect's real prompts (cottage and meeting-hall briefs, survival and creative) N times
+  a model and reports each design's footprint, roof shape (flat, stepped or pitched with stairs), blocks, gather cost
+  and validity (`OLD=1` for the prompt before stair roofs, `OUT=` for JSON): before stair roofs, 0 of 40 designs had a
+  pitched roof; after, 20 of 20 survival designs had stair gables. It offers `submit_style` as the brain does
+  (`STYLES=0` for drawing by hand only), with the same fitting of styles to the budget; `REVISE=1` runs the revision
+  round and `TRIES=1` prints each try's refusal. The last bench (the cottage, hall and the mayor's cottage brief): 30 of
+  30 designs by style, no lint notes left, 3-4 s each.
+- `scripts/checks/gen_designs.mts` checks the building generator offline (no server; run with `node_modules/.bin/tsx`):
+  every roof type at several sizes, with and without an overhang, validated and costed as the architect's designs are,
+  then one door in an outer wall with room in front of it, every stair facing uphill (and the shapes the server will
+  give them), whole walls, a covered inside and no lint notes; then every stored design is validated again. `STYLE=` or
+  `DESIGN=` prints one design, and with `OUT=` writes it with what its build should show (for `rotate_design.py`).
+- `scripts/render_design.py SOURCE [--village V] [--design NAME] [--out PNG] [--colours jar|hand]` draws a design (from
+  a villages.json or a JSON file) or a box of blocks saved from `/api/blocks` as an isometric PNG from the south-east and
+  the north-west, offline, in flat colours, into `runs/renders/` unless `--out` says otherwise. Each block's top and side
+  colours are averaged from the textures in the Minecraft 26.1.2 client jar (`scripts/vanilla_colours.py`; Paper's jar
+  has no textures), read at run time and kept in memory only; `MC_CLIENT_JAR` points at the jar (the launcher's
+  `versions/26.1.2` folder by default). Without the jar, or with `--colours hand` (`MCAI_RENDER_COLOURS=hand`), a hand
+  table of colours is used; `contact_sheet.py` takes `--colours` too. `scripts/checks/village_pieces.py [KIND ...]` surveys the vanilla village pieces in the
+  Paper jar (size, blocks, jigsaw blocks per piece), read in place and never copied out.
+- `scripts/checks/vanilla_pieces.mts [BIOME ...]` (offline, run with `node_modules/.bin/tsx`) imports every house piece
+  of each biome as `vanillaLibrary` does and checks it as the architect's survival designs are checked: a line per piece
+  and a summary per biome (how many import, are valid and pass, at what cost) with the substitutions made. `KIND=town_centers`
+  imports the town centres with their street connectors, `PIECE=` prints one piece's layers, and `OUT=DIR` writes each
+  design as JSON with an index (keep DIR out of the repository) for `scripts/contact_sheet.py DIR`, which tiles their
+  renders by biome with a caption each, and for `rotate_design.py --design`. `scripts/checks/street_plan.mts [BIOME ...]`
+  (offline) lays each biome's library out with both huts by the street plan and checks it: every building inside the pad,
+  off the streets and 2 blocks from the others, its door's way out on a street, the storage hut unturned, the mining
+  hut's back at the pad's edge; it prints each plan as a map (`SIZE=` the pad, 32 by default; `HOUSES=` which of the
+  library's houses, `small,small,landmark,other` by default). `PLAN=green` (with `SIZE=40`) lays out greens instead and
+  also checks that nothing stands on the green and no door opens onto it. Both check the street lamps' and the name
+  signs' rules too (each sign beside its door's way out, facing out, on no lamp, building or other door's walkway), and
+  the farm's: 5x7 inside the pad, off streets, the green, walkways and the mine's ground, 2 from every building, its
+  channel down the middle, every farmland cell within 4 of the water, 16 sow cells, no lamp or sign on it (the map shows
+  `~` water, `w` sown and `%` bare farmland; a farm is expected in every biome, though plan_layout places none in snowy
+  and desert villages). It also checks the annex and the chicken pen for every biome and size: the annex's candidates
+  beside the plot, its two slots, and each pen's ring, gate (in the middle of the end facing the plot) and the cells
+  outside it.
+- Three offline checks (run with `node_modules/.bin/tsx`) compare the economy's data with vanilla's, read from the jar
+  and only printed: `scripts/checks/vanilla_tags.mts [LIST ...]` (the adapter's block and item lists from the tags
+  against the hand rules they replaced, and the waterlogged states counted as water), `vanilla_recipes.mts` (the
+  smelting table against the jar's recipes and the old hand table, which it must keep, exit 1 if not; crafting from
+  minecraft-data against the jar's; every stored design's and vanilla piece's bill planned each way) and
+  `vanilla_drops.mts [ITEM ...]` (the blocks `collect` goes for against the blocks whose loot tables drop the item).
+  Run them after changing `mcBlocks.ts`, the smelting or `collect`'s targets.
+- `watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]` searches outward from X,Z for
+  dry land, spawns a mayor and workers, streams their actions and the task board, and stops when the mayor declares the
+  objective complete, the run stalls or an agent fails the same way 3 times. It prints tasks, designs, plots, buildings,
+  storage and per-agent stats. `MCAI_GAMEMODE=survival` runs the village economy (real Minecraft); the land probe then
+  also skips ground with too few trees, and the village spawns at the site it found, not at X,Z. `MCAI_NO_PROBE=1`
+  skips the probe and starts the village at X,Z itself, poor land or not (for scouting tests).
+- `attach_village.py VILLAGE MINUTES_SO_FAR` follows a village whose agents are already running (when a watcher was
+  stopped mid-run): it prints their new events until the village is complete or nothing succeeds for 5 minutes.
+- `scripts/checks/` holds targeted checks of the survival village's code, without models (the agent server must be
+  running): `find_site.py X Z SIZE[:SLOPE],...` (site search, wood, walking legs), `layout_small_sites.py VILLAGE`
+  (partial layouts and second sites), `materials_near_site.py` (plan_layout's material counts), `treeless_site.py` and
+  `smelt_fuel.py`, `atlas.py` and `fell_trees.py` (whole trees and fallen ones); `mine.py VILLAGE [ROUNDS [COUNT]]` (Gus collects cobblestone in the
+  village mine; each round must come from the planned tunnel cells, with nothing else changed at the mine's level) and
+  `atlas_ores.py VILLAGE` or `--near X Z [RADIUS]` (the atlas's exposed ores against the blocks, read with
+  `/api/blocks`); `site.py X Z SIZE` (Gus runs find_site, and the ground, height range, trees and wood count it
+  reports are compared with the blocks over the site and prepare_site's margin); `search_cost.py X Z [ITEMS]` (how long
+  plan_layout's material counts and find_site's searches take at a spot, through `/api/agents/Gus/near`);
+  `rotate_design.py X Z Y [--design FILE | --style JSON]` (a stair-gabled test house, a design from a file or a style
+  for the generator, built at four turns, its facing blocks and stair shapes compared with `/api/blocks?states=1`). `site.py` and `fell_trees.py` take
+  `MCAI_API`, so they run on the test world too; `fell_trees.py` takes `FELL_Y` (a known ground height + 1: in jungle a
+  drop from y 120 lands Gus on the canopy). Run the relevant one after changing find_site,
+  prepare_site, layout.ts, smelting, the atlas, felling, the mine, block searches or build_design's turning.
+  Two helpers sit beside them: `fresh_land.py [MIN_DISTANCE]` lists fresh land for a test from
+  the atlas, away from every village (no server needed), and `follow_workers.py VILLAGE MINUTES` follows a staged
+  village's workers on after the stage runner's stall rule stopped it.
+- `test_rescue.py [pit|box|pool|tunnel]` traps Gus with RCON and checks the stuck rescue (`tunnel` is a sealed
+  cobblestone tunnel: a walk along it must not count as getting out); each case waits up to 5.5 minutes.
+- `stage_village.py VILLAGE X Z [--stage full|build] [--buildings testhut,testhall] [--brain tasks|tiered] [--mayor]` (real
+  Minecraft) starts a village at a stage and watches it: the layout is posted through the API, `--stage build` also
+  places and stocks the storage chest (with a storage hut: one chest per material group in the hut's spots once the
+  plot is prepared, then a check that a mixed deposit is sorted; `--no-deposit-check` skips it), and the default
+  workers are scripted (brain `tasks`: they run the skill calls each task spells out, no model), so the economy's code
+  is tested in one to ten minutes. Built-in test designs: `testhut` (5x5) and `testhall` (9x9) with flat roofs,
+  `stairhut` (5x5) and `stairhall` (9x9, slab ridge, trapdoor shutters) with stair gable roofs; drawn by the building
+  generator, `genhut` (7x7: a 5x5 hip roof with an overhang) and `genhall` (11x11: a 9x9 gable with an overhang).
+  `--design-file FILE.json` adds a design from a file (a vanilla piece written by `vanilla_pieces.mts` with `OUT=`),
+  and `--plan street` lays the village out by the street plan, its town centre from `--biome` (plains by default), or
+  round a green when the site is 40 across (`--site-at X,Y,Z,40`).
+  `--mayor` adds a tiered Mayor whose layout is posted and whose plan is empty, so it gathers while it waits
+  (`--planner` is its planner, `--planner none` none; start the agent server with `MC_OLLAMA_ROUTES`).
+  `--site NAME` runs on a site of the fixed test world (below) instead of X Z, using
+  its recorded site directly and the test servers by default; `--site-at X,Y,Z,SIZE[,WOOD[,LOGS]]` uses a site
+  find_site gave directly, in the world `MCAI_API` points at (in jungle, where a probe spawned by x,z lands on the
+  canopy; LOGS, the wood's log count near the site, gives the village a wood kind as in model-driven runs).
+  `--harvest` sets the farm ripe by command after the build and checks the harvest chore: bread in storage, the field
+  sown again. `--after MINUTES` (with `--mayor`) keeps watching the chores after completion and reports the farm slots,
+  the sightings, the iron record, the annex and pens (`ANNEX` and `PEN` lines: the animals inside counted on the
+  server by kind, eggs taken, young born, milk, and the items lying in a chicken pen), the exploring, and an `AFTER
+  busy` line with each agent's busy minutes after completion; `--fixtures` puts sugar cane, pumpkins and a melon down
+  35-45 blocks off the site by command first (farm plants are rare near the test sites) and summons 4 chickens and 2
+  cows on level ground to lure (`--fixture-dy LO:HI` puts them LO..HI above the site's level instead, e.g. `5:8` on a
+  rise above the annex; `--fixture-at=X,Z` near a given point; `--fixture-clear` first kills the chickens and cows
+  within 120 blocks, so only the fixtures can fill a pen), `--ripen` sets each newly planted slot ripe once, and `--stock ITEM:N,...` puts items
+  into storage at completion, each deposited by name (`raw_iron:3` tests the iron tools without digging;
+  `wheat:12,bucket:3,sugar_cane:2` the cow pen, milk and the cake). `watch_village.py` takes `MCAI_AFTER=MINUTES` for
+  the same after a model-driven run.
+- **The fixed test world** (real Minecraft) makes staged runs repeatable: a second Paper server in `mc/testserver`
+  (port 25566, RCON 25576, its agent server on 8767), generated from the same seed, so its land is untouched by test
+  villages, with a snapshot in `mc/testworld` (both gitignored). `python mc/testserver.py init|snapshot|status|regions`
+  sets it up, snapshots it, says what is running and lists the region files each site covers.
+  `python scripts/reset_site.py SITE` stops the test servers, copies the site's region, entity and poi files back from
+  the snapshot (whole 512x512 regions, so sites sharing one are restored together), removes the villages tests made
+  there and their atlas chunks, and starts the test Paper and agent server again, detached, so they outlive the shell
+  and the session that started them (a server run as a session's background task was stopped at its 30-minute limit).
+  `scripts/test_sites.json` records the sites (woods with sand, hills, a drop, and "shelf", a plot against a drop
+  whose mine meets the hillside: run it with `--buildings testhut,testhut,testhall`) and each one's find_site result.
+  Without a recorded result, the land probes of `stage_village.py` and `watch_village.py` give find_site up to 300 s
+  (it may walk to an atlas candidate). A run:
+  `MC_TIME_SCALE=2 python scripts/reset_site.py minevale3`, then `python scripts/stage_village.py Fixed1 --site minevale3`.
+  `scripts/checks/region_blocks.py` reads blocks from saved region files without a server; `--world` picks a world
+  and `--compare OTHER` lists the blocks that differ, e.g. a restored site against the snapshot.
+- **Running at 2x.** `MC_TIME_SCALE=2` on the agent server runs the Paper server at 40 ticks a second (set over RCON at
+  every start, back to 20 without it) and the bots' physics at the same speed (`patches/mineflayer+4.39.0.patch`,
+  applied by patch-package on install; Mineflayer is pinned to 4.39.0). Digging stays in real time, because Paper times
+  a dig by the wall clock and refuses one finished early. Measured: walking 1.94x faster, a staged build 1.5 instead
+  of 2.2 minutes, mining unchanged. Use it for staged runs and checks only; model-driven acceptance runs stay at 1x.
+- `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in situations that went wrong, with
+  the prompt's line about the vanilla library and a case for it (`VANILLA=0` for the prompt without them), the F155
+  cases (`ONLY=F155`: a site found, the library filled, nothing laid out) and a tally of what each answer did per case.
+- `watch_agent.py SPEC_JSON [MAX_MINUTES] [EXPECTED_BUILDS]` runs one agent and stops early when it has built enough or is
+  stuck. `bench_agent.py` compares models on survival progression.
+- `design_test.ts` asks a model for a design and validates it; `gen_test_schematics.ts` writes a test house in every
+  schematic format.
+
+Most of this world is ocean or hills, so start village tests where there is land (the village watcher searches for it).
+
+### REST API (control agents from any language)
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?, reset?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`; in Minecraft, `reset` clears its saved inventory and position) |
+| GET | `/api/agents` | List agents |
+| GET | `/api/agents/:name/observe?radius=16` | Observation: position, health, food, inventory, visible blocks (counts and nearest), nearby entities, current action, recent events |
+| POST | `/api/agents/:name/act` `{action, ...args, replace?}` (or an array) | Queue skills |
+| POST | `/api/agents/:name/stop` | Cancel the current and queued actions |
+| GET | `/api/agents/:name/events?since=<id>` | Event stream: chat heard, damage, pickups, crafts, action done or failed, deaths |
+| GET, POST | `/api/agents/:name/memory` | Free-form key-value memory for your controller |
+| DELETE | `/api/agents/:name` | Remove the agent |
+| GET | `/api/skills`, `/api/recipes?item=`, `/api/status` | Reference data and server status (in Minecraft, also whether the peaceful world settings are applied) |
+| GET | `/api/block?x=&y=&z=` | The block at a position (name and state, a sign's `text` in Minecraft; `loaded: false` when its chunk is not loaded) |
+| GET | `/api/blocks?x1=&y1=&z1=&x2=&y2=&z2=&states=` | Minecraft: a box of up to 65,536 blocks, as a list of names and an index into it per block (x fastest, then z, then y; -1 where no bot has the chunk loaded), for checks that compare before and after; `states=1` names blocks with their states (`oak_stairs[facing=north,half=bottom,shape=straight]`) |
+| GET | `/api/agents/:name/near?items=sand:64,stone:300&range=96` | Minecraft: plan_layout's material counts around where the agent stands, each item timed (`found`, `ms`) |
+| GET, POST | `/api/village` `{name, objective}` | List villages, or create one or change its objective |
+| GET | `/api/village/:name` | A village's plots, buildings, designs, task board, storage (chest by chest, with each one's material group in a storage hut), reservations and recent events |
+| POST | `/api/village/:name/designs` | Add a building design to the village library (checked like model-drawn designs) |
+| POST | `/api/village/:name/designs/import?name=&skip_bottom=` | Import a Minecraft schematic file (the request body) as a design |
+| GET | `/api/village/:name/designs/:design/bill` | Minecraft: the blocks a design needs, and what to gather, craft and smelt for them |
+| GET | `/api/materials?items=glass:8,chest:1&have=sand:2` | Minecraft: the same for any list of items, less what is in hand |
+| POST | `/api/village/:name/layout` `{buildings, x, z, y?, size?, plan?, biome?}` | Minecraft: lay buildings out on a plot and post their tasks, as the mayor's `plan_layout` does (`plan: "street"` for the street plan, its town centre from `biome`, round a green when `size` is 40 or more; `"rows"` clears it) |
+| POST | `/api/village/:name/storage` `{x, y, z, group?}`, `/api/village/:name/tasks/:id` `{status, by?}` | Minecraft, for tests: register an existing chest as storage (with its material group in a sorted storage); set a task's status (`claimed` holds a task back from the workers) |
+| GET | `/api/overview`, `/api/maps`, `/api/models` | The control panel's data: every agent's brain state, maps, loaded models |
+| GET | `/api/atlas?village=` (or `?x=&z=`), `radius=`; `?all=1` | Minecraft: the shared atlas, a summary of every chunk the bots have seen near a village or a point (ground height and flatness, water, logs by kind, surface materials, exposed ores underground and whose mine dug there, farmable plants), and what a summary costs; `all=1` returns every chunk and every village's ground, compact, for the panel's world map, and the animals the bots have seen |
+| GET | `/api/metrics` | Sandbox experiment metrics per agent: unique items and when each was first obtained (progression, as in Project Sid), items crafted, blocks mined, kills, deaths, distance, messages sent; plus a social graph of who heard whom |
+
+**Scale:** in the sandbox, the per-tick pathfinding budget and fast block search keep the server at about 8 ms per
+tick with 30 autonomous agents (20 TPS needs under 50 ms). `/api/status` shows per-phase tick timings.
+
+## The browser sandbox (the test bed)
+
+A Minecraft-style voxel game that runs in the browser, backed by an authoritative Node.js server, written for this
+project. It came first: the agents were developed in it before the real-Minecraft adapter existed, and it remains a
+quick test bed for the brains (the village economy is Minecraft only). Human players and agents share its world. All
+textures, skins, sounds, music and the UI font are generated procedurally in code; no Mojang assets are used.
+
+![Landscape](docs/screenshot-landscape.png)
+![Sunset over the ocean](docs/screenshot-sunset.png)
+
+### Running the sandbox
+
+`npm run dev` starts it (see [Running it](#the-browser-sandbox)).
+
+For production, build the client once and let the game server serve it:
 
 ```bash
-python scripts/ollama_exec.py start
-MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" npm run mc:agents
-MCAI_API=http://localhost:8766/api MCAI_MAYOR_MODEL=ollama:gpt-oss:120b-cloud MCAI_DESIGN_MODEL=ollama:gpt-oss:120b-cloud \
-  python scripts/watch_village.py Elmfield 120 0 2 12 "two matching cottages and a meeting hall" ollama:qwen3.8:27b
+npm run build        # outputs dist/
+npm start            # http://localhost:8765 serves the game, the WebSocket and the API
 ```
 
-### Control panel
+Server options (flags or `MC_*` environment variables):
 
-http://localhost:8766/panel (or http://localhost:8765/panel for the sandbox) shows, for every agent: what its brain is
-doing (planning, thinking, acting, waiting: since when and why), its plan as a checklist, its task, the current action,
-a live top-down map (terrain, facing, mobs, players, the target, village plots and buildings), the exact prompt its
-executor and planner last saw and what they answered, recent decisions and events, inventory and model statistics;
-plus the village task board, the design library (each design's elevations as text, as the architect sees them) and
-the models loaded in every Ollama server. Buttons stop, remove or watch an agent.
-In Minecraft the panel shows one world map of everything the bots have seen (the shared atlas,
-`mcAtlas.ts`): every chunk a bot receives is summarised in about 0.4 ms, again a minute after its blocks change, and
-kept in `mc/server/atlas.json`), with every village's plots, buildings and storage chests and the agents drawn on it;
-drag to pan, wheel to zoom, and the pointer shows the ground and the logs and sand of the chunk under it. Underground,
-a summary records the ores exposed to air (in cave walls, ravines, cliffs and mine tunnels) by kind, with how many and
-their lowest and highest y, and which village's mine has dug in the chunk; the pointer shows these too ("exposed ores:
-3 coal (y 41 to 52)"). On the surface it records the farmable plants of each chunk (the first plant of each column),
-also shown under the pointer, and the animals near the bots (seen every 5 seconds, dropped after 10 seconds missing near a
-bot). `find_site` uses the atlas to choose where to look when the land around an agent has no good site
-(`mcSiteAtlas.ts`), and a complete village starts farm slots from its plant sightings and chicken and cow pens from its
-animal sightings; finding other materials from it
-is a later step.
+| Flag | Default | Meaning |
+|---|---|---|
+| `--port` | `8765` | HTTP + WebSocket port |
+| `--world` | `world` | World save folder (`server/worlds/<name>`) |
+| `--seed` | random | Number or text seed (only used when a new world is created) |
+| `--view-distance` | `10` | Chunks sent to human players |
+| `--pvp` | `true` | Player-vs-player damage |
+| `--agents` | `0` | Number of AI agents to spawn at start-up |
+| `--agent-brain` | `worker` | Brain for those agents (`worker`, `companion`, `idle`, `llm`) |
+
+For example: `npx tsx server/src/index.ts --world test --seed hello`.
+
+### What's in the game
+
+- **World:** infinite procedurally generated terrain with 15 biomes: oceans, beaches, plains, forests, birch forests, taiga, snowy taiga and plains, deserts, savanna, windswept hills, snowy peaks, swamps and meadows. It has rivers, caves (spaghetti tunnels and large caverns), underground lava lakes, ore veins, and oak, birch and spruce trees. Flowers, grass, sugar cane, cacti and pumpkins are scattered around.
+- **Survival:**
+  - Health, hunger and saturation, with natural regeneration.
+  - Damage from falling, drowning, lava, fire and starvation.
+  - Death drops your items and shows a respawn screen.
+  - Beds set your spawn point and skip the night.
+- **Mining and building:** break times follow Minecraft's formula (hardness × tool tier × tool speed). Tools wear out, blocks drop the right items, and pickup behaves like Minecraft. You can place blocks with orientation (logs, furnaces, torches, ladders, slabs, stairs), and two slabs merge into a full block. Doors are two blocks tall and open and close; fences and cobblestone walls connect to their neighbours.
+- **Crafting:** 95 shaped and shapeless crafting recipes plus 21 smelting recipes, including tools and armour in 5 materials, torches, chests, furnaces, beds, doors, stairs, fences, walls, food and building blocks.
+  - 2×2 grid in the inventory, 3×3 grid on the crafting table.
+  - Shift-click crafts in bulk; drag with the mouse to split stacks.
+- **Smelting:** a furnace with fuel burn time and cooking progress: ores, food, sand to glass, and more.
+- **Containers:** chests.
+- **Experience:** XP orbs from mining ores, killing mobs and smelting fly to the nearest player and fill a green XP bar with a level number (Minecraft level formula); you drop some XP when you die.
+- **Creative mode:** a tabbed, searchable item palette and flying.
+- **Mobs:** pig, cow, sheep (dyed and shearable), chicken, zombie, skeleton (shoots arrows), creeper (explodes) and spider.
+  - Animals wander, panic when hit and follow you when you hold wheat or seeds.
+  - Monsters spawn in the dark, and undead mobs burn in daylight.
+- **Simulation:**
+  - Water and lava flow; lava meeting water makes obsidian or cobblestone.
+  - Sand and gravel fall, and leaves decay.
+  - Grass spreads, crops, saplings, sugar cane and cacti grow, and farmland hydrates.
+  - TNT explodes and sets off nearby TNT.
+- **Multiplayer:** see other players with skins, name tags, held items and animations. There is chat, a player list (Tab) and server commands (`/help`).
+- **Saving:** the world is saved to disk: chunks you changed, player data, and container contents.
+
+### Graphics
+WebGL2 through Three.js, with a custom deferred-style pipeline:
+
+- **Terrain:** smooth lighting and ambient occlusion using Minecraft-style sky and block light that spreads across chunks. Chunks are meshed in Web Workers.
+- **Shadows:** real-time sun and moon shadows with two cascades and PCF filtering.
+- **Water:** animated waves, refraction of the scene below, colour absorption with depth, Fresnel reflections of the sky, **screen-space reflections** and sun highlights. Being underwater adds fog.
+- **Sky and time of day:** a sky model with sunrise and sunset glow, a square sun and moon, twinkling stars, and a 20-minute day/night cycle.
+- **Clouds:** Minecraft-style block clouds.
+- **Weather:** rain and snow (snow in cold biomes), thunderstorms with lightning, an overcast sky, ground that looks wet, and rain sounds. Use `/weather clear|rain|thunder`.
+- **Foliage and lava:** leaves and plants sway in the wind; lava glows and flows.
+- **Post-processing:** HDR tone mapping (ACES), bloom, god rays, vignette and dithering.
+- **Particles:** block-break debris, torch flames and smoke, explosions, bubbles and critical-hit sparks.
+- **Title screen:** a rotating 3D panorama of a world generated locally.
+- **Settings:** each effect can be turned off in *Options*.
+
+Controls: WASD, Space, Shift (sneak), Ctrl or double-tap W (sprint), mouse, 1–9 or the scroll wheel, E (inventory),
+Q (drop), T or / (chat), F1 (hide the HUD), F3 (debug screen), F5 (camera view), Tab (player list), middle-click (pick block).
+
+### In-game commands
+
+Useful commands: `/gamemode creative|survival|spectator`, `/time set day|night`, `/give <item> [count]`, `/tp x y z`,
+`/summon <mob>`, `/weather rain`, `/gamerule doMobSpawning false`, `/agent ...` (see below).
+
+```
+/agent spawn Alex farmer worker     # name, role, brain
+/agent do Alex collect block=logs count=8
+/agent do Alex give player=@me item=oak_log count=4
+/agent list
+/agent stop Alex
+/agent remove Alex
+```
 
 ## Project layout
 

@@ -657,7 +657,9 @@ a sighting of at least 2 blocks over the stalks' bases, F192); then the annex, t
 (section 9); then, only while a slot is free, exploring: `scout` to one of 8 ring points 160 from home (the least
 known first, each once, `v.explore`) and back (the bots at home already see ~128 blocks, so a 96 ring would find
 nothing); the walk back carries `home: true` and is teleported home when it ends more than 12 short (F189: a worker
-floated in a lake by its ring point for 4 minutes). `start_farm` (`mcBuild.ts`) walks to the sighting, collects there (`collect here=true`, up to 160 from home;
+floated in a lake by its ring point for 4 minutes), or at once when it starts in water. The walk out to a ring point uses
+a goal range of 11 (8 for other scouts), nearly the "scouted" rule's 12: with 8, a walk to a point in a shallow sea
+spent minutes on its last blocks (F209). `start_farm` (`mcBuild.ts`) walks to the sighting, collects there (`collect here=true`, up to 160 from home;
 every board task keeps 96), makes pumpkin or melon seeds by hand, stands by the storage hut, lays the slot (water and
 farmland or dirt free, a hoe for farmland) and plants it charged one item a cell (`CHARGE_AS` maps the new plants),
 checks the cells on the server and sets `kind` only when something was planted; a sighting that gave too little is
@@ -685,17 +687,22 @@ are given up after 3 and forgiven after an hour; pen starts the same, by kind (`
   `annex.bad`. It is prepared with `prepare_site` at the plot's level (felling never takes cells beside a building), the
   felled logs deposited, and recorded as an `annex: true` plot with two 5x7 slots (`annexSlots`: a 1-cell border and gap,
   the long axis pointing at the plot). A restart during 'preparing' runs the same rectangle again.
-- `start_pen kind=chicken|cow` (`mcBuild.ts`) runs when the atlas has an animal of the kind within 96 of the storage
-  chest from the last 30 minutes, off every village's ground, at about the annex's height and not near a sighting of the
+- `start_pen kind=chicken|cow` (`mcBuild.ts`) runs when the atlas has an animal of the kind within 96 of the annex's
+  centre from the last 30 minutes (measured from the storage chest until F205: Minevale35's only cow stood 96.4 from it),
+  off every village's ground, from 4 below to 8 above the pen's level (one within 4 first; live tests showed chickens and
+  cows follow a lure down 1-high steps and side stairs, only a sheer face holds them, F205) and not near a sighting of the
   kind that failed (`penBad`); a cow start needs wheat in storage (`PEN_KINDS`: chickens follow wheat seeds, taken from
   storage or a few from the grass; cows wheat, which only the field's harvests give). It records the pen first (`kind`,
   `laying`, so the walk ban holds from the start), then at the
   storage hut puts up the ring of fences and an open gate (`penPlan`: the gate in the middle of the end facing the plot,
   facing in; charged, made by `makeFromStock` in the village's wood or the kind storage holds most of) and clears the
   inside to plain ground. The lure goes into the off-hand by command (`item replace entity ... weapon.offhand`; tempted
-  animals follow a bot holding it at ~2 blocks, up to 10 away). It walks to the sighting, picks up to 4 animals at
-  about its height and leads them home in 4-block hops with no digging, building or sprinting, waiting up to 8 s after
-  each until they are within 4 (one over 12 away is left). At the gate the bot is teleported 2 cells inside, then
+  animals follow a bot holding it at ~2 blocks, up to 10 away). It walks to the sighting with a 3D goal and no
+  scaffolding (a dirt tower up a sheer face is no way down for the animals; on "no path" it walks near the sighting
+  across instead), picks up to 4 animals within 9 blocks in 3D and 4 in height and leads them home in 4-block hops with
+  no digging, building or sprinting and no drop over 3 (`maxDropDown`), waiting up to 8 s after each until they are
+  within 4; one gone or over 12 away is left only after two such waits in a row (one coming down a slope the long way
+  trails for a hop), and "lost" and "stuck" messages name the height it started from. At the gate the bot is teleported 2 cells inside, then
   to the back row; animals of the kind in or just outside the gate cell are teleported in (two cows jammed in the 1-wide
   gate in the live tests, F203), the gate is closed by command once its cell is clear, the bot is teleported to the cell
   outside, and the animals inside are counted on the server (`execute if entity @e[type=<kind>,...]`) into
@@ -725,14 +732,17 @@ are given up after 3 and forgiven after an hour; pen starts the same, by kind (`
   off every walk (`exclusionAreasStep`).
 
 `stage_village.py --fixtures` also summons 4 chickens and 2 cows on level ground near the site (persistent, tagged
-`stagefix`), and with `--after N` prints `ANNEX` and `PEN` lines (the record with the back-offs by kind, the animals
+`stagefix`; `--fixture-dy LO:HI` puts them on soil LO..HI above the site's level, searching rings 45-60 out as well,
+`--fixture-at=X,Z` near a point, and `--fixture-clear` kills the chickens and cows within 120 first), and with `--after N` prints `ANNEX` and `PEN` lines (the record with the back-offs by kind, the animals
 of the pen's kind the server counts inside, eggs, young and milk, and the items lying in a chicken pen) and an `AFTER
 busy` line (each agent's minutes with an action running, sampled every 3 s); `--stock` deposits each item by name.
 `street_plan.mts` checks the annex and pen geometry for every biome and size. Staged VanA3 and VanA5 (2x, green plains):
 the annex ready 1.5 minutes after completion, a wild chicken led 50 and 80 blocks and penned, 0 failed actions. Staged
 VanC3 (2x, `--after 20`, `--stock wheat:12,bucket:3,sugar_cane:2`): a chick bred, 5 eggs, three milkings of 3, 2 cakes,
 no `[stuck]`, `[lag]` or `[rescue]`; busy 7.4, 6.0 and 2.6 minutes of 20 (Worker1, Worker2, Mayor) against VanC1's 9.9,
-0 and 0 of 12.1 with one chore a village. Its cow pen held one cow (F205, open).
+0 and 0 of 12.1 with one chore a village. Its cow pen held one cow (F205). Staged VanH3 (2x, fixtures on a rise): complete
+at 6.4 minutes, 4 pen trips, 3 to animals 5-7 above the annex, 0 failed; a chick and two calves bred, 10 eggs, 9 milk,
+2 cakes.
 
 ## 5. Skills in each world
 
@@ -753,7 +763,7 @@ flowchart LR
 | | Sandbox (`agents.ts`) | Minecraft (`server/src/mineflayer/`) |
 |---|---|---|
 | Body | a sandbox `Player` driven by input each tick | a Mineflayer bot (client-side physics, half-width 1229/4096 to stay in step with the server: with 0.3001 a bot stopped at a wall face ended up 4e-16 inside the wall at faces ±4, ±128 and ±1024, and Paper's clipped-into-block check refused every move into it without a log line; F147) |
-| Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog (`walkOnce` in `mcUtil.ts`: stuck after 10 s without horizontal progress over 0.5 or a new block level, samples after a server set-back not counted; the error carries `moved`, the horizontal blocks the walk got, and a stall or time-out under one block is `unmoved`; every stall logs a `[stuck]` line, section 8; a path that has been empty for over 1 s short of the goal, with no search going on, gets the goal set again, twice a walk at most, logged as `[repath]`), the pathfinder (2.4.5) patched by patch-package (`patches/mineflayer-pathfinder+2.4.5.patch`) so that a path holds copies of the A* nodes (it post-processed a partial path in place, and the search, going on, judged the goal on the moved coordinates: a cell 3.6 from a range-3.5 goal was accepted and the walk idled a cell short; F148), digging natural blocks only, opening doors (its own door support covered fence gates only; `moves()` adds doors and takes the gates away), never digging into or placing blocks on any village's ground (`exclusionAreasBreak`, `exclusionAreasPlace`; the bans skip the pathfinder's stub for a block in an unloaded chunk, which has no position: reading it threw in the pathfinder's tick and took the agent server down, F188), passing open fence gates and treating closed ones as walls it never opens (chicken pens, section 4), never stepping onto any village's wheat field (`exclusionAreasStep`: the farm's feet and head cells, from the channel up, cost 1000, which drops the move, since a jump or a step down onto farmland turns it to dirt and a mere cost let paths cut across; a bot already standing on a field is let off, or every way out of its middle was banned), avoiding water (and swimming out of it), diagonals only with both sides clear, legs of ~40 blocks for long walks, a retry with longer drops |
+| Walking | own A* Navigator (opens doors, digs out in creative) | mineflayer-pathfinder with a stuck/timeout watchdog (`walkOnce` in `mcUtil.ts`: stuck after 10 s without horizontal progress over 0.5 (2 in water: a bot bobbing in a 1.5-block cell kept a scout's walk alive for minutes, F209) or a new block level, samples after a server set-back not counted; the error carries `moved`, the horizontal blocks the walk got, and a stall or time-out under one block is `unmoved`; every stall logs a `[stuck]` line, section 8; a path that has been empty for over 1 s short of the goal, with no search going on, gets the goal set again, twice a walk at most, logged as `[repath]`), the pathfinder (2.4.5) patched by patch-package (`patches/mineflayer-pathfinder+2.4.5.patch`) so that a path holds copies of the A* nodes (it post-processed a partial path in place, and the search, going on, judged the goal on the moved coordinates: a cell 3.6 from a range-3.5 goal was accepted and the walk idled a cell short; F148), digging natural blocks only, opening doors (its own door support covered fence gates only; `moves()` adds doors and takes the gates away), never digging into or placing blocks on any village's ground (`exclusionAreasBreak`, `exclusionAreasPlace`; the bans skip the pathfinder's stub for a block in an unloaded chunk, which has no position: reading it threw in the pathfinder's tick and took the agent server down, F188), passing open fence gates and treating closed ones as walls it never opens (chicken pens, section 4), never stepping onto any village's wheat field (`exclusionAreasStep`: the farm's feet and head cells, from the channel up, cost 1000, which drops the move, since a jump or a step down onto farmland turns it to dirt and a mere cost let paths cut across; a bot already standing on a field is let off, or every way out of its middle was banned), avoiding water (and swimming out of it), diagonals only with both sides clear, legs of ~40 blocks for long walks, a retry with longer drops |
 | Crafting | recipes applied to the inventory | the recipe from minecraft-data, carried out by server command: ingredients counted and taken (`/clear`), the result given (`/give`); a table recipe still needs a table placed nearby |
 | Gathering | `collect`, `mine` on sandbox blocks | `collect` resolves names in code (logs, cobblestone from stone, deepslate ores, wheat seeds from short grass, tall grass and ferns only, never a wheat crop, where minecraft-data had the crop and lacked tall grass and ferns), picks the cheapest block to reach (near, not deep below, in the open, away from water), crafts a wooden pickaxe when stone needs one, stays within 96 blocks of the village and no more than 16 below it, and never mines inside any village's buildings or plots (2-block margin); a log fells its whole tree (`fellTree`: the logs in reach from the ground, then a dirt pillar under the feet, dug back down, with the pillar checked on the server afterwards); a fallen tree (a straight row of lying logs of one kind, touching nothing built, outside every village) is cut from the ground, while stumps and other logs without leaves are builds, passed over in the candidate search without a failure; a giant tree (more than max(40, 2x the logs wanted + 20) logs) is passed over while an ordinary tree is near and felled whole only as a fallback; in a village the first search that finds no sand fails the task and marks sand unavailable (section 4); a candidate is dry when no water comes in from above, also through the sand or gravel stacked on it (`wetOver`), and a buried one also needs none beside it (`wetSide`; seagrass, kelp and bubble columns count as water, F137: a tunnel to sand under a lake bed flooded); a cell beside water is taken only where that water is the open surface, with air over it (F179: shore sand dug beside a buried pocket left a 3-deep trench that flooded and pinned the gatherer for 2.6 min); after each block or tree, side pickups take open blocks of other materials the village still needs within 4 blocks (`sideGather`), only at or above the feet, never the bot's own column and none with water beside or above (F136, F138: pits at a lake shore flooded or trapped the gatherer); every block search goes through `nearestBlocks` (`mcUtil.ts`), which reads state ids from the loaded chunk sections itself (`scanBlocks`: sections whose palette or single state lacks the block, or outside the caller's y window, are skipped, and filters, reading with `stateAt`/`exposedAt`/`wetOver`/`wetSide`, run on matches only; Mineflayer's `findBlocks` read all-air and all-stone sections cell by cell, 2.4 s for a futile desert search, now ~3 ms), and slow searches are logged as `[search]`; it gives up after 3 tries (one per tree) or 90 s and shares unreachable blocks and targets between bots; every dig through `mineBlock` (`mcSurvival.ts`; sand and gravel aside) walks within 2 blocks of a plant (a block with no collision box: the look goal's ray never met one, and the walk stalled beside each grass block; sugar cane and crops count as plants, F174) and counts one as "dug on the way" only when the cell no longer holds it, while collect counts "nothing to mine" as that cell's failure (F174: answered at once for a cane block, it made collect loop on the same block with every await settling at once, so the event loop never ran again and the whole agent server hung), and is checked on the server (`execute if block` every 150 ms for up to max(450 ms, 4x the dig time)): Mineflayer writes air when its own dig timer ends, while Paper breaks the block only when it agrees the dig finished, so a block still there is put back in the bot's view and dug once more, then the dig fails (logged as `[dig]`; F147: a tunnel cell left stone on the server set back every walk through it) |
 | Stuck rescue | none | `mcRescue.ts`: two failed moves within 3 blocks in 6 minutes (including a timed-out walk that got nowhere; `BotAgent.movedFailed`) run in the reflex's slot: swim up, walk out (away from the goal of a walk that stalled from the same spot in the last 2 minutes first, `BotAgent.lastStall`, then to either side, then toward it), climb out through natural blocks (pillaring with dirt or stone), and last, teleport beside the village storage (in front of the storage hut's door when there is one); survival only. A walk-out counts only when the bot is out (`isOut`): a village member when a path home exists (`getPathFromTo` with the walks' own `moves()`, a search only, one slice a physics tick; no path means sealed in, which also skips the walk-out; a search that times out counts as out), a bot in no village under the open sky (leaves aside). A village member on village ground (`protectedGround`: the mine, plots, buildings) is not climbed out, and the climb never digs or pillars into any village's ground: the teleport follows (F131: a walk 7 blocks along a sealed mine tunnel had counted as out) |
@@ -885,6 +895,18 @@ village section shows the task board, buildings, plots, designs (each opens to i
 them; `overview()` adds them), the storage contents (chest by chest with each one's
 material group, "chest 1 (logs): 64 oak_log, ...", when the chests are sorted), reservations and the village log.
 
+The page has two views, chosen with `#simple` (the default) or `#detailed` in its address and remembered in
+`localStorage`; both are drawn from the same `/api/overview` and atlas data. The **detailed view** shows each agent and
+village as a short summary card with tabs: an agent's Plan, Brain, Executor saw, Planner saw, Decisions, Events,
+Inventory, Map and Stats; a village's Tasks (filters Now, Open, Done, Failed, All), Buildings, Storage, Plots, Designs,
+Ground and Log. One tab is open per card, a second click closes it, and the choice is remembered; a tab is drawn only
+while open, so `/api/maps` is fetched only while an agent's Map tab is open. The event feed sits behind a toggle, and a
+redraw keeps scroll positions and focus and waits while text is selected. The **simple view** follows a village's whole
+life: a summary strip (state, objective, buildings, tasks done, agents working, items stored), the buildings by
+readable name, "village life" from the village record (the wheat field, farm slots, pens with their animals, young born,
+eggs and milk, iron tools, lamps and signs), storage grouped by use, and who is doing what, with a state pill per agent
+and a plain-words line for every chore skill, beside the recent log.
+
 In Minecraft, every village (in the simple view too) has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
 chunk any bot has received, shared by every agent and village and saved to `mc/server/atlas.json` at most every 30 s.
 A summary holds the ground's lowest, median and highest height and how flat it is, water and lava columns, log blocks
@@ -893,6 +915,17 @@ and covers for the map. Bots report chunks as they arrive (`chunkColumnLoad`) an
 summarised again after a minute); the world's tick works the queue off within 3 ms per tick. The scan reads block
 state ids straight from the chunk through a lookup table per state, starting at the highest section that is not all
 air: ~0.1 ms a chunk (99th percentile ~0.6 ms), against ~7 ms with `bot.blockAt`.
+
+The world map is drawn by the page. "Auto" framing (on by default) fits every agent and its village into view each
+refresh, zooming out when an agent wanders and back in when it returns, never closer than the village; a manual pan or
+zoom turns it off. The page records each agent's positions from the overview into fading trails (1, 5 or 15 minutes,
+or off), drawn on the world map and on each agent's map, kept in `sessionStorage` so a reload keeps them, with a jump
+(a teleport) breaking the line. An overlay in the map's top-right corner lists each agent in its trail colour with what
+it is doing (it ignores the pointer, and Auto keeps its height clear), and Fullscreen uses the browser's fullscreen for
+the map card, or fills the window with it where that is refused. `drawIcon` draws small icons in code: animals from the
+atlas's sightings of the last 30 minutes (`/api/atlas?all=1` carries them, and each village's mining hut), the wheat
+field and farm slots by kind, pens with their animal, the mine and storage chests; a collapsible key in the bottom-right
+corner draws the same icons with the ground colours, and Auto reserves its height.
 
 Underground (V.6), `exposedOres` records the ores exposed to air: in cave walls, ravines, cliffs and mine tunnels. It
 reads the sections from the bottom up to the highest one with blocks and passes over every section whose palette names
@@ -911,7 +944,8 @@ take (collect never takes a base), so a 1-high stalk is not recorded (F192). Ani
 kept by uuid with kind, position and time (`Atlas.seen`, every 5 s per bot from the world's tick); one recorded within
 32 blocks of a bot and missing from its entities for 10 s is deleted; at most 1,000 are kept, saved in `atlas.json`.
 `Atlas.sightings(kind, x, z, r)` lists a plant's sightings nearest first. `/api/atlas` carries `plants`, `all=1` also
-the animals; the world map's pointer shows a "plants" line. Animals are only recorded so far (pens are a later step).
+the animals; the world map's pointer shows a "plants" line. The animal sightings choose where the pen chores lure from
+(section 4).
 
 `find_site` reads the atlas (step 2.3, `mcSiteAtlas.ts`): when the column survey around the bot finds nothing good, an
 agent in no village or a mayor looking for its first site asks `atlasSites` for areas worth a look: squares of 4x4
@@ -974,7 +1008,8 @@ the economy's code is checked in one to ten minutes with no model involved (its 
 from a file, such as a vanilla piece, and `--plan street --biome B` the street plan (a green on a 40 site); `--mayor` adds a tiered Mayor with
 its layout posted and an empty plan, which gathers while it waits, `--planner none` for no planner; `--harvest` ripens
 the wheat by command and checks the harvest; with `--mayor`, `--after N` watches the chores N minutes past completion,
-`--fixtures` puts farm plants down near the site first and summons 4 chickens and 2 cows (the `ANNEX` and `PEN` lines
+`--fixtures` puts farm plants down near the site first and summons 4 chickens and 2 cows (placed by `--fixture-dy`,
+`--fixture-at` and `--fixture-clear`, section 4; the `ANNEX` and `PEN` lines
 report the annex and the pens, `AFTER busy` each agent's busy minutes), `--ripen` ripens each newly planted slot once
 and `--stock ITEM:N,...` stocks storage at completion, each item deposited by name, e.g. `raw_iron:3` for the iron
 tools; `watch_village.py` takes `MCAI_AFTER`). The benches (`modelbench`,

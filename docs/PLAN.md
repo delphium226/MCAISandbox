@@ -20,6 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-10 at the close of the twenty-fifth session: F205, F209, Minevale36 and the control panel's redesign;
+the notes below for the twenty-fourth session stay valid where not overridden)
+
+- **Code:** on `tiered-brain-building`: `15c65a4` F205 (pens take animals up to 8 above the annex, measured from the
+  annex), `479b87c` F209 (water progress, scout range, teleport home from water), `2039bee`, `95fa904`, `9ca781f` and the
+  icons-and-key commit (the panel's simple view, drill-down detailed view, trails, Auto framing, activities overlay,
+  fullscreen, map icons and key), and the close-out (this record, CLAUDE.md lessons 113-117, README restructured as an
+  AI-agent project with fresh screenshots in `docs/images/`, ARCHITECTURE). Not pushed: ask first. `main` untouched.
+- **Stack:** stopped cleanly at the close. No agents in either world.
+- **Where things stand:** Minevale36 (1x, model-driven, minevale3's usual site) 6/6 in **10.6 min**, **0 failed actions in
+  55.7 min**; after completion: two chickens led down from +5 and bred to 5, 6 eggs, all 8 scouting trips (Worker1 passed
+  Minevale35's lake point with no stall), the iron pickaxe and three buckets, and, after the wheat field was ripened by
+  command at +26 min (the user's choice), a harvest, the first cow pen with real models (one cow from +6) and 3 milk. No
+  cake: the cow pen stayed at one (F213) and the cake waits for 3 milk, an egg, 3 wheat and 2 sugar (no cane farm this
+  run). Staged VanH3 (F205 fixtures at +6): 4 pen trips, 3 from +5..+7, a chick and two calves, 2 cakes.
+- **Next (proposed; the user picks):** 1. `MCAI_RIPEN` for `watch_village.py` (ripen the field by command once, as
+  `--harvest` does for staged runs) and one model-driven run to a cake. 2. F213 (a pen of one when no second animal is
+  within reach: widen the cow search or lure from a scouted sighting). 3. F211 (swim to the nearest shore before walk
+  legs from a shallow sea). 4. The beautifying plan (B.1) or the smaller items (F208, F201, F200, F192's cane drops, F187,
+  F170-F173, F210's forceloads).
+- **Panel work:** previews ran through `runs/2026-10-10/scripts/panel_proxy.py PORT` (serves a scratch copy at /panel and
+  passes /api to 8767) and headless Edge (`--force-dark-mode`, `/panel#simple` or `#detailed`); the patch scripts are
+  `runs/2026-10-10/scripts/panel_apply*.py`, the node render harness `panel_review2_t.cjs`. The panel file is read on every
+  request, so applying it during a run does not touch the agents (done with the user's approval during Minevale36).
+- **Test world state:** minevale3 holds Minevale36's village: reset before using it.
+
 (written 2026-10-09 at the close of the twenty-fourth session: F193 per-agent chores and pens v2; the user asked Claude
 to decide everything after the first question; the notes below for the twenty-third session stay valid where not
 overridden)
@@ -1467,6 +1493,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-09 (s24) | VanC2 | as VanC1, `--after 15 --stock wheat:12,bucket:3,sugar_cane:2`, F193 + pens v2 first version | 6/6; annex and farm starts by two workers at once, the Mayor on an iron trip; chicken pen 1, cow pen 1 (wheat lure), 2 milk buckets | 6.3 min | busy Worker1 11.3, Worker2 0.7, Mayor 2.5 of 15.0; a stale chicken sighting failed and the shared back-off held both pens 10 min (the review's L1); one pen animal each, no breeding; a bucket kept by Worker2's failed bucket craft |
 | 10-09 (s24) | **VanC3** | as VanC2, `--after 20`, the review's fixes, a second lure into a pen of one, buckets held counted | **6/6; chicken pen 2 + a chick bred; cow pen 1, milked 3 x 3; 5 eggs; 2 cakes** (Mayor and Worker1) | **6.3 min** | **busy Worker1 7.4, Worker2 6.0, Mayor 2.6 of 20.0**; 0 `[stuck]`/`[lag]`/`[rescue]`; the cow pen stayed at 1 (F205); the Mayor's deposit from the mine before completion failed once (F206) |
 | 10-09 (s24) | **Minevale35** | model-driven, 1x, minevale3, `MCAI_AFTER=30`, F193 + pens v2 (gpt-oss mayor, qwen3:30b executors) | **6/6 + lamps + signs + farm; after: annex at +0.8 (Worker2), pumpkin farm (Worker1), a chicken penned at +2.6, the Mayor's iron trips (iron pickaxe +16.0, bucket +21.9), all 8 ring points scouted by +24.7 by two workers, 4 eggs collected** | **11.0 min** (Minevale34 10.6), site -1628,47 | 0 failed actions to completion; all three agents on chores at once; no breeding (one chicken: the others stood 6-8 above the annex, F205), no cow pen or cake (no wheat harvested in 30 min); 10 `[stuck]`, all scouting: Worker2 ~6 min at -1471,62,36 on ring point 2, then teleported home (F209) |
+| 10-10 (s25) | VanH1, VanH2 | staged, `--fixtures --fixture-dy 5:8 --fixture-clear` | stopped at the start: the fixture found no spot (a tree; then grass_block is not in 26.1's `#minecraft:dirt`) | - | the site's own chickens and cow already killed, so no pen could be tested |
+| 10-10 (s25) | **VanH3** | staged 2x, minevale3, F205 (band -4..+8, 96 from the annex, 3D walk, drops <= 3), `--after 20 --fixtures --fixture-at=-1688,61 --fixture-dy 5:8 --fixture-clear --stock wheat:12,bucket:3,sugar_cane:2` | **6/6; 4 pen trips, 0 failed: chickens from -1736,70 (+4) and -1722,71 (+5), cows from -1682,71 (+5, 95 from the annex) and -1692,73 (+7); a chick and 2 calves bred, 10 eggs, 9 milk, 2 cakes** | **6.4 min** (VanC3 6.3) | busy Worker1 6.9, Worker2 7.1, Mayor 4.3 of 20; 1 `[stuck]`, 4 `[dig]`, 0 `[lag]`/`[rescue]`; wild animals were taken before the fixtures (nearer the annex, or seen first) |
+| 10-10 (s25) | VanH4 | staged 2x, minevale3, F205 + F209, `--after 20 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` | 6/6; pens, eggs, milk; no scouting (both farm slots filled: exploring runs only while a slot is free) | 6.2 min | busy Worker1 10.5, Worker2 3.1, Mayor 4.2 of 20; 0 `[stuck]`/`[lag]`/`[rescue]` |
+| 10-10 (s25) | **Minevale36** | model-driven, 1x, minevale3, `MCAI_AFTER=45`, F205 + F209 (gpt-oss mayor, qwen3:30b executors) | **6/6 + lamps + signs + farm; after: 2 chickens from +5, bred to 5, 6 eggs; all 8 scouts (Worker1 through Minevale35's lake point, no stall); iron pickaxe + 3 buckets; the field ripened by command at +26.2 (the user's choice), harvested at +26.7; a cow pen of one (from +6), 3 milk; no cake** | **10.6 min** (Minevale35 11.0), site -1628,47 | **0 failed actions in 55.7 min**; 1 `[stuck]`, 1 `[dig]`, 1 `[repath]`, 0 `[lag]`/`[rescue]`; the Mayor's planner called twice, its executor once, the workers' models never |
 
 ## Findings log
 
@@ -2454,6 +2484,26 @@ CLAUDE.md when a phase ends.
   whose chore ended is given no new one for 10 s.
 - F209 (10-09, Minevale35) A scout stalled ~6 min at -1471,62,36 on ring point 2 (-1469,46; sea level), 6 `[stuck]` lines,
   then F189's teleport home. F189's leftover: ring points on dry land, or a shorter give-up on the way out.
+- F210 (10-10, s25) 31 chunks round minevale3's village site (chunks -103..-97, -1..5: x -1648..-1552, z -16..95) were
+  force-loaded on the test server from an earlier session (`forceload query`); a reset does not clear them (level data).
+  They keep that ground loaded with no agent near. Open: clear them (`forceload remove all`) at the next reset, and check
+  which script left them.
+- F211 (10-10, s25, F209's live check) In the shallow sea east of minevale3 (surface y 62, sand under one block of water
+  for 10+ blocks), a floating bot barely moves (1.6-1.9 blocks a stalled walk) while the pathfinder plans along the sea
+  floor; with F209's water rule each walk gives up in 12-34 s, but walkRetrying's legs all start from the same spot (four
+  legs, ~100 s, scout_water_mid.log). Open: swim to the nearest dry land first (a walk in water toward the nearest
+  known shore before any leg).
+- F212 (10-10, s25, VanH1/VanH2) 26.1's `#minecraft:dirt` does not hold `grass_block`: the staged fixture's soil test
+  found no spot on a grassy rise twice (and the first try stood on a tree). Fixed in `stage_village.py` (grass_block or
+  #dirt). Check a tag's members (the jar, or `execute if block` live) before keying a rule on it.
+- F213 (10-10, Minevale36) The cow pen stayed at one cow for ~25 min after the harvest: no second cow was seen within 96
+  of the annex in the band (the snapshot holds one cow within 96 of minevale3's chest; F205's scan). Open: lure a cow from
+  a scouted sighting farther out (FARM_TRIP_RANGE, as the farm starts do), or breed only once a pair exists.
+- F214 (10-10, s25, VanH3) The fixture animals were never chosen: wild ones seen first and nearer the annex were taken.
+  The F205 path was still exercised (3 trips from +5..+7). A staged test that must use its fixtures needs
+  `--fixture-clear` over the whole 96 from the annex (two forceload passes), or a tag filter.
+- F215 (10-10, s25, panel) A trailing space dropped by an edit turned the activity overlay's `<i style=` into
+  `<istyle=` (the dots vanished; committed in 9ca781f, fixed with the icons). Screenshot a UI change after applying it.
 
 ## Decisions log
 
@@ -2758,6 +2808,21 @@ CLAUDE.md when a phase ends.
   age makes 3 buckets once a cow pen holds cows; a cake at the hut's table once storage holds 3 milk, an egg, 3 wheat
   and 2 sugar or cane (at most 2 in storage); crafts give back their remainders (buckets); bread only from wheat beyond
   16 kept in storage; a pen of one is lured into again (F204); animals stuck at the gate are teleported in (F203).
+
+- 10-10 (s25) F205 (the user's choices): sightings from 4 below to **8 above** the pen level, level ones first; the 96
+  blocks measured **from the annex's centre**. Claude's: the walk to the animals with a 3D goal and no scaffolding (XZ on
+  "no path"), animals chosen within 9 in 3D, the lead with drops of at most 3, a straggler dropped after two waits
+  beyond 12, the height named in "lost"/"stuck" messages; staged `--fixture-dy`, `--fixture-at`, `--fixture-clear`.
+- 10-10 (s25) F209 (the user's choice: the root causes only): in water a walk's progress needs 2 blocks; an exploring
+  scout's goal range 11; a chore's home leg that starts in water teleports at once. No dry ring points, no scout watchdog.
+- 10-10 (s25) The control panel (the user's requests): the simple view reworked; the detailed view as summary cards with
+  drill-down tabs ("no long lists; an option to drill in"); fading agent trails; world map "Auto" framing on by default,
+  never closer than the village; a who-is-doing-what overlay top-right; a fullscreen map; drawn icons for animals, farms,
+  pens, the mine and chests with a key bottom-right. Applying the panel during a run is fine (the file is read per
+  request; the user's approval, 10-10).
+- 10-10 (s25) Minevale36's wheat field ripened by command at +26 min to reach the cow pen with real models (the user's
+  choice); an `MCAI_RIPEN` option for `watch_village.py` proposed.
+- 10-10 (s25) README restructured as an AI-agent project first (the user's request), with fresh panel screenshots.
 
 ## Keeping this plan honest
 

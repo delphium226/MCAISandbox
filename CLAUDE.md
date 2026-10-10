@@ -285,6 +285,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   young and milk, and `AFTER busy:` gives each agent's busy minutes after completion. Live animal facts:
   `runs/2026-10-09/scripts/pens_v2_facts.py X Z [feed|cmdbreed|eggs|cowlure|cowfeed|milk]` (Gus in no village, a pad);
   `use_on` (not in TOOLS) clicks an item on the nearest entity of a kind for such tests.
+  Since F205 (2026-10-10): `--fixture-dy LO:HI` puts the fixture chickens and cows on soil LO..HI above the site,
+  `--fixture-at=X,Z` at a given spot (searched round it), `--fixture-clear` kills the wild ones within 120 first;
+  `runs/2026-10-10/scripts/slope_facts.py X Z KIND steps|cliff|side below|lead` (animals on a rise, Gus in no village) and
+  `scout_water.py` (a scout into a lake). In a model-driven run the wheat field can be ripened by RCON
+  (`fill X1 Y X1 X2 Y Z2 minecraft:wheat[age=7] replace minecraft:wheat`) to reach the cow pen and the cake.
 - `scripts/bench/mayorbench.mts [model] [times]` replays the mayor's real prompts in the situations that went wrong
   (seconds per case): run it after changing the mayor's prompt or tools.
 - While iterating, the workers' planner is gpt-oss:120b-cloud (~3 s a plan instead of qwen3.8's ~20 s; agreed with the
@@ -474,6 +479,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     bred, 5 eggs, 3 x 3 milk, 2 cakes. Minevale35 (1x) 6/6 in 11.0 min, 0 failed actions, then all three agents on chores
     at once (iron pickaxe and bucket, annex, a chicken pen, 4 eggs, all 8 scouts by +24.7); no cow pen or breeding with
     real models yet (no wheat harvested in 30 min; other chickens 6-8 above the annex, F205). Lessons 109-112.
+40. 2026-10-10 (twenty-fifth session; not pushed at the close, ask first; `main` untouched): F205 (`15c65a4`: pens take
+    animals from 4 below to 8 above the annex, measured from the annex; live slope tests and an offline scan first), F209
+    (`479b87c`: walks in water need 2 blocks of progress, scouts stop within 11 of a ring point, a home leg from water
+    teleports), and the control panel (`2039bee`, `95fa904`, `9ca781f` and the icons commit: a simple view for the whole
+    village life, a drill-down detailed view, agent trails, Auto framing, an activities overlay, fullscreen, map icons and
+    a key). Staged VanH3 (F205 at +5..+7) and VanH4; Minevale36 (1x) 6/6 in 10.6 min, 0 failed actions in 55.7 min,
+    chickens bred to 5, a cow pen and milk with real models (the field ripened by command). README restructured as an
+    AI-agent project with fresh screenshots. Lessons 113-117.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -630,12 +643,12 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-fourth session (2026-10-09): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-fifth session (2026-10-10): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
 Minevale1-5, StageS1, Par1, Atlas1, Atlas4, Jungle1-2 (-527,-627 and -747,-576); all in `mc/server/villages.json`): build elsewhere (`scripts/checks/fresh_land.py`), clear
-them, or test on the test world (`mc/testserver`, restored per site; Minevale35's street village (6 of 6, lamps, signs, a wheat field, a pumpkin farm, an annex at -1659..-1651, 40..52 with a penned chicken) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
+them, or test on the test world (`mc/testserver`, restored per site; Minevale36's street village (6 of 6, lamps, signs, a wheat field, a pumpkin farm, an annex at -1659..-1651, 40..52 with chicken and cow pens) stands on Minevale31's site at -1648..-1609, 27..66 until the next reset (inside minevale3's restore radius); the atlas there now knows the land to ~160 blocks round VanG's site from the exploring trips, and the
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
@@ -1031,6 +1044,22 @@ Lessons from the adapter:
    a withdraw left them with a worker; storage, by which the milking and the cake are judged, never saw them again, and
    the iron age set out to make a bucket while three were stocked. Chores deposit such items by name at their start and
    end, and checks count what the village holds, not only what code recorded making.
+113. **Measure the land and the animals before widening a rule** (F205, 2026-10-10): an offline 3D walk search on the
+   snapshot (`runs/2026-10-10/research/f205_scan/`) and live slope tests (`slope_facts.py`) showed animals follow a lure
+   down any 1-high slope and find a side stair, and stop only at a sheer drop (a mob path drops at most ~3): the height
+   band, not the lure, was the block. A rule written from one bad case (F194's hill) had shut out every chicken and cow
+   on VanG's land.
+114. **A watchdog that counts any movement as progress is blind to bobbing** (F209): in water a bot drifting in a
+   1.5-block cell reset the 10 s stall rule for 45-140 s a walk. Use a coarser threshold where the body moves without
+   travelling, and make a goal's range match the rule that judges success (range 8 against "scouted within 12" spent
+   minutes on the last 2 blocks to a lake floor).
+115. **A reset rewrites the atlas without a backup** (2026-10-10): `reset_site.py` drops the chunk summaries (and the
+   animal sightings) of the restored regions. Copy what a run saw before resetting when an analysis needs it.
+116. **Check a tag's members before keying a rule on it** (F212): 26.1's `#minecraft:dirt` does not hold `grass_block`.
+117. **Preview a UI against live data, and look at it after applying** (the panel, 2026-10-10): a scratch copy served by
+   `runs/2026-10-10/scripts/panel_proxy.py` with headless Edge screenshots caught a collapsed overlay, stretched cards and
+   tabs that jumped to the top each second (a page re-rendered every second must keep scroll and focus); a dropped space
+   (`<istyle=`) went unseen until the next screenshot (F215).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
