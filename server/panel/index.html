@@ -82,12 +82,22 @@
   .legend { font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 14px 1fr; gap: 2px 6px; align-items: center; }
   .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
   #wmAuto.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .wm-key { position: absolute; right: 10px; bottom: 10px; max-width: min(300px, 55%); max-height: calc(100% - 20px); overflow: auto;
+    background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 11.5px; }
+  .wm-key > button { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 0 6px; color: var(--muted); }
+  .wm-key.closed #wmKeyBody { display: none; }
+  .key-icons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; margin-top: 6px; }
+  .key-icons span, .key-ground span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .key-icons canvas { width: 18px; height: 18px; flex: none; }
+  .key-trail { width: 18px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, transparent, hsl(200 85% 62%)); flex: none; }
+  .key-ground { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); }
+  .key-ground i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; flex: none; }
   .wm-acts { position: absolute; top: 30px; right: 10px; max-width: min(340px, 45%); pointer-events: none; display: grid; gap: 2px;
     background: color-mix(in srgb, var(--panel) 86%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
   .wm-acts:empty { display: none; }
-  .wm-acts div { display: grid; grid-template-columns: 10px max-content minmax(0, 1fr); gap: 6px; align-items: baseline; }
-  .wm-acts i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, .6); }
-  .wm-acts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .wm-acts div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wm-acts i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, .6); margin-right: 6px; }
+  .wm-acts span { color: var(--muted); margin-left: 6px; }
   #worldmap .card:fullscreen, #worldmap .card.wm-full { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column;
     padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px)); background: var(--panel); }
   #worldmap .card:fullscreen .wm-box, #worldmap .card.wm-full .wm-box { flex: 1; min-height: 0; }
@@ -97,8 +107,6 @@
   canvas.world { display: block; width: 100%; height: 560px; border-radius: 6px; border: 1px solid var(--line); background: #1e1e24; cursor: grab; touch-action: none; }
   canvas.world.dragging { cursor: grabbing; }
   .wm-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; max-width: 340px; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
-  .atlas-keys { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--muted); margin-top: 4px; }
-  .atlas-keys i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: -1px; }
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
   /* Simple mode: the village at a glance */
   body.simple .detailed-only { display: none !important; }
@@ -175,6 +183,7 @@
   .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .clamp1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   @media (max-width: 700px) {
+    .key-icons, .key-ground { grid-template-columns: 1fr; }
     .vgrid { grid-template-columns: 1fr; }
     .vhead { grid-template-columns: 1fr; }
     .stat { justify-items: start; }
@@ -219,9 +228,9 @@
         <div class="wm-box">
           <canvas class="world" id="wmCanvas" aria-label="Map of every chunk the bots have seen, with the villages and agents"></canvas>
           <div class="wm-acts" id="wmActs" aria-live="off"></div>
+          <div class="wm-key" id="wmKey"><button type="button" id="wmKeyToggle" aria-expanded="true" title="Show or hide the key">Key</button><div id="wmKeyBody"></div></div>
           <div class="wm-tip" id="wmTip" hidden></div>
         </div>
-        <div class="atlas-keys" id="wmKeys"></div>
       </div>
     </section>
   </div>
@@ -516,6 +525,88 @@ $('wmTrail').onclick = () => {
   drawWorld(); drawMaps();
 };
 
+// ---- map icons: little drawings of what the map shows ----
+const ICONS = {
+  agent: 'agent', chicken: 'chicken', cow: 'cow', pig: 'pig', sheep: 'sheep', wheat: 'wheat field', sugar_cane: 'sugar cane farm',
+  pumpkin: 'pumpkin farm', melon: 'melon farm', pen: 'animal pen', mine: 'village mine', chest: 'storage chest',
+};
+function drawIcon(g, kind, x, y, s) {
+  const r = s / 2;
+  const disc = (cx, cy, rr, fill) => { g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); };
+  g.save(); g.lineWidth = Math.max(1, s / 12); g.strokeStyle = 'rgba(0,0,0,.75)';
+  switch (kind) {
+    case 'agent': disc(x, y, r * 0.55, '#fff'); g.stroke(); break;
+    case 'chicken':
+      disc(x, y + r * 0.15, r * 0.62, '#f4f4f0'); g.stroke();
+      g.fillStyle = '#d93a2b'; g.fillRect(x - r * 0.18, y - r * 0.72, r * 0.36, r * 0.3);
+      g.fillStyle = '#f2b632'; g.beginPath(); g.moveTo(x + r * 0.5, y); g.lineTo(x + r * 0.95, y + r * 0.12); g.lineTo(x + r * 0.5, y + r * 0.26); g.fill();
+      break;
+    case 'cow':
+      g.fillStyle = '#f2efe8'; g.fillRect(x - r * 0.8, y - r * 0.55, r * 1.6, r * 1.1); g.strokeRect(x - r * 0.8, y - r * 0.55, r * 1.6, r * 1.1);
+      g.fillStyle = '#2b2622'; g.fillRect(x - r * 0.6, y - r * 0.45, r * 0.5, r * 0.45); g.fillRect(x + r * 0.15, y + r * 0.05, r * 0.45, r * 0.35);
+      g.fillStyle = '#e8a0a0'; g.fillRect(x + r * 0.45, y - r * 0.1, r * 0.35, r * 0.3);
+      break;
+    case 'pig':
+      disc(x, y, r * 0.7, '#f0a3b4'); g.stroke();
+      g.fillStyle = '#c96b80'; g.fillRect(x + r * 0.15, y - r * 0.15, r * 0.45, r * 0.32);
+      break;
+    case 'sheep':
+      for (const [dx, dy] of [[-0.35, -0.2], [0.3, -0.25], [-0.3, 0.3], [0.3, 0.28], [0, 0]]) disc(x + dx * r, y + dy * r, r * 0.42, '#e9e9e4');
+      g.fillStyle = '#4a4038'; g.fillRect(x + r * 0.45, y - r * 0.2, r * 0.38, r * 0.4);
+      break;
+    case 'wheat':
+      g.strokeStyle = '#b8892a'; g.lineWidth = Math.max(1, s / 10);
+      for (const dx of [-0.45, 0, 0.45]) {
+        g.beginPath(); g.moveTo(x + dx * r, y + r * 0.85); g.lineTo(x + dx * r, y - r * 0.2); g.stroke();
+        g.fillStyle = '#e8c25a'; g.beginPath(); g.ellipse(x + dx * r, y - r * 0.45, r * 0.16, r * 0.38, 0, 0, Math.PI * 2); g.fill();
+      }
+      break;
+    case 'sugar_cane':
+      g.fillStyle = '#7fc44a';
+      for (const dx of [-0.5, 0, 0.5]) { g.fillRect(x + dx * r - r * 0.12, y - r * 0.85, r * 0.24, r * 1.7); }
+      g.fillStyle = '#5e9a34'; for (const dx of [-0.5, 0, 0.5]) g.fillRect(x + dx * r - r * 0.12, y - r * 0.1, r * 0.24, r * 0.12);
+      break;
+    case 'pumpkin':
+      disc(x, y + r * 0.1, r * 0.72, '#e07b1f'); g.stroke();
+      g.strokeStyle = 'rgba(120,50,0,.6)'; g.beginPath(); g.moveTo(x, y - r * 0.6); g.lineTo(x, y + r * 0.8); g.stroke();
+      g.fillStyle = '#4c7a2a'; g.fillRect(x - r * 0.08, y - r * 0.9, r * 0.16, r * 0.32);
+      break;
+    case 'melon':
+      disc(x, y, r * 0.75, '#5aa33a'); g.stroke();
+      g.strokeStyle = '#2f6a1e'; for (const dx of [-0.35, 0, 0.35]) { g.beginPath(); g.moveTo(x + dx * r, y - r * 0.65); g.lineTo(x + dx * r, y + r * 0.65); g.stroke(); }
+      break;
+    case 'pen':
+      g.strokeStyle = '#8b5a2b'; g.lineWidth = Math.max(1.5, s / 9); g.strokeRect(x - r * 0.75, y - r * 0.75, r * 1.5, r * 1.5);
+      g.fillStyle = '#8b5a2b'; for (const [dx, dy] of [[-0.75, -0.75], [0.75, -0.75], [-0.75, 0.75], [0.75, 0.75]]) g.fillRect(x + dx * r - r * 0.12, y + dy * r - r * 0.12, r * 0.24, r * 0.24);
+      break;
+    case 'mine':
+      g.fillStyle = '#6f6f6f'; g.fillRect(x - r * 0.8, y - r * 0.8, r * 1.6, r * 1.6); g.strokeRect(x - r * 0.8, y - r * 0.8, r * 1.6, r * 1.6);
+      g.fillStyle = '#1b1b1b'; g.beginPath(); g.moveTo(x - r * 0.45, y + r * 0.8); g.lineTo(x - r * 0.45, y - r * 0.1); g.arc(x, y - r * 0.1, r * 0.45, Math.PI, 0); g.lineTo(x + r * 0.45, y + r * 0.8); g.fill();
+      break;
+    case 'chest':
+      g.fillStyle = '#c98b3a'; g.fillRect(x - r * 0.75, y - r * 0.55, r * 1.5, r * 1.1); g.strokeRect(x - r * 0.75, y - r * 0.55, r * 1.5, r * 1.1);
+      g.strokeStyle = '#5a3a14'; g.beginPath(); g.moveTo(x - r * 0.75, y - r * 0.1); g.lineTo(x + r * 0.75, y - r * 0.1); g.stroke();
+      g.fillStyle = '#f2d14e'; g.fillRect(x - r * 0.12, y - r * 0.22, r * 0.24, r * 0.26);
+      break;
+  }
+  g.restore();
+}
+/** Farms, pens and the mine of a village: [kind, x, z] at the middle of each (the slot's kind, a pen's animal). */
+function villageIcons(v) {
+  const out = [];
+  const mid = (a) => [(a.x1 + a.x2 + 1) / 2, (a.z1 + a.z2 + 1) / 2];
+  for (const lay of v.layouts || []) {
+    if (lay.farm) out.push(['wheat', ...mid(lay.farm)]);
+    for (const sl of lay.slots || []) {
+      if (!sl.kind) continue;
+      if (sl.annex) { const [x, z] = mid(sl); out.push(['pen', x, z]); out.push([sl.kind, x, z]); }
+      else if (ICONS[sl.kind]) out.push([sl.kind, ...mid(sl)]);
+    }
+  }
+  if (v.mine?.hut) out.push(['mine', ...mid(v.mine.hut)]);
+  return out;
+}
+
 // ---- the world map (the shared atlas: 4x4-block cells of every chunk a bot has seen, with every village) ----
 const CELL_RGB = {
   s: [217, 201, 140], r: [192, 122, 58], d: [224, 210, 150], D: [186, 99, 40], x: [138, 138, 138], g: [130, 125, 120],
@@ -608,8 +699,10 @@ function autoView() {
   { const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; add(cx - 24, cz - 24, cx + 24, cz + 24); }
   const pad = 12, cv = $('wmCanvas'), w = cv.clientWidth || 800, h = cv.clientHeight || 560;
   const top = Math.min(h / 3, ($('wmActs')?.offsetHeight || 0) + 34);
-  const k = clampK(Math.min(w / (x1 - x0 + 2 * pad), (h - top) / (z1 - z0 + 2 * pad)));
-  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2 - top / 2 / k, k };
+  // (and the open key's height at the bottom)
+  const key = $('wmKey'), bottom = key && !key.classList.contains('closed') ? Math.min(h / 3, key.offsetHeight + 14) : 0;
+  const k = clampK(Math.min(w / (x1 - x0 + 2 * pad), (h - top - bottom) / (z1 - z0 + 2 * pad)));
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2 - (top - bottom) / 2 / k, k };
 }
 wm.auto = store.get('panel.wmAuto', '1') === '1';
 function setAuto(on) {
@@ -673,9 +766,15 @@ function drawWorld() {
     for (const l of vg.layouts || []) if (onScreen(l)) rect(l, '#4cc27f', null, [3, 2]);
     for (const p of vg.plots || []) if (onScreen(p)) rect(p, '#4cc27f');
     for (const s of vg.structures || []) if (s.kind !== 'storage' && onScreen(s)) rect(s, '#8c5a28', 'rgba(140,90,40,.8)');
-    const d = Math.max(3, Math.min(8, v.k));
-    g.fillStyle = '#f2c14e'; g.strokeStyle = '#000'; g.lineWidth = 1;
-    for (const c of (vg.storage && vg.storage.chests) || []) { g.fillRect(X(c.x + 0.5) - d / 2, Z(c.z + 0.5) - d / 2, d, d); g.strokeRect(X(c.x + 0.5) - d / 2, Z(c.z + 0.5) - d / 2, d, d); }
+    const d = Math.max(6, Math.min(14, v.k * 1.4));
+    for (const c of (vg.storage && vg.storage.chests) || []) if (onScreen({ x1: c.x, x2: c.x, z1: c.z, z2: c.z })) drawIcon(g, 'chest', X(c.x + 0.5), Z(c.z + 0.5), d);
+    // (farms, pens and the mine: once there is room for them)
+    if (v.k >= 0.8) for (const [kind, ix, iz] of villageIcons(vg)) if (onScreen({ x1: ix, x2: ix, z1: iz, z2: iz })) drawIcon(g, kind, X(ix), Z(iz), Math.max(10, Math.min(22, v.k * 3)));
+  }
+  // Animals the agents have seen in the last 30 minutes (once zoomed in enough to tell them apart)
+  if (v.k >= 0.6) {
+    const now = Date.now(), sz = Math.max(8, Math.min(16, v.k * 2.2));
+    for (const an of wm.animals || []) if (ICONS[an.kind] && now - an.t < 30 * 60000 && onScreen({ x1: an.x, x2: an.x, z1: an.z, z2: an.z })) drawIcon(g, an.kind, X(an.x + 0.5), Z(an.z + 0.5), sz);
   }
   // Names above each village's ground (the running ones first)
   for (const vg of villages) {
@@ -744,10 +843,16 @@ function zoomWorld(f, px, py) {
 }
 {
   const cv = $('wmCanvas');
-  $('wmKeys').innerHTML = ATLAS_KEYS.map(([k, n]) => `<span><i style="background:rgb(${CELL_RGB[k].join(',')})"></i>${n}</span>`).join('') +
-    '<span><i style="border:2px dashed #4cc27f"></i>laid out</span><span><i style="border:2px solid #4cc27f"></i>prepared plot</span>' +
-    '<span><i style="background:rgba(140,90,40,.8);border:1px solid #8c5a28"></i>building</span><span><i style="background:#f2c14e;border:1px solid #000"></i>storage chest</span>' +
-    '<span><i style="background:#fff;border:1px solid #000;border-radius:50%"></i>agent</span>';
+  // The key: each icon drawn by the map's own code, then the ground colours and the outlines
+  $('wmKeyBody').innerHTML = `<div class="key-icons">${Object.entries(ICONS).map(([k, n]) => `<span><canvas width="36" height="36" data-icon="${k}"></canvas>${n}</span>`).join('')}
+      <span><i class="key-trail"></i>trail (where it walked)</span></div>
+    <div class="key-ground">${ATLAS_KEYS.map(([k, n]) => `<span><i style="background:rgb(${CELL_RGB[k].join(',')})"></i>${n}</span>`).join('')}
+      <span><i style="border:2px dashed #4cc27f"></i>laid out</span><span><i style="border:2px solid #4cc27f"></i>prepared plot</span>
+      <span><i style="background:rgba(140,90,40,.8);border:1px solid #8c5a28"></i>building</span></div>`;
+  for (const c of $('wmKeyBody').querySelectorAll('canvas[data-icon]')) drawIcon(c.getContext('2d'), c.dataset.icon, 18, 18, 30);
+  const keyOpen = (open) => { $('wmKey').classList.toggle('closed', !open); $('wmKeyToggle').setAttribute('aria-expanded', String(open)); $('wmKeyToggle').textContent = open ? 'Key \u25BE' : 'Key \u25B8'; store.set('panel.wmKey', open ? '1' : '0'); };
+  keyOpen(store.get('panel.wmKey', '1') === '1');
+  $('wmKeyToggle').onclick = () => { keyOpen($('wmKey').classList.contains('closed')); drawWorld(); };
   cv.addEventListener('pointerdown', (e) => {
     if (!wm.view || e.button !== 0) return;
     if (wm.auto) setAuto(false);
@@ -808,6 +913,7 @@ async function refreshWorldAtlas() {
       chunks = [...seen.values()];
     }
     wm.villages = villages; wm.status = a.status;
+    if (Array.isArray(a.animals)) wm.animals = a.animals;
     setAtlas(chunks);
     const st = a.status;
     $('wmInfo').textContent = `${chunks.length}${st ? ` of ${st.chunks}` : ''} chunks seen, ${villages.length} villages` +
@@ -1029,7 +1135,9 @@ function villageLife(v) {
   if (lay.signs?.length) items.push([`Name signs${site}`, lay.signed ? `${lay.signs.length} up` : `${lay.signs.length} planned`, '']);
   });
   const made = v.mine?.ironMade || [];
-  if (v.mine?.iron || made.length) items.push(['Iron', made.length ? `made ${made.map(words).join(', ')}` : 'digging for it', '']);
+  const tools = {};
+  for (const m of made) tools[words(m)] = (tools[words(m)] || 0) + 1;
+  if (v.mine?.iron || made.length) items.push(['Iron', made.length ? `made ${Object.entries(tools).map(([n, c]) => (c > 1 ? `${c} ${n}s` : n)).join(', ')}` : 'digging for it', '']);
   if (!items.length) return '';
   return `<div class="card"><div class="label">Village life</div><dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl></div>`;
 }
@@ -1097,7 +1205,7 @@ function drawActivity(d) {
   if (!el) return;
   const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
   const agents = (d.agents || []).slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name));
-  el.innerHTML = agents.map((a) => `<div><istyle="background:${agentColor(a.name)}"></i><b>${esc(a.name)}</b><span>${esc(doingWords(a))}</span></div>`).join('');
+  el.innerHTML = agents.map((a) => `<div><i style="background:${agentColor(a.name)}"></i><b>${esc(a.name)}</b><span>${esc(doingWords(a))}</span></div>`).join('');
 }
 function renderNow(d) {
   drawActivity(d);

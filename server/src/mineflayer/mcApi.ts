@@ -41,6 +41,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       const villages = [...w.villages.villages.values()].map((v) => ({
         name: v.name, layouts: v.layouts ?? [], plots: v.plots, structures: v.structures,
         storage: { chests: (v.storage?.chests ?? []).map(({ x, y, z }) => ({ x, y, z })) },
+        // (the mining hut, for the map's mine icon)
+        mine: v.mine?.hut ? { hut: v.mine.hut } : undefined,
       }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: w.atlas.status(), all: true, chunks: [...w.atlas.chunks.values()], villages, animals: [...w.atlas.animals.values()] }));
