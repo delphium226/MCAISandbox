@@ -76,7 +76,7 @@ the session ends. When a run teaches something new, the plan changes with it (it
   On Windows, `curl localhost:...` adds ~0.2 s per request (IPv6 first); use 127.0.0.1 when timing.
 - **Network access (2026-09-28):** the Paper server listens on the LAN (`server-ip=` empty; firewall rule "MCAISandbox
   Minecraft server (LAN)" allows TCP 25565 from the local subnet) with the **whitelist on**: SausageOfDoom4, Gus,
-  Mayor, Worker1-4. A new agent name must be whitelisted first (`python mc/rcon.py "whitelist add <name>"`) or its
+  Mayor, Worker1-4 (the test world also Worker5-11, 2026-10-10). Paper's `max-players` is 16: raise it before 25 agents. A new agent name must be whitelisted first (`python mc/rcon.py "whitelist add <name>"`) or its
   bot is refused. RCON also listens on all addresses now but no firewall rule lets it in. The agent server serves the
   panel to the LAN when started with `MC_API_HOST=0.0.0.0` (http://192.168.1.84:8766/panel; no login). Time is frozen
   at day (`gamerule advance_time false`, 26.1's name for doDaylightCycle). The watch scripts teleport SausageOfDoom4 to
@@ -503,6 +503,16 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     a key). Staged VanH3 (F205 at +5..+7) and VanH4; Minevale36 (1x) 6/6 in 10.6 min, 0 failed actions in 55.7 min,
     chickens bred to 5, a cow pen and milk with real models (the field ripened by command). README restructured as an
     AI-agent project with fresh screenshots. Lessons 113-117.
+41. 2026-10-10/11 (twenty-sixth session; pushed to origin `tiered-brain-building` up to `c5224d6`, `main` untouched): the
+    user's new goals (agents that choose; 25 agents in many parallel activities with more kinds of work; Project Sid-style
+    emergence; agents proposing game improvements that Claude triages; long-horizon memory), a literature review
+    (`docs/research/llm-agent-autonomy-literature.md`) and Phases A, S and E with one roadmap in PLAN.md. `fd5f80f` A.0:
+    gpt-oss for every role (reasoning levels per call kind, token ledger, hourly budget, `/api/usage`; benches chose exec
+    medium, plan low, design medium); Minevale37 10.4 min, $0.0015. A.0b: one agent server holds 12 working bots. Phase S's
+    chain work (`85ddef1` S.0/A.1 measuring, `99a9195` S.1 contention, `cad847f` S.2 mine for many miners, `8fe8c8b`
+    S.3/S.4 glass once, lamps early, a sign per building, `28223ac` S.5 stations early, `3b69e17` S.6 the plot in parts):
+    the staged 12-agent village 6.2 -> 3.1 min. E.0 (scale safety) implemented but uncommitted at the close (see
+    PLAN.md's handover). Lessons 118-124.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -659,7 +669,8 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-fifth session (2026-10-10): see PLAN.md's "Next session starts with" for what was left running (the
+Left after the twenty-sixth session (2026-10-11): the stack stopped (the test Paper saved by RCON stop); E.0's uncommitted
+work in the working tree, backed up in `runs/2026-10-11/s26_e0_backup/`; see PLAN.md's handover. Before that, after the twenty-fifth session (2026-10-10): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
 Sunhollow*, Riverbend*, Meadowford*, Fourfold*, Accept*, Tightfit1, Fell1, StageH1-H20, Hutvale1-4, StageM1-M8,
@@ -1076,6 +1087,32 @@ Lessons from the adapter:
    `runs/2026-10-10/scripts/panel_proxy.py` with headless Edge screenshots caught a collapsed overlay, stretched cards and
    tabs that jumped to the top each second (a page re-rendered every second must keep scroll and focus); a dropped space
    (`<istyle=`) went unseen until the next screenshot (F215).
+118. **gpt-oss ignores `think: false` and the cloud ignores `num_ctx`** (A.0, 2026-10-10): a one-line test gave 69 output
+   tokens at false, 51 at "medium", 20 at "low", so the Mayor had reasoned at medium all along; an 18,292-token prompt was
+   read whole at num_ctx 8192. Set a level per call kind and judge it on the benches: low executors missed "step already
+   done" 10 times in 10, a medium mayor re-posted work instead of waiting (`runs/2026-10-10/s26/bench/`).
+119. **Ollama Cloud Pro runs 3 requests at once** (A.0b): the rest queue (a fixed, unpublished queue size; beyond it they
+   are rejected), which the concurrency bench showed as throughput levelling at ~2.5-3 with 6-12 calls at once. Max and
+   Team allow 10. Call models at decision points, not on timers, and gate them (E.0's call gate).
+120. **More agents do not speed a serial chain: measure the chain first** (S.0, 2026-10-10): 12 agents built the village in
+   6.1 min and 3 in 6.0 (Van12a/Van3a). Busy minutes per agent and a critical path read from the board's stamps
+   (`stage_village.py`'s BUSY and CRITICAL PATH lines) named the chain; `[mine]`, `[pickaxe]`, `[furnace]` lines named
+   the waits (miners queued 35-85 s for 3 faces; pickaxes took the builds' cobblestone).
+121. **Shared things need supplies, reservations or instances as agents multiply** (S.1-S.6): pickaxes from a stored
+   supply and only from spare storage, glass made once for the village, the mine's branches as units with a claim gate,
+   chest spots claimed before walking, stations placed early, the plot in parts with disjoint claims, one level, tree
+   ownership and a seam check. Each was checked offline first (`mine_geometry.mts`, `huts_box.mts`); 12 agents 6.2 -> 3.1.
+122. **A detached run does not wake the session** (2026-10-11): `scripts/detach.py` runs outlive the session but send no
+   notification, and the session sat idle twice for 4-5 hours after runs ended. Arm a Bash `run_in_background` watcher
+   (`until grep -q "ALL DONE" LOG; do sleep 15; done`) with every detached run. Detach a Python script, not a shell
+   script: `bash` there is WSL's, which has no `/c/` paths (`runs/2026-10-10/s26/baselines_s0.py` runs staged runs in a row).
+123. **Before 25 agents** (E.1's spec): Paper's `max-players` is 16 in both `server.properties`; each name must be
+   whitelisted (the test world has Worker1-11, the main world Worker1-4); the panel's name-hash colours collide for 7 pairs
+   among Mayor and Worker1-24; `/api/overview` would be ~1-1.5 MB every 2 s with model prompts at 25.
+124. **Spec, check, implement, review, refute, then test** (the twenty-sixth session's method): read-only spec agents with an
+   adversarial check found real problems in every spec, and three or four lens reviewers plus a refuting pass found 7-12
+   real defects in every implementation before a run; only one implementer edits a file set at a time, and nothing edits
+   server files while a run goes. Heavy for small steps: one implementer plus one review is enough there.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

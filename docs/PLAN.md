@@ -20,20 +20,35 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-11 during the twenty-sixth session, paused for the user's lunch; to be rewritten at its close)
+(written 2026-10-11 at the close of the twenty-sixth session; the next session's prompt is
+`runs/2026-10-11/NEXT_PROMPT.md`)
 
-- **Committed (local, not pushed):** `fd5f80f` A.0, `d2a6b4c` Phases S and E planned, `85ddef1` S.0/A.1, `99a9195` S.1,
-  `cad847f` S.2, `8fe8c8b` S.3+S.4, `28223ac` S.5, `3b69e17` S.6. 12 agents build the staged village in 3.1 min (6.2 at S.0).
-- **In progress (uncommitted, partial):** E.0 (scale safety) from `runs/2026-10-10/s26/spec_e0.md`: the implementing agent
-  was stopped at its self-review when the user shut the machine down. Its edits are in the working tree, untested
-  (`git diff`; `git stash` to set aside). Next: re-run the implementation to finish and self-review, typecheck, a staged
-  check, commit. E.1's spec is ready (`spec_e1.md`). The memory investigation (goal G2) waits for the user.
-- **The user's direction (10-11):** after S.6, the stated goals only (25 agents in many parallel activities, agents that
-  choose, Sid-style emergence); no agent-count comparisons (the roadmap's revision note).
-- **Next:** E.0 test and commit, E.1, a 25-bot probe, a staged 25-agent village, then A.2 and the task families.
-- **Stack:** everything stopped for a shutdown (test Paper saved by RCON stop, its agent server killed); Worker5-11 are whitelisted on it; the local
-  model servers are stopped. Detached runs need a background watcher (`until grep -q "ALL DONE" log`) or nothing
-  wakes the session (it idled twice this session).
+- **Goals (the user's, 10-10/11; full list in the roadmap's goals note and memory `scale-and-emergence-goals`):** agents
+  that choose (Phase A); 25 agents doing many different activities in parallel, with more kinds of work (Phase S);
+  Project Sid-style emergence through the brain and communication (Phase E); agents propose game improvements that
+  Claude triages (G1); long-horizon memory (G2, the user wants to start its investigation together). **No more
+  agent-count comparisons** (the roadmap's revision note): test each step by whether it works at 25 and does its job.
+- **Pushed** (`origin/tiered-brain-building` = `c5224d6`; `main` untouched): A.0, the Phase S/E plans, S.0-S.6, the
+  goals G1/G2. The close-out commit (this record, CLAUDE.md lessons 118-124, `docs/research/`) is local until pushed.
+- **E.0 (scale safety): implemented, uncommitted, in the working tree** (21 tracked files + `server/src/modelCall.ts` and
+  five checks in `scripts/checks/`; backup in `runs/2026-10-11/s26_e0_backup/`: `e0_tracked.patch` and `new/`). The
+  implementing agent was stopped at its self-review. Typecheck clean; its offline checks pass: `call_gate.mts` 30/30,
+  `board_version.mts` 23/23, `chat_route.mts` 18/18, `save_debounce.mts` 12/12, `model_usage.mts` 161/161.
+  `board_golden.mts dump|check GOLDEN.json [villages.json]` needs a dump from the committed code first (stash, dump,
+  unstash, check). Still to do: the self-review (adversarial, with refutation), the golden check, a staged run that shows
+  nothing changed at small scale and the new lines work, then commit.
+- **Then:** E.1 (spec `runs/2026-10-10/s26/spec_e1.md`: max-players 30, whitelist Worker12-24 on the test world and
+  Worker5-24 on the main one, pathfinder time shared between bots, RCON timeout, `/api/perf`, the panel at 25 with
+  colours by number), a 25-bot probe, a staged 25-agent village; then A.2 (the menu with instances) and the task
+  families S.9-S.16, then E.2-E.7.
+- **Material on disk** (`runs/2026-10-10/s26/`, gitignored): specs and checks `spec_{s1..s6,e0,e1}.md`, `*check.md`;
+  `phaseS_*`, `phaseE_*` (the design workflows' research), `parallel_map.md`, `candidates_verified.md`, the literature
+  notes `research_notes/`, bench logs `bench/`, run logs Van12a..j, Van3a..h, `scale_probe.py`, `baselines_s0.py`
+  (staged runs in a row with resets: `python scripts/detach.py LOG python runs/2026-10-10/s26/baselines_s0.py Van12x:11`).
+- **Stack:** stopped (test Paper saved by RCON stop, its agent server killed; local model servers stopped). The test
+  world's minevale3 holds Van12j's village: reset before use. Test whitelist: Worker1-11 added.
+- **Session method that worked:** read-only spec agents with an adversarial check; one implementer per file set; lens
+  reviewers plus a refuting pass before any run; staged runs detached with a background watcher (lesson 122).
 
 (written 2026-10-10 at the close of the twenty-fifth session: F205, F209, Minevale36 and the control panel's redesign;
 the notes below for the twenty-fourth session stay valid where not overridden)
@@ -1586,7 +1601,7 @@ Design rules on top of Phase A's:
 
 Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes through typecheck, a bench or check, a scripted staged run, then a model-driven staged run (`stage_village.py --brain tiered --after N`, Worker1-11 on the test world), then a model-driven run where the exit asks for one):
 
-- [ ] E.0 **Scale safety, all in code** (~1-2 sessions). No behaviour change at 3 agents.
+- [ ] E.0 **Scale safety, all in code** (implemented 10-11, uncommitted, checks passing; review, golden check and a staged run still to do: the handover) (~1-2 sessions). No behaviour change at 3 agents.
   - **Model calls:** `complete`, `completeOllama`, `completeAnthropic`, `parseSpec` and `timed()`'s accounting move out of `tieredBrain.ts:75-140` into a world-free `modelCall.ts`. TieredBrain (architect retries included), the controller and society all call it. `modelUsage.ts` stays the ledger, with no imports and no timers.
   - **Call gate** (in `modelCall.ts`, acquired before `fetch` so the 300 s timeout does not run during the wait):
     - 3 calls in flight on Pro. One slot is held for human replies, the Mayor's plan and design calls, executor turns and decisions. Ballots, reflections and the chronicle share at most 2.
