@@ -13,7 +13,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sendJson } from '../api';
-import { handleMcApi } from './mcApi';
+import { handleMcApi, recordTick } from './mcApi';
 import { applyWorldRules } from './mcRules';
 import { MineflayerWorld } from './mcWorld';
 import { Rcon } from './rcon';
@@ -58,8 +58,15 @@ async function worldRules(attempt = 1): Promise<void> {
 }
 void worldRules();
 
-// The brains and skill queues tick at the game's 20 Hz, like the sandbox's
-setInterval(() => world.tick(), 50);
+// The brains and skill queues tick at the game's 20 Hz, like the sandbox's (each tick timed for /api/perf, E.1)
+setInterval(() => {
+  const t0 = performance.now();
+  try {
+    world.tick();
+  } finally {
+    recordTick(performance.now() - t0);
+  }
+}, 50);
 
 // A blocked event loop lets every bot miss the server's keep-alive (Accept4: all three timed out at once, and nothing
 // in this log said why): report each stall of over 2 s, with what every agent was running when it ended
@@ -68,7 +75,10 @@ setInterval(() => {
   const now = Date.now(), late = now - lastBeat - 1000;
   lastBeat = now;
   if (late <= 2000) return;
-  const doing = world.agentList().map((a) => `${a.name}: ${a.current ? `${a.current.status.type} ${JSON.stringify(a.current.status.args).slice(0, 80)}` : 'idle'}`).join('; ');
+  // (at most 25 agents, 40 characters each: the whole line stays readable at 25)
+  const agents = world.agentList();
+  const doing = agents.slice(0, 25).map((a) => `${a.name}: ${a.current ? `${a.current.status.type} ${JSON.stringify(a.current.status.args)}` : 'idle'}`.slice(0, 40)).join('; ')
+    + (agents.length > 25 ? `; and ${agents.length - 25} more` : '');
   console.log(`[lag] ${new Date(now).toISOString().slice(11, 19)} event loop blocked for ~${late} ms; ${doing || 'no agents'}`);
 }, 1000);
 

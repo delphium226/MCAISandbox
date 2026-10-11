@@ -5,7 +5,8 @@ no successful action for MCAI_AGENT_STALL_MIN minutes (default MCAI_STALL_MIN, a
 times (default 3), or time runs out. Agents are in creative mode unless
 MCAI_GAMEMODE=survival (real Minecraft's village economy: materials are gathered, stored and paid for).
 The agents spawn on a ring 4 blocks outside a 40 plot round the site (the mayor's first plot; beyond its margin), on ground read from the world while the
-probe keeps it loaded, and where they stand is checked (S.0). At the end: each agent's busy and idle minutes (BUSY lines),
+probe keeps it loaded, and where they stand is checked (S.0); spawns go at least MCAI_SPAWN_GAP_S seconds apart (default
+2.5, E.1). At the end: each agent's busy and idle minutes (BUSY lines),
 the critical path through the board's tasks (CRIT lines), and STOCK lines of the storage during the run for
 scripts/checks/autonomy_metrics.py.
 
@@ -40,6 +41,8 @@ BASE = {"execModel": os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-clou
         "designModel": os.environ.get("MCAI_DESIGN_MODEL", "ollama:gpt-oss:120b-cloud"), "buildSpeed": 4}
 if os.environ.get("MCAI_REASONING"):
     BASE["reasoning"] = os.environ["MCAI_REASONING"]
+# Seconds at least between two spawn POSTs (E.1: 25 bots joining at once load every chunk round the site together)
+SPAWN_GAP = float(os.environ.get("MCAI_SPAWN_GAP_S", "2.5"))
 
 
 def call(path, body=None, method=None):
@@ -268,9 +271,12 @@ else:
 call("/village", {"name": village, "objective": objective})
 # The run's usage counts from here (the probe's idle Mayor makes no model calls)
 usage_since = int(time.time() * 1000)
+last_spawn = 0.0
 for i, n in enumerate(names):
     mem = {**BASE, "village": village, "planModel": mayor_planner if i == 0 else worker_planner, **({"villageRole": "mayor"} if i == 0 else {})}
     sx_, sy_, sz_ = spots[n]
+    time.sleep(max(0.0, last_spawn + SPAWN_GAP - time.time()))
+    last_spawn = time.time()
     try:
         call("/agents", {"name": n, "role": "mayor" if i == 0 else "builder", "brain": "tiered", "gamemode": gamemode, "reset": True,
                          "position": {"x": sx_ + 0.5, **({"y": sy_} if sy_ is not None else {}), "z": sz_ + 0.5}, "memory": mem})

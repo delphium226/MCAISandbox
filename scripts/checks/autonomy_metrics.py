@@ -373,6 +373,7 @@ def parse_runlog(path):
     r = {"village": None, "agents": [], "start": None, "end": None, "after_at": None, "complete_at": None, "stopped": None,
          "events": [], "busy": {}, "after_busy": {}, "stats": {}, "stock": [], "tasks": [], "crit": [], "final_storage": None}
     last_main = 0.0
+    table, in_table = {}, False
     for line in open(path, encoding="utf-8", errors="replace"):
         line = line.rstrip("\r\n")
         if line.startswith("RUN "):
@@ -424,6 +425,19 @@ def parse_runlog(path):
         if m:
             r["stock"].append((float(m.group(1)), json.loads(m.group(2))))
             continue
+        # stage_village.py's AGENTS table over 4 agents (E.1): a header, then one aligned row per agent; a STATS line for
+        # the same agent (--verbose) wins
+        if re.match(r"^AGENTS\s+busy\s+done\s+failed\s+contention\s+refused\s+rescues\s*$", line):
+            in_table = True
+            continue
+        if in_table:
+            m = re.match(r"^(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+(.*?))?\s*$", line)
+            if m:
+                res = (m.group(7) or "-").strip()
+                table[m.group(1)] = {"refused": int(m.group(6)), "done": int(m.group(3)), "failed": int(m.group(4)),
+                                     "rescues": {} if res == "-" else {k: int(q) for k, q in re.findall(r"(\S+) (\d+)", res)}}
+                continue
+            in_table = False
         m = re.match(r"^STATS (\S+): (.*)$", line)
         if m:
             st = {"refused": int((re.search(r"refused (\d+)", m.group(2)) or [0, 0])[1]),
@@ -450,6 +464,8 @@ def parse_runlog(path):
             continue
         if line.startswith("CRIT"):
             r["crit"].append(line)
+    for n, st in table.items():
+        r["stats"].setdefault(n, st)
     # AFTER lines count from the after phase's start (the COMPLETE line's time in watch_village's older logs)
     off = r["after_at"] if r["after_at"] is not None else (r["complete_at"] if r["complete_at"] is not None else last_main)
     for e in r["events"]:

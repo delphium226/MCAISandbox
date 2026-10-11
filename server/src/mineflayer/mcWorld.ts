@@ -883,19 +883,25 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[choice] end check failed:', e);
     }
-    // Animals each bot can see, every 5 s (sightings for opportunistic farming, 10-08)
-    if (Date.now() - this.animalsAt >= 5000) {
-      this.animalsAt = Date.now();
-      for (const a of this.agents.values())
-        try {
-          if (a.bot.entity) this.atlas.seen(a.name, a.bot.entity.position, Object.values(a.bot.entities));
-        } catch (e) {
-          console.error(`[atlas] ${a.name}'s animals:`, e);
-        }
+    // Animals each bot can see, each bot about every 5 s (sightings for opportunistic farming, 10-08); one bot a tick in
+    // turn (E.1), so 25 bots' passes over every recorded animal never land in one tick
+    const bots = [...this.agents.values()], step = 5000 / Math.max(1, bots.length), now = Date.now();
+    if (bots.length && now - this.animalsAt >= step) {
+      // (stepped on from the last turn, not from now: at 25 bots a 200 ms step would drift to every 250 ms on 50 ms ticks)
+      this.animalsAt = Math.max(this.animalsAt + step, now - step);
+      const a = bots[this.animalsNext % bots.length];
+      this.animalsNext = (this.animalsNext + 1) % bots.length;
+      try {
+        if (a.bot.entity) this.atlas.seen(a.name, a.bot.entity.position, Object.values(a.bot.entities));
+      } catch (e) {
+        console.error(`[atlas] ${a.name}'s animals:`, e);
+      }
     }
   }
 
   private animalsAt = 0;
+  /** The next bot in turn for the animal sightings. */
+  private animalsNext = 0;
 
   private farmCheckAt = 0;
 

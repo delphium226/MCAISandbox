@@ -1297,7 +1297,7 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
     const cur = a.bot.blockAt(pos);
     if (cur && cur.boundingBox === 'empty' && !/^(air|cave_air|void_air|water|lava)$/.test(cur.name))
       await rcon.command(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`).catch(() => '');
-    const took = Number(/Removed (\d+)/i.exec(await rcon.command(`clear ${a.name} ${name} 1`).catch(() => ''))?.[1] ?? 0);
+    const took = await rcon.take(a.name, name, 1);
     if (took < 1) throw new Error(`place_station: the server counts no ${name} carried`);
     const out = await rcon.command(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:${name} keep`).catch((e: Error) => `error: ${e.message}`);
     // Confirmed on the server (the answer can be lost: a timed-out command placed is still placed); given back if not there,
@@ -1379,27 +1379,40 @@ async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | nu
   checkAbort(signal);
   const rcon = a.world.rcon;
   const name = itemName(a, r.result.id);
-  const count = async (item: string) => Number(/Found (\d+)/i.exec(await rcon.command(`clear ${a.name} ${item} 0`))?.[1] ?? 0);
   const ingredients = needs(r).map(({ id, count: n }) => ({ item: itemName(a, id), n: n * times }));
+  // (counted on the server, a lost answer never read as 0: the charges below are settled against these counts, E.1)
+  const have: Record<string, number> = {};
   for (const { item, n } of ingredients) {
-    const have = await count(item);
-    if (have < n) throw new Error(`missing ingredients for ${times} x ${name}: needs ${n} ${item} (have ${have})`);
+    have[item] = await rcon.count(a.name, item);
+    if (have[item] < n) throw new Error(`missing ingredients for ${times} x ${name}: needs ${n} ${item} (have ${have[item]})`);
   }
+  // Give back what was taken, each give on its own (a second lost answer must not hide the first error)
+  const refund = async (list: Array<{ item: string; n: number }>) => {
+    for (const t of list)
+      if (t.n)
+        await rcon.give(a.name, t.item, t.n, have[t.item] - t.n).catch((e: Error) => console.log(`[craft] ${a.name}: ${t.n} ${t.item} not given back: ${e.message}`));
+  };
   const taken: Array<{ item: string; n: number }> = [];
   for (const { item, n } of ingredients) {
-    const got = Number(/Removed (\d+)/i.exec(await rcon.command(`clear ${a.name} ${item} ${n}`))?.[1] ?? 0);
+    // (a lost answer is settled by counting; this throws only when the count fails too, and then what the clear did is
+    // unknown: the others are given back, it is not)
+    const got = await rcon.take(a.name, item, n, have[item]).catch(async (e: Error) => {
+      await refund(taken);
+      throw e;
+    });
     if (got < n) {
       // Something changed under us: give everything back
-      for (const t of [...taken, { item, n: got }]) if (t.n) await rcon.command(`give ${a.name} ${t.item} ${t.n}`);
+      await refund([...taken, { item, n: got }]);
       throw new Error(`crafting ${name} failed: could only take ${got} of ${n} ${item}`);
     }
     taken.push({ item, n });
   }
   const made = r.result.count * times;
   const before = countItem(a, r.result.id);
-  await rcon.command(`give ${a.name} ${name} ${made}`);
+  // (a lost answer is settled by counting, so the result is never given twice)
+  await rcon.give(a.name, name, made);
   // What a real craft leaves in the grid (the jar's craftRemainder): a cake's three milk buckets leave three buckets
-  for (const { item, n } of ingredients) if (REMAINDER[item]) await rcon.command(`give ${a.name} ${REMAINDER[item]} ${n}`);
+  for (const { item, n } of ingredients) if (REMAINDER[item]) await rcon.give(a.name, REMAINDER[item], n);
   // Wait until the bot sees the result: a pickaxe crafted inside collect was not there yet for the very next dig
   for (let i = 0; i < 30 && countItem(a, r.result.id) < before + made; i++) await sleep(100, signal);
   await syncInventory(a);

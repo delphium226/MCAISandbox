@@ -25,7 +25,9 @@ the session ends. When a run teaches something new, the plan changes with it (it
   3. `MC_API_HOST=0.0.0.0 MC_OLLAMA_ROUTES="qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436" python scripts/detach.py runs/<date>/agentserver-N.log node node_modules/tsx/dist/cli.mjs server/src/mineflayer/index.ts`
      (agent server + panel on 8766; restart it after editing server files: it does not watch; add `MC_TIME_SCALE=2`
      for staged runs and checks at double speed, never for model-driven acceptance runs; `MC_OLLAMA_ROUTES` is
-     harmless when every role is on the cloud, and a named local model needs it). The hourly budget
+     harmless when every role is on the cloud, and a named local model needs it). Since E.1: `GET /api/perf` (RSS, event-loop delay, tick time, RCON
+     in flight and p90, the overview's size), `MC_RCON_TIMEOUT_MS` (15 s), `MC_PF_TICK_MS` (20) and `MC_PF_FREE_SEARCHES` (3) for
+     the pathfinder's shared allowance (`scripts/checks/pf_share.mts`). The hourly budget
      `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
      is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own
@@ -76,7 +78,7 @@ the session ends. When a run teaches something new, the plan changes with it (it
   On Windows, `curl localhost:...` adds ~0.2 s per request (IPv6 first); use 127.0.0.1 when timing.
 - **Network access (2026-09-28):** the Paper server listens on the LAN (`server-ip=` empty; firewall rule "MCAISandbox
   Minecraft server (LAN)" allows TCP 25565 from the local subnet) with the **whitelist on**: SausageOfDoom4, Gus,
-  Mayor, Worker1-4 (the test world also Worker5-11, 2026-10-10). Paper's `max-players` is 16: raise it before 25 agents. A new agent name must be whitelisted first (`python mc/rcon.py "whitelist add <name>"`) or its
+  Mayor, Worker1-24 in both worlds (2026-10-11, E.1). Paper's `max-players` is 30 in both (25 agents, the user, Gus and headroom). A new agent name must be whitelisted first (`python mc/rcon.py "whitelist add <name>"`) or its
   bot is refused. RCON also listens on all addresses now but no firewall rule lets it in. The agent server serves the
   panel to the LAN when started with `MC_API_HOST=0.0.0.0` (http://192.168.1.84:8766/panel; no login). Time is frozen
   at day (`gamerule advance_time false`, 26.1's name for doDaylightCycle). The watch scripts teleport SausageOfDoom4 to
@@ -1113,6 +1115,15 @@ Lessons from the adapter:
    adversarial check found real problems in every spec, and three or four lens reviewers plus a refuting pass found 7-12
    real defects in every implementation before a run; only one implementer edits a file set at a time, and nothing edits
    server files while a run goes. Heavy for small steps: one implementer plus one review is enough there.
+125. **No `[lag]` line does not mean an idle loop: profile at scale** (F219, 2026-10-11): at 25 bots the agent server was 98%
+   busy with no stall over 2 s, so every RCON reply and API answer waited a slow turn (RCON 649 ms). A 40 s CPU profile
+   through the inspector (`runs/2026-10-11/s27/cdp_profile.cjs` WS SECONDS OUT, `profile_callers.cjs` OUT for time by our
+   calling function) named one function with 60%: find_site's surface read building a Block per cell. `/api/perf`'s
+   loop p99 is the number to watch; the 25-bot probe (`scripts/checks/scale_probe25.py`) is the load.
+126. **A budget shared between bots must leave small villages alone** (E.1's reviews): a pathfinder allowance of 20 ms a
+   50 ms window cut walks with only two bots searching (each asks 15 ms a tick), and counting compute time made the
+   rescue's 5 s search take 15 s. Check a shared limit against the real per-bot numbers at 1-3 agents, not made-up ones
+   (the first check used 4-8 ms budgets and passed); up to 3 searches are now never cut (`MC_PF_FREE_SEARCHES`).
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

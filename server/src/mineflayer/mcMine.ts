@@ -1251,7 +1251,8 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
       if ((e as Error).message === 'cancelled') throw e;
       continue;
     }
-    if (floor && /Removed 1/i.test(await rcon(`clear ${a.name} cobblestone 1`))) {
+    // (the charge settled by counting when its answer is lost, E.1: read as none taken it left the hole open)
+    if (floor && (await a.world.rcon.take(a.name, 'cobblestone', 1)) === 1) {
       if (/Changed/i.test(await rcon(`setblock ${q.x} ${q.y} ${q.z} minecraft:cobblestone`))) a.bot.world.setBlockStateId(q, a.world.registry.blocksByName.cobblestone.defaultState);
       else await rcon(`give ${a.name} minecraft:cobblestone 1`);
     }

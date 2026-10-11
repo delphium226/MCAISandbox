@@ -3,17 +3,64 @@
  * controllers and test scripts (scripts/watch_*.py) work against either world.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
 import type { BuildingStyle } from '../buildingGen';
 import { TOOLS } from '../skills';
-import { handlePanel } from '../panel';
+import { handlePanel, overviewStats } from '../panel';
 import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
 import { postLayout } from '../layout';
 import { villageHome } from '../village';
 import type { MineflayerWorld } from './mcWorld';
+
+// GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
+// over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
+// lost, and the figures read 0 right after one), and world.tick()'s duration over the last minute (index.ts records each)
+const LOOP_RES = 10;
+const loopDelay = monitorEventLoopDelay({ resolution: LOOP_RES });
+loopDelay.enable();
+// (the minute before, in ns; count 0 before the first restart)
+let loopPrev = { count: 0, p50: 0, p99: 0, max: 0 };
+setInterval(() => {
+  loopPrev = { count: loopDelay.count, p50: loopDelay.percentile(50), p99: loopDelay.percentile(99), max: loopDelay.max };
+  loopDelay.reset();
+}, 60_000).unref();
+// (a ring of 2,400 ticks: two minutes at 20 Hz, so the last minute is always in it)
+const tickMs = new Float64Array(2400), tickAt = new Float64Array(2400);
+let tickN = 0;
+
+/** One world.tick()'s duration in ms. */
+export function recordTick(ms: number) {
+  tickMs[tickN % tickMs.length] = ms;
+  tickAt[tickN % tickMs.length] = Date.now();
+  tickN++;
+}
+
+function perf(w: MineflayerWorld) {
+  const now = Date.now(), round = (ms: number) => Math.round(ms * 10) / 10;
+  // (each sample is the time between two checks, so the 10 ms interval itself is taken off: 0 is a loop never late)
+  const loop = (ns: number) => round(Math.max(0, ns / 1e6 - LOOP_RES));
+  // (p99 and max the higher of the two minutes; p50 the current one's, or the minute before's while it has no samples)
+  const cur = loopDelay.count ? { p50: loopDelay.percentile(50), p99: loopDelay.percentile(99), max: loopDelay.max } : null;
+  const prev = loopPrev.count ? loopPrev : null;
+  const pick = (k: 'p99' | 'max') => Math.max(cur?.[k] ?? 0, prev?.[k] ?? 0);
+  const ticks: number[] = [];
+  for (let i = 0; i < Math.min(tickN, tickMs.length); i++) if (tickAt[i] >= now - 60_000) ticks.push(tickMs[i]);
+  ticks.sort((p, q) => p - q);
+  const mem = process.memoryUsage();
+  return {
+    rss: mem.rss, heapUsed: mem.heapUsed,
+    loop: cur || prev ? { p50: loop((cur ?? prev)!.p50), p99: loop(pick('p99')), max: loop(pick('max')) } : { p50: 0, p99: 0, max: 0 },
+    tick: { p99: round(ticks.length ? ticks[Math.min(ticks.length - 1, Math.ceil(0.99 * ticks.length) - 1)] : 0), max: round(ticks.length ? ticks[ticks.length - 1] : 0) },
+    rcon: w.rcon.peek(),
+    overview: { ms: overviewStats.ms, bytes: overviewStats.bytes, at: overviewStats.at },
+    agents: w.agents.size,
+    at: now,
+  };
+}
 
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (await handlePanel(w, req, res, url)) return;
@@ -29,6 +76,9 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const out = [await w.rcon.command(`gamemode spectator ${player}`), await w.rcon.command(`tp ${player} ${agent.name}`)];
     return sendJson(res, /No player was found/i.test(out.join(' ')) ? 404 : 200, { result: out });
   }
+
+  // Load at a glance (E.1): memory, the event loop, the world tick, RCON and the panel's overview
+  if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, agents: [...w.agents.values()].map((a) => a.name) });

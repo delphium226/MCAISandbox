@@ -35,13 +35,15 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 planner, MCAI_EXEC_MODEL its executor; only a local model there needs the agent server
                                 started with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
+  --verbose                     the full STATS line per agent beside the AGENTS table (over 4 agents the table replaces them)
 Stops early when every building is done, when an agent fails the same way MCAI_SAME_FAIL times (default 3), after
 MCAI_STALL_MIN minutes (default 3) without a successful action by anyone, or when one agent holding a task or running an
 action has had none for MCAI_AGENT_STALL_MIN minutes (default MCAI_STALL_MIN, at least 10; an agent with nothing to do is
 not stalled, and "cannot be gathered here" or "the mine is busy" count as work).
 The agents spawn on a ring 4 blocks outside the plot (beyond prepare_site's margin), on ground read from the world and
-checked after the spawn (S.0). At the end: each agent's busy and idle minutes (BUSY lines; an agent is busy while an
-action runs), the critical path through the board's tasks (CRIT lines), STOCK lines of the storage during the run for
+checked after the spawn (S.0), at least MCAI_SPAWN_GAP_S seconds apart (default 2.5, E.1). At the end: each agent's busy
+and idle minutes (BUSY lines; an agent is busy while an action runs; over 4 agents an AGENTS table of busy share, actions
+done and failed, contention, refused repeats and rescues in place of the STATS lines, E.1), the critical path through the board's tasks (CRIT lines), STOCK lines of the storage during the run for
 scripts/checks/autonomy_metrics.py, and the mine's MINE lines (S.2: cells a minute from the stairs to the last cobblestone
 collect and the peak of miners, the cobblestone tasks' times from claim to done, the busy hand-backs per agent with any
 REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs), and S.5's: STATIONS (when the hut's table and
@@ -174,6 +176,8 @@ p.add_argument("--planner", default="ollama:gpt-oss:120b-cloud")
 p.add_argument("--workers", type=int, default=2)
 p.add_argument("--mayor", action="store_true")
 p.add_argument("--minutes", type=float, default=20)
+p.add_argument("--verbose", action="store_true", help="the full STATS line per agent at any count (over 4 agents an AGENTS table "
+                                                      "replaces them)")
 p.add_argument("--mixed-wood", action="store_true", help="stage build: stock half the logs in another wood kind")
 p.add_argument("--no-deposit-check", action="store_true")
 p.add_argument("--harvest", action="store_true", help="after the build, set the farm ripe by command and check the harvest "
@@ -223,6 +227,8 @@ stall_minutes = float(os.environ.get("MCAI_STALL_MIN", "3"))
 # (at least 10: one action can run longer than MCAI_STALL_MIN with no success, a mine trip 6 minutes on the wall clock)
 agent_stall = float(os.environ.get("MCAI_AGENT_STALL_MIN", max(stall_minutes, 10)))
 same_fail = int(os.environ.get("MCAI_SAME_FAIL", "3"))
+# Seconds at least between two spawn POSTs (E.1: 25 bots joining at once load every chunk round the site together)
+SPAWN_GAP = float(os.environ.get("MCAI_SPAWN_GAP_S", "2.5"))
 
 
 def call(path, body=None, method=None):
@@ -805,11 +811,21 @@ def spawn_at(spot):
 
 # The run's usage counts from here
 usage_since = int(time.time() * 1000)
+last_spawn = [0.0]
+
+
+def spawn_gap():
+    """Wait out the rest of SPAWN_GAP since the last spawn POST (the spawn's check counts toward it)."""
+    time.sleep(max(0.0, last_spawn[0] + SPAWN_GAP - time.time()))
+    last_spawn[0] = time.time()
+
+
 for i, n in enumerate(names):
     call(f"/agents/{n}", method="DELETE")
     mem = {"village": args.village, "buildSpeed": 4, **reasoning}
     if args.brain == "tiered":
         mem.update({"planModel": args.planner, "execModel": exec_model})
+    spawn_gap()
     r = call("/agents", {"name": n, "role": "builder", "brain": args.brain, "gamemode": "survival", "reset": True,
                          "position": spawn_at(spots[n]), "memory": mem})
     print(f"{n}: {r}", flush=True)
@@ -818,6 +834,7 @@ if args.mayor:
     # The layout is the Mayor's own (posted with by=Mayor) and its plan is empty: the brain sees a mayor waiting for its
     # workers, which gathers meanwhile (V2.3m)
     call("/agents/Mayor", method="DELETE")
+    spawn_gap()
     r = call("/agents", {"name": "Mayor", "role": "mayor", "brain": "tiered", "gamemode": "survival", "reset": True,
                          "position": spawn_at(spots["Mayor"]),
                          "memory": {"village": args.village, "villageRole": "mayor", "buildSpeed": 4, "planModel": args.planner,
@@ -1151,6 +1168,8 @@ if args.after and reason == "every building is done":
     clock.restart()
     # (each agent's samples with an action running, F193: idle minutes per agent after completion)
     busy, samples = {n: 0 for n in watched}, 0
+    # (E.1: the same samples by the running action's type, {type: {agent: samples}}, for the grouped line over 6 agents)
+    doing = {}
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         listing = call("/agents")
@@ -1160,6 +1179,9 @@ if args.after and reason == "every building is done":
             for a in listing:
                 if a.get("name") in busy and a.get("action"):
                     busy[a["name"]] += 1
+                    kind = (a["action"].get("type") if isinstance(a["action"], dict) else None) or "?"
+                    doing.setdefault(kind, {}).setdefault(a["name"], 0)
+                    doing[kind][a["name"]] += 1
         for n in watched:
             events = call(f"/agents/{n}/events?since={seen[n]}")
             for e in events if isinstance(events, list) else []:
@@ -1206,6 +1228,13 @@ if args.after and reason == "every building is done":
     print(f"AFTER atlas within 176: {chunks0} -> {len(a1.get('chunks') or [])} chunks; plants {plants}; animals {animals}", flush=True)
     span = (time.time() - t2) / 60
     print("AFTER busy: " + ", ".join(f"{n} {span * busy[n] / max(1, samples):.1f}" for n in watched) + f" of {span:.1f} min", flush=True)
+    if len(watched) > 6:
+        # (over 6 agents the line above is a wall of names: agent-minutes per activity, with how many agents did it)
+        per = lambda c: span * c / max(1, samples)
+        groups = sorted(doing.items(), key=lambda kv: -sum(kv[1].values()))
+        idle = span * len(watched) - sum(per(c) for g in doing.values() for c in g.values())
+        print("AFTER busy by activity: " + ", ".join(f"{k} {per(sum(g.values())):.1f} ({len(g)} agent{'s' if len(g) != 1 else ''})" for k, g in groups)
+              + f"; idle {max(0.0, idle):.1f} agent-min of {len(watched)} x {span:.1f} min", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 stamps.update(v["tasks"])
@@ -1250,6 +1279,10 @@ for c in (v.get("storage") or {}).get("chests", []):
 print("STORAGE", storage)
 for i, c in enumerate((v.get("storage") or {}).get("chests", [])):
     print(f"  chest {i + 1} ({c.get('group')}) at {c['x']},{c['y']},{c['z']}: {c['items']}")
+# Over 4 agents one AGENTS table (one aligned row each) replaces the STATS lines, which --verbose keeps (E.1: 25 STATS lines
+# buried the rest of the summary)
+table = len(watched) > 4
+rows = []
 for n in watched:
     mem = call(f"/agents/{n}/memory") or {}
     st = mem.get("stats") or {}
@@ -1257,9 +1290,20 @@ for n in watched:
     refused = f", budget-refused {st['budgetRefused']}" if st.get("budgetRefused") else ""
     # (the stuck rescues by how, from the agent's memory: interventions for autonomy_metrics.py)
     rescues = {k: q for k, q in (mem.get("rescues") or {}).items() if k != "last"}
+    b = clock.busy["before"][n] + clock.busy["after"][n]
+    sp = clock.span["before"][n] + clock.span["after"][n]
+    rows.append((n, f"{100 * b / sp:.0f}%" if sp else "n/a", st.get("actionsDone", 0), st.get("actionsFailed", 0), st.get("contention", 0),
+                 st.get("repeatsRefused", 0), " ".join(f"{k} {q}" for k, q in rescues.items()) or "-"))
+    if table and not args.verbose:
+        continue
     print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
           f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
           f"contention {st.get('contention', 0)}, refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
+if table:
+    head = ("AGENTS", "busy", "done", "failed", "contention", "refused", "rescues")
+    wid = [max(len(str(r[i])) for r in rows + [head]) for i in range(len(head))]
+    for r in [head] + rows:
+        print("  ".join(str(c).ljust(wid[i]) if i in (0, 6) else str(c).rjust(wid[i]) for i, c in enumerate(r)).rstrip())
 for line in usage_lines(u, watched):
     print(line)
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])

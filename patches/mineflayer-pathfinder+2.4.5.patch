@@ -1,8 +1,64 @@
+diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
+index b38bd30..f8e05b1 100644
+--- a/node_modules/mineflayer-pathfinder/index.js
++++ b/node_modules/mineflayer-pathfinder/index.js
+@@ -61,7 +61,10 @@ function inject (bot) {
+   }
+ 
+   bot.pathfinder.getPathTo = (movements, goal, timeout) => {
+-    const generator = bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout })
++    // MCAISandbox (E.1): the search replaced stops asking for the shared allowance, and the new one's first slice is
++    // charged to it (never held back), so continued searches yield after a burst of new ones (lib/astar.js)
++    if (astarContext) AStar.forget(astarContext)
++    const generator = bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal, { timeout, chargeShare: true })
+     const { value: { result, astarContext: context } } = generator.next()
+     astarContext = context
+     return result
+@@ -91,7 +94,7 @@ function inject (bot) {
+       movements.updateCollisionIndex()
+     }
+     const astarContext = new AStar(start, movements, goal, timeout, tickTimeout, searchRadius)
+-    let result = astarContext.compute()
++    let result = astarContext.compute(options.chargeShare ? 'first' : false)
+     if (optimizePath) result.path = postProcessPath(result.path)
+     yield { result, astarContext }
+     while (result.status === 'partial') {
+@@ -130,6 +133,7 @@ function inject (bot) {
+     }
+     placing = false
+     pathUpdated = false
++    if (astarContext) AStar.forget(astarContext) // MCAISandbox (E.1): a dropped search stops asking for the allowance
+     astarContext = null
+     lockEquipItem.release()
+     lockPlaceBlock.release()
+@@ -440,12 +444,16 @@ function inject (bot) {
+     }
+ 
+     if (astarContext && astartTimedout) {
+-      const results = astarContext.compute()
+-      results.path = postProcessPath(results.path)
+-      pathFromPlayer(results.path)
+-      bot.emit('path_update', results)
+-      path = results.path
+-      astartTimedout = results.status === 'partial'
++      // MCAISandbox (E.1): a continued search takes its slice from the allowance every bot's search shares (astar.js);
++      // refused one, it expanded nothing, and the bot walks on along the path it has
++      const results = astarContext.compute(true)
++      if (!results.refused) {
++        results.path = postProcessPath(results.path)
++        pathFromPlayer(results.path)
++        bot.emit('path_update', results)
++        path = results.path
++        astartTimedout = results.status === 'partial'
++      }
+     }
+ 
+     if (bot.pathfinder.LOSWhenPlacingBlocks && returningPos) {
 diff --git a/node_modules/mineflayer-pathfinder/lib/astar.js b/node_modules/mineflayer-pathfinder/lib/astar.js
-index e7a82cb..8bc1c63 100644
+index e7a82cb..cd6d86b 100644
 --- a/node_modules/mineflayer-pathfinder/lib/astar.js
 +++ b/node_modules/mineflayer-pathfinder/lib/astar.js
-@@ -21,10 +21,19 @@ class PathNode {
+@@ -21,15 +21,154 @@ class PathNode {
    }
  }
  
@@ -23,3 +79,236 @@ index e7a82cb..8bc1c63 100644
      node = node.parent
    }
    return path.reverse()
+ }
+ 
++// MCAISandbox (E.1): every bot's search shares one allowance of search time. Each bot's continuation may search
++// tickTimeout ms a tick (15 in botAgent.ts, 7.5 at MC_TIME_SCALE 2 with ticks twice as often), so 25 bots searching at
++// once took 375 ms of a 50 ms tick and starved the event loop (the API, RCON and every other bot's physics share it).
++// The allowance is MC_PF_TICK_MS (20 by default) of search a 50 ms window of wall time, at any time scale.
++// - A search's demand is its tickTimeout times its calls a window (from the time between its calls, smoothed: timers fire
++//   unevenly and physics catches up with two ticks at once). While the searches asking (each counted once, however often
++//   it asked or was refused, over the last two windows: Windows timers fire on ~15.6 ms steps, so a 50 ms tick comes
++//   62.5 ms after the last) demand no more than the allowance, every call gets its full tickTimeout, as without the share.
++// - Above it, a continued search (compute(true), the pathfinder's tick) gets a fair part of its tickTimeout (the
++//   allowance over the demand, at least MIN_SLICE), never more than is left of the window (the calls that started in it),
++//   and none when nothing is left: the search expands nothing and goes on next tick, the bot walking the partial path it
++//   has. Each search leaves its fair part for every refused one that has waited longer (served last before it was), so
++//   the bots created last are not always the ones that wait (with 25 bots at 2x, room for every refused search alike let
++//   some wait 9 s; room for every refused one, however recently served, let the searches whose timers fired first in a
++//   window be served every tick and half the others every other tick). A 1 ms floor did the same at 1x: 25 slices of
++//   1 ms and more overflow a window, so the last timers in each were refused.
++// - Up to MC_PF_FREE_SEARCHES searches asking at once (3 by default) are never cut, whatever they demand: a village of
++//   three walked as before the share (two bots searching 15 ms a tick already ask for more than 20), and the allowance
++//   only binds when many bots search at once.
++// - A call is charged by what it returned: a search that found its path, found none or timed out stops asking, and so
++//   does one the pathfinder drops (AStar.forget, from resetPath and getPathTo).
++// - First slices (getPathTo's, compute('first')) are charged but never refused or cut (an empty slice would never move the
++//   caller on), so continued searches yield after a burst of new ones; the rescue's own search (getPathFromTo called
++//   directly, compute()) is neither charged nor held back.
++// - The total timeout is wall time less the time the share held the search back (the part of each tick a cut or refused
++//   call did not get, credited with the time to the next call), with a wall cap of 3x the timeout; a search never held
++//   back (alone, uncontended, or not shared) times out on the wall clock as before.
++const SHARE_WINDOW = 50 // ms of wall time
++const MIN_SLICE = 0.5 // ms: the least a served call gets
++const ASKING_FOR = 2 * SHARE_WINDOW // ms: a search that does not ask again within this has stopped asking
++const OWED_FOR = 150 // ms: a queued search that does not come back within this was given up (or found its path)
++const PERIOD_SMOOTHING = 0.25 // weight of the newest interval in a search's time between calls (it starts at a window)
++const share = {
++  allowance: 20, // ms a window; Infinity: off
++  free: 3, // searches asking at once that are never cut
++  calls: [], // { start, ms } of each charged call that started in the last window, oldest first
++  asking: new Map(), // search -> when it last asked, for those that asked in the last ASKING_FOR ms
++  owed: new Map(), // refused search -> when it was last refused
++  served: 0,
++  refused: 0,
++  firsts: 0
++}
++
++function configureShare ({ tickMs, free } = {}) {
++  const ms = Number(tickMs ?? 20)
++  const n = Number(free ?? 3)
++  share.free = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 3
++  // (0, "off" or anything not a number: no allowance, each search its own tickTimeout as before)
++  share.allowance = Number.isFinite(ms) && ms > 0 ? ms : Infinity
++  share.calls = []
++  share.asking.clear()
++  share.owed.clear()
++  return share.allowance
++}
++configureShare({ tickMs: process.env.MC_PF_TICK_MS ?? 20, free: process.env.MC_PF_FREE_SEARCHES ?? 3 })
++
++function prune (now) {
++  let i = 0
++  while (i < share.calls.length && share.calls[i].start <= now - SHARE_WINDOW) i++
++  if (i) share.calls.splice(0, i)
++  for (const [ctx, seen] of share.asking) if (now - seen > ASKING_FOR) share.asking.delete(ctx)
++  for (const [ctx, seen] of share.owed) if (now - seen > OWED_FOR) share.owed.delete(ctx)
++}
++
++// a search's tickTimeout times its calls a window
++function demand (ctx) {
++  return ctx.tickTimeout * Math.max(1, SHARE_WINDOW / ctx.sharePeriod)
++}
++
++// the searches asking now (and the queued ones, each once) and their demand
++function asking (ctx) {
++  const ctxs = new Set(share.owed.keys())
++  for (const c of share.asking.keys()) ctxs.add(c)
++  if (ctx) ctxs.add(ctx)
++  let total = 0
++  for (const c of ctxs) total += demand(c)
++  return { ctxs, total }
++}
++
++// this call's slice: the full tickTimeout while the demand fits, else a fair part of what is left
++function shareSlice (ctx) {
++  if (share.allowance === Infinity) return ctx.tickTimeout
++  const { ctxs, total } = asking(ctx)
++  if (ctxs.size <= share.free || total <= share.allowance) return ctx.tickTimeout
++  const fair = (c) => Math.max(MIN_SLICE, c.tickTimeout * share.allowance / total)
++  let used = 0
++  for (const c of share.calls) used += c.ms
++  // room for every queued search that has waited longer than this one (served last before this one was)
++  let reserved = 0
++  for (const other of share.owed.keys()) {
++    if (other !== ctx && other.shareServed < ctx.shareServed) reserved += fair(other)
++  }
++  return Math.min(ctx.tickTimeout, fair(ctx), share.allowance - used - reserved)
++}
++
++// a charged call's start: the time between the search's calls, and the time the share held it back since its last call
++function shareStart (ctx, now) {
++  if (ctx.shareLast !== undefined) {
++    const gap = now - ctx.shareLast
++    ctx.sharePeriod += PERIOD_SMOOTHING * (gap - ctx.sharePeriod)
++    ctx.heldMs += gap * ctx.shareLost
++  }
++  ctx.shareLast = now
++  ctx.shareLost = 0
++}
++
++function shareSpent (ctx, start, ms, slice, status, first) {
++  share.calls.push({ start, ms })
++  share.asking.set(ctx, start)
++  if (first) share.firsts++
++  else if (slice > 0) share.served++
++  else share.refused++
++  if (status !== 'partial') { // found, no path or timed out: no longer asking
++    forget(ctx)
++  } else if (!first && slice <= 0) {
++    share.owed.set(ctx, start)
++  } else {
++    share.owed.delete(ctx)
++    ctx.shareServed = start
++  }
++  // the part of this tick's work the share did not give (shareStart credits it with the time to the next call)
++  ctx.shareLost = status === 'partial' && !first ? Math.max(0, 1 - Math.max(0, slice) / ctx.tickTimeout) : 0
++}
++
++// a search dropped (the pathfinder's resetPath, or a new search in its place) or finished stops asking
++function forget (ctx) {
++  share.owed.delete(ctx)
++  share.asking.delete(ctx)
++}
++
+ class AStar {
+   constructor (start, movements, goal, timeout, tickTimeout = 40, searchRadius = -1) {
+     this.startTime = performance.now()
+@@ -38,6 +177,13 @@ class AStar {
+     this.goal = goal
+     this.timeout = timeout
+     this.tickTimeout = tickTimeout
++    // (MCAISandbox, E.1) the share's record of this search: ms it held the search back (the timeout leaves them out), the
++    // time between its calls, its last charged call's start, and the part of that call's tick it held back
++    this.heldMs = 0
++    this.sharePeriod = SHARE_WINDOW
++    this.shareLast = undefined
++    this.shareLost = 0
++    this.shareServed = this.startTime
+ 
+     this.closedDataSet = new Set()
+     this.openHeap = new Heap()
+@@ -64,13 +210,54 @@ class AStar {
+     }
+   }
+ 
+-  compute () {
++  // A refused call's result: nothing has changed, so its path (the best so far) is built only if it is read. The
++  // pathfinder's tick keeps the path it walks; building one for every refused call took ~1 ms a window past the
++  // allowance with 25 bots at 2x
++  refusedResult () {
++    const node = this.bestNode
++    let path = null
++    return {
++      status: 'partial',
++      refused: true,
++      cost: node.g,
++      time: performance.now() - this.startTime,
++      visitedNodes: this.closedDataSet.size,
++      generatedNodes: this.closedDataSet.size + this.openHeap.size(),
++      get path () { return path ?? (path = reconstructPath(node)) },
++      set path (p) { path = p },
++      context: this
++    }
++  }
++
++  // shared (MCAISandbox, E.1; above): true for a continued search, which takes its slice from the allowance all searches
++  // share; 'first' for a first slice, charged but never held back; false for a search the share does not see
++  compute (shared = false) {
+     const computeStartTime = performance.now()
++    const charged = shared !== false && share.allowance !== Infinity
++    if (charged) {
++      prune(computeStartTime)
++      shareStart(this, computeStartTime)
++    }
++    let slice = this.tickTimeout
++    let result
++    if (charged && computeStartTime - this.startTime > 3 * this.timeout) { // held back too long on the wall clock
++      result = this.makeResult('timeout', this.bestNode)
++    } else {
++      if (charged && shared === true) slice = shareSlice(this)
++      result = slice > 0 ? this.expand(computeStartTime, slice) : this.refusedResult() // (refused: nothing left)
++    }
++    if (charged) shareSpent(this, computeStartTime, performance.now() - computeStartTime, slice, result.status, shared === 'first')
++    return result
++  }
++
++  expand (computeStartTime, slice) {
+     while (!this.openHeap.isEmpty()) {
+-      if (performance.now() - computeStartTime > this.tickTimeout) { // compute time per tick
++      const now = performance.now()
++      if (now - computeStartTime > slice) { // compute time per tick
+         return this.makeResult('partial', this.bestNode)
+       }
+-      if (performance.now() - this.startTime > this.timeout) { // total compute time
++      const wall = now - this.startTime
++      if (wall - this.heldMs > this.timeout || wall > 3 * this.timeout) { // total compute time (less the time held back)
+         return this.makeResult('timeout', this.bestNode)
+       }
+       const node = this.openHeap.pop()
+@@ -122,4 +309,25 @@ class AStar {
+   }
+ }
+ 
++// MCAISandbox (E.1): the share's settings (for checks), forgetting a dropped search, and counts
++AStar.configureShare = configureShare
++AStar.forget = forget
++AStar.shareStats = () => {
++  const now = performance.now()
++  prune(now)
++  const { ctxs, total } = asking(null)
++  return {
++    allowanceMs: share.allowance,
++    windowMs: SHARE_WINDOW,
++    usedMs: share.calls.reduce((s, c) => s + c.ms, 0),
++    calls: share.calls.length,
++    searches: ctxs.size,
++    demandMs: total,
++    owed: share.owed.size,
++    served: share.served,
++    refused: share.refused,
++    firsts: share.firsts
++  }
++}
++
+ module.exports = AStar

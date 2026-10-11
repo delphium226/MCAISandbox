@@ -1632,7 +1632,13 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
     - VanH4's staged run is unchanged in time.
     - A scripted test with 12 bots and a human line makes 1-3 calls, not 12.
     - 25 concurrent calls through `modelCall.ts`: no rejection, priorities and the held slot honoured in the log, and withdrawn requests never sent.
-- [ ] E.1 **Infrastructure for 25 and the panel** (~1 session).
+- [x] E.1 **Infrastructure for 25 and the panel** (done 10-11, s27: max-players 30 and Worker1-24 in both worlds;
+  `/api/perf`; the RCON timeout with charges settled by counting; the pathfinder's shared allowance (20 ms a 50 ms wall
+  window, up to 3 searches never cut); find_site's survey on state ids (F219); the scan lock; the atlas round-robin; the
+  panel at 25; spawns 2.5 s apart and the AGENTS table; `scripts/checks/scale_probe25.py`, `pf_share.mts`. A review with
+  refutation (12 of 20 findings real) and a fix review before any run. E1b 3 agents 5.0 min, unchanged; the probe at 25
+  for 10 min: 0 `[lag]`, API p90 0.048 s, mspt worst 6.7, RCON p90 11-46 ms a 30 s window (F220), RSS 1.3 GB; Van25a, 25
+  agents staged, 6/6 in 4.1 min at 2x, 0 lag/stuck/timeouts).
   - **Paper:** `max-players=30` in `mc/server` and `mc/testserver`.
   - **Whitelist:** Worker5-24 on the main server; Worker12-24 on the test server, which already has Worker5-11.
   - **Spawns:** staggered, one every 2-3 s.
@@ -2478,6 +2484,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s27) | **Minevale38** | E.0, model-driven, 1x, minevale3 (the Mayor's site -1657,23), every role on gpt-oss; a human line from Gus (a plain Mineflayer player, `runs/2026-10-11/s27/human_line.cjs`) at ~1.5 min | **6/6 + lamps + signs + farm** | **10.1 min** (Minevale37 10.4) | **6 failed** (Worker2: F216's glass chain); the human line woke only the Mayor (154 blocks off, named) who answered in one executor call, the workers (out of range) never got it and heard the reply without a wake; `[gate]` waits 0 ms per kind, in flight max 2/3; spend ledger `runs/spend/2026-10-11-8767.jsonl`; 13 calls, ~$0.011; 0 `[lag]`/`[stuck]` |
 | 10-11 (s27) | **Minevale39** | E.0 + F216's step-matching fix, the same command | **stopped at 15.9 min**, incomplete (the storage hut never built) | - | **55 failed**: F217 (the furnace step now failing, the executor placed a furnace inside the storage hut's footprint, the hut's level check refused, the executor mined the village's storage chests); 17 `[stuck]`, 0 `[lag]`; 372k tokens in |
 | 10-11 (s27) | **Minevale40** | F216 + F217's fixes, the same command | **6/6 + lamps + signs + farm** | **11.0 min** | 3 failed (F218: one "no path" from a dirt_path, two improvised smelts out of fuel); the furnace placed by the stations task at 4.0; 0 `[lag]`/`[stuck]`; 13 calls, ~$0.010 |
+| 10-11 (s27) | **E1a, E1b** | E.1 with the review's fixes, staged, 2x, the S.0 command with `--workers 2` | E1a stopped at 1.7 min (F218: three "no path" from a dirt_path, the watcher's 3-same rule); E1b 6/6 | E1b **5.0 min** (E0a 4.9) | E1b 0 failed, 0 lag/stuck, 0 RCON timeouts; `/api/perf` live (3 agents: tick p99 3.3 ms, RCON p90 1 ms) |
+| 10-11 (s27) | **probe25** | `scale_probe25.py`, test world at -1544,8, 1x, levels 12/18/25, 600 s at 25: 10 collectors, 6 box builders, 5 storage loops, 2 find_site loops, 2 tiered agents | 312 builds, 465 storage trips (10 failed: the loops' cobblestone ran out), 145 find_site | 25 bots 10 min | 0 `[lag]`, API p90 0.08 s, mspt worst 6.2, **RCON p90 649 ms** (worst minute), loop p99 381 ms, RSS 1.46 GB; a CPU profile: 2.4% idle, find_site's surfaceAt 60% (F219) |
+| 10-11 (s27) | **probe25c** | the same at 25 only, with F219's fix | 475 builds, 468 storage trips (11 failed), 196 find_site, 5 `[stuck]` | 10 min | 0 `[lag]`, API p90 0.048 s, mspt worst 6.7 (max 127.5 once), RCON p90 11-46 ms a 30 s window with one 722 ms window (F220; the probe's worst-minute figure 297), loop p99 274 ms, RSS 1.28 GB; the profile **51% idle**, surfaceAt 1.8% |
+| 10-11 (s27) | **Van25a** | E.1, staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 24` (25 agents) | **6/6 + lamps + signs + farm** | **4.1 min** | 1 failed (a library build short of oak stairs, requeued); 0 `[lag]`, 0 `[stuck]`, 0 RCON timeouts, RCON p90 2-8 ms, 0 SPAWN WARNING; 21% busy (16 of 25 waiting while 8 mined: the work runs short at 25); panel screenshots readable at 25 (`runs/2026-10-11/s27/panel25_*.png`) |
 
 ## Findings log
 
@@ -3502,7 +3512,21 @@ CLAUDE.md when a phase ends.
 - F218 (10-11, s27, Minevale40, open) `make_into_storage` failed "no path to -1657,65,8" from -1657,64,15, the bot's
   feet on a street's `dirt_path` (15/16 high, so they floor a block low); the executor's `move_to` along the same line
   arrived at once. Then two improvised smelts ran out of fuel (3 failed actions). Look at walks that start on dirt_path
-  or farmland if it recurs.
+  or farmland if it recurs. Recurred in E1a (s27, staged, 2x, with E.1): Worker2 on the street's dirt_path at -1630,65,27,
+  7 blocks south of the furnace cell, three "no path" in a row within seconds (the stage watcher's 3-same-failures rule
+  stopped the run at 1.7 min), then the stuck rescue walked it out and the glass was made. The walk's `goto` resolved
+  without arriving (the message's "stopped at" branch), not a NoPath rejection. Not reproduced with Gus's `move_to` from
+  the same cell, in no village or as a member: next, `reach()`'s GoalNear on the hut cell (range 3) from that spot.
+- F219 (10-11, s27, probe25) At 25 bots the agent server's CPU was saturated (2.4% idle in a 40 s profile) with no `[lag]`
+  line at all (each turn short, every turn slow: event-loop p99 381 ms, RCON waits 649 ms): 60% was find_site's
+  `surfaceAt`, which read every column cell through `bot.blockAt` (a Block object per cell), the one scan lesson 53 had
+  not reached. Fixed: per-state classes (air, liquid, tree, ground) and names in a table per registry, read with
+  `stateAt`; `site.py` passes (the report against the blocks). probe25c: 51% idle, surfaceAt 1.8%, builds 312 -> 475 in
+  the same 10 minutes. The pathfinder's block reads (`getBlock` in botAgent's movements, 15%) are the largest left.
+- F220 (10-11, s27, probe25c) The probe's "RCON p90" is the worst one-minute p90 sampled from `/api/perf`, so one bad
+  minute fails the run: the server's own 30 s lines read 11-46 ms with one 722 ms window, when Paper's tick peaked at
+  127.5 ms (a save or chunk work on Paper's side, which a pool of connections would not help). No RCON pool (the spec:
+  only if queueing shows; the queue held at most 6). Count the run's p90 over all commands next time.
 
 ## Decisions log
 
@@ -3872,6 +3896,19 @@ CLAUDE.md when a phase ends.
 - 10-11 (s26) The user added two goals: agents propose improvements to the game, which Claude triages (rejects with a
   reason, or accepts and implements), and long-horizon memory for agents, the best mechanism to be investigated and
   implemented (the roadmap's goals note).
+- 10-11 (s27) G2, long-horizon memory, started with the user. The user's choices: design for both horizons at once
+  (continuous multi-hour runs, and a village that persists across agent-server restarts and days); memory serves all four
+  purposes (competence, identity and relations, shared village memory, G1's improvement proposals); **model-managed**
+  memory (gpt-oss decides what to keep, through memory tools), which reverses A.4/E.2's "code selects" premise (it rested
+  on Qwen3-30B results; every role is gpt-oss-120b now); a literature refresh and an offline memory bench built from our
+  run logs, in parallel, before any design. Starting point (s27's inventory): an agent's memory is never saved (a restart
+  or respawn wipes it), the model's only memory write is `set_plan`'s notes (replaced each time, planner only), prompts
+  see only events not yet shown (30/20, 5 chat lines), nothing summarises; long-lived memory is village-level only.
+- 10-11 (s27) E.1's pathfinder allowance is CPU per 50 ms of wall time (`MC_PF_TICK_MS`, default 20), **not divided by
+  the time scale** (the spec's wording halved a lone bot's search at 2x: 7.9 ms per 50 ms against 15, measured offline by
+  the review), and searches are **not throttled while total demand fits** the allowance: the share only cuts slices
+  under real contention. A search's timeout is wall time minus the time the share held it back (the rescue's 5 s search
+  stays 5 s).
 
 ## Keeping this plan honest
 

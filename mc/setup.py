@@ -85,7 +85,7 @@ def setup_properties():
         "difficulty=peaceful",
         "spawn-protection=0",
         "allow-flight=true",
-        "max-players=16",
+        "max-players=30",
         "view-distance=8",
         "simulation-distance=6",
         "",

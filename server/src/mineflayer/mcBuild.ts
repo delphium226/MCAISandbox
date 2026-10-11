@@ -27,10 +27,10 @@ import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
-import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
+import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
-import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
+import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
 
 type Pos = [number, number, number];
@@ -78,9 +78,38 @@ function blockName(a: BotAgent, x: number, y: number, z: number): string | null 
   return a.bot.blockAt(new Vec3(x, y, z))?.name ?? null;
 }
 
+/**
+ * Per-state classes for surfaceAt (one table per registry): 1 air, 2 liquid, 4 a tree block, 8 ground, and each state's
+ * block name. surfaceAt read every cell through blockAt, a Block object built per cell: find_site's survey took two
+ * thirds of the agent server's CPU in E.1's 25-bot probe (lesson 53's cost, in the one scan it had not reached).
+ */
+const S_AIR = 1, S_LIQUID = 2, S_TREE = 4, S_GROUND = 8;
+const surfaceTables = new WeakMap<object, { cls: Uint8Array; name: string[] }>();
+function surfaceTable(a: BotAgent) {
+  const reg = a.world.registry;
+  let t = surfaceTables.get(reg);
+  if (!t) {
+    const n = reg.blocksArray.reduce((m, b) => Math.max(m, b.maxStateId + 1), 0);
+    t = { cls: new Uint8Array(n), name: new Array<string>(n) };
+    for (const b of reg.blocksArray) {
+      // (kelp and seagrass are water too: their box is empty and they carry no waterlogged state, so a lake whose kelp
+      // reached the surface read as dry ground at the seabed, T.3 review)
+      const logged = LIQUID.has(b.name) ? null : waterloggedEmpty(b);
+      const base = (b.name === 'air' || b.name === 'cave_air' ? S_AIR : 0) | (LIQUID.has(b.name) ? S_LIQUID : 0)
+        | (isLog(b.name) || isLeaves(b.name) ? S_TREE : 0) | (b.boundingBox === 'block' && !NON_GROUND.has(b.name) ? S_GROUND : 0);
+      for (let s = b.minStateId; s <= b.maxStateId; s++) {
+        t.cls[s] = base | (logged?.(s) ? S_LIQUID : 0);
+        t.name[s] = b.name;
+      }
+    }
+    surfaceTables.set(reg, t);
+  }
+  return t;
+}
+
 /** The top of a column as a builder sees it: liquid, or the first solid non-plant block, plus tree blocks above it. */
 function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
-  const v = new Vec3(x, 0, z);
+  const { cls, name } = surfaceTable(a);
   let trees = 0;
   // Ground higher than the window read as solid at its top cell: flat, treeless ground at yHint + 32 (F88: "ground
   // y=101, height range 0, 0 tree blocks" on a wooded hill at y 119). Start above the column's top instead
@@ -88,20 +117,19 @@ function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | 
   const top = (game.minY ?? -64) + (game.height ?? 384) - 1;
   let start = yHint + 32;
   for (;;) {
-    const b = a.bot.blockAt(v.set(x, start, z));
-    if (!b) return null; // not loaded
-    if (b.name === 'air' || start >= top) break;
+    const s = stateAt(a, x, start, z);
+    if (s < 0) return null; // not loaded
+    if (name[s] === 'air' || start >= top) break;
     start = Math.min(top, start + 16);
   }
   for (let y = start; y > yHint - 48; y--) {
-    const b = a.bot.blockAt(v.set(x, y, z));
-    if (!b) return null; // not loaded
-    if (b.name === 'air' || b.name === 'cave_air') continue;
-    // (kelp and seagrass are water too: their box is empty and they carry no waterlogged state, so a lake whose kelp
-    // reached the surface read as dry ground at the seabed, T.3 review)
-    if (LIQUID.has(b.name) || b.getProperties?.().waterlogged === true && b.boundingBox === 'empty') return { y, block: b.name, liquid: true, trees };
-    if (isLog(b.name) || isLeaves(b.name)) trees++;
-    if (b.boundingBox === 'block' && !NON_GROUND.has(b.name)) return { y, block: b.name, liquid: false, trees };
+    const s = stateAt(a, x, y, z);
+    if (s < 0) return null; // not loaded
+    const c = cls[s];
+    if (c & S_AIR) continue;
+    if (c & S_LIQUID) return { y, block: name[s], liquid: true, trees };
+    if (c & S_TREE) trees++;
+    if (c & S_GROUND) return { y, block: name[s], liquid: false, trees };
   }
   // Loaded, but no ground within 48 blocks down: a ravine or a cave shaft (reported as far below the level, not as
   // unloaded: "walk closer" sent a worker standing beside the plot walking in circles)
@@ -237,10 +265,8 @@ function inventoryCounts(a: BotAgent): Counts {
  */
 async function carriedCounts(a: BotAgent, items: string[]): Promise<Counts> {
   const out: Counts = {};
-  for (const n of items) {
-    const r = await a.world.rcon.command(`clear ${a.name} ${n} 0`);
-    out[n] = Number(/Found (\d+)/i.exec(r)?.[1] ?? 0);
-  }
+  // (a lost answer is not 0: runJob settles its charges against these counts, E.1)
+  for (const n of items) out[n] = await a.world.rcon.count(a.name, n);
   return out;
 }
 
@@ -717,6 +743,15 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     reservation = reg.reserve(v, job.claim.area, a.name, job.claim.purpose);
   }
   const notes: string[] = [];
+  // What the builder carries of each charged item as the server counted it, kept up to date by the charges and refunds
+  // below: a charge or refund whose answer is lost is settled against it (E.1's review). Read again after a walk.
+  const onHand = new Map<string, number>();
+  const giveBack = async (item: string, n: number) => {
+    const before = onHand.get(item);
+    const out = await a.world.rcon.give(a.name, item, n, before);
+    if (before !== undefined && /^Gave/i.test(out)) onHand.set(item, before + n);
+    else onHand.delete(item);
+  };
   try {
     await standBy(a, job, signal);
     // What is left to do, and in what order: clearing top-down, then placing bottom-up
@@ -864,6 +899,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       const held = v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name
         && (job.task ? t.detail === job.task || t.detail.startsWith(`${job.task} `) : /^Build /.test(t.title) && !!job.design && t.detail.includes(`build_design "${job.design}"`)));
       if (v && held) a.world.markDrawn(v, held.id, a.name);
+      for (const [n, q] of Object.entries(inv)) onHand.set(n, q);
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
     type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean; then?: string; open?: boolean };
@@ -935,6 +971,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         if (inBody.length) console.log(`[build] ${a.name}: ${inBody.join(', ')} in the way of ${c.cmd}`);
         if (inBody.includes(a.name) && !waited.has(i)) {
           await standBy(a, job, signal, true);
+          onHand.clear(); // (a walk can pick things up)
           inBody = playersIn(a, c.pos, h);
         }
         const bots = inBody.filter((name) => name === a.name || a.world.isAgent(name));
@@ -957,10 +994,12 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
       // Survival: take the blocks from the inventory first; running out stops the job (optional blocks are skipped)
       const cost = pay && c.item && c.n > 0 ? c.item : null;
       if (cost) {
-        const r = await a.world.rcon.command(`clear ${a.name} ${cost} ${c.n}`);
-        const got = Number(/Removed (\d+)/i.exec(r)?.[1] ?? 0);
+        // (a lost answer is settled by counting: all taken goes on and places, part is given back, none was never charged)
+        const before = onHand.get(cost) ?? (await a.world.rcon.count(a.name, cost));
+        const got = await a.world.rcon.take(a.name, cost, c.n, before);
+        onHand.set(cost, before - got);
         if (got < c.n) {
-          if (got) await a.world.rcon.command(`give ${a.name} ${cost} ${got}`);
+          if (got) await giveBack(cost, got);
           if (c.optional) continue;
           outOf = i;
           break;
@@ -975,7 +1014,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         else placed += c.n;
         if (cost) spent[cost] = (spent[cost] ?? 0) + c.n;
       } else {
-        if (cost) await a.world.rcon.command(`give ${a.name} ${cost} ${c.n}`); // not placed: give the blocks back
+        if (cost) await giveBack(cost, c.n); // not placed: give the blocks back
         if (!/Could not set the block|No blocks were filled/i.test(out)) {
           const why = /not loaded/i.test(out) ? 'in unloaded chunks' : `rejected (${out.slice(0, 60)})`;
           skipped.set(why, (skipped.get(why) ?? 0) + c.n);
@@ -1019,6 +1058,60 @@ function placeableBlock(a: BotAgent, name: string, what: string): string {
 const int = (args: Record<string, unknown>, k: string) => Math.floor(num(args[k], k));
 const size = (args: Record<string, unknown>, k: string, def: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.floor(args[k] !== undefined ? num(args[k], k) : def)));
+
+// One find_site or prepare_site scan at a time in the whole process (E.1): with 25 agents, surveys running together share
+// the event loop's slices (find_site's survey reads up to ~70,000 columns) and starve the bots' keep-alives (lessons 16, 53). The next
+// scan is let in on a later turn of the loop, so scans never run back to back in one stretch either.
+let scanHeld = false;
+const scanQueue: Array<() => void> = [];
+
+class ScanTurn {
+  private held = false;
+
+  /** Wait for the turn (at once when no scan runs); throws 'cancelled' when the skill is cancelled while waiting. */
+  async take(signal?: AbortSignal) {
+    if (this.held) return;
+    if (signal) checkAbort(signal);
+    if (scanHeld)
+      await new Promise<void>((ok, fail) => {
+        const grant = () => {
+          signal?.removeEventListener('abort', cancel);
+          ok();
+        };
+        const cancel = () => {
+          const i = scanQueue.indexOf(grant);
+          if (i >= 0) scanQueue.splice(i, 1);
+          fail(new Error('cancelled'));
+        };
+        scanQueue.push(grant);
+        signal?.addEventListener('abort', cancel, { once: true });
+      });
+    else scanHeld = true;
+    this.held = true;
+  }
+
+  /** Give the turn up (again is harmless): the next waiter gets it on a later turn of the loop. */
+  release() {
+    if (!this.held) return;
+    this.held = false;
+    setImmediate(() => {
+      const next = scanQueue.shift();
+      if (next) next();
+      else scanHeld = false;
+    });
+  }
+}
+
+/** Run a scan holding the turn, given up however it ends. */
+async function withScanTurn<T>(signal: AbortSignal | undefined, scan: () => Promise<T> | T): Promise<T> {
+  const turn = new ScanTurn();
+  await turn.take(signal);
+  try {
+    return await scan();
+  } finally {
+    turn.release();
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 // find_site
@@ -1212,7 +1305,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   // A site of the full size but with no trees near it (survival), kept in case nothing better turns up
   let bare: { c: SiteCandidate; logs: Vec3[] } | null = null;
   // The column survey around one spot: the ground grid and the wood near it
-  const survey = async (ox: number, oz: number, r = SITE_WIDE + Math.floor(sz / 2), logR = 128) => {
+  const survey = (ox: number, oz: number, r = SITE_WIDE + Math.floor(sz / 2), logR = 128) => withScanTurn(signal, async () => {
     const g = await surveyGround(a, ox, oz, r, taken, signal);
     // Survival: a village needs wood, so ground with trees within reach wins (a desert site had none within 128 blocks)
     // Trees, not wood buried far below (mineshaft supports at y=34 under a desert site at y=70 counted as wood near it,
@@ -1237,7 +1330,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
     // trees under it, which no worker may gather: review of B)
     const woodNear = survival ? (x: number, z: number, y: number) => logs.filter((q) => q.y >= y - 16 && Math.hypot(q.x - x, q.z - z) <= 48).length : null;
     return { g, logs, woodNear };
-  };
+  });
   // Where the atlas knows the land (plan step 2.3): when the ground around the bot has nothing good, its best few areas
   // are checked by the column survey there, nearest first after the best, before any blind leg. Only for an agent in no
   // village and a mayor's first site: workers (told to run find_site after a failed prepare) and a mayor's second plot
@@ -1444,6 +1537,17 @@ function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
 // ---------------------------------------------------------------------------------------------
 
 async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  // The scan, from the first column read to the job's targets, holds the scan turn (E.1); given up for walks and the
+  // job, and here however the skill ends
+  const turn = new ScanTurn();
+  try {
+    return await prepareSiteHeld(a, args, signal, turn);
+  } finally {
+    turn.release();
+  }
+}
+
+async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal, turn: ScanTurn): Promise<string> {
   const p = a.bot.entity.position;
   const v = a.village();
   // One part of a layout's plot prepared in parts (S.6, layout=N part=K): its rectangle and margins come from the layout
@@ -1472,13 +1576,16 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
       }
     return true;
   };
+  await turn.take(signal);
   if (!scan()) {
     // A 40 plot's far corners can lie beyond what the server sends from where the preparer stands (V2.4's review): walk
     // to its middle first
+    turn.release();
     await walk(a, new goals.GoalNearXZ(cx, cz, 3), `the plot's middle at ${cx},${cz}`, signal, 90000).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
     });
     await a.bot.waitForChunksToLoad().catch(() => {});
+    await turn.take(signal);
     checkAbort(signal);
     if (!scan()) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
   }
@@ -1509,10 +1616,12 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     let counts = layoutCounts();
     if (!counts) {
       const mx = Math.floor((lay.x1 + lay.x2) / 2), mz = Math.floor((lay.z1 + lay.z2) / 2);
+      turn.release();
       await walk(a, new goals.GoalNearXZ(mx, mz, 3), `the plot's middle at ${mx},${mz}`, signal, 90000).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
       });
       await a.bot.waitForChunksToLoad().catch(() => {});
+      await turn.take(signal);
       checkAbort(signal);
       // (another part may have worked it out meanwhile; this part's own columns read again from here)
       counts = lay.y === undefined ? layoutCounts() : new Map();
@@ -1651,6 +1760,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     if (n && isLog(n) && n !== 'mushroom_stem') logs[n] = (logs[n] ?? 0) + 1;
   }
   const claim = { area: { x1: x0 - mW, z1: z0 - mN, x2: x1 + mE, z2: z1 + mS }, purpose: part ? `prepare part ${partK} of the village plot` : 'prepare a plot', avoidStructures: false };
+  turn.release();
   let summary = await runJob(a, { targets, area: plot, y, free: true, claim }, signal, felled);
   if (a.gamemode !== 'creative' && Object.keys(logs).length) {
     for (const [n, q] of Object.entries(logs)) await a.world.rcon.command(`give ${a.name} ${n} ${q}`);
@@ -2680,7 +2790,8 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
       const seeds = await count('wheat_seeds');
       gotSeeds = seeds - seeds0;
       const n = Math.min(looted.length, seeds);
-      charged = n ? Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} wheat_seeds ${n}`))?.[1] ?? 0) : 0;
+      // (a lost answer is settled by counting, E.1: read as 0 taken it left every looted cell bare)
+      charged = n ? await a.world.rcon.take(a.name, 'wheat_seeds', n, seeds) : 0;
     } catch (e) {
       // The server's counts did not come back: every looted cell is sown all the same (a bare cell is never sown again;
       // a few seeds not charged is the lesser harm)
@@ -2995,7 +3106,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
       try {
         const have = await serverCount(a, spec.item);
         const n = Math.min(looted.length, have);
-        charged = n ? Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} ${spec.item} ${n}`))?.[1] ?? 0) : 0;
+        charged = n ? await a.world.rcon.take(a.name, spec.item, n, have) : 0;
       } catch (e) {
         notes.push(`sown without charging: ${(e as Error).message.slice(0, 100)}`);
       }
@@ -3066,7 +3177,8 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
     // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
     ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - 4) : []),
   ];
-  const g = await surveyGround(a, cx, cz, r, taken, signal);
+  // (prepare_annex's survey takes the scan turn as find_site's does, E.1)
+  const g = await withScanTurn(signal, () => surveyGround(a, cx, cz, r, taken, signal));
   const m = g.n + 1;
   const rectSum = (P: Int32Array, q: Area) => {
     const i = q.x1 - g.x0, j = q.z1 - g.z0, w = q.x2 - q.x1 + 1, h = q.z2 - q.z1 + 1;
@@ -3286,7 +3398,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     });
     // The lure in the off-hand, by command (an empty one only)
     if (/passed/i.test(await rcon(`execute if items entity ${name} weapon.offhand *`))) throw new Error('start_pen: the off-hand holds something already');
-    const cleared = Number(/Removed (\d+)/i.exec(await rcon(`clear ${name} minecraft:${lure} ${seeds}`))?.[1] ?? 0);
+    const cleared = await a.world.rcon.take(name, `minecraft:${lure}`, seeds);
     if (!cleared) throw new Error(`start_pen: the ${lure} could not be taken from the inventory`);
     held = cleared;
     await rcon(`item replace entity ${name} weapon.offhand with minecraft:${lure} ${held}`);
@@ -3567,7 +3679,7 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     if (have < 2) await withdrawItems(a, v, { [food]: 2 - have }, signal);
     if ((await serverCount(a, food)) < 2) throw new Error(`breed_pen: needs 2 ${food} to breed the ${kind}s (storage has ${storageContents(v)[food] ?? 0})`);
     notes.push(await toGate(signal));
-    refund = Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} minecraft:${food} 2`))?.[1] ?? 0);
+    refund = await a.world.rcon.take(a.name, `minecraft:${food}`, 2);
     if (refund < 2) throw new Error(`breed_pen: could not take 2 ${food} from the inventory`);
     const r = await rcon(`execute as @e[type=minecraft:${kind},${sel},nbt={Age:0},limit=2,sort=random] run data merge entity @s {InLove:600}`);
     const fed = (r.match(/Modified entity data/gi) ?? []).length;
@@ -3620,7 +3732,7 @@ async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: Abor
     notes.push(await toGate(signal));
     let milked = 0;
     for (let i = 0; i < n; i++) {
-      taken = Number(/Removed (\d+)/i.exec(await rcon(`clear ${a.name} minecraft:bucket 1`))?.[1] ?? 0);
+      taken = await a.world.rcon.take(a.name, 'minecraft:bucket', 1);
       if (!taken) break;
       await rcon(`give ${a.name} minecraft:milk_bucket 1`);
       taken = 0;

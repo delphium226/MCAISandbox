@@ -100,6 +100,11 @@
   .wm-acts div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .wm-acts i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, .6); margin-right: 6px; }
   .wm-acts span { color: var(--muted); margin-left: 6px; }
+  /* (over 8 agents: a line per activity, names wrapping under it) */
+  .wm-acts.many { max-width: min(380px, 50%); }
+  .wm-acts.many div { white-space: normal; overflow: visible; }
+  .wm-acts.many span { margin-left: 4px; color: var(--text); white-space: nowrap; }
+  .wm-acts.many span i { width: 7px; height: 7px; margin-right: 2px; }
   #worldmap .card:fullscreen, #worldmap .card.wm-full { position: fixed; inset: 0; z-index: 20; border-radius: 0; display: flex; flex-direction: column;
     padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px)); background: var(--panel); }
   #worldmap .card:fullscreen .wm-box, #worldmap .card.wm-full .wm-box { flex: 1; min-height: 0; }
@@ -184,6 +189,26 @@
   .now-list li { font-size: 13px; display: flex; gap: 8px; min-width: 0; }
   .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .clamp1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  /* Activity groups and their filter chips (both views), and the detailed view's folded agents */
+  .afilter { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 8px; }
+  h2 .afilter { display: inline-flex; margin: 0 0 0 10px; vertical-align: middle; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .who-group { display: flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px 0 2px; border-bottom: 1px solid var(--line); }
+  .afilter + .who-group { padding-top: 0; }
+  .who-group .cnt { font-variant-numeric: tabular-nums; font-weight: 400; }
+  .who.compact li { grid-template-columns: 150px minmax(0, 1fr) auto; padding: 3px 0; gap: 10px; align-items: center; }
+  .who.compact .who-name { display: flex; gap: 6px; align-items: center; white-space: nowrap; overflow: hidden; }
+  .who.compact .who-doing { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .adot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0, 0, 0, .55); flex: none; }
+  .folded { padding: 6px 8px; }
+  #agents:not(:empty) + #agentsFolded .folded { margin-top: 14px; }
+  .folded ul { margin: 0; padding: 0; list-style: none; columns: 440px; column-gap: 14px; }
+  .folded li { border-bottom: 1px dashed var(--line); min-width: 0; break-inside: avoid; }
+  .rowbtn { display: flex; align-items: center; gap: 8px; width: 100%; background: transparent; border: 0; border-radius: 4px; padding: 4px 4px; text-align: left; min-width: 0; }
+  .rowbtn:hover { background: var(--panel-2); }
+  .rowbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .rowbtn .nm { font-weight: 650; flex: none; min-width: 64px; }
+  .rowbtn .doing { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs .fold { margin-left: auto; }
   @media (max-width: 700px) {
     .key-icons, .key-ground { grid-template-columns: 1fr; }
     .vgrid { grid-template-columns: 1fr; }
@@ -191,6 +216,7 @@
     .stat { justify-items: start; }
     .stock-row { grid-template-columns: 1fr; gap: 2px; }
     .grid { grid-template-columns: 1fr; }
+    .folded ul { columns: 1; }
     main { padding: 12px 16px; }
     .feed li { grid-template-columns: 1fr; gap: 0; }
     input[type=text] { width: 120px; }
@@ -238,8 +264,9 @@
     </section>
   </div>
   <div class="detailed-only">
-    <h2>Agents <span id="agentCount" class="sub"></span></h2>
+    <h2>Agents <span id="agentCount" class="sub"></span><span id="agentFilter"></span></h2>
     <div class="grid" id="agents"></div>
+    <div id="agentsFolded"></div>
     <div id="villagesWrap"></div>
     <div id="wmSlotDetailed"></div>
     <div id="feedWrap"></div>
@@ -276,7 +303,7 @@ $('mode').onclick = () => {
   history.replaceState(null, '', simple ? '#simple' : '#detailed');
   applyMode();
   if (lastData) render(lastData);
-  if (!simple) refreshMaps();
+  if (!simple) { refreshMaps(); refreshCalls(); }
 };
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
 $('player').value = store.get('panel.player', '');
@@ -335,12 +362,21 @@ function renderRescues(r) {
 // Drill-down tabs (the detailed view): each card shows a summary and a row of tabs; a tab's content is drawn only while
 // it is open (one per card; a second click closes it); remembered per browser
 const openTabs = (() => { try { return JSON.parse(store.get('panel.tabs', '{}')) || {}; } catch { return {}; } })();
-function tabBar(key, items) {
+function tabBar(key, items, extra = '') {
   const cur = openTabs[key];
   return `<div class="tabs">${items.filter(Boolean).map(([id, label]) =>
-    `<button type="button" class="tab${cur === id ? ' on' : ''}" aria-expanded="${cur === id}" data-tabkey="${esc(key)}" data-tab="${esc(id)}">${label}</button>`).join('')}</div>`;
+    `<button type="button" class="tab${cur === id ? ' on' : ''}" aria-expanded="${cur === id}" data-tabkey="${esc(key)}" data-tab="${esc(id)}">${label}</button>`).join('')}${extra}</div>`;
 }
 const tabOpen = (key) => openTabs[key];
+// Detailed view: a card shows in full when pinned open, or with 8 agents or fewer until it is folded; the others fold to
+// a line each (E.1: 25 full cards were a long scroll, and only open cards fetch their map or model calls)
+const cardPrefs = (() => { try { return JSON.parse(store.get('panel.cards', '{}')) || {}; } catch { return {}; } })();
+const cardOpen = (name, n) => (cardPrefs[name] ? cardPrefs[name] === 'open' : n <= 8);
+/** The agents whose full card is on the page (the activity filter and folding applied). */
+function openCardNames() {
+  const agents = (lastData && lastData.agents) || [];
+  return agents.filter((a) => actShown(a) && cardOpen(a.name, agents.length)).map((a) => a.name);
+}
 
 function renderAgent(a) {
   const st = a.status || { state: agentState(a), detail: a.brain ? '' : 'no brain: controlled through the API' };
@@ -377,8 +413,8 @@ function renderAgent(a) {
       ${st.urgent ? `<dt>urgent</dt><dd>yes (chat or damage to answer)</dd>` : ''}
       ${a.notes ? `<dt>long-term notes</dt><dd>${esc(a.notes)}</dd>` : ''}
     </dl>`;
-  else if (tab === 'exec') body = seenBody(st.lastExecutorCall);
-  else if (tab === 'planner') body = seenBody(st.lastPlannerCall);
+  else if (tab === 'exec') body = seenBody(fullCall(a.name, 'executor', st.lastExecutorCall));
+  else if (tab === 'planner') body = seenBody(fullCall(a.name, 'planner', st.lastPlannerCall));
   else if (tab === 'decisions') body = decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>';
   else if (tab === 'events') body = events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>';
   else if (tab === 'inv') body = `${a.holding ? `<div class="sub">holding ${esc(a.holding)}</div>` : ''}${inv || '<div class="empty">empty</div>'}`;
@@ -397,7 +433,7 @@ function renderAgent(a) {
   else if (tab === 'stats') body = renderStats(a.stats) + renderRescues(a.rescues);
   return `<div class="card dcard">
     <div class="card-head">
-      <span class="name">${esc(a.name)}</span>
+      <i class="adot" style="background:${agentColor(a.name)}" title="its colour on the maps"></i><span class="name">${esc(a.name)}</span>
       <span class="sub">${esc(a.villageRole || a.role)}${a.village ? ` of ${esc(a.village)}` : ''} · ${esc(a.brain || 'no brain')} · ${esc(a.gamemode)}</span>
       <span class="spacer"></span>
       <span class="state" style="--c:${color}">${esc(st.state)}</span>${st.since ? `<span class="sub">${ago(st.since)}</span>` : ''}
@@ -415,7 +451,8 @@ function renderAgent(a) {
       <span title="actions done / failed">${n('actionsDone')} done${n('actionsFailed') ? ` · <span class="bad">${n('actionsFailed')} failed</span>` : ''}</span>
     </div>
     ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
-      ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']])}
+      ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
+      `<button type="button" class="tab fold" data-card="${esc(a.name)}" data-cardto="closed" title="Fold this card to one line">Fold ▴</button>`)}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
     <div class="acts">${watch}
       <button data-act="stop" data-agent="${esc(a.name)}" title="Cancel the current and queued actions">Stop actions</button>
@@ -423,11 +460,45 @@ function renderAgent(a) {
       ${a.buildSpeed ? `<span class="sub">buildSpeed ${esc(a.buildSpeed)}</span>` : ''}</div>
   </div>`;
 }
+// The last model calls in full (prompt and reply), fetched per agent only while its "saw" tab is open: the overview
+// carries just their time and tokens (E.1). An agent server from before E.1 still sends them whole in the overview.
+const fullCalls = new Map();
+/** The call to show: the overview's own when it is whole, else the fetched one (null while it is on its way). */
+function fullCall(name, kind, summary) {
+  if (!summary || summary.prompt !== undefined) return summary;
+  const f = fullCalls.get(name);
+  return (f && f[kind]) || { ...summary, loading: true };
+}
+/** Agents whose open card shows a "saw" tab with only the summary in the overview. */
+async function refreshCalls() {
+  if (paused || simple || !lastData) return;
+  const open = new Set(openCardNames());
+  const want = lastData.agents.filter((a) => {
+    const tab = openTabs[`agent:${a.name}`];
+    const s = tab === 'exec' ? a.status?.lastExecutorCall : tab === 'planner' ? a.status?.lastPlannerCall : null;
+    return s && s.prompt === undefined && open.has(a.name);
+  });
+  if (!want.length) return;
+  await Promise.all(want.map(async (a) => {
+    try { fullCalls.set(a.name, await api(`/api/agents/${encodeURIComponent(a.name)}/calls`)); } catch {}
+  }));
+  if (lastData) render(lastData);
+}
+/** A folded agent: one line that opens its card. */
+function foldedRow(a) {
+  const state = agentState(a);
+  return `<li><button type="button" class="rowbtn" data-card="${esc(a.name)}" data-cardto="open" title="Open ${esc(a.name)}'s card">
+    <i class="adot" style="background:${agentColor(a.name)}"></i><span class="nm">${esc(a.name)}</span>
+    <span class="state" style="--c:${STATE_COLORS[state] || 'var(--idle)'}">${esc(state)}</span>
+    <span class="doing">${esc(a.dead ? 'Dead' : doingWords(a))}${a.task ? ` <span class="sub">· ${esc(a.task.title)}</span>` : ''}</span>${flags(a)}</button></li>`;
+}
 /** The last model call: the prompt and the answer. */
 function seenBody(c) {
   if (!c) return '<div class="empty">no call yet</div>';
   const calls = (c.calls || []).map((x) => `<li>${esc(x.name)}(${esc(JSON.stringify(x.input))})</li>`).join('');
-  return `<div class="sub">${esc(c.model)}${c.ms != null ? `, ${Math.round(c.ms / 100) / 10}s` : ''}${c.promptTokens ? `, ${c.promptTokens} prompt tokens` : ''}${c.outputTokens != null ? `, ${c.outputTokens} output tokens` : ''}${c.think ? `, reasoning ${esc(c.think)}` : ''}, ${ago(c.at)} ago; the fixed system prompt for its role is not shown</div>
+  const head = `<div class="sub">${esc(c.model)}${c.ms != null ? `, ${Math.round(c.ms / 100) / 10}s` : ''}${c.promptTokens ? `, ${c.promptTokens} prompt tokens` : ''}${c.outputTokens != null ? `, ${c.outputTokens} output tokens` : ''}${c.think ? `, reasoning ${esc(c.think)}` : ''}, ${ago(c.at)} ago; the fixed system prompt for its role is not shown</div>`;
+  if (c.loading) return `${head}<div class="empty">fetching the prompt and the reply…</div>`;
+  return `${head}
     <pre class="prompt" data-scroll="prompt:${esc(String(c.at))}">${esc(c.prompt)}</pre>
     ${c.thinking ? det('seen:thinking', "model's reasoning", `<pre class="prompt" data-scroll="thinking:${esc(String(c.at))}">${esc(c.thinking)}</pre>`) : ''}
     <div class="label">It answered</div>${calls ? `<ul class="list mono">${calls}</ul>` : ''}${c.text ? `<div class="sub">${esc(c.text)}</div>` : ''}${!calls && !c.text ? '<div class="empty">nothing</div>' : ''}`;
@@ -507,10 +578,20 @@ function recordTrails(d) {
   for (const [name, t] of trails) if (!t.length || now - t[t.length - 1][0] > TRAIL_KEEP) trails.delete(name);
   if (now - trailsSaved > 10000) { trailsSaved = now; saveTrails(); }
 }
-/** Each agent's colour on the maps (from its name, so it keeps it across reloads). */
+/**
+ * Each agent's colour on the maps, kept across reloads. WorkerN by its number (the golden angle times N, lightness
+ * alternating 58/72%: no two of Worker1-24 within 20 degrees at one lightness), the Mayor and Gus fixed in the widest
+ * gaps left (32 degrees from any worker at their lightness); other names by a hash, which put 7 pairs of Mayor and
+ * Worker1-24 within 2 degrees.
+ */
 function agentColor(name) {
+  name = String(name);
+  if (name === 'Mayor') return 'hsl(348 85% 72%)';
+  if (name === 'Gus') return 'hsl(210 85% 58%)';
+  const m = /^Worker(\d+)$/.exec(name);
+  if (m) return `hsl(${Math.round((Number(m[1]) * 137.508) % 360)} 85% ${Number(m[1]) % 2 ? 58 : 72}%)`;
   let h = 0;
-  for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return `hsl(${(h * 137) % 360} 85% 62%)`;
 }
 /** A fading line through an agent's recent positions; a jump over 24 blocks (a teleport) breaks it. */
@@ -773,9 +854,12 @@ function drawWorld() {
     return shift ? y : null;
   };
   const label = (text, x, y) => { const at = place(text, x, y, false); if (at !== null) paint(text, x, at); };
-  // Agents' names are placed first (they always show), painted last
+  // Agents' names are placed first, painted last: every name while fewer than 8 agents are in view, else only the one
+  // under the pointer (25 names buried a village's map)
   const agents = ((lastData && lastData.agents) || []).filter((a) => a.position).map((a) => ({ a, x: X(a.position.x), z: Z(a.position.z) }));
-  for (const t of agents) t.ly = place(t.a.name, t.x + 6, t.z - 4, true);
+  wm.agentPts = agents;
+  const inView = agents.filter((t) => t.x >= 0 && t.x <= w && t.z >= 0 && t.z <= h).length;
+  for (const t of agents) if (inView < 8 || t.a.name === wm.hover) t.ly = place(t.a.name, t.x + 6, t.z - 4, true);
   const running = new Set(agents.map((t) => t.a.village).filter(Boolean));
   const villages = mapVillages().sort((p, q) => running.has(q.name) - running.has(p.name));
   for (const vg of villages) {
@@ -803,8 +887,8 @@ function drawWorld() {
   for (const t of agents) {
     g.fillStyle = '#fff'; g.strokeStyle = trailMs ? agentColor(t.a.name) : '#000'; g.lineWidth = trailMs ? 2.5 : 1;
     g.beginPath(); g.arc(t.x, t.z, 4, 0, Math.PI * 2); g.fill(); g.stroke();
-    paint(t.a.name, t.x + 6, t.ly);
   }
+  for (const t of agents) if (t.ly !== undefined) paint(t.a.name, t.x + 6, t.ly);
   // A scale bar (a round number of blocks) and north
   const len = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find((b) => b * v.k >= 70) || 10000;
   const sx = 12, sy = h - 14, sw = len * v.k;
@@ -821,6 +905,11 @@ function worldTip(e) {
   const x = Math.floor(v.x + (px - r.width / 2) / v.k), z = Math.floor(v.z + (py - r.height / 2) / v.k);
   const s = wm.chunks.get(chunkKey(x >> 4, z >> 4));
   const lines = [`<b>x ${x}, z ${z}</b>`];
+  // An agent under the pointer (within 10 px of its dot): its name on the map and what it is doing in the tip
+  let near = null;
+  for (const t of wm.agentPts || []) { const d = Math.hypot(t.x - px, t.z - py); if (d < 10 && (!near || d < near.d)) near = { a: t.a, d }; }
+  if ((near ? near.a.name : null) !== wm.hover) { wm.hover = near ? near.a.name : null; drawWorld(); }
+  if (near) lines.unshift(`<i class="adot" style="background:${agentColor(near.a.name)}"></i> <b>${esc(near.a.name)}</b>: ${esc(doingWords(near.a))}`);
   if (!s) lines.push('<span class="sub">not seen by any bot yet</span>');
   else {
     const c = ((z & 15) >> 2) * 4 + ((x & 15) >> 2), letter = s.s[c];
@@ -884,7 +973,7 @@ function zoomWorld(f, px, py) {
   const end = () => { wm.drag = null; cv.classList.remove('dragging'); };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
-  cv.addEventListener('pointerleave', () => { if (!wm.drag) $('wmTip').hidden = true; });
+  cv.addEventListener('pointerleave', () => { if (!wm.drag) $('wmTip').hidden = true; if (wm.hover) { wm.hover = null; drawWorld(); } });
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (wm.auto) setAuto(false);
@@ -1019,8 +1108,11 @@ function drawMaps() {
   }
 }
 async function refreshMaps() {
-  if (paused || simple || !Object.values(openTabs).includes('map')) return;
-  try { lastMaps = await api('/api/maps'); drawMaps(); } catch {}
+  if (paused || simple || !lastData) return;
+  // (only the open cards showing their map: an agent server from before E.1 ignores ?agents= and sends every map)
+  const names = openCardNames().filter((n) => openTabs[`agent:${n}`] === 'map');
+  if (!names.length) return;
+  try { lastMaps = await api(`/api/maps?agents=${encodeURIComponent(names.join(','))}`); drawMaps(); } catch {}
 }
 
 // ---- the simple view ----
@@ -1095,19 +1187,73 @@ function flags(a) {
   if (a.health < 20 && !a.dead) out.push(`<span class="flag">health ${a.health}</span>`);
   return out.join('');
 }
-function simpleAgents(agents) {
+// ---- activities: what kind of work each agent is on (the groups, filter chips and the map's overlay at 25 agents) ----
+const ACTIVITIES = [['building', 'Building'], ['mining', 'Mining'], ['gathering', 'Gathering'], ['chores', 'Chores'], ['other', 'Other'], ['idle', 'Idle']];
+const ACT_OF = {
+  build_design: 'building', build: 'building', build_box: 'building', prepare_site: 'building', find_site: 'building', light_streets: 'building', put_up_signs: 'building',
+  mine: 'mining', dig_mine: 'mining', dig_iron: 'mining', collect: 'gathering', craft: 'gathering', smelt: 'gathering',
+  tend_farm: 'chores', harvest_farm: 'chores', start_farm: 'chores', harvest_slot: 'chores', prepare_annex: 'chores', start_pen: 'chores', collect_eggs: 'chores',
+  milk_cows: 'chores', breed_pen: 'chores', bake_cake: 'chores', scout: 'chores', explore: 'chores', make_iron_tool: 'chores',
+};
+// (stone and ores come from the village mine)
+const MINED = /^(cobblestone|stone|cobbled_deepslate|deepslate|coal|raw_iron|iron_ore|coal_ore)$|_ore$/;
+/** A task's kind of work from its title (walking, chests and waiting between its steps count as that work). */
+function taskActivity(t) {
+  const s = t?.title || '';
+  if (/^(Build|Prepare|Set up|Light|Put up)\b/.test(s)) return 'building';
+  if (/cobblestone|\bstone\b|\bores?\b|\biron\b|\bcoal\b|\bmine\b/i.test(s)) return 'mining';
+  if (/farm|seeds?|plant|harvest|pen\b/i.test(s)) return 'chores';
+  if (/^(Gather|Collect)\b/.test(s)) return 'gathering';
+  return null;
+}
+function activityOf(a) {
+  if (a.dead) return 'other';
+  const c = a.currentAction;
+  if (c) {
+    if (c.type === 'collect' && MINED.test(String(c.args?.block ?? c.args?.item ?? ''))) return 'mining';
+    if (ACT_OF[c.type]) return ACT_OF[c.type];
+    if (c.args?.chore) return 'chores';
+    return taskActivity(a.task) || (c.type === 'deposit' || c.type === 'withdraw' ? 'gathering' : 'other');
+  }
+  if (a.task) return taskActivity(a.task) || 'other';
+  const st = a.status?.state;
+  return st === 'planning' || st === 'thinking' ? 'other' : 'idle';
+}
+// One filter for both views and every village ('' shows all), remembered per browser
+let actFilter = store.get('panel.actFilter', '');
+if (!ACTIVITIES.some(([k]) => k === actFilter)) actFilter = '';
+const actShown = (a) => !actFilter || activityOf(a) === actFilter;
+/** The chip row: All and each activity with its count (Other only when someone is on other work). */
+function actChips(agents, scope) {
+  const n = {};
+  for (const a of agents) n[activityOf(a)] = (n[activityOf(a)] || 0) + 1;
+  const chip = (k, label, c) => `<button type="button" class="tab${actFilter === k ? ' on' : ''}" aria-pressed="${actFilter === k}" data-actf="${k}" data-scope="${esc(scope)}">${label} <span class="cnt">${c}</span></button>`;
+  return `<div class="afilter" role="group" aria-label="Show agents by activity">${chip('', 'All', agents.length)}${ACTIVITIES.filter(([k]) => k !== 'other' || n.other).map(([k, label]) => chip(k, label, n[k] || 0)).join('')}</div>`;
+}
+/** Mayor first, then by name with numbers in order (Worker2 before Worker10). */
+const byAgent = (x, y) => (x.villageRole === 'mayor' ? 0 : 1) - (y.villageRole === 'mayor' ? 0 : 1) || x.name.localeCompare(y.name, undefined, { numeric: true });
+/** "W7" for Worker7 (the map overlay's short names). */
+const shortName = (n) => String(n).replace(/^Worker(\d+)$/, 'W$1');
+
+function simpleAgents(agents, scope) {
   if (!agents.length) return '<div class="empty">No agents are running.</div>';
-  const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
-  return `<ul class="who">${agents.slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name)).map((a) => {
+  // (over 8 agents: one line each, the task's title in the tooltip)
+  const compact = agents.length > 8;
+  const row = (a) => {
     const st = a.status || {};
     const state = agentState(a);
     const color = STATE_COLORS[state] || 'var(--idle)';
     const sub = a.task && a.currentAction ? a.task.title : '';
     return `<li>
-      <div class="who-name"><b>${esc(a.name)}</b><span class="sub">${esc(a.villageRole || a.role)}</span></div>
-      <div class="who-doing">${esc(doingWords(a))}${flags(a)}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
-      <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
-  }).join('')}</ul>`;
+      <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b><span class="sub">${esc(a.villageRole || a.role)}</span></div>
+      <div class="who-doing"${compact && sub ? ` title="${esc(sub)}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+      <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since && !compact ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
+  };
+  const shown = agents.filter(actShown).sort(byAgent);
+  const groups = ACTIVITIES.map(([k, label]) => [label, shown.filter((a) => activityOf(a) === k)]).filter(([, g]) => g.length);
+  return actChips(agents, scope) + (groups.length
+    ? groups.map(([label, g]) => `<div class="who-group">${label} <span class="cnt">${g.length}</span></div><ul class="who${compact ? ' compact' : ''}">${g.map(row).join('')}</ul>`).join('')
+    : `<div class="empty">No agent is ${{ chores: 'doing chores', other: 'on other work' }[actFilter] || actFilter} here.</div>`);
 }
 /** Each building the village laid out, and where it stands: [name, state class, words]. */
 function buildingStates(v) {
@@ -1196,7 +1342,7 @@ function simpleVillage(v, agents) {
         ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
       </div>
       <div class="col">
-        <div class="card"><div class="label">Who is doing what</div>${simpleAgents(agents)}</div>
+        <div class="card"><div class="label">Who is doing what</div>${simpleAgents(agents, v.name)}</div>
         ${happened.length ? `<div class="card"><div class="label">What happened lately</div><ul class="list happened">${happened.map((h) => `<li><span class="clamp" title="${esc(h)}">${esc(h)}</span></li>`).join('')}</ul></div>` : ''}
       </div>
     </div>`;
@@ -1205,7 +1351,7 @@ function renderSimple(d) {
   const inVillage = (v) => d.agents.filter((a) => a.village === v.name);
   const loose = d.agents.filter((a) => !a.village || !d.villages.some((v) => v.name === a.village));
   $('simple').innerHTML = (d.villages.length ? d.villages.map((v) => `<section class="village">${simpleVillage(v, inVillage(v))}</section>`).join('') : '')
-    + (loose.length || !d.villages.length ? `<h2>Agents in no village</h2><div class="card">${simpleAgents(loose)}</div>` : '');
+    + (loose.length || !d.villages.length ? `<h2>Agents in no village</h2><div class="card">${simpleAgents(loose, '')}</div>` : '');
 }
 
 function render(d) {
@@ -1214,7 +1360,9 @@ function render(d) {
   const scrolls = [...document.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, el.scrollTop]);
   const f = document.activeElement?.dataset || {};
   const focus = f.tab ? `button[data-tabkey="${CSS.escape(f.tabkey)}"][data-tab="${CSS.escape(f.tab)}"]`
-    : f.act ? `button[data-act="${CSS.escape(f.act)}"][data-agent="${CSS.escape(f.agent || '')}"]` : null;
+    : f.act ? `button[data-act="${CSS.escape(f.act)}"][data-agent="${CSS.escape(f.agent || '')}"]`
+    : 'actf' in f ? `button[data-actf="${CSS.escape(f.actf)}"][data-scope="${CSS.escape(f.scope || '')}"]`
+    : f.card ? `button[data-card="${CSS.escape(f.card)}"]` : null;
   renderNow(d);
   for (const [k, top] of scrolls) { const el = document.querySelector(`[data-scroll="${CSS.escape(k)}"]`); if (el) el.scrollTop = top; }
   if (focus) document.querySelector(focus)?.focus();
@@ -1223,9 +1371,13 @@ function render(d) {
 function drawActivity(d) {
   const el = $('wmActs');
   if (!el) return;
-  const order = (a) => (a.villageRole === 'mayor' ? 0 : 1);
-  const agents = (d.agents || []).slice().sort((x, y) => order(x) - order(y) || x.name.localeCompare(y.name));
-  el.innerHTML = agents.map((a) => `<div><i style="background:${agentColor(a.name)}"></i><b>${esc(a.name)}</b><span>${esc(doingWords(a))}</span></div>`).join('');
+  const agents = (d.agents || []).slice().sort(byAgent);
+  // (over 8 agents a line each took a third of the map: then a line per activity, "Mining 6: W3 W7 ...")
+  const many = agents.length > 8;
+  el.classList.toggle('many', many);
+  el.innerHTML = !many ? agents.map((a) => `<div><i style="background:${agentColor(a.name)}"></i><b>${esc(a.name)}</b><span>${esc(doingWords(a))}</span></div>`).join('')
+    : ACTIVITIES.map(([k, label]) => [label, agents.filter((a) => activityOf(a) === k)]).filter(([, g]) => g.length)
+      .map(([label, g]) => `<div><b>${label} ${g.length}:</b>${g.map((a) => `<span><i style="background:${agentColor(a.name)}"></i>${esc(shortName(a.name))}</span>`).join('')}</div>`).join('');
 }
 function renderNow(d) {
   drawActivity(d);
@@ -1235,7 +1387,13 @@ function renderNow(d) {
     return drawWorld();
   }
   $('agentCount').textContent = `(${d.agents.length})`;
-  $('agents').innerHTML = d.agents.length ? d.agents.map(renderAgent).join('') : '<div class="empty">No agents are running.</div>';
+  $('agentFilter').innerHTML = d.agents.length > 1 ? actChips(d.agents, 'detailed') : '';
+  const shown = d.agents.filter(actShown).sort(byAgent);
+  const folded = shown.filter((a) => !cardOpen(a.name, d.agents.length));
+  $('agents').innerHTML = !d.agents.length ? '<div class="empty">No agents are running.</div>'
+    : !shown.length ? '<div class="empty">No agent is on that activity now.</div>'
+    : shown.filter((a) => cardOpen(a.name, d.agents.length)).map(renderAgent).join('');
+  $('agentsFolded').innerHTML = folded.length ? `<div class="card folded"><ul>${folded.map(foldedRow).join('')}</ul></div>` : '';
   $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid wide">${d.villages.map(renderVillage).join('')}</div>` : '';
   const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 60);
   $('feedWrap').innerHTML = det('feed', `All recent events (${all.length})`, `<div class="card"><ul class="list feed mono">${all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>'}</ul></div>`);
@@ -1252,6 +1410,15 @@ document.addEventListener('toggle', (e) => {
 }, true);
 
 document.addEventListener('click', async (e) => {
+  // An activity chip (a second click on the chosen one shows all again), or folding and opening a card
+  const af = e.target.closest('button[data-actf]'), cb = e.target.closest('button[data-card]');
+  if (af || cb) {
+    if (af) { actFilter = actFilter === af.dataset.actf ? '' : af.dataset.actf; store.set('panel.actFilter', actFilter); }
+    else { cardPrefs[cb.dataset.card] = cb.dataset.cardto; store.set('panel.cards', JSON.stringify(cardPrefs)); }
+    if (lastData) render(lastData);
+    refreshMaps(); refreshCalls();
+    return;
+  }
   const tb = e.target.closest('button[data-tab]');
   if (tb) {
     // (a second click closes a card's tab; a filter, data-keep, stays chosen)
@@ -1260,6 +1427,7 @@ document.addEventListener('click', async (e) => {
     store.set('panel.tabs', JSON.stringify(openTabs));
     if (lastData) render(lastData);
     if (openTabs[k] === 'map') refreshMaps();
+    if (openTabs[k] === 'exec' || openTabs[k] === 'planner') refreshCalls();
     return;
   }
   const b = e.target.closest('button[data-act]');
@@ -1280,17 +1448,34 @@ document.addEventListener('click', async (e) => {
   } catch (err) { alert(err.message); }
 });
 
+// The villages' designs as last sent, and their etag: the server sends them (with their elevations) only when they changed
+let designsEtag = '', designCache = new Map();
+function keepDesigns(d) {
+  if (!d.designsEtag) return; // (an agent server from before E.1 sends every design every time)
+  if (!d.villages.length || d.villages.some((v) => 'designs' in v)) {
+    designCache = new Map(d.villages.map((v) => [v.name, v.designs || {}]));
+    designsEtag = d.designsEtag;
+    return;
+  }
+  for (const v of d.villages) {
+    if (!designCache.has(v.name)) designsEtag = ''; // (not expected, the etag covers the names: all of them next time)
+    v.designs = designCache.get(v.name) || {};
+  }
+}
 async function refresh() {
   if (paused) return;
   try {
-    const d = await api('/api/overview');
+    const d = await api(`/api/overview${designsEtag ? `?designs=${encodeURIComponent(designsEtag)}` : ''}`);
+    keepDesigns(d);
     recordTrails(d);
     render(d);
     drawUsage(d.usage);
     $('error').innerHTML = '';
   } catch (err) {
     $('error').innerHTML = `<div class="warnbox">Cannot reach the agent server: ${esc(err.message)}</div>`;
+    return;
   }
+  refreshCalls();
 }
 
 // Token use since the agent server started (all agents, not per run) and the hourly cloud budget
