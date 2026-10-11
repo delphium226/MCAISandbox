@@ -168,7 +168,21 @@ export interface Task {
   updated: number;
   /** Its Build prerequisites count as met once claimed (the street lamps go up while the last builds run, #4). */
   afterClaimed?: boolean;
+  /** Not claimable until then (ms): handed back because others hold what it needs (S.1). */
+  cooldown?: number;
 }
+
+/** The soft pickaxe supply (S.1): stone pickaxes made into storage, so miners leave the builds' cobblestone alone. */
+export const PICK_SUPPLY = /^Make (\d+) stone_pickaxe into storage$/;
+/** Its own cobblestone, gathered first; never counted for a building or the village's needs. */
+export const PICK_GATHER = / for stone pickaxes$/;
+/**
+ * collect's answer when the only candidates left are the ones other gatherers are on their way to (S.1): not "none here",
+ * so the task goes back for later and nothing is marked unavailable (sand closed for good while others held the last of it).
+ */
+export const TAKEN_BY_OTHERS = /are being taken by other gatherers/;
+/** How long a task handed back for that stays off the board (eleven workers took it and handed it back in turn). */
+export const TAKEN_COOLDOWN_MS = 45000;
 /**
  * A farm slot (opportunistic farming, 10-08): a 5x7 field like the wheat's (a channel down the middle), free until a farm
  * of a kind is started on it (`laying` while that runs). `cells`: what grows there (crops, cane, stems); `fruit`: where a
@@ -320,6 +334,8 @@ export class VillageRegistry {
   private nextId = 1;
   /** Set by a world that computes what a village still needs (real Minecraft); run before claims and summaries. */
   refreshNeeds?: (v: Village) => void;
+  /** Set by a world that keeps state per claim (real Minecraft, S.1: the pickaxe supply's start, a build's drawn stock). */
+  onClaim?: (v: Village, t: Task) => void;
 
   constructor(private file: string) {
     try {
@@ -426,6 +442,11 @@ export class VillageRegistry {
     // (while its task is open: once claimed, its holder has the wood or posts gathering for what is short)
     const lampLogs = (v.layouts ?? []).reduce((s, l, i) => s + (l.lamps?.length && !l.lit && v.tasks.some((t) => t.status === 'open' && t.detail.startsWith(`light_streets layout=${i + 1} `)) ? l.lamps.length : 0), 0);
     const wanted = new Map<string, number>(lampLogs ? [['logs', lampLogs]] : []);
+    // The pickaxe supply's cobblestone (3 a pickaxe), while open or held: its own gathering lands in the same chests, and a
+    // house's cobblestone task closed against it came up short later (S.1). Held too, unlike the lamps: between the claim
+    // and the withdraw the chests still hold it (counted twice after the withdraw, for half a minute: only conservative)
+    const supply = v.tasks.find((t) => PICK_SUPPLY.test(t.title) && (t.status === 'open' || t.status === 'claimed'));
+    if (supply) wanted.set('cobblestone', 3 * Number(PICK_SUPPLY.exec(supply.title)![1]));
     for (const t of v.tasks) {
       const g = gather(t);
       if (!g || !unbuilt.has(g.label)) continue;
@@ -497,12 +518,19 @@ export class VillageRegistry {
 
   /**
    * Open gather tasks the storage already covers are marked done. prepare_site keeps the logs of the trees it fells: 287
-   * jungle logs sat in the storage while four workers went on gathering jungle logs.
+   * jungle logs sat in the storage while four workers went on gathering jungle logs. So are a built building's own gather
+   * tasks left open (handed back while its build ran, S.1: nothing else closed them, and completion waited for a trip).
    */
   private coveredByStock(v: Village, covers: (t: Task) => string | null) {
     let changed = false;
+    const built = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status === 'done').map((t) => t.title.slice(6)));
+    const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
+    const ofBuilt = (t: Task) => {
+      const label = t.soft && /^collect block=\S+ count=\d+, then deposit/.test(t.detail) ? / for (.+?)( \(\d+\/\d+\))?$/.exec(t.title)?.[1] : undefined;
+      return label && built.has(label) && !unbuilt.has(label) ? `${label} is built` : null;
+    };
     for (const t of v.tasks) {
-      const why = t.status === 'open' ? covers(t) : null;
+      const why = t.status === 'open' ? covers(t) ?? ofBuilt(t) : null;
       if (!why) continue;
       t.status = 'done';
       t.result = why;
@@ -526,7 +554,8 @@ export class VillageRegistry {
       return p?.status === 'done' || (p?.status === 'failed' && !!p.soft) || (p?.status === 'claimed' && !!p.soft && !!covers(p));
     };
     const begun = (id: string) => { const p = this.task(v, id); return p?.status === 'claimed' && /^Build /.test(p.title); };
-    const ready = v.tasks.filter((t) => t.status === 'open' && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length);
+    const now = Date.now();
+    const ready = v.tasks.filter((t) => t.status === 'open' && !((t.cooldown ?? 0) > now) && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length);
     // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
     for (const t of ready)
       if (!this.aheadNoted.has(t.id) && !t.afterClaimed) {
@@ -572,9 +601,11 @@ export class VillageRegistry {
   claim(v: Village, id: string, by: string): Task | null {
     const t = this.task(v, id);
     if (!t || !(this.claimable(v).includes(t) || (t.status === 'claimed' && t.claimedBy === by))) return null;
+    const fresh = t.status !== 'claimed';
     t.status = 'claimed';
     t.claimedBy = by;
     t.updated = Date.now();
+    if (fresh) this.onClaim?.(v, t);
     this.save();
     return t;
   }
@@ -591,15 +622,29 @@ export class VillageRegistry {
 
   /**
    * Put a claimed task back on the board without counting a try: handed back for a reason that is not the task's (the
-   * mayor gathering while it waits must plan, the mine is busy), where giveUp would fail it the second time.
+   * mayor gathering while it waits must plan, the mine is busy), where giveUp would fail it the second time. `coolMs`: off
+   * the board for that long (S.1: others hold what it needs, and the next idle worker would find the same).
    */
-  unclaim(v: Village, id: string, by: string, why: string) {
+  unclaim(v: Village, id: string, by: string, why: string, coolMs = 0) {
     const t = this.task(v, id);
     if (!t || t.claimedBy !== by || t.status !== 'claimed') return;
     t.status = 'open';
     t.claimedBy = undefined;
     t.updated = Date.now();
+    if (coolMs) t.cooldown = t.updated + coolMs;
     this.note(v, `${by} handed back ${t.id} "${t.title}": ${why.slice(0, 100)}`);
+  }
+
+  /**
+   * A soft gather task handed back because others hold what is left of its material (S.1): off the board for a while, and
+   * so is every other open task gathering the same block (a worker took the next sand task at once and found the same).
+   */
+  handBackTaken(v: Village, id: string, by: string, why: string, block: string) {
+    this.unclaim(v, id, by, why, TAKEN_COOLDOWN_MS);
+    const until = Date.now() + TAKEN_COOLDOWN_MS;
+    const same = new RegExp(`^collect block=${block.toLowerCase().replace(/^minecraft:/, '')} count=\\d+, then deposit`);
+    for (const t of v.tasks) if (t.id !== id && t.status === 'open' && t.soft && same.test(t.detail.toLowerCase())) t.cooldown = Math.max(t.cooldown ?? 0, until);
+    this.save();
   }
 
   /** Give a claimed task back; the second time it is marked failed so the mayor can rethink it. */
@@ -636,8 +681,9 @@ export class VillageRegistry {
     this.fail(v, id, by, why);
     const block = item.toLowerCase().replace(/^minecraft:/, '');
     // Only sand found nowhere: "none" also comes when every candidate is marked out of reach for a while (shared by all
-    // bots), and closing log tasks would release their builds early (the review of R.1)
-    if (!none || !/^(red_)?sand$/.test(block)) return this.save();
+    // bots), and closing log tasks would release their builds early (the review of R.1). Nor a task once handed back as
+    // taken (S.1): the "none" may be others having taken the last of it, with what the buildings need in storage
+    if (!none || held.cooldown || !/^(red_)?sand$/.test(block)) return this.save();
     const others = v.tasks.filter((t) => t.status === 'open' && t.soft && new RegExp(`^collect block=${block} count=\\d+, then deposit`).test(t.detail));
     for (const t of others) {
       t.status = 'failed';

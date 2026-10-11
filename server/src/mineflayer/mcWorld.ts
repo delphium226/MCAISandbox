@@ -5,7 +5,7 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, VillageRegistry, villageHome, type Village } from '../village';
+import { FARM_TRIP_RANGE, PICK_GATHER, PICK_SUPPLY, VillageRegistry, villageHome, type Village } from '../village';
 import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -56,6 +56,11 @@ export interface SpawnOptions {
  */
 type ChoiceState = { id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string> };
 
+/** Stone pickaxes the supply makes into storage (S.1; S.8 raises it to 8). */
+const PICK_BATCH = 4;
+/** Members from which a village gets the pickaxe supply whatever its workers are doing, and miners keep off the reserve. */
+const SUPPLY_MEMBERS = 5;
+
 /** What an agent carries as Mineflayer sees it (no server command: measurement only); null if it cannot be read. */
 function heldCounts(a: BotAgent): Counts | null {
   try {
@@ -85,6 +90,7 @@ export class MineflayerWorld implements WorldAdapter {
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
+    this.villages.onClaim = (v, t) => this.claimed(v, t);
     this.atlas = new Atlas(this.registry, path.join(dataDir, 'atlas.json'), (cx, cz) => {
       for (const a of this.agents.values()) {
         const column = (a.bot.world as unknown as { getColumn(x: number, z: number): unknown }).getColumn(cx, cz);
@@ -177,6 +183,178 @@ export class MineflayerWorld implements WorldAdapter {
   private needsAt = new Map<string, number>();
 
   /**
+   * The one wood kind a village's numbers are in: its own, else the commonest in storage, and then any logs and planks
+   * count as it (birch deposits never lowered an oak need). For refreshNeeds and the storage reserve alike.
+   */
+  private woodOf(v: Village, store: Counts): string {
+    const logKinds = Object.entries(store).filter(([n]) => /_log$/.test(n)).sort((x, y) => y[1] - x[1]);
+    return v.wood ?? logKinds[0]?.[0].replace(/_log$/, '') ?? 'oak';
+  }
+
+  /** One Build task's bill, in its own wood kind when it has one (F164's whole buildings, as the cover rule counts them). */
+  private buildBill(v: Village, t: { title: string; detail: string }, wood: string): Counts | null {
+    const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
+    return d ? inWood(designBill(d), (v.wood && v.woodFor?.[t.title.slice(6)]) || wood) : null;
+  }
+
+  /** The bill of every laid-out building not claimed yet (open), each in its own wood kind, and their labels. */
+  private openBill(v: Village, wood: string): { bill: Counts; unbuilt: string[] } {
+    const bill: Counts = {};
+    const unbuilt: string[] = [];
+    for (const t of v.tasks) {
+      if (!/^Build /.test(t.title) || t.status !== 'open') continue;
+      const b = this.buildBill(v, t, wood);
+      if (!b) continue;
+      unbuilt.push(t.title.slice(6));
+      for (const [n, q] of Object.entries(b)) bill[n] = (bill[n] ?? 0) + q;
+    }
+    return { bill, unbuilt };
+  }
+
+  /**
+   * Claimed builds whose builder has taken everything it needs from storage (runJob's withdrawals and makeFromStock), by
+   * village and task id, to the builder (S.1). A claim clears it (`onClaim`); not kept over a restart (reserved again).
+   */
+  private drawn = new Map<string, string>();
+
+  /** A claimed build's materials are all in its builder's hands: the storage reserve leaves it out from now on. */
+  markDrawn(v: Village, id: string, by: string) {
+    this.drawn.set(`${v.name}:${id}`, by);
+  }
+
+  /**
+   * When the pickaxe supply was claimed: its maker's cobblestone and stone pickaxes (3 each), and the storage's stone
+   * pickaxes (3 each), by village and id.
+   */
+  private supplyStart = new Map<string, { by: string; held: number; stored: number }>();
+
+  private stoneHeld(a: BotAgent): number {
+    return a.bot.inventory.items().reduce((s, it) => s + (it.name === 'cobblestone' ? it.count : it.name === 'stone_pickaxe' ? 3 * it.count : 0), 0);
+  }
+
+  private claimed(v: Village, t: { id: string; title: string; claimedBy?: string }) {
+    const key = `${v.name}:${t.id}`;
+    this.drawn.delete(key);
+    const maker = PICK_SUPPLY.test(t.title) ? this.agents.get(t.claimedBy?.toLowerCase() ?? '') : undefined;
+    if (maker) this.supplyStart.set(key, { by: maker.name, held: this.stoneHeld(maker), stored: 3 * (storageContents(v).stone_pickaxe ?? 0) });
+  }
+
+  /**
+   * What of the storage is spoken for (S.1), by item (logs by kind, "any logs" in the village's): the raw materials of
+   * every building not claimed yet, beyond the made things the storage already holds (planks, a furnace); of every
+   * claimed build whose builder has not drawn its stock yet, beyond what that builder carries (runJob walks to the site,
+   * withdraws, and makes the furnace from storage cobblestone only after that: Van12a's storage hut was short exactly its
+   * furnace after miners took the cobblestone for pickaxes); and the pickaxe supply's cobblestone. A build that comes up
+   * short goes back to open (requeueBuild) and is counted again.
+   */
+  storageReserve(v: Village): Counts {
+    const store = storageContents(v);
+    const wood = this.woodOf(v, store);
+    const out: Counts = {};
+    const add = (gather: Counts) => {
+      for (const [n, q] of Object.entries(gather)) {
+        const k = n === 'any:logs' ? `${wood}_log` : n.replace(/^any:/, '');
+        out[k] = (out[k] ?? 0) + q;
+      }
+    };
+    const { bill } = this.openBill(v, wood);
+    if (Object.keys(bill).length) {
+      const raw = new Set(Object.keys(this.materials.plan(bill, {}).gather).map((n) => n.replace(/^any:/, '')));
+      const made: Counts = {};
+      for (const [n, q] of Object.entries(store)) if (!raw.has(n) && !/_log$/.test(n)) made[n] = q;
+      add(this.materials.plan(bill, made).gather);
+    }
+    for (const t of v.tasks) {
+      if (!/^Build /.test(t.title) || t.status !== 'claimed' || this.drawn.get(`${v.name}:${t.id}`) === t.claimedBy) continue;
+      const b = this.buildBill(v, t, wood);
+      if (!b) continue;
+      const builder = this.agents.get(t.claimedBy?.toLowerCase() ?? '');
+      add(this.materials.plan(b, (builder && heldCounts(builder)) ?? {}).gather);
+    }
+    const draw = this.supplyDraw(v);
+    if (draw) out.cobblestone = (out.cobblestone ?? 0) + draw;
+    return out;
+  }
+
+  /** How much of an item in storage is spoken for (`storageReserve`); "logs": every kind together. */
+  reservedInStorage(v: Village, item: string): number {
+    const r = this.storageReserve(v);
+    return item === 'logs' ? Object.entries(r).filter(([k]) => /_log$/.test(k)).reduce((s, [, q]) => s + q, 0) : r[item] ?? 0;
+  }
+
+  /**
+   * Whether miners leave the storage's spoken-for cobblestone alone (S.1): only where the pickaxe supply makes up for it,
+   * in a village of five or more or once a supply is posted. In a smaller one the reserve made the first pickaxe wooden
+   * (half the digging speed, 59 blocks) where two or three miners took at most a few cobblestone before.
+   */
+  pickaxeReserve(v: Village): boolean {
+    return v.tasks.some((t) => PICK_SUPPLY.test(t.title)) || [...this.agents.values()].filter((a) => a.village() === v).length >= SUPPLY_MEMBERS;
+  }
+
+  /**
+   * Cobblestone in storage the pickaxe supply is still to take: all of it while the task waits with its own gathering
+   * finished; while it runs, all of it less what its maker and the storage's pickaxes gained since its claim (withdrawn,
+   * made into pickaxes, deposited: its own pickaxe and leftover cobblestone are not the task's); nothing otherwise.
+   */
+  private supplyDraw(v: Village): number {
+    const t = v.tasks.find((x) => PICK_SUPPLY.test(x.title) && (x.status === 'open' || x.status === 'claimed'));
+    if (!t) return 0;
+    const n = 3 * Number(PICK_SUPPLY.exec(t.title)![1]);
+    if (t.status === 'open') return t.after.every((id) => !/^(open|claimed)$/.test(v.tasks.find((q) => q.id === id)?.status ?? '')) ? n : 0;
+    const maker = this.agents.get(t.claimedBy?.toLowerCase() ?? '');
+    const start = this.supplyStart.get(`${v.name}:${t.id}`);
+    if (!maker || !start || start.by !== maker.name) return n;
+    const gained = this.stoneHeld(maker) - start.held + 3 * (storageContents(v).stone_pickaxe ?? 0) - start.stored;
+    return Math.max(0, n - Math.max(0, gained));
+  }
+
+  /**
+   * The soft pickaxe supply (S.1): "Make 4 stone_pickaxe into storage", once a village, when the mine is dug and buildings
+   * still wait, so miners without a pickaxe take a stone one from storage instead of the builds' cobblestone. Its
+   * cobblestone is gathered for it first unless the storage has that much to spare beyond the reserve. Posted last on the
+   * board, and only where it is off the critical path: five or more members, or two workers holding no task (a scripted
+   * worker takes the first claimable task, so in a three-agent village it would take it a second before a build). Closed
+   * as moot once nothing is left to build.
+   */
+  private pickaxeSupply(v: Village, store: Counts, wood: string) {
+    const reg = this.villages;
+    const own = v.tasks.filter((t) => PICK_SUPPLY.test(t.title) || PICK_GATHER.test(t.title));
+    if (!v.tasks.some((t) => /^Build /.test(t.title) && (t.status === 'open' || t.status === 'claimed'))) {
+      const moot = own.filter((t) => t.status === 'open');
+      for (const t of moot) {
+        t.status = 'done';
+        t.result = 'not needed: every building is built';
+        t.updated = Date.now();
+        reg.note(v, `${t.id} "${t.title}" was not needed: every building is built`);
+      }
+      if (moot.length) reg.save();
+      return;
+    }
+    if (own.length || v.mine?.level === undefined || !v.tasks.some((t) => /^Build /.test(t.title) && t.status === 'open')) return;
+    const members = [...this.agents.values()].filter((a) => a.village() === v);
+    const busy = new Set(v.tasks.filter((t) => t.status === 'claimed').map((t) => t.claimedBy?.toLowerCase()));
+    const idle = members.filter((a) => a.role !== 'mayor' && !busy.has(a.name.toLowerCase())).length;
+    if (members.length < SUPPLY_MEMBERS && idle < 2) return;
+    // Logs for the sticks (and a table where none is near): the village's kind, else the storage's commonest
+    const logs = Object.entries(store).filter(([n, q]) => /_log$/.test(n) && q >= 3).sort((x, y) => y[1] - x[1]);
+    const kind = v.wood && (store[`${v.wood}_log`] ?? 0) >= 3 ? `${v.wood}_log` : logs[0]?.[0];
+    if (!kind) return;
+    const n = PICK_BATCH, need = 3 * n;
+    const reserved = this.reservedInStorage(v, 'cobblestone');
+    const gather = (store.cobblestone ?? 0) - reserved >= need ? [] : gatherTasks({ cobblestone: need }, 'stone pickaxes').map((t) => ({ ...t, soft: true }));
+    const made = reg.post(v, [...gather, {
+      title: `Make ${n} stone_pickaxe into storage`,
+      detail: `withdraw item=cobblestone count=${need}, withdraw item=${kind} count=3, craft item=stone_pickaxe count=${n} wood=${kind.replace(/_log$/, '')}, then deposit item=stone_pickaxe count=${n} (by name: deposit all keeps tools)`,
+      soft: true,
+      after: gather.length ? [0] : [],
+    }], 'code', 4);
+    const why = `storage ${store.cobblestone ?? 0} cobblestone, ${reserved} reserved for buildings${gather.length ? `; its ${need} gathered first` : ''}`;
+    reg.note(v, `code posted ${made.map((t) => t.id).join(', ')}: a stone pickaxe supply for the miners (${why})`);
+    reg.save();
+    console.log(`[pickaxe] code posted ${made.map((t) => `${t.id} "${t.title}"`).join(', ')} in ${v.name} (${why}; ${members.length} members, ${idle} workers idle)`);
+  }
+
+  /**
    * What a village still needs gathered (plan step V.3), kept in `v.needed` and shown in every village summary: the raw
    * materials of its laid-out buildings not built or being built yet and of the mayor's `add_need` items, less the
    * storage and what each worker carries of the material it is gathering. Gather tasks follow it (syncGather). At most
@@ -193,20 +371,8 @@ export class MineflayerWorld implements WorldAdapter {
     this.needsAt.set(v.name, now);
     const add = (to: Counts, c: Counts) => { for (const [n, q] of Object.entries(c)) to[n] = (to[n] ?? 0) + q; };
     const store = storageContents(v);
-    // The numbers are in one wood kind: the village's, else the commonest in storage, and then any logs and planks count
-    // as it (birch deposits never lowered an oak need)
-    const logKinds = Object.entries(store).filter(([n]) => /_log$/.test(n)).sort((x, y) => y[1] - x[1]);
-    const wood = v.wood ?? logKinds[0]?.[0].replace(/_log$/, '') ?? 'oak';
-    const bill: Counts = {};
-    const unbuilt: string[] = [];
-    for (const t of v.tasks) {
-      if (!/^Build /.test(t.title) || t.status !== 'open') continue;
-      const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
-      if (!d) continue;
-      unbuilt.push(t.title.slice(6));
-      // (in its own kind when it has one: F164's whole buildings, as the cover rule counts them)
-      add(bill, inWood(designBill(d), (v.wood && v.woodFor?.[t.title.slice(6)]) || wood));
-    }
+    const wood = this.woodOf(v, store);
+    const { bill, unbuilt } = this.openBill(v, wood);
     // The mayor's items, in the same wood ("logs" and "planks" mean the village's kind)
     const extra: Counts = {};
     for (const [n, q] of Object.entries(v.needs ?? {})) extra[n === 'logs' ? `${wood}_log` : n === 'planks' ? `${wood}_planks` : n] = q;
@@ -216,7 +382,8 @@ export class MineflayerWorld implements WorldAdapter {
     const norm = (b: string) => (b === 'logs' ? `${wood}_log` : b);
     const task = new Map<string, string>();
     for (const t of v.tasks) {
-      const m = t.status === 'claimed' && t.claimedBy ? /^collect block=(\S+) count=\d+, then deposit/.exec(t.detail) : null;
+      // (not the pickaxe supply's own cobblestone: it is not for the buildings, S.1)
+      const m = t.status === 'claimed' && t.claimedBy && !PICK_GATHER.test(t.title) ? /^collect block=(\S+) count=\d+, then deposit/.exec(t.detail) : null;
       if (m) task.set(t.claimedBy!.toLowerCase(), norm(m[1]));
     }
     const have: Counts = { ...store };
@@ -236,6 +403,10 @@ export class MineflayerWorld implements WorldAdapter {
           delete have[n];
         }
       }
+    // Not the cobblestone in storage the pickaxe supply is about to take (S.1): counted as the builds', it closed their
+    // gathering and they came up short once the supply withdrew it
+    const draw = this.supplyDraw(v);
+    if (draw && have.cobblestone !== undefined) have.cobblestone = Math.max(0, have.cobblestone - draw);
     const items = Object.keys(bill).length ? gatherNames(this.materials.plan(bill, have).gather, wood) : {};
     // A village without a wood kind gathers any logs
     if (!v.wood && items[`${wood}_log`] !== undefined) {
@@ -245,6 +416,8 @@ export class MineflayerWorld implements WorldAdapter {
     // Not what no one can find near the village (sand: the windows stay open)
     for (const n of v.unavailable ?? []) delete items[n];
     v.needed = { items, for: unbuilt, updated: now };
+    // (before the guard below: a build under way must not hold the supply back)
+    this.pickaxeSupply(v, store, wood);
     // Not while a build is under way: its builder withdraws and places, and the numbers jump (tasks were closed and
     // posted again)
     if (!v.tasks.some((t) => /^Build /.test(t.title) && t.status === 'claimed')) this.syncGather(v, items, carried);
@@ -257,7 +430,9 @@ export class MineflayerWorld implements WorldAdapter {
   private syncGather(v: Village, need: Counts, carried: Map<string, number>) {
     const reg = this.villages;
     const norm = (b: string) => (b === 'logs' && v.wood ? `${v.wood}_log` : b);
-    const gather = (t: { detail: string }) => {
+    // (not the pickaxe supply's own cobblestone: it covers none of the buildings' need, S.1)
+    const gather = (t: { title: string; detail: string }) => {
+      if (PICK_GATHER.test(t.title)) return null;
       const m = /^collect block=(\S+) count=(\d+), then deposit/.exec(t.detail);
       return m ? { item: norm(m[1]), n: Number(m[2]) } : null;
     };
@@ -285,15 +460,31 @@ export class MineflayerWorld implements WorldAdapter {
         changed = true;
       }
       // Less planned than needed (materials went elsewhere, the mayor asked for more): post the rest
-      if (want > covered && !hopeless.has(item) && !open.length) {
+      // A small rest of cobblestone or logs is rounded up to 8, or added to an open task this code posted (S.1: Van12a's
+      // "Gather 1 cobblestone" tasks, each a whole trip to the mine). Not scarce or slow items: 1 seed made 8 is ~64 grass
+      // broken, and 2 sand made 8 can fail as "only found" where the 2 were there (the check's #8)
+      const rest = want - covered;
+      const small = rest < 8 && /^(cobblestone|logs|\w+_log)$/.test(item);
+      if (rest > 0 && !hopeless.has(item) && !open.length) {
         // Cobblestone after the mine is dug (it comes from there)
         const dig = item === 'cobblestone' ? v.tasks.find((t) => t.title === 'Dig the village mine' && (t.status === 'open' || t.status === 'claimed')) : undefined;
         // (logs and cobblestone wait for the storage; the rest is gathered meanwhile and deposited once it stands, #3)
         const early = /^(sand|red_sand|dirt|gravel|clay_ball|wheat_seeds)$/.test(item);
-        const tasks = gatherTasks({ [item]: want - covered }, 'the village', v.wood).map((t) => ({ ...t, soft: true, after: [...(storage && storage.status !== 'done' && !early ? [storage.id] : []), ...(dig ? [dig.id] : [])] }));
+        const tasks = gatherTasks({ [item]: small ? 8 : rest }, 'the village', v.wood).map((t) => ({ ...t, soft: true, after: [...(storage && storage.status !== 'done' && !early ? [storage.id] : []), ...(dig ? [dig.id] : [])] }));
         const made = reg.post(v, tasks, 'code', 20);
-        reg.note(v, `code posted ${made.map((t) => t.id).join(', ')}: ${want} ${item} still to gather, ${covered} planned`);
+        reg.note(v, `code posted ${made.map((t) => t.id).join(', ')}: ${want} ${item} still to gather, ${covered} planned${small ? ` (rounded up from ${rest})` : ''}`);
         changed = true;
+      } else if (rest > 0 && small && !hopeless.has(item)) {
+        // (a building's own gather tasks are never changed: the cover rule and their builds' prerequisites count them)
+        const host = open.find((t) => t.postedBy === 'code' && / for the village( \(\d+\/\d+\))?$/.test(t.title));
+        if (host) {
+          const n = gather(host)!.n + rest;
+          host.title = host.title.replace(/^Gather \d+/, `Gather ${n}`);
+          host.detail = host.detail.replace(/count=\d+/, `count=${n}`);
+          host.updated = Date.now();
+          reg.note(v, `code added ${rest} ${item} to ${host.id} (now ${n}): ${want} still to gather, ${covered} planned`);
+          changed = true;
+        }
       }
     }
     if (changed) reg.save();

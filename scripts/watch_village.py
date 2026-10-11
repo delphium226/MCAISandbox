@@ -328,10 +328,11 @@ while time.time() - t0 < minutes * 60:
                 if e["type"] == "action_done" or (e["type"] == "system" and re.search(r"saved|Laid out|Posted tasks", e["text"])):
                     last_done = last_ok[n] = time.time()
                 # (both are an agent at work for the per-agent stall rule: a miner waits up to 2 minutes for a face twice)
-                if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"]):
+                if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
                     last_ok[n] = time.time()
-                # (a busy mine is no stuck agent: the gathering Mayor, a third miner, hands its task back for later, V2.3m)
-                if e["type"] == "action_failed" and "the mine is busy" not in e["text"]:
+                # (a busy mine is no stuck agent: the gathering Mayor, a third miner, hands its task back for later, V2.3m;
+                # nor is material others are taking, S.1)
+                if e["type"] == "action_failed" and "the mine is busy" not in e["text"] and "being taken by other gatherers" not in e["text"]:
                     k = (n, e["text"][:80])
                     fails[k] = fails.get(k, 0) + 1
                     if fails[k] >= same_fail:

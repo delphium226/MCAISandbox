@@ -31,7 +31,7 @@ import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from '.
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
 import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, elevations, lintDesign, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
-import { SCOUT_RANGE, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
+import { PICK_GATHER, PICK_SUPPLY, SCOUT_RANGE, TAKEN_BY_OTHERS, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { TaskBrain, taskCalls } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, isCloudModel, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
@@ -839,6 +839,24 @@ export class TieredBrain implements AgentBrain {
     return p as Plan;
   }
 
+  /** A worker's soft gather task handed back because others hold what is left of its material (S.1); true if it was. */
+  private takenByOthers(a: WorldAgent, e: AgentEvent): boolean {
+    const why = String(e.data?.message ?? e.text);
+    const v = a.village(), pl = this.plan(a);
+    if (!v || !pl?.taskId || e.data?.type !== 'collect' || !TAKEN_BY_OTHERS.test(why)) return false;
+    const held = v.tasks.find((t) => t.id === pl.taskId && t.status === 'claimed' && t.claimedBy === a.name);
+    const block = String((e.data?.args as Record<string, unknown> | undefined)?.block ?? '').toLowerCase();
+    // (its own material only: a collect left over from another task says nothing about this one, lesson 23)
+    if (!held?.soft || !block || !held.detail.toLowerCase().includes(`collect block=${block} `)) return false;
+    // (the other tasks for the block wait too: this worker keeps no avoid list and would take the next one at once)
+    a.world.villages.handBackTaken(v, held.id, a.name, why, block);
+    a.stop();
+    pl.taskId = undefined;
+    pl.step = pl.steps.length;
+    a.pushEvent('system', `Handed back ${held.id} "${held.title}": ${why.slice(0, 120)}. Deposit what you gathered (deposit item=${block}); the task comes back on the board later.`);
+    return true;
+  }
+
   onEvent(a: WorldAgent, e: AgentEvent) {
     // The mayor's gathering (its own actions only): its failures are the task runner's to handle, not a reason to replan
     // (and a chore code queued, the farm's harvest: never a step of the plan, nor a failure of it)
@@ -867,7 +885,10 @@ export class TieredBrain implements AgentBrain {
       this.urgent = true;
       this.replanReason = 'the agent died and lost its items';
     }
-    if (e.type === 'action_failed') {
+    // What is left of its material is being taken by other gatherers (S.1): not a failure of the plan, the call or the task
+    // (no loop-guard entry, which would refuse the same collect later); the task goes back on the board for a while
+    if (e.type === 'action_failed' && !gathered && this.takenByOthers(a, e)) this.stat(a, 'takenHandBacks');
+    else if (e.type === 'action_failed') {
       if (!gathered) this.failuresSincePlan++;
       // (a chore's failure is in the village log, not the run's failed actions)
       if (!chore) this.stat(a, 'actionsFailed');
@@ -1009,6 +1030,16 @@ export class TieredBrain implements AgentBrain {
     const ownGather = (t: Task) => t.status === 'claimed' && t.claimedBy === a.name && t.id === this.gatherer.held;
     if (v && role === 'mayor' && laidOut && !v.complete && !v.unplaced?.length) {
       const builds = v.tasks.filter((t) => /^Build /.test(t.title));
+      // The pickaxe supply (S.1) is moot once everything is built: never a reason to wait (it would hold completion for good
+      // when nobody takes it). Its gathering is closed even while held; the making, once under way, ends with its deposit
+      if (builds.length && builds.every((t) => t.status === 'done'))
+        for (const t of v.tasks)
+          if ((PICK_SUPPLY.test(t.title) && t.status === 'open') || (PICK_GATHER.test(t.title) && (t.status === 'open' || t.status === 'claimed'))) {
+            t.status = 'done';
+            t.result = 'not needed: every building is built';
+            t.updated = now;
+            a.world.villages.note(v, `${t.id} "${t.title}" was not needed: every building is built`);
+          }
       if (builds.length && builds.every((t) => t.status === 'done') && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft) || ownGather(t))) {
         if (this.gatherer.held) this.gatherer.handBack(a, 'not needed: every building is built', true);
         v.complete = true;

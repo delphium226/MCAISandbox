@@ -24,7 +24,7 @@ import { holdsSign } from '../streetPlan';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
-import { STORAGE_SKILLS, refreshStorage, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
@@ -735,6 +735,11 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
           notes.push(`left ${Object.values(left).reduce((s, q) => s + q, 0)} windows open (no glass: no sand to make it)`);
         } else throw new Error(why + (makeError ? ` (making them here failed: ${makeError})` : '') + (await requeueBuild(a, job, need, left, signal)));
       }
+      // Everything it needs is in hand: the storage reserve stops counting this build (S.1; until now its furnace's
+      // cobblestone in the chests was still the build's)
+      const held = v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && /^Build /.test(t.title)
+        && (job.task ? t.detail === job.task || t.detail.startsWith(`${job.task} `) : !!job.design && t.detail.includes(`build_design "${job.design}"`)));
+      if (v && held) a.world.markDrawn(v, held.id, a.name);
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
     type Cmd = { cmd: string; n: number; pos: Pos; clear: boolean; item?: string; optional?: boolean; then?: string; open?: boolean };
@@ -1515,8 +1520,11 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
  * The preparer, carrying the logs of the trees it felled, sets up the village storage itself (the opportunities analysis,
  * 10-08: a second worker collected 10 new logs for the chests while the preparer stood by with 200-380, and the
  * storage, the mining hut and the mine all came ~1.5 min later): the open storage task's own steps, less its collect,
- * then everything deposited, which covers the log tasks at once. The first chest finishes the storage task (placeChest).
- * Anything failing is only noted: the plot is ready, and the storage task stays on the board as before.
+ * then everything deposited, which covers the log tasks at once. Outside a storage hut the first chest finishes the
+ * storage task (placeChest). In a hut village the task is held by the preparer and done only once everything is in
+ * (S.1): finished at the first chest, its log tasks were claimed while the chests were still empty (Van12a: five agents
+ * gathered logs the felled ones covered). Anything failing is only noted: the plot is ready, and the storage task stays
+ * on the board as before (done if a chest stands).
  */
 async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -1527,7 +1535,16 @@ async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<stri
   const logs = Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:logs 0`).catch(() => ''))?.[1] ?? 0);
   // (a chest is 8 planks, 2 logs; and a crafting table's log, made if none is near)
   if (!chests || logs < chests * 2 + 1) return '';
-  try {
+  const reg = a.world.villages;
+  // (PLAN's scope, hut villages: the only kind the staged runs test, the check's #9)
+  const hold = !!v.storageHut;
+  if (hold) {
+    task.status = 'claimed';
+    task.claimedBy = a.name;
+    task.updated = Date.now();
+    reg.save();
+  }
+  const run = async () => {
     for (const c of calls) {
       if (c.type === 'craft') await SURVIVAL_SKILLS.craft.run(a, c.args, signal);
       // (into a storage hut the deposit walks to the chest spot's aisle itself; a loose chest goes down beside the agent,
@@ -1539,14 +1556,37 @@ async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<stri
       }
       else await STORAGE_SKILLS.deposit.run(a, c.args, signal);
     }
+  };
+  try {
+    if (hold) {
+      await holdingStorageTask(v, run);
+      const stocked = Object.entries(storageContents(v)).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+      const what = stocked.slice(0, 4).map(([n, q]) => `${q} ${n}`).join(', ');
+      reg.finish(v, task.id, a.name, `storage set up with the felled logs: ${v.storage?.chests.length ?? 0} chests, holding ${what}`);
+      console.log(`[prepare] ${a.name} set up the storage with the felled logs: ${v.storage?.chests.length ?? 0} chests, deposited ${what}; ${task.id} ${v.tasks.find((t) => t.id === task.id)?.status}`);
+    } else await run();
     const now = v.tasks.find((t) => t.id === task.id);
     return now?.status === 'done' ? `; set up the village storage with the felled logs (${task.id} done)` : '';
   } catch (e) {
     if ((e as Error).message === 'cancelled') throw e;
     console.log(`[prepare] ${a.name}: the storage not set up with the felled logs: ${(e as Error).message}`);
     // (the first chest may have finished the task before a later step failed)
-    const left = v.tasks.find((t) => t.id === task.id)?.status === 'done' ? `${task.id} done` : `${task.id} stays on the board`;
+    const left = v.tasks.find((t) => t.id === task.id)?.status === 'done' || (hold && v.storage?.chests.length) ? `${task.id} done` : `${task.id} stays on the board`;
     return `; the storage not fully set up with the felled logs (${(e as Error).message.slice(0, 100)}): ${left}`;
+  } finally {
+    // Held and not finished (a failure, or a stop, which sends no report: lesson 67): done if a chest stands, as the first
+    // chest would have made it; else back on the board
+    const t = v.tasks.find((x) => x.id === task.id);
+    if (hold && t?.status === 'claimed' && t.claimedBy === a.name) {
+      if (v.storage?.chests.length) reg.finish(v, t.id, a.name, `storage chest at ${v.storage.chests[0].x},${v.storage.chests[0].y},${v.storage.chests[0].z} (the rest of the felled logs not deposited)`);
+      else {
+        t.status = 'open';
+        t.claimedBy = undefined;
+        t.updated = Date.now();
+        reg.note(v, `${a.name} put ${t.id} "${t.title}" back: the storage was not set up with the felled logs`);
+      }
+      reg.save();
+    }
   }
 }
 

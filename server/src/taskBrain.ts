@@ -5,7 +5,7 @@
  * way, so a village of task workers tests the skills, storage, layout and building end to end in minutes, without model
  * latency or model mistakes. Tiered agents are for testing behaviour.
  */
-import type { Task } from './village';
+import { TAKEN_BY_OTHERS, type Task } from './village';
 import type { AgentBrain, AgentEvent, WorldAgent } from './world';
 
 interface Call { type: string; args: Record<string, unknown> }
@@ -79,8 +79,9 @@ export class TaskBrain implements AgentBrain {
   /**
    * Stop the task it holds: back on the board without a try counted (`done`: closed as done, with `why` as its result).
    * What it gathered goes into the storage (once the task is no longer held, nothing counts it as carried for it).
+   * `taken`: the block others hold the rest of (S.1), so it and the other tasks for that block wait a while.
    */
-  handBack(a: WorldAgent, why: string, done = false, stop = true) {
+  handBack(a: WorldAgent, why: string, done = false, stop = true, taken?: string) {
     const v = a.village();
     const id = this.task;
     if (!id) return;
@@ -89,6 +90,7 @@ export class TaskBrain implements AgentBrain {
     if (stop) a.stop();
     if (v && v.tasks.find((t) => t.id === id)?.claimedBy === a.name) {
       if (done) a.world.villages.finish(v, id, a.name, why);
+      else if (taken) a.world.villages.handBackTaken(v, id, a.name, why, taken);
       else a.world.villages.unclaim(v, id, a.name, why);
     }
     a.pushEvent('system', `Handed back task ${id}: ${why.slice(0, 120)}`);
@@ -140,11 +142,15 @@ export class TaskBrain implements AgentBrain {
         if (!none) try { this.enqueue(a, 'deposit', { item: 'all' }); } catch { /* nothing to deposit with: kept for the next task's deposit */ }
         return;
       }
-      if (this.opts.notTheTask?.test(msg)) {
+      // What is left is being taken by other gatherers (S.1): back on the board for a while, not failed and not "none here"
+      // (only for the task's own material, lesson 23, and soft tasks, as in the tiered brain: the storage task's logs wait
+      // and collect again on the normal retry)
+      const taken = TAKEN_BY_OTHERS.test(msg) && e.data?.type === 'collect' && !!held?.soft && !!block && !!held.detail.toLowerCase().includes(`collect block=${block} `);
+      if (taken || this.opts.notTheTask?.test(msg)) {
         const item = /collect block=(\S+)/.exec(held?.detail ?? '')?.[1];
         if (item) this.avoid.set(item, Date.now() + AVOID_MS);
         // (the action has ended: nothing to stop, and a stop inside the world's own failure report would cut it up)
-        return this.handBack(a, msg, false, false);
+        return this.handBack(a, msg, false, false, taken ? block : undefined);
       }
       // What a player would do, from the failure messages: craft the missing tool, collect the missing logs
       const tool = /needs (?:an? )?(\w+_(?:pickaxe|axe|shovel))/.exec(msg);

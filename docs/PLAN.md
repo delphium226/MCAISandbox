@@ -1223,7 +1223,7 @@ Rules for every step:
     - Van12b/c and Van3b/c give the baseline and noise band for every later pass rule and for goal 1. The new spawns and stop rules make Van12a and Van3a incomparable.
     - The new lines confirm or refute the two losses and settle the face-limit hypothesis against the pickaxe cause. If the result changes the picture, re-order S.1-S.3 before writing any code.
 
-- [ ] S.1 **Small contention fixes** (~half a session).
+- [x] S.1 **Small contention fixes**: done 10-11 (s26). Staged Van12d/e 6.2/6.1 min (baseline 6.4/6.0), Van3d 5.7 (5.7/5.9): no change in completion, as expected for this step; the mechanisms showed: the builds' cobblestone left alone 6 times a run, the 4-pickaxe supply made at 2.8-2.9 and every stored pickaxe taken, no `[shortfall]` (the storage hut no longer short). One regression, fixed after the runs (to confirm in S.2's runs): the stairs' digger failed once at 1.6 ('cannot make oak_planks': the spare kind chosen was oak, the bot carried another), so the mine opened at 2.2 instead of 2.0-2.1; the pickaxe crafts now name the kind on hand. 7 wooden pickaxes are still made before the supply lands (S.2's branch helpers cut the waits that follow). The plan was: **Small contention fixes** (~half a session).
   - `makePickaxe` (`mcSurvival.ts:236-247`) takes a stone pickaxe from storage first. Otherwise it uses storage cobblestone only beyond what the claimed and claimable builds still need, the same rule as `spareKind` (lesson 88), then cobblestone in hand, then makes a wooden pickaxe.
     - Storage holds no pickaxes today (`deposit all` keeps tools, `mcStorage.ts:265`), so the rule gets a supply: a soft task, "Make 4 stone_pickaxe into storage" (deposited by name), posted once storage holds the hut's cobblestone plus 12 and claimed by an idle worker.
   - `syncGather` (`mcWorld.ts:277`) rounds a remainder under 8 up to 8, or adds it to an open task of the same item. Dropping it would turn a 1-4 shortfall into the requeue this step removes.
@@ -2446,6 +2446,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10 (s26) | **Van3a** | the same as Van12a with `--workers 2` (3 agents) | 6/6 + lamps + signs + farm | **6.0 min** | 1 failed (the Mayor stuck on a deposit walk); **12 agents = 3 agents**: the build is a serial chain and the objective gives ~6 build tasks (Phase S) |
 | 10-10/11 (s26) | **Van12b, Van12c** | S.0 baselines: Van12a's command with S.0's measuring (ring spawns, per-agent stall 8, `[mine]`, `[pickaxe]`, `[furnace]`, `[shortfall]`, `[rcon]`, BUSY and CRITICAL PATH lines) | 6/6 each | **6.4, 6.0 min** | 44%, 45% busy before completion; critical path 6-7 tasks held back to back; 6 miners waited 35-85 s for a face; pickaxes drained storage cobblestone |
 | 10-10/11 (s26) | **Van3b, Van3c** | the same with 2 workers | 6/6 each | **5.7, 5.9 min** | 90%, 92% busy; critical path 9 tasks, 2.6-2.8 min of waiting for a claim |
+| 10-11 (s26) | **Van12d, Van12e, Van3d** | S.1 (contention fixes), the S.0 command | 6/6 each | **6.2, 6.1; 5.7 min** | 39% busy (12 agents); 1 failed each 12-agent run (the stairs' digger's pickaxe: wood kind, fixed after); supply of 4 stone pickaxes at 2.8-2.9; no shortfall; 7 face waits a run |
 
 ## Findings log
 

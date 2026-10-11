@@ -233,24 +233,54 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
       if (e.message === 'cancelled' || unmoved(e)) throw e;
     });
   };
+  // A ready pickaxe from storage (the pickaxe supply, S.1), never iron or better (kept for the iron trips); a stale record
+  // (an empty chest) falls through. A wooden one only once no stone one can be made
+  const stored = async (kind: string) => {
+    if (!v || !((storageContents(v)[kind] ?? 0) > 0)) return false;
+    await fromStock({ [kind]: 1 });
+    await syncInventory(a);
+    if (!a.bot.inventory.items().some((it) => it.name.endsWith('_pickaxe'))) return false;
+    console.log(`[pickaxe] ${a.name} took a ${kind} from storage (left ${storageContents(v)[kind] ?? 0})`);
+    return true;
+  };
+  if (await stored('stone_pickaxe')) return;
   const stock = v ? storageContents(v) : {};
-  const getStone = countItem(a, itemId(a, 'cobblestone')!) < 3 && (stock.cobblestone ?? 0) >= 3;
+  // Only the storage's cobblestone no building still needs (S.1): pickaxes took the first cobblestone, and Van12a's storage
+  // hut was short its furnace (the same rule as spareKind, lesson 88). Where the pickaxe supply makes up for it: in a
+  // smaller village everything in storage counts as spare, as before
+  const reserve = v && a.world.pickaxeReserve(v) ? a.world.storageReserve(v) : {};
+  const reserved = reserve.cobblestone ?? 0;
+  const spare = (stock.cobblestone ?? 0) - reserved;
+  const inHand = countItem(a, itemId(a, 'cobblestone')!);
+  const getStone = inHand < 3 && spare >= 3;
+  if (inHand < 3 && !getStone && (stock.cobblestone ?? 0) >= 3) console.log(`[pickaxe] ${a.name} left storage cobblestone alone: ${stock.cobblestone} held, ${reserved} reserved for buildings`);
   // With 3 cobblestone in hand a stone pickaxe (131 blocks, a wooden one 59): its sticks take 2 planks
-  const stone = getStone || countItem(a, itemId(a, 'cobblestone')!) >= 3;
+  const stone = getStone || inHand >= 3;
+  if (!stone && (await stored('wooden_pickaxe'))) return;
   // 3 planks and 2 sticks (2 planks), and 4 more for a table when there is none to use
   const table = villageStation(a, 'crafting_table') ?? nearestBlockNamed(a, 'crafting_table', STATION_REACH);
   const want = (stone ? 2 : 5) + (table && Math.abs(table.position.y - a.bot.entity.position.y) <= 3 || a.bot.inventory.items().some((it) => it.name === 'crafting_table') ? 0 : 4);
-  // Logs of the storage's commonest kind for all of the wood (planks of another kind carried make no pickaxe with them)
-  const log = Object.entries(stock).filter(([n, q]) => /_log$/.test(n) && q > 0).sort((p, q) => q[1] - p[1])[0];
-  const kindHave = log ? obtainable(a, itemId(a, log[0].replace(/_log$/, '_planks')) ?? -1) : 0;
+  // Logs of one kind for all of the wood (planks of another kind carried make no pickaxe with them): the kind with the most
+  // to spare beyond the buildings' reserve, kind by kind (lesson 88: not the logs of a building's own kind); with none to
+  // spare, the storage's commonest as before (2 logs cost less than a tree trip, F85)
+  const wanted = (n: string) => {
+    const have = obtainable(a, itemId(a, n.replace(/_log$/, '_planks')) ?? -1);
+    return (bestPlanks(a)?.n ?? 0) < want && have < want ? Math.min(stock[n], Math.ceil((want - have) / 4)) : 0;
+  };
+  const spareOf = (n: string) => stock[n] - (reserve[n] ?? 0);
+  const kinds = Object.entries(stock).filter(([n, q]) => /_log$/.test(n) && q > 0);
+  const free = kinds.filter(([n]) => wanted(n) > 0 && spareOf(n) >= wanted(n)).sort((p, q) => spareOf(q[0]) - spareOf(p[0]))[0];
+  const log = free ?? kinds.sort((p, q) => q[1] - p[1])[0];
+  const logsTaken = log ? wanted(log[0]) : 0;
+  if (logsTaken && !free) console.log(`[pickaxe] ${a.name} takes ${logsTaken} ${log![0]} the buildings count on: no kind has that many to spare`);
   const fetch: Record<string, number> = {
     ...(getStone ? { cobblestone: 3 } : {}),
-    ...(log && (bestPlanks(a)?.n ?? 0) < want && kindHave < want ? { [log[0]]: Math.min(log[1], Math.ceil((want - kindHave) / 4)) } : {}),
+    ...(logsTaken ? { [log![0]]: logsTaken } : {}),
   };
   if (Object.keys(fetch).length) {
     const took = await fromStock(fetch);
-    // S.0: pickaxes as a drain on the cobblestone the builds need
-    if (getStone && v) console.log(`[pickaxe] ${a.name} took ${(took?.got as Record<string, number> | undefined)?.cobblestone ?? 0} cobblestone from storage (left ${storageContents(v).cobblestone ?? 0})`);
+    // S.0: pickaxes as a drain on the cobblestone the builds need (S.1: with the reserve it left alone)
+    if (getStone && v) console.log(`[pickaxe] ${a.name} took ${(took?.got as Record<string, number> | undefined)?.cobblestone ?? 0} cobblestone from storage (left ${storageContents(v).cobblestone ?? 0}, ${reserved} reserved for buildings)`);
   }
   // Wood of one kind: 3 birch planks and 2 oak planks are five planks but no pickaxe (its sticks came up short). New
   // logs may be of yet another kind: look again after collecting
@@ -259,17 +289,21 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
     if (wood >= want) break;
     await collect(a, { block: 'logs', count: Math.ceil((want - wood) / 4) }, signal);
   }
+  // The kind actually on hand for the planks and sticks: with no kind named, craft took a kind the bot did not carry once
+  // the logs fetched were another (Van12d: oak chosen as the spare kind, birch carried; the mine's stairs waited 0.6 min)
+  const woodKind = bestPlanks(a)?.name.replace(/_planks$/, '');
   if (stone) {
     try {
-      await craft(a, { item: 'stone_pickaxe', count: 1 }, signal);
+      await craft(a, { item: 'stone_pickaxe', count: 1, wood: woodKind }, signal);
+      console.log(`[pickaxe] ${a.name} made a stone pickaxe (cobblestone from ${getStone ? 'storage' : 'its own digging'})`);
       return;
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
       console.log(`[pickaxe] ${a.name} could not make a stone pickaxe: ${(e as Error).message.slice(0, 160)}`);
     }
   }
-  await craft(a, { item: 'wooden_pickaxe', count: 1 }, signal);
-  console.log(`[pickaxe] ${a.name} made a wooden pickaxe (storage had ${stock.cobblestone ?? 0} cobblestone)`);
+  await craft(a, { item: 'wooden_pickaxe', count: 1, wood: woodKind }, signal);
+  console.log(`[pickaxe] ${a.name} made a wooden pickaxe (storage had ${stock.cobblestone ?? 0} cobblestone, ${reserved} reserved for buildings)`);
 }
 
 /** Blocks a bot could not get to, by position, until when (10 minutes): the next collect does not walk to them again. */
@@ -660,6 +694,15 @@ async function fellTree(a: BotAgent, log: Vec3, keep: (p: Vec3) => boolean, sign
  * failed walks, or 2 minutes without collecting anything (six tries of up to two minutes each took five minutes).
  */
 async function collect(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  try {
+    return await collectRun(a, args, signal);
+  } finally {
+    // Its targets end with it (S.1): only collects still running count as "being taken" to the others
+    for (const [k, t] of targeted) if (t.by === a.name) targeted.delete(k);
+  }
+}
+
+async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { blocks, items, label } = collectTargets(a, str(args.block, 'block'));
   // Shared by every bot: a log another worker could not reach is usually out of reach for all (high in a canopy)
   const bad = unreachable;
@@ -816,7 +859,8 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       // all be near ones it turned down, or out of range, hiding good ones farther out, F96; the filters read state ids, F106)
       const p0 = a.bot.entity.position;
       // (cheapest first: most matches are buried, and near() goes through every village's areas)
-      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)), ys).find((p) => !skipBuilt(p, near));
+      // (nor one another gatherer is on its way to: the check's #10)
+      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();
@@ -832,7 +876,26 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
       if (await stepOffVillageGround(a, signal)) continue;
     }
     if (!next) {
-      if (got > 0) throw new Error(`only found ${got} ${label}; none left within ${base ? `${range} blocks of the village` : '128 blocks'}${passedOver()}: deposit what you have${base ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
+      // What is left is what other gatherers are on their way to (S.1): said so, not "none here", which failed the task and
+      // could mark sand unavailable for the village while others held the last of it (parallel_map N4). Only cells the
+      // searches would take but for the target (not out of reach, nor wet), and targets are released when their collect
+      // ends: a stale one handed the task round and round
+      const takers = new Set<string>();
+      let taken = 0;
+      for (const [k, t] of targeted) {
+        if (t.by === a.name || t.until <= Date.now() || bad.has(k) || failed.has(k)) continue;
+        const [x, y, z] = k.split(',').map(Number);
+        const p = new Vec3(x, y, z);
+        if (!blocks.includes(a.bot.blockAt(p)?.type ?? -1) || !near(p) || !stalk(p) || !dry(p)) continue;
+        taken++;
+        takers.add(t.by);
+      }
+      const where = `within ${base ? `${range} blocks of the village` : '128 blocks'}`;
+      if (taken) console.log(`[collect] ${a.name}: ${got} of ${want} ${label}; ${taken} left ${where} held by ${[...takers].join(', ')}`);
+      // (with some gathered, the task ends softly as before, its count kept for the cover rule; only an empty-handed one
+      // goes back on the board)
+      if (taken && !got) throw new Error(`the ${taken} ${label} left ${where} are being taken by other gatherers (${[...takers].join(', ')}): hand the task back and collect again in a few minutes`);
+      if (got > 0) throw new Error(`only found ${got} ${label}; none left ${where}${taken ? ` (${taken} more held by other gatherers: ${[...takers].join(', ')})` : ''}${passedOver()}: deposit what you have${base ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
       throw new Error(base
         ? `no ${label} within ${range} blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`
         : `no ${label} within 128 blocks${passedOver()}; explore 100 blocks or more in one direction, then collect again${lastError ? ` (last problem: ${lastError})` : ''}`);

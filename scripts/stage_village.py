@@ -861,7 +861,8 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
             # not a stuck agent (StageT3 and T4 were stopped on sand)
             # (nor a busy mine: a third miner, the gathering Mayor, hands its task back and comes back later, V2.3m)
             # (both are an agent at work for the per-agent stall rule too: a miner waits up to 2 minutes for a face twice)
-            if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"]):
+            # (nor material others are taking: the task goes back for later, S.1)
+            if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
                 last_ok[n] = time.time()
             elif e["type"] == "action_failed":
                 k = (n, e["text"][:80])
