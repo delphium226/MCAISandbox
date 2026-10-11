@@ -2477,6 +2477,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s27) | **E0a** | E.0 (with the review's fixes), staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 2` | 6/6 | **4.9 min** (Van3h 5.1) | 0 failed, 0 `[lag]`, 0 `[stuck]`; 94% busy; no model calls (scripted) |
 | 10-11 (s27) | **Minevale38** | E.0, model-driven, 1x, minevale3 (the Mayor's site -1657,23), every role on gpt-oss; a human line from Gus (a plain Mineflayer player, `runs/2026-10-11/s27/human_line.cjs`) at ~1.5 min | **6/6 + lamps + signs + farm** | **10.1 min** (Minevale37 10.4) | **6 failed** (Worker2: F216's glass chain); the human line woke only the Mayor (154 blocks off, named) who answered in one executor call, the workers (out of range) never got it and heard the reply without a wake; `[gate]` waits 0 ms per kind, in flight max 2/3; spend ledger `runs/spend/2026-10-11-8767.jsonl`; 13 calls, ~$0.011; 0 `[lag]`/`[stuck]` |
 | 10-11 (s27) | **Minevale39** | E.0 + F216's step-matching fix, the same command | **stopped at 15.9 min**, incomplete (the storage hut never built) | - | **55 failed**: F217 (the furnace step now failing, the executor placed a furnace inside the storage hut's footprint, the hut's level check refused, the executor mined the village's storage chests); 17 `[stuck]`, 0 `[lag]`; 372k tokens in |
+| 10-11 (s27) | **Minevale40** | F216 + F217's fixes, the same command | **6/6 + lamps + signs + farm** | **11.0 min** | 3 failed (F218: one "no path" from a dirt_path, two improvised smelts out of fuel); the furnace placed by the stations task at 4.0; 0 `[lag]`/`[stuck]`; 13 calls, ~$0.010 |
 
 ## Findings log
 
@@ -3494,7 +3495,14 @@ CLAUDE.md when a phase ends.
   the chests (lesson 33's stray block), the hut's build refused its level, and the executor then `mine`d the village's
   storage chests (229 items lost from the record): 55 failed actions, no hut. Three gaps: `place_station` does not get
   its own missing cobblestone (lesson 106), `place` puts blocks on a planned building's ground, and `mine` breaks a
-  village's storage chests (lesson 30).
+  village's storage chests (lesson 30). Fixed: the stations task's `place_station` collects what storage cannot give (the mine digger's
+  optional call still leaves it to that task); the model-facing `place` refuses a village's ground (`onVillageGround`)
+  and `mine` refuses a village's buildings, chests and stations, in survival. Minevale40: the furnace placed by the
+  stations task at 4.0 min, complete in 11.0 min.
+- F218 (10-11, s27, Minevale40, open) `make_into_storage` failed "no path to -1657,65,8" from -1657,64,15, the bot's
+  feet on a street's `dirt_path` (15/16 high, so they floor a block low); the executor's `move_to` along the same line
+  arrived at once. Then two improvised smelts ran out of fuel (3 failed actions). Look at walks that start on dirt_path
+  or farmland if it recurs.
 
 ## Decisions log
 

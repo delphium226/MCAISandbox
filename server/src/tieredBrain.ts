@@ -900,10 +900,11 @@ export class TieredBrain implements AgentBrain {
       const plan = this.plan(a);
       const type = String(e.data?.type ?? '');
       // For gathering and crafting the step must also name the item ("collect logs" for the pickaxe is not "Collect 26
-      // cobblestone": that task was marked done with nothing gathered); worlds that send no args match on the skill alone
+      // cobblestone": that task was marked done with nothing gathered); worlds that send no args match on the skill alone.
+      // So must the stations and the village's parts (F216: the table's placing closed "place_station item=furnace" too)
       const args = (e.data?.args ?? {}) as Record<string, unknown>;
       const item = String(args.block ?? args.item ?? '').toLowerCase().replace(/^minecraft:/, '');
-      const names = (st: string) => !item || item === 'all' || !/^(collect|craft|withdraw|deposit|smelt)$/.test(type)
+      const names = (st: string) => !item || item === 'all' || !/^(collect|craft|withdraw|deposit|smelt|place_station|make_into_storage)$/.test(type)
         || st.toLowerCase().replace(/_/g, ' ').includes(item.replace(/_/g, ' ').replace(/s$/, ''));
       if (plan && type && type !== 'move_to' && !gathered && this.startedUnder(e.data?.action, plan)) {
         const i = plan.steps.findIndex((st, k) => k >= plan.step && new RegExp(`\\b${type}\\b`, 'i').test(st) && names(st));

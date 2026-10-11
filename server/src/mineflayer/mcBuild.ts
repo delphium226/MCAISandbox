@@ -3925,7 +3925,8 @@ async function placeStationSkill(a: BotAgent, args: Record<string, unknown>, sig
   const t = v?.tasks.find((x) => x.status === 'claimed' && x.claimedBy === a.name && /place_station /.test(x.detail));
   let b: Awaited<ReturnType<typeof placeStation>>;
   try {
-    b = await placeStation(a, name, signal, t ? `${t.id} "${t.title}"` : 'place_station');
+    // (the stations task gathers what storage cannot give; the mine's digger leaves it to that task)
+    b = await placeStation(a, name, signal, t ? `${t.id} "${t.title}"` : 'place_station', 0, String(args.optional) !== 'true');
   } catch (e) {
     if (String(args.optional) !== 'true' || (e as Error).message === 'cancelled' || unmoved(e)) throw e;
     console.log(`[station] ${a.name}: the ${name} not placed (${(e as Error).message.slice(0, 160)}); left to the stations task`);

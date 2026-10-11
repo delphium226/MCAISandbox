@@ -1218,8 +1218,10 @@ function bodiesIn(a: BotAgent, pos: Vec3): string[] {
  * carried), the furnace from 8 cobblestone (what is short withdrawn) at the village's table. Set by command with `keep`,
  * so a chest is never overwritten (lesson 33), never inside a player (lesson 44), confirmed on the server and written into
  * the bot's view (lessons 29, 80); then recorded. `keepCobble`: cobblestone carried for something else (a smelt's input).
+ * `gather`: cobblestone the storage cannot give is collected (the stations task, F217: its executor otherwise made and
+ * placed a furnace itself, inside the storage hut's footprint).
  */
-export async function placeStation(a: BotAgent, name: StationName, signal: AbortSignal, via: string, keepCobble = 0): Promise<Block | null> {
+export async function placeStation(a: BotAgent, name: StationName, signal: AbortSignal, via: string, keepCobble = 0, gather = false): Promise<Block | null> {
   const v = a.village();
   if (!v) throw new Error('place_station: not in a village');
   const release = await stationLock(`${v.name}:${name}`, signal);
@@ -1271,7 +1273,12 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
         const short = 8 - Math.max(0, (await count('cobblestone')) - keepCobble);
         if (short > 0) {
           const got = ((await withdrawItems(a, v, { cobblestone: short }, signal)).got as Record<string, number>).cobblestone ?? 0;
-          if (got < short) throw new Error(`place_station: the furnace needs 8 cobblestone (carrying ${8 - short}, the storage gave ${got} more); collect cobblestone, then place_station again`);
+          if (got < short && gather) {
+            await collect(a, { block: 'cobblestone', count: short - got }, signal);
+            await reach(a, pos.offset(0.5, 0, 0.5), 3, signal);
+          }
+          if (got < short && Math.max(0, (await count('cobblestone')) - keepCobble) < 8)
+            throw new Error(`place_station: the furnace needs 8 cobblestone (carrying ${8 - short}, the storage gave ${got} more); collect cobblestone, then place_station again`);
         }
       }
       // (the furnace at the village's table: placed first when it is not there, by this same placer)
@@ -1914,6 +1921,13 @@ export const SURVIVAL_SKILLS: Record<string, McSkill> = {
     check: xyz,
     async run(a, args, signal) {
       const pos = new Vec3(Math.floor(num(args.x, 'x')), Math.floor(num(args.y, 'y')), Math.floor(num(args.z, 'z')));
+      // Nothing of a village's: its buildings, storage chests and stations (lesson 30; F217: an executor mined the storage
+      // chests to make room for the hut, and their record was lost)
+      const built = [...a.world.villages.villages.values()].find((v) =>
+        v.structures.some((q) => pos.x >= q.x1 && pos.x <= q.x2 && pos.z >= q.z1 && pos.z <= q.z2 && pos.y >= q.y - 1 && pos.y <= q.y + 24)
+        || Object.values(v.stations ?? {}).some((q) => q && q.x === pos.x && q.y === pos.y && q.z === pos.z));
+      if (built && a.gamemode !== 'creative')
+        throw new Error(`${at(pos)} is part of village ${built.name} (a building, a storage chest or a station): it is not yours to mine`);
       try {
         return await mineBlock(a, pos, signal, args.force === true);
       } catch (e) {
@@ -1931,6 +1945,10 @@ export const SURVIVAL_SKILLS: Record<string, McSkill> = {
       const item = resolveItem(a, str(args.item, 'item'));
       if (!item) throw new Error(`unknown item ${String(args.item)}`);
       const pos = new Vec3(Math.floor(num(args.x, 'x')), Math.floor(num(args.y, 'y')), Math.floor(num(args.z, 'z')));
+      // A block put down on a village's ground raises a building's floor or blocks a chest spot (lesson 33, F217: a furnace
+      // placed inside the storage hut's footprint): the village's buildings, chests and stations are placed by their tasks
+      if (a.gamemode !== 'creative' && onVillageGround(a, pos.x, pos.z, pos.y))
+        throw new Error(`${at(pos)} is a village's ground (a plot, or beside a building): its buildings, chests and stations are placed by their own tasks; put the ${item} down off the village's ground`);
       await placeAt(a, item, pos, signal);
       return `placed ${item} at ${at(pos)}`;
     },
