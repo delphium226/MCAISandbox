@@ -1238,7 +1238,7 @@ Rules for every step:
     - mine cells per minute not below S.0's;
     - `mine.py` passes.
 
-- [ ] S.2 **The mine for many miners** (~1 session; the prediction stands only if S.0 confirms the face limit).
+- [x] S.2 **The mine for many miners**: done 10-11 (s26). Staged Van12f/g: **mine rate 82/81 cells a minute** (S.1's runs 50/51; 10 miners at peak), a cobblestone task 0.9 min claim to done (median; 1.6 before), 0 busy hand-backs; Van3e 44 (42-43 before). Just under the 86 set as the pass mark (1.6x, not 1.7x): passed with that note (Claude's decision; the rest of the wait is the stairs and the first pickaxes). Completion 6.1/6.1 (6.2/6.1 before) and Van3e 5.8: the critical path has moved on to the builds and the tail (S.3, S.4). Offline: `scripts/checks/mine_geometry.mts` (984 cases and 24 recorded mines match), `mine_rate.py`. The plan was: **The mine for many miners** (~1 session; the prediction stands only if S.0 confirms the face limit).
   - Branch helpers:
     - When every tunnel is held, `nextLeg` gives a waiting miner an unfinished branch at an already dug junction instead of `'busy'`.
     - Holder keys become `tunnel:branch`. The tunnel's own holder takes a branch's key as it reaches it, so it never enters a helper's branch.
@@ -1252,7 +1252,7 @@ Rules for every step:
     - The busy message is left out of the loop guard's key.
   - Exit:
     - `scripts/checks/mine.py` extended to N bots: every cell from the plan, one holder per cell, no cell dug twice.
-    - Van12: cells per minute at least 1.7x the 62 baseline, cobblestone task times 0.6-0.9 min (today 0.6-1.9), hand-backs counted and none repeated by one agent within the cooldown, no new `[stuck]` lines in the tunnels.
+    - Van12: cells per minute at least 1.7x ~~the 62 baseline~~ S.1's Van12d/e by `stage_village.py`'s `MINE rate` line (50 and 51, so **86 or more**; S.0's Van12b/c 60 and 53; Van12a's hand estimate of 62 is what the line gives for Van12a; older logs through `scripts/checks/mine_rate.py`), cobblestone task times 0.6-0.9 min (`MINE tasks`; Van12d/e 0.6-2.5, median 1.6), hand-backs counted and none repeated by one agent within the cooldown (`MINE hand-backs`, no REPEAT), no new `[stuck]` lines in the tunnels.
     - Prediction about 5.3 with S.1.
 
 - [ ] S.3 **Glass made once for the village** (~1 session). This is the first manufacturing task.
@@ -2447,6 +2447,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10/11 (s26) | **Van12b, Van12c** | S.0 baselines: Van12a's command with S.0's measuring (ring spawns, per-agent stall 8, `[mine]`, `[pickaxe]`, `[furnace]`, `[shortfall]`, `[rcon]`, BUSY and CRITICAL PATH lines) | 6/6 each | **6.4, 6.0 min** | 44%, 45% busy before completion; critical path 6-7 tasks held back to back; 6 miners waited 35-85 s for a face; pickaxes drained storage cobblestone |
 | 10-10/11 (s26) | **Van3b, Van3c** | the same with 2 workers | 6/6 each | **5.7, 5.9 min** | 90%, 92% busy; critical path 9 tasks, 2.6-2.8 min of waiting for a claim |
 | 10-11 (s26) | **Van12d, Van12e, Van3d** | S.1 (contention fixes), the S.0 command | 6/6 each | **6.2, 6.1; 5.7 min** | 39% busy (12 agents); 1 failed each 12-agent run (the stairs' digger's pickaxe: wood kind, fixed after); supply of 4 stone pickaxes at 2.8-2.9; no shortfall; 7 face waits a run |
+| 10-11 (s26) | **Van12f, Van12g, Van3e** | S.2 (branch helpers, claim gate, per-miner counters), the S.0 command | 6/6 each | **6.1, 6.1; 5.8 min** | mine 82/81 cells/min (44 with 3), cobblestone tasks median 0.9 min, 0 busy hand-backs; 34-36% busy (12 agents) |
 
 ## Findings log
 
@@ -3803,6 +3804,20 @@ CLAUDE.md when a phase ends.
   the library and the enchanting table (obsidian by lava casting, diamonds from the deep mine); brewing needs a blaze
   rod from the Nether and stays out. Agents beyond Worker4 are named Worker5-24 (whitelisted per world); Paper's
   max-players (16) is raised before 25. Emergence claims rest on ablations and null baselines measured by code.
+- 10-11 (s26, Claude's) S.2's departures from its plan text (the spec and its adversarial check in
+  `runs/2026-10-10/s26/spec_s2*.md`): `downFails` stays per village (one bot digs the stairs down at a time; counted per
+  miner, miners taking turns would retry a blocked step for ever); the busy wait drops from 120 to 60 s (the claim gate
+  keeps few waiting, a face frees whenever a holder's trip ends, and the 2-minute wait only kept the loop guard quiet, which
+  now leaves busy out); a tunnel's holder leaves its junction's branches to miners already waiting and digs on along the
+  main tunnel (`MC_MINE_LEAVE=0` on the agent server turns it off for a comparison run); a waiting miner gets a free branch
+  before a new turn; a cell lock where units share cells (a bottom turn's branches and a junction turn's on the same side
+  run along each other for 9 cells, not only crossings); an empty trip is one that dug no cell at all, charged to its last
+  unit (cells, not items: passing miners pick up drops, and a trip that dug a branch and then failed at once on the main
+  tunnel no longer counts against it); "one claim always allowed when the count reads 0" read as no mine task held; the
+  face count leaves out a main tunnel whose holder is on a branch; a side of a tunnel that ended is not marked tried while
+  a branch on that side is open; the mine answers busy, not "nothing left", while any branch at a dug junction is open; and
+  the Mayor's board status names a task held back by the gate or a cooldown instead of "waits for a design". The MINE rate
+  baseline comes from the runs' own line (S.1's Van12d/e, 50/51), not Van12a's hand estimate.
 
 ## Keeping this plan honest
 

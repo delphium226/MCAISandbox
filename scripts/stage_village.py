@@ -41,8 +41,11 @@ action has had none for MCAI_AGENT_STALL_MIN minutes (default MCAI_STALL_MIN, at
 not stalled, and "cannot be gathered here" or "the mine is busy" count as work).
 The agents spawn on a ring 4 blocks outside the plot (beyond prepare_site's margin), on ground read from the world and
 checked after the spawn (S.0). At the end: each agent's busy and idle minutes (BUSY lines; an agent is busy while an
-action runs), the critical path through the board's tasks (CRIT lines), and STOCK lines of the storage during the run for
-scripts/checks/autonomy_metrics.py. Workers are left in the world: remove them afterwards (panel or DELETE).
+action runs), the critical path through the board's tasks (CRIT lines), STOCK lines of the storage during the run for
+scripts/checks/autonomy_metrics.py, and the mine's MINE lines (S.2: cells a minute from the stairs to the last cobblestone
+collect and the peak of miners, the cobblestone tasks' times from claim to done, the busy hand-backs per agent with any
+REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs). Workers are left in the world: remove them
+afterwards (panel or DELETE).
 """
 import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -51,7 +54,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
-from autonomy_metrics import BoardStamps, BusyClock, critical_path_lines  # noqa: E402
+from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
 TESTHUT = {
@@ -824,8 +827,10 @@ t0, seen, board, reason, last_done = time.time(), {n: 0 for n in watched}, "", "
 fails = {}
 last_need = None
 stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
-# S.0's measurements: busy and idle time per agent, the board's stamps for the critical path, each agent's last success
+# S.0's measurements: busy and idle time per agent, the board's stamps for the critical path, each agent's last success;
+# S.2's, the mine's
 clock, stamps, last_ok, complete_at = BusyClock(watched), BoardStamps(), {n: time.time() for n in watched}, None
+mine_stats = MineStats()
 stock_seen = [None, 0.0]
 
 
@@ -855,12 +860,14 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
             seen[n] = e["id"]
             if e["type"] in ("action_done", "action_failed", "system"):
                 print(f"{stamp()} {n:8} {e['type']:13} | {e['text'][:240]}", flush=True)
+                mine_stats.event((time.time() - t0) / 60, n, e["type"], e["text"])
             if e["type"] == "action_done":
                 last_done = last_ok[n] = time.time()
             # A material that is not within reach is given up by design (soft gather tasks; the build goes without):
             # not a stuck agent (StageT3 and T4 were stopped on sand)
             # (nor a busy mine: a third miner, the gathering Mayor, hands its task back and comes back later, V2.3m)
-            # (both are an agent at work for the per-agent stall rule too: a miner waits up to 2 minutes for a face twice)
+            # (both are an agent at work for the per-agent stall rule too: a miner waits up to a minute for a face, S.2, then
+            # hands its task back)
             # (nor material others are taking: the task goes back for later, S.1)
             if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
                 last_ok[n] = time.time()
@@ -873,6 +880,7 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     clock.sample(listing, "before")
     v = call(f"/village/{args.village}")
     stamps.update(v["tasks"])
+    mine_stats.board(v["tasks"])
     stock_line(v)
     # The stall rule per agent: one that holds a task or runs an action and has had no success for agent_stall minutes
     # (with 12 agents one success reset the village's clock for all); one with nothing to do is idle, not stalled
@@ -1072,7 +1080,7 @@ print(f"RUN village={args.village} end={int(time.time() * 1000)}", flush=True)
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}){usage_suffix(u)}")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {(t.get('result') or '')[:120]}")
-for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at):
+for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at) + mine_stats.lines(v["tasks"], stamps):
     print(line)
 storage = {}
 for c in (v.get("storage") or {}).get("chests", []):

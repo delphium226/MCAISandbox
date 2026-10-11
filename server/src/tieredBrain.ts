@@ -31,7 +31,7 @@ import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from '.
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
 import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, elevations, lintDesign, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
-import { PICK_GATHER, PICK_SUPPLY, SCOUT_RANGE, TAKEN_BY_OTHERS, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
+import { MINE_BUSY, PICK_GATHER, PICK_SUPPLY, SCOUT_RANGE, TAKEN_BY_OTHERS, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
 import { TaskBrain, taskCalls } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, isCloudModel, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
@@ -248,8 +248,13 @@ function boardStatus(a: WorldAgent): string {
   const byId = new Map(v.tasks.map((t) => [t.id, t]));
   const held = v.tasks.filter((t) => t.status === 'claimed').map((t) => `${t.claimedBy} is doing ${t.id} "${t.title}"`);
   const ready = reg.claimable(v).map((t) => t.id);
+  const now = Date.now();
   const waiting = v.tasks.filter((t) => t.status === 'open' && !ready.includes(t.id)).map((t) => {
     const on = t.after.map((id) => byId.get(id)).filter((p) => p && p.status !== 'done' && !(p.status === 'failed' && p.soft));
+    // Nothing left to wait for: code holds it back (S.2's claim gate, S.1's cooldown; "waits for a design" misled the
+    // mayor about those, lesson 86)
+    if (!on.length && reg.claimLimit && !reg.claimLimit(v, t)) return `${t.id} waits for a free face in the mine (code holds it back)`;
+    if (!on.length && (t.cooldown ?? 0) > now) return `${t.id} is back on the board in ${Math.ceil((t.cooldown! - now) / 1000)}s (others are taking what is left of its material)`;
     const blocked = on.filter((p) => p!.status === 'failed');
     const byCode = on.length && on.every((p) => p!.postedBy !== a.name);
     return `${t.id} waits for ${on.map((p) => `${p!.id} (${p!.status})`).join(', ') || 'a design'}${blocked.length ? ': BLOCKED, a task it needs failed' : byCode ? ' (materials were short; code posted these)' : ''}`;
@@ -738,9 +743,10 @@ export class TieredBrain implements AgentBrain {
   /**
    * The mayor's gathering while it waits (V2.3m): a scripted task runner limited to gather tasks, run beside an empty
    * plan (so every wake-up check and the chat-only executor stay as they are); it hands its task back when a plan with
-   * steps comes. A busy mine is not the task's fault: back without a try, cobblestone left alone for a while.
+   * steps comes. A busy mine is not the task's fault: back without a try, mine tasks left alone until a face is free
+   * (the task runner's own handling since S.2, as every worker's).
    */
-  private gatherer = new TaskBrain({ pick: mayorGatherPick, notTheTask: /the mine is busy/ });
+  private gatherer = new TaskBrain({ pick: mayorGatherPick });
   /** For status(): when the pending model calls started, why the latest plan was asked for, the last error. */
   private planStartedAt = 0;
   private execStartedAt = 0;
@@ -857,6 +863,26 @@ export class TieredBrain implements AgentBrain {
     return true;
   }
 
+  /**
+   * A worker's mine task handed back because every face of the mine stayed held (S.2): not the task's fault, nor the
+   * plan's or the call's; true if it was. The registry keeps this worker off mine tasks until a face is free.
+   */
+  private mineBusy(a: WorldAgent, e: AgentEvent): boolean {
+    const why = String(e.data?.message ?? e.text);
+    const v = a.village(), pl = this.plan(a);
+    if (!v || !pl?.taskId || e.data?.type !== 'collect' || !MINE_BUSY.test(why)) return false;
+    const held = v.tasks.find((t) => t.id === pl.taskId && t.status === 'claimed' && t.claimedBy === a.name);
+    const block = String((e.data?.args as Record<string, unknown> | undefined)?.block ?? '').toLowerCase();
+    // (its own material only, lesson 23)
+    if (!held || !block || !held.detail.toLowerCase().includes(`collect block=${block} `)) return false;
+    a.world.villages.handBackBusy(v, held.id, a.name, why);
+    a.stop();
+    pl.taskId = undefined;
+    pl.step = pl.steps.length;
+    a.pushEvent('system', `Handed back ${held.id} "${held.title}": the mine is busy; it comes back when a face is free.`);
+    return true;
+  }
+
   onEvent(a: WorldAgent, e: AgentEvent) {
     // The mayor's gathering (its own actions only): its failures are the task runner's to handle, not a reason to replan
     // (and a chore code queued, the farm's harvest: never a step of the plan, nor a failure of it)
@@ -888,13 +914,16 @@ export class TieredBrain implements AgentBrain {
     // What is left of its material is being taken by other gatherers (S.1): not a failure of the plan, the call or the task
     // (no loop-guard entry, which would refuse the same collect later); the task goes back on the board for a while
     if (e.type === 'action_failed' && !gathered && this.takenByOthers(a, e)) this.stat(a, 'takenHandBacks');
+    else if (e.type === 'action_failed' && !gathered && this.mineBusy(a, e)) this.stat(a, 'mineBusyHandBacks');
     else if (e.type === 'action_failed') {
-      if (!gathered) this.failuresSincePlan++;
+      // (a busy mine, S.2, is no failure of the plan and no call to refuse later: the executor's own collect outside a task)
+      const busy = MINE_BUSY.test(String(e.data?.message ?? e.text));
+      if (!gathered && !busy) this.failuresSincePlan++;
       // (a chore's failure is in the village log, not the run's failed actions)
       if (!chore) this.stat(a, 'actionsFailed');
       const type = e.data?.type, args = e.data?.args;
       // (not the task runner's: its failures are not the executor's calls to block)
-      if (!gathered && typeof type === 'string' && args && typeof args === 'object') {
+      if (!gathered && !busy && typeof type === 'string' && args && typeof args === 'object') {
         const k = callKey(type, args as Record<string, unknown>);
         const f = this.failed.get(k);
         this.failed.set(k, { count: (f?.count ?? 0) + 1, at: Date.now(), why: String(e.data?.message ?? e.text) });
@@ -1084,7 +1113,7 @@ export class TieredBrain implements AgentBrain {
       if (why && free) {
         const blocked = !!usage.blocked(PLAN.model);
         const names = new Set(a.world.skills.map((t) => t.name));
-        const next = a.world.villages.claimable(v!).find((t) => !blocked || exactCalls(t, names));
+        const next = a.world.villages.claimable(v!, a.name).find((t) => !blocked || exactCalls(t, names));
         if (next) {
           a.world.villages.claim(v!, next.id, a.name);
           this.claimedTask = next.id;

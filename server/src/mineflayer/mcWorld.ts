@@ -5,7 +5,7 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, PICK_GATHER, PICK_SUPPLY, VillageRegistry, villageHome, type Village } from '../village';
+import { FARM_TRIP_RANGE, MINE_TASK, PICK_GATHER, PICK_SUPPLY, VillageRegistry, villageHome, type Task, type Village } from '../village';
 import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -14,6 +14,7 @@ import type { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
+import { mineCanGive, mineFaces } from './mcMine';
 import { PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
 import { timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceEnd } from './mcChoiceLog';
@@ -91,6 +92,7 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages = VillageRegistry.forWorld(dataDir);
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
     this.villages.onClaim = (v, t) => this.claimed(v, t);
+    this.villages.claimLimit = (v, t, _by, cooled) => this.mineClaim(v, t, cooled);
     this.atlas = new Atlas(this.registry, path.join(dataDir, 'atlas.json'), (cx, cz) => {
       for (const a of this.agents.values()) {
         const column = (a.bot.world as unknown as { getColumn(x: number, z: number): unknown }).getColumn(cx, cz);
@@ -232,11 +234,52 @@ export class MineflayerWorld implements WorldAdapter {
     return a.bot.inventory.items().reduce((s, it) => s + (it.name === 'cobblestone' ? it.count : it.name === 'stone_pickaxe' ? 3 * it.count : 0), 0);
   }
 
-  private claimed(v: Village, t: { id: string; title: string; claimedBy?: string }) {
+  private claimed(v: Village, t: Task) {
     const key = `${v.name}:${t.id}`;
     this.drawn.delete(key);
     const maker = PICK_SUPPLY.test(t.title) ? this.agents.get(t.claimedBy?.toLowerCase() ?? '') : undefined;
     if (maker) this.supplyStart.set(key, { by: maker.name, held: this.stoneHeld(maker), stored: 3 * (storageContents(v).stone_pickaxe ?? 0) });
+    // A worker back at the mine within its busy cooldown (S.2): a face came free (said before the claim ends the cooldown,
+    // and to the agent, for the stage script's count of hand-backs)
+    const cooled = t.claimedBy && MINE_TASK.test(t.detail) ? this.villages.cooledAt(v, t.claimedBy) : undefined;
+    if (cooled !== undefined) {
+      const f = this.faces(v);
+      const said = `${t.id} ${Math.round((Date.now() - cooled) / 1000)} s into its busy cooldown: a face is free (faces ${f.faces}, held ${f.held})`;
+      console.log(`[mine] ${t.claimedBy} claims ${said}`);
+      this.agents.get(t.claimedBy!.toLowerCase())?.pushEvent('system', `Claims ${said}`);
+    }
+  }
+
+  /** The mine's faces by village, kept 250 ms (the claim gate asks on every claimable call: ~220 a second with 11 idle workers). */
+  private facesAt = new Map<string, { at: number; f: ReturnType<typeof mineFaces> }>();
+  private faces(v: Village) {
+    const now = Date.now(), c = this.facesAt.get(v.name);
+    if (c && now - c.at < 250) return c.f;
+    const f = mineFaces(v, (n) => this.agents.has(n.toLowerCase()));
+    this.facesAt.set(v.name, { at: now, f });
+    return f;
+  }
+  /** Villages whose claim gate was shut when last asked (said once a change). */
+  private gateShut = new Set<string>();
+
+  /**
+   * The claim gate (S.2): no more mine tasks held than the mine has faces, plus two to be on their way; one always allowed
+   * when none is held (a face count gone wrong can never shut the mine). A worker that handed a mine task back as busy
+   * (`cooled`) takes the next only once a face is free. Other tasks, and a village whose mine cannot give, go through.
+   * Only claims by agents in the world count, as in mineFaces (a removed agent's claims stay on the board).
+   */
+  private mineClaim(v: Village, t: Task, cooled?: number): boolean {
+    if (!MINE_TASK.test(t.detail) || !mineCanGive(v, 'cobblestone')) return true;
+    const f = this.faces(v);
+    const held = v.tasks.filter((x) => x.status === 'claimed' && MINE_TASK.test(x.detail) && this.agents.has((x.claimedBy ?? '').toLowerCase())).length;
+    if (held > 0 && cooled !== undefined && f.free === 0) return false;
+    const open = held === 0 || held < f.faces + 2;
+    if (open === this.gateShut.has(v.name)) {
+      if (open) this.gateShut.delete(v.name);
+      else this.gateShut.add(v.name);
+      console.log(`[mine] claim gate ${open ? 'open' : 'shut'} in ${v.name}: ${held} cobblestone tasks held, ${f.faces} faces (+2)`);
+    }
+    return open;
   }
 
   /**

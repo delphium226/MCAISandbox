@@ -16,7 +16,7 @@ interventions (rescues, teleports) per agent-hour; for the village: cumulative u
 over time (the STOCK lines) with its drawdowns, the goal ledger of the decision log (chosen, done, failed, abandoned) and
 the board's ledger. Building takes from the storage, so the value curve falls while the village is built.
 
-The watch scripts import BusyClock, BoardStamps and critical_path_lines from here.
+The watch scripts import BusyClock, BoardStamps and critical_path_lines from here, and stage_village.py MineStats (S.2).
 """
 import argparse, json, math, os, re, sys, time, urllib.request
 
@@ -182,6 +182,99 @@ def critical_path_lines(tasks, stamps, t0, complete_at=None):
     out.insert(0, f"CRITICAL PATH {len(chain)} tasks, {m(chain[0][1]):.1f}m to {m(last):.1f}m{tail}: held {held / 60:.1f} min, "
                   f"waited for a claim {waited / 60:.1f}, gaps between tasks {gaps / 60:.1f}")
     return out
+
+
+# The mine (S.2): a task it serves (by title), collect's count of its cells, a busy hand-back and a release (system events)
+MINE_TITLE = re.compile(r"^Gather \d+ (?:cobblestone|stone)\b")
+MINE_CELLS = re.compile(r"in the village mine\b.*?\b(\d+) tunnel cells dug")
+BUSY_BACK = re.compile(r"^Handed back (?:task )?(t\d+)\b.*the mine is busy")
+BUSY_RELEASE = re.compile(r"^Claims (t\d+) .*busy cooldown")
+
+
+class MineStats:
+    """The mine's measurements (step S.2), from a run's action and system events and its board: the rate (cells dug from
+    the stairs reaching stone to the last cobblestone collect, from collect's "(N tunnel cells dug so far)", the way S.0's
+    62 was worked out), the peak of miners (cobblestone gather tasks claimed at once at a board poll), each cobblestone task's
+    time from its last claim to done, and the busy hand-backs per agent: a second one by the same agent within a minute with
+    no release (a claim inside its cooldown because a face came free) in between is a REPEAT, a FAIL. Times in minutes."""
+
+    def __init__(self):
+        self.open_at, self.cells, self.peak, self.backs = None, [], 0, {}
+
+    def event(self, t, agent, kind, text):
+        if kind == "action_done" and self.open_at is None and "the mine stairs are dug" in text:
+            self.open_at = t
+        c = MINE_CELLS.search(text) if kind == "action_done" else None
+        if c:
+            self.cells.append((t, int(c.group(1))))
+        if kind == "system" and (BUSY_BACK.search(text) or BUSY_RELEASE.search(text)):
+            self.backs.setdefault(agent, []).append((t, "back" if BUSY_BACK.search(text) else "release"))
+
+    def board(self, tasks):
+        self.peak = max(self.peak, sum(1 for t in tasks or [] if t.get("status") == "claimed" and MINE_TITLE.match(t.get("title") or "")))
+
+    def lines(self, tasks, stamps):
+        out = []
+        if self.cells:
+            t1, n1 = self.cells[-1]
+            # (from the stairs, the count then 0; a run that never saw them counts from its first result)
+            t0, n0 = (self.open_at, 0) if self.open_at is not None else self.cells[0]
+            rate = f"{(n1 - n0) / (t1 - t0):.0f} cells/min" if t1 > t0 else "n/a"
+            out.append(f"MINE rate: {rate} ({n1 - n0} cells, {t0:.1f}-{t1:.1f} m, peak {self.peak} miners)")
+        else:
+            out.append(f"MINE rate: no collect in the mine (peak {self.peak} miners)")
+        times = sorted((stamps.end(t) - stamps.last_claim(t)) / 60 for t in tasks or []
+                       if t["status"] == "done" and MINE_TITLE.match(t["title"]) and stamps.end(t) and stamps.last_claim(t))
+        out.append(f"MINE tasks: {len(times)} done, claim to done min {times[0]:.1f} / median {times[len(times) // 2]:.1f} / max {times[-1]:.1f} min"
+                   if times else "MINE tasks: none done after a claim seen")
+        backs = {a: [e for e in ev if e[1] == "back"] for a, ev in self.backs.items()}
+        repeats = []
+        for a, ev in self.backs.items():
+            prev = None
+            for t, kind in ev:
+                if kind == "release":
+                    prev = None
+                elif prev is not None and t - prev < 1.0:
+                    repeats.append(f"{a} at {t:.1f}m, {t - prev:.1f} min after its last with no release")
+                    prev = t
+                else:
+                    prev = t
+        total = sum(len(b) for b in backs.values())
+        released = sum(1 for ev in self.backs.values() for e in ev if e[1] == "release")
+        per = ", ".join(f"{a} {len(b)}" for a, b in sorted(backs.items()) if b)
+        out.append(f"MINE hand-backs: {total}{f' ({per}; {released} released by a free face)' if total else ''}; "
+                   + (f"REPEAT (a FAIL): {'; '.join(repeats)}" if repeats else "no REPEAT"))
+        return out
+
+    @classmethod
+    def from_runlog(cls, path):
+        """The same from a stage_village.py log: its event lines, BOARD lines and final task list (older runs, baselines);
+        board times are the polls' stamps (0.1 min)."""
+        ms, stamps, titles, boards = cls(), BoardStamps(), {}, []
+        for line in open(path, encoding="utf-8", errors="replace"):
+            line = line.rstrip("\r\n")
+            e = re.match(r"^\s*(\d+\.\d)m (\S+)\s+(action_done|action_failed|system)\s+\| (.*)$", line)
+            if e:
+                ms.event(float(e.group(1)), e.group(2), e.group(3), e.group(4))
+                continue
+            b = re.match(r"^\s*(\d+\.\d)m BOARD (.*)$", line)
+            if b:
+                boards.append((float(b.group(1)), b.group(2).split()))
+                continue
+            t = re.match(r"^  (t\d+) \[[^\]]*\] (.*?): ", line)
+            if t:
+                titles[t.group(1)] = t.group(2)
+        tasks = {}
+        for when, toks in boards:
+            snap = []
+            for tok in toks:
+                tid, _, rest = tok.partition(":")
+                status, _, by = rest.partition("/")
+                snap.append({"id": tid, "status": status, "claimedBy": by or None, "title": titles.get(tid, "")})
+            stamps.update(snap, now=when * 60)
+            ms.board(snap)
+            tasks.update({s["id"]: s for s in snap})
+        return ms, list(tasks.values()), stamps
 
 
 # ---- the metrics

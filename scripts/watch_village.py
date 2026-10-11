@@ -327,7 +327,8 @@ while time.time() - t0 < minutes * 60:
                 # Progress also counts: brain tools (designs, the layout) report as system events
                 if e["type"] == "action_done" or (e["type"] == "system" and re.search(r"saved|Laid out|Posted tasks", e["text"])):
                     last_done = last_ok[n] = time.time()
-                # (both are an agent at work for the per-agent stall rule: a miner waits up to 2 minutes for a face twice)
+                # (both are an agent at work for the per-agent stall rule: a miner waits up to a minute for a face, S.2, then
+                # hands its task back)
                 if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
                     last_ok[n] = time.time()
                 # (a busy mine is no stuck agent: the gathering Mayor, a third miner, hands its task back for later, V2.3m;

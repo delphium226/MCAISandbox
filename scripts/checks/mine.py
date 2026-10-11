@@ -1,26 +1,37 @@
-"""The village mine (plan steps V.5, V.5b): Gus, a survival member of the village, runs `collect cobblestone` ROUNDS
-times; around each round the check snapshots the mine's level with /api/blocks (every main tunnel's reach grown by 30
-blocks sideways, from the floor to the ceiling) and replays the tunnels' digging order (tunnelCell, ported from
-mcMine.ts) to verify that the result came from the village mine, that every cell dug this round is open (two high), and
-that nothing else at the mine's level changed (WARN for leaves, plants and water or lava flowing, and for a block turned
-into another block).
+"""The village mine (plan steps V.5, V.5b, S.2): BOTS survival members of the village (Gus alone by default; Worker1..N with
+BOTS=N) run `collect cobblestone` ROUNDS times, all at once each round; around each round the check snapshots the mine's
+level with /api/blocks (every main tunnel's reach grown by 30 blocks sideways, from the floor to the ceiling) and works out
+the planned cells from the mine's record (S.2's tunnels kept per part exactly, by the geometry ported from mcMine.ts; older
+tunnels kept in order by tunnelCell over their count, with each branch cut short taken as its open run from the tunnel) to
+verify that each bot's stone came from the village mine, that every cell dug this round is open (two high), and that
+nothing else at the mine's level changed (WARN for leaves, plants and water or lava flowing, and for a block turned into
+another block). With MINE_LOG (the agent server's log), check (e) reads the `[mine]` lines written during the check: no
+cell dug twice or by two bots, every dug cell in the plan, and one holder a unit (no bot takes a tunnel's main cells or a
+branch that another holds before that one finished, ended or left it). Where units share cells (a turned tunnel's
+branches cross or run along another tunnel's), one bot digs them and the others pass them.
 Usage: python scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]] (default 3 rounds of 24 cobblestone). The village needs a
-mine dug to stone (`level` and `legs` in its record). Needs the agent server; Gus spawns inside the mining hut and is
-removed at the end. Gus starts with nothing (reset): the script waits PICKAXE_WAIT seconds (default 120, env) for a
-pickaxe given with RCON (it prints the command); with none the skill makes its own (logs from outside, a crafting table).
-Exits non-zero on any FAIL.
+mine dug to stone (`level` and `legs` in its record). Needs the agent server (MCAI_API, default port 8766); the bots spawn
+inside the mining hut (each removed first, so a staged run's Worker1 and Worker2 go too) and are removed at the end. They
+start with nothing (reset): GIVE=1 gives each 2 stone pickaxes by RCON (mc/rcon.py; MC_SERVER_DIR=mc/testserver for the
+test world); else the script waits PICKAXE_WAIT seconds (default 120, env) for pickaxes given with RCON (it prints the
+commands); with none the skill makes its own (logs from outside, a crafting table). Exits non-zero on any FAIL.
 """
-import json, os, sys, time, urllib.error, urllib.request
+import json, os, re, subprocess, sys, time, urllib.error, urllib.request
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-API = "http://127.0.0.1:8766/api"
+API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api").rstrip("/")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if len(sys.argv) < 2:
     raise SystemExit("usage: python scripts/checks/mine.py VILLAGE [ROUNDS [COUNT]]")
 VILLAGE = sys.argv[1]
 ROUNDS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 COUNT = int(sys.argv[3]) if len(sys.argv) > 3 else 24
 PICKAXE_WAIT = int(os.environ.get("PICKAXE_WAIT", "120"))
+BOTS = max(1, int(os.environ.get("BOTS", "1")))
+NAMES = ["Gus"] if BOTS == 1 else [f"Worker{i + 1}" for i in range(BOTS)]
+GIVE = os.environ.get("GIVE") == "1"
+MINE_LOG = os.environ.get("MINE_LOG")
 ROUND_TIMEOUT = 8 * 60
 GROW = 30
 MAX_CELLS = 65536
@@ -48,6 +59,11 @@ def call(path, body=None, method=None):
         return json.loads(e.read() or b"{}")
 
 
+def rcon(cmd):
+    """One RCON command through mc/rcon.py (MC_SERVER_DIR picks the server folder)."""
+    return subprocess.run([sys.executable, os.path.join(ROOT, "mc", "rcon.py"), cmd], capture_output=True, text=True).stdout.strip()
+
+
 def is_air(n):
     return n in AIR
 
@@ -72,10 +88,69 @@ def tunnel_cell(leg, k):
     return base[0] + bx * j, base[1] + bz * j, 3 * seg + (1 if left else 2)
 
 
-def leg_area(leg):
-    """One main tunnel's box from mineAreas (mcMine.ts): x1, z1, x2, z2."""
+def per_part(leg):
+    """Whether a tunnel keeps its progress per part (S.2's `br`)."""
+    return leg.get("br") is not None
+
+
+def from_order(dug):
+    """A tunnel's main cells and cells per branch from its in-order count, as fromOrder in village.ts."""
+    s, r = dug // PER, dug % PER
+    br = {}
+    for q in range(s):
+        br[3 * q + 1] = br[3 * q + 2] = BRANCH
+    if r > MAIN_STEP:
+        br[3 * s + 1] = min(BRANCH, r - MAIN_STEP)
+    if r > MAIN_STEP + BRANCH:
+        br[3 * s + 2] = r - MAIN_STEP - BRANCH
+    return MAIN_STEP * s + min(r, MAIN_STEP), br
+
+
+def progress(leg):
+    """A tunnel's main cells done and cells done per branch id (the record's JSON keys are strings: ints here)."""
+    if per_part(leg):
+        return leg.get("main") or 0, {int(k): q for k, q in leg["br"].items()}
+    return from_order(leg["dug"])
+
+
+def cell_at(leg, u, n):
+    """Cell n of a unit ("main" or a branch id; 0 is where it starts: the tunnel's start or the branch's junction), as
+    cellAt in mcMine.ts: (x, z). Branch 3s + 1 is the left and 3s + 2 the right one at main cell 3(s + 1)."""
     dx, dz = leg["dir"]
-    ln = MAIN_STEP * (leg["dug"] // PER + 1) + 1
+    if u == "main":
+        return leg["x"] + dx * n, leg["z"] + dz * n
+    k = MAIN_STEP * (u // 3 + 1)
+    bx, bz = (dz, -dx) if u % 3 == 1 else (-dz, dx)
+    return leg["x"] + dx * k + bx * n, leg["z"] + dz * k + bz * n
+
+
+def cut_branches(leg):
+    """Branches cut short before S.2: their record says dug in full, since the in-order count ran on over the cells skipped
+    past the cut (upgradeMine's fromOrder); S.2's own cuts stop the count at the cut."""
+    main, br = progress(leg)
+    return {b for b in leg.get("ended", []) if br.get(b, 0) >= BRANCH and b // 3 < main // MAIN_STEP}
+
+
+def leg_cells(leg, skip=()):
+    """The cells a tunnel has dug or passed, as legCells in mcMine.ts: {(x, z): what it is}; not those of the branches in
+    `skip`."""
+    main, br = progress(leg)
+    out = {cell_at(leg, "main", i): f"main {i}" for i in range(1, main + 1)}
+    for s in range(main // MAIN_STEP):
+        for b in (3 * s + 1, 3 * s + 2):
+            if b in skip:
+                continue
+            for j in range(1, min(BRANCH, br.get(b, 0)) + 1):
+                out.setdefault(cell_at(leg, b, j), f"branch {b} cell {j}")
+    return out
+
+
+def leg_area(leg):
+    """One main tunnel's box from mineAreas (mcMine.ts): x1, z1, x2, z2; kept per part, to the end of the stretch its main
+    tunnel is in."""
+    dx, dz = leg["dir"]
+    stretches = progress(leg)[0] // MAIN_STEP if per_part(leg) else leg["dug"] // PER
+    ln = MAIN_STEP * (stretches + 1) + 1
     ends = [(leg["x"] - dx + dz * (BRANCH + 1), leg["z"] - dz - dx * (BRANCH + 1)),
             (leg["x"] + dx * ln - dz * (BRANCH + 1), leg["z"] + dz * ln + dx * (BRANCH + 1))]
     return min(e[0] for e in ends), min(e[1] for e in ends), max(e[0] for e in ends), max(e[1] for e in ends)
@@ -143,32 +218,105 @@ def mine_of():
 
 def describe(m):
     for i, l in enumerate(m.get("legs") or []):
-        print(f"    leg {i}: from {l['x']},{l['y']},{l['z']} dir {l['dir']} dug {l['dug']} ended {l.get('ended', [])}"
+        part = ""
+        if per_part(l):
+            main, br = progress(l)
+            part = f" main {main} branches {dict(sorted(br.items()))}"
+        print(f"    leg {i}: from {l['x']},{l['y']},{l['z']} dir {l['dir']} dug {l['dug']}{part} ended {l.get('ended', [])}"
               f" turned {l.get('turned', 0)} end: {l.get('end') or '-'}")
     print(f"    mine: dug {m.get('dug')}, stopped: {m.get('stopped') or '-'}, got {m.get('got')}")
 
 
-def events_since(last):
-    ev = call(f"/agents/Gus/events?since={last}")
+def events_since(name, last):
+    ev = call(f"/agents/{name}/events?since={last}")
     return ev if isinstance(ev, list) else []
 
 
-def act(action, **args):
-    ev = call("/agents/Gus/events")
-    last = max([e["id"] for e in ev] or [0]) if isinstance(ev, list) else 0
-    call("/agents/Gus/act", {"action": action, **args})
-    t = time.time()
-    while time.time() - t < ROUND_TIMEOUT:
+def act_all(action, **args):
+    """The same action for every bot at once; each bot's result: (kind, text), or a timeout. Results of other actions (a
+    chore the world gave an idle member) are kept apart and the wait goes on."""
+    last = {}
+    for n in NAMES:
+        ev = call(f"/agents/{n}/events")
+        last[n] = max([e["id"] for e in ev] or [0]) if isinstance(ev, list) else 0
+    for n in NAMES:
+        call(f"/agents/{n}/act", {"action": action, **args})
+    results, others, t = {}, [], time.time()
+    while len(results) < len(NAMES) and time.time() - t < ROUND_TIMEOUT:
         time.sleep(2)
-        evs = events_since(last)
-        for e in evs:
-            last = max(last, e["id"])
-            if e["type"] in ("action_done", "action_failed"):
-                return e["type"], e["text"]
-    return "timeout", f"(no result in {ROUND_TIMEOUT // 60} min)"
+        for n in NAMES:
+            if n in results:
+                continue
+            for e in events_since(n, last[n]):
+                last[n] = max(last[n], e["id"])
+                if e["type"] not in ("action_done", "action_failed"):
+                    continue
+                if not e["text"].startswith(f"{action} "):
+                    others.append(f"{n}: {e['text'][:200]}")
+                    continue
+                results.setdefault(n, (e["type"], e["text"]))
+    for n in NAMES:
+        results.setdefault(n, ("timeout", f"(no result in {ROUND_TIMEOUT // 60} min)"))
+    return results, others
 
 
-def round_check(r, before_mine, after_mine, snap0, snap1, text, kind):
+# Check (e): the agent server's [mine] lines (mcMine.ts)
+DUG = re.compile(r"\[mine\] (\S+) dug (-?\d+),(-?\d+),(-?\d+) \((\d+):(main|\d+) ")
+TAKES = re.compile(r"\[mine\] (\S+) takes (?:tunnel (\d+)|branch (\d+):(\d+))")
+LETS_GO = re.compile(r"\[mine\] (\S+) (?:finished branch (\d+):(\d+)|left tunnel (\d+)|left branch (\d+):(\d+)|ended branch (\d+):(\d+))")
+TUNNEL_ENDS = re.compile(r"\[mine\] (\S+): tunnel (\d+) ends")
+
+
+class MineLog:
+    """The [mine] lines appended to the agent server's log since the check began, round by round: the cells logged dug
+    (by whom) and who holds each unit ("tunnel:main" or "tunnel:branch")."""
+
+    def __init__(self, path):
+        self.path, self.pos, self.dug, self.holder = path, os.path.getsize(path), {}, {}
+
+    def check(self, r, planned, out):
+        with open(self.path, "rb") as f:
+            f.seek(self.pos)
+            text = f.read().decode("utf-8", errors="replace")
+            self.pos = f.tell()
+        twice, two, outside, holders, lines = [], [], [], [], 0
+        for line in text.splitlines():
+            m = DUG.search(line)
+            if m:
+                lines += 1
+                who, cell = m.group(1), (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+                unit = f"{m.group(5)}:{m.group(6)}"
+                if cell in self.dug:
+                    (two if self.dug[cell][0] != who else twice).append(f"{cell} by {self.dug[cell][0]} ({self.dug[cell][1]}) and {who} ({unit})")
+                else:
+                    self.dug[cell] = (who, unit)
+                if cell not in planned:
+                    outside.append(f"{cell} by {who} ({unit})")
+                continue
+            m = TAKES.search(line)
+            if m:
+                who = m.group(1)
+                unit = f"{m.group(2)}:main" if m.group(2) else f"{m.group(3)}:{m.group(4)}"
+                if self.holder.get(unit) not in (None, who):
+                    holders.append(f"{who} took {unit} while {self.holder[unit]} held it")
+                self.holder[unit] = who
+                continue
+            m = LETS_GO.search(line) or TUNNEL_ENDS.search(line)
+            if m:
+                g = [x for x in m.groups() if x is not None]
+                who, unit = g[0], (f"{g[1]}:main" if len(g) == 2 else f"{g[1]}:{g[2]}")
+                if self.holder.get(unit) == who:
+                    del self.holder[unit]
+        if lines == 0:
+            out("WARN", f"(e) no [mine] dug lines in {self.path} this round (the agent server's log, written since the check began?)")
+        for label, bad in (("dug twice", twice), ("dug by two bots", two), ("logged dug outside the plan", outside), ("one holder a unit", holders)):
+            if bad:
+                out("FAIL", f"(e) {label}: {len(bad)}: " + "; ".join(bad[:10]) + (" ..." if len(bad) > 10 else ""))
+        if lines and not (twice or two or outside or holders):
+            out("PASS", f"(e) {lines} cells logged dug this round, each once, by one bot and in the plan; one holder a unit")
+
+
+def round_check(r, before_mine, after_mine, snap0, snap1, results, log):
     """PASS/FAIL/WARN lines of one round; returns the number of FAILs."""
     fails = 0
 
@@ -177,17 +325,32 @@ def round_check(r, before_mine, after_mine, snap0, snap1, text, kind):
         fails += level == "FAIL"
         print(f"  {level} round {r}: {msg}")
 
-    # a. the stone came from the village mine
-    if kind == "action_done" and "in the village mine" in text:
-        out("PASS", "collected in the village mine")
-    else:
-        out("FAIL", f"not collected in the village mine ({kind}): {text[:300]}")
+    # a. each bot's stone came from the village mine (a minute's wait for a face that ended "the mine is busy" is a WARN)
+    for n, (kind, text) in results.items():
+        if kind == "action_done" and "in the village mine" in text:
+            out("PASS", f"{n} collected in the village mine")
+        elif "the mine is busy" in text:
+            out("WARN", f"{n} found the mine busy ({kind}): {text[:240]}")
+        else:
+            out("FAIL", f"{n}: not collected in the village mine ({kind}): {text[:300]}")
 
     legs0, legs1 = before_mine.get("legs") or [], after_mine.get("legs") or []
-    # Planned cells: every leg's cells dug so far, except branches cut short (their dug part is the open run from the
-    # tunnel, found below); this round's cells are those from each leg's dug count before the round
+    # Planned cells: every leg's cells done so far; S.2's tunnels by their record (a branch cut short counts as far as it
+    # got), older ones by their digging order; a branch cut short before S.2 (in an older or a migrated record) is neither:
+    # its dug part is the open run from the tunnel, found below. This round's cells: those not done before the round
     planned, this_round, ended = set(), [], {}
     for i, leg in enumerate(legs1):
+        if per_part(leg):
+            cut = cut_branches(leg)
+            before = leg_cells(legs0[i], cut) if i < len(legs0) else {}
+            for (x, z), what in leg_cells(leg, cut).items():
+                for y in (leg["y"], leg["y"] + 1):
+                    planned.add((x, y, z))
+                    if (x, z) not in before:
+                        this_round.append((x, y, z, f"leg {i} {what}"))
+            for b in cut:
+                ended[(i, b)] = [(*cell_at(leg, b, j), leg["y"]) for j in range(1, BRANCH + 1)]
+            continue
         d0 = legs0[i]["dug"] if i < len(legs0) else 0
         for k in range(leg["dug"]):
             x, z, br = tunnel_cell(leg, k)
@@ -197,7 +360,7 @@ def round_check(r, before_mine, after_mine, snap0, snap1, text, kind):
             for y in (leg["y"], leg["y"] + 1):
                 planned.add((x, y, z))
                 if k >= d0:
-                    this_round.append((x, y, z, i, k))
+                    this_round.append((x, y, z, f"leg {i} cell {k}"))
     # A branch cut short: its cells from the tunnel outward while both are open were dug before it ended
     for cells in ended.values():
         for x, z, y in cells:
@@ -216,22 +379,24 @@ def round_check(r, before_mine, after_mine, snap0, snap1, text, kind):
             k = d["steps"] + 1
             for y in range(d["y"] - k, d["y"] - k + 3):
                 planned.add((d["x"] + dx * k, y, d["z"] + dz * k))
+    # (a cell two tunnels share is checked once)
+    this_round = list({(x, y, z): (x, y, z, what) for x, y, z, what in this_round}.values())
 
     # b. this round's cells are open
     closed, unloaded = [], 0
-    for x, y, z, i, k in this_round:
+    for x, y, z, what in this_round:
         n = block(x, y, z, snap1)
         if n is None:
             unloaded += 1
         elif not is_air(n):
-            closed.append(f"{x},{y},{z} (leg {i} cell {k}) is {n}")
+            closed.append(f"{x},{y},{z} ({what}) is {n}")
     if closed:
         out("FAIL", f"{len(closed)} of {len(this_round)} cells dug this round are not open: " + "; ".join(closed[:12]))
     else:
         out("PASS", f"all {len(this_round) - unloaded} cells dug this round are open ({len(this_round) // 2} tunnel cells)")
     if unloaded:
         out("WARN", f"{unloaded} cells dug this round could not be read (not loaded)")
-    outside = sum(1 for x, y, z, _, _ in this_round if (x, y, z) not in snap0)
+    outside = sum(1 for x, y, z, _ in this_round if (x, y, z) not in snap0)
     if outside:
         out("WARN", f"{outside} cells dug this round lie outside the pre-round snapshot (their surroundings were not compared)")
 
@@ -267,6 +432,10 @@ def round_check(r, before_mine, after_mine, snap0, snap1, text, kind):
     if len(warn) > 20:
         out("WARN", f"... {len(warn) - 20} more")
 
+    # e. the agent server's log: each cell dug once, by one bot, in the plan; one holder a unit
+    if log:
+        log.check(r, planned, out)
+
     # d. the mine after the round
     describe(after_mine)
     print(f"    new legs this round: {len(legs1) - len(legs0)}; tunnel cells this round: "
@@ -283,10 +452,9 @@ if mine.get("stopped"):
     raise SystemExit(f"{VILLAGE}'s mine has stopped ({mine['stopped']}): collect would gather outside it")
 print(f"{VILLAGE}'s mine: hut {mine['hut']}, stairs from {mine['top']} dir {mine['dir']}, {mine['steps']} steps to y={mine['level']}")
 describe(mine)
-
-others = [a["name"] for a in (call("/agents") or []) if isinstance(a, dict) and a.get("name") != "Gus"]
-if others:
-    print(f"WARN other agents are in the world ({', '.join(others)}): blocks they change near the mine show up as changes")
+log = MineLog(MINE_LOG) if MINE_LOG else None
+if MINE_LOG:
+    print(f"check (e) reads {MINE_LOG} from byte {log.pos}")
 
 # Inside the hut, on its floor: the cell behind the first step (the hut's middle; its doorway is beyond it)
 hut = next((s for s in v.get("structures", []) if s.get("kind") == "mining_hut" and s["x1"] == mine["hut"]["x1"] and s["z1"] == mine["hut"]["z1"]), None)
@@ -295,24 +463,33 @@ sx, sz = mine["top"]["x"] - mine["dir"][0], mine["top"]["z"] - mine["dir"][1]
 
 fails, t_all = 0, time.time()
 try:
-    call("/agents/Gus", method="DELETE")
-    r = call("/agents", {"name": "Gus", "role": "worker", "brain": "idle", "gamemode": "survival", "reset": True,
-                         "position": {"x": sx + 0.5, "y": y0 + 1, "z": sz + 0.5}, "memory": {"village": VILLAGE}})
-    if "name" not in r:
-        raise SystemExit(f"could not spawn Gus: {r}")
-    print(f"Gus spawned in the mining hut at {sx},{y0 + 1},{sz}")
+    for n in NAMES:
+        call(f"/agents/{n}", method="DELETE")
+    others = [a["name"] for a in (call("/agents") or []) if isinstance(a, dict) and a.get("name") not in NAMES]
+    if others:
+        print(f"WARN other agents are in the world ({', '.join(others)}): blocks they change near the mine show up as changes")
+    for n in NAMES:
+        r = call("/agents", {"name": n, "role": "worker", "brain": "idle", "gamemode": "survival", "reset": True,
+                             "position": {"x": sx + 0.5, "y": y0 + 1, "z": sz + 0.5}, "memory": {"village": VILLAGE}})
+        if "name" not in r:
+            raise SystemExit(f"could not spawn {n}: {r}")
+    print(f"{', '.join(NAMES)} spawned in the mining hut at {sx},{y0 + 1},{sz}")
     time.sleep(5)
-    if PICKAXE_WAIT > 0:
-        print(f'WAITING up to {PICKAXE_WAIT} s for a pickaxe: python mc/rcon.py "give Gus minecraft:stone_pickaxe 2"', flush=True)
+    if GIVE:
+        for n in NAMES:
+            print(f"  give {n}: {rcon(f'give {n} minecraft:stone_pickaxe 2') or 'no answer'}")
+        time.sleep(2)
+    elif PICKAXE_WAIT > 0:
+        print(f"WAITING up to {PICKAXE_WAIT} s for pickaxes: " + "; ".join(f'python mc/rcon.py "give {n} minecraft:stone_pickaxe 2"' for n in NAMES), flush=True)
         t = time.time()
         while time.time() - t < PICKAXE_WAIT:
-            inv = call("/agents/Gus/observe?radius=4").get("inventory", {})
-            if any(k.endswith("_pickaxe") for k in inv):
-                print(f"Gus carries {inv}")
+            if all(any(k.endswith("_pickaxe") for k in call(f"/agents/{n}/observe?radius=4").get("inventory", {})) for n in NAMES):
                 break
             time.sleep(2)
         else:
-            print("no pickaxe given: the skill makes one (logs gathered outside the mine, maybe a crafting table placed)")
+            print("not every bot was given a pickaxe: the skill makes one (logs gathered outside the mine, maybe a crafting table placed)")
+    for n in NAMES:
+        print(f"  {n} carries {call(f'/agents/{n}/observe?radius=4').get('inventory', {})}")
     for r in range(1, ROUNDS + 1):
         before_village, before_mine = mine_of()
         if not before_mine or before_mine.get("stopped"):
@@ -323,21 +500,25 @@ try:
         snap0, n0 = snapshot(boxes0)
         print(f"round {r}: snapshot of {len(snap0)} loaded cells in {n0} requests ({time.time() - t:.1f} s), boxes {boxes0}", flush=True)
         t = time.time()
-        kind, text = act("collect", block="cobblestone", count=COUNT)
-        print(f"round {r}: {kind} after {time.time() - t:.0f} s: {text[:400]}", flush=True)
+        results, chores = act_all("collect", block="cobblestone", count=COUNT)
+        for n, (kind, text) in results.items():
+            print(f"round {r}: {n} {kind} after {time.time() - t:.0f} s: {text[:400]}", flush=True)
+        for c in chores:
+            print(f"  WARN round {r}: another action ran (a chore given to an idle member?): {c}")
         _, after_mine = mine_of()
         after_mine = after_mine or {}
         # The same boxes before and after (a new leg's boxes are added after: its cells are checked by /api/block)
         snap1, _ = snapshot(merge(boxes0, regions(after_mine.get("legs") or [])))
-        fails += round_check(r, before_mine, after_mine, snap0, snap1, text, kind)
-        inv = call("/agents/Gus/observe?radius=4").get("inventory", {})
-        print(f"    Gus carries {inv}", flush=True)
-        if kind == "timeout":
+        fails += round_check(r, before_mine, after_mine, snap0, snap1, results, log)
+        for n in NAMES:
+            print(f"    {n} carries {call(f'/agents/{n}/observe?radius=4').get('inventory', {})}", flush=True)
+        if any(kind == "timeout" for kind, _ in results.values()):
             break
 except KeyboardInterrupt:
     print("interrupted")
     fails += 1
 finally:
-    call("/agents/Gus", method="DELETE")
-    print(f"Gus removed; {time.time() - t_all:.0f} s in all; {'FAIL' if fails else 'PASS'} ({fails} failures)")
+    for n in NAMES:
+        call(f"/agents/{n}", method="DELETE")
+    print(f"{', '.join(NAMES)} removed; {time.time() - t_all:.0f} s in all; {'FAIL' if fails else 'PASS'} ({fails} failures)")
 sys.exit(1 if fails else 0)

@@ -45,8 +45,9 @@ export interface StorageChest {
 }
 /**
  * The village mine (plan step V.5): stairs from inside the mining hut down to stone, then a main tunnel with branches at
- * that level. `level` is set once the stairs reach it (the height a bot stands at in the tunnels); `dug` counts tunnel
- * columns done in their fixed order; `ended` the branches cut short (water, lava, a cave, something built).
+ * that level. `level` is set once the stairs reach it (the height a bot stands at in the tunnels); `dug` counts the tunnel
+ * columns dug in all (since V.5b, every tunnel's; the size limit, collect's messages and the summary read it); `ended`
+ * the branches cut short (water, lava, a cave, something built), in records from before V.5b.
  */
 export interface Mine {
   hut: Area;
@@ -107,34 +108,61 @@ export interface IronLevel {
   stuckAt?: { at: string; n: number };
 }
 
-/** One main tunnel of the mine and its branches, dug in a fixed order (V.5b). */
+/**
+ * One main tunnel of the mine and its branches (V.5b). Branch ids: 3s + 1 is the left and 3s + 2 the right branch at
+ * junction s + 1 (main cell 3(s + 1)). Since S.2 the cobblestone mine's tunnels keep their progress per part (`main`,
+ * `br`), so that several miners dig one tunnel's branches at once; the iron level's keep the one counter (`dug`).
+ */
 export interface MineLeg {
   /** The cell it starts from (dug already), the level a bot stands at in it, and its direction. */
   x: number;
   z: number;
   y: number;
   dir: [number, number];
-  /** Cells done in its digging order, and its branches cut short. */
+  /** Cells done in its digging order (main, left, right, stretch by stretch), and its branches cut short. With `br`, the
+   *  cells done in all, for display only. */
   dug: number;
   ended: number[];
+  /** Main cells done, passed ones included (S.2). */
+  main?: number;
+  /** Cells done per branch id, 0..12 (S.2): a tunnel is kept per part exactly when this is set. */
+  br?: Record<number, number>;
   /** Why its main tunnel ended. */
   end?: string;
   /** Turns tried from it: 1 left, 2 right. */
   turned?: number;
 }
 
+/** Main tunnel columns between junctions, and a branch's length (the mine's geometry, mcMine.ts; here for the migration). */
+export const MINE_STEP = 3, MINE_BRANCH = 12;
+
+/** A tunnel's progress per part from its in-order counter (S.2): main cells done and cells done per branch. */
+export function fromOrder(dug: number): { main: number; br: Record<number, number> } {
+  const per = MINE_STEP + 2 * MINE_BRANCH;
+  const s = Math.floor(dug / per), r = dug % per;
+  const br: Record<number, number> = {};
+  for (let q = 0; q < s; q++) br[3 * q + 1] = br[3 * q + 2] = MINE_BRANCH;
+  if (r > MINE_STEP) br[3 * s + 1] = Math.min(MINE_BRANCH, r - MINE_STEP);
+  if (r > MINE_STEP + MINE_BRANCH) br[3 * s + 2] = r - MINE_STEP - MINE_BRANCH;
+  return { main: MINE_STEP * s + Math.min(r, MINE_STEP), br };
+}
+
 /**
  * A mine from before V.5b as its first main tunnel, starting at the bottom step. A mine stopped because its main tunnel
- * met something goes on: that tunnel ends there and the next turns.
+ * met something goes on: that tunnel ends there and the next turns. And tunnels from before S.2 kept per part (from their
+ * in-order counter; branches cut short keep that count, as before). Not the iron level's: they stay in order.
  */
 export function upgradeMine(m: Mine) {
-  if (m.level === undefined || m.legs) return;
-  m.legs = [{ x: m.top.x + m.dir[0] * (m.steps - 1), z: m.top.z + m.dir[1] * (m.steps - 1), y: m.level, dir: [m.dir[0], m.dir[1]], dug: m.dug, ended: [...m.ended] }];
-  const met = 'the main tunnel met ';
-  if (m.stopped?.startsWith(met)) {
-    m.legs[0].end = m.stopped.slice(met.length);
-    delete m.stopped;
+  if (m.level === undefined) return;
+  if (!m.legs) {
+    m.legs = [{ x: m.top.x + m.dir[0] * (m.steps - 1), z: m.top.z + m.dir[1] * (m.steps - 1), y: m.level, dir: [m.dir[0], m.dir[1]], dug: m.dug, ended: [...m.ended] }];
+    const met = 'the main tunnel met ';
+    if (m.stopped?.startsWith(met)) {
+      m.legs[0].end = m.stopped.slice(met.length);
+      delete m.stopped;
+    }
   }
+  for (const l of m.legs) if (!l.br) Object.assign(l, fromOrder(l.dug));
 }
 
 /** A building drawn as layers (bottom-up) of rows (north to south) of palette characters (west to east). */
@@ -183,6 +211,12 @@ export const PICK_GATHER = / for stone pickaxes$/;
 export const TAKEN_BY_OTHERS = /are being taken by other gatherers/;
 /** How long a task handed back for that stays off the board (eleven workers took it and handed it back in turn). */
 export const TAKEN_COOLDOWN_MS = 45000;
+/** A task the village mine serves (S.2: the claim gate counts them against the mine's faces). */
+export const MINE_TASK = /^collect block=(cobblestone|stone) count=\d+/;
+/** collect's answer when every face of the mine stayed held by other miners (never the task's fault). */
+export const MINE_BUSY = /the mine is busy/;
+/** How long a worker that handed a mine task back as busy takes no other (unless a face comes free first). */
+export const MINE_COOL_MS = 60000;
 /**
  * A farm slot (opportunistic farming, 10-08): a 5x7 field like the wheat's (a channel down the middle), free until a farm
  * of a kind is started on it (`laying` while that runs). `cells`: what grows there (crops, cane, stems); `fruit`: where a
@@ -336,6 +370,13 @@ export class VillageRegistry {
   refreshNeeds?: (v: Village) => void;
   /** Set by a world that keeps state per claim (real Minecraft, S.1: the pickaxe supply's start, a build's drawn stock). */
   onClaim?: (v: Village, t: Task) => void;
+  /**
+   * Set by a world with a village mine (S.2): whether `t` may be claimed now (mine tasks no more than its faces allow);
+   * by `by` when given, `cooled` being when `by` last handed a mine task back as busy (within MINE_COOL_MS).
+   */
+  claimLimit?: (v: Village, t: Task, by?: string, cooled?: number) => boolean;
+  /** When each worker last handed a mine task back as busy, by "village|worker" (S.2; a claim of a mine task clears it). */
+  private mineCool = new Map<string, number>();
 
   constructor(private file: string) {
     try {
@@ -541,8 +582,11 @@ export class VillageRegistry {
     if (changed) this.save();
   }
 
-  /** Open tasks whose prerequisites are done (and whose designs have been drawn). */
-  claimable(v: Village): Task[] {
+  /**
+   * Open tasks whose prerequisites are done (and whose designs have been drawn), and that the world's claim limit lets
+   * through (S.2: the mine's faces); `by`: the worker asking, whose busy cooldown counts too.
+   */
+  claimable(v: Village, by?: string): Task[] {
     this.refreshNeeds?.(v);
     // (closing covered tasks changes no count: done tasks count in what is wanted, and the storage is untouched)
     const covers = this.stockCovers(v);
@@ -555,7 +599,10 @@ export class VillageRegistry {
     };
     const begun = (id: string) => { const p = this.task(v, id); return p?.status === 'claimed' && /^Build /.test(p.title); };
     const now = Date.now();
-    const ready = v.tasks.filter((t) => t.status === 'open' && !((t.cooldown ?? 0) > now) && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length);
+    const cooled = by ? this.cooledAt(v, by) : undefined;
+    // (the claim limit last: it is asked only of tasks otherwise ready)
+    const ready = v.tasks.filter((t) => t.status === 'open' && !((t.cooldown ?? 0) > now) && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length
+      && (!this.claimLimit || this.claimLimit(v, t, by, cooled)));
     // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
     for (const t of ready)
       if (!this.aheadNoted.has(t.id) && !t.afterClaimed) {
@@ -600,14 +647,39 @@ export class VillageRegistry {
 
   claim(v: Village, id: string, by: string): Task | null {
     const t = this.task(v, id);
-    if (!t || !(this.claimable(v).includes(t) || (t.status === 'claimed' && t.claimedBy === by))) return null;
+    if (!t || !(this.claimable(v, by).includes(t) || (t.status === 'claimed' && t.claimedBy === by))) return null;
     const fresh = t.status !== 'claimed';
     t.status = 'claimed';
     t.claimedBy = by;
     t.updated = Date.now();
     if (fresh) this.onClaim?.(v, t);
+    // (after onClaim: the world reads the cooldown it ends, S.2)
+    if (MINE_TASK.test(t.detail)) this.mineCool.delete(`${v.name}|${by}`);
     this.save();
     return t;
+  }
+
+  /** When `by` handed a mine task back as busy, if within MINE_COOL_MS (S.2); else undefined. */
+  cooledAt(v: Village, by: string): number | undefined {
+    const k = `${v.name}|${by}`, at = this.mineCool.get(k);
+    if (at === undefined || Date.now() - at < MINE_COOL_MS) return at;
+    this.mineCool.delete(k);
+    return undefined;
+  }
+
+  /**
+   * A mine task handed back because every face of the mine stayed held (S.2): not the task's fault, so no try counted and
+   * no cooldown on the task (another worker may take it if the claim limit allows); this worker takes no mine task for
+   * MINE_COOL_MS, or until a face is free (the world's claim limit decides). Else it took the task back at once, 20 times a
+   * second, and a scripted worker's give-up counted as finished and let its build start short of cobblestone.
+   */
+  handBackBusy(v: Village, id: string, by: string, why: string) {
+    const t = this.task(v, id);
+    if (!t || t.claimedBy !== by || t.status !== 'claimed') return;
+    this.unclaim(v, id, by, why);
+    this.mineCool.set(`${v.name}|${by}`, Date.now());
+    console.log(`[mine] ${by} handed back ${id} "${t.title}": the mine is busy (no mine task for ${MINE_COOL_MS / 1000} s or until a face is free)`);
+    this.save();
   }
 
   finish(v: Village, id: string, by: string, result: string) {

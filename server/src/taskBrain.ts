@@ -5,7 +5,7 @@
  * way, so a village of task workers tests the skills, storage, layout and building end to end in minutes, without model
  * latency or model mistakes. Tiered agents are for testing behaviour.
  */
-import { TAKEN_BY_OTHERS, type Task } from './village';
+import { MINE_BUSY, TAKEN_BY_OTHERS, type Task } from './village';
 import type { AgentBrain, AgentEvent, WorldAgent } from './world';
 
 interface Call { type: string; args: Record<string, unknown> }
@@ -15,8 +15,9 @@ export interface TaskRunnerOptions {
   /** The ready tasks it may take, best first (default: all of them, in board order). */
   pick?: (ready: Task[]) => Task[];
   /**
-   * Failures that are not the task's fault (a busy mine): the task goes back without a try counted, and tasks for that
-   * material are left alone for a few minutes (else the same task is taken and waited on again).
+   * Failures that are not the task's fault: the task goes back without a try counted, and tasks for that material are
+   * left alone for a few minutes (else the same task is taken and waited on again). A busy mine is handled for every
+   * runner (S.2).
    */
   notTheTask?: RegExp;
 }
@@ -79,9 +80,10 @@ export class TaskBrain implements AgentBrain {
   /**
    * Stop the task it holds: back on the board without a try counted (`done`: closed as done, with `why` as its result).
    * What it gathered goes into the storage (once the task is no longer held, nothing counts it as carried for it).
-   * `taken`: the block others hold the rest of (S.1), so it and the other tasks for that block wait a while.
+   * `taken`: the block others hold the rest of (S.1), so it and the other tasks for that block wait a while. `busy`: the
+   * mine is busy (S.2), so this worker takes no mine task for a while (the registry's cooldown, ended by a free face).
    */
-  handBack(a: WorldAgent, why: string, done = false, stop = true, taken?: string) {
+  handBack(a: WorldAgent, why: string, done = false, stop = true, taken?: string, busy = false) {
     const v = a.village();
     const id = this.task;
     if (!id) return;
@@ -91,6 +93,7 @@ export class TaskBrain implements AgentBrain {
     if (v && v.tasks.find((t) => t.id === id)?.claimedBy === a.name) {
       if (done) a.world.villages.finish(v, id, a.name, why);
       else if (taken) a.world.villages.handBackTaken(v, id, a.name, why, taken);
+      else if (busy) a.world.villages.handBackBusy(v, id, a.name, why);
       else a.world.villages.unclaim(v, id, a.name, why);
     }
     a.pushEvent('system', `Handed back task ${id}: ${why.slice(0, 120)}`);
@@ -142,6 +145,11 @@ export class TaskBrain implements AgentBrain {
         if (!none) try { this.enqueue(a, 'deposit', { item: 'all' }); } catch { /* nothing to deposit with: kept for the next task's deposit */ }
         return;
       }
+      // The mine is busy (S.2): never the task's fault. Back on the board with no try counted (a soft give-up counted as
+      // finished and let its build start short of cobblestone) and no avoid entry: the registry keeps this worker off mine
+      // tasks until a face is free or a minute has passed (only for the task's own material, lesson 23)
+      if (MINE_BUSY.test(msg) && e.data?.type === 'collect' && !!block && !!held?.detail.toLowerCase().includes(`collect block=${block} `))
+        return this.handBack(a, msg, false, false, undefined, true);
       // What is left is being taken by other gatherers (S.1): back on the board for a while, not failed and not "none here"
       // (only for the task's own material, lesson 23, and soft tasks, as in the tiered brain: the storage task's logs wait
       // and collect again on the normal retry)
@@ -191,7 +199,7 @@ export class TaskBrain implements AgentBrain {
     if (!this.task) {
       if (!mayClaim) return;
       const now = Date.now();
-      const ready = reg.claimable(v).filter((t) => {
+      const ready = reg.claimable(v, a.name).filter((t) => {
         const item = /collect block=(\S+)/.exec(t.detail)?.[1];
         return !item || (this.avoid.get(item) ?? 0) < now;
       });
