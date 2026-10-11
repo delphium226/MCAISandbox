@@ -162,6 +162,10 @@ export interface WorldAdapter {
   } | null;
   /** Skills code-posted tasks may name besides `skills`, never shown to a model (S.3: make_into_storage). */
   taskSkills?: string[];
+  /** Whether its prepare_site takes a layout's part (`layout=N part=K`, S.6): plan_layout then splits a new village's plot. */
+  preparesParts?: boolean;
+  /** How many workers a village has now (S.6: the plot is split into more parts with four or more). */
+  memberCount?(v: Village): number;
   /**
    * How many of the blocks `collect` would gather for each name lie within `range` blocks of x,z and no more than 16
    * below ground level y, counted up to the number wanted, in the ground agent `by` has loaded; null when that agent is

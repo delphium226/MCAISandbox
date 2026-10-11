@@ -17,7 +17,7 @@ import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
-import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, signCall, signTask, villageHome, type StationName } from '../village';
+import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, type SignSpot } from '../streetPlan';
@@ -619,22 +619,36 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   for (const l of v?.layouts ?? []) if (l.farm) taken.push({ x1: l.farm.x1, x2: l.farm.x2, z1: l.farm.z1, z2: l.farm.z2 });
   // (and every farm slot, free or farmed: opportunistic farming, 10-08)
   for (const l of v?.layouts ?? []) for (const q of l.slots ?? []) taken.push({ x1: q.x1, x2: q.x2, z1: q.z1, z2: q.z2 });
-  const free = (x: number, z: number) => !taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
+  // (and ground other agents have reserved for their own jobs, S.6: a part of the plot being prepared beside this one, a
+  // building going up; the in-the-way teleport put bots there, on a neighbour's fill: lessons 44 and 61), unless there is
+  // nowhere else (the last pass below)
+  const now = Date.now();
+  const reserved = (v?.reservations ?? []).filter((r) => r.by !== a.name && r.until > now);
+  let others = true;
+  const inside = (q: Area, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
+  const free = (x: number, z: number) => !taken.some((q) => inside(q, x, z)) && !(others && reserved.some((q) => inside(q, x, z)));
   // On the village plot (and its prepared margin) first, when the job is on one: on a green every building backs onto
   // the plot's edge, and "south" of one on the south side lay on unprepared ground (the review of V2.4)
   const lay = v?.layouts?.find((l) => area.x1 >= l.x1 && area.x2 <= l.x2 && area.z1 >= l.z1 && area.z2 <= l.z2);
-  const onPlot = (x: number, z: number) => !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2;
+  // (on a plot prepared in parts, S.6: the parts done, with their margins on the plot's edge, never ground still to level)
+  const rec = lay ? v?.plots.find((q) => q.x1 === lay.x1 && q.z1 === lay.z1 && q.x2 === lay.x2 && q.z2 === lay.z2) : undefined;
+  const onDone = (x: number, z: number) => !rec?.parts || rec.parts.some((q) => x >= q.x1 - (q.x1 === rec.x1 ? 2 : 0) && x <= q.x2 + (q.x2 === rec.x2 ? 2 : 0)
+    && z >= q.z1 - (q.z1 === rec.z1 ? 2 : 0) && z <= q.z2 + (q.z2 === rec.z2 ? 2 : 0));
+  const onPlot = (x: number, z: number) => !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2 && onDone(x, z);
   // Near the job's level first, then farther up or down (cut and fill at a plot's edge can be 3 or more; runJob's
   // in-the-way teleport needs a spot)
   // (the job's level still comes first: a level spot off the plot beats footing far down a drop on its margin)
-  for (const range of [2, 8, 24])
-    for (const strict of lay ? [true, false] : [false])
-      for (const d of [3, 2, 4])
-        for (const [x, z] of [[cx, area.z2 + d], [cx, area.z1 - d], [area.x2 + d, cz], [area.x1 - d, cz]] as Array<[number, number]>) {
-          if (!free(x, z) || (strict && !onPlot(x, z))) continue;
-          const y = standableY(a, x, job.y + 1, z, range);
-          if (y !== null) return { x, y, z };
-        }
+  for (const pass of reserved.length ? [true, false] : [true]) {
+    others = pass;
+    for (const range of [2, 8, 24])
+      for (const strict of lay ? [true, false] : [false])
+        for (const d of [3, 2, 4])
+          for (const [x, z] of [[cx, area.z2 + d], [cx, area.z1 - d], [area.x2 + d, cz], [area.x1 - d, cz]] as Array<[number, number]>) {
+            if (!free(x, z) || (strict && !onPlot(x, z))) continue;
+            const y = standableY(a, x, job.y + 1, z, range);
+            if (y !== null) return { x, y, z };
+          }
+  }
   return null;
 }
 
@@ -1428,17 +1442,27 @@ function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
 
 async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const p = a.bot.entity.position;
+  const v = a.village();
+  // One part of a layout's plot prepared in parts (S.6, layout=N part=K): its rectangle and margins come from the layout
+  // record (2 on the plot's edge, 0 inside: no two parts' claims overlap)
+  const layN = args.layout !== undefined ? int(args, 'layout') : undefined;
+  const partK = args.part !== undefined ? int(args, 'part') : undefined;
+  const ofLay = layN !== undefined ? v?.layouts?.[layN - 1] : undefined;
+  const part = partK !== undefined ? ofLay?.parts?.[partK - 1] : undefined;
+  if (partK !== undefined && !part) throw new Error(`prepare_site: ${ofLay ? `layout ${layN} has no part ${partK}` : `no layout ${layN ?? '(layout= missing)'} in your village`}; prepare the plot its task names`);
   const last = a.memory.lastSite as { x: number; z: number } | undefined;
-  const cx = args.x !== undefined ? int(args, 'x') : last?.x ?? Math.floor(p.x);
-  const cz = args.z !== undefined ? int(args, 'z') : last?.z ?? Math.floor(p.z);
-  const w = size(args, 'width', 9, 3, 40), d = size(args, 'depth', 9, 3, 40), m = size(args, 'margin', 2, 0, 4);
+  const w = part ? part.x2 - part.x1 + 1 : size(args, 'width', 9, 3, 40), d = part ? part.z2 - part.z1 + 1 : size(args, 'depth', 9, 3, 40), m = size(args, 'margin', 2, 0, 4);
+  const cx = part ? part.x1 + Math.floor(w / 2) : args.x !== undefined ? int(args, 'x') : last?.x ?? Math.floor(p.x);
+  const cz = part ? part.z1 + Math.floor(d / 2) : args.z !== undefined ? int(args, 'z') : last?.z ?? Math.floor(p.z);
   const x0 = cx - Math.floor(w / 2), z0 = cz - Math.floor(d / 2), x1 = x0 + w - 1, z1 = z0 + d - 1;
+  // Margins north, south, west, east
+  const [mN, mS, mW, mE] = part ? part.m : [m, m, m, m];
   const surf = new Map<string, Surface>();
   const scan = () => {
     surf.clear();
     const py = Math.floor(a.bot.entity.position.y);
-    for (let x = x0 - m; x <= x1 + m; x++)
-      for (let z = z0 - m; z <= z1 + m; z++) {
+    for (let x = x0 - mW; x <= x1 + mE; x++)
+      for (let z = z0 - mN; z <= z1 + mS; z++) {
         const c = surfaceAt(a, x, z, py);
         if (!c) return false;
         surf.set(`${x},${z}`, c);
@@ -1455,8 +1479,50 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     checkAbort(signal);
     if (!scan()) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
   }
-  // Level: the most common ground height on the plot itself (least digging and filling), unless given
-  let y = args.y !== undefined ? int(args, 'y') : NaN;
+  // The layout this area lies in: its streets are laid with it, and a plot prepared in parts keeps one level (S.6)
+  const lay = ofLay ?? v?.layouts?.find((l) => l.x1 <= x0 && l.x2 >= x1 && l.z1 <= z0 && l.z2 >= z1);
+  const sameAsLay = (q: Area) => !!lay && q.x1 === lay.x1 && q.z1 === lay.z1 && q.x2 === lay.x2 && q.z2 === lay.z2;
+  const mode = (counts: Map<number, number>) => {
+    if (!counts.size) throw new Error('the area is all water; use find_site to choose dry land');
+    return [...counts].sort((u, v) => v[1] - u[1] || u[0] - v[0])[0][0];
+  };
+  // Level: the most common ground height on the plot itself (least digging and filling), unless given; a part's is the
+  // whole layout's (today's rule over the layout), worked out by the first part from a full scan and read by the others
+  // (a part never takes another level than its layout's once there is one)
+  let y = part && lay?.y !== undefined ? lay.y : args.y !== undefined ? int(args, 'y') : lay?.y ?? (lay ? v?.plots.find(sameAsLay)?.y : undefined) ?? NaN;
+  if (part && lay && lay.y === undefined && !Number.isNaN(y)) lay.y = y;
+  if (Number.isNaN(y) && part && lay) {
+    const layoutCounts = () => {
+      const counts = new Map<number, number>();
+      const py = Math.floor(a.bot.entity.position.y);
+      for (let x = lay.x1; x <= lay.x2; x++)
+        for (let z = lay.z1; z <= lay.z2; z++) {
+          const c = surfaceAt(a, x, z, py);
+          if (!c) return null;
+          if (!c.liquid) counts.set(c.y, (counts.get(c.y) ?? 0) + 1);
+        }
+      return counts;
+    };
+    let counts = layoutCounts();
+    if (!counts) {
+      const mx = Math.floor((lay.x1 + lay.x2) / 2), mz = Math.floor((lay.z1 + lay.z2) / 2);
+      await walk(a, new goals.GoalNearXZ(mx, mz, 3), `the plot's middle at ${mx},${mz}`, signal, 90000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      await a.bot.waitForChunksToLoad().catch(() => {});
+      checkAbort(signal);
+      // (another part may have worked it out meanwhile; this part's own columns read again from here)
+      counts = lay.y === undefined ? layoutCounts() : new Map();
+      if (!scan()) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
+      if (!counts) throw new Error(`part of the village plot is not loaded; walk closer to x=${mx} z=${mz} first`);
+    }
+    if (lay.y === undefined) {
+      lay.y = mode(counts);
+      a.world.villages.save();
+      console.log(`[prepare] ${a.name} level y=${lay.y} for layout ${layN} (${(lay.x2 - lay.x1 + 1) * (lay.z2 - lay.z1 + 1)} columns)`);
+    }
+    y = lay.y;
+  }
   if (Number.isNaN(y)) {
     const counts = new Map<number, number>();
     for (let x = x0; x <= x1; x++)
@@ -1464,8 +1530,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
         const c = surf.get(`${x},${z}`)!;
         if (!c.liquid) counts.set(c.y, (counts.get(c.y) ?? 0) + 1);
       }
-    if (!counts.size) throw new Error('the area is all water; use find_site to choose dry land');
-    y = [...counts].sort((u, v) => v[1] - u[1] || u[0] - v[0])[0][0];
+    y = mode(counts);
   }
   const targets: Target[] = [];
   const seen = new Map<string, number>();
@@ -1482,9 +1547,22 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   // 10-09: a tree touching it could reach a house's log frame or roof, lesson 30)
   const builtCells = [...a.world.villages.villages.values()].flatMap((o) => o.structures);
   const nearBuilt = (x: number, yy: number, z: number) => builtCells.some((s) => x >= s.x1 - 1 && x <= s.x2 + 1 && z >= s.z1 - 1 && z <= s.z2 + 1 && yy >= s.y - 1);
-  // The village's streets on this plot (the street plan, V2.3): dirt_path instead of grass, laid with the levelling
-  const lay = a.village()?.layouts?.find((l) => l.x1 === x0 && l.z1 === z0 && l.x2 === x1 && l.z2 === z1);
+  // The village's streets in this area (the street plan, V2.3): dirt_path instead of grass, laid with the levelling (by
+  // each part of a plot prepared in parts: the layout that contains the area, S.6)
   const street = (x: number, z: number) => !!lay?.streets?.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
+  // A part fells only the cells of trees in its own columns (S.6, lesson 45, F95): another part's are never set to air or
+  // counted here, so no log is given twice and no air is set over a neighbour's fill. A cell outside every part's claim
+  // belongs to the part whose claim is nearest (clamped onto the plot and its margin), so it too is felled by one
+  const claims = part && lay?.parts ? lay.parts.map(partClaim) : null;
+  const ours = (x: number, z: number) => {
+    if (!claims || !lay) return true;
+    const qx = Math.max(lay.x1 - 2, Math.min(lay.x2 + 2, x)), qz = Math.max(lay.z1 - 2, Math.min(lay.z2 + 2, z));
+    return claims.findIndex((q) => qx >= q.x1 && qx <= q.x2 && qz >= q.z1 && qz <= q.z2) === partK! - 1;
+  };
+  // The mine's ground: a column whose cut or fill would reach into the mine (its stairs and hut, or a tunnel the ground
+  // is open to) is left as it is, so no fill seals it (F131); a tunnel under solid ground is out of reach of the fill
+  const mineBoxes = v?.mine ? mineAreas(v.mine).filter((b) => b.y2 >= y - 8) : [];
+  let mineCols = 0;
   let paved = 0;
   const treeLogs = new Set<string>();
   // (every cell a crawl reached, kept or not: a cell skipped beside a building would start a crawl again, the review's L6)
@@ -1492,14 +1570,19 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   const drops: string[] = [];
   // Columns left as they are (built blocks, chests, margin over a drop): the check after the job passes them over
   const kept = new Set<string>();
-  for (let x = x0 - m; x <= x1 + m; x++)
-    next: for (let z = z0 - m; z <= z1 + m; z++) {
+  for (let x = x0 - mW; x <= x1 + mE; x++)
+    next: for (let z = z0 - mN; z <= z1 + mS; z++) {
       // How far down the ground is (under shallow water: its bottom)
       const c = surf.get(`${x},${z}`)!;
       let g = c.y;
       if (c.liquid) {
         const box = (yy: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox;
         while (g > y - 10 && box(g) !== 'block') g--;
+      }
+      if (mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2 && g + 1 <= b.y2)) {
+        mineCols++;
+        kept.add(`${x},${z}`);
+        continue;
       }
       if (y - g > 8) {
         // The margin is only a walkway: where it runs over a drop it is left as it is (F83: a ravine 2 blocks past the
@@ -1530,13 +1613,15 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
         // Trees touching the plot are felled whole, so no canopy is left floating
         if ((isLog(n) || isLeaves(n)) && !crawled.has(`${x},${yy},${z}`)) {
           const tree = treeAt(a, x, yy, z);
-          if (tree.length) felled++;
+          let took = 0;
           for (const [tx, ty, tz] of tree) {
             crawled.add(`${tx},${ty},${tz}`);
-            if (nearBuilt(tx, ty, tz)) continue;
+            if (nearBuilt(tx, ty, tz) || !ours(tx, tz)) continue;
+            took++;
             treeLogs.add(`${tx},${ty},${tz}`);
             add(tx, ty, tz, 'air');
           }
+          if (took) felled++;
         }
         add(x, yy, z, 'air');
       }
@@ -1551,7 +1636,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     }
   if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
   // (12000 for a 32 plot's 36x36 with the margin, as much again per column for a 40 plot's 44x44, V2.4)
-  const maxWork = Math.max(12000, Math.round(12000 * ((w + 2 * m) * (d + 2 * m)) / (36 * 36)));
+  const maxWork = Math.max(12000, Math.round(12000 * ((w + mW + mE) * (d + mN + mS)) / (36 * 36)));
   if (targets.length > maxWork) throw new Error(`too much work (${targets.length} blocks, max ${maxWork}); prepare a smaller area`);
   const plot: Plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
   // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping;
@@ -1562,7 +1647,7 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     const n = blockName(a, tx, ty, tz);
     if (n && isLog(n) && n !== 'mushroom_stem') logs[n] = (logs[n] ?? 0) + 1;
   }
-  const claim = { area: { x1: x0 - m, z1: z0 - m, x2: x1 + m, z2: z1 + m }, purpose: 'prepare a plot', avoidStructures: false };
+  const claim = { area: { x1: x0 - mW, z1: z0 - mN, x2: x1 + mE, z2: z1 + mS }, purpose: part ? `prepare part ${partK} of the village plot` : 'prepare a plot', avoidStructures: false };
   let summary = await runJob(a, { targets, area: plot, y, free: true, claim }, signal, felled);
   if (a.gamemode !== 'creative' && Object.keys(logs).length) {
     for (const [n, q] of Object.entries(logs)) await a.world.rcon.command(`give ${a.name} ${n} ${q}`);
@@ -1612,19 +1697,174 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
     const kinds = [...new Set(wrong.map((b) => b.why))].join(', ');
     throw new Error(`the plot is not ready after two passes: ${wrong.length} columns not level at y=${y} (${kinds}: ${wrong.slice(0, 4).map((b) => `${b.x},${b.z}`).join(' ')}${wrong.length > 4 ? ' ...' : ''})${people ? `; ${people}` : ''}; run the same prepare_site again`);
   }
-  const same = (q: Plot) => q.x1 === plot.x1 && q.z1 === plot.z1 && q.x2 === plot.x2 && q.z2 === plot.z2;
-  const v = a.village();
+  const same = (q: Area) => q.x1 === plot.x1 && q.z1 === plot.z1 && q.x2 === plot.x2 && q.z2 === plot.z2;
+  const felledLogs = Object.values(logs).reduce((s, q) => s + q, 0);
+  let completes = false;
   if (v) {
     const reg = a.world.villages;
-    // (in place when prepared again: plots[0] is the village's own plot to everything that reads it, the annex's research)
-    const i = v.plots.findIndex(same);
-    if (i >= 0) v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
-    else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}) });
-    reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
-    if (a.gamemode !== 'creative' && Object.keys(logs).length) summary += await storageFromFelled(a, signal);
+    if (part && lay?.parts) {
+      // One plot record for the layout (S.6), from the first part done: the whole layout at its one level, listing the parts
+      // done so far, so plots[0] is the village's plot to everything that reads it; "prepared" readers ask preparedAt
+      const total = lay.parts.length;
+      let rec = v.plots.find(sameAsLay);
+      if (!rec) {
+        rec = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2, y, id: reg.id('plot'), preparedBy: a.name, parts: [] };
+        v.plots.push(rec);
+      }
+      // (the part whose record makes it whole checks the seams, or the one run again after a failed check: one at a time)
+      if (rec.parts && !rec.parts.some(same)) {
+        rec.parts.push({ x1: x0, z1: z0, x2: x1, z2: z1 });
+        completes = rec.parts.length >= total;
+      } else completes = !!rec.parts && rec.parts.length >= total && !!lay.seamsBad;
+      reg.note(v, `${a.name} prepared part ${partK} of ${total} of the village plot at ${areaText(plot)}${rec.parts ? ` (${rec.parts.length} of ${total} done)` : ''}`);
+      const done = /placed (\d+) blocks, cleared (\d+)/.exec(summary);
+      console.log(`[prepare] ${a.name} part ${partK}/${total} ready: placed ${done?.[1] ?? '?'}, cleared ${done?.[2] ?? '?'}, ${felled} trees, ${felledLogs} logs${mineCols ? `, ${mineCols} mine columns left` : ''}`);
+    } else {
+      // (in place when prepared again: plots[0] is the village's own plot to everything that reads it, the annex's research)
+      const i = v.plots.findIndex(same);
+      if (i >= 0) {
+        v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
+        // (the whole of a plot that was being prepared in parts: it is whole now)
+        delete v.plots[i].parts;
+      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}) });
+      reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
+    }
+    // The felled logs reach the storage (C5): the ground holding the storage hut (or a whole plot) sets the storage up with
+    // them while its task is open, so no chest goes on ground still to be levelled (lesson 33); every other part, and any
+    // call once the storage stands, deposits them (about 300 logs were stranded with the preparers otherwise). Not the
+    // annex: its own job deposits them
+    if (a.gamemode !== 'creative' && args.annex !== true && (felledLogs || part)) {
+      const hut = v.storageHut;
+      const holdsHut = !part || !hut || (hut.x1 >= x0 && hut.x2 <= x1 && hut.z1 >= z0 && hut.z2 <= z1);
+      const set = holdsHut ? await storageFromFelled(a, signal) : '';
+      // (and a part run again after a failed check, which fells nothing more: the logs given the first time)
+      const n = set ? 0 : felledLogs || (await logsCarried(a));
+      summary += n ? await depositFelled(a, v, n, part ? `part ${partK}` : 'the plot', !holdsHut, signal) : set;
+    }
+    // The part that completes the record checks the seams between the parts (C7) before the plot counts as whole (after its
+    // logs are in: a failed check runs the part again, which fells nothing more)
+    const rec = completes ? v.plots.find(sameAsLay) : undefined;
+    if (rec?.parts) {
+      summary += await seamCheck(a, v, lay!, layN!, partK!, y, signal);
+      delete rec.parts;
+      reg.save();
+    }
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
-  return `plot ready: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus a ${m}-block margin)${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
+  const margin = part ? `margins ${mN}/${mS}/${mW}/${mE} north/south/west/east` : `a ${m}-block margin`;
+  return `${part ? `part ${partK} of ${lay!.parts!.length} of the village plot ready` : 'plot ready'}: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus ${margin})${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${mineCols ? `; left ${mineCols} columns over the mine as they are` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
 }
+
+/**
+ * The seams of a plot prepared in parts (S.6's C7), checked by the part that completed it: the columns either side of every
+ * line between two parts, two deep, by the build's rule (dry, ground at y-1..y, nothing natural above), each failure
+ * confirmed on the server (lesson 29). What fails is set right once (lesson 50: the commands' answers are the check) and
+ * read again; still wrong, the part fails so its task runs again (`seamsBad` keeps the check for that run). Buildings,
+ * anything built and the mine are passed over.
+ */
+async function seamCheck(a: BotAgent, v: Village, lay: NonNullable<Village['layouts']>[number], n: number, k: number, y: number, signal: AbortSignal): Promise<string> {
+  const parts = lay.parts ?? [];
+  const cols = new Map<string, [number, number]>();
+  const put = (x: number, z: number) => cols.set(`${x},${z}`, [x, z]);
+  for (const q of parts) {
+    // (an inside side has margin 0: its line, two columns each way)
+    for (let d = -2; d <= 1; d++) {
+      if (!q.m[0]) for (let x = q.x1; x <= q.x2; x++) put(x, q.z1 + d);
+      if (!q.m[1]) for (let x = q.x1; x <= q.x2; x++) put(x, q.z2 + d + 1);
+      if (!q.m[2]) for (let z = q.z1; z <= q.z2; z++) put(q.x1 + d, z);
+      if (!q.m[3]) for (let z = q.z1; z <= q.z2; z++) put(q.x2 + d + 1, z);
+    }
+  }
+  const mines = v.mine ? mineAreas(v.mine) : [];
+  const skip = (x: number, z: number) => x < lay.x1 || x > lay.x2 || z < lay.z1 || z > lay.z2
+    || v.structures.some((s) => x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2) || mines.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2);
+  let unloaded = 0, checked = 0;
+  const read = async (list: Array<[number, number]>) => {
+    const bad: Array<{ x: number; z: number; y: number; why: string }> = [];
+    for (const [x, z] of list) {
+      const c = surfaceAt(a, x, z, y);
+      if (!c) {
+        unloaded++;
+        continue;
+      }
+      if (c.liquid) bad.push({ x, z, y: c.y, why: 'water' });
+      else if (c.y < y - 1) bad.push({ x, z, y: c.y, why: 'hole' });
+      // (a block built there, a lamp or a chest, is not the ground's fault)
+      else if (c.y > y && NATURAL.has(blockName(a, x, c.y, z) ?? '')) bad.push({ x, z, y: c.y, why: 'block above' });
+    }
+    const wrong: typeof bad = [];
+    for (const b of bad.slice(0, 64)) {
+      const ask = b.why === 'hole' ? `execute if block ${b.x} ${y} ${b.z} #minecraft:replaceable if block ${b.x} ${y - 1} ${b.z} #minecraft:replaceable`
+        : b.why === 'block above' ? `execute unless block ${b.x} ${b.y} ${b.z} #minecraft:air` : '';
+      if (!ask || !/test failed/i.test(await a.world.rcon.command(ask).catch(() => ''))) wrong.push(b);
+    }
+    return [...wrong, ...bad.slice(64)];
+  };
+  const list = [...cols.values()].filter(([x, z]) => !skip(x, z));
+  checked = list.length;
+  let wrong = await read(list);
+  let fixed = '';
+  if (wrong.length && !wrong.some((b) => b.why === 'water')) {
+    // Set right once: natural blocks above the level cleared, a hole filled to it (grass, or the street's path)
+    const targets: Target[] = [];
+    for (const b of wrong) {
+      if (b.why === 'block above') {
+        for (let yy = y + 1; yy <= Math.min(b.y, y + 32); yy++) if (NATURAL.has(blockName(a, b.x, yy, b.z) ?? '')) targets.push({ x: b.x, y: yy, z: b.z, block: 'air' });
+      } else {
+        for (let yy = b.y + 1; yy < y; yy++) targets.push({ x: b.x, y: yy, z: b.z, block: 'dirt' });
+        const street = lay.streets?.some((s) => b.x >= s.x1 && b.x <= s.x2 && b.z >= s.z1 && b.z <= s.z2);
+        targets.push({ x: b.x, y, z: b.z, block: street ? 'dirt_path' : 'grass_block' });
+      }
+    }
+    const area = { x1: Math.min(...wrong.map((b) => b.x)), z1: Math.min(...wrong.map((b) => b.z)), x2: Math.max(...wrong.map((b) => b.x)), z2: Math.max(...wrong.map((b) => b.z)) };
+    fixed = await runJob(a, { targets, area, y, free: true }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return `not set right: ${e.message.slice(0, 120)}`;
+    });
+    console.log(`[prepare] ${a.name}: ${wrong.length} seam columns of layout ${n} not level (${wrong.slice(0, 6).map((b) => `${b.why} at ${b.x},${b.z}`).join('; ')}${wrong.length > 6 ? ' ...' : ''}); set right: ${fixed}`);
+    await sleep(1000, signal);
+    wrong = await read(wrong.map((b) => [b.x, b.z]));
+  }
+  console.log(`[prepare] layout ${n} complete: ${parts.length} parts, seams ${checked} columns, ${wrong.length} bad${unloaded ? `, ${unloaded} not loaded` : ''}${fixed ? ' (after setting them right)' : ''}`);
+  if (wrong.length) {
+    lay.seamsBad = true;
+    a.world.villages.save();
+    const kinds = [...new Set(wrong.map((b) => b.why))].join(', ');
+    throw new Error(`the seams between the village plot's parts are not level at y=${y}: ${wrong.length} columns (${kinds}: ${wrong.slice(0, 4).map((b) => `${b.x},${b.z}`).join(' ')}${wrong.length > 4 ? ' ...' : ''}); run prepare_site layout=${n} part=${k} again`);
+  }
+  delete lay.seamsBad;
+  return `; the plot's ${parts.length} parts are all prepared (seams checked: ${checked} columns${fixed ? ', set right once' : ''})`;
+}
+
+/**
+ * The felled logs of a part (or of a plot prepared once the storage stands) deposited into the village storage (S.6's C5);
+ * with `wait`, for up to 60 s while the storage is being set up (by an agent: not one held back by a test). Returns the
+ * summary's note.
+ */
+async function depositFelled(a: BotAgent, v: Village, n: number, what: string, wait: boolean, signal: AbortSignal): Promise<string> {
+  const setting = () => v.tasks.some((t) => t.title === 'Set up the village storage' && (t.status === 'open' || (t.status === 'claimed' && !!t.claimedBy && a.world.isAgent(t.claimedBy))));
+  const t0 = Date.now();
+  while (!v.storage?.chests.length) {
+    if (!wait || !setting() || Date.now() - t0 > 60000) {
+      console.log(`[prepare] ${a.name} kept ${n} felled logs (${what}): no village storage${wait && setting() ? ' after 60 s' : ''}`);
+      return '';
+    }
+    await sleep(2000, signal);
+  }
+  const before = await logsCarried(a);
+  try {
+    await STORAGE_SKILLS.deposit.run(a, { item: 'logs' }, signal);
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    console.log(`[prepare] ${a.name} could not deposit the felled logs (${what}): ${(e as Error).message.slice(0, 160)}`);
+    return `; the felled logs not deposited (${(e as Error).message.slice(0, 100)})`;
+  }
+  const put = before - (await logsCarried(a));
+  console.log(`[prepare] ${a.name} deposited ${put} felled logs (${what})`);
+  return `; deposited ${put} logs into the village storage`;
+}
+
+/** How many logs of any kind the agent carries, on the server (lesson 13). */
+const logsCarried = async (a: BotAgent) => Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:logs 0`).catch(() => ''))?.[1] ?? 0);
 
 /**
  * The preparer, carrying the logs of the trees it felled, sets up the village storage itself (the opportunities analysis,
@@ -2077,7 +2317,8 @@ async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: 
   const skipped: string[] = [];
   let y0 = 0;
   for (const l of lay.lamps) {
-    const plot = v.plots.find((p) => l.x >= p.x1 && l.x <= p.x2 && l.z >= p.z1 && l.z <= p.z2);
+    // (its part prepared, on a plot prepared in parts: S.6)
+    const plot = preparedAt(v, { x1: l.x, z1: l.z, x2: l.x, z2: l.z });
     if (!plot) {
       skipped.push(`${l.x},${l.z} (not on a prepared plot)`);
       continue;
@@ -2260,7 +2501,8 @@ async function tendFarm(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const k = Math.floor(num(args.layout, 'layout'));
   const farm = v.layouts?.[k - 1]?.farm;
   if (!farm) throw new Error(`tend_farm: layout ${k} has no farm`);
-  const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+  // (every part under it prepared, on a plot prepared in parts: S.6)
+  const plot = preparedAt(v, farm);
   if (!plot) throw new Error(`tend_farm: the farm at ${areaText(farm)} is not on a prepared plot yet; prepare the village plot first`);
   const y = plot.y;
   const inWater = (x: number, z: number) => x >= farm.water.x1 && x <= farm.water.x2 && z >= farm.water.z1 && z <= farm.water.z2;

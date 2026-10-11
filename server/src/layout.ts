@@ -4,7 +4,7 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type Village } from './village';
+import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type PlotPart, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -22,6 +22,80 @@ export interface Site {
   biome?: string;
 }
 
+/** A part of the plot as plan_layout posts it (S.6): its rectangle, margins, and what it holds (for its task's title). */
+export type PrepPart = PlotPart & { what: string };
+
+/**
+ * The plot in parts, prepared by several agents at once (S.6). First the huts' ground: the box round both huts with their
+ * builds' claim rings and the mining hut's back strip (the stairs' ground out to the plot's edge, so the box is its own
+ * way out of the layout), clipped to the plot and stretched to any edge within 3; cut in two along a straight gap between
+ * the two huts' rings when there is one. Then the rest, cut guillotine-style into rectangles (the cut that leaves the
+ * smallest piece biggest), with four or more workers halved up to 4 pieces, each half keeping a side on the plot's edge
+ * (a part's stand spots then never all lie on ground others are working). Margins 2 on the plot's edge and 0 inside, so
+ * no two claims overlap. In order: the storage hut's part, the mining hut's, the rest. Why not, when the plot is better
+ * prepared whole: a box over half the plot, no back strip, a part under 4 across.
+ */
+export function prepParts(plot: Area, hut: Area, mine: Area, back: Area | undefined, workers: number): { parts: PrepPart[]; huts: number } | { why: string } {
+  const cells = (a: Area) => (a.x2 - a.x1 + 1) * (a.z2 - a.z1 + 1);
+  const clip = (a: Area): Area => ({ x1: Math.max(a.x1, plot.x1), z1: Math.max(a.z1, plot.z1), x2: Math.min(a.x2, plot.x2), z2: Math.min(a.z2, plot.z2) });
+  const grow = (a: Area, n: number): Area => ({ x1: a.x1 - n, z1: a.z1 - n, x2: a.x2 + n, z2: a.z2 + n });
+  const join = (a: Area, b: Area): Area => ({ x1: Math.min(a.x1, b.x1), z1: Math.min(a.z1, b.z1), x2: Math.max(a.x2, b.x2), z2: Math.max(a.z2, b.z2) });
+  if (!back) return { why: 'no back strip from the mining hut to the edge' };
+  const sRing = clip(grow(hut, 1)), mRing = clip(join(grow(mine, 1), grow(back, 1)));
+  const box = join(sRing, mRing);
+  if (box.x1 - plot.x1 <= 3) box.x1 = plot.x1;
+  if (plot.x2 - box.x2 <= 3) box.x2 = plot.x2;
+  if (box.z1 - plot.z1 <= 3) box.z1 = plot.z1;
+  if (plot.z2 - box.z2 <= 3) box.z2 = plot.z2;
+  if (cells(box) * 2 > cells(plot)) return { why: `the huts' ground ${areaText(box)} is over half the plot` };
+  // The cut: the storage side's last row (or column) in the middle of the gap between the rings
+  const mid = (lo: number, hi: number) => Math.floor((lo + 1 + hi) / 2);
+  const cuts: Array<[Area, Area]> = [];
+  if (sRing.z2 < mRing.z1) { const c = mid(sRing.z2, mRing.z1 - 1); cuts.push([{ ...box, z2: c }, { ...box, z1: c + 1 }]); }
+  if (mRing.z2 < sRing.z1) { const c = mid(mRing.z2, sRing.z1 - 1); cuts.push([{ ...box, z1: c + 1 }, { ...box, z2: c }]); }
+  if (sRing.x2 < mRing.x1) { const c = mid(sRing.x2, mRing.x1 - 1); cuts.push([{ ...box, x2: c }, { ...box, x1: c + 1 }]); }
+  if (mRing.x2 < sRing.x1) { const c = mid(mRing.x2, sRing.x1 - 1); cuts.push([{ ...box, x1: c + 1 }, { ...box, x2: c }]); }
+  const even = (l: Area[]) => (l.length ? Math.min(...l.map(cells)) : 0);
+  const cut = cuts.sort((p, q) => even(q) - even(p))[0];
+  const huts: Array<Area & { what: string }> = cut ? [{ ...cut[0], what: "the storage hut's ground" }, { ...cut[1], what: "the mining hut's ground" }] : [{ ...box, what: "the huts' ground" }];
+  // The rest: strips beside the box from edge to edge, then the pieces above and below it (or the other way round)
+  const strips = (across: boolean): Area[] => {
+    const out: Area[] = [];
+    const [x1, x2, z1, z2] = across ? [plot.x1, plot.x2, box.z1, box.z2] : [box.x1, box.x2, plot.z1, plot.z2];
+    if (box.x1 > plot.x1) out.push({ x1: plot.x1, x2: box.x1 - 1, z1: across ? z1 : plot.z1, z2: across ? z2 : plot.z2 });
+    if (box.x2 < plot.x2) out.push({ x1: box.x2 + 1, x2: plot.x2, z1: across ? z1 : plot.z1, z2: across ? z2 : plot.z2 });
+    if (box.z1 > plot.z1) out.push({ x1: across ? x1 : box.x1, x2: across ? x2 : box.x2, z1: plot.z1, z2: box.z1 - 1 });
+    if (box.z2 < plot.z2) out.push({ x1: across ? x1 : box.x1, x2: across ? x2 : box.x2, z1: box.z2 + 1, z2: plot.z2 });
+    return out;
+  };
+  const down = strips(false), across = strips(true);
+  const rest = even(across) > even(down) ? across : down;
+  // Halved with four or more workers: the biggest piece that can be, along its longer side that keeps both halves on the edge
+  while (workers >= 4 && rest.length < 4) {
+    let best: { i: number; axis: 'x' | 'z'; len: number } | undefined;
+    for (const [i, r] of rest.entries()) {
+      const w = r.x2 - r.x1 + 1, d = r.z2 - r.z1 + 1;
+      const axes: Array<{ axis: 'x' | 'z'; len: number }> = [];
+      // (rows apart keep a west or east edge; columns apart a north or south one)
+      if ((r.x1 === plot.x1 || r.x2 === plot.x2) && d >= 8) axes.push({ axis: 'z', len: d });
+      if ((r.z1 === plot.z1 || r.z2 === plot.z2) && w >= 8) axes.push({ axis: 'x', len: w });
+      const a = axes.sort((p, q) => q.len - p.len)[0];
+      if (a && (!best || cells(r) > cells(rest[best.i]))) best = { i, ...a };
+    }
+    if (!best) break;
+    const { i, axis, len } = best;
+    const r = rest[i], h = Math.floor(len / 2);
+    rest.splice(i, 1, ...(axis === 'z' ? [{ ...r, z2: r.z1 + h - 1 }, { ...r, z1: r.z1 + h }] : [{ ...r, x2: r.x1 + h - 1 }, { ...r, x1: r.x1 + h }]));
+  }
+  const parts: PrepPart[] = [...huts, ...rest.map((r) => ({ ...r, what: areaText(r) }))].map((r) => ({
+    ...r, m: [r.z1 === plot.z1 ? 2 : 0, r.z2 === plot.z2 ? 2 : 0, r.x1 === plot.x1 ? 2 : 0, r.x2 === plot.x2 ? 2 : 0] as [number, number, number, number],
+  }));
+  const thin = parts.find((r) => r.x2 - r.x1 < 3 || r.z2 - r.z1 < 3);
+  if (thin) return { why: `a part at ${areaText(thin)} would be under 4 across` };
+  if (parts.reduce((s, r) => s + cells(r), 0) !== cells(plot)) return { why: 'the parts do not cover the plot exactly' };
+  return { parts, huts: huts.length };
+}
+
 /**
  * Place the buildings (design names, one per building, or {design, count}) on one plot around the site and post, in
  * order: prepare the plot, set up the storage and gather materials (the survival economy, when `economy`), then each
@@ -29,9 +103,11 @@ export interface Site {
  * does not name it): the first chest goes into the hut's first chest spot, the hut is built around it, and the other
  * buildings wait for the hut's table and furnace, placed in their cells before it (S.5; their gathering does not wait).
  * Returns what happened, or why not ("plan_layout: ..."), for
- * the poster's events.
+ * the poster's events. A new village's plot is prepared in parts at once where the world can (S.6, `prepParts`): the
+ * huts' ground first, the rest posted after the storage hut; `workers` (default: the village's workers in the world now;
+ * the stage script lays out before it spawns them) decides how many.
  */
-export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean): string {
+export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number): string {
     const reg = w.villages;
     const raw = Array.isArray(buildings) ? (buildings as unknown[]) : typeof buildings === 'string' ? buildings.split(',') : [];
     const names: string[] = [];
@@ -238,11 +314,64 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // Materials found nowhere near the last site are looked for again (F96)
     delete v.unavailable;
     const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean; afterClaimed?: boolean; retries?: number }> = [];
-    tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them${street ? '; it lays the streets as dirt_path' : ''})`, after: [] });
+    const laid = withHut ? lay.places.find((p) => p.name === STORAGE_HUT) : undefined;
+    // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
+    const mining = withHut ? lay.places.find((p) => p.name === MINING_HUT) : undefined;
+    // (in the street plan the hut faces its street, the stairs running out its back: its turn is the plan's)
+    const mineTurn = mining ? (street ? (mining.rotate ?? 0) / 90 : miningHutTurn(mining, plot)) : 0;
+    const stairs = mining ? miningStairs(mining.x1, mining.z1, mineTurn) : undefined;
+    // The mining hut's ground out to the pad's edge: its stairs run under it (rows record none, so from the stairs)
+    const back = street?.back ?? (mining && stairs
+      ? stairs.dir[1] < 0 ? { x1: mining.x1, x2: mining.x2, z1: plot.z1, z2: mining.z1 - 1 } : stairs.dir[1] > 0 ? { x1: mining.x1, x2: mining.x2, z1: mining.z2 + 1, z2: plot.z2 }
+        : stairs.dir[0] > 0 ? { x1: mining.x2 + 1, x2: plot.x2, z1: mining.z1, z2: mining.z2 } : { x1: plot.x1, x2: mining.x1 - 1, z1: mining.z1, z2: mining.z2 }
+      : undefined);
+    // The plot in parts (S.6): the huts' ground first, the rest posted after the storage hut (lesson 91: the mine starts
+    // before the levelling); a village from before, a later plot or the sandbox are prepared whole
+    const crew = workers ?? w.memberCount?.(v) ?? 0;
+    const split = withHut && w.preparesParts && laid && mining ? prepParts(plot, laid, mining, back, crew) : null;
+    const parts = split && 'parts' in split ? split.parts : null;
+    const cellsOf = (a: Area) => (a.x2 - a.x1 + 1) * (a.z2 - a.z1 + 1);
+    if (split && 'why' in split) console.log(`[parts] the plot of ${v.name} is prepared whole: ${split.why}`);
+    // Each part's task (K from 1, as the layout record lists them): what waits for which (S.6's C2) is by these indices
+    const hutParts: number[] = [], allParts: number[] = [];
+    const partTask = (k: number) => {
+      const q = parts![k - 1];
+      const wd = q.x2 - q.x1 + 1, dp = q.z2 - q.z1 + 1;
+      const streets = street?.streets.some((s) => overlaps(s, q));
+      tasks.push({ title: `Prepare the village plot, part ${k} of ${parts!.length} (${q.what})`,
+        detail: `prepare_site x=${q.x1 + Math.floor(wd / 2)} z=${q.z1 + Math.floor(dp / 2)} width=${wd} depth=${dp} layout=${nth} part=${k} (to the plot's one level${streets ? '; its streets laid as dirt_path' : ''})`, after: [] });
+    };
+    if (parts) {
+      const huts = (split as { huts: number }).huts;
+      for (let k = 1; k <= huts; k++) {
+        hutParts.push(tasks.length);
+        partTask(k);
+      }
+      allParts.push(...hutParts);
+      const rest = parts.slice(huts).map(cellsOf);
+      console.log(`[parts] code split the plot of ${v.name}: huts ${huts} (${parts.slice(0, huts).map(cellsOf).join(', ')}), rest ${rest.length} (${rest.join(', ')}) for ${crew} workers`);
+      reg.note(v, `code split the plot into ${parts.length} parts prepared at once: the huts' ground first (${huts}), the rest (${rest.length}) after the storage hut`);
+    } else {
+      hutParts.push(tasks.length);
+      allParts.push(tasks.length);
+      tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them${street ? '; it lays the streets as dirt_path' : ''})`, after: [] });
+    }
+    // The storage hut's ground: its part, else the whole plot
+    const storagePart = hutParts[0];
+    // The rest of the plot, posted right after the storage hut's build (claimed in posting order: two workers start the mine
+    // before the levelling); everything else on the plot waits for every part
+    let restPosted = !parts;
+    const postRest = () => {
+      if (restPosted || !parts) return;
+      restPosted = true;
+      for (let k = hutParts.length + 1; k <= parts.length; k++) {
+        allParts.push(tasks.length);
+        partTask(k);
+      }
+    };
     // One storage for the village: a later layout waits for the storage task already posted
     const storageTask = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
     let storage: string | number | undefined = storageTask && storageTask.status !== 'done' ? storageTask.id : undefined;
-    const laid = withHut ? lay.places.find((p) => p.name === STORAGE_HUT) : undefined;
     if (laid) v.storageHut = { x1: laid.x1, z1: laid.z1, x2: laid.x2, z2: laid.z2, spots: hutSpots(laid.x1, laid.z1) };
     // A storage task posted again later (the first failed) goes to the hut laid out before
     const hut = v.storageHut;
@@ -257,7 +386,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         // storage up, storageFromFelled)
         tasks.push({ title: 'Set up the village storage', detail: stationsEarly
           ? `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all (the first deposit puts the chests in the storage hut's chest spots, the first at ${cx} ${cz}; the hut is built around them), then place_station item=crafting_table (the village's table, in its cell of the hut)`
-          : `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chests in the storage hut's chest spots (the first at ${cx} ${cz}), and the hut is built around them`, after: laid ? [0] : [] });
+          : `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chests in the storage hut's chest spots (the first at ${cx} ${cz}), and the hut is built around them`, after: laid ? [storagePart] : [] });
       } else {
         const sx = lay.x, sz = plot.z2 + 4;
         tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
@@ -271,14 +400,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // nothing; in a village from before S.5, or with the task over and a station missing, for the hut's build as before
     let stationsTask: string | number | undefined = v.tasks.find((t) => t.title === STATIONS_TASK && (t.status === 'open' || t.status === 'claimed'))?.id;
     const gate = () => stationsTask ?? (STATION_NAMES.every((n) => v.stations?.[n]) ? undefined : hutBuild);
-    // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
-    const mining = withHut ? lay.places.find((p) => p.name === MINING_HUT) : undefined;
-    // (in the street plan the hut faces its street, the stairs running out its back: its turn is the plan's)
-    const mineTurn = mining ? (street ? (mining.rotate ?? 0) / 90 : miningHutTurn(mining, plot)) : 0;
-    if (mining) {
-      const top = miningStairs(mining.x1, mining.z1, mineTurn);
-      v.mine = { hut: { x1: mining.x1, z1: mining.z1, x2: mining.x2, z2: mining.z2 }, top: { x: top.x, z: top.z }, dir: top.dir, steps: 0, dug: 0, ended: [], got: {} };
-    }
+    if (mining && stairs) v.mine = { hut: { x1: mining.x1, z1: mining.z1, x2: mining.x2, z2: mining.z2 }, top: { x: stairs.x, z: stairs.z }, dir: stairs.dir, steps: 0, dug: 0, ended: [], got: {} };
     // Each building as build_design lays it (the signs and the farm keep to these)
     const grids = lay.places.map((p) => ({ design: v.designs[p.name], x: p.x, z: p.z, rot: p.name === MINING_HUT ? mineTurn : (p.rotate ?? 0) / 90, noSign: p.name === centre?.design.name }));
     // The wheat field (the user's, 10-08): one a village, a 5x7 field of farmland either side of a water channel, on free
@@ -290,12 +412,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     let farmBack: Area | undefined;
     const biome = (v.vanillaBiome ?? site.biome ?? '').toLowerCase();
     if (economy && w.skills.some((t) => t.name === 'tend_farm') && !(v.layouts ?? []).some((l) => l.farm)) {
-      // (the mining hut's ground out to the pad's edge: its stairs run under it; rows record none, so from the stairs)
-      const m = mining && v.mine ? v.mine : undefined;
-      const back = street?.back ?? (m
-        ? m.dir[1] < 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: plot.z1, z2: m.hut.z1 - 1 } : m.dir[1] > 0 ? { x1: m.hut.x1, x2: m.hut.x2, z1: m.hut.z2 + 1, z2: plot.z2 }
-          : m.dir[0] > 0 ? { x1: m.hut.x2 + 1, x2: plot.x2, z1: m.hut.z1, z2: m.hut.z2 } : { x1: plot.x1, x2: m.hut.x1 - 1, z1: m.hut.z1, z2: m.hut.z2 }
-        : undefined);
+      // (the mining hut's back strip, above)
       farmBack = back;
       const h = v.storageHut;
       const near = h ? { x: (h.x1 + h.x2) / 2, z: h.z2 + 3 } : undefined;
@@ -325,7 +442,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // (no task for the hoe's log: prepare_site's felled trees leave logs in storage, and a gather task "for the farm" is
       // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
       const g = gate();
-      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(g !== undefined ? [g] : []), ...seeds], soft: true });
+      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [...allParts, ...(storage !== undefined ? [storage] : []), ...(g !== undefined ? [g] : []), ...seeds], soft: true });
     };
     // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once the
     // storage hut stands (S.4; builders' stand spots and doorways keep clear of them); made from what the storage holds
@@ -413,7 +530,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         // analysis #3); logs wait for the storage (the preparer's felled logs cover them), cobblestone for the mine
         // (only what is gathered by hand: sandstone or terracotta would make each gatherer a pickaxe from fresh logs)
         const early = /^collect block=(sand|red_sand|dirt|gravel|clay_ball|wheat_seeds) /.test(t.detail);
-        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined && !early ? [storage] : []), ...(stone ? [dig!] : [])], soft: true });
+        // (S.6: logs once the ground whose felled trees cover them is prepared and its logs stored: the huts' for the huts,
+        // every part's for the rest; they were claimed while the chests were still empty, S.1)
+        const felled = parts && /^collect block=(\S+_log|logs) /.test(t.detail) ? (p.name === STORAGE_HUT || p.name === MINING_HUT ? hutParts : allParts) : [];
+        tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined && !early ? [storage] : []), ...(stone ? [dig!] : []), ...felled], soft: true });
       }
       const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
       if (isHut) hutBuild = tasks.length;
@@ -426,7 +546,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       tasks.push({
         title: `Build ${label}`,
         detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
-        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && g !== undefined ? [g] : []),
+        after: [...(isHut || isMine ? hutParts : allParts), ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && g !== undefined ? [g] : []),
           ...(glazed ? [...windowSand, ...(partsTask !== undefined ? [partsTask] : [])] : [])],
       });
       if (isMine) {
@@ -437,10 +557,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         postStations();
       }
       if (isHut) {
+        postRest();
         postParts();
         postFarm();
       }
     }
+    postRest();
     postParts();
     postFarm();
     // The lamps go up once the storage hut stands (S.4), not after the buildings: they stand outside every building's
@@ -453,7 +575,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const hutGate = v.storageHut ? [...(storage !== undefined ? [storage] : []), ...(lampGate !== undefined ? [lampGate] : [])] : null;
     if (lamps.length)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`,
-        after: [0, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
+        after: [...allParts, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
     // Farm slots (opportunistic farming, 10-08): up to two more 5x7 fields kept free beside the wheat field, for whatever
     // the agents find to farm once the village stands (mcWorld.ts farmChores); after the lamps and off them, so no lamp is
     // lost, a cell from the field and from each other. Nothing is built there until then (not structures: lesson 62)
@@ -483,7 +605,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (!b) continue;
       const g = gate();
       tasks.push({ title: `Put up the sign: ${b.label}`, detail: `${signCall(nth, s)} (the ${b.label}'s name sign beside its door, made from the village storage)`,
-        after: [0, b.build, ...(g !== undefined && g !== b.build ? [g] : [])], soft: true, retries: 4 });
+        after: [...allParts, b.build, ...(g !== undefined && g !== b.build ? [g] : [])], soft: true, retries: 4 });
     }
     if (wood && !v.wood) {
       v.wood = wood;
@@ -500,7 +622,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
     const left = [...(v.unplaced?.length ? v.unplaced : names)];
     for (const n of placed) left.splice(left.indexOf(n), 1);
-    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}) }];
+    v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}) }];
     v.unplaced = left;
     reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

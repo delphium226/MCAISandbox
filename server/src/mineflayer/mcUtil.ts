@@ -579,8 +579,9 @@ export function onVillageGround(a: BotAgent, x: number, z: number, y?: number): 
   const level = (g: number) => y === undefined || (y >= g - 3 && y <= g + 12);
   for (const v of a.world.villages.villages.values()) {
     if (v.plots.some((p) => overlaps(cell, p) && level(p.y + 1)) || v.structures.some((s) => overlaps(cell, s, 2) && level(s.y + 1))) return true;
-    // A laid-out plot not yet prepared has no level: any height counts
-    if ((v.layouts ?? []).some((l) => overlaps(cell, l) && !v.plots.some((p) => overlaps(p, l) && !level(p.y + 1)))) return true;
+    // A laid-out plot not yet prepared has no level: any height counts (and while it is prepared in parts, S.6: its level
+    // is known, but a table put down on a hill still to be cut would be kept as built there)
+    if ((v.layouts ?? []).some((l) => overlaps(cell, l) && !v.plots.some((p) => overlaps(p, l) && !p.parts && !level(p.y + 1)))) return true;
   }
   return false;
 }

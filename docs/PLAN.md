@@ -1162,6 +1162,8 @@ A.0's budget guards against a runaway loop.
 
 ## Roadmap for Phases A, S and E (Claude's, 10-10, the user away)
 
+**Revised 10-11 (the user's direction):** after S.6, no more agent-count comparisons (the paired Van12/Van3 runs and the "12 must beat 3" pass rules end with S.6). Work goes to the stated goals: 25 agents doing many different activities in parallel (E.0, E.1, then the task families S.9-S.16), agents that choose (A.2 on), and Sid-style emergence (E.2-E.7, then E.8-E.10). Each step is tested by whether it works at 25 agents and does what it is for, with short purposeful runs. S.7 and S.8 stay as needed infrastructure (model-driven agents at scale, a village big enough for them), without their timing targets.
+
 The user's goals (10-10): agents that choose and pursue their own goals (Phase A); 25 agents doing many different
 activities in parallel, with more kinds of work (Phase S, first at 12); and Project Sid-style emergence through the brain
 and communication architecture (Phase E). The measured starting point: 12 agents finish the village no faster than 3
@@ -1307,7 +1309,7 @@ Rules for every step:
     - `render_design.py` on the built hut;
     - prediction about 4.1.
 
-- [ ] S.6 **The huts' ground first** (~1-1.5 sessions; the riskiest step, so it comes last in the chain work).
+- [x] S.6 **The huts' ground first**: done 10-11 (s26). Staged **Van12j 3.1 min** (S.5's 4.2): the plot split into the huts' two parts and four more (`[parts] ... huts 2 (276, 299), rest 4 (300, 300, 204, 221) for 11 workers`), one level y=65, `layout 1 complete: 6 parts, seams 448 columns, 0 bad`, 0 `[lag]`, 0 `[stuck]`; Van3h (small village, 4 parts) builds fine in 5.1. One failure: the lamps claimed at 2.0 before their fences and torches were in storage (retried; S.4's lamp gate should also wait for the parts' torches: backlog). **Phase S's chain work ends here: 12 agents 6.2 -> 3.1 min.** `scripts/checks/huts_box.mts` checks the split offline (182 layouts). The plan was: **The huts' ground first** (~1-1.5 sessions; the riskiest step, so it comes last in the chain work).
   - First task: "Prepare the huts' ground". It covers both huts' footprints and claim rings, a street corridor between them, and corridors from each hut to the nearest edge of the layout (F154).
     - Once any part is recorded, `protectedGround` makes the whole layout no-dig (`botAgent.ts:185-205`), so gatherers leaving the huts must not have to cross unprepared forest to get out.
     - Its level is the mode over the whole layout, written on the layout record.
@@ -2450,6 +2452,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s26) | **Van12f, Van12g, Van3e** | S.2 (branch helpers, claim gate, per-miner counters), the S.0 command | 6/6 each | **6.1, 6.1; 5.8 min** | mine 82/81 cells/min (44 with 3), cobblestone tasks median 0.9 min, 0 busy hand-backs; 34-36% busy (12 agents) |
 | 10-11 (s26) | **Van12h, Van3f** | S.3 (glass once) and S.4 (lamps early, a sign per building), the S.0 command | 6/6 each | **4.8; 5.4 min** | 12 agents ahead of 3 for the first time; 16 panes made into storage at 4.4 (Van3f 4.1); 1 failed (the stairs digger's pickaxe at 1.6); 37% busy (12 agents) |
 | 10-11 (s26) | **Van12i, Van3g** | S.5 (stations before the storage hut), the S.0 command | 6/6 each | **4.2; 5.6 min** | table 1.0 / furnace 2.1 in the hut cells, sweep clean, 0 failed; panes in storage 2.7 |
+| 10-11 (s26) | **Van12j, Van3h** | S.6 (the huts' ground first, the plot in parts), the S.0 command | 6/6 each | **3.1; 5.1 min** | 6 parts, seams 0 bad, 0 lag/stuck; 1 failed (lamps before their materials, retried) |
 
 ## Findings log
 
@@ -3820,6 +3823,9 @@ CLAUDE.md when a phase ends.
   a branch on that side is open; the mine answers busy, not "nothing left", while any branch at a dug junction is open; and
   the Mayor's board status names a task held back by the gate or a cooldown instead of "waits for a design". The MINE rate
   baseline comes from the runs' own line (S.1's Van12d/e, 50/51), not Van12a's hand estimate.
+- 10-11 (s26) The user's direction: after S.6, focus on the stated goals (25 agents in many parallel activities, agents
+  that choose, Sid-style emergence) and stop measuring which number of agents is optimal. The roadmap's revision note
+  says what changes.
 
 ## Keeping this plan honest
 

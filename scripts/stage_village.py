@@ -47,7 +47,9 @@ collect and the peak of miners, the cobblestone tasks' times from claim to done,
 REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs), and S.5's: STATIONS (when the hut's table and
 furnace stood, placed before the hut; a STATION line as each appears), PANES (when the storage first held the windows'
 panes, set against the first house's claim) and STATIONS SWEEP (any crafting table or furnace within 8 of the layout
-outside the hut's two cells). Workers are left in the world: remove them afterwards (panel or DELETE).
+outside the hut's two cells), and S.6's PREPARE lines (each part of the plot prepared at once: by whom, claimed and done;
+when the huts' ground and the whole plot were done; the plot record and the layout's one level). Workers are left in the
+world: remove them afterwards (panel or DELETE).
 """
 import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -478,7 +480,9 @@ else:
         print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
 r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs"),
                                              "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {}),
-                                             **({"by": "Mayor"} if args.mayor else {})})
+                                             # (how many will work it: S.6 splits the plot into more parts with four or more,
+                                             # and the workers are spawned only after the layout)
+                                             "workers": args.workers, **({"by": "Mayor"} if args.mayor else {})})
 print(r.get("result") or r, flush=True)
 if "error" in r:
     raise SystemExit(1)
@@ -1208,7 +1212,29 @@ print(f"RUN village={args.village} end={int(time.time() * 1000)}", flush=True)
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}){usage_suffix(u)}")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {(t.get('result') or '')[:120]}")
-for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at) + mine_stats.lines(v["tasks"], stamps) + tail_lines(v["tasks"], stamps, t0):
+
+
+def prepare_lines(v):
+    """S.6: each part of the plot prepared at once (or the whole plot's one task): by whom, claimed and done in minutes since
+    the start; when the huts' ground and the whole plot were done; and the plot record (its parts done while not whole,
+    and the layout's one level)."""
+    m = lambda s: f"+{(s - t0) / 60:.1f}" if s else "-"
+    out = []
+    prep = [t for t in v["tasks"] if t["title"].startswith("Prepare ")]
+    for t in prep:
+        out.append(f"PREPARE {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: "
+                   f"claimed {m(stamps.first_claim(t))}, done {m(stamps.end(t))}")
+    huts = [stamps.end(t) for t in prep if re.search(r"huts?'s? ground\)", t["title"])]
+    ends = [stamps.end(t) for t in prep]
+    lay0 = (v.get("layouts") or [{}])[0]
+    rec = next((q for q in v.get("plots") or [] if not q.get("annex")), None)
+    state = "none" if not rec else f"{rec['id']} y={rec['y']}, " + (f"parts {len(rec['parts'])} of {len(lay0.get('parts') or [])} done" if rec.get("parts") is not None else "whole")
+    out.append(f"PREPARE {len(prep)} task{'s' if len(prep) != 1 else ''}: huts' ground done {m(max(huts)) if huts and all(huts) else '-'}, "
+               f"whole plot done {m(max(ends)) if ends and all(ends) else '-'}; record {state}; level {lay0.get('y', '-')}")
+    return out
+
+
+for line in clock.lines() + prepare_lines(v) + critical_path_lines(v["tasks"], stamps, t0, complete_at) + mine_stats.lines(v["tasks"], stamps) + tail_lines(v["tasks"], stamps, t0):
     print(line)
 # (S.4: the Mayor's share of the tail, beside its gathering)
 mayor_done = [t for t in v["tasks"] if t["status"] == "done" and t.get("claimedBy") == "Mayor" and TAIL_CALL.match(t["detail"])]

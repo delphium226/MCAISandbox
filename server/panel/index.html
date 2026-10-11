@@ -467,7 +467,7 @@ function renderVillage(v) {
       const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       return `<li><b>chest ${i + 1}</b>${c.group ? ` (${esc(c.group)})` : ''}: ${e.length ? e.map(([nm, q]) => `${q} ${esc(nm)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
     }).join('')}</ul>` : '<div class="empty">no chest yet</div>';
-  else if (tab === 'plots') body = list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}</span>`);
+  else if (tab === 'plots') body = list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}${p.parts ? ` (${p.parts.length} parts prepared so far)` : ''}</span>`);
   else if (tab === 'designs') body = list(designs, (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''));
   else if (tab === 'ground') body = list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`);
   else if (tab === 'log') body = list((v.log || []).slice(-25).reverse(), (l) => `<span class="clamp" title="${esc(l)}">${esc(l)}</span>`);

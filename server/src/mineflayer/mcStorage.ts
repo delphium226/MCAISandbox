@@ -12,7 +12,7 @@
  */
 import { Vec3 } from 'vec3';
 import type { Village, StorageChest } from '../village';
-import { overlaps, storageText } from '../village';
+import { overlaps, preparedAt, storageText } from '../village';
 import { STORAGE_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
@@ -96,7 +96,8 @@ export function hutY(v: Village): number | null {
   if (built) return built.y + 1;
   const placed = (v.storage?.chests ?? []).find((c) => h.spots.some((s) => s.x === c.x && s.z === c.z));
   if (placed) return placed.y;
-  const plot = v.plots.find((p) => p.x1 <= h.x1 && p.x2 >= h.x2 && p.z1 <= h.z1 && p.z2 >= h.z2);
+  // (on a plot prepared in parts, once the hut's own part is done, S.6)
+  const plot = preparedAt(v, h);
   return plot ? plot.y + 1 : null;
 }
 

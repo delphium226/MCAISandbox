@@ -81,7 +81,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       w.villages.note(v, `design "${design.name}" added through the API`);
       return sendJson(res, 200, { ok: true, name: design.name, fixes });
     }
-    // Lay buildings out and post their tasks, as the mayor's plan_layout does (tests): {buildings, x, y, z, size?, wood?, economy?}
+    // Lay buildings out and post their tasks, as the mayor's plan_layout does (tests): {buildings, x, y, z, size?, wood?, economy?,
+    // workers?} (workers: how many will work it, S.6's parts; the stage script lays out before it spawns them)
     if (v && parts[3] === 'layout' && req.method === 'POST') {
       const b = await readJson(req);
       const site = { x: Math.floor(Number(b.x)), y: Math.floor(Number(b.y ?? 64)), z: Math.floor(Number(b.z)), size: b.size !== undefined ? Number(b.size) : undefined, wood: typeof b.wood === 'string' && b.wood ? b.wood : undefined, woodLogs: Number(b.woodLogs) || undefined, biome: typeof b.biome === 'string' && b.biome ? b.biome : undefined };
@@ -89,7 +90,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       // (plan "street": a vanilla town centre and streets, V2.3, the site's biome picking the centre; "rows" clears it)
       if (b.plan === 'street') v.plan = 'street';
       else if (b.plan === 'rows') delete v.plan;
-      const result = postLayout(w, v, String(b.by ?? 'api'), site, b.buildings, b.economy !== false);
+      const result = postLayout(w, v, String(b.by ?? 'api'), site, b.buildings, b.economy !== false, typeof b.workers === 'number' ? b.workers : undefined);
       return sendJson(res, result.startsWith('plan_layout:') ? 400 : 200, { result, tasks: v.tasks });
     }
     // Set a task's status (tests skipping a stage): {status: "done" | "open" | "failed" | "claimed", by?}

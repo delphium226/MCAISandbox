@@ -9,6 +9,7 @@ import { Vec3 } from 'vec3';
 import type { ActionStatus, AgentBrain, AgentEvent, MapView, Observation, WorldAgent } from '../world';
 import { makeMapView } from '../world';
 import type { Village } from '../village';
+import { preparedAt } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
@@ -188,12 +189,18 @@ export class BotAgent implements WorldAgent {
     const p = this.bot.entity?.position;
     const boxes: Array<{ x1: number; z1: number; x2: number; z2: number; y: number; y2?: number }> = [];
     for (const v of this.world.villages.villages.values()) {
-      const level = (a: { x1: number; z1: number; x2: number; z2: number }) => v.plots.find((q) => q.x1 <= a.x2 && q.x2 >= a.x1 && q.z1 <= a.z2 && q.z2 >= a.z1)?.y;
-      for (const q of v.plots) boxes.push({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2, y: q.y - 4 });
-      // A laid-out plot at the level of the prepared plot over it (before it is prepared its level is not known)
+      const over = (a: { x1: number; z1: number; x2: number; z2: number }) => v.plots.find((q) => q.x1 <= a.x2 && q.x2 >= a.x1 && q.z1 <= a.z2 && q.z2 >= a.z1);
+      for (const q of v.plots) {
+        // (a plot prepared in parts, S.6: only the parts done, each with the margin on the plot's edge; walks may dig the
+        // rest, which is levelled anyway: a whole layout closed to digging stalled walks through unprepared woods, F154)
+        if (q.parts) for (const r of q.parts) boxes.push({ x1: r.x1 - (r.x1 === q.x1 ? 2 : 0), z1: r.z1 - (r.z1 === q.z1 ? 2 : 0), x2: r.x2 + (r.x2 === q.x2 ? 2 : 0), z2: r.z2 + (r.z2 === q.z2 ? 2 : 0), y: q.y - 4 });
+        else boxes.push({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2, y: q.y - 4 });
+      }
+      // A laid-out plot at the level of the prepared plot over it (before it is prepared its level is not known; while it
+      // is prepared in parts, its parts above)
       for (const l of v.layouts ?? []) {
-        const y = level(l);
-        if (y !== undefined) boxes.push({ x1: l.x1 - 2, z1: l.z1 - 2, x2: l.x2 + 2, z2: l.z2 + 2, y: y - 4 });
+        const q = over(l);
+        if (q && !q.parts) boxes.push({ x1: l.x1 - 2, z1: l.z1 - 2, x2: l.x2 + 2, z2: l.z2 + 2, y: q.y - 4 });
       }
       for (const s of v.structures) boxes.push({ x1: s.x1 - 1, z1: s.z1 - 1, x2: s.x2 + 1, z2: s.z2 + 1, y: s.y - 1 });
       // The mine, from its tunnel floor up: no shafts dug down into it from the surface, nor up out of it (V.5)
@@ -218,7 +225,8 @@ export class BotAgent implements WorldAgent {
     for (const v of this.world.villages.villages.values())
       for (const l of v.layouts ?? []) {
         const f = l.farm;
-        const y = f && v.plots.find((q) => q.x1 <= f.x2 && q.x2 >= f.x1 && q.z1 <= f.z2 && q.z2 >= f.z1)?.y;
+        // (once its ground is prepared: on a plot prepared in parts, its parts, S.6)
+        const y = f && preparedAt(v, f)?.y;
         if (f && y !== undefined && (!p || Math.max(f.x1 - p.x, p.x - f.x2, f.z1 - p.z, p.z - f.z2) < 160)) boxes.push({ x1: f.x1, z1: f.z1, x2: f.x2, z2: f.z2, y });
         // (and each farm slot once it holds a kind: opportunistic farming, 10-08)
         for (const q of l.slots ?? []) {

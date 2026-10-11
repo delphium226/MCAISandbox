@@ -5,7 +5,7 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
+import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
 import { STORAGE_HUT } from '../huts';
 import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
@@ -679,6 +679,14 @@ export class MineflayerWorld implements WorldAdapter {
     return [...this.agents.values()];
   }
 
+  /** prepare_site takes a layout's part (S.6). */
+  readonly preparesParts = true;
+
+  /** The village's workers in the world now (not its mayor): plan_layout splits the plot into more parts for four or more. */
+  memberCount(v: Village): number {
+    return [...this.agents.values()].filter((a) => a.village() === v && a.memory.villageRole !== 'mayor').length;
+  }
+
   async spawn(rawName: string, o: SpawnOptions = {}): Promise<BotAgent> {
     const name = rawName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16);
     if (!name) throw new Error('invalid name');
@@ -808,7 +816,8 @@ export class MineflayerWorld implements WorldAdapter {
         if (farm.lastHarvest && !farm.lastHarvest.ok && now - farm.lastHarvest.at < (farm.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) continue;
         // Not while the planting is still to finish (it may be back on the board for seeds)
         if (v.tasks.some((t) => t.detail.startsWith(`tend_farm layout=${k} `) && (t.status === 'open' || t.status === 'claimed'))) continue;
-        const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+        // (its ground prepared: a plot prepared in parts covers it only once its parts are done, S.6)
+        const plot = preparedAt(v, farm);
         if (!plot) continue;
         let grown = 0, ripe = 0, unloaded = false;
         for (const [x, z] of farm.sow) {

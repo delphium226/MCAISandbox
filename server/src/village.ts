@@ -21,6 +21,31 @@ export interface Plot extends Area {
   preparedBy: string;
   /** The annex prepared beside the village after completion for its pens (10-09): not a plot to build on. */
   annex?: boolean;
+  /**
+   * A layout prepared in parts by several agents at once (S.6): the record is the whole layout at its one level from the
+   * first part done, and this lists the parts done so far; deleted once every part is.
+   */
+  parts?: Area[];
+}
+
+/** A part of a layout's plot prepared by one agent (S.6), with its margins [north, south, west, east]: 2 on the plot's edge, 0 inside. */
+export type PlotPart = Area & { m: [number, number, number, number] };
+/** A part's claim: its rectangle and its margins (the parts' claims tile the plot and its 2-block margin). */
+export const partClaim = (p: PlotPart): Area => ({ x1: p.x1 - p.m[2], z1: p.z1 - p.m[0], x2: p.x2 + p.m[3], z2: p.z2 + p.m[1] });
+
+/**
+ * The prepared plot under all of `area`: with a plot prepared in parts (S.6), only once the parts holding every cell of it
+ * are done (the lamps, the farm and the hut's stations read their level from it).
+ */
+export function preparedAt(v: Village, area: Area): Plot | undefined {
+  const inside = (p: Area, x: number, z: number) => x >= p.x1 && x <= p.x2 && z >= p.z1 && z <= p.z2;
+  return v.plots.find((p) => {
+    if (area.x1 < p.x1 || area.x2 > p.x2 || area.z1 < p.z1 || area.z2 > p.z2) return false;
+    if (!p.parts) return true;
+    for (let x = area.x1; x <= area.x2; x++)
+      for (let z = area.z1; z <= area.z2; z++) if (!p.parts.some((q) => inside(q, x, z))) return false;
+    return true;
+  });
 }
 export interface Structure extends Area {
   id: string;
@@ -370,6 +395,9 @@ export interface Village {
   /** (signs: each building's name sign, each `up` once put_up_signs checked it on the server, S.4; `signed` once all are,
    * as before; not structures either) */
   layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area; lamps?: Array<{ x: number; z: number }>; lit?: boolean; signs?: SignSpot[]; signed?: boolean;
+    /** The plot prepared in parts (S.6): each part's rectangle and margins (prepare_site layout=N part=K, K from 1), and the
+     *  one level for all of them, written by the first part to work it out; `seamsBad` while the last seam check failed. */
+    parts?: PlotPart[]; y?: number; seamsBad?: boolean;
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
     farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
       /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */
@@ -538,9 +566,15 @@ export class VillageRegistry {
     const isLog = (item: string) => item === 'logs' || /_log$/.test(item);
     const stock = (item: string) => chests.reduce((s, c) => s + Object.entries(c.items)
       .filter(([n]) => (item === 'logs' ? /_log$/.test(n) : n === item)).reduce((t, [, q]) => t + q, 0), 0);
+    // A gather task still waiting for part of the plot to be prepared (S.6: the houses' logs, behind the rest of the plot,
+    // whose felled trees will cover them) is neither counted nor judged until that part is done: the huts' log tasks are
+    // judged on the huts' ground's logs alone, ahead of the houses' (the houses' are judged with every building still
+    // unbuilt once they can be claimed, so nothing the huts count on is promised twice, lesson 96)
+    const preparing = new Set(v.tasks.filter((t) => /^Prepare /.test(t.title) && t.status !== 'done').map((t) => t.id));
     const gather = (t: Task) => {
       const m = /^collect block=(\S+) count=(\d+), then deposit/.exec(t.detail);
       const label = / for (.+?)( \(\d+\/\d+\))?$/.exec(t.title)?.[1];
+      if (preparing.size && t.after.some((id) => preparing.has(id))) return null;
       return m && label ? { item: m[1], n: Number(m[2]), label } : null;
     };
     const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
@@ -899,7 +933,9 @@ export class VillageRegistry {
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     // (not the annex: it is for the pens, 10-09)
     const plots = v.plots.filter((p) => !p.annex);
-    if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}`));
+    // (a plot prepared in parts, S.6: how many are done; lessons 32 and 57)
+    const partsOf = (p: Plot) => (v.layouts ?? []).find((l) => l.x1 === p.x1 && l.z1 === p.z1 && l.x2 === p.x2 && l.z2 === p.z2)?.parts?.length;
+    if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}${p.parts ? ` (parts ${p.parts.length} of ${partsOf(p) ?? '?'} prepared)` : ''}`));
     const built = compact ? v.structures.filter((s) => s.kind !== 'storage') : v.structures;
     if (built.length) lines.push('Buildings (do not overlap them):', ...built.map((s) => `- ${s.kind} at ${areaText(s)}${compact ? '' : ` by ${s.builtBy}`}`));
     if (v.unplaced?.length) lines.push(`Not laid out yet (no room on the first site; they need a second site, then plan_layout): ${v.unplaced.join(', ')}`);
