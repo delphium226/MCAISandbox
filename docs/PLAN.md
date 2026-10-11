@@ -20,16 +20,20 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
-(written 2026-10-10 during the twenty-sixth session, before any code; to be rewritten at its close)
+(written 2026-10-11 during the twenty-sixth session, paused for the user's lunch; to be rewritten at its close)
 
-- **Decided:** gpt-oss:120b-cloud for every role from now on (the decisions log, 10-10 s26). **Proposed:** Phase A, agents
-  that choose (below Phase D's section), from a literature review in `runs/2026-10-10/s26/reports/` (gitignored).
-- **Code:** A.0 done and tested, **uncommitted** (modelUsage.ts, tieredBrain.ts, the panel, benches, scripts, docs).
-- **Stack:** the test world is running (minevale3 holds Minevale37's village and the probe's felled trees: reset before
-  use); the local model servers are stopped; no agents in the world.
-- **Next:** the roadmap's step 1: S.0 with A.1 (measure). A.0 is committed (`fd5f80f`, not pushed); A.0b done (12 bots,
-  no stalls); Phases S and E written (the user's goals: 25 agents, more kinds of work, Sid-style emergence).
-  The local model servers are stopped (the user's choice); Worker5-10 are whitelisted on the test server only.
+- **Committed (local, not pushed):** `fd5f80f` A.0, `d2a6b4c` Phases S and E planned, `85ddef1` S.0/A.1, `99a9195` S.1,
+  `cad847f` S.2, `8fe8c8b` S.3+S.4, `28223ac` S.5, `3b69e17` S.6. 12 agents build the staged village in 3.1 min (6.2 at S.0).
+- **In progress (uncommitted, partial):** E.0 (scale safety) from `runs/2026-10-10/s26/spec_e0.md`: the implementing agent
+  was stopped at its self-review when the user shut the machine down. Its edits are in the working tree, untested
+  (`git diff`; `git stash` to set aside). Next: re-run the implementation to finish and self-review, typecheck, a staged
+  check, commit. E.1's spec is ready (`spec_e1.md`). The memory investigation (goal G2) waits for the user.
+- **The user's direction (10-11):** after S.6, the stated goals only (25 agents in many parallel activities, agents that
+  choose, Sid-style emergence); no agent-count comparisons (the roadmap's revision note).
+- **Next:** E.0 test and commit, E.1, a 25-bot probe, a staged 25-agent village, then A.2 and the task families.
+- **Stack:** everything stopped for a shutdown (test Paper saved by RCON stop, its agent server killed); Worker5-11 are whitelisted on it; the local
+  model servers are stopped. Detached runs need a background watcher (`until grep -q "ALL DONE" log`) or nothing
+  wakes the session (it idled twice this session).
 
 (written 2026-10-10 at the close of the twenty-fifth session: F205, F209, Minevale36 and the control panel's redesign;
 the notes below for the twenty-fourth session stay valid where not overridden)
@@ -1161,6 +1165,8 @@ come to ~0.3M input and ~35k output tokens an hour, about $0.06; the monthly $60
 A.0's budget guards against a runaway loop.
 
 ## Roadmap for Phases A, S and E (Claude's, 10-10, the user away)
+
+**Goals added 10-11 (the user's):** (G1) once 25 agents act autonomously, they **propose improvements to the game**; a Claude Code session picks the proposals up, decides whether each is feasible, and rejects it (with a reason the agents get back) or accepts it and implements it through the usual design, review and test steps. (G2) **Long-horizon memory**: investigate the best mechanism for agents to remember across hours and days and implement it (it takes over and extends A.4 and E.2's journal, lessons and clock; the literature review's memory notes are the starting point, now with gpt-oss for every role instead of the small local models those notes assumed). Both get their own steps once designed.
 
 **Revised 10-11 (the user's direction):** after S.6, no more agent-count comparisons (the paired Van12/Van3 runs and the "12 must beat 3" pass rules end with S.6). Work goes to the stated goals: 25 agents doing many different activities in parallel (E.0, E.1, then the task families S.9-S.16), agents that choose (A.2 on), and Sid-style emergence (E.2-E.7, then E.8-E.10). Each step is tested by whether it works at 25 agents and does what it is for, with short purposeful runs. S.7 and S.8 stay as needed infrastructure (model-driven agents at scale, a village big enough for them), without their timing targets.
 
@@ -3826,6 +3832,9 @@ CLAUDE.md when a phase ends.
 - 10-11 (s26) The user's direction: after S.6, focus on the stated goals (25 agents in many parallel activities, agents
   that choose, Sid-style emergence) and stop measuring which number of agents is optimal. The roadmap's revision note
   says what changes.
+- 10-11 (s26) The user added two goals: agents propose improvements to the game, which Claude triages (rejects with a
+  reason, or accepts and implements), and long-horizon memory for agents, the best mechanism to be investigated and
+  implemented (the roadmap's goals note).
 
 ## Keeping this plan honest
 
