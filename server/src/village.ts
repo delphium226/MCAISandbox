@@ -1,7 +1,8 @@
 /**
  * Shared village state for agents building together: prepared plots, finished structures, a library of building
  * designs, a task board, and short-lived reservations that stop two agents from working the same ground.
- * Everything is saved to <world>/villages.json on every change (changes are rare), so it survives restarts.
+ * Everything is saved to <world>/villages.json shortly after every change (E.0: written at most every 250 ms to 1 s, to a
+ * temporary file renamed over it; flushSync() at shutdown), so it survives restarts.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -303,6 +304,19 @@ export const MINE_BUSY = /the mine is busy/;
 /** How long a worker that handed a mine task back as busy takes no other (unless a face comes free first). */
 export const MINE_COOL_MS = 60000;
 /**
+ * The codes skills give failures that are other agents' work in the way (E.0; `action_failed` data.code, with
+ * data.resource): 'busy' (the mine, "mine:<village>"; a farm or annex slot, "slot:<key>"), 'reserved' (ground another
+ * agent has reserved, "ground:x1,z1") and 'taken' (what is left of a material held by other gatherers, "block:<name>").
+ * Brains hand the task back on them, with no failure, loop-guard entry or give-up counted.
+ */
+export type ContentionCode = 'busy' | 'reserved' | 'taken';
+export function contentionOf(e: { type: string; data?: Record<string, unknown> }): { code: ContentionCode; resource: string } | null {
+  const code = e.type === 'action_failed' ? e.data?.code : undefined;
+  return code === 'busy' || code === 'reserved' || code === 'taken' ? { code, resource: String(e.data?.resource ?? '') } : null;
+}
+/** How long a task handed back because its ground was reserved by another agent stays off the board (a reservation lasts minutes). */
+export const RESERVED_COOL_MS = 60000;
+/**
  * A farm slot (opportunistic farming, 10-08): a 5x7 field like the wheat's (a channel down the middle), free until a farm
  * of a kind is started on it (`laying` while that runs). `cells`: what grows there (crops, cane, stems); `fruit`: where a
  * stem's pumpkin or melon can grow; `from`: the sighting its first plants came from. `tries` and `lastTry`: failed starts
@@ -452,15 +466,51 @@ export function villageHome(v: Village | undefined, memory?: Record<string, unkn
 }
 
 const RESERVATION_MS = 3 * 60 * 1000;
+/** Reservations a compact summary lists one by one; more are counted by agent (E.0). */
+const RESERVATIONS_LISTED = 6;
 
 export const overlaps = (a: Area, b: Area, margin = 0) =>
   a.x1 - margin <= b.x2 && a.x2 + margin >= b.x1 && a.z1 - margin <= b.z2 && a.z2 + margin >= b.z1;
 export const areaText = (a: Area) => `x ${a.x1}..${a.x2}, z ${a.z1}..${a.z2}`;
 
+/** Saving (E.0): written this long after the last change, and no later than SAVE_MAX_MS after the first unsaved one. */
+const SAVE_QUIET_MS = 250, SAVE_MAX_MS = 1000;
+/** Errors of a rename over a file another process holds open for a moment (Windows readers: check scripts, antivirus). */
+const SAVE_RETRY = new Set(['EPERM', 'EBUSY', 'EACCES']);
+/**
+ * How often a village's board is refreshed with nothing written (what gatherers carry changes unsaved): refreshNeeds keeps
+ * its own 3 s, so it runs every 3-4 s as when idle workers polled the board.
+ */
+const BOARD_REFRESH_MS = 1000;
+/**
+ * An idle agent looks for a task when the board's version has moved since it last looked, else at most this often (E.0:
+ * cooldowns ending, the mine's faces and the budget change with no write; it looked 20 times a second before).
+ */
+export const CLAIM_LOOK_MS = 1000;
+
 export class VillageRegistry {
   villages = new Map<string, Village>();
   private nextId = 1;
-  /** Set by a world that computes what a village still needs (real Minecraft); run before claims and summaries. */
+  /**
+   * Bumped by every save() (note() saves too): every task, storage-record, needs and reservation change goes through one
+   * of them (E.0). Idle agents look for a task again only when it moves (or after a short while: cooldowns and the mine's
+   * faces change with time, not by a write).
+   */
+  private ver = 0;
+  get version(): number {
+    return this.ver;
+  }
+  /** The version each village's board was last refreshed at (refreshBoard), and when. */
+  private refreshedAt = new Map<string, number>();
+  private refreshedTime = new Map<string, number>();
+  /** Saving: since when changes are unsaved (0: none), the pending write, a write under way, and the snapshots' order. */
+  private dirtySince = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private writing = false;
+  /** Snapshots are numbered as taken (gen); `committed` is the newest renamed into place, so an older one never replaces it. */
+  private gen = 0;
+  private committed = 0;
+  /** Set by a world that computes what a village still needs (real Minecraft); run by refreshBoard. */
   refreshNeeds?: (v: Village) => void;
   /** Set by a world that keeps state per claim (real Minecraft, S.1: the pickaxe supply's start, a build's drawn stock). */
   onClaim?: (v: Village, t: Task) => void;
@@ -489,8 +539,102 @@ export class VillageRegistry {
     return new VillageRegistry(path.join(dir, 'villages.json'));
   }
 
+  /**
+   * Mark a change (E.0): the file is written SAVE_QUIET_MS after the last change and at most SAVE_MAX_MS after the first,
+   * one write at a time (a change during a write is written after it). Was a 2.2 MB synchronous write on every claim, note
+   * and reservation. A kill loses at most the last second of changes; a clean stop calls flushSync().
+   */
   save() {
-    fs.writeFileSync(this.file, JSON.stringify({ nextId: this.nextId, villages: [...this.villages.values()] }, null, 1));
+    this.ver++;
+    if (!this.dirtySince) this.dirtySince = Date.now();
+    if (!this.writing) this.arm();
+  }
+
+  private arm() {
+    if (this.timer) clearTimeout(this.timer);
+    const now = Date.now();
+    this.timer = setTimeout(() => void this.writeNow(), Math.max(0, Math.min(now + SAVE_QUIET_MS, this.dirtySince + SAVE_MAX_MS) - now));
+  }
+
+  private serialise(): string {
+    return JSON.stringify({ nextId: this.nextId, villages: [...this.villages.values()] }, null, 1);
+  }
+
+  /** Write a snapshot to its own temporary file, then rename it over the file (a reader never sees half a file). */
+  private async writeNow() {
+    this.timer = null;
+    if (!this.dirtySince) return;
+    this.dirtySince = 0;
+    this.writing = true;
+    const gen = ++this.gen;
+    const data = this.serialise();
+    const tmp = `${this.file}.tmp-${process.pid}-${gen}`;
+    try {
+      await fs.promises.writeFile(tmp, data);
+      for (let i = 0; ; i++) {
+        // (flushSync wrote a newer snapshot meanwhile)
+        if (gen <= this.committed) {
+          await fs.promises.rm(tmp, { force: true });
+          break;
+        }
+        // (renamed on this thread, so it cannot cross flushSync's rename)
+        const err = this.rename(tmp, data, i >= 4);
+        if (!err) {
+          this.committed = gen;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50 * 2 ** i));
+      }
+    } catch (e) {
+      console.error(`[villages] saving ${this.file} failed: ${(e as Error).message}; trying again`);
+      // (each retry writes a new temporary file: never leave one behind)
+      await fs.promises.rm(tmp, { force: true }).catch(() => {});
+      this.dirtySince ||= Date.now();
+    } finally {
+      this.writing = false;
+      if (this.dirtySince) this.arm();
+    }
+  }
+
+  /**
+   * Rename `tmp` over the file; true when a reader held it (try again). `last`: write the file in place instead, and give up
+   * the temporary file. Other errors throw.
+   */
+  private rename(tmp: string, data: string, last: boolean): boolean {
+    try {
+      fs.renameSync(tmp, this.file);
+      return false;
+    } catch (e) {
+      if (!SAVE_RETRY.has((e as NodeJS.ErrnoException).code ?? '')) throw e;
+      if (!last) return true;
+      fs.writeFileSync(this.file, data);
+      fs.rmSync(tmp, { force: true });
+      console.log(`[villages] ${this.file} was held open by another process: written in place`);
+      return false;
+    }
+  }
+
+  /** Write any change now, synchronously (shutdown, the flush endpoint): also what a write under way was about to write. */
+  flushSync() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (!this.dirtySince && !this.writing) return;
+    this.dirtySince = 0;
+    const gen = ++this.gen;
+    const data = this.serialise();
+    const tmp = `${this.file}.tmp-${process.pid}-${gen}`;
+    try {
+      fs.writeFileSync(tmp, data);
+      for (let i = 0; this.rename(tmp, data, i >= 4); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * 2 ** i);
+      this.committed = gen;
+    } catch (e) {
+      console.error(`[villages] flushing ${this.file} failed: ${(e as Error).message}`);
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {}
+      this.dirtySince ||= Date.now();
+      this.arm();
+    }
   }
 
   id(prefix: string) {
@@ -522,12 +666,17 @@ export class VillageRegistry {
    * `ignore` lets structures through (storage chests a storage hut is built around).
    */
   conflict(v: Village, area: Area, by: string, avoidStructures = true, ignore?: (s: Structure) => boolean): string | null {
+    return this.conflictOf(v, area, by, avoidStructures, ignore)?.why ?? null;
+  }
+
+  /** The same, with what is in the way: a building (for good) or another agent's reservation (for a while: contention, E.0). */
+  conflictOf(v: Village, area: Area, by: string, avoidStructures = true, ignore?: (s: Structure) => boolean): { why: string; kind: 'structure' | 'reserved'; area: Area } | null {
     const now = Date.now();
     v.reservations = v.reservations.filter((r) => r.until > now);
     if (avoidStructures)
-      for (const s of v.structures) if (overlaps(area, s) && !ignore?.(s)) return `it overlaps ${s.builtBy}'s ${s.kind} (${areaText(s)})`;
+      for (const s of v.structures) if (overlaps(area, s) && !ignore?.(s)) return { why: `it overlaps ${s.builtBy}'s ${s.kind} (${areaText(s)})`, kind: 'structure', area: s };
     for (const r of v.reservations)
-      if (r.by !== by && overlaps(area, r)) return `${r.by} has reserved ${areaText(r)} to ${r.purpose}`;
+      if (r.by !== by && overlaps(area, r)) return { why: `${r.by} has reserved ${areaText(r)} to ${r.purpose}`, kind: 'reserved', area: r };
     return null;
   }
 
@@ -558,9 +707,10 @@ export class VillageRegistry {
    * Whether the storage already covers a gather task ("collect block=X count=N, then deposit"): it holds as much of X as
    * every gather task for the buildings not yet built asks for, done ones included (what they brought is in the storage
    * too). Log tasks are summed together ("logs" from a short build's requeue, "oak_log" from the layout: summed per name,
-   * the same logs passed both, the review of R.2). Built once per call; returns why it is covered, or null.
+   * the same logs passed both, the review of R.2). Built once per call; returns why it is covered, or null. `write`: move
+   * buildings between wood kinds as below (refreshBoard only); without it the kinds are read as they are.
    */
-  private stockCovers(v: Village): (t: Task) => string | null {
+  private stockCovers(v: Village, write = false): (t: Task) => string | null {
     const chests = v.storage?.chests ?? [];
     if (!chests.length) return () => null;
     const isLog = (item: string) => item === 'logs' || /_log$/.test(item);
@@ -648,7 +798,7 @@ export class VillageRegistry {
       // (`held`: the lamps' and signs' logs while held too, for the cover itself; the moves count only open ones, above)
       const total = (k: string, held = false) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? (held ? lampLogs : lampOpen) + windowLogs + stations.logs : 0);
       let changed = false;
-      for (const t of builds) {
+      for (const t of write ? builds : []) {
         const label = t.title.slice(6), k = v.woodFor?.[label];
         // (not while any build is under way: its builder holds what it withdrew, and the pool looks short for a while:
         // VanW4's house 3 went back to birch while house 1's builder held the oak)
@@ -658,7 +808,7 @@ export class VillageRegistry {
           this.note(v, `${label} goes back to ${wood}: the storage no longer holds its logs in ${k}`);
         }
       }
-      for (const t of [...builds].reverse()) {
+      for (const t of write ? [...builds].reverse() : []) {
         if ((pools.get(wood) ?? 0) >= total(wood)) break;
         const label = t.title.slice(6), n = need.get(label)!;
         if (t.status === 'claimed' || kindOf(label) !== wood) continue;
@@ -715,14 +865,42 @@ export class VillageRegistry {
   }
 
   /**
-   * Open tasks whose prerequisites are done (and whose designs have been drawn), and that the world's claim limit lets
-   * through (S.2: the mine's faces); `by`: the worker asking, whose busy cooldown counts too.
+   * Everything the claim check used to do on its way (E.0; claimable() only reads now): the world's needs and their gather
+   * tasks (refreshNeeds), buildings moved between wood kinds and gather tasks the storage covers closed (stockCovers,
+   * coveredByStock), and the board's note of tasks that may start ahead of held gathering. Run by the world's tick
+   * (tickBoard) and by claim(), so a claim is always judged on a fresh board.
    */
-  claimable(v: Village, by?: string): Task[] {
+  refreshBoard(v: Village) {
     this.refreshNeeds?.(v);
     // (closing covered tasks changes no count: done tasks count in what is wanted, and the storage is untouched)
+    this.coveredByStock(v, this.stockCovers(v, true));
+    // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
+    const ready = new Set(this.claimable(v));
+    for (const t of v.tasks)
+      if (ready.has(t) && !this.aheadNoted.has(t.id) && !t.afterClaimed) {
+        const held = t.after.filter((id) => this.task(v, id)?.status === 'claimed');
+        if (held.length) {
+          this.aheadNoted.add(t.id);
+          this.note(v, `${t.id} "${t.title}" may start: the storage covers what ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} still gathering`);
+        }
+      }
+    this.refreshedAt.set(v.name, this.ver);
+    this.refreshedTime.set(v.name, Date.now());
+  }
+
+  /** refreshBoard for the world's tick: when the board has changed since the last, or BOARD_REFRESH_MS have passed. */
+  tickBoard(v: Village) {
+    if (this.refreshedAt.get(v.name) === this.ver && Date.now() - (this.refreshedTime.get(v.name) ?? 0) < BOARD_REFRESH_MS) return;
+    this.refreshBoard(v);
+  }
+
+  /**
+   * Open tasks whose prerequisites are done (and whose designs have been drawn), and that the world's claim limit lets
+   * through (S.2: the mine's faces); `by`: the worker asking, whose busy cooldown counts too. A pure read (E.0): the
+   * board is kept up to date by refreshBoard.
+   */
+  claimable(v: Village, by?: string): Task[] {
     const covers = this.stockCovers(v);
-    this.coveredByStock(v, covers);
     const finished = (id: string) => {
       const p = this.task(v, id);
       // A gather task still held counts as finished when the storage covers it: Hills1's testhut waited 3.3 min for a
@@ -735,15 +913,6 @@ export class VillageRegistry {
     // (the claim limit last: it is asked only of tasks otherwise ready)
     const ready = v.tasks.filter((t) => t.status === 'open' && !((t.cooldown ?? 0) > now) && t.after.every((id) => finished(id) || (!!t.afterClaimed && begun(id))) && !this.missingDesigns(v, t).length
       && (!this.claimLimit || this.claimLimit(v, t, by, cooled)));
-    // Said once on the board when a task goes ahead of a held gather task (runs showed it only in BOARD lines)
-    for (const t of ready)
-      if (!this.aheadNoted.has(t.id) && !t.afterClaimed) {
-        const held = t.after.filter((id) => this.task(v, id)?.status === 'claimed');
-        if (held.length) {
-          this.aheadNoted.add(t.id);
-          this.note(v, `${t.id} "${t.title}" may start: the storage covers what ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} still gathering`);
-        }
-      }
     // The village's parts, lamps and each built house's sign before gathering (S.4's review: in board order every ready
     // gather task for a later house went first, and the signs waited for the end of the run); builds and other work keep
     // their place ahead (a stable sort: board order within each)
@@ -782,6 +951,8 @@ export class VillageRegistry {
   }
 
   claim(v: Village, id: string, by: string): Task | null {
+    // (on a fresh board: whatever changed since the last refresh is acted on first, as the claim check did before E.0)
+    if (this.refreshedAt.get(v.name) !== this.ver) this.refreshBoard(v);
     const t = this.task(v, id);
     if (!t || !(this.claimable(v, by).includes(t) || (t.status === 'claimed' && t.claimedBy === by))) return null;
     const fresh = t.status !== 'claimed';
@@ -928,7 +1099,7 @@ export class VillageRegistry {
    * executor prompts reached 8,391 tokens with 41 tasks, per-chest storage and the needs and mine lines): the agent's own
    * task in full, at most 10 other open tasks by title, no finished ones, designs by name, no chests as buildings.
    */
-  summary(v: Village, forAgent?: string, compact = false): string {
+  summary(v: Village, forAgent?: string, compact = false, near?: { x: number; z: number }): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     // (not the annex: it is for the pens, 10-09)
@@ -958,7 +1129,7 @@ export class VillageRegistry {
         return `- ${t.id} [${t.status}${who}] ${t.title}${after}${t.status === 'done' ? '' : `: ${t.detail}`}${result}`;
       }));
     }
-    this.refreshNeeds?.(v);
+    // (v.needed as the board's last refresh left it: the world's tick refreshes it every few seconds, E.0)
     if (!v.complete && v.needed && (v.needed.for.length || Object.keys(v.needs ?? {}).length)) {
       const items = Object.entries(v.needed.items).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       lines.push(items.length
@@ -985,7 +1156,15 @@ export class VillageRegistry {
     if (v.log.length) lines.push('Recent village events:', ...v.log.slice(compact ? -3 : -6).map((l) => `- ${l.slice(0, compact ? 160 : 400)}`));
     const now = Date.now();
     const res = v.reservations.filter((r) => r.until > now && r.by !== forAgent);
-    if (res.length) lines.push('Ground others are working on:', ...res.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));
+    // Many at once (E.0, 25 agents), in a worker's compact summary: counted by agent, and the 3 nearest `near` listed (the
+    // mayor's summary keeps every one)
+    if (compact && res.length > RESERVATIONS_LISTED) {
+      const by = new Map<string, number>();
+      for (const r of res) by.set(r.by, (by.get(r.by) ?? 0) + 1);
+      const d = (r: Reservation) => (near ? Math.hypot((r.x1 + r.x2) / 2 - near.x, (r.z1 + r.z2) / 2 - near.z) : 0);
+      const nearest = near ? [...res].sort((x, y) => d(x) - d(y)).slice(0, 3) : res.slice(0, 3);
+      lines.push(`Ground others are working on: ${res.length} areas (${[...by].map(([n, k]) => `${n} ${k}`).join(', ')}); ${near ? 'nearest' : 'first'} 3:`, ...nearest.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));
+    } else if (res.length) lines.push('Ground others are working on:', ...res.map((r) => `- ${r.by}: ${areaText(r)} (${r.purpose})`));
     return lines.join('\n');
   }
 }

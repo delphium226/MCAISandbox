@@ -27,7 +27,7 @@ import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
-import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
+import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
@@ -709,8 +709,11 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
   const reg = a.world.villages;
   let reservation: Reservation | undefined;
   if (job.claim && v) {
-    const why = reg.conflict(v, job.claim.area, a.name, job.claim.avoidStructures, job.claim.ignore);
-    if (why) throw new Error(`cannot work at ${areaText(job.claim.area)}: ${why}; pick another spot (find_site avoids taken ground)`);
+    const c = reg.conflictOf(v, job.claim.area, a.name, job.claim.avoidStructures, job.claim.ignore);
+    const text = c && `cannot work at ${areaText(job.claim.area)}: ${c.why}; pick another spot (find_site avoids taken ground)`;
+    // (ground another agent is working on is contention, E.0, for a while; a building in the way is for good)
+    if (c?.kind === 'reserved') throw new ContentionError(text!, 'reserved', `ground:${c.area.x1},${c.area.z1}`);
+    if (text) throw new Error(text);
     reservation = reg.reserve(v, job.claim.area, a.name, job.claim.purpose);
   }
   const notes: string[] = [];
@@ -2774,7 +2777,7 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
   const kind = str(args.kind, 'kind');
   const spec = SLOT_KINDS[kind];
   if (!spec) throw new Error(`start_farm: no farm kind ${kind} (${SLOT_ORDER.join(', ')})`);
-  if (slotBusy.has(key)) throw new Error(`start_farm: farm slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`start_farm: farm slot ${j} is busy`, 'busy', `slot:${key}`);
   if (slot.kind && !slot.laying) throw new Error(`start_farm: farm slot ${j} already holds ${slot.kind}`);
   slotBusy.add(key);
   const sx = Math.floor(num(args.x, 'x')), sy = Math.floor(num(args.y, 'y')), sz = Math.floor(num(args.z, 'z'));
@@ -2961,7 +2964,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
   const { v, k, j, slot, plot, key } = slotOf(a, args, 'harvest_slot');
   const spec = slot.kind ? SLOT_KINDS[slot.kind] : undefined;
   if (!spec || slot.laying) throw new Error(`harvest_slot: farm slot ${j} holds no farm yet`);
-  if (slotBusy.has(key)) throw new Error(`harvest_slot: farm slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`harvest_slot: farm slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   const y = plot.y + 1;
   const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
@@ -3179,7 +3182,7 @@ const LURE_SEEDS = 8;
 async function startPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { v, k, j, slot, plot, key } = slotOf(a, args, 'start_pen');
   if (!slot.annex) throw new Error(`start_pen: farm slot ${j} is not on the annex`);
-  if (slotBusy.has(key)) throw new Error(`start_pen: farm slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`start_pen: farm slot ${j} is busy`, 'busy', `slot:${key}`);
   const kind = args.kind === undefined ? 'chicken' : str(args.kind, 'kind');
   const spec = PEN_KINDS[kind];
   if (!spec) throw new Error(`start_pen: no pen for ${kind} (${PEN_ORDER.join(', ')})`);
@@ -3505,7 +3508,7 @@ async function depositKept(a: BotAgent, signal: AbortSignal): Promise<void> {
  *  (eggs are junk to `deposit all`); an egg item despawns 5 minutes after it is laid (6000 ticks). */
 async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'collect_eggs', 'chicken');
-  if (slotBusy.has(key)) throw new Error(`collect_eggs: annex slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`collect_eggs: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   try {
     await depositKept(a, signal);
@@ -3546,7 +3549,7 @@ async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: A
 async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { v, j, key, sel, rcon, count, toGate, pen, kind } = penOf(a, args, 'breed_pen');
   const { lure: food, cap } = PEN_KINDS[kind];
-  if (slotBusy.has(key)) throw new Error(`breed_pen: annex slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`breed_pen: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   let refund = 0;
   try {
@@ -3594,7 +3597,7 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
  *  with no cooldown; charged by command: a bucket taken, a milk bucket given), up to the cake's three. */
 async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'milk_cows', 'cow');
-  if (slotBusy.has(key)) throw new Error(`milk_cows: annex slot ${j} is busy`);
+  if (slotBusy.has(key)) throw new ContentionError(`milk_cows: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   let taken = 0;
   try {

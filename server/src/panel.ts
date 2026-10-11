@@ -6,7 +6,8 @@
  *   GET /api/overview   every agent (body, brain state, plan, task, recent events, stats), their villages, token usage
  *   GET /api/models     the models Ollama has loaded (name, VRAM, cloud)
  *   GET /api/maps       a top-down map around every agent (?radius=, default 24)
- *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B)
+ *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B), the spend
+ *                       ledger's month and programme, and the call gate's waits (`gate`)
  *   POST /api/usage/budget  {tokensPerHour: number|null, windowMs?}: set the hourly cloud token budget (tests)
  */
 import fs from 'node:fs';
@@ -15,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WorldAdapter, WorldAgent } from './world';
 import { readJson, sendJson } from './api';
-import { OLLAMA_ROUTES } from './tieredBrain';
+import { OLLAMA_ROUTES, gate } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
 import type { Design } from './village';
@@ -137,7 +138,8 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
   if (url.pathname === '/api/usage') {
     const since = Number(url.searchParams.get('since')) || undefined;
     const agents = url.searchParams.get('agents')?.split(',').map((s) => s.trim()).filter(Boolean);
-    return sendJson(res, 200, usage.report({ since, agents })), true;
+    // (with the call gate's waits per class and its peaks per key since start, E.0)
+    return sendJson(res, 200, { ...usage.report({ since, agents }), gate: gate.stats() }), true;
   }
   return false;
 }

@@ -33,6 +33,7 @@ import type { BuildingStyle } from './buildingGen';
 import { schematicToDesign } from './schematic';
 import { BRAINS } from './brains';
 import { TOOLS } from './skills';
+import { usage } from './modelUsage';
 import type { ActionStatus, AgentBrain, AgentEvent, MapView, Observation, ToolDef, WorldAdapter, WorldAgent } from './world';
 import { makeMapView } from './world';
 
@@ -2080,6 +2081,8 @@ export class AgentManager implements WorldAdapter {
     }
     this.metrics.set(name.toLowerCase(), { role, spawnedTick: this.game.tick, uniqueItems: new Set(), firstObtained: {}, crafted: {}, mined: {}, chatsSent: 0, deaths: 0, kills: {}, distanceTravelled: 0, lastPos: null });
     agent.pushEvent('system', `You are ${name}, a ${role}. You just arrived in the world.`);
+    // (the token budget's limit and shares follow the agent count, E.0)
+    usage.setAgents(this.agents.size, [...this.agents.values()].filter((x) => x.role === 'mayor').map((x) => x.name));
     return agent;
   }
 
@@ -2089,6 +2092,7 @@ export class AgentManager implements WorldAdapter {
     a.stop();
     this.agents.delete(name.toLowerCase());
     this.game.leave(a.player);
+    usage.setAgents(this.agents.size, [...this.agents.values()].filter((x) => x.role === 'mayor').map((x) => x.name));
     return true;
   }
 

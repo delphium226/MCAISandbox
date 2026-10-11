@@ -990,7 +990,10 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
             # (both are an agent at work for the per-agent stall rule too: a miner waits up to a minute for a face, S.2, then
             # hands its task back)
             # (nor material others are taking: the task goes back for later, S.1)
-            if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
+            # (nor a busy resource or material taken, by their contention codes, E.0; ground reserved by another agent still
+            # counts: it is handed back only from a code-posted task)
+            if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]
+                                                 or (e.get("data") or {}).get("code") in ("busy", "taken")):
                 last_ok[n] = time.time()
             elif e["type"] == "action_failed":
                 k = (n, e["text"][:80])
@@ -1256,7 +1259,7 @@ for n in watched:
     rescues = {k: q for k, q in (mem.get("rescues") or {}).items() if k != "last"}
     print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
           f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
-          f"refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
+          f"contention {st.get('contention', 0)}, refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
 for line in usage_lines(u, watched):
     print(line)
 print("STRUCTURES", [(s["kind"], s["x1"], s["x2"], s["z1"], s["z2"], s["builtBy"]) for s in v["structures"]])

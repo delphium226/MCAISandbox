@@ -118,6 +118,8 @@ export class Game {
   stop() {
     if (this.timer) clearTimeout(this.timer);
     this.save();
+    // (the villages' saves are debounced, E.0; a tsx watch restart on Windows still skips this)
+    this.agents?.villages.flushSync();
     this.world.shutdown();
   }
 

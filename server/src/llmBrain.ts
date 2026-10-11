@@ -39,8 +39,9 @@ export class LLMBrain implements AgentBrain {
   private notes: string[] = [];
   private urgent = false;
 
-  onEvent(_a: WorldAgent, e: AgentEvent) {
-    if (e.type === 'chat' || e.type === 'damage' || e.type === 'death') this.urgent = true;
+  onEvent(a: WorldAgent, e: AgentEvent) {
+    // (in a world that routes chat, E.0, only the lines it chose this agent to answer)
+    if ((e.type === 'chat' && (!a.world.routesChat || e.data?.wake === true)) || e.type === 'damage' || e.type === 'death') this.urgent = true;
   }
 
   tick(a: WorldAgent) {

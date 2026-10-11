@@ -4,9 +4,11 @@
  * (tieredBrain.ts, llmBrain.ts) only see WorldAgent and WorldAdapter, so the same agents run in any world.
  *
  * Events a world must emit (brains rely on their data):
- *   chat           data { from, text, distance? }
+ *   chat           data { from, text, distance?, wake? } (wake: from a world that routes chat, routesChat; the line is
+ *                  for this agent to answer)
  *   action_done    data { action, type, args? }
- *   action_failed  data { action, type, args, message }
+ *   action_failed  data { action, type, args, message, code?, resource? } (code and resource: another agent's work in
+ *                  the way, village.ts ContentionCode; brains hand the task back rather than count a failure)
  *   damage, death, pickup, crafted, killed, broke, system: text only is enough
  */
 import type { Design, Village, VillageRegistry } from './village';
@@ -126,6 +128,11 @@ export interface WorldAdapter {
   isAgent(name: string): boolean;
   /** The agents in this world. */
   agentList(): WorldAgent[];
+  /**
+   * Whether the world chooses who hears a chat line and who should answer it (E.0): then only lines in hearing range
+   * arrive, and brains wake only on `wake`. Worlds without it deliver what each agent hears, and brains decide.
+   */
+  readonly routesChat?: boolean;
   /** Whether a design may use this block (design validation). */
   isPlaceable(block: string): boolean;
   /**

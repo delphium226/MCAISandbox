@@ -15,7 +15,7 @@ import { timeScale } from './mcRules';
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, villageHome, type StationName, type Village } from '../village';
 import {
-  abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
+  ContentionError, abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, unmoved, walk, wetAt, wetOver, wetSide,
 } from './mcUtil';
 import { FALLING, TREE_LOG, WILD_GROUND } from './mcBlocks';
@@ -734,13 +734,16 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   if (home?.unavailable?.includes(label.replace(/s$/, '')) || home?.unavailable?.includes(label))
     throw new Error(`no ${label} within 96 blocks of the village (found none before): it cannot be gathered here (a building that needs it goes without, or the task is handed back)`);
   if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
-    const { got, why } = await mineFor(a, home, want, have, signal);
+    const { got, why, busy } = await mineFor(a, home, want, have, signal);
     if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;
     // Not outside while the mine still gives: pits and tunnels around the village were the trouble (F75, F76). What is
     // still short comes at the next collect (the needs list and a short build post it)
     if (mineCanGive(home, label.replace(/s$/, ''))) {
       if (got > 0) return `collected ${got} of ${want} ${label} in the village mine before it stopped (${why}; ${home.mine!.dug} tunnel cells dug); deposit them, the mine goes on where it stopped`;
-      throw new Error(`the village mine gave no ${label} this time (${why}); collect again: the mine goes on where it stopped`);
+      const text = `the village mine gave no ${label} this time (${why}); collect again: the mine goes on where it stopped`;
+      // (every face held by other miners: contention, E.0, not a failure of the task)
+      if (busy) throw new ContentionError(text, 'busy', `mine:${home.name}`);
+      throw new Error(text);
     }
   }
   let mined = 0;
@@ -904,7 +907,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       if (taken) console.log(`[collect] ${a.name}: ${got} of ${want} ${label}; ${taken} left ${where} held by ${[...takers].join(', ')}`);
       // (with some gathered, the task ends softly as before, its count kept for the cover rule; only an empty-handed one
       // goes back on the board)
-      if (taken && !got) throw new Error(`the ${taken} ${label} left ${where} are being taken by other gatherers (${[...takers].join(', ')}): hand the task back and collect again in a few minutes`);
+      if (taken && !got) throw new ContentionError(`the ${taken} ${label} left ${where} are being taken by other gatherers (${[...takers].join(', ')}): hand the task back and collect again in a few minutes`, 'taken', `block:${label}`);
       if (got > 0) throw new Error(`only found ${got} ${label}; none left ${where}${taken ? ` (${taken} more held by other gatherers: ${[...takers].join(', ')})` : ''}${passedOver()}: deposit what you have${base ? '; the rest has to come from farther away' : ', explore 100 blocks or more in one direction, then collect again'}`);
       throw new Error(base
         ? `no ${label} within ${range} blocks of the village${passedOver()}: it cannot be gathered here (a building that needs it goes without, or the task is handed back)${lastError ? ` (last problem: ${lastError})` : ''}`

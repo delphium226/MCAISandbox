@@ -11,7 +11,7 @@ import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
-import type { Vec3 } from 'vec3';
+import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
@@ -20,6 +20,7 @@ import { PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSl
 import { timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceEnd } from './mcChoiceLog';
 import { TieredBrain } from '../tieredBrain';
+import { usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
@@ -62,6 +63,9 @@ type ChoiceState = { id: string; t: number; ended?: boolean; store: Counts; carr
 const PICK_BATCH = 4;
 /** Members from which a village gets the pickaxe supply whatever its workers are doing, and miners keep off the reserve. */
 const SUPPLY_MEMBERS = 5;
+/** How far a chat line is heard (E.0; the chat skill says the same), and the window of the wake caps per pair. */
+const HEAR_RANGE = 48;
+const PAIR_WINDOW_MS = 5 * 60000;
 
 /** What an agent carries as Mineflayer sees it (no server command: measurement only); null if it cannot be read. */
 function heldCounts(a: BotAgent): Counts | null {
@@ -675,6 +679,96 @@ export class MineflayerWorld implements WorldAdapter {
     return this.agents.get(name.toLowerCase());
   }
 
+  /** Chat is routed here (E.0): who hears a line (within HEAR_RANGE of its speaker) and who should answer it. */
+  readonly routesChat = true;
+  /** Lines just routed ("from\0text" to when): every bot hears every line, and it is routed once. */
+  private heardAt = new Map<string, number>();
+  /** Lines waiting to be routed, in order (a human's position may come over RCON). */
+  private chatQueue: Promise<void> = Promise.resolve();
+  /** Wakes by speaker and listener ("from|to") in the last PAIR_WINDOW_MS (the caps). */
+  private pairWakes = new Map<string, number[]>();
+  /** Humans' positions read over RCON (a spectator is not sent to the bots), kept a second. */
+  private humanAt = new Map<string, { at: number; p: Vec3 | null }>();
+
+  /** A chat line one of the bots heard (botAgent): routed once, in the order heard. */
+  hearChat(from: string, text: string) {
+    const now = Date.now(), key = `${from}\u0000${text}`;
+    if (now - (this.heardAt.get(key) ?? 0) < 1000) return;
+    this.heardAt.set(key, now);
+    if (this.heardAt.size > 100) for (const [k, t] of this.heardAt) if (now - t >= 1000) this.heardAt.delete(k);
+    this.chatQueue = this.chatQueue.then(() => this.routeChat(from, text)).catch((e: unknown) => console.error('[chat] routing failed:', e));
+  }
+
+  /** Where a speaker is: an agent's own body, a player any bot sees, else (a spectator) the server's answer; null if unknown. */
+  private async speakerAt(from: string): Promise<Vec3 | null> {
+    const agent = this.get(from);
+    if (agent) return agent.bot.entity?.position ?? null;
+    for (const a of this.agents.values()) {
+      const e = a.bot.players[from]?.entity;
+      if (e) return e.position;
+    }
+    if (!/^[A-Za-z0-9_]{1,16}$/.test(from) || /^(Server|Rcon)$/.test(from)) return null;
+    const c = this.humanAt.get(from);
+    if (c && Date.now() - c.at < 1000) return c.p;
+    let p: Vec3 | null = null;
+    try {
+      const out = await Promise.race([this.rcon.command(`data get entity ${from} Pos`), new Promise<string>((r) => setTimeout(() => r(''), 2000))]);
+      const m = /\[(-?[\d.E-]+)d, (-?[\d.E-]+)d, (-?[\d.E-]+)d\]/.exec(out);
+      if (m) p = new Vec3(Number(m[1]), Number(m[2]), Number(m[3]));
+    } catch {
+      /* unknown: out of range */
+    }
+    this.humanAt.set(from, { at: Date.now(), p });
+    return p;
+  }
+
+  /** A wake from `from` to `to` within the pair's cap (counted when allowed). */
+  private pairWake(from: string, to: string, cap: number): boolean {
+    const now = Date.now(), k = `${from}|${to}`;
+    const times = (this.pairWakes.get(k) ?? []).filter((t) => now - t < PAIR_WINDOW_MS);
+    if (times.length >= cap) {
+      this.pairWakes.set(k, times);
+      return false;
+    }
+    times.push(now);
+    this.pairWakes.set(k, times);
+    return true;
+  }
+
+  /**
+   * Who hears a line and who answers it (E.0, communications rule 2): agents within HEAR_RANGE of the speaker get it (an
+   * unknown position is out of range). A human's line wakes the agents it names (as before, in any case: "mayor, ..."),
+   * up to 3 and wherever they are, else the nearest in range; an agent's line wakes only agents it names, case-sensitively
+   * and in range. Wakes are capped per speaker and listener (agents 2, humans 20 in 5 minutes): past it the line arrives
+   * without one. Server lines (say, no player) reach every agent and wake none.
+   */
+  private async routeChat(from: string, text: string) {
+    const listeners = [...this.agents.values()].filter((a) => a.name.toLowerCase() !== from.toLowerCase());
+    if (!listeners.length) return;
+    const human = !this.isAgent(from);
+    const pos = await this.speakerAt(from);
+    if (human && !pos && (/^(Server|Rcon)$/.test(from) || !/^[A-Za-z0-9_]{1,16}$/.test(from))) {
+      for (const a of listeners) a.pushEvent('chat', `<${from}> ${text}`, { from, text });
+      return;
+    }
+    const dist = new Map<BotAgent, number>();
+    for (const a of listeners) if (pos && a.bot.entity) dist.set(a, pos.distanceTo(a.bot.entity.position));
+    const inRange = (a: BotAgent) => (dist.get(a) ?? Infinity) <= HEAR_RANGE;
+    const named = (a: BotAgent, flags: string) => new RegExp(`\\b${a.name}\\b`, flags).exec(text)?.index ?? -1;
+    let wake: BotAgent[];
+    if (human) {
+      wake = listeners.filter((a) => named(a, 'i') >= 0).sort((x, y) => named(x, 'i') - named(y, 'i')).slice(0, 3);
+      if (!wake.length) wake = listeners.filter(inRange).sort((x, y) => dist.get(x)! - dist.get(y)!).slice(0, 1);
+    } else wake = listeners.filter((a) => inRange(a) && named(a, '') >= 0);
+    wake = wake.filter((a) => this.pairWake(from, a.name, human ? 20 : 2));
+    for (const a of listeners) {
+      const woken = wake.includes(a);
+      if (!woken && !inRange(a)) continue;
+      const d = dist.get(a);
+      a.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(d !== undefined ? { distance: Math.round(d) } : {}), ...(woken ? { wake: true } : {}) });
+    }
+  }
+
   agentList() {
     return [...this.agents.values()];
   }
@@ -738,6 +832,8 @@ export class MineflayerWorld implements WorldAdapter {
       a.brain.init?.(a);
     }
     a.pushEvent('system', `You are ${name}, a ${a.role}. You just arrived in the world.`);
+    // (the token budget's limit and shares follow the agent count, E.0)
+    usage.setAgents(this.agents.size, [...this.agents.values()].filter((x) => x.role === 'mayor').map((x) => x.name));
     return a;
   }
 
@@ -746,11 +842,25 @@ export class MineflayerWorld implements WorldAdapter {
     if (!a) return false;
     this.agents.delete(name.toLowerCase());
     a.quit();
+    usage.setAgents(this.agents.size, [...this.agents.values()].filter((x) => x.role === 'mayor').map((x) => x.name));
     return true;
   }
 
   tick() {
     this.ticks++;
+    // The task boards of the villages with agents here (E.0: the claim check only reads now): when one changed, and every
+    // few seconds for what changes unsaved (what gatherers carry)
+    const villages = new Set<Village>();
+    for (const a of this.agents.values()) {
+      const v = a.village();
+      if (v) villages.add(v);
+    }
+    for (const v of villages)
+      try {
+        this.villages.tickBoard(v);
+      } catch (e) {
+        console.error(`[board] ${v.name}: refresh failed:`, e);
+      }
     for (const a of this.agents.values()) {
       try {
         a.tick();

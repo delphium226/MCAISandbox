@@ -1,11 +1,13 @@
 /**
  * The model-usage ledger checked offline (phase A, A.0; no server): reasoning and price settings, cloud detection, window
  * sums, the hourly budget's hysteresis, episodes and retry time, refusals, reports (agent filter, partial logs) and
- * costs, with an injected clock. Exits non-zero on any failure.
+ * costs, with an injected clock; and E.0's parts: withdrawn and fallback outcomes, the limit following the agent count, an
+ * agent's share, the degrade levels, and the spend ledger (sink, seeding without double counts, the month, the caps).
+ * Exits non-zero on any failure.
  * Usage: node_modules/.bin/tsx scripts/checks/model_usage.mts
  */
 import {
-  BudgetExceeded, DEFAULT_REASONING, RESUME_FRACTION, UsageLedger, isCloudModel, parseBudget, parsePrices, parseReasoning, thinkFor,
+  BudgetExceeded, DEFAULT_REASONING, RESUME_FRACTION, SpendCapReached, UsageLedger, isCloudModel, parseBudget, parsePrices, parseReasoning, parseSpendCap, thinkFor,
 } from '../../server/src/modelUsage';
 
 let failures = 0;
@@ -217,6 +219,163 @@ console.log = quietLog;
   eq(R.cost('qwen3:30b-instruct', 100, 100), 0, 'cost of a local call');
   eq(R.cost('kimi-k2:1t-cloud', 100, 100), null, 'cost of an unpriced cloud call');
   eq(R.cost('ollama:gpt-oss:120b-cloud', 1e6, 0), 1, 'cost with the provider prefix');
+}
+
+// --- E.0: withdrawn and fallback outcomes (billed nothing, counted apart)
+{
+  let t = 20_000_000;
+  const now = () => t;
+  const W = new UsageLedger({ budgetPerHour: null, now, prices: 'gpt-oss:120b-cloud=1/2' });
+  W.error('gpt-oss:120b-cloud', 'A', 'exec', 0, 'withdrawn');
+  W.error('gpt-oss:120b-cloud', 'A', 'exec', 20000, 'fallback');
+  W.error('gpt-oss:120b-cloud', 'A', 'exec', 5);
+  const r = W.report();
+  eq([r.total.withdrawn, r.total.fallback, r.total.errors, r.total.calls, r.total.cost], [1, 1, 1, 0, 0], 'withdrawn, fallback and errors counted apart, nothing billed');
+  eq(r.byAgent.A.withdrawn, 1, 'withdrawn by agent');
+}
+
+// --- E.0: the limit follows the agents (budget unset), never below the old default
+{
+  const A = new UsageLedger({ perAgent: 150_000 });
+  eq(A.summary().budget.tokensPerHour, 2_000_000, 'auto limit with no agents: the default');
+  A.setAgents(3);
+  eq(A.summary().budget.tokensPerHour, 2_000_000, 'auto limit at 3 agents: still the default');
+  A.setAgents(25);
+  eq(A.summary().budget.tokensPerHour, 3_750_000, 'auto limit at 25 agents: 150k each');
+  eq(A.summary().budget.agents, 25, 'agents counted');
+  const F = new UsageLedger({ perAgent: 150_000, agentFloor: 20 });
+  eq(F.summary().budget.tokensPerHour, 3_000_000, 'the agent floor (MC_TOKEN_BUDGET_AGENTS) while agents spawn');
+  const X = new UsageLedger({ budgetPerHour: 50_000, perAgent: 150_000 });
+  X.setAgents(25);
+  eq(X.summary().budget.tokensPerHour, 50_000, 'MC_TOKEN_BUDGET_HOUR stays absolute');
+  A.setBudget(1000);
+  A.setAgents(30);
+  eq(A.summary().budget.tokensPerHour, 1000, 'setBudget turns the agent scaling off');
+}
+
+// --- E.0: an agent's share (2x fair), its hysteresis, the exemption, and scopes
+{
+  let t = 30_000_000;
+  const now = () => t;
+  const cloud = 'gpt-oss:120b-cloud';
+  const S = new UsageLedger({ budgetPerHour: 10_000, windowMs: 60000, now });
+  S.setAgents(4); // fair 2,500; refused at 5,000
+  S.record({ model: cloud, agent: 'W1', kind: 'exec', promptTokens: 4000, outputTokens: 0, ms: 1 });
+  ok(S.blocked(cloud, 'W1') === null, 'under its share');
+  t += 1000;
+  S.record({ model: cloud, agent: 'W1', kind: 'exec', promptTokens: 1000, outputTokens: 0, ms: 1 }); // 5,000
+  const e = S.blocked(cloud, 'W1');
+  ok(e instanceof BudgetExceeded && e.scope === 'agent' && e.limit === 5000 && e.episode === 1, `over its share: scope agent, limit 5,000 (${e?.scope}, ${e?.limit})`);
+  ok(/W1's share of the hourly token budget is spent/.test(e?.message ?? ''), `the share's message: ${e?.message}`);
+  ok(S.blocked(cloud) === null, 'the global budget is not blocked');
+  ok(S.blocked(cloud, 'W2') === null, 'another agent is not refused');
+  eq(S.summary().budget.overShare, ['W1'], 'overShare lists it');
+  eq(S.summary().budget.episode, 0, 'no global episode');
+  eq(e?.retryAt, 30_000_000 + 60000, 'retryAt: when the first 4,000 leave (1,000 < 0.8 x 5,000)');
+  let threw: unknown = null;
+  try { S.check(cloud, 'W1', 'plan'); } catch (err) { threw = err; }
+  ok(threw instanceof BudgetExceeded && (threw as BudgetExceeded).scope === 'agent', 'check refuses it');
+  eq(S.report().byAgent.W1.refused, 1, 'and records the refusal');
+  // 4,100 (82% of the share): still refused; the 4,000 gone: 1,000 free
+  t = 30_000_000 + 59_000;
+  S.record({ model: cloud, agent: 'W1', kind: 'exec', promptTokens: 0, outputTokens: 0, ms: 1 });
+  ok(S.blocked(cloud, 'W1') !== null, 'still refused above 80% of its share');
+  t = 30_000_000 + 60_001;
+  ok(S.blocked(cloud, 'W1') === null, 'free below 80% of its share');
+  // a new crossing is episode 2 of the share scope
+  S.record({ model: cloud, agent: 'W1', kind: 'exec', promptTokens: 4500, outputTokens: 0, ms: 1 });
+  eq(S.blocked(cloud, 'W1')?.episode, 2, 'a new crossing is share episode 2');
+  // exempt
+  S.exempt(['W1']);
+  ok(S.blocked(cloud, 'W1') === null, 'an exempt agent is never refused over its share');
+  S.exempt([]);
+  ok(S.blocked(cloud, 'W1') !== null, 'refused again once no longer exempt');
+  // mayors (set with the agent count) are never refused over a share either
+  S.setAgents(4, ['W1']);
+  ok(S.blocked(cloud, 'W1') === null, 'a mayor is never refused over its share');
+  // one agent: no shares
+  S.setAgents(1);
+  ok(S.blocked(cloud, 'W1') === null, 'one agent: no share refusals');
+  ok(S.blocked('qwen3:30b-instruct', 'W1') === null, 'local models: never');
+}
+
+// --- E.0: degrade levels and their hysteresis
+{
+  let t = 40_000_000;
+  const now = () => t;
+  const cloud = 'gpt-oss:120b-cloud';
+  const D = new UsageLedger({ budgetPerHour: 1000, windowMs: 60000, now });
+  const all = () => ['chronicle', 'reflection', 'acts', 'decisions'].map((c) => D.allows(c as never));
+  eq(all(), [true, true, true, true], 'everything allowed at 0');
+  D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 700, outputTokens: 0, ms: 1 });
+  eq(all(), [false, true, true, true], '70%: the chronicle off');
+  t += 1000;
+  D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
+  eq(all(), [false, false, true, true], '80%: reflections off');
+  t += 1000;
+  D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
+  eq(all(), [false, false, false, true], '90%: acts off');
+  t += 1000;
+  D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
+  eq(all(), [false, false, false, false], '100%: decisions off');
+  eq(D.summary().budget.degradeLevel, 4, 'level 4');
+  // The 700 leaves: 300 (30%): below 0.8 x 70% = 56%, so everything back on
+  t = 40_000_000 + 60_001;
+  eq(all(), [true, true, true, true], 'all back on at 30%');
+  const dg = D.summary().budget.degradations;
+  eq(dg.map((x) => [x.level, x.off]), [[1, true], [2, true], [3, true], [4, true], [0, false]], 'every transition kept');
+  ok(logs.some((l) => l.includes('[usage] degrade 1: chronicle off at 700 of 1,000')), 'the degrade line');
+  // hysteresis: at 65% after the chronicle went off at 70%, it stays off (back on below 56%)
+  t = 41_000_000;
+  const H = new UsageLedger({ budgetPerHour: 1000, windowMs: 60000, now });
+  H.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
+  t += 1000;
+  H.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 600, outputTokens: 0, ms: 1 }); // 70%
+  ok(!H.allows('chronicle'), 'chronicle off at 70%');
+  t = 41_000_000 + 60_001; // the 100 leaves: 60%
+  ok(!H.allows('chronicle'), 'still off at 60% (hysteresis)');
+  ok(H.allows('reflection'), 'reflections on');
+  const O = new UsageLedger({ budgetPerHour: null, now });
+  ok(O.allows('decisions'), 'the budget off allows everything');
+}
+
+// --- E.0: the spend ledger: the sink, seeding, the month, the caps
+{
+  let t = new Date(2026, 9, 31, 23, 0).getTime();
+  const now = () => t;
+  const cloud = 'gpt-oss:120b-cloud';
+  const lines: Array<[string, number]> = [];
+  const P = new UsageLedger({ budgetPerHour: null, now, prices: 'gpt-oss:120b-cloud=1/1', spendCap: { month: 5, programme: 8 } });
+  P.setSink((r, usd) => lines.push([r.outcome, usd]));
+  P.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 1_000_000, outputTokens: 0, ms: 1 }); // $1
+  P.error(cloud, 'A', 'exec', 0, 'withdrawn');
+  try { P.check('qwen3:30b-instruct', 'A', 'exec'); } catch { /* never */ }
+  eq(lines, [['ok', 1], ['withdrawn', 0]], 'the sink gets every record with its $');
+  eq([P.spend().month, P.spend().programme], [1, 1], 'unseeded: this process only');
+  // The files (every process's) said $3.5 this month before the cutoff, $6 in the programme; this process's $1 was before
+  // the cutoff, so it is in the files already and not counted twice
+  P.seedSpend({ cutoff: t + 1, monthKey: '2026-10', month: 3.5, programme: 6 });
+  eq([P.spend().month, P.spend().programme], [3.5, 6], 'seeded: the files only (no double count)');
+  t += 60000;
+  P.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 1_000_000, outputTokens: 0, ms: 1 }); // +$1 = 4.5
+  eq([P.spend().month, P.spend().programme], [4.5, 7], 'after the seed: the files plus this process since');
+  ok(P.blocked(cloud) === null, 'under the caps');
+  t += 60000;
+  P.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 500_000, outputTokens: 0, ms: 1 }); // 5.0
+  const c = P.blocked(cloud);
+  ok(c instanceof SpendCapReached && c.scope === 'spend', 'the month cap refuses');
+  ok(/month's spending cap is reached: \$5\.00 of \$5\.00/.test(c?.message ?? ''), `the cap's message: ${c?.message}`);
+  ok(P.blocked('qwen3:30b-instruct') === null, 'local models pass the cap');
+  // The month turns: the seed's month is last month's, this process's calls of October drop out of November
+  t = new Date(2026, 10, 1, 0, 30).getTime();
+  eq(P.spend().month, 0, 'a new month starts at 0');
+  eq(P.spend().programme, 7.5, 'the programme goes on');
+  ok(P.blocked(cloud) === null, 'the month cap frees in the new month');
+  P.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 500_000, outputTokens: 0, ms: 1 }); // programme 8
+  ok(P.blocked(cloud)?.message.includes("programme's spending cap") ?? false, 'the programme cap refuses');
+  eq(parseSpendCap('30'), { month: 30 }, 'a bare number is the month');
+  eq(parseSpendCap('month=30, programme=60'), { month: 30, programme: 60 }, 'both caps');
+  eq(parseSpendCap(undefined), null, 'unset: no cap');
 }
 
 console.log = origLog;

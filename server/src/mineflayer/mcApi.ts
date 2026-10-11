@@ -62,6 +62,12 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   }
   if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(TOOLS.filter((t) => w.skills.includes(t)).map((t) => [t.name, t.description])));
 
+  // Write villages.json now (E.0: saves are debounced; a kill, as taskkill /F on Windows, runs no exit handler)
+  if (parts[1] === 'villages' && parts[2] === 'flush' && req.method === 'POST') {
+    w.villages.flushSync();
+    return sendJson(res, 200, { ok: true, version: w.villages.version });
+  }
+
   if (parts[1] === 'village') {
     if (req.method === 'POST' && !parts[2]) {
       const body = await readJson(req);

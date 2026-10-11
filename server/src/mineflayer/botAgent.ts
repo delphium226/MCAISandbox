@@ -13,7 +13,7 @@ import { preparedAt } from '../village';
 import type { MineflayerWorld } from './mcWorld';
 import { MC_SKILLS } from './mcSkills';
 import { attack } from './mcSurvival';
-import { at, goals, walk } from './mcUtil';
+import { ContentionError, at, goals, walk } from './mcUtil';
 import { mineAreas } from './mcMine';
 import { rescue } from './mcRescue';
 import { timeScale } from './mcRules';
@@ -348,11 +348,10 @@ export class BotAgent implements WorldAgent {
 
   private listen() {
     const bot = this.bot;
+    // Every bot hears every line: the world routes it once, by distance, and chooses who answers (E.0, mcWorld.hearChat)
     bot.on('chat', (from, text) => {
       if (from === this.name) return;
-      const speaker = bot.players[from]?.entity;
-      const distance = speaker ? Math.round(speaker.position.distanceTo(bot.entity.position)) : undefined;
-      this.pushEvent('chat', `<${from}> ${text}`, { from, text, ...(distance !== undefined ? { distance } : {}) });
+      this.world.hearChat(from, text);
     });
     bot.on('entityHurt', (e) => {
       if (e === bot.entity) this.lastHurt = Date.now();
@@ -507,7 +506,8 @@ export class BotAgent implements WorldAgent {
       .run(this, status.args, run.abort.signal)
       .then(
         (msg) => this.finish(run, { done: msg ?? '' }),
-        (err: unknown) => this.finish(run, { fail: (err as Error).message }),
+        // (another agent's work in the way carries its code and resource into the event, E.0)
+        (err: unknown) => this.finish(run, { fail: (err as Error).message, ...(err instanceof ContentionError ? { code: err.code, resource: err.resource } : {}) }),
       );
   }
 
@@ -559,7 +559,7 @@ export class BotAgent implements WorldAgent {
     });
   }
 
-  private finish(run: Running, r: { done: string } | { fail: string }) {
+  private finish(run: Running, r: { done: string } | { fail: string; code?: string; resource?: string }) {
     if (this.current !== run) return; // cancelled
     const st = run.status;
     run.abort.abort();
@@ -570,7 +570,7 @@ export class BotAgent implements WorldAgent {
     } else {
       st.state = 'failed';
       st.message = r.fail;
-      this.pushEvent('action_failed', `${st.type} failed: ${r.fail}`, { action: st.id, type: st.type, args: st.args, message: r.fail });
+      this.pushEvent('action_failed', `${st.type} failed: ${r.fail}`, { action: st.id, type: st.type, args: st.args, message: r.fail, ...(r.code ? { code: r.code, resource: r.resource } : {}) });
     }
     this.history.push(st);
     if (this.history.length > 100) this.history.shift();
@@ -652,6 +652,10 @@ export class BotAgent implements WorldAgent {
       });
     }
     nearbyEntities.sort((a, b) => a.distance - b.distance);
+    // The nearest 30 others and up to 30 players besides (E.0: with 25 agents, players alone could fill the 30 before any
+    // animal or drop)
+    const players = nearbyEntities.filter((e) => e.kind === 'player');
+    const shown = [...nearbyEntities.filter((e) => e.kind !== 'player').slice(0, 30), ...players.slice(0, 30)].sort((a, b) => a.distance - b.distance);
     const biomeId = bot.world.getBiome?.(p.floored()) as number | undefined;
     const slots = bot.inventory.slots;
     return {
@@ -670,7 +674,7 @@ export class BotAgent implements WorldAgent {
       inventory,
       equipment: [5, 6, 7, 8].map((i) => slots[i]?.name ?? null),
       nearbyBlocks,
-      nearbyEntities: nearbyEntities.slice(0, 30),
+      nearbyEntities: shown,
       currentAction: this.current?.status ?? null,
       queuedActions: this.queue.length,
       recentEvents: this.events.slice(-20),

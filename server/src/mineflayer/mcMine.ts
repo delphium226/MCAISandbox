@@ -788,16 +788,17 @@ function faceWaitEnd(a: BotAgent, outcome: string) {
  * cobblestone are carried or 6 minutes pass. A branch that meets water, lava, a cave, village ground or a hillside
  * (no ceiling) ends there; a main tunnel meeting one ends, and the next turns left or right at one of its junctions
  * (V.5b). Only when no tunnel can go on does the mine stop. Several miners share a tunnel by its parts (S.2: one digs
- * its main cells, others its branches). Returns how many were collected and, if it stopped short of `want`, why.
+ * its main cells, others its branches). Returns how many were collected and, if it stopped short of `want`, why, and
+ * `busy` when it stopped because other miners held every face or cell it could dig (E.0: collect's contention code).
  */
-export async function mineFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string }> {
+export async function mineFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string; busy: boolean }> {
   release(a, v, 'a new trip');
   const trip: Trip = { dug: 0, passed: 0, units: new Set(), why: '' };
   const t0 = Date.now(), start = have();
   try {
     const r = await mineTrip(a, v, want, have, signal, trip);
     trip.why = r.why;
-    return r;
+    return { ...r, busy: !!trip.busy };
   } catch (e) {
     trip.why = (e as Error).message;
     throw e;
@@ -808,8 +809,8 @@ export async function mineFor(a: BotAgent, v: Village, want: number, have: () =>
   }
 }
 
-/** A trip's tally (S.2), for its line at the end: cells dug and passed, and the units worked on ("tunnel:unit"). */
-type Trip = { dug: number; passed: number; units: Set<string>; why: string };
+/** A trip's tally (S.2), for its line at the end: cells dug and passed, and the units worked on ("tunnel:unit"); `busy`: it gave up waiting for other miners. */
+type Trip = { dug: number; passed: number; units: Set<string>; why: string; busy?: boolean };
 
 async function mineTrip(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal, trip: Trip): Promise<{ got: number; why: string }> {
   const m = v.mine!;
@@ -834,7 +835,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
     if (next === 'busy' || (!next && downBy && downBy !== a.name)) {
       faceWaitStart(a, v, m, next === 'busy' ? undefined : downBy);
       if (m.stopped) { faceWaitEnd(a, 'the mine stopped'); why = m.stopped; break; }
-      if (waited >= BUSY_WAIT_MS) { faceWaitEnd(a, 'gave up, the mine is busy'); why = `the mine is busy (${next === 'busy' ? 'its tunnels are being dug' : `${downBy} digs the stairs down`}); collect again later`; away = true; break; }
+      if (waited >= BUSY_WAIT_MS) { faceWaitEnd(a, 'gave up, the mine is busy'); why = `the mine is busy (${next === 'busy' ? 'its tunnels are being dug' : `${downBy} digs the stairs down`}); collect again later`; away = true; trip.busy = true; break; }
       await new Promise((r) => setTimeout(r, 5000));
       waited += 5000;
       continue;
@@ -903,7 +904,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
       }
       if (by) {
         waited += CELL_WAIT_MS;
-        if (waited >= BUSY_WAIT_MS) { why = `the mine is busy (${by} digs ${at}); collect again later`; away = true; break; }
+        if (waited >= BUSY_WAIT_MS) { why = `the mine is busy (${by} digs ${at}); collect again later`; away = true; trip.busy = true; break; }
         continue;
       }
     }
@@ -957,7 +958,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
           }
           if (empty()) return false;
           const by = cellHolder(a, at);
-          if (by) throw Object.assign(new Error(`the mine is busy (${by} digs ${at}); collect again later`), { away: true });
+          if (by) throw Object.assign(new Error(`the mine is busy (${by} digs ${at}); collect again later`), { away: true, busy: true });
           cellLock.set(at, a.name);
           return true;
         };
@@ -969,6 +970,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
             why = `could not dig at ${at}: ${(e as Error).message}${walked ? ` (${walked})` : ''}`;
             tool = !!(e as { tool?: boolean }).tool;
             away = !!(e as { away?: boolean }).away;
+            if ((e as { busy?: boolean }).busy) trip.busy = true;
             stuckIn = !!(e as { inMine?: boolean }).inMine;
             break;
           }

@@ -1601,7 +1601,7 @@ Design rules on top of Phase A's:
 
 Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes through typecheck, a bench or check, a scripted staged run, then a model-driven staged run (`stage_village.py --brain tiered --after N`, Worker1-11 on the test world), then a model-driven run where the exit asks for one):
 
-- [ ] E.0 **Scale safety, all in code** (implemented 10-11, uncommitted, checks passing; review, golden check and a staged run still to do: the handover) (~1-2 sessions). No behaviour change at 3 agents.
+- [x] E.0 **Scale safety, all in code** (done 10-11, s27: golden board check 0 differences on 137 villages, a four-lens review with refutation (3 real defects fixed: unhandled contention falls through to the ordinary failure path as before E.0, Mayors never refused over a share, no temporary file left by a failed save), staged E0a 4.9 min at 2x (Van3h 5.1), Minevale38 1x complete in 10.1 min with a live human line routed to the Mayor only (154 blocks away, named) and the workers not reached; its 6 failed actions were F216, not E.0). No behaviour change at 3 agents.
   - **Model calls:** `complete`, `completeOllama`, `completeAnthropic`, `parseSpec` and `timed()`'s accounting move out of `tieredBrain.ts:75-140` into a world-free `modelCall.ts`. TieredBrain (architect retries included), the controller and society all call it. `modelUsage.ts` stays the ledger, with no imports and no timers.
   - **Call gate** (in `modelCall.ts`, acquired before `fetch` so the 300 s timeout does not run during the wait):
     - 3 calls in flight on Pro. One slot is held for human replies, the Mayor's plan and design calls, executor turns and decisions. Ballots, reflections and the chronicle share at most 2.
@@ -2474,6 +2474,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s26) | **Van12h, Van3f** | S.3 (glass once) and S.4 (lamps early, a sign per building), the S.0 command | 6/6 each | **4.8; 5.4 min** | 12 agents ahead of 3 for the first time; 16 panes made into storage at 4.4 (Van3f 4.1); 1 failed (the stairs digger's pickaxe at 1.6); 37% busy (12 agents) |
 | 10-11 (s26) | **Van12i, Van3g** | S.5 (stations before the storage hut), the S.0 command | 6/6 each | **4.2; 5.6 min** | table 1.0 / furnace 2.1 in the hut cells, sweep clean, 0 failed; panes in storage 2.7 |
 | 10-11 (s26) | **Van12j, Van3h** | S.6 (the huts' ground first, the plot in parts), the S.0 command | 6/6 each | **3.1; 5.1 min** | 6 parts, seams 0 bad, 0 lag/stuck; 1 failed (lamps before their materials, retried) |
+| 10-11 (s27) | **E0a** | E.0 (with the review's fixes), staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 2` | 6/6 | **4.9 min** (Van3h 5.1) | 0 failed, 0 `[lag]`, 0 `[stuck]`; 94% busy; no model calls (scripted) |
+| 10-11 (s27) | **Minevale38** | E.0, model-driven, 1x, minevale3 (the Mayor's site -1657,23), every role on gpt-oss; a human line from Gus (a plain Mineflayer player, `runs/2026-10-11/s27/human_line.cjs`) at ~1.5 min | **6/6 + lamps + signs + farm** | **10.1 min** (Minevale37 10.4) | **6 failed** (Worker2: F216's glass chain); the human line woke only the Mayor (154 blocks off, named) who answered in one executor call, the workers (out of range) never got it and heard the reply without a wake; `[gate]` waits 0 ms per kind, in flight max 2/3; spend ledger `runs/spend/2026-10-11-8767.jsonl`; 13 calls, ~$0.011; 0 `[lag]`/`[stuck]` |
+| 10-11 (s27) | **Minevale39** | E.0 + F216's step-matching fix, the same command | **stopped at 15.9 min**, incomplete (the storage hut never built) | - | **55 failed**: F217 (the furnace step now failing, the executor placed a furnace inside the storage hut's footprint, the hut's level check refused, the executor mined the village's storage chests); 17 `[stuck]`, 0 `[lag]`; 372k tokens in |
 
 ## Findings log
 
@@ -3481,6 +3484,17 @@ CLAUDE.md when a phase ends.
   `--fixture-clear` over the whole 96 from the annex (two forceload passes), or a tag filter.
 - F215 (10-10, s25, panel) A trailing space dropped by an edit turned the activity overlay's `<i style=` into
   `<istyle=` (the dots vanished; committed in 9ca781f, fixed with the icons). Screenshot a UI change after applying it.
+- F216 (10-11, s27, Minevale38) The stations task (S.5) closed with only the table placed: TieredBrain's step matching
+  checks the item only for collect, craft, withdraw, deposit and smelt, so the table's `place_station` also matched step
+  2 "place_station item=furnace". The glass task's gate opened, `make_into_storage` failed ("not both standing yet") and
+  the executor improvised smelts short of fuel: 6 failed actions. Staged runs (TaskBrain) never showed it. Fix: the item
+  is matched for `place_station` and `make_into_storage` too; it exposed F217.
+- F217 (10-11, s27, Minevale39) With F216's fix the furnace step failed honestly (8 cobblestone needed, 6 to hand), and
+  the executor took it over: it crafted a furnace and `place`d it at -1660,65,12, inside the storage hut's footprint beside
+  the chests (lesson 33's stray block), the hut's build refused its level, and the executor then `mine`d the village's
+  storage chests (229 items lost from the record): 55 failed actions, no hut. Three gaps: `place_station` does not get
+  its own missing cobblestone (lesson 106), `place` puts blocks on a planned building's ground, and `mine` breaks a
+  village's storage chests (lesson 30).
 
 ## Decisions log
 

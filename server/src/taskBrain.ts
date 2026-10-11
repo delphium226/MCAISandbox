@@ -5,7 +5,7 @@
  * way, so a village of task workers tests the skills, storage, layout and building end to end in minutes, without model
  * latency or model mistakes. Tiered agents are for testing behaviour.
  */
-import { MINE_BUSY, TAKEN_BY_OTHERS, type Task } from './village';
+import { CLAIM_LOOK_MS, RESERVED_COOL_MS, contentionOf, type Task } from './village';
 import type { AgentBrain, AgentEvent, WorldAdapter, WorldAgent } from './world';
 
 interface Call { type: string; args: Record<string, unknown> }
@@ -60,6 +60,9 @@ export class TaskBrain implements AgentBrain {
   private mine = new Set<number>();
   /** Materials (collect block) whose tasks it leaves alone until then (notTheTask). */
   private avoid = new Map<string, number>();
+  /** The board's version when it last looked for a task, and when; whether it was let claim at the last tick. */
+  private looked = { version: -1, at: 0 };
+  private mayClaimed = false;
 
   constructor(private opts: TaskRunnerOptions = {}) {}
 
@@ -85,8 +88,9 @@ export class TaskBrain implements AgentBrain {
    * What it gathered goes into the storage (once the task is no longer held, nothing counts it as carried for it).
    * `taken`: the block others hold the rest of (S.1), so it and the other tasks for that block wait a while. `busy`: the
    * mine is busy (S.2), so this worker takes no mine task for a while (the registry's cooldown, ended by a free face).
+   * `coolMs`: off the board for that long (E.0: its ground reserved by another agent).
    */
-  handBack(a: WorldAgent, why: string, done = false, stop = true, taken?: string, busy = false) {
+  handBack(a: WorldAgent, why: string, done = false, stop = true, taken?: string, busy = false, coolMs = 0) {
     const v = a.village();
     const id = this.task;
     if (!id) return;
@@ -98,7 +102,7 @@ export class TaskBrain implements AgentBrain {
       if (done) a.world.villages.finish(v, id, a.name, why);
       else if (taken) a.world.villages.handBackTaken(v, id, a.name, why, taken);
       else if (busy) a.world.villages.handBackBusy(v, id, a.name, why);
-      else a.world.villages.unclaim(v, id, a.name, why);
+      else a.world.villages.unclaim(v, id, a.name, why, coolMs);
     }
     a.pushEvent('system', `Handed back task ${id}: ${why.slice(0, 120)}`);
     if (item) this.depositCarried(a, item);
@@ -155,21 +159,27 @@ export class TaskBrain implements AgentBrain {
         if (!none) try { this.enqueue(a, 'deposit', { item: 'all' }); } catch { /* nothing to deposit with: kept for the next task's deposit */ }
         return;
       }
-      // The mine is busy (S.2): never the task's fault. Back on the board with no try counted (a soft give-up counted as
-      // finished and let its build start short of cobblestone) and no avoid entry: the registry keeps this worker off mine
-      // tasks until a face is free or a minute has passed (only for the task's own material, lesson 23)
-      if (MINE_BUSY.test(msg) && e.data?.type === 'collect' && !!block && !!held?.detail.toLowerCase().includes(`collect block=${block} `))
-        return this.handBack(a, msg, false, false, undefined, true);
+      // Another agent's work in the way (E.0's contention codes): never the task's fault, so no try counted
+      const contended = contentionOf(e);
+      const own = e.data?.type === 'collect' && !!block && !!held?.detail.toLowerCase().includes(`collect block=${block} `);
+      // The mine is busy (S.2): back on the board with no try counted (a soft give-up counted as finished and let its build
+      // start short of cobblestone) and no avoid entry: the registry keeps this worker off mine tasks until a face is free
+      // or a minute has passed (only for the task's own material, lesson 23)
+      if (contended?.code === 'busy' && contended.resource.startsWith('mine:') && own) return this.handBack(a, msg, false, false, undefined, true);
       // What is left is being taken by other gatherers (S.1): back on the board for a while, not failed and not "none here"
       // (only for the task's own material, lesson 23, and soft tasks, as in the tiered brain: the storage task's logs wait
       // and collect again on the normal retry)
-      const taken = TAKEN_BY_OTHERS.test(msg) && e.data?.type === 'collect' && !!held?.soft && !!block && !!held.detail.toLowerCase().includes(`collect block=${block} `);
+      const taken = contended?.code === 'taken' && !!held?.soft && own;
       if (taken || this.opts.notTheTask?.test(msg)) {
         const item = /collect block=(\S+)/.exec(held?.detail ?? '')?.[1];
         if (item) this.avoid.set(item, Date.now() + AVOID_MS);
         // (the action has ended: nothing to stop, and a stop inside the world's own failure report would cut it up)
         return this.handBack(a, msg, false, false, taken ? block : undefined);
       }
+      // Its ground is reserved by another agent at work there (E.0): back on the board for a while, for anyone (the
+      // reservation holds for minutes), with no try counted; two such failures used to fail the task for good. (A busy mine
+      // or taken material that is not the task's own goes on to the retry below, as before)
+      if (contended?.code === 'reserved') return this.handBack(a, msg, false, false, undefined, false, RESERVED_COOL_MS);
       // What a player would do, from the failure messages: craft the missing tool, collect the missing logs
       const tool = /needs (?:an? )?(\w+_(?:pickaxe|axe|shovel))/.exec(msg);
       const logs = /collect (\d+) more logs?/.exec(msg);
@@ -207,8 +217,14 @@ export class TaskBrain implements AgentBrain {
       this.calls = [];
     }
     if (!this.task) {
+      const was = this.mayClaimed;
+      this.mayClaimed = mayClaim;
       if (!mayClaim) return;
       const now = Date.now();
+      // (E.0: looked again only when the board has changed, the gate has just opened, or after CLAIM_LOOK_MS for what
+      // changes with time: cooldowns and avoid entries ending, the mine's faces)
+      if (was && reg.version === this.looked.version && now - this.looked.at < CLAIM_LOOK_MS) return;
+      this.looked = { version: reg.version, at: now };
       const ready = reg.claimable(v, a.name).filter((t) => {
         const item = /collect block=(\S+)/.exec(t.detail)?.[1];
         return !item || (this.avoid.get(item) ?? 0) < now;

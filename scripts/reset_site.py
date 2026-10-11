@@ -71,6 +71,13 @@ def stop_agents():
     pids = listening_pids(API_PORT)
     if not pids:
         raise SystemExit(f"something listens on {API_PORT} but netstat names no process")
+    # villages.json is saved debounced (E.0) and taskkill /F runs no exit handler: written now first
+    try:
+        req = urllib.request.Request(API + "/villages/flush", data=b"{}", method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+    except (OSError, urllib.error.URLError) as e:
+        print(f"agent server on {API_PORT}: villages not flushed ({e})")
     for pid in pids:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
     if not wait_until(lambda: not T.listening(API_PORT), 30):

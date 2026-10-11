@@ -329,11 +329,13 @@ while time.time() - t0 < minutes * 60:
                     last_done = last_ok[n] = time.time()
                 # (both are an agent at work for the per-agent stall rule: a miner waits up to a minute for a face, S.2, then
                 # hands its task back)
-                if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"]):
+                # (and a busy resource or material taken, by their contention codes, E.0; reserved ground still counts)
+                contended = (e.get("data") or {}).get("code") in ("busy", "taken")
+                if e["type"] == "action_failed" and ("cannot be gathered here" in e["text"] or "the mine is busy" in e["text"] or "being taken by other gatherers" in e["text"] or contended):
                     last_ok[n] = time.time()
                 # (a busy mine is no stuck agent: the gathering Mayor, a third miner, hands its task back for later, V2.3m;
                 # nor is material others are taking, S.1)
-                if e["type"] == "action_failed" and "the mine is busy" not in e["text"] and "being taken by other gatherers" not in e["text"]:
+                if e["type"] == "action_failed" and "the mine is busy" not in e["text"] and "being taken by other gatherers" not in e["text"] and not contended:
                     k = (n, e["text"][:80])
                     fails[k] = fails.get(k, 0) + 1
                     if fails[k] >= same_fail:
@@ -430,7 +432,7 @@ for n in names:
         rescues = {k: q for k, q in (mem.get("rescues") or {}).items() if k != "last"}
         print(f"STATS {n}: plan {st.get('planCalls', 0)}x{st.get('planMsAvg', 0)}ms, exec {st.get('execCalls', 0)}x{st.get('execMsAvg', 0)}ms, "
               f"design {st.get('designCalls', 0)}x{st.get('designMsAvg', 0)}ms, done {st.get('actionsDone', 0)}, failed {st.get('actionsFailed', 0)}, "
-              f"designs {st.get('designs', 0)}, refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
+              f"contention {st.get('contention', 0)}, designs {st.get('designs', 0)}, refused {st.get('repeatsRefused', 0)}, out tokens {out_tokens}{refused}, rescues {json.dumps(rescues)}")
     except urllib.error.HTTPError:
         pass
 for line in usage_lines(u, names):

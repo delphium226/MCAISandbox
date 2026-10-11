@@ -9,7 +9,7 @@ import type { BotAgent, WalkTally } from './botAgent';
 import type { Column } from './mcAtlas';
 import { FALLING, WET, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { overlaps } from '../village';
+import { overlaps, type ContentionCode } from '../village';
 
 const { goals } = pathfinderPkg;
 export { goals };
@@ -34,6 +34,18 @@ export function sleep(ms: number, signal: AbortSignal) {
       fail(new Error('cancelled'));
     }, { once: true });
   });
+}
+
+/**
+ * A failure that is another agent's work in the way, not the task's or the call's (E.0): the mine busy, ground someone else
+ * has reserved, what is left taken by other gatherers. botAgent puts its code and resource into the action_failed event
+ * (data.code, data.resource), and brains hand the task back on it rather than count a failure; the message is as before.
+ */
+export class ContentionError extends Error {
+  constructor(message: string, readonly code: ContentionCode, readonly resource: string) {
+    super(message);
+    this.name = 'ContentionError';
+  }
 }
 
 export function checkAbort(signal: AbortSignal) {

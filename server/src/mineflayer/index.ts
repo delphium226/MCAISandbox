@@ -17,6 +17,8 @@ import { handleMcApi } from './mcApi';
 import { applyWorldRules } from './mcRules';
 import { MineflayerWorld } from './mcWorld';
 import { Rcon } from './rcon';
+import { gate } from '../modelCall';
+import { monthKey, usage } from '../modelUsage';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 // The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json
@@ -77,6 +79,51 @@ setInterval(() => {
   if (s.commands) console.log(`[rcon] queue max ${s.queueMax}, p90 ${s.p90} ms, p99 ${s.p99} ms, ${s.commands} commands`);
 }, 30_000);
 
+// The model call gate's waits per call class every 60 s (E.0); quiet when no call came to it
+setInterval(() => {
+  const line = gate.line();
+  if (line) console.log(`[gate] ${line}`);
+}, 60_000);
+
+// The spend ledger (E.0): one line per model call in runs/spend/<date>-<api port>.jsonl (one file per process and day, so
+// the test world's server never writes into the main one's), kept across restarts; the month's and the programme's
+// totals are read back from every process's files at start and every 5 minutes (MC_SPEND_CAP_USD is checked on them)
+const SPEND_DIR = path.join(ROOT, 'runs', 'spend');
+const day = (t: number) => {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+usage.setSink((r, usd) => {
+  fs.mkdirSync(SPEND_DIR, { recursive: true });
+  // (appended at once: a total read later counts every call before its start, and this process adds its own since)
+  fs.appendFileSync(path.join(SPEND_DIR, `${day(r.at)}-${API_PORT}.jsonl`), `${JSON.stringify({ at: r.at, model: r.model, agent: r.agent, kind: r.kind, in: r.promptTokens, out: r.outputTokens, usd: Number(usd.toFixed(6)), outcome: r.outcome, run: process.env.MCAI_RUN ?? null })}\n`);
+});
+const PROGRAMME_START = process.env.MC_SPEND_PROGRAMME_START ? Date.parse(process.env.MC_SPEND_PROGRAMME_START) || 0 : 0;
+async function seedSpend() {
+  const cutoff = Date.now(), key = monthKey(cutoff);
+  let month = 0, programme = 0;
+  try {
+    // (files by name: only days the month or the programme can hold)
+    const from = day(Math.min(new Date(new Date(cutoff).getFullYear(), new Date(cutoff).getMonth(), 1).getTime(), PROGRAMME_START || 0));
+    for (const f of (await fs.promises.readdir(SPEND_DIR).catch(() => [] as string[])).filter((n) => /^\d{4}-\d\d-\d\d-.*\.jsonl$/.test(n) && n.slice(0, 10) >= from)) {
+      for (const line of (await fs.promises.readFile(path.join(SPEND_DIR, f), 'utf8')).split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const r = JSON.parse(line) as { at?: number; usd?: number };
+          if (typeof r.at !== 'number' || typeof r.usd !== 'number' || r.at >= cutoff) continue;
+          if (monthKey(r.at) === key) month += r.usd;
+          if (r.at >= PROGRAMME_START) programme += r.usd;
+        } catch { /* a torn line from a kill */ }
+      }
+    }
+    usage.seedSpend({ cutoff, monthKey: key, month, programme });
+  } catch (e) {
+    console.log(`[usage] the spend ledger could not be read: ${(e as Error).message}`);
+  }
+}
+void seedSpend();
+setInterval(() => void seedSpend(), 5 * 60_000);
+
 http
   .createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -87,8 +134,11 @@ http
 const shutdown = () => {
   for (const a of [...world.agents.values()]) world.remove(a.name);
   world.atlas.save();
+  // (villages.json's saves are debounced, E.0: written now, and again at exit for anything changed in the last half second)
+  world.villages.flushSync();
   rcon.close();
   setTimeout(() => process.exit(0), 500);
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('exit', () => world.villages.flushSync());
