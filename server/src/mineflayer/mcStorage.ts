@@ -351,7 +351,8 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   let slipped = 0;
   let stalled = false;
   try {
-    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal);
+    // (`keep_wood`, code's only: no chest crafted from the carried wood, S.3)
+    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal, args.keep_wood === true);
     for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
       checkAbort(signal);
       // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
@@ -426,7 +427,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
  * (empty, no group yet), else a new chest in the next free spot (crafted from wood carried or in storage), else any
  * chest with room. Returns how many of `left` are still to put in.
  */
-async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal): Promise<number> {
+async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal, keepWood = false): Promise<number> {
   const chestId = itemId(a, 'chest')!;
   const chests = () => v.storage?.chests ?? [];
   // A chest holding something but with no group yet (registered by a test, say) takes the group of what it holds most of
@@ -485,7 +486,8 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
       let c = open.find((x) => x.group === g && slotsUsed(a, x) < 27) ?? (own ? undefined : open.find((x) => !x.group && !total(x.items)));
       if (!c && own) break;
       if (!c) {
-        const made = noChest.has(g) ? null : await newChest(a, v, signal, notes);
+        // (none crafted from the carried wood for a builder's left-over parts: its wall planks, S.3's check)
+        const made = noChest.has(g) || (keepWood && !countItem(a, chestId)) ? null : await newChest(a, v, signal, notes);
         if (!made) noChest.add(g);
         c = made ?? open.find((x) => x.group === 'misc' && slotsUsed(a, x) < 27) ?? open.find((x) => slotsUsed(a, x) < 27);
         if (!c) break;

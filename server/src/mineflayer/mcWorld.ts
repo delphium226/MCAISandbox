@@ -5,7 +5,7 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, MINE_TASK, PICK_GATHER, PICK_SUPPLY, VillageRegistry, villageHome, type Task, type Village } from '../village';
+import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, VillageRegistry, WINDOWS, signTask, villageHome, type Task, type Village } from '../village';
 import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -76,6 +76,8 @@ export class MineflayerWorld implements WorldAdapter {
   readonly villages: VillageRegistry;
   /** The skills implemented so far (mcSkills.ts), with the shared tool definitions. */
   readonly skills: ToolDef[] = TOOLS.filter((t) => t.name in MC_SKILLS);
+  /** Skills only code-posted tasks name (S.3), kept out of the models' tools (a longer prompt each, lesson 32). */
+  readonly taskSkills = ['make_into_storage'];
   readonly registry: ReturnType<typeof minecraftData>;
   /** Bills of materials and recipe chains (mcMaterials.ts). */
   readonly materials: Materials;
@@ -163,9 +165,11 @@ export class MineflayerWorld implements WorldAdapter {
    * chain, with a furnace and fuel when something must be smelted), in chunks two workers can share. Builders craft
    * and smelt the rest from the village storage themselves (build_design does it).
    */
-  materialTasks(d: Design, label: string, wood?: string, stations = true) {
-    // In the village's wood kind: its logs are what gets gathered
-    const bill = inWood(designBill(d), wood);
+  materialTasks(d: Design, label: string, wood?: string, stations = true, without: string[] = [], extra: Counts = {}) {
+    // In the village's wood kind: its logs are what gets gathered (less the parts billed for the village once: S.3's windows)
+    const own = designBill(d);
+    for (const n of without) delete own[n];
+    const bill = inWood(own, wood);
     let plan = this.materials.plan(bill);
     // A crafting table for the doors and the like, and a furnace when something must be smelted (not for a building
     // built after the storage hut, `stations` false: it uses the hut's, and each house billed 8 cobblestone and a log
@@ -177,9 +181,71 @@ export class MineflayerWorld implements WorldAdapter {
     const problems = [...plan.problems, ...(hard.length ? [`it needs ${hard.join(', ')}, which takes finding (drop the blocks made from it, e.g. mossy cobblestone, lanterns, bricks, wool, bookshelves; planks, logs, cobblestone and glass are gathered easily)`] : [])];
     // One log spare (a plank batch per wooden part rounds up; one kind, so no more than that)
     plan.gather['any:logs'] = (plan.gather['any:logs'] ?? 0) + (wood ? 1 : 2);
+    // (and what the caller adds: the pooled windows' fuel on the first building with windows, S.3's review)
+    for (const [n, q] of Object.entries(extra)) if (q > 0) plan.gather[n] = (plan.gather[n] ?? 0) + q;
     const logs = Object.entries(plan.gather).filter(([n]) => /_log$|^any:logs$/.test(n)).reduce((s, [, q]) => s + q, 0);
     const units = Object.values(plan.gather).reduce((s, q) => s + q, 0);
     return { tasks: gatherTasks(plan.gather, label, wood), problems, logs, units, smelts: plan.fuel.smelts };
+  }
+
+  /**
+   * The windows billed once for the village (S.3): each building's glass and panes summed over every placed copy and
+   * planned together (14 panes are 6 glass from 6 sand, where three buildings billed alone gather 18), with gather tasks
+   * for the sand only. The fuel's logs (`logs`) go on the first building with windows' own log gathering (a log task "for
+   * the windows" would never be closed as covered; billed nowhere, the smelting burned logs gathered for later houses,
+   * S.3's review).
+   */
+  sharedParts(designs: Design[], wood?: string) {
+    const parts = (d: Design) => { const b = designBill(d); return { glass_pane: b.glass_pane ?? 0, glass: b.glass ?? 0 }; };
+    const sandOf = (c: Counts) => Object.entries(this.materials.plan(c).gather).filter(([n]) => /^(red_)?sand$/.test(n)).reduce((s, [, q]) => s + q, 0);
+    const bill = { glass_pane: 0, glass: 0 };
+    let separate = 0, copies = 0;
+    const withWindows = new Set<string>();
+    for (const d of designs) {
+      const p = parts(d);
+      if (!p.glass_pane && !p.glass) continue;
+      bill.glass_pane += p.glass_pane;
+      bill.glass += p.glass;
+      separate += sandOf(Object.fromEntries(Object.entries(p).filter(([, q]) => q > 0)));
+      copies++;
+      withWindows.add(d.name);
+    }
+    if (!copies) return null;
+    const pooled: Counts = Object.fromEntries(Object.entries(bill).filter(([, q]) => q > 0));
+    const all = this.materials.plan(pooled).gather;
+    const gather = Object.fromEntries(Object.entries(all).filter(([n]) => /^(red_)?sand$/.test(n)));
+    const sand = Object.values(gather).reduce((s, q) => s + q, 0);
+    const logs = Object.entries(all).filter(([n]) => /_log$|^any:logs$/.test(n)).reduce((s, [, q]) => s + q, 0);
+    return { panes: bill.glass_pane, glass: bill.glass, sand, logs, separate, with: [...withWindows], copies, tasks: gatherTasks(gather, WINDOWS, wood) };
+  }
+
+  /**
+   * How many of a part the village still wants made into storage (S.3's make_into_storage), and for how many buildings or
+   * lamp jobs: glass and panes for every build not claimed yet or claimed with its stock not drawn, less what those
+   * builders carry; torches for the unlit lamps whose job is open or under way, less what its holder carries.
+   */
+  partsWanted(v: Village, item: string): { want: number; buildings: number } {
+    const carries = (name?: string) => (name ? heldCounts(this.agents.get(name.toLowerCase())!)?.[item] ?? 0 : 0);
+    let want = 0, buildings = 0;
+    if (item === 'torch') {
+      (v.layouts ?? []).forEach((l, i) => {
+        const t = v.tasks.find((x) => (x.status === 'open' || x.status === 'claimed') && x.detail.startsWith(`light_streets layout=${i + 1} `));
+        if (!l.lamps?.length || l.lit || !t) return;
+        want += Math.max(0, l.lamps.length - (t.status === 'claimed' && this.agents.has(t.claimedBy?.toLowerCase() ?? '') ? carries(t.claimedBy) : 0));
+        buildings++;
+      });
+      return { want, buildings };
+    }
+    for (const t of v.tasks) {
+      if (!/^Build /.test(t.title) || !(t.status === 'open' || (t.status === 'claimed' && this.drawn.get(`${v.name}:${t.id}`) !== t.claimedBy))) continue;
+      const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
+      const n = d ? designBill(d)[item] ?? 0 : 0;
+      if (!n) continue;
+      const builder = t.status === 'claimed' && this.agents.has(t.claimedBy?.toLowerCase() ?? '') ? t.claimedBy : undefined;
+      want += Math.max(0, n - carries(builder));
+      buildings++;
+    }
+    return { want, buildings };
   }
 
   private needsAt = new Map<string, number>();
@@ -287,7 +353,8 @@ export class MineflayerWorld implements WorldAdapter {
    * every building not claimed yet, beyond the made things the storage already holds (planks, a furnace); of every
    * claimed build whose builder has not drawn its stock yet, beyond what that builder carries (runJob walks to the site,
    * withdraws, and makes the furnace from storage cobblestone only after that: Van12a's storage hut was short exactly its
-   * furnace after miners took the cobblestone for pickaxes); and the pickaxe supply's cobblestone. A build that comes up
+   * furnace after miners took the cobblestone for pickaxes); the pickaxe supply's cobblestone; and the lamps' and signs'
+   * logs (S.4). A build that comes up
    * short goes back to open (requeueBuild) and is counted again.
    */
   storageReserve(v: Village): Counts {
@@ -314,6 +381,20 @@ export class MineflayerWorld implements WorldAdapter {
       const builder = this.agents.get(t.claimedBy?.toLowerCase() ?? '');
       add(this.materials.plan(b, (builder && heldCounts(builder)) ?? {}).gather);
     }
+    // The street lamps' and name signs' logs (S.4: they now run while miners make pickaxes from spare logs), as the cover
+    // rule counts them (a log a lamp, in a desert two sandstone a lamp in batches of 4 and a log for two lamps' torches; 2
+    // a sign job less the stored signs), while open or held and not drawn yet
+    const waiting = (t?: Task) => !!t && (t.status === 'open' || (t.status === 'claimed' && this.drawn.get(`${v.name}:${t.id}`) !== t.claimedBy));
+    let lamps = 0, signs = 0;
+    (v.layouts ?? []).forEach((l, i) => {
+      if (l.lamps?.length && !l.lit && waiting(v.tasks.find((t) => t.detail.startsWith(`light_streets layout=${i + 1} `)))) lamps += l.lamps.length;
+      if (!l.signed) signs += (l.signs ?? []).filter((s) => !s.up && !s.never && waiting(signTask(v, i + 1, s))).length;
+    });
+    const desert = v.vanillaBiome === 'desert';
+    if (desert && lamps) out.sandstone = (out.sandstone ?? 0) + Math.ceil((2 * lamps) / 4) * 4;
+    const stored = Object.entries(store).filter(([n]) => /_sign$/.test(n)).reduce((s, [, q]) => s + q, 0);
+    const tail = (desert ? Math.ceil(lamps / 2) : lamps) + 2 * Math.max(0, signs - stored);
+    if (tail) out[`${wood}_log`] = (out[`${wood}_log`] ?? 0) + tail;
     const draw = this.supplyDraw(v);
     if (draw) out.cobblestone = (out.cobblestone ?? 0) + draw;
     return out;
@@ -437,6 +518,13 @@ export class MineflayerWorld implements WorldAdapter {
       const n = a.bot.inventory.items().filter((it) => (v.wood ? it.name === item : norm(it.name.replace(/^\w+_log$/, 'logs')) === item)).reduce((s, it) => s + it.count, 0);
       carried.set(a.name.toLowerCase(), n);
       have[item] = (have[item] ?? 0) + n;
+    }
+    // The windows' maker holds their sand, glass and panes between its withdrawal and its deposit (S.3): counted, or the
+    // sand would be posted again "for the village" in that window
+    for (const t of v.tasks) {
+      const maker = t.status === 'claimed' && /^glass/.test(PARTS_MAKE.exec(t.title)?.[2] ?? '') ? this.agents.get(t.claimedBy?.toLowerCase() ?? '') : undefined;
+      const held = maker ? heldCounts(maker) : null;
+      if (held) for (const n of ['sand', 'glass', 'glass_pane']) if (held[n]) have[n] = (have[n] ?? 0) + held[n];
     }
     if (!v.wood)
       for (const n of Object.keys(have)) {

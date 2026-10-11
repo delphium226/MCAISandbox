@@ -13,7 +13,7 @@ import { storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { teleportHome } from './mcRescue';
-import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, villageHome } from '../village';
+import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, villageHome, type Village } from '../village';
 import {
   abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, unmoved, walk, wetAt, wetOver, wetSide,
@@ -302,7 +302,17 @@ export async function makePickaxe(a: BotAgent, signal: AbortSignal): Promise<voi
       console.log(`[pickaxe] ${a.name} could not make a stone pickaxe: ${(e as Error).message.slice(0, 160)}`);
     }
   }
-  await craft(a, { item: 'wooden_pickaxe', count: 1, wood: woodKind }, signal);
+  try {
+    await craft(a, { item: 'wooden_pickaxe', count: 1, wood: woodKind }, signal);
+  } catch (e) {
+    // The withdrawal of the "spare" kind can come back empty while the bot's view still shows it (the mining hut had just
+    // taken that kind's logs: Van12d/h's stairs digger failed at 1.6 and the mine opened late): logs of any kind, once
+    if ((e as Error).message === 'cancelled' || !/missing ingredients|cannot make/.test((e as Error).message)) throw e;
+    console.log(`[pickaxe] ${a.name} could not make a wooden pickaxe (${(e as Error).message.slice(0, 120)}); gathering logs and trying again`);
+    await syncInventory(a);
+    if ((bestPlanks(a)?.n ?? 0) < 5) await collect(a, { block: 'logs', count: 2 }, signal);
+    await craft(a, { item: 'wooden_pickaxe', count: 1, wood: bestPlanks(a)?.name.replace(/_planks$/, '') }, signal);
+  }
   console.log(`[pickaxe] ${a.name} made a wooden pickaxe (storage had ${stock.cobblestone ?? 0} cobblestone, ${reserved} reserved for buildings)`);
 }
 
@@ -1082,17 +1092,27 @@ async function placeNearby(a: BotAgent, item: string, signal: AbortSignal): Prom
  */
 export function villageStation(a: BotAgent, name: 'crafting_table' | 'furnace'): Block | null {
   const v = a.village();
-  const h = v?.storageHut;
-  const built = h && v.structures.find((s) => s.kind === STORAGE_HUT && s.x1 === h.x1 && s.z1 === h.z1);
-  if (!h || !built) return null;
-  const [dx, dz] = STORAGE_HUT_STATIONS[name];
-  const pos = new Vec3(h.x1 + dx, built.y + 1, h.z1 + dz);
+  const cell = v && villageStationCell(v, name);
+  if (!cell) return null;
+  const pos = new Vec3(cell.x, cell.y, cell.z);
   const me = a.bot.entity.position;
   // (64: a builder at the far corner of a 40x40 plot is ~50 blocks from the hut, and walks there to craft; buildings
   // after the hut bill no table or furnace of their own, #5)
   if (me.distanceTo(pos) > 64 || Math.abs(me.y - pos.y) > 4) return null;
   const b = a.bot.blockAt(pos);
   return b?.name === name ? b : null;
+}
+
+/**
+ * Where the village's table or furnace stands once its storage hut is built, by the hut's record alone (wherever the bot
+ * is: S.4's light_streets guard); null while the hut is not built.
+ */
+export function villageStationCell(v: Village, name: 'crafting_table' | 'furnace'): { x: number; y: number; z: number } | null {
+  const h = v.storageHut;
+  const built = h && v.structures.find((s) => s.kind === STORAGE_HUT && s.x1 === h.x1 && s.z1 === h.z1);
+  if (!h || !built) return null;
+  const [dx, dz] = STORAGE_HUT_STATIONS[name];
+  return { x: h.x1 + dx, y: built.y + 1, z: h.z1 + dz };
 }
 
 /**
@@ -1346,14 +1366,20 @@ const FUELS = ['coal', 'charcoal', 'coal_block'];
 
 /** Furnaces in use, by position: smelting at the village's furnace goes in turns. */
 const furnaceLocks = new Map<string, Promise<void>>();
-/** Who holds each furnace now (for the `[furnace]` wait line only). */
-const furnaceHolders = new Map<string, string>();
+/**
+ * Who holds each furnace now, under which action's signal and doing what (the `[furnace]` wait line says it). A holder's
+ * own nested smelt goes through (S.3: makeFromStock holds the furnace and calls smelt): keyed on the action's signal, not
+ * the agent's name, since a stopped agent's next action can start while the old one's finally still runs (lesson 111).
+ */
+const furnaceHolders = new Map<string, { who: string; signal: AbortSignal; what?: string }>();
 
 /** Wait until the furnace at `key` is free, then hold it; returns the release. */
-async function furnaceLock(key: string, signal: AbortSignal, who: string): Promise<() => void> {
+async function furnaceLock(key: string, signal: AbortSignal, who: string, what?: string): Promise<() => void> {
+  const holder = furnaceHolders.get(key);
+  if (holder?.signal === signal) return () => undefined;
   const waiting = furnaceLocks.get(key);
   const prev = waiting ?? Promise.resolve();
-  const heldBy = furnaceHolders.get(key) ?? 'a smelter about to start';
+  const heldBy = holder ? `${holder.who}${holder.what ? ` (${holder.what})` : ''}` : 'a smelter about to start';
   const t0 = Date.now();
   let release!: () => void;
   const mine = new Promise<void>((r) => (release = r));
@@ -1371,11 +1397,30 @@ async function furnaceLock(key: string, signal: AbortSignal, who: string): Promi
   }
   // S.0: how long smelters queue at the village's furnace
   if (waiting) console.log(`[furnace] ${who} waited ${((Date.now() - t0) / 1000).toFixed(1)}s held by ${heldBy}`);
-  furnaceHolders.set(key, who);
+  const mineHold = { who, signal, what };
+  furnaceHolders.set(key, mineHold);
   return () => {
-    if (furnaceHolders.get(key) === who) furnaceHolders.delete(key);
+    if (furnaceHolders.get(key) === mineHold) furnaceHolders.delete(key);
     release();
   };
+}
+
+/** Where smelters wait their turn: off the hut's aisle (7 blocks from the furnace), so they block no depositor. */
+const FURNACE_QUEUE = 7;
+
+/**
+ * Hold the village's furnace for a whole job (S.3: makeFromStock from its withdrawal to its last deposit, make_into_storage):
+ * walk near it, then wait for it; its own smelts go through. A no-op release where the village has no furnace yet.
+ * Decided by the hut's record, not by how far the bot is: a builder on a second layout 70 blocks off took no lock and
+ * raced the panes' maker for the pooled sand (S.3's review).
+ */
+export async function holdVillageFurnace(a: BotAgent, signal: AbortSignal, what?: string): Promise<() => void> {
+  const v = a.village();
+  const cell = v && villageStationCell(v, 'furnace');
+  if (!cell) return () => undefined;
+  const pos = new Vec3(cell.x, cell.y, cell.z);
+  await reach(a, pos.offset(0.5, 0, 0.5), FURNACE_QUEUE, signal);
+  return furnaceLock(at(pos), signal, a.name, what);
 }
 
 async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
@@ -1394,7 +1439,9 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
   const home = villageStation(a, 'furnace');
   // One smelter at a time at the village's furnace: two builders' inputs, fuel and glass got mixed up there
-  const release = home ? await furnaceLock(at(home.position), signal, a.name) : () => undefined;
+  // (taken near it, not before the walk: a smelter held the furnace while it walked from its site, S.0's waits)
+  if (home) await reach(a, home.position.offset(0.5, 0, 0.5), FURNACE_QUEUE, signal);
+  const release = home ? await furnaceLock(at(home.position), signal, a.name, `smelting ${count} ${input}`) : () => undefined;
   try {
     let furnaceBlock = home ?? nearestBlockNamed(a, 'furnace', STATION_REACH);
     if (!home && furnaceBlock && Math.abs(furnaceBlock.position.y - bot.entity.position.y) > 3) furnaceBlock = null;
@@ -1434,15 +1481,22 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       if (!furnace.fuelItem() && !(await addFuel(count))) throw new Error('no fuel: needs coal, charcoal, planks or logs');
       await furnace.putInput(inId, null, count);
       let got = 0;
+      let outName = '';
       const deadline = Date.now() + count * 11000 + 15000;
       while (got < count && Date.now() < deadline) {
         await sleep(2000 / timeScale(), signal);
         const out = furnace.outputItem();
-        if (out) got += (await furnace.takeOutput())?.count ?? 0;
+        if (out) {
+          const taken = await furnace.takeOutput();
+          got += taken?.count ?? 0;
+          outName ||= taken?.name ?? '';
+        }
         // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
         if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
         if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) throw new Error(`ran out of fuel after ${got} of ${count}`);
       }
+      // S.3: one line a batch (glass made once for the village: one "into glass" a run)
+      console.log(`[smelt] ${a.name} smelted ${got} ${input} into ${outName || 'nothing'} at ${at(furnaceBlock.position)}`);
       return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
     } finally {
       furnace.close();

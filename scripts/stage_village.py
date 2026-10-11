@@ -54,7 +54,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
-from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines  # noqa: E402
+from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines, tail_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
 TESTHUT = {
@@ -832,6 +832,51 @@ stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 clock, stamps, last_ok, complete_at = BusyClock(watched), BoardStamps(), {n: time.time() for n in watched}, None
 mine_stats = MineStats()
 stock_seen = [None, 0.0]
+# S.4's: the minutes the Mayor ran an action while it held a lamp or sign task (before completion)
+tail_busy = [0.0, None]
+TAIL_CALL = re.compile(r"^(light_streets|put_up_signs) ")
+
+
+def signs_waited(v):
+    """The signs completion waits for, as the server's signsMissing: each not recorded up whose own task is on the board and
+    not failed (a sign with no task, or a layout marked signed, is not waited on)."""
+    out = []
+    for i, lay in enumerate(v.get("layouts") or []):
+        if lay.get("signed"):
+            continue
+        for s in lay.get("signs") or []:
+            call_ = f"put_up_signs layout={i + 1} x={s['cx']} z={s['cz']} "
+            t = None if s.get("up") else next((t for t in v["tasks"] if t["detail"].startswith(call_)), None)
+            if t and t["status"] != "failed":
+                out.append(f"{t['title'][17:]} ({t['id']} {t['status']})")
+    return out
+
+
+def check_tail(v):
+    """At completion (S.4): every recorded sign read on the server by its text (data get, at its recorded height), and every
+    lamp's torch (lesson 50: lamps go up before the houses now, and a later build or walkway could break one)."""
+    n = up = 0
+    for i, lay in enumerate(v.get("layouts") or []):
+        for s in lay.get("signs") or []:
+            n += 1
+            got = rcon_fast(f"data get block {s['x']} {s['y']} {s['z']} front_text.messages") if s.get("y") is not None else ""
+            if all(json.dumps(x) in got for x in s["text"] if x) and "following block data" in got:
+                up += 1
+            else:
+                print(f"SIGN MISSING {s['building']} at {s['x']},{s.get('y', '?')},{s['z']} (layout {i + 1}; recorded up {s.get('up')}{', ' + s['why'] if s.get('why') else ''}): {got[:120]}", flush=True)
+    if n:
+        print(f"SIGNS {up}/{n} up (data get)", flush=True)
+    lamps = lit = 0
+    for lay in v.get("layouts") or []:
+        for c in lay.get("lamps") or []:
+            lamps += 1
+            plot = next((p for p in v.get("plots") or [] if p["x1"] <= c["x"] <= p["x2"] and p["z1"] <= c["z"] <= p["z2"]), None)
+            if plot and any("passed" in rcon_fast(f"execute if block {c['x']} {y} {c['z']} minecraft:torch").lower() for y in range(plot["y"] + 1, plot["y"] + 4)):
+                lit += 1
+            else:
+                print(f"LAMP MISSING at {c['x']},{c['z']}", flush=True)
+    if lamps:
+        print(f"LAMPS {lit}/{lamps} lit (rcon)", flush=True)
 
 
 def storage_totals(v):
@@ -908,11 +953,17 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
         print(f"{stamp()} BOARD {b}", flush=True)
     builds = [t for t in v["tasks"] if t["title"].startswith("Build ")]
     # (and the street lamps and signs, 10-06 and 10-08: the village is complete once they are up; a failed one is soft)
-    lamps = [t for t in v["tasks"] if t["title"].startswith(("Light the streets", "Put up the signs", "Plant the farm"))]
-    if builds and all(t["status"] == "done" for t in builds) and all(t["status"] in ("done", "failed") for t in lamps):
+    # (one sign task a building since S.4, "Put up the sign: house 2", and each sign recorded up unless its task failed)
+    lamps = [t for t in v["tasks"] if t["title"].startswith(("Light the streets", "Put up the sign", "Plant the farm"))]
+    mayor_tail = next((t for t in v["tasks"] if t["status"] == "claimed" and t.get("claimedBy") == "Mayor" and TAIL_CALL.match(t["detail"])), None)
+    if mayor_tail and (running.get("Mayor") or None) and tail_busy[1] is not None:
+        tail_busy[0] += min(30.0, time.time() - tail_busy[1]) / 60
+    tail_busy[1] = time.time()
+    if builds and all(t["status"] == "done" for t in builds) and all(t["status"] in ("done", "failed") for t in lamps) and not signs_waited(v):
         reason = "every building is done"
         complete_at = time.time()
         print(f"{stamp()} COMPLETE at {stamp().strip()}", flush=True)
+        check_tail(v)
     elif reason == "time limit" and time.time() - last_done > stall_minutes * 60:
         reason = f"stalled: no successful action for {stall_minutes:g} minutes"
 
@@ -1080,8 +1131,12 @@ print(f"RUN village={args.village} end={int(time.time() * 1000)}", flush=True)
 print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}){usage_suffix(u)}")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {(t.get('result') or '')[:120]}")
-for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at) + mine_stats.lines(v["tasks"], stamps):
+for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at) + mine_stats.lines(v["tasks"], stamps) + tail_lines(v["tasks"], stamps, t0):
     print(line)
+# (S.4: the Mayor's share of the tail, beside its gathering)
+mayor_done = [t for t in v["tasks"] if t["status"] == "done" and t.get("claimedBy") == "Mayor" and TAIL_CALL.match(t["detail"])]
+if "Mayor" in watched:
+    print(f"TAIL Mayor: finished {len(mayor_done)} lamp and sign tasks ({', '.join(t['id'] for t in mayor_done) or 'none'}), busy {tail_busy[0]:.1f} min holding them")
 storage = {}
 for c in (v.get("storage") or {}).get("chests", []):
     for k, q in c["items"].items():

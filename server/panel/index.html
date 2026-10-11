@@ -1143,7 +1143,11 @@ function villageLife(v) {
     } else items.push([`${cap(words(s.kind))} farm${site}`, `${s.planted || 0} planted`, s.harvests ? plural(s.harvests, 'harvest') : '']);
   }
   if (lay.lamps?.length) items.push([`Street lamps${site}`, lay.lit ? `${lay.lamps.length} lit` : `${lay.lamps.length} planned`, '']);
-  if (lay.signs?.length) items.push([`Name signs${site}`, lay.signed ? `${lay.signs.length} up` : `${lay.signs.length} planned`, '']);
+  // (each sign's own record since S.4; `signed` alone in villages from before)
+  if (lay.signs?.length) {
+    const up = lay.signed ? lay.signs.length : lay.signs.filter((s) => s.up).length;
+    items.push([`Name signs${site}`, up === lay.signs.length ? `${up} up` : up ? `${up} of ${lay.signs.length} up` : `${lay.signs.length} planned`, '']);
+  }
   });
   const made = v.mine?.ironMade || [];
   const tools = {};

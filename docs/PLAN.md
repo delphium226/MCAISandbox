@@ -1255,7 +1255,7 @@ Rules for every step:
     - Van12: cells per minute at least 1.7x ~~the 62 baseline~~ S.1's Van12d/e by `stage_village.py`'s `MINE rate` line (50 and 51, so **86 or more**; S.0's Van12b/c 60 and 53; Van12a's hand estimate of 62 is what the line gives for Van12a; older logs through `scripts/checks/mine_rate.py`), cobblestone task times 0.6-0.9 min (`MINE tasks`; Van12d/e 0.6-2.5, median 1.6), hand-backs counted and none repeated by one agent within the cooldown (`MINE hand-backs`, no REPEAT), no new `[stuck]` lines in the tunnels.
     - Prediction about 5.3 with S.1.
 
-- [ ] S.3 **Glass made once for the village** (~1 session). This is the first manufacturing task.
+- [x] S.3 **Glass made once for the village**: done 10-11 (s26), with S.4 (results below S.4). The windows are pooled (`[parts] code pooled the windows: 14 glass_pane for 3 buildings`), one worker makes 16 panes into storage (`make_into_storage`, 32 s), builders find them after the furnace queue. The plan was: **Glass made once for the village** (~1 session). This is the first manufacturing task.
   - `makeFromStock` takes the furnace lock itself before it withdraws anything, then reads storage again for the target item. Today `smelt` takes the lock (`mcSurvival.ts:1314-1316`) after `makeFromStock` has already withdrawn the sand (`mcBuild.ts:414-422`). `smelt` called alone takes the lock after its walk, not before (`:1316`, `:1327`).
   - `makeFromStock` also:
     - deposits by name, while still at the hut, any made parts beyond the build's own bill (panes, glass, doors, slabs, stairs);
@@ -1269,7 +1269,7 @@ Rules for every step:
     - no requeue for glass;
     - prediction about 4.6.
 
-- [ ] S.4 **The tail: lamps early, a sign per building** (~half a session).
+- [x] S.4 **The tail: lamps early, a sign per building**: done 10-11 (s26). Staged with S.3: **Van12h 4.8 min** (S.2's 6.1/6.1), **Van3f 5.4** (5.7-5.9 before): **12 agents now finish clearly ahead of 3** (the measure of goal 1). Signs go up as each building finishes, lamps in parallel. Open: the stairs digger's pickaxe failed at 1.6 again (the spare log kind taken by the mining hut just before); after the runs the wooden-pickaxe craft gathers logs of any kind and retries once (to confirm in S.5's runs). The plan was: **The tail: lamps early, a sign per building** (~half a session).
   - First, a fix: `ownGather` (`tieredBrain.ts:1009`) closes only gather tasks. Today it would mark a half-done lamp or sign job done at completion.
   - Lamps wait for the plot, storage and `villageStation('furnace')`, not for every build to be claimed.
     - Without the station gate, `light_streets` smelts charcoal through `makeFromStock`, which bills a furnace of its own while `villageStation` returns null (`mcBuild.ts:401-402`). That would cost 8 of the hut's cobblestone and put a furnace off the plot.
@@ -2448,6 +2448,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-10/11 (s26) | **Van3b, Van3c** | the same with 2 workers | 6/6 each | **5.7, 5.9 min** | 90%, 92% busy; critical path 9 tasks, 2.6-2.8 min of waiting for a claim |
 | 10-11 (s26) | **Van12d, Van12e, Van3d** | S.1 (contention fixes), the S.0 command | 6/6 each | **6.2, 6.1; 5.7 min** | 39% busy (12 agents); 1 failed each 12-agent run (the stairs' digger's pickaxe: wood kind, fixed after); supply of 4 stone pickaxes at 2.8-2.9; no shortfall; 7 face waits a run |
 | 10-11 (s26) | **Van12f, Van12g, Van3e** | S.2 (branch helpers, claim gate, per-miner counters), the S.0 command | 6/6 each | **6.1, 6.1; 5.8 min** | mine 82/81 cells/min (44 with 3), cobblestone tasks median 0.9 min, 0 busy hand-backs; 34-36% busy (12 agents) |
+| 10-11 (s26) | **Van12h, Van3f** | S.3 (glass once) and S.4 (lamps early, a sign per building), the S.0 command | 6/6 each | **4.8; 5.4 min** | 12 agents ahead of 3 for the first time; 16 panes made into storage at 4.4 (Van3f 4.1); 1 failed (the stairs digger's pickaxe at 1.6); 37% busy (12 agents) |
 
 ## Findings log
 

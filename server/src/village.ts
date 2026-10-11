@@ -194,16 +194,57 @@ export interface Task {
   tries: number;
   result?: string;
   updated: number;
-  /** Its Build prerequisites count as met once claimed (the street lamps go up while the last builds run, #4). */
+  /** Its Build prerequisites count as met once claimed (the street lamps of a layout with no storage hut, #4; S.4). */
   afterClaimed?: boolean;
-  /** Not claimable until then (ms): handed back because others hold what it needs (S.1). */
+  /** Not claimable until then (ms): handed back because others hold what it needs (S.1), or given up with tries left (S.4). */
   cooldown?: number;
+  /** How many give-ups mark it failed (default 2): a building's sign task has 4 (S.4). */
+  retries?: number;
+  /** When it was last claimed afresh (ms; the stage script's claim times, S.4). */
+  claimedAt?: number;
 }
 
 /** The soft pickaxe supply (S.1): stone pickaxes made into storage, so miners leave the builds' cobblestone alone. */
 export const PICK_SUPPLY = /^Make (\d+) stone_pickaxe into storage$/;
 /** Its own cobblestone, gathered first; never counted for a building or the village's needs. */
 export const PICK_GATHER = / for stone pickaxes$/;
+/**
+ * The village's parts made once (S.3): "Make 14 glass_pane into storage" (its detail adds the glass and the lamps' torches),
+ * smelted and crafted at the storage hut for every building's windows, its sand gathered once "for the windows".
+ */
+export const PARTS_MAKE = /^Make (\d+) (glass_pane|glass|torch) into storage$/;
+/** Code-posted tail work claimed before gathering (S.4): the pooled parts, the street lamps, the name signs. */
+export const TAIL_TASK = /^(make_into_storage|light_streets|put_up_signs) /;
+/** The label the pooled windows' sand is gathered for. */
+export const WINDOWS = 'the windows';
+/** Whether a village's glass or pane task is still to do or under way. */
+export const windowsMaking = (v: Village) => v.tasks.some((t) => (t.status === 'open' || t.status === 'claimed') && /^glass/.test(PARTS_MAKE.exec(t.title)?.[2] ?? ''));
+/** A building's own sign task's call (S.4: one task a building, by the centre build_design takes). */
+export const signCall = (layout: number, s: { cx: number; cz: number }) => `put_up_signs layout=${layout} x=${s.cx} z=${s.cz}`;
+/** That task on the board (its detail goes on with the prose after a space). */
+export const signTask = (v: Village, layout: number, s: { cx: number; cz: number }) => v.tasks.find((t) => t.detail.startsWith(`${signCall(layout, s)} `));
+/**
+ * How many tries a sign task gets in all: one failed for a passing reason (a stall, a short craft, data get) goes back on
+ * the board until then (S.4's review: four tries of passing failures let completion go without the sign).
+ */
+export const SIGN_TRIES = 10;
+/**
+ * The signs completion waits for (S.4): each sign not recorded up whose own task is on the board and has not failed for
+ * good (a sign that failed all SIGN_TRIES is never waited on: completion would be held for good), nor can never go up
+ * there (`never`: no wall, the cell taken). Layouts marked `signed` (all up, or a village from before S.4, one task for
+ * every sign) are skipped.
+ */
+export function signsMissing(v: Village): string[] {
+  const out: string[] = [];
+  (v.layouts ?? []).forEach((l, i) => {
+    if (l.signed) return;
+    for (const s of l.signs ?? []) {
+      const t = s.up || s.never ? undefined : signTask(v, i + 1, s);
+      if (t && (t.status !== 'failed' || t.tries < SIGN_TRIES)) out.push(`${t.title.replace(/^Put up the sign: /, '')} (${t.id} ${t.status})`);
+    }
+  });
+  return out;
+}
 /**
  * collect's answer when the only candidates left are the ones other gatherers are on their way to (S.1): not "none here",
  * so the task goes back for later and nothing is marked unavailable (sand closed for good while others held the last of it).
@@ -302,7 +343,8 @@ export interface Village {
   /** (`streets`: the street plan's streets, which prepare_site lays as dirt_path, V2.3.) */
   /** (`green`: the area a green village keeps free inside its ring street, V2.4) */
   /** (lamps: the street lamps' cells, `lit` once light_streets put them up; not structures: the plot covers them) */
-  /** (signs: each building's name sign, `signed` once put_up_signs put them all up; not structures either) */
+  /** (signs: each building's name sign, each `up` once put_up_signs checked it on the server, S.4; `signed` once all are,
+   * as before; not structures either) */
   layouts?: Array<Area & { buildings: string[]; streets?: Area[]; green?: Area; lamps?: Array<{ x: number; z: number }>; lit?: boolean; signs?: SignSpot[]; signed?: boolean;
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
     farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
@@ -478,11 +520,35 @@ export class VillageRegistry {
       return m && label ? { item: m[1], n: Number(m[2]), label } : null;
     };
     const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
-    // The street lamps' wood (a log a lamp, fences and charcoal for the torches, rounded up): they may go up while builds
-    // still draw on the storage (#4), so the logs covered for the builds leave it
-    // (while its task is open: once claimed, its holder has the wood or posts gathering for what is short)
-    const lampLogs = (v.layouts ?? []).reduce((s, l, i) => s + (l.lamps?.length && !l.lit && v.tasks.some((t) => t.status === 'open' && t.detail.startsWith(`light_streets layout=${i + 1} `)) ? l.lamps.length : 0), 0);
-    const wanted = new Map<string, number>(lampLogs ? [['logs', lampLogs]] : []);
+    // The windows made once (S.3): their sand counts as an unbuilt building's until the pane task is done (its own sand
+    // task was never closed as covered otherwise), and so does the log that fuels the smelting (6 a log, from storage;
+    // gathered on the first house with windows, and still reserved here once that house is built)
+    const windows = windowsMaking(v);
+    if (windows) unbuilt.add(WINDOWS);
+    const windowLogs = windows ? Math.ceil(v.tasks.reduce((s, t) => s + (gather(t)?.label === WINDOWS ? gather(t)!.n : 0), 0) / 6) : 0;
+    // The street lamps' wood (a log a lamp, fences and charcoal for the torches, rounded up): they go up while builds still
+    // draw on the storage (#4, S.4), so the logs covered for the builds leave it; and the name signs' (6 planks and a stick
+    // make 3, about 2 logs), less the signs storage holds. Open or held (S.4: held while houses still draw; counted twice
+    // for a while after the holder's withdraw, only conservative), but only open ones where buildings are moved between
+    // wood kinds below: a holder's drawn logs counted twice there would make the kind look short and move an open house
+    // to another and back (lesson 96, the check of S.4)
+    const live = (open: boolean, t?: Task) => t?.status === 'open' || (!open && t?.status === 'claimed');
+    const lampsOf = (open: boolean) => (v.layouts ?? []).reduce((s, l, i) => s + (l.lamps?.length && !l.lit && v.tasks.some((t) => live(open, t) && t.detail.startsWith(`light_streets layout=${i + 1} `)) ? l.lamps.length : 0), 0);
+    // (a desert lamp's post is two cut sandstone, from the sandstone the desert houses are built of: that is reserved
+    // instead, in batches of 4, and only the torches' wood, about a log for two, S.4's review)
+    const desert = v.vanillaBiome === 'desert';
+    const lampLogsOf = (open: boolean) => (desert ? Math.ceil(lampsOf(open) / 2) : lampsOf(open));
+    const lampSandstone = desert ? Math.ceil((2 * lampsOf(false)) / 4) * 4 : 0;
+    const storedSigns = chests.reduce((s, c) => s + Object.entries(c.items).filter(([n]) => /_sign$/.test(n)).reduce((q, [, k]) => q + k, 0), 0);
+    // (a job each: every one-building job crafts its own three and puts the spares back only at its end, so jobs running
+    // at once draw about 2 logs each, S.4's review)
+    const signLogsOf = (open: boolean) => {
+      const n = (v.layouts ?? []).reduce((s, l, i) => s + (l.signs ?? []).filter((g) => !g.up && !g.never && !l.signed && live(open, signTask(v, i + 1, g))).length, 0);
+      return 2 * Math.max(0, n - storedSigns);
+    };
+    const lampLogs = lampLogsOf(false) + signLogsOf(false), lampOpen = lampLogsOf(true) + signLogsOf(true);
+    const wanted = new Map<string, number>(lampLogs + windowLogs ? [['logs', lampLogs + windowLogs]] : []);
+    if (lampSandstone) wanted.set('sandstone', lampSandstone);
     // The pickaxe supply's cobblestone (3 a pickaxe), while open or held: its own gathering lands in the same chests, and a
     // house's cobblestone task closed against it came up short later (S.1). Held too, unlike the lamps: between the claim
     // and the withdraw the chests still hold it (counted twice after the withdraw, for half a minute: only conservative)
@@ -517,7 +583,8 @@ export class VillageRegistry {
       }
       const builds = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && need.get(t.title.slice(6)));
       const kindOf = (label: string) => v.woodFor?.[label] ?? wood;
-      const total = (k: string) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? lampLogs : 0);
+      // (`held`: the lamps' and signs' logs while held too, for the cover itself; the moves count only open ones, above)
+      const total = (k: string, held = false) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? (held ? lampLogs : lampOpen) + windowLogs : 0);
       let changed = false;
       for (const t of builds) {
         const label = t.title.slice(6), k = v.woodFor?.[label];
@@ -541,7 +608,7 @@ export class VillageRegistry {
       }
       if (changed) this.save();
       for (const t of builds) {
-        const label = t.title.slice(6), k = kindOf(label), have = pools.get(k) ?? 0, want = total(k);
+        const label = t.title.slice(6), k = kindOf(label), have = pools.get(k) ?? 0, want = total(k, true);
         logCover.set(label, have >= want ? `the storage already holds enough ${k}_log (${have}, for ${want} logs wanted by the buildings still to build in ${k})` : null);
       }
     }
@@ -566,8 +633,11 @@ export class VillageRegistry {
     let changed = false;
     const built = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status === 'done').map((t) => t.title.slice(6)));
     const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
+    const windows = windowsMaking(v);
     const ofBuilt = (t: Task) => {
       const label = t.soft && /^collect block=\S+ count=\d+, then deposit/.test(t.detail) ? / for (.+?)( \(\d+\/\d+\))?$/.exec(t.title)?.[1] : undefined;
+      // (the windows' sand once their pane task is over: S.3)
+      if (label === WINDOWS && !windows) return "the windows' pane task is over";
       return label && built.has(label) && !unbuilt.has(label) ? `${label} is built` : null;
     };
     for (const t of v.tasks) {
@@ -612,7 +682,11 @@ export class VillageRegistry {
           this.note(v, `${t.id} "${t.title}" may start: the storage covers what ${held.join(', ')} ${held.length > 1 ? 'are' : 'is'} still gathering`);
         }
       }
-    return ready;
+    // The village's parts, lamps and each built house's sign before gathering (S.4's review: in board order every ready
+    // gather task for a later house went first, and the signs waited for the end of the run); builds and other work keep
+    // their place ahead (a stable sort: board order within each)
+    const rank = (t: Task) => (TAIL_TASK.test(t.detail) ? 1 : t.soft && /^collect block=\S+ count=\d+, then deposit/.test(t.detail) ? 2 : 0);
+    return ready.sort((x, y) => rank(x) - rank(y));
   }
   private aheadNoted = new Set<string>();
 
@@ -633,11 +707,11 @@ export class VillageRegistry {
 
   /** Post tasks; `after` may name existing task ids or earlier tasks in the same batch by 0-based index. */
   /** Post tasks (at most `max` at once: a guard against models flooding the board; code posting a layout lifts it). */
-  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number>; soft?: boolean; afterClaimed?: boolean }>, by: string, max = 8): Task[] {
+  post(v: Village, tasks: Array<{ title: string; detail?: string; after?: Array<string | number>; soft?: boolean; afterClaimed?: boolean; retries?: number }>, by: string, max = 8): Task[] {
     const made: Task[] = [];
     for (const t of tasks.slice(0, max)) {
       const after = (t.after ?? []).map((a) => (typeof a === 'number' ? made[a]?.id : String(a))).filter((id): id is string => !!id && !!(this.task(v, id) ?? made.find((m) => m.id === id)));
-      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now(), ...(t.soft ? { soft: true } : {}), ...(t.afterClaimed ? { afterClaimed: true } : {}) };
+      const task: Task = { id: this.id('t'), title: String(t.title).slice(0, 120), detail: String(t.detail ?? '').slice(0, 400), status: 'open', postedBy: by, after, tries: 0, updated: Date.now(), ...(t.soft ? { soft: true } : {}), ...(t.afterClaimed ? { afterClaimed: true } : {}), ...(t.retries ? { retries: t.retries } : {}) };
       v.tasks.push(task);
       made.push(task);
     }
@@ -652,6 +726,7 @@ export class VillageRegistry {
     t.status = 'claimed';
     t.claimedBy = by;
     t.updated = Date.now();
+    if (fresh) t.claimedAt = t.updated;
     if (fresh) this.onClaim?.(v, t);
     // (after onClaim: the world reads the cooldown it ends, S.2)
     if (MINE_TASK.test(t.detail)) this.mineCool.delete(`${v.name}|${by}`);
@@ -719,16 +794,21 @@ export class VillageRegistry {
     this.save();
   }
 
-  /** Give a claimed task back; the second time it is marked failed so the mayor can rethink it. */
+  /**
+   * Give a claimed task back; the second time (or its `retries`th) it is marked failed so the mayor can rethink it. A task
+   * with more tries goes off the board for 30 s between them (S.4's signs: the idle worker that gave it up would take it
+   * again at once). (That cooldown is not S.1's "handed back as taken", which noneToGather reads: only collect tasks get that)
+   */
   giveUp(v: Village, id: string, by: string, why: string) {
     const t = this.task(v, id);
     if (!t || t.claimedBy !== by || t.status !== 'claimed') return;
     t.tries++;
-    t.status = t.tries >= 2 ? 'failed' : 'open';
+    t.status = t.tries >= (t.retries ?? 2) ? 'failed' : 'open';
     t.claimedBy = t.status === 'failed' ? by : undefined;
     t.result = why.slice(0, 300);
     t.updated = Date.now();
-    this.note(v, `${by} gave up ${t.id} "${t.title}"${t.status === 'failed' ? ' (failed)' : ''}: ${why.slice(0, 100)}`);
+    if (t.retries && t.status === 'open') t.cooldown = t.updated + 30000;
+    this.note(v, `${by} gave up ${t.id} "${t.title}"${t.status === 'failed' ? ' (failed)' : t.retries ? ` (back on the board, try ${t.tries + 1} of ${t.retries})` : ''}: ${why.slice(0, 100)}`);
   }
 
   /** Mark a claimed task failed at once (its work cannot be done here). */

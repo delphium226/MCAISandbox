@@ -31,9 +31,9 @@ import type { AgentBrain, AgentEvent, BrainStatus, ToolDef, WorldAgent } from '.
 import { STYLE_TOOL, capWalls, fitSmelts, generateDesign, normalizeStyle, type BuildingStyle } from './buildingGen';
 import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, LANDMARK_UNITS, LANDMARK_WALLS, elevations, lintDesign, MAX_SMELTS, designSystem, isLandmark, validateDesign } from './designs';
 import { STORAGE_HUT } from './huts';
-import { MINE_BUSY, PICK_GATHER, PICK_SUPPLY, SCOUT_RANGE, TAKEN_BY_OTHERS, VILLAGE_RANGE, layoutBuildings, villageHome, type Design, type Task, type Village } from './village';
+import { MINE_BUSY, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, SCOUT_RANGE, SIGN_TRIES, TAKEN_BY_OTHERS, VILLAGE_RANGE, layoutBuildings, signTask, signsMissing, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
-import { TaskBrain, taskCalls } from './taskBrain';
+import { TaskBrain, taskCalls, taskSkillNames } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, isCloudModel, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 
 const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
@@ -275,14 +275,19 @@ const scoutTasks = (v: Village) => v.tasks.filter((t) => t.postedBy === 'code' &
 /** How long scouting may hold the layout back, whatever happens to the scouts (a worker removed mid-task). */
 const SCOUT_DEADLINE_MS = 20 * 60000;
 
+/** A soft "Gather N item for ..." task, collect then deposit: what a waiting mayor gathers for, and closes as moot at completion. */
+export const isMayorGather = (t: Task) => !!t.soft && /^Gather \d+ /.test(t.title) && /^collect block=\S+ count=\d+, then deposit item=all/.test(t.detail);
+
 /**
- * The tasks a waiting mayor gathers for (V2.3m): soft "Gather N item for ..." tasks, collect then deposit (from the
- * layout, a short build and the village's needs), never builds, land, storage, the mine's stairs or scouting. Other
- * materials before cobblestone: the mine digs one tunnel per miner, and a third miner waits for a free one.
+ * The tasks a waiting mayor takes (V2.3m): gather tasks (from the layout, a short build and the village's needs), never
+ * builds, land, storage, the mine's stairs or scouting. Other materials before cobblestone: the mine digs one tunnel per
+ * miner, and a third miner waits for a free one. With no gather task ready, the street lamps and the name signs (S.4:
+ * code-posted, run as written; a hand-back mid-job leaves them to the next holder, posts and signs up counting as free)
  */
 export function mayorGatherPick(ready: Task[]): Task[] {
-  const gather = ready.filter((t) => t.soft && /^Gather \d+ /.test(t.title) && /^collect block=\S+ count=\d+, then deposit item=all/.test(t.detail));
+  const gather = ready.filter(isMayorGather);
   const stone = (t: Task) => /^collect block=cobblestone /.test(t.detail);
+  if (!gather.length) return ready.filter((t) => /^(light_streets|put_up_signs) /.test(t.detail));
   // (the farm's seeds in posting order, after the huts' gathering: taken first, they held the mining hut's logs back and
   // the whole build a minute with them, Minevale31)
   return [...gather.filter((t) => !stone(t)), ...gather.filter(stone)];
@@ -476,7 +481,7 @@ Follow the usual progression: wood -> crafting table -> wooden pickaxe -> stone 
 Keep the agent alive (food, night, monsters) and fit the role.`;
 
 /** Skills a mayor's plan step may not use: gathering, crafting, building and land work are for the workers. */
-const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|gather|attack|give|equip)\b/i;
+const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|make_into_storage|gather|attack|give|equip)\b/i;
 
 export const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your
@@ -1055,22 +1060,28 @@ export class TieredBrain implements AgentBrain {
     // Everything laid out is built and nothing is open, failed hard or waiting for a site: complete, whatever the mayor
     // last did (Accept16: it tried to re-post gathering when the last cottage was done, so the check after its "wait"
     // never ran, and nothing woke it again)
-    // (a gather task the mayor holds itself is moot then: closed as not needed)
-    const ownGather = (t: Task) => t.status === 'claimed' && t.claimedBy === a.name && t.id === this.gatherer.held;
+    // (a gather task the mayor holds itself is moot then: closed as not needed; not a lamp or sign job it holds, S.4, which
+    // is real work still to finish)
+    const ownGather = (t: Task) => t.status === 'claimed' && t.claimedBy === a.name && t.id === this.gatherer.held && isMayorGather(t);
     if (v && role === 'mayor' && laidOut && !v.complete && !v.unplaced?.length) {
       const builds = v.tasks.filter((t) => /^Build /.test(t.title));
       // The pickaxe supply (S.1) is moot once everything is built: never a reason to wait (it would hold completion for good
-      // when nobody takes it). Its gathering is closed even while held; the making, once under way, ends with its deposit
+      // when nobody takes it). Its gathering is closed even while held; the making, once under way, ends with its deposit.
+      // So is a parts task not begun (S.3's windows and torches: the lamps make their own then)
       if (builds.length && builds.every((t) => t.status === 'done'))
         for (const t of v.tasks)
-          if ((PICK_SUPPLY.test(t.title) && t.status === 'open') || (PICK_GATHER.test(t.title) && (t.status === 'open' || t.status === 'claimed'))) {
+          if (((PICK_SUPPLY.test(t.title) || PARTS_MAKE.test(t.title)) && t.status === 'open') || (PICK_GATHER.test(t.title) && (t.status === 'open' || t.status === 'claimed'))) {
             t.status = 'done';
             t.result = 'not needed: every building is built';
             t.updated = now;
             a.world.villages.note(v, `${t.id} "${t.title}" was not needed: every building is built`);
           }
-      if (builds.length && builds.every((t) => t.status === 'done') && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft) || ownGather(t))) {
+      // Every building's sign checked up (S.4): a sign task done with its sign not recorded up (a call without x and z, a
+      // sign broken since) goes back on the board, a try counted, failed for good once its tries are used up
+      const missing = builds.length && builds.every((t) => t.status === 'done') ? this.signsHeld(a, v, now) : [];
+      if (builds.length && builds.every((t) => t.status === 'done') && !missing.length && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft) || ownGather(t))) {
         if (this.gatherer.held) this.gatherer.handBack(a, 'not needed: every building is built', true);
+        this.signsLost(v);
         v.complete = true;
         a.world.villages.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
         a.pushEvent('system', 'The village is complete: every building you laid out is built (declared by code).');
@@ -1112,7 +1123,7 @@ export class TieredBrain implements AgentBrain {
       // plan would only be handed back again
       if (why && free) {
         const blocked = !!usage.blocked(PLAN.model);
-        const names = new Set(a.world.skills.map((t) => t.name));
+        const names = taskSkillNames(a.world);
         const next = a.world.villages.claimable(v!, a.name).find((t) => !blocked || exactCalls(t, names));
         if (next) {
           a.world.villages.claim(v!, next.id, a.name);
@@ -1152,7 +1163,7 @@ export class TieredBrain implements AgentBrain {
     // over (explore, try elsewhere), with the failure in its events.
     if (plan?.by === 'task' && idle && !urgentNow && plan.step < plan.steps.length) {
       const key = `${plan.taskId}:${plan.tick}:${plan.step}`;
-      const call = taskCalls(plan.steps[plan.step], new Set(a.world.skills.map((t) => t.name)))[0];
+      const call = taskCalls(plan.steps[plan.step], taskSkillNames(a.world))[0];
       if (call && !this.ranAsWritten.has(key)) {
         this.ranAsWritten.add(key);
         try {
@@ -1314,6 +1325,63 @@ export class TieredBrain implements AgentBrain {
       || (e.type === 'system' && /^(Took task|Handed back task) /.test(e.text))));
   }
 
+  /** The signs completion last waited for (said once a change). */
+  private signsSaid = '';
+
+  /**
+   * The signs completion waits for (S.4: signsMissing), after putting back every sign task done with its sign not recorded
+   * up (a call without x and z, a sign broken since): a try counted, failed for good once its tries are used up, so this
+   * never loops. A sign task that failed its tries for passing reasons goes back on the board too, until SIGN_TRIES.
+   */
+  private signsHeld(a: WorldAgent, v: Village, now: number): string[] {
+    const reg = a.world.villages;
+    let changed = false;
+    (v.layouts ?? []).forEach((l, i) => {
+      if (l.signed) return;
+      for (const s of l.signs ?? []) {
+        const t = s.up || s.never ? undefined : signTask(v, i + 1, s);
+        if (t?.status === 'failed' && t.tries < SIGN_TRIES) {
+          t.status = 'open';
+          t.claimedBy = undefined;
+          t.retries = Math.min(SIGN_TRIES, t.tries + 2);
+          t.cooldown = now + 30000;
+          t.updated = now;
+          reg.note(v, `${t.id} "${t.title}" is back on the board: its sign can still go up (${t.result?.slice(0, 80) ?? 'failed'})`);
+          console.log(`[signs] ${v.name}: ${t.id} "${t.title}" failed for a passing reason; back on the board (try ${t.tries + 1} of ${SIGN_TRIES})`);
+          changed = true;
+          continue;
+        }
+        if (!t || t.status !== 'done') continue;
+        t.tries++;
+        t.status = t.tries >= (t.retries ?? 2) ? 'failed' : 'open';
+        if (t.status === 'open') t.claimedBy = undefined;
+        t.result = `done, but its sign is not recorded up${s.why ? ` (${s.why})` : ''}`;
+        t.updated = now;
+        reg.note(v, `${t.id} "${t.title}" ${t.status === 'failed' ? 'failed' : 'is back on the board'}: done, but its sign is not recorded up`);
+        console.log(`[signs] ${v.name}: ${t.id} "${t.title}" was done without its sign up; ${t.status === 'failed' ? 'failed for good' : `back on the board (try ${t.tries + 1} of ${t.retries ?? 2})`}`);
+        changed = true;
+      }
+    });
+    if (changed) reg.save();
+    const missing = signsMissing(v);
+    if (missing.join('; ') !== this.signsSaid) {
+      this.signsSaid = missing.join('; ');
+      if (missing.length) console.log(`[signs] ${v.name}: completion waits for ${missing.length} sign${missing.length > 1 ? 's' : ''}: ${this.signsSaid}`);
+    }
+    return missing;
+  }
+
+  /** At completion, each sign that failed for good (S.4: completion goes without it). */
+  private signsLost(v: Village) {
+    (v.layouts ?? []).forEach((l, i) => {
+      for (const s of l.signs ?? []) {
+        const t = s.up ? undefined : signTask(v, i + 1, s);
+        if (t && s.never) console.log(`[signs] ${v.name}: complete without the sign of ${t.title.replace(/^Put up the sign: /, '')} (it cannot go up there: ${s.why ?? 'no reason recorded'})`);
+        else if (t?.status === 'failed') console.log(`[signs] ${v.name}: complete without the sign of ${t.title.replace(/^Put up the sign: /, '')} (failed: ${s.why ?? t.result ?? 'no reason recorded'})`);
+      }
+    });
+  }
+
   /**
    * What a mayor with a site and nothing laid out should do next (F155): repeat a refused plan_layout's advice for the
    * same site, else plan_layout with the library's names (layoutNow), else the old wording.
@@ -1365,7 +1433,7 @@ export class TieredBrain implements AgentBrain {
     if (task) user = `${user}\n\nYour task (already claimed) ${task.id}: ${task.title}: ${task.detail}\nPlan steps that fully accomplish it.`;
     // A task code posted (plan_layout, a short build) spells out its skill calls: they are the plan. The planner turned
     // "build_design cottage" into its own furnace-and-smelting recipe and failed the build twice
-    const calls = task ? exactCalls(task, new Set(a.world.skills.map((t) => t.name))) : null;
+    const calls = task ? exactCalls(task, taskSkillNames(a.world)) : null;
     if (task && role === 'worker' && calls) {
       const steps = calls.map((c) => `${c.type} ${Object.entries(c.args).map(([k, val]) => `${k}=${val}`).join(' ')}`);
       a.memory.plan = { goal: `${task.id}: ${task.title}`, steps, step: 0, by: 'task', tick: a.world.ticks, taskId: task.id } satisfies Plan;
@@ -1471,9 +1539,12 @@ export class TieredBrain implements AgentBrain {
         // Checked in code: gpt-oss once declared the village complete with nothing built
         // (the street lamps and signs too: the user's, 10-06 and 10-08, the village is complete once they are up; a failed
         // lamp or sign task is soft)
-        const open = v.tasks.filter((t) => (/^Build /.test(t.title) && t.status !== 'done') || (/^(Light the streets|Put up the signs|Plant the farm)/.test(t.title) && (t.status === 'open' || t.status === 'claimed')));
-        if (open.length || !v.structures.some((st) => st.kind !== 'storage') || v.unplaced?.length) {
-          const why = open.length ? `${open.map((t) => `${t.id} ${t.title} (${t.status})`).join('; ')} not done` : v.unplaced?.length ? '' : 'no building stands yet';
+        // (and every building's sign checked up, S.4)
+        const open = v.tasks.filter((t) => (/^Build /.test(t.title) && t.status !== 'done') || (/^(Light the streets|Put up the signs?|Plant the farm)/.test(t.title) && (t.status === 'open' || t.status === 'claimed')));
+        const signs = signsMissing(v).filter((s) => !open.some((t) => s.includes(`(${t.id} `)));
+        if (open.length || signs.length || !v.structures.some((st) => st.kind !== 'storage') || v.unplaced?.length) {
+          const why = open.length || signs.length ? [...open.map((t) => `${t.id} ${t.title} (${t.status})`), ...signs.map((s) => `the sign of ${s}`)].join('; ') + ' not done'
+            : v.unplaced?.length ? '' : 'no building stands yet';
           const unplaced = v.unplaced?.length ? `${why ? '; ' : ''}${v.unplaced.join(', ')} not laid out yet (find a second site, then plan_layout)` : '';
           a.pushEvent('system', `Not complete yet: ${why}${unplaced}. ${unplaced ? 'Do that now.' : 'Wait for the workers.'}`);
           continue;
@@ -1550,7 +1621,8 @@ export class TieredBrain implements AgentBrain {
       // (gpt-oss did this with a finished village), so code declares the objective met
       const builds = v ? v.tasks.filter((t) => /^Build /.test(t.title)) : [];
       if (v && !v.complete && !acted && builds.length && builds.every((t) => t.status === 'done') && !v.unplaced?.length
-        && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft))) {
+        && v.tasks.every((t) => t.status === 'done' || (t.status === 'failed' && t.soft)) && !signsMissing(v).length) {
+        this.signsLost(v);
         v.complete = true;
         reg.note(v, `declared complete by code: every building ${a.name} laid out is built (${builds.map((t) => t.title.slice(6)).join(', ')}) and nothing is open`);
         a.pushEvent('system', `The village is complete: every building you laid out is built (declared by code, as you waited).`);

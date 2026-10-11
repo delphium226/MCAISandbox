@@ -340,6 +340,12 @@ export interface SignSpot {
   building: string;
   cx: number;
   cz: number;
+  /** Put up and checked on the server (data get), at height `y`; else why the last try failed (S.4). */
+  up?: boolean;
+  y?: number;
+  why?: string;
+  /** It can never go up where planned (no wall, the cell taken by a block): completion does not wait for it. */
+  never?: boolean;
 }
 
 /** A building as its Build task places it: the design, the centre and build_design's quarter turns. */

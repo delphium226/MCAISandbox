@@ -6,9 +6,12 @@
  * latency or model mistakes. Tiered agents are for testing behaviour.
  */
 import { MINE_BUSY, TAKEN_BY_OTHERS, type Task } from './village';
-import type { AgentBrain, AgentEvent, WorldAgent } from './world';
+import type { AgentBrain, AgentEvent, WorldAdapter, WorldAgent } from './world';
 
 interface Call { type: string; args: Record<string, unknown> }
+
+/** The skills a code-posted task may name: the world's tools and its code-only task skills (S.3). */
+export const taskSkillNames = (w: Pick<WorldAdapter, 'skills' | 'taskSkills'>) => new Set([...w.skills.map((s) => s.name), ...(w.taskSkills ?? [])]);
 
 /** A task runner limited to some tasks (the mayor's gathering while it waits, V2.3m). */
 export interface TaskRunnerOptions {
@@ -87,7 +90,8 @@ export class TaskBrain implements AgentBrain {
     const v = a.village();
     const id = this.task;
     if (!id) return;
-    const item = /collect block=(\S+)/.exec(v?.tasks.find((t) => t.id === id)?.detail ?? '')?.[1];
+    const detail = v?.tasks.find((t) => t.id === id)?.detail ?? '';
+    const item = /collect block=(\S+)/.exec(detail)?.[1];
     this.reset();
     if (stop) a.stop();
     if (v && v.tasks.find((t) => t.id === id)?.claimedBy === a.name) {
@@ -98,6 +102,12 @@ export class TaskBrain implements AgentBrain {
     }
     a.pushEvent('system', `Handed back task ${id}: ${why.slice(0, 120)}`);
     if (item) this.depositCarried(a, item);
+    // A lamp or sign job stopped mid-way (the mayor's plan came, S.4): what it drew or made goes back by name, else the
+    // next holder finds the storage short while it sits here (lesson 112)
+    if (/^(light_streets|put_up_signs) /.test(detail)) {
+      const inv = a.observe(1).inventory ?? {};
+      for (const n of Object.keys(inv)) if ((inv[n] ?? 0) > 0 && /_(fence|sign|planks|log)$|^(torch|stick|charcoal)$/.test(n)) this.depositCarried(a, n);
+    }
   }
 
   private reset() {
@@ -207,7 +217,7 @@ export class TaskBrain implements AgentBrain {
       if (!next || !reg.claim(v, next.id, a.name)) return;
       this.task = next.id;
       this.fixes = 0;
-      this.calls = taskCalls(next.detail, new Set(a.world.skills.map((s) => s.name)));
+      this.calls = taskCalls(next.detail, taskSkillNames(a.world));
       a.pushEvent('system', `Took task ${next.id} ${next.title}: ${this.calls.map((c) => c.type).join(', ') || 'nothing to run'}`);
       if (!this.calls.length) return this.giveUp(a, 'the task names no skill calls a scripted worker can run');
     }

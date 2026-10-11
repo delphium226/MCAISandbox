@@ -140,7 +140,7 @@ export interface WorldAdapter {
    * in the village storage), and why it cannot be built here at all (materials not obtainable). Worlds without an
    * economy leave it out.
    */
-  materialTasks?(design: Design, label: string, wood?: string, stations?: boolean): {
+  materialTasks?(design: Design, label: string, wood?: string, stations?: boolean, without?: string[], extra?: Record<string, number>): {
     tasks: Array<{ title: string; detail: string }>;
     problems: string[];
     logs?: number;
@@ -148,6 +148,20 @@ export interface WorldAdapter {
     units?: number;
     smelts?: number;
   };
+  /**
+   * The windows of every building laid out (one design a placed copy), billed once for the village (S.3): their panes and
+   * glass, the sand for them rounded once (and what the buildings' own bills would gather), and the gather tasks for that
+   * sand ("for the windows"), and the logs their smelting burns (billed on the first building with windows). Null when no
+   * building has windows. Worlds without it bill each building's own.
+   */
+  sharedParts?(designs: Design[], wood?: string): {
+    panes: number; glass: number; sand: number; logs: number; separate: number;
+    /** The designs (by name) that have windows, and the placed copies that do. */
+    with: string[]; copies: number;
+    tasks: Array<{ title: string; detail: string }>;
+  } | null;
+  /** Skills code-posted tasks may name besides `skills`, never shown to a model (S.3: make_into_storage). */
+  taskSkills?: string[];
   /**
    * How many of the blocks `collect` would gather for each name lie within `range` blocks of x,z and no more than 16
    * below ground level y, counted up to the number wanted, in the ground agent `by` has loaded; null when that agent is

@@ -4,7 +4,7 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { areaText, layoutBuildings, overlaps, type Area, type FarmSlot, type Layout, type Village } from './village';
+import { areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -98,6 +98,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // house billed 8 cobblestone and a log for its own): only the storage hut bills them (its furnace is crafted at a
     // table before its own stands), and villages laid out before the hut existed; the mining hut needs none (planks only)
     const ownStations = (n: string) => n !== MINING_HUT && (!(withHut || v.storageHut) || n === STORAGE_HUT);
+    // The windows made once for the village (S.3), in the same villages: smelted and crafted at the hut by one worker
+    // for every building, their sand gathered once (14 panes are 6 sand, where each building's own bill made it 18); the
+    // budget and the wood checks still judge each building's whole bill. Only where the world can make them so
+    const pooled = economy && (withHut || !!v.storageHut) && !!w.sharedParts && !!w.taskSkills?.includes('make_into_storage');
     let wood = v.wood;
     if (!wood && economy && site.wood) {
       const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n, undefined, ownStations(n)).logs ?? 0), 0);
@@ -228,7 +232,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const nth = (v.layouts?.length ?? 0) + 1;
     // Materials found nowhere near the last site are looked for again (F96)
     delete v.unavailable;
-    const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean; afterClaimed?: boolean }> = [];
+    const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean; afterClaimed?: boolean; retries?: number }> = [];
     tasks.push({ title: `Prepare the village plot${nth > 1 ? ` ${nth}` : ''}`, detail: `prepare_site x=${lay.x} z=${lay.z} width=${lay.width} depth=${lay.depth} (level ground for ${placed.length} buildings and the streets between them${street ? '; it lays the streets as dirt_path' : ''})`, after: [] });
     // One storage for the village: a later layout waits for the storage task already posted
     const storageTask = v.tasks.find((t) => t.title === 'Set up the village storage' && t.status !== 'failed');
@@ -308,6 +312,40 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
       tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : []), ...seeds], soft: true });
     };
+    // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once the
+    // storage hut stands (S.4; builders' stand spots and doorways keep clear of them); made from what the storage holds
+    // then, gathering posted only if it falls short (as a build's). Soft; the village is complete once they are lit. Only
+    // where the world has the skill (not the sandbox). Placed before the buildings are posted: the windows' task makes
+    // their torches (S.3)
+    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
+    // The windows billed once (S.3): their sand posted early (gathered while the plot is prepared, as other sand), each
+    // building with windows waiting for it as it waited for its own
+    const windows = pooled ? w.sharedParts!(lay.places.filter((p) => p.name !== STORAGE_HUT).map((p) => v.designs[p.name]), wood) : null;
+    const windowSand: number[] = [];
+    if (windows) {
+      for (const t of windows.tasks) {
+        windowSand.push(tasks.length);
+        tasks.push({ ...t, after: [], soft: true });
+      }
+      const what = [windows.panes ? `${windows.panes} glass_pane` : '', windows.glass ? `${windows.glass} glass` : ''].filter(Boolean).join(' and ');
+      reg.note(v, `code pooled the windows: ${what} for ${windows.copies} buildings (${windows.sand} sand; ${windows.separate} billed one by one)`);
+      console.log(`[parts] code pooled the windows in ${v.name}: ${what} for ${windows.copies} buildings (${windows.sand} sand; ${windows.separate} billed one by one)`);
+    }
+    // Its making, posted right after the storage hut's build (before the houses: an idle worker starts the moment the hut
+    // stands; the houses' windows wait for it). Not the lamps' torches: off every build's path, they held one of two
+    // workers a minute ahead of the houses' gathering (S.3's review, lesson 91); the lamp job makes its own at the hut,
+    // its charcoal never stored. Soft; its detail names no design (missingDesigns would hold it)
+    let partsPosted = !windows;
+    const postParts = () => {
+      if (partsPosted || !windows) return;
+      partsPosted = true;
+      const calls = [windows.panes ? `make_into_storage item=glass_pane count=${windows.panes}` : '', windows.glass ? `make_into_storage item=glass count=${windows.glass}` : ''].filter(Boolean);
+      tasks.push({
+        title: `Make ${windows.panes || windows.glass} ${windows.panes ? 'glass_pane' : 'glass'} into storage`,
+        detail: `${calls.join(', then ')} (smelted at the storage hut's furnace and crafted at its table, put into storage by name for the windows)`,
+        after: [...(hutBuild !== undefined ? [hutBuild] : []), ...windowSand], soft: true,
+      });
+    };
     // Cobblestone is gathered in the mine once it is dug (a soft task: without it, outside as before)
     let dig: number | undefined;
     const copies = new Map<string, number>();
@@ -317,12 +355,20 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // The mining hut first (wood only), then the storage hut: their gathering and builds are claimed before the others'
     const first = (n: string) => (n === MINING_HUT ? 0 : n === STORAGE_HUT ? 1 : 2);
     const builds: number[] = [];
+    let fuelBilled = false;
+    // Each building's Build task and label by its centre (its sign task waits for it, S.4)
+    const buildOf = new Map<string, { build: number; label: string }>();
     for (const p of [...lay.places].sort((x, y) => first(x.name) - first(y.name))) {
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
       const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
       const gather: number[] = [];
-      for (const t of materials.get(p.name)?.tasks ?? []) {
+      // (the windows' sand left out of a building's own when billed once, S.3; the storage hut keeps its own; the first
+      // building with windows gathers the logs their smelting burns, billed nowhere else: S.3's review)
+      const fuel = windows && !fuelBilled && p.name !== STORAGE_HUT && windows.with.includes(v.designs[p.name].name) && windows.logs > 0;
+      if (fuel) fuelBilled = true;
+      const own = windows && p.name !== STORAGE_HUT ? w.materialTasks!(v.designs[p.name], '{label}', wood, ownStations(p.name), ['glass', 'glass_pane'], fuel ? { 'any:logs': windows.logs } : {}).tasks : materials.get(p.name)?.tasks ?? [];
+      for (const t of own) {
         gather.push(tasks.length);
         const stone = dig !== undefined && /^collect block=cobblestone /.test(t.detail);
         // Sand, dirt and the like are gathered while the plot is prepared (two agents idled there, the opportunities
@@ -335,28 +381,34 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (isHut) hutBuild = tasks.length;
       const build = tasks.length;
       builds.push(build);
+      buildOf.set(`${p.x},${p.z}`, { build, label });
       tasks.push({
         title: `Build ${label}`,
         detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
-        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && hutBuild !== undefined ? [hutBuild] : [])],
+        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && hutBuild !== undefined ? [hutBuild] : []),
+          ...(windows && p.name !== STORAGE_HUT && windows.with.includes(v.designs[p.name].name) ? windowSand : [])],
       });
       if (isMine) {
         dig = tasks.length;
         tasks.push({ title: 'Dig the village mine', detail: 'dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)', after: [build], soft: true });
       }
-      if (isHut) postFarm();
+      if (isHut) {
+        postParts();
+        postFarm();
+      }
     }
+    postParts();
     postFarm();
-    // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once every
-    // building of the layout stands (builders' stand spots and doorways keep clear of them, and builds come first on the
-    // storage); made from what the storage holds then, gathering posted only if it falls short (as a build's). Soft; the
-    // village is complete once they are lit. Only where the world has the skill (not the sandbox)
-    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
-    const lampTask = tasks.length;
+    // The lamps go up once the storage hut stands (S.4), not after the buildings: they stand outside every building's
+    // claim ring and door walkway in every street and green layout (checked offline), so a lamp is in no build's way. The
+    // hut's build is the stations' gate before S.5 (villageStation needs its record; without it the lamp job billed a
+    // furnace of its own). They do not wait for the windows' task (S.3's review: the lamps sat minutes behind the glass):
+    // the job's charcoal waits at the furnace's lock only while the panes are being made. A later layout whose hut stands waits for
+    // its plot; with no hut (loose chests), once every build is claimed, as before (the opportunities #4)
+    const hutGate = v.storageHut ? [...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : [])] : null;
     if (lamps.length)
-      // (once every build is claimed, not done: the lamps stand outside every building's claim ring and door walkway in
-      // every street and green layout, checked offline; the opportunities analysis #4)
-      tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`, after: [0, ...builds], soft: true, afterClaimed: true });
+      tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`,
+        after: [0, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
     // Farm slots (opportunistic farming, 10-08): up to two more 5x7 fields kept free beside the wheat field, for whatever
     // the agents find to farm once the village stands (mcWorld.ts farmChores); after the lamps and off them, so no lamp is
     // lost, a cell from the field and from each other. Nothing is built there until then (not structures: lesson 62)
@@ -373,13 +425,20 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (slots.length) reg.note(v, `${slots.length} farm slot${slots.length > 1 ? 's' : ''} kept free at ${slots.map((q) => areaText(q)).join(' and ')}`);
     }
     // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
-    // layout, put up once every building stands, after the lamps (both jobs stand by the storage hut and draw its wood:
-    // at once, the second to read the chests could come up short, the design review). Soft, as the lamps
+    // layout: one task a building, put up once its own build is done (S.4), and once the storage hut stands (a sign is a
+    // table recipe: the mining hut's, built first, would have made a table of its own, F59). Posted after the lamps (both
+    // draw the storage's wood: their logs are reserved, and a job that comes up short posts gathering as a build's). Soft;
+    // four tries, put back on the board up to SIGN_TRIES while the sign can still go up (completion waits for each sign
+    // until then, or until it is found unable to go up there, then goes without it)
     const signs = economy && w.skills.some((t) => t.name === 'put_up_signs')
       ? placeSigns(grids, lamps, lay.plot).filter((s): s is SignSpot => !!s)
       : [];
-    if (signs.length)
-      tasks.push({ title: `Put up the signs: ${signs.length} signs`, detail: `put_up_signs layout=${nth} (a name sign beside each building's door, made from the village storage)`, after: [0, ...builds, ...(lamps.length ? [lampTask] : [])], soft: true });
+    for (const s of signs) {
+      const b = buildOf.get(`${s.cx},${s.cz}`);
+      if (!b) continue;
+      tasks.push({ title: `Put up the sign: ${b.label}`, detail: `${signCall(nth, s)} (the ${b.label}'s name sign beside its door, made from the village storage)`,
+        after: [0, b.build, ...(hutBuild !== undefined && hutBuild !== b.build ? [hutBuild] : [])], soft: true, retries: 4 });
+    }
     if (wood && !v.wood) {
       v.wood = wood;
       reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);

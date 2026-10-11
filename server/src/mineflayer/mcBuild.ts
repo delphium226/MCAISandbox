@@ -17,16 +17,17 @@ import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
-import { FARM_TRIP_RANGE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, villageHome } from '../village';
+import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, signCall, signTask, villageHome } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
-import { holdsSign } from '../streetPlan';
+import { holdsSign, type SignSpot } from '../streetPlan';
+import { STORAGE_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
-import { SURVIVAL_SKILLS, STATION_REACH, villageStation } from './mcSurvival';
-import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
+import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, villageStation, villageStationCell } from './mcSurvival';
+import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG } from './mcBlocks';
@@ -407,9 +408,47 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
  * Make what is short from what is in hand and in the village storage: gatherers bring raw materials, the builder crafts
  * planks, doors and slabs and smelts glass (with a crafting table and a furnace, made too if there are none). Returns
  * what was made, or null when something still has to be gathered.
+ *
+ * Anything to smelt at the village's furnace holds it for the whole job (S.3), taken before the storage is read: a
+ * builder that queued behind another's glass finds the made panes in storage and takes them (not with `noStockPick`:
+ * make_into_storage nets the storage out itself), and the panes, doors, slabs and stairs made beyond `need` go into
+ * storage by name before the furnace is let go (not with `surplus` false).
  */
-async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal): Promise<string | null> {
+async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
+  opts: { what?: string; noStockPick?: boolean; surplus?: boolean } = {}): Promise<string | null> {
   const v = a.village();
+  short = { ...short };
+  // (by the hut's record, wherever the builder stands: a far builder that took no lock raced the panes' maker, S.3's review)
+  const smelts = !!v && !!villageStationCell(v, 'furnace') && a.world.materials.plan(short, {}).fuel.smelts > 0;
+  // (the walk to the hut before the wait, then the lock: released in the finally, a stopped action sends no report)
+  const release = smelts ? await holdVillageFurnace(a, signal, `making ${listCounts(short)}${opts.what ? ` for ${opts.what}` : ''}`) : () => undefined;
+  try {
+    let found: Counts = {};
+    if (smelts && v && !opts.noStockPick) {
+      // Made by another agent while this one queued (a maker's batch, a builder's surplus)
+      const now = storageContents(v);
+      const pick: Counts = {};
+      for (const [n, q] of Object.entries(short)) if ((now[n] ?? 0) > 0) pick[n] = Math.min(q, now[n]);
+      if (Object.keys(pick).length) {
+        found = (await withdrawItems(a, v, pick, signal)).got;
+        for (const [n, q] of Object.entries(found)) if (short[n] !== undefined && (short[n] -= q) <= 0) delete short[n];
+        if (Object.keys(found).length) console.log(`[furnace] ${a.name} found ${listCounts(found)} in storage after the queue; not made again`);
+      }
+      if (!Object.keys(short).length) return `took ${listCounts(found)} from storage (made by another agent)`;
+    }
+    const made = await makeHeld(a, v, need, short, back, signal, { ...opts, held: smelts });
+    return made ?? (Object.keys(found).length ? `took ${listCounts(found)} from storage (made by another agent)` : null);
+  } finally {
+    release();
+  }
+}
+
+/** Panes, glass, doors, slabs and stairs made in batches: what a build leaves over goes into storage (S.3). */
+const SURPLUS_PART = /^glass(_pane)?$|_(door|slab|stairs)$/;
+
+async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
+  opts: { what?: string; surplus?: boolean; held?: boolean }): Promise<string | null> {
+  // (read after the furnace is held: another agent's withdrawals and deposits while this one queued)
   const store = v ? storageContents(v) : {};
   const carried = inventoryCounts(a);
   // What is on hand beyond the building's own blocks (the cobblestone carried for the floor is not furnace material)
@@ -419,7 +458,8 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   const near = (n: string) => {
     const p = a.bot.entity.position;
     if ((n === 'crafting_table' || n === 'furnace') && villageStation(a, n)) return true;
-    return !!a.bot.findBlock({ matching: a.world.registry.blocksByName[n].id, maxDistance: STATION_REACH, useExtraInfo: (b) => Math.abs(b.position.y - p.y) <= 3 });
+    // (state ids read directly, not findBlock: lesson 53)
+    return nearestBlocks(a, [a.world.registry.blocksByName[n].id], STATION_REACH, 4).some((b) => Math.abs(b.y - p.y) <= 3);
   };
   // Only what can be made here: glass with no sand in reach must not stop the door and the chest being made (the
   // builder then leaves the windows open)
@@ -430,8 +470,14 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   }
   if (!Object.keys(bill).length) return null;
   let plan = a.world.materials.plan(bill, other);
-  if (plan.fuel.smelts && !other.furnace && !near('furnace')) bill.furnace = (bill.furnace ?? 0) + 1;
-  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) bill.crafting_table = (bill.crafting_table ?? 0) + 1;
+  const stations: string[] = [];
+  if (plan.fuel.smelts && !other.furnace && !near('furnace')) stations.push('furnace');
+  if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !other.crafting_table && !near('crafting_table')) stations.push('crafting_table');
+  for (const n of stations) {
+    bill[n] = (bill[n] ?? 0) + 1;
+    // (S.4's proof: no lamp or sign job makes a station of its own)
+    console.log(`[station] ${a.name} bills a ${n} for ${opts.what ?? 'its job'}: no village station in reach`);
+  }
   plan = a.world.materials.plan(bill, other);
   if (Object.keys(plan.gather).length || plan.problems.length) return null;
   // Ingredients kept in storage come to hand first
@@ -451,10 +497,14 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   // A furnace or table kept in the storage comes along too (it was counted as there, then smelting found none)
   if (plan.fuel.smelts && !near('furnace') && !carried.furnace && store.furnace) fetch.furnace = 1;
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !near('crafting_table') && !carried.crafting_table && store.crafting_table) fetch.crafting_table = 1;
+  // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
+  // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
+  const atHut = !!v?.storageHut && (!!opts.held || (!!villageStation(a, 'crafting_table') && (!plan.fuel.smelts || !!villageStation(a, 'furnace'))));
   if (v && Object.keys(fetch).length) {
     await withdrawItems(a, v, fetch, signal);
-    // Craft at the site, where the table and furnace were looked for
-    await back();
+    // Craft at the site, where the table and furnace were looked for (not when they are the hut's: the walk there and
+    // back to the hut held the furnace, S.3)
+    if (!atHut) await back();
   }
   // The table and the furnace first (smelting does not depend on the furnace in the recipe chain)
   // (but after the planks and sticks, which need no station: sorted ahead of the "any planks" step that makes its own
@@ -495,7 +545,37 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
     }
     made.push(`${st.do === 'smelt' ? 'smelted' : 'crafted'} ${st.makes} ${st.item.replace(/^any:/, '')}`);
   }
-  return made.length ? `made from storage: ${made.join(', ')}` : null;
+  // What a batch made beyond the job's own blocks (16 panes for 3) goes into storage while still at the hut, by name
+  // (deposit all leaves no tool out, but a later "all" may never come: lesson 112)
+  if (v && atHut && opts.surplus !== false) {
+    const parts = [...new Set(steps.filter((st) => st.do === 'craft' && SURPLUS_PART.test(st.item)).map((st) => st.item))];
+    if (parts.length) made.push(await depositSurplus(a, v, need, parts, opts.what ?? 'the job', signal));
+  }
+  return made.length ? `made from storage: ${made.filter(Boolean).join(', ')}` : null;
+}
+
+/**
+ * Made parts carried beyond `need` (the server's counts, lesson 13) go into storage by name, except one the agent's own
+ * claimed gather task names (lesson 64). No chest is crafted for them from the carried wood (a builder's wall planks: the
+ * misc chest takes them instead). Returns what was put in, or '' (a failed deposit is logged and leaves the build alone).
+ */
+async function depositSurplus(a: BotAgent, v: Village, need: Counts, parts: string[], what: string, signal: AbortSignal): Promise<string> {
+  const mine = (n: string) => v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name && new RegExp(`collect block=${n}\\b`).test(t.detail));
+  const carried = await carriedCounts(a, parts);
+  const put: string[] = [];
+  for (const n of parts) {
+    const q = (carried[n] ?? 0) - (need[n] ?? 0);
+    if (q <= 0 || mine(n)) continue;
+    try {
+      await STORAGE_SKILLS.deposit.run(a, { item: n, count: q, keep_wood: true }, signal);
+      console.log(`[parts] ${a.name} deposited ${q} ${n} beyond ${what}'s ${need[n] ?? 0} (storage now ${storageContents(v)[n] ?? 0})`);
+      put.push(`${q} ${n}`);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled' || unmoved(e)) throw e;
+      console.log(`[parts] ${a.name} could not deposit ${q} ${n} beyond ${what}'s ${need[n] ?? 0}: ${(e as Error).message.slice(0, 120)}`);
+    }
+  }
+  return put.length ? `put ${put.join(', ')} left over into storage` : '';
 }
 
 /** Players (bots and people, not spectators) whose body overlaps the column of `n` cells from `pos` up. */
@@ -697,7 +777,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
           const short: Counts = {};
           for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) short[n] = q - (inv[n] ?? 0);
           // A crafting step that fails (one log fewer than counted) falls through to the shortage below and the requeue
-          const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal).catch((e: Error) => {
+          const made = await makeFromStock(a, need, short, () => standBy(a, job, signal), signal, { what: job.what ?? job.design }).catch((e: Error) => {
             // (a stall that did not move the bot fails the build now, so the rescue comes soon: F146)
             if (e.message === 'cancelled' || unmoved(e)) throw e;
             notes.push(e.message);
@@ -726,6 +806,30 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         .map(([key, parts]) => `${parts.map((p) => (parts.length > 1 ? `${p.n} ${p.kind}` : p.kind)).join(' + ')} for the ${key.replace(/_/g, ' ')}`);
       if (swapped.length) notes.push(`built with ${swapped.join(', ')}`);
       if (why) {
+        let left: Counts = {};
+        for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
+        // Short only of glass while the village's panes are being made (S.3): wait for their maker at the furnace (it holds
+        // it until they are in storage), then take them; the windows stay open only if they are still missing then
+        const maker = v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy !== a.name && /^glass/.test(PARTS_MAKE.exec(t.title)?.[2] ?? ''));
+        if (v && maker && Object.keys(left).every((n) => /^glass(_pane)?$/.test(n))) {
+          const t0 = Date.now();
+          const release = await holdVillageFurnace(a, signal, `waiting for ${maker.claimedBy}'s ${listCounts(left)}`);
+          let got: Counts = {};
+          try {
+            got = (await withdrawItems(a, v, left, signal)).got;
+          } finally {
+            release();
+          }
+          console.log(`[parts] ${a.name} waited ${((Date.now() - t0) / 1000).toFixed(1)}s for ${maker.claimedBy}'s ${PARTS_MAKE.exec(maker.title)!.slice(1, 3).join(' ')} and took ${listCounts(got) || 'none'} for ${job.what ?? job.design ?? 'its build'}`);
+          if (Object.keys(got).length) notes.push(`took ${listCounts(got)} from storage, made by ${maker.claimedBy}`);
+          await standBy(a, job, signal);
+          inv = await carriedCounts(a, Object.keys(need));
+          left = {};
+          for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
+          why = shortage(a, job.what ?? 'this', need, { ...inventoryCounts(a), ...inv }, storageContents(v));
+        }
+      }
+      if (why) {
         const left: Counts = {};
         for (const [n, q] of Object.entries(need)) if ((inv[n] ?? 0) < q) left[n] = q - (inv[n] ?? 0);
         logShortfall(a, v, job.what ?? job.design ?? 'this', need, inv, left);
@@ -736,9 +840,9 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         } else throw new Error(why + (makeError ? ` (making them here failed: ${makeError})` : '') + (await requeueBuild(a, job, need, left, signal)));
       }
       // Everything it needs is in hand: the storage reserve stops counting this build (S.1; until now its furnace's
-      // cobblestone in the chests was still the build's)
-      const held = v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name && /^Build /.test(t.title)
-        && (job.task ? t.detail === job.task || t.detail.startsWith(`${job.task} `) : !!job.design && t.detail.includes(`build_design "${job.design}"`)));
+      // cobblestone in the chests was still the build's), or this lamp or sign job (S.4)
+      const held = v?.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name
+        && (job.task ? t.detail === job.task || t.detail.startsWith(`${job.task} `) : /^Build /.test(t.title) && !!job.design && t.detail.includes(`build_design "${job.design}"`)));
       if (v && held) a.world.markDrawn(v, held.id, a.name);
     }
     // Merge vertical runs of one block in one column into a single /fill; `item` is what placing it costs
@@ -1898,6 +2002,9 @@ async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: 
   const k = Math.floor(num(args.layout, 'layout'));
   const lay = v.layouts?.[k - 1];
   if (!lay?.lamps?.length) throw new Error(`light_streets: layout ${k} has no street lamps`);
+  // (the board has it wait for the hut's build, S.4; by the record, wherever the bot stands: without the hut's furnace the
+  // job billed one of its own, 8 of the hut's cobblestone and a furnace off the plot)
+  if (v.storageHut && !villageStationCell(v, 'furnace')) throw new Error("light_streets: the storage hut's furnace is not there yet");
   const desert = v.vanillaBiome === 'desert';
   const post = desert ? ['cut_sandstone', 'cut_sandstone'] : [`${v.wood ?? 'oak'}_fence`];
   const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
@@ -1954,8 +2061,12 @@ const signNbt = (text: string[]) => `{front_text:{messages:[${[0, 1, 2, 3].map((
 /**
  * The name signs of a village layout (10-08, the user's): a wall sign of the village's wood beside each building's door,
  * at the cells plan_layout chose (placeSigns), charged like any build and made at the storage hut's table (6 planks and a
- * stick make 3). A building not built yet, a wall that is not there or a cell taken is skipped. Checked after on the
- * server (data get): a missing sign is set once more, wrong text is written again (free: text is no item).
+ * stick make 3). With x and z, only the sign of the building build_design centres there (S.4: one task a building, after
+ * its own build); without, every sign of the layout (boards from before). A building not built yet, a wall that is not
+ * there or a cell taken is skipped. Checked after on the server (data get): a missing sign is set once more, wrong text is
+ * written again (free: text is no item). Each sign's record says whether it is up; one building's job fails unless its
+ * sign is, so "done" means checked up, or recorded as never able to go up there (no wall, the cell taken: `never`).
+ * Spare signs go into storage by name for the next building's job.
  */
 async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -1963,37 +2074,70 @@ async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const k = Math.floor(num(args.layout, 'layout'));
   const lay = v.layouts?.[k - 1];
   if (!lay?.signs?.length) throw new Error(`put_up_signs: layout ${k} has no signs`);
+  const one = args.x !== undefined;
+  const [bx, bz] = one ? [Math.floor(num(args.x, 'x')), Math.floor(num(args.z, 'z'))] : [0, 0];
+  const mine = one ? lay.signs.filter((s) => s.cx === bx && s.cz === bz) : lay.signs;
+  if (!mine.length) throw new Error(`put_up_signs: layout ${k} has no sign for the building at ${bx},${bz}`);
+  // (a sign is a table recipe: the board has it wait for the hut's build, S.4; checked by the record, as light_streets)
+  if (v.storageHut && !villageStationCell(v, 'crafting_table')) throw new Error("put_up_signs: the storage hut's crafting table is not there yet");
+  const label = (s: SignSpot) => signTask(v, k, s)?.title.replace(/^Put up the sign: /, '') ?? s.building;
   const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
   const step: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
   const targets: Target[] = [];
   const skipped: string[] = [];
   let y0 = 0;
-  for (const s of lay.signs) {
+  for (const s of mine) {
     const built = v.structures.find((t) => t.kind === s.building && s.cx >= t.x1 && s.cx <= t.x2 && s.cz >= t.z1 && s.cz <= t.z2);
     if (!built) {
       skipped.push(`${s.building}'s (not built)`);
+      s.why = 'its building is not built';
       continue;
     }
     y0 = built.y;
     const y = built.y + s.layer;
     const [ox, oz] = step[s.facing];
-    const wall = blockName(a, s.x - ox, y, s.z - oz), cell = blockName(a, s.x, y, s.z);
+    let wall = blockName(a, s.x - ox, y, s.z - oz), cell = blockName(a, s.x, y, s.z);
+    // (not loaded from where the bot stands, a worker back from a far trip: walk near and read again rather than spend one
+    // of the task's tries, S.4's review)
+    if (wall === null || cell === null) {
+      await reach(a, new Vec3(s.x + 0.5, y, s.z + 0.5), 24, signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+      });
+      wall = blockName(a, s.x - ox, y, s.z - oz);
+      cell = blockName(a, s.x, y, s.z);
+    }
     // (a sign already there, of any wood: an earlier try, the village's wood short then)
     if (wall === null || cell === null || !holdsSign(wall) || !(plant(cell) || woodPart(cell)?.part === 'wall_sign')) {
-      skipped.push(`${s.building}'s at ${s.x},${y},${s.z} (${wall === null || cell === null ? 'not loaded' : !holdsSign(wall) ? `no wall: ${wall}` : `taken: ${cell}`})`);
+      const why = wall === null || cell === null ? 'not loaded' : !holdsSign(wall) ? `no wall: ${wall}` : `taken: ${cell}`;
+      skipped.push(`${s.building}'s at ${s.x},${y},${s.z} (${why})`);
+      s.why = why;
+      // No wall (a window left open without sand) or a block in the cell, with the building built: it can never go up there,
+      // and completion does not wait for it (four tries of the same failure held it ~2 min, S.4's review)
+      if (wall !== null && cell !== null) s.never = true;
       continue;
     }
+    delete s.never;
     targets.push({ x: s.x, y, z: s.z, block: `${v.wood ?? 'oak'}_wall_sign[facing=${s.facing}]`, nbt: signNbt(s.text) });
   }
-  if (!targets.length) throw new Error(`put_up_signs: no sign could be put up (${skipped.join('; ')})`);
+  if (!targets.length) {
+    a.world.villages.save();
+    // (one building's sign that can never go up is done with, as the layout-wide job skipped it)
+    if (one && mine.every((s) => s.never)) {
+      console.log(`[signs] ${a.name}: the ${label(mine[0])} sign cannot go up (${skipped.join('; ')}); completion does not wait for it`);
+      return `no sign put up: it cannot go up there (skipped ${skipped.join('; ')})`;
+    }
+    throw new Error(`put_up_signs: no sign could be put up (${skipped.join('; ')})`);
+  }
   const h = v.storageHut;
   const xs = targets.map((t) => t.x), zs = targets.map((t) => t.z);
   const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: Math.min(...xs), z1: Math.min(...zs), x2: Math.max(...xs), z2: Math.max(...zs) };
-  const job: Job = { targets, area, y: y0, what: 'the signs', task: `put_up_signs layout=${k}` };
+  // (the task's own call, so a short job's requeue finds exactly this building's task)
+  const job: Job = { targets, area, y: y0, what: 'the signs', task: one ? signCall(k, { cx: bx, cz: bz }) : `put_up_signs layout=${k}` };
   let out = await runJob(a, job, signal);
   // Checked on the server by its text (R.3; the bot's view of a block entity can lag)
   const text = async (t: Target) => (await a.world.rcon.command(`data get block ${t.x} ${t.y} ${t.z} front_text.messages`).catch(() => '')).replace(/^.*following block data: /s, '').trim();
-  const want = (t: Target) => `[${[0, 1, 2, 3].map((i) => JSON.stringify(lay.signs!.find((s) => s.x === t.x && s.z === t.z)?.text[i] ?? '')).join(', ')}]`;
+  const signAt = (t: Target) => lay.signs!.find((s) => s.x === t.x && s.z === t.z);
+  const want = (t: Target) => `[${[0, 1, 2, 3].map((i) => JSON.stringify(signAt(t)?.text[i] ?? '')).join(', ')}]`;
   await sleep(1000, signal);
   const missing: Target[] = [];
   for (const t of targets) {
@@ -2005,10 +2149,38 @@ async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: Ab
   if (missing.length) out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
   await sleep(1000, signal);
   let up = 0;
-  for (const t of targets) if ((await text(t)).replace(/\s+/g, '') === want(t).replace(/\s+/g, '')) up++;
-  lay.signed = up === lay.signs.length;
+  for (const t of targets) {
+    const s = signAt(t)!;
+    s.up = (await text(t)).replace(/\s+/g, '') === want(t).replace(/\s+/g, '');
+    s.y = t.y;
+    if (s.up) {
+      up++;
+      delete s.why;
+    } else s.why = 'not there or wrong text after two tries (data get)';
+  }
+  lay.signed = lay.signs.every((s) => s.up);
   a.world.villages.save();
-  return `put up ${up} sign${up === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}: ${out}`;
+  // The rest of a craft's three into storage by name (a later "all" may never come: lessons 64 and 112)
+  const spare = await carriedCounts(a, [...new Set(a.bot.inventory.items().map((it) => it.name).filter((n) => /_sign$/.test(n)))]);
+  let deposited = 0;
+  for (const [n, q] of Object.entries(spare)) {
+    if (q <= 0) continue;
+    const ok = await STORAGE_SKILLS.deposit.run(a, { item: n, count: q }, signal).then(() => true, (e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return false;
+    });
+    if (ok) deposited += q;
+  }
+  // (S.4's proof: each sign by its building's end)
+  for (const t of targets) {
+    const s = signAt(t)!;
+    const build = v.tasks.find((b) => /^Build /.test(b.title) && b.status === 'done' && b.detail.includes(`" x=${s.cx} z=${s.cz} `));
+    const lag = build ? `${((Date.now() - build.updated) / 60000).toFixed(1)} min after its build` : 'its build not on the board';
+    console.log(`[signs] ${a.name}: the ${label(s)} sign ${s.up ? 'up' : 'NOT up'} at ${t.x},${t.y},${t.z} (data get ${s.up ? 'ok' : 'failed'}), ${lag}; ${deposited} spare deposited`);
+  }
+  const result = `put up ${up} sign${up === 1 ? '' : 's'}${skipped.length ? ` (skipped ${skipped.join('; ')})` : ''}${deposited ? `; ${deposited} spare put into storage` : ''}: ${out}`;
+  if (one && !mine.every((s) => s.up || s.never)) throw new Error(`put_up_signs: the ${label(mine[0])} sign is not up: ${mine.map((s) => s.why).filter(Boolean).join('; ') || result}`);
+  return result;
 }
 
 /**
@@ -3317,7 +3489,8 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${item}`, task: 'make_iron_tool' };
   await standBy(a, job, signal);
   if (v.storage?.chests.length) await refreshStorage(a, v, signal);
-  const made = await makeFromStock(a, {}, { [item]: 1 }, () => standBy(a, job, signal), signal);
+  // (a tool already in storage is not this one: the chore makes one)
+  const made = await makeFromStock(a, {}, { [item]: 1 }, () => standBy(a, job, signal), signal, { noStockPick: true, surplus: false });
   if (!made) throw new Error(`make_iron_tool: the ${item} cannot be made from the village storage yet (${Object.entries(storageContents(v)).filter(([n]) => /iron|coal/.test(n)).map(([n, q]) => `${q} ${n}`).join(', ') || 'no iron'})`);
   await syncInventory(a);
   if (!a.bot.inventory.items().some((it) => it.name === item)) throw new Error(`make_iron_tool: ${made}, but no ${item} is carried`);
@@ -3332,7 +3505,116 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   return `made a ${item} (${made}); ${stored}`;
 }
 
+/**
+ * Parts made once for the whole village (S.3; the soft task "Make 14 glass_pane into storage"): at the storage hut, as
+ * many as the buildings still to draw their stock want (`partsWanted`: windows, or the lamps' torches) less what storage
+ * holds, smelted and crafted from storage, then put into storage by name. The furnace is held from the reading of the
+ * storage to the last deposit: a builder queued behind finds the panes there. Not a tool for models (code posts it).
+ */
+async function makeIntoStorage(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('make_into_storage: not in a village');
+  const item = str(args.item, 'item');
+  if (!/^(glass_pane|glass|torch)$/.test(item)) throw new Error(`make_into_storage: not a part the village makes once: ${item}`);
+  const h = v.storageHut;
+  // (the hut's record, not villageStation: that also asks where the bot stands, and a worker in the mine was refused)
+  if (!h || !v.structures.some((s) => s.kind === STORAGE_HUT && s.x1 === h.x1 && s.z1 === h.z1)) throw new Error('make_into_storage: the storage hut is not built yet');
+  const t0 = Date.now();
+  const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: `the village's ${item}`, task: 'make_into_storage' };
+  await standBy(a, job, signal);
+  // The chests read again only when the record cannot make what is wanted (items put in or taken out outside it; the
+  // record is kept at every chest's close, and a full read takes the maker ~10 s before it queues for the furnace)
+  const early = a.world.partsWanted(v, item).want - (storageContents(v)[item] ?? 0);
+  const rest: Counts = { ...storageContents(v) };
+  delete rest[item];
+  if (v.storage?.chests.length && early > 0 && Object.keys(a.world.materials.plan({ [item]: early }, rest).gather).length) await refreshStorage(a, v, signal);
+  // Leftovers carried in go in by name at the end too (sand and glass of a pane batch: lesson 112)
+  const keep = item === 'torch' ? [item] : [item, 'glass', 'sand'];
+  const release = await holdVillageFurnace(a, signal, `making ${item} into storage`);
+  let text: string;
+  try {
+    const { want, buildings } = a.world.partsWanted(v, item);
+    const store = storageContents(v)[item] ?? 0;
+    const held = (await carriedCounts(a, [item]))[item] ?? 0;
+    const make = want - store - held;
+    const sec = () => ((Date.now() - t0) / 1000).toFixed(0);
+    if (make <= 0) {
+      console.log(`[parts] ${a.name} made nothing: storage holds ${store} ${item} (and it carries ${held}) for the ${want} wanted by ${buildings} ${item === 'torch' ? 'lamp jobs' : 'buildings'}`);
+      text = `storage already holds ${store} ${item} for the ${want} still wanted; nothing made`;
+    } else {
+      // (the stock and what is carried count as the job's own, so they are netted out: otherwise the plan takes the stored
+      // panes for the shortfall, makes nothing and reads as a failure, S.3's check)
+      const makeIt = (q: number) => makeFromStock(a, { [item]: store + held }, { [item]: q }, async () => undefined, signal, { noStockPick: true, surplus: false, what: `the village's ${item}` });
+      let made = await makeIt(make);
+      // Short of the whole: as many whole batches as the stock makes (sand for one batch of two made none, and builders
+      // then smelted the rest one by one, S.3's review); the rest is reported short
+      let part = 0;
+      if (!made) {
+        const unit = item === 'glass_pane' ? 16 : item === 'torch' ? 4 : 1;
+        const have: Counts = { ...inventoryCounts(a) };
+        for (const [n, q] of Object.entries(storageContents(v))) have[n] = (have[n] ?? 0) + q;
+        delete have[item];
+        for (let k = Math.ceil(make / unit) - 1; k >= 1 && !part; k--) {
+          const p = a.world.materials.plan({ [item]: k * unit }, have);
+          if (!Object.keys(p.gather).length && !p.problems.length) part = k * unit;
+        }
+        if (part) made = await makeIt(part);
+      }
+      if (!made) {
+        if (item !== 'torch' && v.unavailable?.includes('sand')) {
+          console.log(`[parts] ${a.name} made nothing: no sand near the village (${make} ${item} wanted)`);
+          text = `no sand: the windows stay open (${make} ${item} wanted)`;
+        } else {
+          const other: Counts = { ...storageContents(v) };
+          delete other[item];
+          const plan = a.world.materials.plan({ [item]: make }, other);
+          throw new Error(`make_into_storage: ${make} ${item} cannot be made from the village storage yet (${describeWork(plan) || 'nothing to make it from'})`);
+        }
+      } else {
+        const n = (await carriedCounts(a, [item]))[item] ?? 0;
+        const rest = part ? `; ${make - (n - held)} more short (${item !== 'torch' && v.unavailable?.includes('sand') ? 'no sand: those windows stay open' : 'storage holds too little to make them yet'})` : '';
+        console.log(`[parts] ${a.name} made ${n - held} ${item} into storage (wanted ${want} by ${buildings} ${item === 'torch' ? 'lamp jobs' : 'buildings'}, storage had ${store}) in ${sec()}s${rest}`);
+        text = `made ${n - held} ${item} (${made})${rest}`;
+      }
+    }
+    // Everything carried of it (and of the batch's leftovers) into storage, counted on the server, before the furnace is
+    // let go
+    const carried = await carriedCounts(a, keep);
+    const put: string[] = [];
+    for (const n of keep) {
+      if (!carried[n]) continue;
+      const r = await STORAGE_SKILLS.deposit.run(a, { item: n, count: carried[n] }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        return `not deposited: ${e.message.slice(0, 100)}`;
+      });
+      put.push(/^not deposited/.test(r ?? '') ? `${carried[n]} ${n} ${r}` : `${carried[n]} ${n}`);
+    }
+    if (put.length) text += `; put into storage: ${put.join(', ')}`;
+  } finally {
+    release();
+  }
+  return text;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
+
+/**
+ * A lamp or sign job that fails puts what it drew or made back into storage by name (S.4: they run while builds still draw,
+ * and the next holder found storage short while the fences and signs sat with the last one, lesson 112). Not when stopped:
+ * the task runner deposits them at a hand-back.
+ */
+const TAIL_PARTS = /_(fence|sign|planks|log)$|^(torch|stick|charcoal)$/;
+const partsBack = (run: McSkill['run']): McSkill['run'] => async (a, args, signal) => {
+  try {
+    return await run(a, args, signal);
+  } catch (e) {
+    // (not after a stall that did not move the bot: each deposit's walk would stall there too and hold off the rescue, F146)
+    if ((e as Error).message !== 'cancelled' && !signal.aborted && !unmoved(e))
+      for (const n of new Set(a.bot.inventory.items().map((it) => it.name).filter((n) => TAIL_PARTS.test(n))))
+        await STORAGE_SKILLS.deposit.run(a, { item: n }, signal).catch(() => undefined);
+    throw e;
+  }
+};
 
 export const BUILD_SKILLS: Record<string, McSkill> = {
   find_site: { run: findSite },
@@ -3340,8 +3622,18 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   build_design: { check: (x) => (str(x.design, 'design'), num(x.x, 'x'), num(x.z, 'z')), run: buildDesign },
   build_box: { check: (x) => (box(x), str(x.block, 'block')), run: buildBox },
   build: { check: (x) => void str(x.structure, 'structure'), run: buildStructure },
-  light_streets: { check: (x) => void num(x.layout, 'layout'), run: lightStreets },
-  put_up_signs: { check: (x) => void num(x.layout, 'layout'), run: putUpSigns },
+  light_streets: { check: (x) => void num(x.layout, 'layout'), run: partsBack(lightStreets) },
+  put_up_signs: {
+    check: (x) => {
+      num(x.layout, 'layout');
+      if ((x.x === undefined) !== (x.z === undefined)) throw new Error('put_up_signs: give x and z together (the building build_design centres there), or neither for every sign');
+      if (x.x !== undefined) {
+        num(x.x, 'x');
+        num(x.z, 'z');
+      }
+    },
+    run: partsBack(putUpSigns),
+  },
   tend_farm: { check: (x) => void num(x.layout, 'layout'), run: tendFarm },
   // (not in TOOLS: no model calls it; code queues it as a chore)
   harvest_farm: { check: (x) => void num(x.layout, 'layout'), run: harvestFarm },
@@ -3358,5 +3650,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },
+  // (S.3's, not in TOOLS either: code-posted tasks name it, run as written; WorldAdapter.taskSkills)
+  make_into_storage: { check: (x) => void str(x.item, 'item'), run: makeIntoStorage },
 };
 

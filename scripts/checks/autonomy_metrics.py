@@ -93,7 +93,8 @@ class BoardStamps:
                 s = self.t[t["id"]] = {"seen": now, "claims": [], "end": None, "status": None, "reopened": 0}
             st = t["status"]
             if st == "claimed" and s["status"] != "claimed":
-                s["claims"].append((now, t.get("claimedBy")))
+                # (the claim's own time where the record carries it, S.4: polls are 3 s apart and more with many agents)
+                s["claims"].append((_stamp(t, "claimedAt") or now, t.get("claimedBy")))
             if st == "open" and s["status"] in ("claimed", "done", "failed"):
                 s["reopened"] += 1
             if st in ("done", "failed") and s["status"] not in ("done", "failed"):
@@ -124,8 +125,52 @@ class BoardStamps:
         return len((self.t.get(t["id"]) or {}).get("claims") or [])
 
 
-# What completion waits for (the stage script's rule; the mayor's declaration follows them)
-FINAL = re.compile(r"^(Build |Light the streets|Put up the signs|Plant the farm)")
+# What completion waits for (the stage script's rule; the mayor's declaration follows them; one sign task a building
+# since S.4, "Put up the sign: house 2")
+FINAL = re.compile(r"^(Build |Light the streets|Put up the signs?|Plant the farm)")
+
+
+def tail_lines(tasks, stamps, t0):
+    """The tail's timing (step S.4), in minutes since t0: per lamp task, when it could be claimed (its last prerequisite's
+    end), the storage hut's end, its claim and end, and the first house's end; per sign task, when it could be claimed, its
+    own build's end (read from the x= z= in its detail), its claim and end. The lag that is judged is from ready to done
+    (the mining hut's sign waits for the storage hut on purpose); the lag from its own build is shown beside it."""
+    by = {t["id"]: t for t in tasks or []}
+    m = lambda s: (s - t0) / 60 if s else None
+    f = lambda x: f"+{x:.1f}" if x is not None else "-"
+    d = lambda a, b: f"{a - b:.1f}" if a is not None and b is not None else "-"
+    builds = [t for t in by.values() if t["title"].startswith("Build ")]
+    hut = next((t for t in builds if t["title"] == "Build storage_hut"), None)
+    houses = [m(stamps.end(t)) for t in builds if t["title"] not in ("Build storage_hut", "Build mining_hut") and stamps.end(t)]
+
+    def ready(t):
+        ends = []
+        for i in t.get("after") or []:
+            p = by.get(i)
+            if not p:
+                continue
+            at = stamps.first_claim(p) if t.get("afterClaimed") and p["title"].startswith("Build ") else stamps.end(p)
+            if at is None:
+                return None
+            ends.append(at)
+        return m(max(ends)) if ends else m(stamps.posted(t))
+
+    out = []
+    for t in by.values():
+        if not t["title"].startswith("Light the streets"):
+            continue
+        a, b, c, e = ready(t), m(stamps.end(hut)) if hut else None, m(stamps.first_claim(t)), m(stamps.end(t))
+        out.append(f"TAIL lamps {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}]: claimable {f(a)} (storage hut ended {f(b)}), "
+                   f"claimed {f(c)} (C-A {d(c, a)}, C-B {d(c, b)}), done {f(e)}; first house ended {f(min(houses) if houses else None)}")
+    for t in by.values():
+        if not t["title"].startswith("Put up the sign: "):
+            continue
+        mm = re.search(r" x=(-?\d+) z=(-?\d+) ", t["detail"])
+        own = next((b for b in builds if mm and f'" x={mm.group(1)} z={mm.group(2)} ' in b["detail"]), None)
+        r, x, y, z = ready(t), m(stamps.end(own)) if own else None, m(stamps.first_claim(t)), m(stamps.end(t))
+        out.append(f"TAIL sign {t['title'][17:]} {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}]: ready {f(r)} "
+                   f"(its build ended {f(x)}), claimed {f(y)}, done {f(z)}: lag {d(z, r)} (from its build {d(z, x)}){'' if t['status'] == 'done' else ' NOT DONE'}")
+    return out
 
 
 def critical_path_lines(tasks, stamps, t0, complete_at=None):
