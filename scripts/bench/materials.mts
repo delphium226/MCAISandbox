@@ -9,6 +9,15 @@ const vs: any[] = Array.isArray(data) ? data : Object.values(data.villages ?? da
 for (const v of vs) for (const d of Object.values(v.designs ?? {}) as any[]) {
   const p = m.plan(designBill(d));
   console.log(`\n== ${v.name}/${d.name} (${d.blocks} cells)\n${describePlan(p)}\nsteps: ${p.steps.map((s) => `${s.do} ${s.item} x${s.runs}`).join(' > ')}`);
+  // S.5: the storage hut's bill where its table and furnace are placed before it, billed to their own task (mcWorld's
+  // buildBill and plan_layout's gathering leave them out; the builder still places what is missing)
+  if (d.name === 'storage_hut') {
+    const b = designBill(d);
+    delete b.crafting_table;
+    delete b.furnace;
+    const q = m.plan(b);
+    console.log(`-- without its table and furnace (S.5)\n${describePlan(q)}\nsteps: ${q.steps.map((s) => `${s.do} ${s.item} x${s.runs}`).join(' > ')}`);
+  }
 }
 for (const [items, have] of [[{ chest: 1, crafting_table: 1, oak_door: 3 }, {}], [{ chest: 1, oak_door: 1 }, { acacia_planks: 5, oak_log: 1 }], [{ bookshelf: 2, lantern: 1, furnace: 1, mossy_cobblestone: 2, stone_bricks: 4, bricks: 2, white_wool: 3, oak_fence: 3, cobblestone_wall: 6, smooth_stone: 4 }, { coal: 1 }]] as const) {
   const p = m.plan(items as any, have as any);

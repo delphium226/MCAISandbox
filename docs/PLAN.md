@@ -1289,7 +1289,7 @@ Rules for every step:
     - completion never declared with a sign missing (`data get`);
     - the Mayor's busy minutes above 0 during the builds.
 
-- [ ] S.5 **Stations before the storage hut** (~1 session).
+- [x] S.5 **Stations before the storage hut**: done 10-11 (s26). Staged **Van12i 4.2 min** (S.4's 4.8), **Van3g 5.6** (within S.0's band): the table stood at 1.0 (via the storage's chest craft), the furnace at 2.1 (via the dig task), both in the hut's cells, the sweep clean, 0 failed actions (the stairs digger's pickaxe recovered). One pass item off: the first building was claimed at 2.1, before the panes reached storage at 2.7 (most likely the windowless meeting point, which the check counts as a house; to check in the next runs). Since S.0: 12 agents 6.2 -> 4.2 min, 25% ahead of 3. The plan was: **Stations before the storage hut** (~1 session).
   - The hut's crafting table cell T and furnace cell F (layer 1, the chests' layer, plot level + 1) are filled early:
     - the table by the storage set-up, from the felled logs;
     - the furnace from the stairs' cobblestone, crafted and placed by the miner after it walks out to the hut, never underground (lesson 101). If the stairs gave fewer than 8, it withdraws the rest from storage.
@@ -2449,6 +2449,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s26) | **Van12d, Van12e, Van3d** | S.1 (contention fixes), the S.0 command | 6/6 each | **6.2, 6.1; 5.7 min** | 39% busy (12 agents); 1 failed each 12-agent run (the stairs' digger's pickaxe: wood kind, fixed after); supply of 4 stone pickaxes at 2.8-2.9; no shortfall; 7 face waits a run |
 | 10-11 (s26) | **Van12f, Van12g, Van3e** | S.2 (branch helpers, claim gate, per-miner counters), the S.0 command | 6/6 each | **6.1, 6.1; 5.8 min** | mine 82/81 cells/min (44 with 3), cobblestone tasks median 0.9 min, 0 busy hand-backs; 34-36% busy (12 agents) |
 | 10-11 (s26) | **Van12h, Van3f** | S.3 (glass once) and S.4 (lamps early, a sign per building), the S.0 command | 6/6 each | **4.8; 5.4 min** | 12 agents ahead of 3 for the first time; 16 panes made into storage at 4.4 (Van3f 4.1); 1 failed (the stairs digger's pickaxe at 1.6); 37% busy (12 agents) |
+| 10-11 (s26) | **Van12i, Van3g** | S.5 (stations before the storage hut), the S.0 command | 6/6 each | **4.2; 5.6 min** | table 1.0 / furnace 2.1 in the hut cells, sweep clean, 0 failed; panes in storage 2.7 |
 
 ## Findings log
 

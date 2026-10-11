@@ -5,7 +5,8 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, VillageRegistry, WINDOWS, signTask, villageHome, type Task, type Village } from '../village';
+import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
+import { STORAGE_HUT } from '../huts';
 import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -77,7 +78,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** The skills implemented so far (mcSkills.ts), with the shared tool definitions. */
   readonly skills: ToolDef[] = TOOLS.filter((t) => t.name in MC_SKILLS);
   /** Skills only code-posted tasks name (S.3), kept out of the models' tools (a longer prompt each, lesson 32). */
-  readonly taskSkills = ['make_into_storage'];
+  readonly taskSkills = ['make_into_storage', 'place_station'];
   readonly registry: ReturnType<typeof minecraftData>;
   /** Bills of materials and recipe chains (mcMaterials.ts). */
   readonly materials: Materials;
@@ -262,7 +263,17 @@ export class MineflayerWorld implements WorldAdapter {
   /** One Build task's bill, in its own wood kind when it has one (F164's whole buildings, as the cover rule counts them). */
   private buildBill(v: Village, t: { title: string; detail: string }, wood: string): Counts | null {
     const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
-    return d ? inWood(designBill(d), (v.wood && v.woodFor?.[t.title.slice(6)]) || wood) : null;
+    if (!d) return null;
+    const bill = inWood(designBill(d), (v.wood && v.woodFor?.[t.title.slice(6)]) || wood);
+    // The storage hut's table and furnace (S.5): billed to their own task while it is open or held (stationsBill), and to
+    // no one once they stand; only a hut whose stations task is over without them (the fallback) bills them itself
+    if (d.name === STORAGE_HUT) for (const n of STATION_NAMES) if (v.stations?.[n] || stationsOwed(v).includes(n)) delete bill[n];
+    return bill;
+  }
+
+  /** The stations their own task still owes (S.5), as a bill: a table (a log) and a furnace (8 cobblestone). */
+  private stationsBill(v: Village): Counts {
+    return Object.fromEntries(stationsOwed(v).map((n) => [n, 1]));
   }
 
   /** The bill of every laid-out building not claimed yet (open), each in its own wood kind, and their labels. */
@@ -368,6 +379,8 @@ export class MineflayerWorld implements WorldAdapter {
       }
     };
     const { bill } = this.openBill(v, wood);
+    // (and the stations their own task owes, S.5: the furnace's 8 cobblestone kept from the miners' pickaxes)
+    for (const [n, q] of Object.entries(this.stationsBill(v))) bill[n] = (bill[n] ?? 0) + q;
     if (Object.keys(bill).length) {
       const raw = new Set(Object.keys(this.materials.plan(bill, {}).gather).map((n) => n.replace(/^any:/, '')));
       const made: Counts = {};
@@ -497,6 +510,10 @@ export class MineflayerWorld implements WorldAdapter {
     const store = storageContents(v);
     const wood = this.woodOf(v, store);
     const { bill, unbuilt } = this.openBill(v, wood);
+    // The stations their own task owes (S.5): gathering is posted for them when the storage falls short, as for a building
+    const owed = this.stationsBill(v);
+    add(bill, owed);
+    if (Object.keys(owed).length) unbuilt.push('the stations');
     // The mayor's items, in the same wood ("logs" and "planks" mean the village's kind)
     const extra: Counts = {};
     for (const [n, q] of Object.entries(v.needs ?? {})) extra[n === 'logs' ? `${wood}_log` : n === 'planks' ? `${wood}_planks` : n] = q;

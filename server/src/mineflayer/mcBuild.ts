@@ -17,16 +17,16 @@ import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
-import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, VILLAGE_RANGE, areaText, overlaps, signCall, signTask, villageHome } from '../village';
+import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, type SignSpot } from '../streetPlan';
-import { STORAGE_HUT } from '../huts';
+import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
 import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
-import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, villageStation, villageStationCell } from './mcSurvival';
+import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
@@ -455,9 +455,12 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   const other: Counts = { ...carried };
   for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
+  // (the village's station, standing or still to be put in its hut cell by the craft or smelt itself, S.5: billed by
+  // its own task, never by this job)
+  const home = (n: StationName) => !!villageStation(a, n) || !!stationNear(a, n);
   const near = (n: string) => {
     const p = a.bot.entity.position;
-    if ((n === 'crafting_table' || n === 'furnace') && villageStation(a, n)) return true;
+    if ((n === 'crafting_table' || n === 'furnace') && home(n)) return true;
     // (state ids read directly, not findBlock: lesson 53)
     return nearestBlocks(a, [a.world.registry.blocksByName[n].id], STATION_REACH, 4).some((b) => Math.abs(b.y - p.y) <= 3);
   };
@@ -499,7 +502,7 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !near('crafting_table') && !carried.crafting_table && store.crafting_table) fetch.crafting_table = 1;
   // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
   // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
-  const atHut = !!v?.storageHut && (!!opts.held || (!!villageStation(a, 'crafting_table') && (!plan.fuel.smelts || !!villageStation(a, 'furnace'))));
+  const atHut = !!v?.storageHut && (!!opts.held || (home('crafting_table') && (!plan.fuel.smelts || home('furnace'))));
   if (v && Object.keys(fetch).length) {
     await withdrawItems(a, v, fetch, signal);
     // Craft at the site, where the table and furnace were looked for (not when they are the hut's: the walk there and
@@ -897,6 +900,9 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
     for (let i = 0; i < cmds.length; i++) {
       const c = cmds[i];
       checkAbort(signal);
+      // A station put in its cell since the job was read (S.5: the one placer, during a craft of this job's) is not set
+      // or charged again
+      if (!c.clear && c.n === 1 && /^(crafting_table|furnace)$/.test(c.item ?? '') && blockName(a, c.pos[0], c.pos[1], c.pos[2]) === c.item) continue;
       while (budget <= 0) {
         await sleep(100, signal);
         budget += speed;
@@ -1634,7 +1640,8 @@ async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<stri
   const v = a.village();
   const task = v?.tasks.find((t) => t.title === 'Set up the village storage' && t.status === 'open');
   if (!v || !task || v.storage?.chests.length) return '';
-  const calls = taskCalls(task.detail, new Set(['craft', 'move_to', 'deposit']));
+  // (and the hut's table, S.5: made from the felled logs while the task is held, so it stands before anything is crafted)
+  const calls = taskCalls(task.detail, new Set(['craft', 'move_to', 'deposit', 'place_station']));
   const chests = Number(calls.find((c) => c.type === 'craft' && c.args.item === 'chest')?.args.count ?? 0);
   const logs = Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:logs 0`).catch(() => ''))?.[1] ?? 0);
   // (a chest is 8 planks, 2 logs; and a crafting table's log, made if none is near)
@@ -1658,6 +1665,12 @@ async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<stri
         const x = Math.floor(num(c.args.x, 'x')), z = Math.floor(num(c.args.z, 'z')), asked = Math.floor(num(c.args.y, 'y'));
         await walk(a, new goals.GoalNear(x, standableY(a, x, asked, z) ?? asked, z, 1), `the storage spot at ${x},${z}`, signal, 90000);
       }
+      // (a failed placement leaves the storage set up: the stations task is the fallback)
+      else if (c.type === 'place_station')
+        await placeStation(a, stationArg(c.args.item), signal, 'the storage set-up').catch((e: Error) => {
+          if (e.message === 'cancelled' || unmoved(e)) throw e;
+          console.log(`[station] ${a.name}: the ${String(c.args.item)} not placed at the storage set-up: ${e.message.slice(0, 160)}`);
+        });
       else await STORAGE_SKILLS.deposit.run(a, c.args, signal);
     }
   };
@@ -1781,12 +1794,40 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   }));
   const chests = new Set((a.village()?.storage?.chests ?? []).map((c) => `${c.x},${c.z}`).filter((k) => columns.has(k)));
   const kept = (s: Structure) => s.kind === 'storage' && chests.has(`${s.x1},${s.z1}`);
-  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`, { cells, chests });
+  // The storage hut's table and furnace placed before it (S.5), in their cells on layer 1: left as they are, and their
+  // columns not read as ground (a table read as ground put the floor a block up, F59, and the chest check then threw)
+  const hv = a.village();
+  const hut = d.name === STORAGE_HUT && rot === 0 && hv?.storageHut && hv.storageHut.x1 === area.x1 && hv.storageHut.z1 === area.z1 ? hv : undefined;
+  const stationAt = new Map<StationName, { x: number; y: number; z: number }>();
+  for (const n of hut ? STATION_NAMES : []) {
+    const [dx, dz] = STORAGE_HUT_STATIONS[n];
+    const x = area.x1 + dx, z = area.z1 + dz, y = hut!.stations?.[n]?.y ?? stationSpot(hut!, n)?.y;
+    if (y !== undefined && a.bot.blockAt(new Vec3(x, y, z))?.name === n) stationAt.set(n, { x, y, z });
+  }
+  const leave = { cells: new Set([...cells, ...[...stationAt.values()].map((s) => `${s.x},1,${s.z}`)]), chests: new Set([...chests, ...[...stationAt.values()].map((s) => `${s.x},${s.z}`)]) };
+  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`, leave);
   // A chest the design leaves must be on a "_" cell at its own level: with the floor worked out a block higher (a bump
   // elsewhere in the footprint), the floor layer would be set on top of the chests and empty them
   for (const c of a.village()?.storage?.chests ?? [])
     if (chests.has(`${c.x},${c.z}`) && !cells.has(`${c.x},${c.y - y0},${c.z}`))
       throw new Error(`the storage chest at ${c.x},${c.y},${c.z} is not where the ${d.name} leaves room for it (its floor would be at y=${y0}, the chest at y=${y0 + 1}); level the ground around it (prepare_site keeps off the chests), then build again`);
+  // ...and a station likewise on layer 1 (lesson 33), recorded or standing
+  for (const n of hut ? STATION_NAMES : []) {
+    const s = stationAt.get(n) ?? hut!.stations?.[n];
+    if (s && s.y !== y0 + 1)
+      throw new Error(`the village's ${n} at ${s.x},${s.y},${s.z} is not where the ${d.name} has it (its floor would be at y=${y0}, the ${n} at y=${y0 + 1}); level the ground around it (prepare_site keeps off it), then build again`);
+  }
+  // The fallback: a station still missing is put in its cell by the one placer before the walls go up (a worker set up
+  // the storage, or the mine gave no stone), so the hut never makes one of its own elsewhere; a failure leaves it to the
+  // build's own target
+  if (hut && a.gamemode !== 'creative')
+    for (const n of STATION_NAMES) {
+      if (stationAt.has(n) || stationSpot(hut, n)?.y !== y0 + 1) continue;
+      await placeStation(a, n, signal, `the ${d.name} build`).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        console.log(`[station] ${a.name}: the ${n} not placed before the ${d.name} (${e.message.slice(0, 160)}); the build places it`);
+      });
+    }
   const targets: Target[] = [];
   const doors: Array<[number, number, [number, number]]> = [];
   const outside = d.layers[1]?.length === d.depth ? outsideCells(d.layers[1]) : undefined;
@@ -1853,6 +1894,28 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   });
   delete (a.memory.pendingBuilds as Record<string, number>)[key];
   const rec = recordStructure(a, { ...area, y: y0, kind: d.name });
+  // The hut's stations as the server has them (S.5): what the build placed itself is recorded too, and the stations task
+  // closed once both stand
+  if (hut) {
+    for (const n of STATION_NAMES) {
+      if (hut.stations?.[n]) continue;
+      const [dx, dz] = STORAGE_HUT_STATIONS[n];
+      const p = { x: area.x1 + dx, y: y0 + 1, z: area.z1 + dz };
+      if (/passed/i.test(await a.world.rcon.command(`execute if block ${p.x} ${p.y} ${p.z} minecraft:${n}`).catch(() => ''))) recordStation(a, hut, n, p, `the ${d.name} build`);
+      else console.log(`[station] ${a.name}: the ${d.name} is built without its ${n} at ${p.x},${p.y},${p.z}`);
+    }
+    stationsReady(a, hut);
+    // (a stations task failed for good is over with the hut: nothing else would close it, and a hard task failed holds the
+    // houses and completion; the hut's cells are the stations' from now on, as before S.5)
+    for (const t of hut.tasks)
+      if (t.title === STATIONS_TASK && t.status === 'failed') {
+        t.status = 'done';
+        t.result = `the storage hut is built (${STATION_NAMES.map((n) => `${n} ${hut.stations?.[n] ? 'standing' : 'missing'}`).join(', ')})`;
+        t.updated = Date.now();
+        a.world.villages.note(hut, `${t.id} "${t.title}" closed with the storage hut's build`);
+      }
+    a.world.villages.save();
+  }
   return rec ? `${rec}; ${summary}` : summary;
 }
 
@@ -3517,8 +3580,9 @@ async function makeIntoStorage(a: BotAgent, args: Record<string, unknown>, signa
   const item = str(args.item, 'item');
   if (!/^(glass_pane|glass|torch)$/.test(item)) throw new Error(`make_into_storage: not a part the village makes once: ${item}`);
   const h = v.storageHut;
-  // (the hut's record, not villageStation: that also asks where the bot stands, and a worker in the mine was refused)
-  if (!h || !v.structures.some((s) => s.kind === STORAGE_HUT && s.x1 === h.x1 && s.z1 === h.z1)) throw new Error('make_into_storage: the storage hut is not built yet');
+  // (the records, not villageStation: that also asks where the bot stands, and a worker in the mine was refused; both
+  // stations, not the hut's build: they stand before it since S.5, and the panes are made before the houses)
+  if (!h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace')) throw new Error("make_into_storage: the storage hut's crafting table and furnace are not both standing yet");
   const t0 = Date.now();
   const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: `the village's ${item}`, task: 'make_into_storage' };
   await standBy(a, job, signal);
@@ -3596,6 +3660,36 @@ async function makeIntoStorage(a: BotAgent, args: Record<string, unknown>, signa
   return text;
 }
 
+/** place_station's item: the storage hut's crafting table or furnace (S.5). */
+function stationArg(raw: unknown): StationName {
+  const n = String(raw ?? '').trim().toLowerCase().replace(/^minecraft:/, '');
+  const name = n === 'table' ? 'crafting_table' : n;
+  if (!(STATION_NAMES as readonly string[]).includes(name)) throw new Error(`place_station: item is crafting_table or furnace, not ${String(raw)}`);
+  return name as StationName;
+}
+
+/**
+ * The village's table or furnace into its cell of the storage hut, before the hut is built (S.5; code-posted tasks name it:
+ * the storage set-up, the mine's digger once it has walked out, and the stations task, the fallback). Not a tool for models.
+ * `optional=true` (the mine's digger): a placement that fails is reported, not failed, so the task it ends (the dig, which
+ * the cobblestone gathering waits for) is never held by it; the stations task places it then.
+ */
+async function placeStationSkill(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const name = stationArg(args.item);
+  const v = a.village();
+  const t = v?.tasks.find((x) => x.status === 'claimed' && x.claimedBy === a.name && /place_station /.test(x.detail));
+  let b: Awaited<ReturnType<typeof placeStation>>;
+  try {
+    b = await placeStation(a, name, signal, t ? `${t.id} "${t.title}"` : 'place_station');
+  } catch (e) {
+    if (String(args.optional) !== 'true' || (e as Error).message === 'cancelled' || unmoved(e)) throw e;
+    console.log(`[station] ${a.name}: the ${name} not placed (${(e as Error).message.slice(0, 160)}); left to the stations task`);
+    return `the ${name} was not placed (${(e as Error).message}); the stations task places it`;
+  }
+  const s = v?.stations?.[name];
+  return `the village's ${name} stands in the storage hut at ${s ? `${s.x},${s.y},${s.z}` : b ? at(b.position) : 'its cell'}`;
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 /**
@@ -3652,5 +3746,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },
   // (S.3's, not in TOOLS either: code-posted tasks name it, run as written; WorldAdapter.taskSkills)
   make_into_storage: { check: (x) => void str(x.item, 'item'), run: makeIntoStorage },
+  // (S.5's, the same: the stations placed before the storage hut)
+  place_station: { check: (x) => void stationArg(x.item), run: placeStationSkill },
 };
 

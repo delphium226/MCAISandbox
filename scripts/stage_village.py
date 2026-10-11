@@ -44,8 +44,10 @@ checked after the spawn (S.0). At the end: each agent's busy and idle minutes (B
 action runs), the critical path through the board's tasks (CRIT lines), STOCK lines of the storage during the run for
 scripts/checks/autonomy_metrics.py, and the mine's MINE lines (S.2: cells a minute from the stairs to the last cobblestone
 collect and the peak of miners, the cobblestone tasks' times from claim to done, the busy hand-backs per agent with any
-REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs). Workers are left in the world: remove them
-afterwards (panel or DELETE).
+REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs), and S.5's: STATIONS (when the hut's table and
+furnace stood, placed before the hut; a STATION line as each appears), PANES (when the storage first held the windows'
+panes, set against the first house's claim) and STATIONS SWEEP (any crafting table or furnace within 8 of the layout
+outside the hut's two cells). Workers are left in the world: remove them afterwards (panel or DELETE).
 """
 import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -835,6 +837,76 @@ stock_seen = [None, 0.0]
 # S.4's: the minutes the Mayor ran an action while it held a lamp or sign task (before completion)
 tail_busy = [0.0, None]
 TAIL_CALL = re.compile(r"^(light_streets|put_up_signs) ")
+# S.5's: the stations as recorded (printed as each appears), and when the storage first held panes (or glass)
+stations_seen = {}
+panes_at = [None, ""]
+STATION_LABEL = {"crafting_table": "table", "furnace": "furnace"}
+
+
+def watch_stations(v):
+    """S.5: a STATION line when the village records its table or furnace standing (placed in the hut's cell), and the first
+    time the storage holds the windows' panes or glass."""
+    for n, s in (v.get("stations") or {}).items():
+        if n not in stations_seen:
+            stations_seen[n] = s
+            print(f"{stamp()} STATION {STATION_LABEL.get(n, n)} at {s['x']},{s['y']},{s['z']} by {s.get('by')} via {s.get('via')} "
+                  f"(t={(s['at'] / 1000 - t0) / 60:.1f}m)", flush=True)
+    tot = storage_totals(v)
+    q = tot.get("glass_pane", 0) + tot.get("glass", 0)
+    if panes_at[0] is None and q > 0:
+        panes_at[:] = [time.time(), f"{tot.get('glass_pane', 0)} glass_pane, {tot.get('glass', 0)} glass"]
+        print(f"{stamp()} PANES in storage: {panes_at[1]}", flush=True)
+
+
+def station_lines(v):
+    """S.5's outputs: when each station stood (STATIONS), the panes in storage against the first house's claim (PANES), and
+    a sweep of the layout and 8 blocks round it (GET /api/blocks, y-6..y+10 of the plot) for any crafting table or furnace
+    outside the storage hut's two cells (lesson 33, F59, F68): STATIONS SWEEP clean, or STRAY with each one."""
+    out = []
+    st = v.get("stations") or {}
+    parts = []
+    for n in ("crafting_table", "furnace"):
+        s = st.get(n)
+        parts.append(f"{STATION_LABEL[n]} t={(s['at'] / 1000 - t0) / 60:.1f}m ({s.get('by')}, via {s.get('via')})" if s else f"{STATION_LABEL[n]} not recorded")
+    out.append("STATIONS " + " ".join(parts))
+    houses = [t for t in v["tasks"] if t["title"].startswith("Build ") and not re.search(r'build_design "(storage_hut|mining_hut)"', t["detail"])]
+    claims = [c for c in (stamps.first_claim(t) for t in houses) if c]
+    first_house = min(claims) if claims else None
+    p = f"t={(panes_at[0] - t0) / 60:.1f}m ({panes_at[1]})" if panes_at[0] else "never"
+    h = f"t={(first_house - t0) / 60:.1f}m" if first_house else "never"
+    verdict = "before" if panes_at[0] and (not first_house or panes_at[0] <= first_house + 3) else "AFTER" if first_house else "n/a"
+    out.append(f"PANES in storage {p}; first house claimed {h}: {verdict}{' (within a poll)' if verdict == 'before' and first_house and panes_at[0] > first_house else ''}")
+    hut_ = v.get("storageHut")
+    lay = (v.get("layouts") or [None])[0]
+    if not hut_ or not lay:
+        out.append("STATIONS SWEEP skipped: no storage hut or layout")
+        return out
+    plot = next((q for q in v.get("plots") or [] if q["x1"] <= hut_["x1"] and q["x2"] >= hut_["x2"] and q["z1"] <= hut_["z1"] and q["z2"] >= hut_["z2"]), None)
+    y0 = plot["y"] if plot else int(site.get("y", 64))
+    own = {(hut_["x1"] + 2, y0 + 1, hut_["z1"] + 4): "crafting_table", (hut_["x1"] + 4, y0 + 1, hut_["z1"] + 4): "furnace"}
+    for n, s in st.items():
+        own[(s["x"], s["y"], s["z"])] = n
+    x1, z1, x2, z2 = lay["x1"] - 8, lay["z1"] - 8, lay["x2"] + 8, lay["z2"] + 8
+    w, d = x2 - x1 + 1, z2 - z1 + 1
+    per = max(1, 60000 // (w * d))
+    found, stray, unloaded = [], [], 0
+    for ya in range(y0 - 6, y0 + 11, per):
+        yb = min(y0 + 10, ya + per - 1)
+        b = call(f"/blocks?x1={x1}&y1={ya}&z1={z1}&x2={x2}&y2={yb}&z2={z2}")
+        if not isinstance(b, dict) or "cells" not in b:
+            out.append(f"STATIONS SWEEP error: {str(b)[:160]}")
+            return out
+        for i, c in enumerate(b["cells"]):
+            if c < 0:
+                unloaded += 1
+                continue
+            n = b["names"][c].split("[")[0]
+            if n in ("crafting_table", "furnace"):
+                x, z, y = x1 + i % w, z1 + (i // w) % d, ya + i // (w * d)
+                (found if own.get((x, y, z)) == n else stray).append(f"{n} {x},{y},{z}")
+    out.append(f"STATIONS SWEEP {'STRAY' if stray else 'clean'} (x {x1}..{x2}, z {z1}..{z2}, y {y0 - 6}..{y0 + 10}): hut cells "
+               f"{', '.join(found) or 'empty'}; elsewhere {', '.join(stray) or 'none'}{f'; {unloaded} cells unloaded' if unloaded else ''}")
+    return out
 
 
 def signs_waited(v):
@@ -927,6 +999,7 @@ while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     stamps.update(v["tasks"])
     mine_stats.board(v["tasks"])
     stock_line(v)
+    watch_stations(v)
     # The stall rule per agent: one that holds a task or runs an action and has had no success for agent_stall minutes
     # (with 12 agents one success reset the village's clock for all); one with nothing to do is idle, not stalled
     holding = {t["claimedBy"]: t["id"] for t in v["tasks"] if t["status"] == "claimed" and t.get("claimedBy")}
@@ -971,6 +1044,10 @@ if reason == "every building is done" and hut and args.stage == "build" and not 
     deposit_check(names[0])
 if reason == "every building is done" and args.harvest:
     harvest_check()
+# S.5: the stations, the panes against the first house, and the sweep for stray tables and furnaces (while the agents still
+# hold the chunks)
+for line in station_lines(call(f"/village/{args.village}")):
+    print(line, flush=True)
 
 
 def slot_text(s):

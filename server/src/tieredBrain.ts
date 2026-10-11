@@ -481,7 +481,7 @@ Follow the usual progression: wood -> crafting table -> wooden pickaxe -> stone 
 Keep the agent alive (food, night, monsters) and fit the role.`;
 
 /** Skills a mayor's plan step may not use: gathering, crafting, building and land work are for the workers. */
-const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|make_into_storage|gather|attack|give|equip)\b/i;
+const WORKER_WORK = /\b(collect|mine|craft|smelt|place|deposit|withdraw|prepare_site|build_design|build_box|build|light_streets|put_up_signs|tend_farm|make_into_storage|place_station|gather|attack|give|equip)\b/i;
 
 export const EXEC_SYSTEM = `You control a player character in a Minecraft-like survival world shared with humans and other AI agents.
 A planner has given you a goal and steps. Each turn you get the plan (the current step is marked), what happened since your

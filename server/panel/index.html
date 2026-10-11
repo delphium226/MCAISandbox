@@ -433,6 +433,11 @@ function seenBody(c) {
     <div class="label">It answered</div>${calls ? `<ul class="list mono">${calls}</ul>` : ''}${c.text ? `<div class="sub">${esc(c.text)}</div>` : ''}${!calls && !c.text ? '<div class="empty">nothing</div>' : ''}`;
 }
 
+/** The storage hut's table and furnace once they stand (S.5: placed before the hut), for the storage tab's line. */
+const stationsText = (v) => {
+  const s = Object.entries(v.stations || {}).map(([n, p]) => `${n === 'crafting_table' ? 'table' : esc(n)} <span class="mono">${p.x},${p.y},${p.z}</span>`);
+  return s.length ? `; stations: ${s.join(', ')}` : '';
+};
 const TASK_FILTERS = [['now', 'Now', (t) => t.status === 'claimed' || t.status === 'failed'], ['open', 'Open', (t) => t.status === 'open'], ['done', 'Done', (t) => t.status === 'done'], ['failed', 'Failed', (t) => t.status === 'failed'], ['all', 'All', () => true]];
 function renderVillage(v) {
   const key = `village:${v.name}`;
@@ -458,7 +463,7 @@ function renderVillage(v) {
         <td>${esc(t.claimedBy || '')}</td>
         <td><b>${esc(t.title)}</b><div class="sub clamp" title="${esc(t.detail)}">${esc(t.detail)}</div>${t.result ? `<div class="sub clamp" title="${esc(t.result)}">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">no tasks here</div>'}`;
   } else if (tab === 'buildings') body = list(v.structures || [], (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`);
-  else if (tab === 'storage') body = chests.length ? `<div class="sub">${chests.length} chest${chests.length > 1 ? 's' : ''}, seen ${ago(v.storage.updated)} ago</div><ul class="list">${chests.map((c, i) => {
+  else if (tab === 'storage') body = chests.length ? `<div class="sub">${chests.length} chest${chests.length > 1 ? 's' : ''}, seen ${ago(v.storage.updated)} ago${stationsText(v)}</div><ul class="list">${chests.map((c, i) => {
       const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       return `<li><b>chest ${i + 1}</b>${c.group ? ` (${esc(c.group)})` : ''}: ${e.length ? e.map(([nm, q]) => `${q} ${esc(nm)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
     }).join('')}</ul>` : '<div class="empty">no chest yet</div>';

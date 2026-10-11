@@ -219,6 +219,25 @@ export const TAIL_TASK = /^(make_into_storage|light_streets|put_up_signs) /;
 export const WINDOWS = 'the windows';
 /** Whether a village's glass or pane task is still to do or under way. */
 export const windowsMaking = (v: Village) => v.tasks.some((t) => (t.status === 'open' || t.status === 'claimed') && /^glass/.test(PARTS_MAKE.exec(t.title)?.[2] ?? ''));
+/** The storage hut's two stations (S.5: placed early, before the hut, in its own cells). */
+export const STATION_NAMES = ['crafting_table', 'furnace'] as const;
+export type StationName = (typeof STATION_NAMES)[number];
+/**
+ * The hard task that sets the stations up (S.5): posted with a new village's storage hut, houses and the windows wait for
+ * it. Code closes it as soon as both stand (the storage set-up places the table, the mine's digger the furnace), so it is
+ * claimed only as the fallback.
+ */
+export const STATIONS_TASK = 'Set up the village stations';
+/** The stations not standing yet that their own task is still to place (open or held): billed for it, not the hut. */
+export function stationsOwed(v: Village): StationName[] {
+  const live = v.tasks.some((t) => t.title === STATIONS_TASK && (t.status === 'open' || t.status === 'claimed'));
+  return live ? STATION_NAMES.filter((n) => !v.stations?.[n]) : [];
+}
+/** What the owed stations take from storage: a log for the table, 8 cobblestone for the furnace (S.5, stockCovers). */
+export function stationsWanted(v: Village): { logs: number; cobblestone: number } {
+  const owed = stationsOwed(v);
+  return { logs: owed.includes('crafting_table') ? 1 : 0, cobblestone: owed.includes('furnace') ? 8 : 0 };
+}
 /** A building's own sign task's call (S.4: one task a building, by the centre build_design takes). */
 export const signCall = (layout: number, s: { cx: number; cz: number }) => `put_up_signs layout=${layout} x=${s.cx} z=${s.cz}`;
 /** That task on the board (its detail goes on with the prose after a space). */
@@ -328,6 +347,11 @@ export interface Village {
   storage?: { chests: StorageChest[]; updated: number };
   /** The storage hut laid out for the village (footprint and chest spots, in the order chests go down). */
   storageHut?: Area & { spots: Array<{ x: number; z: number }> };
+  /**
+   * The storage hut's table and furnace once they stand in its cells (S.5: placed before the hut is built, each written
+   * only after the server confirmed it), by whom, when (ms) and on which job.
+   */
+  stations?: Partial<Record<StationName, { x: number; y: number; z: number; by: string; at: number; via?: string }>>;
   /** The wood kind the village gathers and builds in (the commonest near its first site; real Minecraft). */
   wood?: string;
   /**
@@ -547,13 +571,17 @@ export class VillageRegistry {
       return 2 * Math.max(0, n - storedSigns);
     };
     const lampLogs = lampLogsOf(false) + signLogsOf(false), lampOpen = lampLogsOf(true) + signLogsOf(true);
-    const wanted = new Map<string, number>(lampLogs + windowLogs ? [['logs', lampLogs + windowLogs]] : []);
+    // The stations still owed by their own task (S.5): billed as their own consumer, not the hut's, so the hut's gathering
+    // could be closed on the furnace's cobblestone or the table's log
+    const stations = stationsWanted(v);
+    const wanted = new Map<string, number>(lampLogs + windowLogs + stations.logs ? [['logs', lampLogs + windowLogs + stations.logs]] : []);
     if (lampSandstone) wanted.set('sandstone', lampSandstone);
     // The pickaxe supply's cobblestone (3 a pickaxe), while open or held: its own gathering lands in the same chests, and a
     // house's cobblestone task closed against it came up short later (S.1). Held too, unlike the lamps: between the claim
     // and the withdraw the chests still hold it (counted twice after the withdraw, for half a minute: only conservative)
     const supply = v.tasks.find((t) => PICK_SUPPLY.test(t.title) && (t.status === 'open' || t.status === 'claimed'));
     if (supply) wanted.set('cobblestone', 3 * Number(PICK_SUPPLY.exec(supply.title)![1]));
+    if (stations.cobblestone) wanted.set('cobblestone', (wanted.get('cobblestone') ?? 0) + stations.cobblestone);
     for (const t of v.tasks) {
       const g = gather(t);
       if (!g || !unbuilt.has(g.label)) continue;
@@ -584,7 +612,7 @@ export class VillageRegistry {
       const builds = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && need.get(t.title.slice(6)));
       const kindOf = (label: string) => v.woodFor?.[label] ?? wood;
       // (`held`: the lamps' and signs' logs while held too, for the cover itself; the moves count only open ones, above)
-      const total = (k: string, held = false) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? (held ? lampLogs : lampOpen) + windowLogs : 0);
+      const total = (k: string, held = false) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? (held ? lampLogs : lampOpen) + windowLogs + stations.logs : 0);
       let changed = false;
       for (const t of builds) {
         const label = t.title.slice(6), k = v.woodFor?.[label];
@@ -909,12 +937,15 @@ export class VillageRegistry {
         ? `Mine: stairs ${m.steps} steps down to y=${m.level}${(m.down ?? []).map((d) => (d.level !== undefined ? ` and on to y=${d.level}` : '')).join('')}, ${m.dug} tunnel cells dug${(m.legs?.length ?? 0) > 1 ? ` in ${m.legs!.length} main tunnels` : ''}${got ? `; it gave ${got}` : ''}${ores && !compact ? `; ores seen in its walls: ${ores}` : ''}: collect cobblestone digs it further`
         : m.stopped ? `Mine: stopped (${m.stopped}) after ${m.steps} steps${m.dug ? ` and ${m.dug} tunnel cells` : ''}; cobblestone is gathered outside` : 'Mine: not dug yet (the mining hut and "Dig the village mine" come first)');
     }
+    // (the hut's table and furnace once they stand, S.5: they come before the hut, and crafting and smelting happen there)
+    const stations = STATION_NAMES.filter((n) => v.stations?.[n]).map((n) => (n === 'crafting_table' ? 'table' : n));
+    const stationsText = v.storageHut && stations.length ? `; stations: ${stations.join(', ')}` : '';
     if (v.storage?.chests.length) {
       const where = v.storage.chests.map((c) => `${c.x},${c.y},${c.z}`).join('; ');
       lines.push(v.storageHut
-        ? `Village storage, in the storage hut (deposit sorts each item into its material's chest; withdraw finds it): ${storageText(v)}`
+        ? `Village storage, in the storage hut (deposit sorts each item into its material's chest; withdraw finds it): ${storageText(v)}${stationsText}`
         : `Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${storageText(v)}`);
-    }
+    } else if (stationsText) lines.push(`Village storage: no chest yet${stationsText}`);
     if (v.log.length) lines.push('Recent village events:', ...v.log.slice(compact ? -3 : -6).map((l) => `- ${l.slice(0, compact ? 160 : 400)}`));
     const now = Date.now();
     const res = v.reservations.filter((r) => r.until > now && r.by !== forAgent);

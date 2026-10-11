@@ -4,7 +4,7 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type Village } from './village';
+import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -27,7 +27,8 @@ export interface Site {
  * order: prepare the plot, set up the storage and gather materials (the survival economy, when `economy`), then each
  * building at its computed position. In the economy a village's first layout adds the storage hut by itself (the mayor
  * does not name it): the first chest goes into the hut's first chest spot, the hut is built around it, and the other
- * buildings wait for the hut (their gathering does not). Returns what happened, or why not ("plan_layout: ..."), for
+ * buildings wait for the hut's table and furnace, placed in their cells before it (S.5; their gathering does not wait).
+ * Returns what happened, or why not ("plan_layout: ..."), for
  * the poster's events.
  */
 export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean): string {
@@ -97,19 +98,23 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // Buildings built after the storage hut use its crafting table and furnace (the opportunities analysis #5: each
     // house billed 8 cobblestone and a log for its own): only the storage hut bills them (its furnace is crafted at a
     // table before its own stands), and villages laid out before the hut existed; the mining hut needs none (planks only)
-    const ownStations = (n: string) => n !== MINING_HUT && (!(withHut || v.storageHut) || n === STORAGE_HUT);
+    // (S.5: not the storage hut either where its stations are placed early, by their own task: neither its station to craft
+    // at nor its own table and furnace blocks, `hutWithout`)
+    const stationsEarly = withHut && !!w.taskSkills?.includes('place_station');
+    const ownStations = (n: string) => n !== MINING_HUT && (!(withHut || v.storageHut) || (n === STORAGE_HUT && !stationsEarly));
+    const hutWithout = (n: string) => (n === STORAGE_HUT && stationsEarly ? ['crafting_table', 'furnace'] : []);
     // The windows made once for the village (S.3), in the same villages: smelted and crafted at the hut by one worker
     // for every building, their sand gathered once (14 panes are 6 sand, where each building's own bill made it 18); the
     // budget and the wood checks still judge each building's whole bill. Only where the world can make them so
     const pooled = economy && (withHut || !!v.storageHut) && !!w.sharedParts && !!w.taskSkills?.includes('make_into_storage');
     let wood = v.wood;
     if (!wood && economy && site.wood) {
-      const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n, undefined, ownStations(n)).logs ?? 0), 0);
+      const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n, undefined, ownStations(n), hutWithout(n)).logs ?? 0), 0);
       if ((site.woodLogs ?? 0) >= logs * 1.5) wood = site.wood;
     }
     if (economy)
       for (const n of new Set(names)) {
-        const m = w.materialTasks!(v.designs[n], '{label}', wood, ownStations(n));
+        const m = w.materialTasks!(v.designs[n], '{label}', wood, ownStations(n), hutWithout(n));
         if (m.problems.length && n === centre?.design.name) { dropCentre(); continue; }
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
@@ -248,15 +253,24 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         const [sx, sz] = [hut.x1 + STORAGE_HUT_STAND[0], hut.z1 + STORAGE_HUT_STAND[1]];
         const [cx, cz] = [hut.x1 + STORAGE_HUT_SPOTS[0][0], hut.z1 + STORAGE_HUT_SPOTS[0][1]];
         // Four chests at once (logs, cobblestone, sand, misc...): deposits later craft more only when a group needs one
-        tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chests in the storage hut's chest spots (the first at ${cx} ${cz}), and the hut is built around them`, after: laid ? [0] : [] });
+        // (S.5: then the village's crafting table into its cell of the hut, from the felled logs when the preparer sets the
+        // storage up, storageFromFelled)
+        tasks.push({ title: 'Set up the village storage', detail: stationsEarly
+          ? `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all (the first deposit puts the chests in the storage hut's chest spots, the first at ${cx} ${cz}; the hut is built around them), then place_station item=crafting_table (the village's table, in its cell of the hut)`
+          : `collect block=logs count=10, craft item=chest count=4, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chests in the storage hut's chest spots (the first at ${cx} ${cz}), and the hut is built around them`, after: laid ? [0] : [] });
       } else {
         const sx = lay.x, sz = plot.z2 + 4;
         tasks.push({ title: 'Set up the village storage', detail: `collect block=logs count=4, craft item=chest count=1, move_to x=${sx} y=${site.y + 1} z=${sz}, then deposit item=all: the first deposit puts the chest down there as the village storage`, after: [] });
       }
     }
-    // The other buildings wait for the storage hut (this layout's, or one still being built)
+    // The other buildings waited for the storage hut before S.5 (this layout's, or one still being built)
     const hutTask = v.tasks.find((t) => t.title === `Build ${STORAGE_HUT}` && t.status !== 'done' && t.status !== 'failed');
     let hutBuild: string | number | undefined = hutTask?.id;
+    // S.5: the houses, the windows, the farm, the lamps and the signs wait for the hut's table and furnace, not for the hut:
+    // for the stations task (posted with a new hut below, or one still on the board); with both stations standing for
+    // nothing; in a village from before S.5, or with the task over and a station missing, for the hut's build as before
+    let stationsTask: string | number | undefined = v.tasks.find((t) => t.title === STATIONS_TASK && (t.status === 'open' || t.status === 'claimed'))?.id;
+    const gate = () => stationsTask ?? (STATION_NAMES.every((n) => v.stations?.[n]) ? undefined : hutBuild);
     // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
     const mining = withHut ? lay.places.find((p) => p.name === MINING_HUT) : undefined;
     // (in the street plan the hut faces its street, the stairs running out its back: its turn is the plan's)
@@ -310,7 +324,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       }
       // (no task for the hoe's log: prepare_site's felled trees leave logs in storage, and a gather task "for the farm" is
       // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
-      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : []), ...seeds], soft: true });
+      const g = gate();
+      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [0, ...(storage !== undefined ? [storage] : []), ...(g !== undefined ? [g] : []), ...seeds], soft: true });
     };
     // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once the
     // storage hut stands (S.4; builders' stand spots and doorways keep clear of them); made from what the storage holds
@@ -335,15 +350,34 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // stands; the houses' windows wait for it). Not the lamps' torches: off every build's path, they held one of two
     // workers a minute ahead of the houses' gathering (S.3's review, lesson 91); the lamp job makes its own at the hut,
     // its charcoal never stored. Soft; its detail names no design (missingDesigns would hold it)
+    // (S.5: once the hut's stations stand, not the hut; the houses with windows wait for it, `partsTask`)
     let partsPosted = !windows;
+    let partsTask: number | undefined;
     const postParts = () => {
       if (partsPosted || !windows) return;
       partsPosted = true;
       const calls = [windows.panes ? `make_into_storage item=glass_pane count=${windows.panes}` : '', windows.glass ? `make_into_storage item=glass count=${windows.glass}` : ''].filter(Boolean);
+      const g = gate();
+      partsTask = tasks.length;
       tasks.push({
         title: `Make ${windows.panes || windows.glass} ${windows.panes ? 'glass_pane' : 'glass'} into storage`,
         detail: `${calls.join(', then ')} (smelted at the storage hut's furnace and crafted at its table, put into storage by name for the windows)`,
-        after: [...(hutBuild !== undefined ? [hutBuild] : []), ...windowSand], soft: true,
+        after: [...(g !== undefined ? [g] : []), ...windowSand], soft: true,
+      });
+    };
+    // The hut's stations (S.5), posted after the mine's dig (whose digger places the furnace once it has walked out) and
+    // before the storage hut (lesson 91: the hut keeps its place); code closes it as soon as both stand, so it runs only as
+    // the fallback (a worker set the storage up, or the stairs gave no stone). Hard: the houses wait for it, and the hut's
+    // build closes it whatever its state once it has placed what was missing
+    let stationsPosted = !(stationsEarly && laid && !STATION_NAMES.every((n) => v.stations?.[n]));
+    const postStations = () => {
+      if (stationsPosted) return;
+      stationsPosted = true;
+      stationsTask = tasks.length;
+      tasks.push({
+        title: STATIONS_TASK,
+        detail: "place_station item=crafting_table, then place_station item=furnace (the storage hut's table and furnace, in their cells before the hut is built: the village crafts and smelts there)",
+        after: [...(storage !== undefined ? [storage] : []), ...(dig !== undefined ? [dig] : [])], retries: 4,
       });
     };
     // Cobblestone is gathered in the mine once it is dug (a soft task: without it, outside as before)
@@ -362,6 +396,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
       const label = total(p.name) > 1 ? `${p.name} ${k}` : p.name;
+      // (the stations before the storage hut's gathering when no mine came first; the windows' task before the first other
+      // building, which waits for it)
+      if (p.name !== MINING_HUT) postStations();
+      if (p.name !== MINING_HUT && p.name !== STORAGE_HUT) postParts();
       const gather: number[] = [];
       // (the windows' sand left out of a building's own when billed once, S.3; the storage hut keeps its own; the first
       // building with windows gathers the logs their smelting burns, billed nowhere else: S.3's review)
@@ -382,15 +420,21 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const build = tasks.length;
       builds.push(build);
       buildOf.set(`${p.x},${p.z}`, { build, label });
+      // (the other buildings wait for the hut's stations, S.5, and those with windows for the windows' task too)
+      const g = gate();
+      const glazed = windows && p.name !== STORAGE_HUT && windows.with.includes(v.designs[p.name].name);
       tasks.push({
         title: `Build ${label}`,
         detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
-        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && hutBuild !== undefined ? [hutBuild] : []),
-          ...(windows && p.name !== STORAGE_HUT && windows.with.includes(v.designs[p.name].name) ? windowSand : [])],
+        after: [0, ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && g !== undefined ? [g] : []),
+          ...(glazed ? [...windowSand, ...(partsTask !== undefined ? [partsTask] : [])] : [])],
       });
       if (isMine) {
         dig = tasks.length;
-        tasks.push({ title: 'Dig the village mine', detail: 'dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)', after: [build], soft: true });
+        // (S.5: the furnace from the stairs' stone, placed once the deposit has walked the digger out of the mine, lesson
+        // 101; optional: a placement that fails leaves it to the stations task and never holds the mine's gathering)
+        tasks.push({ title: 'Dig the village mine', detail: `dig_mine max_depth=24, then deposit item=all into the village storage (the stairs from inside the mining hut down to stone; cobblestone is then collected in the mine)${stationsEarly && !stationsPosted ? ', then place_station item=furnace optional=true (the village\'s furnace, from the stairs\' stone, in its cell of the storage hut)' : ''}`, after: [build], soft: true });
+        postStations();
       }
       if (isHut) {
         postParts();
@@ -400,12 +444,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     postParts();
     postFarm();
     // The lamps go up once the storage hut stands (S.4), not after the buildings: they stand outside every building's
-    // claim ring and door walkway in every street and green layout (checked offline), so a lamp is in no build's way. The
-    // hut's build is the stations' gate before S.5 (villageStation needs its record; without it the lamp job billed a
-    // furnace of its own). They do not wait for the windows' task (S.3's review: the lamps sat minutes behind the glass):
+    // claim ring and door walkway in every street and green layout (checked offline), so a lamp is in no build's way. They
+    // wait for the hut's stations (S.5's gate; before S.5 the hut's build: villageStation needs a record, and without it the
+    // lamp job billed a furnace of its own). They do not wait for the windows' task (S.3's review: the lamps sat minutes behind the glass):
     // the job's charcoal waits at the furnace's lock only while the panes are being made. A later layout whose hut stands waits for
     // its plot; with no hut (loose chests), once every build is claimed, as before (the opportunities #4)
-    const hutGate = v.storageHut ? [...(storage !== undefined ? [storage] : []), ...(hutBuild !== undefined ? [hutBuild] : [])] : null;
+    const lampGate = gate();
+    const hutGate = v.storageHut ? [...(storage !== undefined ? [storage] : []), ...(lampGate !== undefined ? [lampGate] : [])] : null;
     if (lamps.length)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`,
         after: [0, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
@@ -425,7 +470,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (slots.length) reg.note(v, `${slots.length} farm slot${slots.length > 1 ? 's' : ''} kept free at ${slots.map((q) => areaText(q)).join(' and ')}`);
     }
     // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
-    // layout: one task a building, put up once its own build is done (S.4), and once the storage hut stands (a sign is a
+    // layout: one task a building, put up once its own build is done (S.4), and once the storage hut's table stands (a sign is a
     // table recipe: the mining hut's, built first, would have made a table of its own, F59). Posted after the lamps (both
     // draw the storage's wood: their logs are reserved, and a job that comes up short posts gathering as a build's). Soft;
     // four tries, put back on the board up to SIGN_TRIES while the sign can still go up (completion waits for each sign
@@ -436,8 +481,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     for (const s of signs) {
       const b = buildOf.get(`${s.cx},${s.cz}`);
       if (!b) continue;
+      const g = gate();
       tasks.push({ title: `Put up the sign: ${b.label}`, detail: `${signCall(nth, s)} (the ${b.label}'s name sign beside its door, made from the village storage)`,
-        after: [0, b.build, ...(hutBuild !== undefined && hutBuild !== b.build ? [hutBuild] : [])], soft: true, retries: 4 });
+        after: [0, b.build, ...(g !== undefined && g !== b.build ? [g] : [])], soft: true, retries: 4 });
     }
     if (wood && !v.wood) {
       v.wood = wood;

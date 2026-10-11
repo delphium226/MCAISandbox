@@ -86,8 +86,11 @@ export async function holdingStorageTask<T>(v: Village, fn: () => Promise<T>): P
   }
 }
 
-/** The level chests stand at in the storage hut: on its floor once built, else on the prepared plot; null before that. */
-function hutY(v: Village): number | null {
+/**
+ * The level chests stand at in the storage hut: on its floor once built, else on the prepared plot; null before that. The
+ * hut's table and furnace go at this level too (S.5's stationSpot).
+ */
+export function hutY(v: Village): number | null {
   const h = v.storageHut!;
   const built = v.structures.find((s) => s.kind === STORAGE_HUT && overlaps(s, h));
   if (built) return built.y + 1;
