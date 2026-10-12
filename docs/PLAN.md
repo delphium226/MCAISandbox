@@ -20,6 +20,53 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-12 at the close of the twenty-seventh session; the next session's prompt is
+`runs/2026-10-12/NEXT_PROMPT.md`; the notes below for the twenty-sixth session stay valid where not overridden)
+
+- **Done this session (s27), committed on `tiered-brain-building`, NOT pushed** (origin is at `c5224d6`; ask before
+  pushing): `d0d6c8f` (s26's close-out, also unpushed), `475f060` E.0 (scale safety), `f22a1bc` F216/F217, `4d2d77a` E.1
+  (infrastructure for 25), and the close-out commit (this record, `docs/research/memory/`, `scripts/stage_runs.py`, the
+  profiling and chat helpers in `scripts/checks/`). `main` untouched.
+- **Where things stand at 25:** the 25-bot probe (`scripts/checks/scale_probe25.py`) runs 10 minutes of mixed work with 0
+  `[lag]`, API p90 0.048 s, Paper's tick worst 6.7 ms, RCON p90 11-46 ms a 30 s window; the agent server is ~51% idle
+  (F219 fixed find_site's survey, which took 60% of the CPU). Van25a (25 agents, staged, 2x) built the village in 4.1
+  min with 0 lag/stuck/timeouts but **21% busy: 16 of 25 waited while 8 mined**. The work runs out at 25: A.2 (the menu
+  with instances) and the task families S.9-S.16 are what fills it.
+- **Next (the roadmap's step 3, agreed order):** finish A.1's baseline (its code is in since `85ddef1`; the runs never
+  happened: three staged after-phases with the fixed order and one model-driven run, metrics from
+  `scripts/checks/autonomy_metrics.py`), then **A.2, the menu with instances** (spec, check, implement, review, refute,
+  test; the step's two open questions go to the user first). Then S.7/S.8 or the task families, the user's call.
+- **G2, long-horizon memory (started with the user this session):** the user's choices are in the decisions log
+  (10-11, s27): both horizons, all four purposes, **model-managed** memory. The literature synthesis is
+  `docs/research/memory/long-horizon-memory.md` (it favours: code records verifiable facts with provenance; the model
+  curates through narrow ops on entries with ids, add/supersede/vote/mark_done, no rewrites or hard deletes; writes ride
+  existing calls plus one consolidation call per agent per village night; code pushes a ~300-500-token core and the top
+  1-3 entries into each prompt; ~0.73M tokens/h at 25 agents, ~$0.15/h). Bench v1 (`docs/research/memory/bench_v1_*.md`;
+  code and data in `runs/2026-10-11/s27/memory/`) was judged **not ready** by its adversarial check (25+ probes need no
+  memory, wrong answers, leaks, decision probes give the answer away, ~27 clean test probes). **Open with the user:**
+  rebuild the bench as v2 to the report's section 7 (template probes from code-computed state, decision probes inside
+  execbench/mayorbench, a BM25/log-search baseline, dev/test split frozen, 5 samples a probe) and run the candidate
+  designs (~$1.5-2 each), or the user reads the report first and adjusts the direction. Ask once at the start.
+- **Open findings:** F218 (a bot on a street's dirt_path gets "no path" to the storage hut's furnace cell, `goto`
+  resolving without arriving; twice in four runs, not reproduced with `move_to`: next, `reach()`'s GoalNear range 3 on
+  the hut cell from that spot); F220 (the probe's RCON figure is the worst minute; count the run's p90 over all
+  commands). The 25-bot village's idle agents are a goal, not a finding.
+- **Stack:** nothing running. The test Paper went down with the machine overnight without a save (its log ends at
+  19:27, Van25a's end): the test world is restored per site anyway; reset minevale3 before use. The main Paper was
+  stopped cleanly (whitelist Worker5-24 added). max-players 30 in both worlds.
+- **How to run things now:** staged runs in a row, detached, with a watcher: `python scripts/detach.py
+  runs/<date>/NAME.runner.log python scripts/stage_runs.py NAME:WORKERS` (minevale3 at Minevale37's site, the S.0
+  command, a reset before each; `STAGE_ARGS`, `STAGE_TIMEOUT_S` for long after-phases), then a Bash
+  `run_in_background` loop `until grep -q "ALL DONE" ...; do sleep 15; done`. Model-driven villages: as in CLAUDE.md, on
+  the test world after a 1x reset (`reset_site.py minevale3` without `MC_TIME_SCALE`), detached through detach.py with a
+  watcher on its `^STOPPED` line. A live human chat line: `node scripts/checks/human_line.cjs Gus 25566 "Mayor, ..."`.
+  A CPU profile of the agent server: `node -e "process._debugProcess(PID)"`, then `node scripts/checks/cdp_profile.cjs
+  ws://127.0.0.1:9229/<id> 40 OUT.cpuprofile` and `node scripts/checks/profile_callers.cjs OUT.cpuprofile`.
+- **Method that held up again (s27):** a golden check before reviewing a refactor; four lens reviewers plus one refuter per
+  finding found 3 real defects in E.0 and 12 of 20 in E.1, and a fix review found one more (the pathfinder share cut
+  two bots); implementers on disjoint file sets; every staged and probe run detached with a watcher; a CPU profile when
+  the numbers are bad without any `[lag]` (lesson 125).
+
 (written 2026-10-11 at the close of the twenty-sixth session; the next session's prompt is
 `runs/2026-10-11/NEXT_PROMPT.md`)
 
@@ -1056,7 +1103,9 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
   collecting at once, counting `[lag]` lines, the API's response time and Paper's tick time (`mspt`/`tps`). Exit: a
   number of agents one agent server holds without stalls over ~2 s, or the finding that bots must be split across
   processes (a second agent server per village).
-- [ ] A.1 **Decision log and the baseline** (~half a session; no behaviour change).
+- [ ] A.1 **Decision log and the baseline** (~half a session; no behaviour change). The code is in (`85ddef1`, s26:
+  `[choice]`/`[choice-end]` records, `mcChoiceLog.ts`, per-run JSONL via `MCAI_CHOICE_LOG`, `autonomy_metrics.py`, which
+  reads the AGENTS table since E.1); **the baseline runs are still to do** (as of s27).
   - Every chore decision logged as a `[choice]` record (agent, time, the options offered with their facts, the choice,
     the reason, "fixed order" for today's picker), closed with its outcome, minutes and yield; also a per-run JSONL.
   - `scripts/checks/autonomy_metrics.py`: activity entropy and specialisation per agent, cumulative unique (activity,
@@ -1181,7 +1230,7 @@ A.0's budget guards against a runaway loop.
 
 ## Roadmap for Phases A, S and E (Claude's, 10-10, the user away)
 
-**Goals added 10-11 (the user's):** (G1) once 25 agents act autonomously, they **propose improvements to the game**; a Claude Code session picks the proposals up, decides whether each is feasible, and rejects it (with a reason the agents get back) or accepts it and implements it through the usual design, review and test steps. (G2) **Long-horizon memory**: investigate the best mechanism for agents to remember across hours and days and implement it (it takes over and extends A.4 and E.2's journal, lessons and clock; the literature review's memory notes are the starting point, now with gpt-oss for every role instead of the small local models those notes assumed). Both get their own steps once designed.
+**Goals added 10-11 (the user's):** (G1) once 25 agents act autonomously, they **propose improvements to the game**; a Claude Code session picks the proposals up, decides whether each is feasible, and rejects it (with a reason the agents get back) or accepts it and implements it through the usual design, review and test steps. (G2) **Long-horizon memory**: investigate the best mechanism for agents to remember across hours and days and implement it (it takes over and extends A.4 and E.2's journal, lessons and clock; the literature review's memory notes are the starting point, now with gpt-oss for every role instead of the small local models those notes assumed). Both get their own steps once designed. G2 started 10-11 (s27): the user's choices in the decisions log, the literature synthesis in `docs/research/memory/long-horizon-memory.md`, bench v1 and its check beside it; the bench's v2 and the design are next (the handover).
 
 **Revised 10-11 (the user's direction):** after S.6, no more agent-count comparisons (the paired Van12/Van3 runs and the "12 must beat 3" pass rules end with S.6). Work goes to the stated goals: 25 agents doing many different activities in parallel (E.0, E.1, then the task families S.9-S.16), agents that choose (A.2 on), and Sid-style emergence (E.2-E.7, then E.8-E.10). Each step is tested by whether it works at 25 agents and does what it is for, with short purposeful runs. S.7 and S.8 stay as needed infrastructure (model-driven agents at scale, a village big enough for them), without their timing targets.
 

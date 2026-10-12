@@ -264,6 +264,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
   Since 2026-10-02: `top_map.py WORLD X1 Z1 X2 Z2` (offline top-ground map: a prepared plot's pits against the
   snapshot), `region_logs.py WORLD X1 Y1 Z1 X2 Y2 Z2` (logs with their axis: fallen trees); `site.py` also checks the
   wood count; `site.py` and `fell_trees.py` take `MCAI_API`. The "shelf" site needs `--buildings testhut,testhut,testhall`.
+  Since E.1 (2026-10-11): `scale_probe25.py AGENT_LOG` (25 bots of mixed work; `LEVELS`, `WORK`), `pf_share.mts` (the
+  pathfinder's shared allowance offline), `human_line.cjs NAME PORT "TEXT"` (a plain player's chat line, for chat
+  routing), `cdp_profile.cjs`/`profile_callers.cjs` (CPU profile of a running agent server, lesson 125), and
+  `scripts/stage_runs.py NAME:WORKERS ...` (staged runs in a row on minevale3 with a reset before each; detach it and
+  arm a watcher, lesson 122).
   To see the panel without a browser:
   headless Edge (`"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless=new --screenshot=<png>
   --window-size=1300,1100 --virtual-time-budget=8000 http://127.0.0.1:8766/panel`), then read the PNG.
@@ -515,6 +520,16 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     S.3/S.4 glass once, lamps early, a sign per building, `28223ac` S.5 stations early, `3b69e17` S.6 the plot in parts):
     the staged 12-agent village 6.2 -> 3.1 min. E.0 (scale safety) implemented but uncommitted at the close (see
     PLAN.md's handover). Lessons 118-124.
+42. 2026-10-11/12 (twenty-seventh session; NOT pushed at the close, ask first; origin at `c5224d6`, `main` untouched):
+    `475f060` E.0, scale safety (the model call gate, chat routed within 48 blocks with wakes, contention codes, the
+    board refreshed outside claimable(), debounced saves, budget shares with Mayors exempt, the spend ledger; golden check
+    0 differences on 137 villages); `f22a1bc` F216/F217 (the stations task's steps matched by item; no station, block or
+    mining on village ground); `4d2d77a` E.1 (max-players 30, Worker1-24 in both worlds, `/api/perf`, the RCON timeout
+    with charges settled by counting, the pathfinder's shared allowance, F219 find_site's survey on state ids, the scan
+    lock, the panel at 25, spawns 2.5 s apart, the AGENTS table, `scale_probe25.py`, `pf_share.mts`). Minevale38/40 (1x)
+    10.1/11.0 min; the 25-bot probe 10 min with 0 `[lag]`, API p90 0.048 s; Van25a (25 agents, staged, 2x) 6/6 in 4.1
+    min, 21% busy. G2 (long-horizon memory) started with the user: model-managed memory, both horizons, all purposes;
+    `docs/research/memory/`. Lessons 125-126. Next: A.1's baseline, then A.2 (PLAN.md's handover).
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -671,7 +686,9 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-sixth session (2026-10-11): the stack stopped (the test Paper saved by RCON stop); E.0's uncommitted
+Left after the twenty-seventh session (2026-10-12): nothing running; the test Paper went down with the machine without a
+save (the test world is restored per site anyway); the main Paper stopped cleanly; no agents in either world; see
+PLAN.md's handover. Left after the twenty-sixth session (2026-10-11): the stack stopped (the test Paper saved by RCON stop); E.0's uncommitted
 work in the working tree, backed up in `runs/2026-10-11/s26_e0_backup/`; see PLAN.md's handover. Before that, after the twenty-fifth session (2026-10-10): see PLAN.md's "Next session starts with" for what was left running (the
 stack is normally stopped cleanly at the close; start it as above); no agents in either world. In the main world, test
 buildings, storage chests and mines stand near spawn and at the test villages (Depot, Stage*,
@@ -1108,16 +1125,16 @@ Lessons from the adapter:
    notification, and the session sat idle twice for 4-5 hours after runs ended. Arm a Bash `run_in_background` watcher
    (`until grep -q "ALL DONE" LOG; do sleep 15; done`) with every detached run. Detach a Python script, not a shell
    script: `bash` there is WSL's, which has no `/c/` paths (`runs/2026-10-10/s26/baselines_s0.py` runs staged runs in a row).
-123. **Before 25 agents** (E.1's spec): Paper's `max-players` is 16 in both `server.properties`; each name must be
-   whitelisted (the test world has Worker1-11, the main world Worker1-4); the panel's name-hash colours collide for 7 pairs
-   among Mayor and Worker1-24; `/api/overview` would be ~1-1.5 MB every 2 s with model prompts at 25.
+123. **Before 25 agents** (E.1's spec; all done in E.1, 2026-10-11): Paper's `max-players` was 16 (now 30); each name must
+   be whitelisted (Worker1-24 now in both worlds); the panel's name-hash colours collided for 7 pairs among Mayor and
+   Worker1-24 (now by number); `/api/overview` would have been ~1-1.5 MB every 2 s with model prompts at 25 (now ~120 KB).
 124. **Spec, check, implement, review, refute, then test** (the twenty-sixth session's method): read-only spec agents with an
    adversarial check found real problems in every spec, and three or four lens reviewers plus a refuting pass found 7-12
    real defects in every implementation before a run; only one implementer edits a file set at a time, and nothing edits
    server files while a run goes. Heavy for small steps: one implementer plus one review is enough there.
 125. **No `[lag]` line does not mean an idle loop: profile at scale** (F219, 2026-10-11): at 25 bots the agent server was 98%
    busy with no stall over 2 s, so every RCON reply and API answer waited a slow turn (RCON 649 ms). A 40 s CPU profile
-   through the inspector (`runs/2026-10-11/s27/cdp_profile.cjs` WS SECONDS OUT, `profile_callers.cjs` OUT for time by our
+   through the inspector (`scripts/checks/cdp_profile.cjs` WS SECONDS OUT, `profile_callers.cjs` OUT for time by our
    calling function) named one function with 60%: find_site's surface read building a Block per cell. `/api/perf`'s
    loop p99 is the number to watch; the 25-bot probe (`scripts/checks/scale_probe25.py`) is the load.
 126. **A budget shared between bots must leave small villages alone** (E.1's reviews): a pathfinder allowance of 20 ms a
