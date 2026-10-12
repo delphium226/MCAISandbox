@@ -29,20 +29,21 @@ console.warn = (...a: unknown[]) => void warns.push(a.join(' '));
 const quietLog = (...a: unknown[]) => void logs.push(a.join(' '));
 
 // --- parseReasoning
-eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium' }, 'reasoning from a string');
+eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium', choose: 'low' }, 'reasoning from a string');
+eq(parseReasoning('choose=medium'), { ...DEFAULT_REASONING, choose: 'medium' }, 'the choose kind (A.2)');
 eq(parseReasoning({ design: 'high' }), { ...DEFAULT_REASONING, design: 'high' }, 'reasoning from an object');
 eq(parseReasoning(undefined), DEFAULT_REASONING, 'reasoning unset');
 eq(parseReasoning(''), DEFAULT_REASONING, 'reasoning empty');
-eq(parseReasoning(null, { exec: 'high', plan: 'high', design: 'high' }), { exec: 'high', plan: 'high', design: 'high' }, 'reasoning null keeps the base');
+eq(parseReasoning(null, { exec: 'high', plan: 'high', design: 'high', choose: 'high' }), { exec: 'high', plan: 'high', design: 'high', choose: 'high' }, 'reasoning null keeps the base');
 ok(warns.length === 0, 'no warning for good or empty reasoning settings');
 eq(parseReasoning('exec=extreme,plan=low'), { ...DEFAULT_REASONING, plan: 'low' }, 'a bad level is ignored');
 eq(warns.length, 1, 'one warning for a bad level');
 parseReasoning('exec=extreme,plan=low');
 eq(warns.length, 1, 'the same bad input warns once');
-eq(parseReasoning('choose=low,exec=Medium'), { ...DEFAULT_REASONING, exec: 'medium' }, 'an unknown key is ignored, levels any case');
+eq(parseReasoning('vote=low,exec=Medium'), { ...DEFAULT_REASONING, exec: 'medium' }, 'an unknown key is ignored, levels any case');
 eq(warns.length, 2, 'a second distinct bad input warns again');
-parseReasoning({ choose: 'low' });
-parseReasoning({ choose: 'low' });
+parseReasoning({ vote: 'low' });
+parseReasoning({ vote: 'low' });
 eq(warns.length, 3, 'a bad object input warns once');
 
 // --- parsePrices

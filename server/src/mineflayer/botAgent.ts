@@ -570,6 +570,8 @@ export class BotAgent implements WorldAgent {
     } else {
       st.state = 'failed';
       st.message = r.fail;
+      // (the contention code on the status too: a chore's end tells another agent's work in the way from a failure, A.2)
+      if (r.code) st.code = r.code;
       this.pushEvent('action_failed', `${st.type} failed: ${r.fail}`, { action: st.id, type: st.type, args: st.args, message: r.fail, ...(r.code ? { code: r.code, resource: r.resource } : {}) });
     }
     this.history.push(st);

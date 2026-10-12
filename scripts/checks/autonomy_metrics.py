@@ -13,8 +13,9 @@ Usage: python scripts/checks/autonomy_metrics.py RUNLOG [CHOICES] [--village V] 
 Prints per agent: activity entropy and specialisation (from the finished and failed actions in the run log), unique
 (activity, target) pairs, busy and idle minutes (the BUSY lines, else the AFTER busy line), refused repeats and
 interventions (rescues, teleports) per agent-hour; for the village: cumulative unique pairs, the value of the storage
-over time (the STOCK lines) with its drawdowns, the goal ledger of the decision log (chosen, done, failed, abandoned) and
-the board's ledger. Building takes from the storage, so the value curve falls while the village is built.
+over time (the STOCK lines) with its drawdowns, the goal ledger of the decision log (chosen, done, failed, abandoned), how
+each decision was made (A.2's CHOICES block: by source, the failure fallbacks by why, the drops, the model's share of the
+decisions with 2+ options, its chosen positions against chance by menu size, tokens and waits) and the board's ledger. Building takes from the storage, so the value curve falls while the village is built.
 
 The watch scripts import BusyClock, BoardStamps and critical_path_lines from here, and stage_village.py MineStats (S.2).
 """
@@ -476,10 +477,21 @@ def parse_runlog(path):
     return r
 
 
-def parse_choices(path, village, start, end):
+def parse_choices(path, village, start, end, typed=None):
     """The decision log's choices, each with its outcome (None: abandoned, no end recorded, cut short or ended after the
-    run); ids repeat after an agent server restart, so a choice is paired with the end that follows it."""
+    run); ids repeat after an agent server restart, so a choice is paired with the end that follows it. The typed records
+    that are neither (A.2's choice-drop and choice-ban) go to `typed` when given, kept for the village and the run's
+    times as the choices are."""
     recs, rescues = [], {}
+
+    def keep_typed(rec):
+        t = (rec.get("t") or 0) / 1000
+        if typed is None or (village and rec.get("village") and rec["village"].lower() != village.lower()):
+            return
+        if (start and t and t < start - 5) or (end and t and t > end + 5):
+            return
+        typed.append(rec)
+
     for line in open(path, encoding="utf-8", errors="replace"):
         line = line.strip()
         kind = None
@@ -488,8 +500,21 @@ def parse_choices(path, village, start, end):
                 rec = json.loads(line)
             except ValueError:
                 continue
+            # (a drop or a ban carries `agent` or neither `outcome` nor `ok`, so the rule below would take it for a choice:
+            # A.2's spec, C16)
+            if rec.get("type") in ("choice-drop", "choice-ban"):
+                keep_typed(rec)
+                continue
             kind = "end" if rec.get("type") == "choice-end" or ("outcome" in rec and "agent" not in rec) or ("ok" in rec and "agent" not in rec) else "choice"
         else:
+            # (the console's drop line is the JSONL record; its ban line is text, counted from the JSONL only)
+            m = re.search(r"\[choice-drop\] (\{.*\})$", line)
+            if m:
+                try:
+                    keep_typed(dict(json.loads(m.group(1)), type="choice-drop"))
+                except (ValueError, TypeError):
+                    pass
+                continue
             m = re.search(r"\[(choice|choice-end)\] (\{.*\})$", line)
             if m:
                 try:
@@ -534,6 +559,208 @@ def parse_choices(path, village, start, end):
             c["cut_outcome"], c["outcome"] = o, None
         keep.append(c)
     return sorted(keep, key=lambda c: c.get("t") or 0), rescues
+
+
+# ---- A.2's decisions: how each choice was made, and where the model's choices fell on the shown menu
+
+FAILURES = ("budget", "queue", "withdrawn", "timeout", "invalid", "error", "taken")
+ALPHA = 0.01
+
+
+def _upper_gamma(a, x):
+    """The regularized upper incomplete gamma Q(a, x) (series below a + 1, continued fraction above)."""
+    if x <= 0:
+        return 1.0
+    front = math.exp(-x + a * math.log(x) - math.lgamma(a))
+    if x < a + 1:
+        ap, d = a, 1.0 / a
+        s = d
+        for _ in range(1000):
+            ap += 1
+            d *= x / ap
+            s += d
+            if abs(d) < abs(s) * 1e-14:
+                break
+        return min(1.0, max(0.0, 1.0 - s * front))
+    b, c = x + 1 - a, 1e300
+    d = 1.0 / b
+    h = d
+    for i in range(1, 1000):
+        an = -i * (i - a)
+        b += 2
+        d = an * d + b
+        d = 1e-300 if abs(d) < 1e-300 else d
+        c = b + an / c
+        c = 1e-300 if abs(c) < 1e-300 else c
+        d = 1.0 / d
+        h *= d * c
+        if abs(d * c - 1) < 1e-14:
+            break
+    return min(1.0, max(0.0, front * h))
+
+
+def chi2_sf(x, df):
+    """P(chi-square with df degrees of freedom >= x)."""
+    return _upper_gamma(df / 2, x / 2)
+
+
+def binom_two_sided(k, n, p):
+    """The exact two-sided binomial p-value of k successes in n at p (outcomes no likelier than k's, summed)."""
+    if n <= 0:
+        return 1.0
+    if p <= 0 or p >= 1:
+        return 1.0 if k == round(n * p) else 0.0
+
+    def logpmf(i):
+        return math.lgamma(n + 1) - math.lgamma(i + 1) - math.lgamma(n - i + 1) + i * math.log(p) + (n - i) * math.log(1 - p)
+    lk = logpmf(k)
+    return min(1.0, sum(math.exp(logpmf(i)) for i in range(n + 1) if logpmf(i) <= lk + 1e-9))
+
+
+def pctl(xs, q):
+    """The q-th percentile (nearest rank) of the numbers in xs, None for none."""
+    xs = sorted(x for x in xs if isinstance(x, (int, float)))
+    return xs[max(0, min(len(xs) - 1, math.ceil(q / 100 * len(xs)) - 1))] if xs else None
+
+
+def position_lines(rows):
+    """Chosen positions against chance (A.2's spec, section 10). rows: (position 1-based, menu size) of the model's
+    choices. Per menu size a chi-square of the positions against uniform at ALPHA, where each position expects 10 or
+    more; under that an exact binomial per position (Bonferroni over the size's positions), reported only. Overall the
+    positions are pooled, each expecting the sum of 1/n over the decisions with n >= p; positions expecting under 10 are
+    merged into one rest category. Returns the lines and a summary."""
+    out, summary = [], {"sizes": {}, "overall": None}
+    th = lambda k: f"{k}{'st' if k == 1 else 'nd' if k == 2 else 'rd' if k == 3 else 'th'}"
+    for n in sorted({s for _, s in rows}):
+        ps = [p for p, s in rows if s == n]
+        N, e = len(ps), len(ps) / n
+        obs = [sum(1 for p in ps if p == k) for k in range(1, n + 1)]
+        ratio = max(o / e for o in obs) if e else 0
+        head = f"    menu of {n}: {N} choices, " + " / ".join(f"{th(k + 1)} {o}" for k, o in enumerate(obs)) + f" (chance {e:.1f} each), max observed/expected {ratio:.2f}"
+        if n < 2:
+            continue
+        if e >= 10:
+            x2 = sum((o - e) ** 2 / e for o in obs)
+            p = chi2_sf(x2, n - 1)
+            out.append(f"{head}; chi-square {x2:.1f} df {n - 1} p {p:.3g}: {'SIGNIFICANT' if p < ALPHA else 'not significant'}")
+            summary["sizes"][n] = {"n": N, "observed": obs, "expected": e, "ratio": ratio, "chi2": x2, "p": p, "significant": p < ALPHA}
+        else:
+            pmin = min(binom_two_sided(o, N, 1 / n) for o in obs) if N else 1.0
+            out.append(f"{head}; under 10 expected: not tested (exact binomial per position, min p {min(1.0, pmin * n):.3g} "
+                       f"after Bonferroni, reported only)")
+            summary["sizes"][n] = {"n": N, "observed": obs, "expected": e, "ratio": ratio, "binomial_min_p": min(1.0, pmin * n)}
+    many = [(p, s) for p, s in rows if s >= 2]
+    if many:
+        top = max(s for _, s in many)
+        exp = [sum(1 / s for _, s in many if s >= k) for k in range(1, top + 1)]
+        obs = [sum(1 for p, _ in many if p == k) for k in range(1, top + 1)]
+        cats = [(o, e) for o, e in zip(obs, exp) if e >= 10]
+        rest = (sum(o for o, e in zip(obs, exp) if e < 10), sum(e for e in exp if e < 10))
+        if rest[1] >= 10:
+            cats.append(rest)
+        elif cats and rest[1] > 0:
+            cats[-1] = (cats[-1][0] + rest[0], cats[-1][1] + rest[1])
+        ratio = max(o / e for o, e in zip(obs, exp) if e)
+        head = (f"    overall ({len(many)} choices from 2+ options): first shown chosen {100 * obs[0] / len(many):.0f}% (chance {100 * exp[0] / len(many):.0f}%), "
+                f"max observed/expected {ratio:.2f} (" + ", ".join(f"{th(k + 1)} {o}/{e:.1f}" for k, (o, e) in enumerate(zip(obs, exp))) + ")")
+        if len(cats) >= 2:
+            x2 = sum((o - e) ** 2 / e for o, e in cats)
+            p = chi2_sf(x2, len(cats) - 1)
+            out.insert(0, f"{head}; chi-square {x2:.1f} df {len(cats) - 1} p {p:.3g}: {'SIGNIFICANT' if p < ALPHA else 'not significant'}")
+            summary["overall"] = {"n": len(many), "observed": obs, "expected": exp, "ratio": ratio, "chi2": x2, "p": p, "significant": p < ALPHA}
+        else:
+            out.insert(0, f"{head}; too few for the test (fewer than two positions expect 10)")
+            summary["overall"] = {"n": len(many), "observed": obs, "expected": exp, "ratio": ratio}
+    return out, summary
+
+
+def choice_lines(choices, typed, after_from=None):
+    """The CHOICES block (A.2's spec, section 8): the decisions by source (the rate throttle apart from the failure
+    fallbacks), the failures by why, the drops by why, the model-decided share of decisions with 2+ options, the chosen
+    positions against chance and the cost per decision. after_from (epoch seconds): failures are also counted from then
+    on (A2m's exit counts them after the after phase's first 3 minutes)."""
+    drops = [r for r in typed if r.get("type") == "choice-drop"]
+    bans = [r for r in typed if r.get("type") == "choice-ban"]
+    if not any(c.get("source") for c in choices) and not drops and not bans:
+        return ["", "CHOICES: no source recorded (decisions from before A.2)"], None
+    src, why_f, rate, off = {}, {}, 0, 0
+    for c in choices:
+        s = c.get("source") or "unrecorded"
+        src[s] = src.get(s, 0) + 1
+        if s == "fallback":
+            w = c.get("why") or "?"
+            if w == "rate":
+                rate += 1
+            elif w == "off":
+                off += 1
+            else:
+                why_f[w] = why_f.get(w, 0) + 1
+    n = len(choices)
+    fails = sum(why_f.values())
+    pc = lambda a, b: f"{100 * a / b:.0f}%" if b else "n/a"
+    out = ["", f"CHOICES (A.2: how each of the {n} decisions was made; {len(drops)} dropped before running)"]
+    order = ["model", "repeat", "only", "fixed", "fallback"]
+    out.append("  by source: " + ", ".join(f"{s} {src[s]} ({pc(src[s], n)})" for s in order + sorted(set(src) - set(order)) if s in src)
+               + (f"; of the fallbacks {rate} by the rate throttle (not failures)" if rate else "")
+               + (f", {off} off" if off else ""))
+    late = ""
+    if after_from is not None:
+        lc = [c for c in choices if (c.get("t") or 0) / 1000 >= after_from]
+        lf = sum(1 for c in lc if c.get("source") == "fallback" and (c.get("why") or "?") not in ("rate", "off"))
+        late = f"; {lf} of {len(lc)} ({pc(lf, len(lc))}) after the after phase's first 3 min"
+    out.append(f"  failure fallbacks: {fails} ({pc(fails, n)} of decisions{late})"
+               + (": " + ", ".join(f"{w} {k}" for w, k in sorted(why_f.items(), key=lambda kv: (-kv[1], kv[0]))) if why_f else ""))
+    dw = {}
+    for d in drops:
+        dw[d.get("why") or "?"] = dw.get(d.get("why") or "?", 0) + 1
+    out.append(f"  drops: {len(drops)}" + (": " + ", ".join(f"{w} {k}" for w, k in sorted(dw.items(), key=lambda kv: (-kv[1], kv[0]))) if dw else ""))
+    multi = [c for c in choices if len(c.get("options") or []) >= 2]
+    by_model = sum(1 for c in multi if c.get("source") == "model")
+    out.append(f"  decisions with 2+ options: {len(multi)}, decided by the model {by_model} ({pc(by_model, len(multi))})")
+    if bans:
+        out.append(f"  bans: {len(bans)}: " + "; ".join(
+            f"{b.get('id')} until {time.strftime('%H:%M', time.localtime((b.get('until') or 0) / 1000))} ({(b.get('message') or '')[:60]})" for b in bans[:6])
+            + ("; ..." if len(bans) > 6 else ""))
+    # Where the model's choice fell on the menu as shown (1-based; from the record's position, else the chosen option's
+    # `shown`), against the menu's shown size
+    rows = []
+    for c in choices:
+        if c.get("source") != "model":
+            continue
+        size = c.get("shownCount") or sum(1 for o in c.get("options") or [] if o.get("shown"))
+        pos = c.get("position") or next((o.get("shown") for o in c.get("options") or [] if o.get("id") == c.get("chosen") and o.get("shown")), None)
+        if isinstance(pos, int) and isinstance(size, int) and 1 <= pos <= size:
+            rows.append((pos, size))
+    pos_summary = None
+    if rows:
+        out.append(f"  POSITION of the model's choice on the shown menu ({len(rows)} choices; alpha {ALPHA}, tested where each position expects 10+)")
+        lines, pos_summary = position_lines(rows)
+        out += lines
+    else:
+        out.append("  POSITION: no model choice with a recorded position")
+    # Cost per decision, over the decisions that carry each number (model calls and the fallbacks after one)
+    fields = [("promptTokens", "prompt tokens", ""), ("outputTokens", "output tokens", ""), ("latencyMs", "latency", " ms"),
+              ("waitMs", "gate wait", " ms"), ("queueWaitMs", "queue wait", " ms")]
+    parts, cost = [], {}
+    for f, label, unit in fields:
+        xs = [c[f] for c in choices if isinstance(c.get(f), (int, float))]
+        if xs:
+            parts.append(f"{label} p50 {pctl(xs, 50):.0f} p90 {pctl(xs, 90):.0f}{unit} (n {len(xs)})")
+            cost[f] = {"n": len(xs), "p50": pctl(xs, 50), "p90": pctl(xs, 90), "sum": sum(xs)}
+    waits = [(c.get("queueWaitMs") or 0) + (c.get("waitMs") or 0) for c in choices
+             if isinstance(c.get("queueWaitMs"), (int, float)) or isinstance(c.get("waitMs"), (int, float))]
+    if waits:
+        parts.append(f"decision wait (queue + gate) p50 {pctl(waits, 50):.0f} p90 {pctl(waits, 90):.0f} ms")
+        cost["decisionWaitMs"] = {"n": len(waits), "p50": pctl(waits, 50), "p90": pctl(waits, 90)}
+    tok = sum((c.get("promptTokens") or 0) + (c.get("outputTokens") or 0) for c in choices)
+    # (a decision dropped after its call was billed too: its record carries the call's tokens)
+    drop_tok = sum((d.get("promptTokens") or 0) + (d.get("outputTokens") or 0) for d in drops)
+    tok += drop_tok
+    out.append("  COST per decision: " + ("; ".join(parts + [f"{tok} tokens in all"])
+                                          + (f" ({drop_tok} in dropped decisions)" if drop_tok else "") if parts or drop_tok else "no model call recorded"))
+    summary = {"decisions": n, "sources": src, "rate": rate, "off": off, "failures": why_f, "drops": dw,
+               "multi": len(multi), "multi_model": by_model, "positions": pos_summary, "cost": cost, "tokens": tok, "bans": len(bans)}
+    return out, summary
 
 
 class Prices:
@@ -681,7 +908,8 @@ def main():
     # The goal ledger: the decision log's choices and their outcomes
     rescues_log = {}
     if a.choices:
-        choices, rescues_log = parse_choices(a.choices, village, run["start"], run["end"])
+        typed = []
+        choices, rescues_log = parse_choices(a.choices, village, run["start"], run["end"], typed)
         done = [c for c in choices if c["outcome"] and c["outcome"]["ok"]]
         failed = [c for c in choices if c["outcome"] and not c["outcome"]["ok"]]
         left = [c for c in choices if not c["outcome"]]
@@ -717,6 +945,13 @@ def main():
                               "outcome": c["outcome"], "cut": c.get("cut_outcome")} for c in choices]
         if not choices:
             print("  (no [choice] records for this village in the run's time)")
+        # How each decision was made (A.2): sources, fallbacks, drops, positions, cost
+        after_from = run["start"] + (after_at + 3) * 60 if run["start"] and after_at is not None else None
+        lines, summary = choice_lines(choices, typed, after_from)
+        for line in lines:
+            print(line)
+        if summary:
+            result["choice_sources"] = summary
 
     # The board's ledger (the run log's final task list)
     if run["tasks"]:

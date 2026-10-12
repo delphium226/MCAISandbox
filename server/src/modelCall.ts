@@ -394,7 +394,8 @@ const ctxWarned = new Set<string>();
 /**
  * One model call: through the gate, checked against the budget, timed from the send and counted in the usage ledger.
  * `ms` is the call's own time (not the wait), `waitMs` the time at the gate. Throws BudgetExceeded (refused, recorded),
- * CallWithdrawn (recorded as withdrawn), CallFallback, or the provider's error (recorded as an error).
+ * CallWithdrawn (recorded as withdrawn), CallFallback, or the provider's error (recorded as an error; as withdrawn when the
+ * caller's own signal aborted the send).
  */
 export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: number; waitMs: number }> {
   const { spec, agent, kind } = req;
@@ -424,7 +425,8 @@ export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: n
         gate.fellBack(req.priority);
         throw new CallFallback(req.fallbackMs!);
       }
-      usage.error(spec.model, agent, kind, ms);
+      // (aborted by its own caller, e.g. a decision dropped while its call ran: withdrawn, not a model error)
+      usage.error(spec.model, agent, kind, ms, req.signal?.aborted ? 'withdrawn' : 'error');
       throw err;
     } finally {
       if (timer) clearTimeout(timer);

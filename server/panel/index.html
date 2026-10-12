@@ -64,6 +64,9 @@
   .list { margin: 0; padding: 0; list-style: none; }
   .list li { padding: 2px 0; border-bottom: 1px dashed var(--line); overflow-wrap: anywhere; }
   .list li:last-child { border-bottom: 0; }
+  /* A2: the option an agent chose in its Choice tab, and the village's decisions chip (it may wrap) */
+  .list li.chosen { background: color-mix(in srgb, var(--good) 14%, transparent); border-radius: 4px; }
+  .chip.choices { white-space: normal; }
   .ev-action_done { color: var(--good); } .ev-action_failed { color: var(--bad); } .ev-chat { color: var(--chat); }
   .ev-system { color: var(--info); } .ev-damage, .ev-death { color: var(--warn); } .ev-crafted { color: var(--text); }
   .tag { font-family: var(--mono); font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin: 1px 2px 1px 0; display: inline-block; }
@@ -431,6 +434,7 @@ function renderAgent(a) {
         <i style="border:2px dashed #f39c34"></i><span>ground being worked</span>
       </div></div>`;
   else if (tab === 'stats') body = renderStats(a.stats) + renderRescues(a.rescues);
+  else if (tab === 'choice') body = choiceBody(a);
   return `<div class="card dcard">
     <div class="card-head">
       <i class="adot" style="background:${agentColor(a.name)}" title="its colour on the maps"></i><span class="name">${esc(a.name)}</span>
@@ -441,6 +445,7 @@ function renderAgent(a) {
     <div class="now">
       <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
       ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
+      ${choiceLine(a)}
     </div>
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}
     <div class="vitals">
@@ -451,7 +456,7 @@ function renderAgent(a) {
       <span title="actions done / failed">${n('actionsDone')} done${n('actionsFailed') ? ` · <span class="bad">${n('actionsFailed')} failed</span>` : ''}</span>
     </div>
     ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
-      ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
+      (a.choice || tab === 'choice') && ['choice', 'Choice'], ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
       `<button type="button" class="tab fold" data-card="${esc(a.name)}" data-cardto="closed" title="Fold this card to one line">Fold ▴</button>`)}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
     <div class="acts">${watch}
@@ -478,11 +483,101 @@ async function refreshCalls() {
     const s = tab === 'exec' ? a.status?.lastExecutorCall : tab === 'planner' ? a.status?.lastPlannerCall : null;
     return s && s.prompt === undefined && open.has(a.name);
   });
-  if (!want.length) return;
-  await Promise.all(want.map(async (a) => {
+  // (A2: the Choice tab's decision, fetched again only when the agent's last decision is another one)
+  const wantChoice = lastData.agents.filter((a) => openTabs[`agent:${a.name}`] === 'choice' && open.has(a.name) && a.choice
+    && fullDecisions.get(a.name)?.key !== choiceKey(a.choice));
+  if (!want.length && !wantChoice.length) return;
+  await Promise.all([...want.map(async (a) => {
     try { fullCalls.set(a.name, await api(`/api/agents/${encodeURIComponent(a.name)}/calls`)); } catch {}
-  }));
+  }), ...wantChoice.map(async (a) => {
+    try { fullDecisions.set(a.name, { ...(await api(`/api/agents/${encodeURIComponent(a.name)}/decision`)), key: choiceKey(a.choice) }); } catch {}
+  })]);
   if (lastData) render(lastData);
+}
+
+// ---- A2: chore choices (idle members of a complete village choose their next chore, by the model or the fixed order) ----
+// The last decision in full (menu, facts, order shown, prompt), fetched per agent only while its Choice tab is open: the
+// overview carries one status line (`a.choice`)
+const fullDecisions = new Map();
+const choiceKey = (c) => String(c?.at ?? '');
+const FALLBACK_WORDS = { off: 'choosing is off', budget: 'the token budget was spent', rate: 'the rate limit', queue: 'no turn in the queue in time',
+  withdrawn: 'no model slot in time', timeout: 'the model was too slow', invalid: 'the reply named no option', error: 'a model error', taken: 'its pick was taken meanwhile' };
+/** How a decision was made, in words. */
+function sourceWords(source, why) {
+  if (source === 'model') return 'the model chose';
+  if (source === 'only') return 'the only option';
+  if (source === 'repeat') return 'the same kind again (the model chose lately)';
+  if (source === 'fallback') return `fixed order: ${FALLBACK_WORDS[why] || why || 'fallback'}`;
+  return 'fixed order';
+}
+/** The card's line under "now" for a chore the model (or a fallback) chose: what, how, which of how many, and why. */
+function choiceLine(a) {
+  const c = a.choice;
+  if (!c || c.state !== 'running' || !c.source || c.source === 'fixed') return '';
+  const pos = c.position && c.shown ? ` (${c.position} of ${c.shown} shown)` : '';
+  const text = `${c.name ? `${c.name}: ` : ''}${sourceWords(c.source, c.why)}${pos}${c.source === 'model' && c.reason ? `: ${c.reason}` : ''}`;
+  return `<div class="sub clamp" title="${esc(text)}">chore ${esc(text)}</div>`;
+}
+/** The Choice tab: the last menu in the order shown, the chosen option marked, the reason, how it was decided, tokens. */
+function choiceBody(a) {
+  const c = a.choice;
+  const f = fullDecisions.get(a.name);
+  const pending = c && (c.state === 'choosing' || c.state === 'queued')
+    ? `<div class="sub">${c.state === 'queued' ? 'waiting in the queue to choose' : 'choosing now'} (${choiceSecs(c.since)} s, ${plural(c.menuSize ?? 0, 'option')}); the last decision:</div>` : '';
+  if (!c) return '<div class="empty">no chore decision yet (only idle members of a complete village choose)</div>';
+  if (!f) return `${pending}<div class="empty">fetching the decision…</div>`;
+  const d = f.decision;
+  if (!d) return `${pending}<div class="empty">no decision yet</div>`;
+  const opts = d.menu?.options || [];
+  const byId = new Map(opts.map((o) => [o.id, o]));
+  // (a model's choice in the order the model saw them, anything not shown last; any other decision shows the menu its pick
+  // was made on in rank order: a fallback's menu is a fresh one, and the ids the model saw go on a line of their own)
+  const modelOrder = d.source === 'model' && d.shown?.length;
+  const order = modelOrder ? [...d.shown.map((id) => byId.get(id) || { id, name: id }), ...opts.filter((o) => !d.shown.includes(o.id))] : opts;
+  const shownSet = new Set(modelOrder ? d.shown : opts.map((o) => o.id));
+  const chosen = d.chosen ? byId.get(d.chosen) : null;
+  const ms = (x) => (x != null ? `${Math.round(x / 100) / 10} s` : '');
+  const timing = [d.latencyMs != null ? `answered in ${ms(d.latencyMs)}` : '', d.waitMs ? `gate wait ${ms(d.waitMs)}` : '', d.queueWaitMs ? `queue wait ${ms(d.queueWaitMs)}` : ''].filter(Boolean).join(', ');
+  const list = order.map((o, i) => `<li${o.id === d.chosen ? ' class="chosen"' : ''}>${shownSet.has(o.id) ? `${i + 1}. ` : '<span class="sub">(not shown)</span> '}<b>${esc(o.name)}</b>${o.id === d.chosen ? ' <b style="color:var(--good)">✓ chosen</b>' : ''}
+    <span class="sub mono">${esc(o.id)}${o.rank != null ? ` · rank ${o.rank}` : ''}${o.lp != null ? ` · lp ${Math.round(o.lp * 100) / 100}` : ''}</span>
+    ${o.facts ? `<div class="sub">${esc(o.facts)}</div>` : ''}${o.effect ? `<div class="sub">→ ${esc(o.effect)}</div>` : ''}</li>`).join('');
+  const guarded = (d.menu?.guarded || []).map((g) => `<li><span class="mono">${esc(g.id)}</span> <span class="sub">${esc(g.why)}</span></li>`).join('');
+  const none = Object.entries(d.menu?.reasons || {}).map(([k, why]) => `${k}: ${why}`).join('; ');
+  const ctx = d.menu?.ctx;
+  const told = d.prompt || (ctx ? [ctx.persona, ctx.village, ctx.others, ...(ctx.outcomes || [])].filter(Boolean).join('\n') : '');
+  return `${pending}<dl class="kv">
+      <dt>decided</dt><dd>${ago(d.at)} ago</dd>
+      <dt>how</dt><dd>${esc(sourceWords(d.source, d.why))}</dd>
+      <dt>chose</dt><dd>${d.chosen ? `<b>${esc(chosen?.name || d.chosen)}</b>${chosen ? '' : ' <span class="sub">(from a fresh menu)</span>'}` : '<span class="sub">nothing was queued</span>'}</dd>
+      ${d.reason && d.reason !== 'fixed order' ? `<dt>reason</dt><dd>${esc(d.reason)}</dd>` : ''}
+      ${!modelOrder && d.shown?.length ? `<dt>model saw</dt><dd class="mono">${esc(d.shown.join(', '))}</dd>` : ''}
+      ${d.modelChose ? `<dt>model chose</dt><dd><span class="mono">${esc(d.modelChose)}</span>${d.modelReason ? ` <span class="sub">${esc(d.modelReason)}</span>` : ''}</dd>` : ''}
+      ${d.model ? `<dt>model</dt><dd>${esc(d.model)}${timing ? ` <span class="sub">${timing}</span>` : ''}</dd>` : timing ? `<dt>timing</dt><dd>${timing}</dd>` : ''}
+      ${d.promptTokens || d.outputTokens ? `<dt>tokens</dt><dd>${d.promptTokens ?? 0} in / ${d.outputTokens ?? 0} out</dd>` : ''}
+    </dl>
+    <div class="label">Options (${order.length}${modelOrder ? ', in the order shown' : ', in the fixed order'})</div>
+    ${list ? `<ul class="list">${list}</ul>` : '<div class="empty">no menu recorded</div>'}
+    ${guarded ? det(`choice:guarded:${a.name}`, `Kept off the menu (${(d.menu?.guarded || []).length})`, `<ul class="list">${guarded}</ul>`) : ''}
+    ${none ? `<div class="sub">nothing to offer: ${esc(none)}</div>` : ''}
+    ${told ? det(`choice:prompt:${a.name}`, d.prompt ? 'The prompt' : 'What it would be told', `<pre class="prompt" data-scroll="choice:${esc(a.name)}">${esc(told)}</pre>`) : ''}`;
+}
+/** The village's decisions in one chip: by source, the failures, and how often the first option shown was chosen. */
+function choicesChip(v) {
+  const s = v.choices;
+  if (!s) return '';
+  const fails = Object.entries(s.fallback || {}).filter(([, n]) => n > 0);
+  const nFail = fails.reduce((t, [, n]) => t + n, 0);
+  const parts = [`model ${s.model}`, `fixed ${s.fixed}`, s.only && `only ${s.only}`, s.repeat && `repeat ${s.repeat}`, s.rate && `rate ${s.rate}`,
+    nFail && `fallback ${nFail} (${fails.map(([k, n]) => `${k} ${n}`).join(', ')})`, s.drops && `dropped ${s.drops}`].filter(Boolean);
+  // Position bias: the model's picks by the shown position against chance (expected[p] sums 1/n over its menus of n > p)
+  const pos = s.positions || [], exp = s.expected || [];
+  const total = pos.reduce((t, n) => t + (n || 0), 0);
+  const pct = (x) => `${Math.round((x / total) * 100)}%`;
+  const bias = total ? `; first shown chosen ${pct(pos[0] || 0)} (chance ${pct(exp[0] || 0)})` : '';
+  const title = [total ? `chosen by shown position: ${pos.map((n, i) => `${i + 1}: ${n || 0} (chance ${Math.round((exp[i] || 0) * 10) / 10})`).join(', ')}` : '',
+    `tokens ${fmtTok(s.promptTokens || 0)} in / ${fmtTok(s.outputTokens || 0)} out`, s.msP50 ? `model answer p50 ${Math.round(s.msP50 / 100) / 10} s` : '',
+    s.queueWaitP90 ? `wait p90 ${Math.round(s.queueWaitP90 / 100) / 10} s` : ''].filter(Boolean).join('; ');
+  return `<span class="chip choices" title="${esc(title)}">chores chosen: ${esc(parts.join(', '))}${esc(bias)}</span>`;
 }
 /** A folded agent: one line that opens its card. */
 function foldedRow(a) {
@@ -549,6 +644,7 @@ function renderVillage(v) {
       <span class="sub">${esc(v.objective || '')}</span><span class="spacer"></span>
       ${v.complete ? '<span class="state" style="--c:var(--done)">complete</span>' : ''}</div>
     <div class="stats left">${stat(`${builds.filter((t) => t.status === 'done').length}/${builds.length}`, 'buildings')}${stat(count('open'), 'open')}${stat(count('claimed'), 'claimed')}${stat(count('done'), 'done')}${stat(count('failed'), 'failed', count('failed') ? ' bad' : '')}${stat(chests.length, 'chests')}</div>
+    ${v.choices ? `<div>${choicesChip(v)}</div>` : ''}
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`], ['log', 'Log']])}
@@ -1163,12 +1259,16 @@ function actionWords(t, args) {
     default: return cap(words(t));
   }
 }
+const choiceSecs = (since) => (since ? Math.max(0, Math.round((Date.now() - since) / 1000)) : 0);
 /** The agent's state for the pill: the brain's own, or (scripted workers) acting or waiting. */
 const agentState = (a) => (a.dead ? 'dead' : a.status?.state || (a.currentAction ? 'acting' : 'waiting'));
 function doingWords(a) {
   const st = a.status || {};
   if (a.dead) return 'Dead';
   if (a.currentAction) return actionWords(a.currentAction.type, a.currentAction.args);
+  // (A2: an idle member of a complete village whose next chore is being decided, by the model or in its queue)
+  const c = a.choice;
+  if (c && (c.state === 'choosing' || c.state === 'queued')) return `Choosing a chore (${c.state === 'queued' ? 'queued, ' : ''}${choiceSecs(c.since)} s)`;
   if (st.state === 'planning') return 'Thinking about what to do next';
   if (st.state === 'thinking') return 'Deciding the next step';
   if (a.brain === 'idle' || !a.brain) return 'Idle (controlled by hand)';
@@ -1325,7 +1425,7 @@ function simpleVillage(v, agents) {
   const stat = (n, label, title = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span></div>`;
   return `<div class="card vhead">
       <div class="vtitle"><span class="vname">${esc(v.name)}</span><span class="state big" style="--c:${state[1]}">${state[0]}</span>
-        <div class="sub vobj">${esc(v.objective || 'no objective yet')}</div></div>
+        <div class="sub vobj">${esc(v.objective || 'no objective yet')}</div>${v.choices ? `<div class="vobj">${choicesChip(v)}</div>` : ''}</div>
       <div class="stats">${stat(builds.length ? `${built}/${builds.length}` : '–', 'buildings')}${stat(`${tasksDone}/${v.tasks.length}`, 'tasks done')}${stat(`${working}/${agents.length}`, 'agents working')}${stat(Object.values(sum).reduce((t, q) => t + q, 0), 'items stored')}</div>
       ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>` : ''}
     </div>
@@ -1427,7 +1527,7 @@ document.addEventListener('click', async (e) => {
     store.set('panel.tabs', JSON.stringify(openTabs));
     if (lastData) render(lastData);
     if (openTabs[k] === 'map') refreshMaps();
-    if (openTabs[k] === 'exec' || openTabs[k] === 'planner') refreshCalls();
+    if (openTabs[k] === 'exec' || openTabs[k] === 'planner' || openTabs[k] === 'choice') refreshCalls();
     return;
   }
   const b = e.target.closest('button[data-act]');

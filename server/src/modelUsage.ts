@@ -9,7 +9,8 @@
  *                         of 2,000,000 and MC_TOKEN_BUDGET_AGENT_HOUR (default 150,000) times the agents in the world (at
  *                         least MC_TOKEN_BUDGET_AGENTS, default 1)
  *   MC_TOKEN_WINDOW_MS    the budget's window, default an hour (tests only)
- *   MC_REASONING          reasoning level per call kind, e.g. "exec=medium,plan=low,design=medium" (the default, from the A.0 benches)
+ *   MC_REASONING          reasoning level per call kind, e.g. "exec=medium,plan=low,design=medium,choose=low" (the default, from
+ *                         the A.0 benches; choose from A.2)
  *   MC_SPEND_CAP_USD      "month=30,programme=60" (a bare number: the month's): cloud calls stop at that spend, read from the
  *                         spend ledger the agent server keeps (runs/spend); unset: no cap
  *   MC_SPEND_PROGRAMME_START  the date the programme's spend counts from (default: everything recorded)
@@ -22,14 +23,15 @@
  * spend ledger's file is written by a sink the agent server sets, and its totals are read back by the server (seedSpend).
  */
 
-export const CALL_KINDS = ['exec', 'plan', 'design'] as const; // A.2 adds 'choose'
+/** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts). */
+export const CALL_KINDS = ['exec', 'plan', 'design', 'choose'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 export type ReasoningLevel = 'low' | 'medium' | 'high';
 export type Reasoning = Record<CallKind, ReasoningLevel>;
 
 const LEVELS: readonly string[] = ['low', 'medium', 'high'];
 
-export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium' };
+export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low' };
 
 /** Warnings printed once per distinct text (a bad setting would otherwise repeat on every call). */
 const warned = new Set<string>();
@@ -118,7 +120,9 @@ export function parseBudget(s: string | undefined): number | null {
   return n === 0 ? null : n;
 }
 
-/** 'withdrawn': queued at the call gate too long and never sent (billed nothing); 'fallback': sent, cut off by its caller's timer. */
+/** 'withdrawn': queued at the call gate too long and never sent (billed nothing), or sent and then aborted by its caller
+ *  (A.2's dropped decisions, a stopped agent: ms > 0, the provider may have billed the prompt); 'fallback': sent, cut off
+ *  by its caller's timer. */
 export type Outcome = 'ok' | 'error' | 'refused' | 'withdrawn' | 'fallback';
 export interface CallRecord { at: number; model: string; agent: string; kind: CallKind; promptTokens: number; outputTokens: number; ms: number; outcome: Outcome }
 export interface UsageTotals {
@@ -427,7 +431,7 @@ export class UsageLedger {
 
   /**
    * A failed call: no tokens are known, so costs are a lower bound. `outcome`: 'withdrawn' for a call the gate never sent
-   * (billed nothing), 'fallback' for one its caller's timer cut off.
+   * (billed nothing) or one its caller aborted after sending, 'fallback' for one its caller's timer cut off.
    */
   error(model: string, agent: string, kind: CallKind, ms = 0, outcome: 'error' | 'withdrawn' | 'fallback' = 'error'): void {
     this.push({ at: this.now(), model: bare(model), agent, kind, promptTokens: 0, outputTokens: 0, ms, outcome });

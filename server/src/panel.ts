@@ -8,6 +8,8 @@
  *                       left out while `designsEtag` still matches the page's copy)
  *   GET /api/agents/:name/calls  the agent's last planner and executor calls in full (prompt and reply); the overview
  *                       carries only their time, length and tokens
+ *   GET /api/agents/:name/decision  the agent's last chore decision in full (A2: menu, order shown, choice, reason,
+ *                       prompt); the overview carries only `choice`, its one-line status
  *   GET /api/models     the models Ollama has loaded (name, VRAM, cloud)
  *   GET /api/maps       a top-down map around every agent (?radius=, default 24; ?agents=A,B: only those)
  *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B), the spend
@@ -107,6 +109,9 @@ function agentOverview(a: WorldAgent) {
     events: a.events.filter((e) => !NOISE.has(e.type)).slice(-OVERVIEW_EVENTS),
     nearby: o.nearbyEntities.slice(0, 25).map((e) => ({ kind: e.kind, name: e.name, x: e.x, z: e.z })),
     yaw: o.yaw,
+    // A2: choosing, queued or running a chore and the last decision in one line (cached fields, ~300 bytes; the menu,
+    // facts and prompt are at /decision)
+    choice: a.world.choiceStatus?.(a) ?? null,
   };
 }
 
@@ -133,7 +138,9 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
   const send = opts.designs !== designsEtag;
   const villages = vs.map((v, i) => {
     const { designs, ...rest } = v;
-    return send ? { ...rest, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : rest;
+    // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
+    const choices = w.choiceSummary?.(v.name) ?? null;
+    return send ? { ...rest, choices, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, choices };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }
@@ -198,6 +205,15 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     if (!a) return sendJson(res, 404, { error: `no agent called ${name}` }), true;
     const st = a.brain?.status?.(a);
     return sendJson(res, 200, { name, planner: st?.lastPlannerCall ?? null, executor: st?.lastExecutorCall ?? null }), true;
+  }
+  // A2: the agent's last chore decision in full (the menu with its facts, the order shown, the choice, the reason,
+  // latency, tokens and the prompt), for the panel's Choice tab
+  const decision = /^\/api\/agents\/([^/]+)\/decision$/.exec(url.pathname);
+  if (decision) {
+    const name = decodeURIComponent(decision[1]);
+    const a = w.agentList().find((x) => x.name === name);
+    if (!a) return sendJson(res, 404, { error: `no agent called ${name}` }), true;
+    return sendJson(res, 200, { name, decision: w.lastDecision?.(a) ?? null }), true;
   }
   if (url.pathname === '/api/models') return sendJson(res, 200, await loadedModels()), true;
   if (url.pathname === '/api/maps') {

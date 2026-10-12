@@ -1138,7 +1138,20 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     and a value curve at least the baseline's; one model-driven run.
   - Open (asked when the step starts): a "something else" slot that leads to a proposal (A.5) from the start or later;
     whether workers also choose among ready board tasks before completion (recommended later, after A.8's first
-    comparison).
+    comparison). **Answered 10-12 (s28): both later.**
+  - **Progress (10-12, s28):** spec `runs/2026-10-12/spec_a2.md` (checked: 21 of 23 findings applied). It departs from the
+    Brain bullet above: **the world drives the decision** (its 30 s sweep) and calls the world-free `server/src/choose.ts`,
+    so the staged runs' scripted workers choose too; `tieredBrain.ts` and `taskBrain.ts` are unchanged. Implemented: the
+    menu (`choices`, `runChoice`, pure options with instance ids, `MC_CHOICE_INSTANCES`), the fixed picker over it (default,
+    `MC_CHOOSE=fixed`), model mode (`MC_CHOOSE=model` or `--choose model`: the `choose` call kind at low reasoning, 2
+    decisions at once, 30 s queue, 15 s gate wait, a fixed pick on any failure), guards (per-id bans, kind bans, a 5-min
+    agent cooldown, the learning-progress weight, scouting's "nothing new"), the decision log with full menus, the panel's
+    Choice tab and village chip. Checks: `choice_golden.mts` (960 fixtures from both worlds' villages incl. A1b3's
+    after-phase: 0 differences against HEAD, 960,000 `choices()` calls with 0 state changes, instances 0 invariants
+    broken), `choose_unit.mts` 147/147; review (4 lenses, 22 of 24 survived refutation) and a fix review, all fixed.
+    Live: a fixed-mode smoke test on A1b3's village (`runs/2026-10-12/smoke_a2.*`), 12 decisions with menus, 0 errors.
+    **Next:** A2f (staged at 25, fixed, instances on: the menus choicebench needs), choicebench, A2m (model mode), one
+    model-driven run; all wait for the user's cloud quota or approval (the staged runs make 0 cloud calls).
 - [ ] A.3 **Gauges and personalities** (~1 session).
   - Village gauges in code beside `refreshNeeds`: food in storage per agent (bread, cake, eggs, milk), tools (iron
     pickaxe, buckets, shears), farms and pens running, light, storage room, land explored round the ring; each with a
@@ -2537,6 +2550,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s27) | **probe25** | `scale_probe25.py`, test world at -1544,8, 1x, levels 12/18/25, 600 s at 25: 10 collectors, 6 box builders, 5 storage loops, 2 find_site loops, 2 tiered agents | 312 builds, 465 storage trips (10 failed: the loops' cobblestone ran out), 145 find_site | 25 bots 10 min | 0 `[lag]`, API p90 0.08 s, mspt worst 6.2, **RCON p90 649 ms** (worst minute), loop p99 381 ms, RSS 1.46 GB; a CPU profile: 2.4% idle, find_site's surfaceAt 60% (F219) |
 | 10-11 (s27) | **probe25c** | the same at 25 only, with F219's fix | 475 builds, 468 storage trips (11 failed), 196 find_site, 5 `[stuck]` | 10 min | 0 `[lag]`, API p90 0.048 s, mspt worst 6.7 (max 127.5 once), RCON p90 11-46 ms a 30 s window with one 722 ms window (F220; the probe's worst-minute figure 297), loop p99 274 ms, RSS 1.28 GB; the profile **51% idle**, surfaceAt 1.8% |
 | 10-11 (s27) | **Van25a** | E.1, staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 24` (25 agents) | **6/6 + lamps + signs + farm** | **4.1 min** | 1 failed (a library build short of oak stairs, requeued); 0 `[lag]`, 0 `[stuck]`, 0 RCON timeouts, RCON p90 2-8 ms, 0 SPAWN WARNING; 21% busy (16 of 25 waiting while 8 mined: the work runs short at 25); panel screenshots readable at 25 (`runs/2026-10-11/s27/panel25_*.png`) |
+| 10-12 (s28) | **A1b3** | A.1's baseline (fixed chore order), staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 24 --planner ollama:gpt-oss:120b-cloud --after 45 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` | complete at 4.6 min; after-phase 44.2 of 45 min (the watcher died on F221 before its summary lines) | 48.5 min | **0 cloud calls** in the whole run (code lays out and completes the village); after completion **only Worker1-5 took chores, 19 of 25 never did** (Worker1 alone 73 of 125: the fixed picker always offers the first idle worker); 125 chores, 123 done (penwork 75, slot harvests 31, field 5, starts 4 (2 failed), pens 4, iron 3, cake 2, annex 1), **0 explore trips** (a feasible pumpkin start and its back-off blocked exploring the whole time); storage value 409 raw units at 15 min, 490 at the end; 43 unique (activity, target) pairs, 3 after 20 min. A1b1 (watcher, F221) and A1b2 (reset timeout) were lost; A1b4/A1b5 wait for the user (the cloud quota) |
 
 ## Findings log
 
@@ -3576,6 +3590,13 @@ CLAUDE.md when a phase ends.
   minute fails the run: the server's own 30 s lines read 11-46 ms with one 722 ms window, when Paper's tick peaked at
   127.5 ms (a save or chunk work on Paper's side, which a pool of connections would not help). No RCON pool (the spec:
   only if queueing shows; the queue held at most 6). Count the run's p90 over all commands next time.
+- F221 (10-12, s28, A1b1 and A1b3) A 25-agent staged run's watcher died on one `ConnectionResetError` from the agent API
+  (A1b1 at 0.6 min, A1b3 at 44.2 of its 45 after-minutes, the second wrapped in `URLError`); the agent server was healthy
+  (no `[lag]`, status in 2 ms) with ~600 sockets in TIME_WAIT on port 8767 from one connection per request. The runner
+  then reset the site, which looked like a silent server death in A1b1's log. A1b2's reset also timed out waiting 60 s for
+  the new agent server. Fixed in the scripts: `stage_village.py`'s `call()` sends a request again after a reset during
+  the send (any method) or while reading the answer (GET only), twice at most; `reset_site.py` waits 120 s. Not changed:
+  a keep-alive connection in the watchers would remove the TIME_WAIT churn if resets come back.
 
 ## Decisions log
 
@@ -3958,6 +3979,11 @@ CLAUDE.md when a phase ends.
   the review), and searches are **not throttled while total demand fits** the allowance: the share only cuts slices
   under real contention. A search's timeout is wall time minus the time the share held it back (the rescue's 5 s search
   stays 5 s).
+- 10-12 (s28) The user's answers at the session start (all as recommended): A.2 has **no "something else" option** (it
+  comes with A.5's validator); **workers do not choose among board tasks before completion** (after A.8's first
+  comparison), so A.2's menu serves idle members of a complete village only and pre-completion harvests stay code-driven;
+  G2's bench v2 **waits until the user has read** `docs/research/memory/long-horizon-memory.md`; the five unpushed commits
+  were **pushed** (`c5224d6..8f91251`, `tiered-brain-building` only, `main` untouched).
 
 ## Keeping this plan honest
 

@@ -7,7 +7,7 @@ import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
 import { STORAGE_HUT } from '../huts';
-import type { ActionStatus, ToolDef, WorldAdapter } from '../world';
+import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, ChoiceOption, ChoiceStatus, ChoiceSummary, ToolDef, WorldAdapter, WorldAgent } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
@@ -16,11 +16,13 @@ import { collectFilter, collectTargets, exposed } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
 import { mineCanGive, mineFaces } from './mcMine';
-import { PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
+import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
 import { timeScale } from './mcRules';
-import { choiceId, countsDelta, itemCounts, logChoice, logChoiceEnd } from './mcChoiceLog';
+import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
+import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
+import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
-import { usage } from '../modelUsage';
+import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
@@ -57,7 +59,13 @@ export interface SpawnOptions {
  * A chore's place in the decision log (A.1): its choice id and start, the storage and the agent's inventory then (for the
  * yield at its end), and the village's chores that overlapped it.
  */
-type ChoiceState = { id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string> };
+type ChoiceState = {
+  id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string>;
+  /** A.2: when it ended (heldKeys' async hold), its decision, the further keys it holds, what it was (kind, option id and
+   *  name), and for an explore its ring point with how much of its land the atlas knew at the start. */
+  endedAt?: number; decisionId?: string; holds: string[]; kind?: ChoiceKind; option?: string; name?: string;
+  point?: { x: number; z: number; known0: number };
+};
 
 /** Stone pickaxes the supply makes into storage (S.1; S.8 raises it to 8). */
 const PICK_BATCH = 4;
@@ -910,7 +918,8 @@ export class MineflayerWorld implements WorldAdapter {
    * mayor's wake-ups and the stop rules never see it): every 30 s, each planted field of a village with agents in the
    * world is read from the bots' view (ages are state ids); when 3/4 of its wheat (at least 4) is ripe, an idle worker
    * holding no task is given `harvest_farm`. Crops only grow near agents, so a field nobody has loaded is skipped. A
-   * failed harvest waits 10 minutes before the next try.
+   * failed harvest waits 10 minutes before the next try. In a complete village the fields are options of its members'
+   * menus instead (A.2, slotChores' sweep).
    */
   private farmChores() {
     const now = Date.now();
@@ -924,7 +933,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (v) villages.set(v.name, v);
     }
     for (const v of villages.values()) {
-      for (const [i, lay] of (v.layouts ?? []).entries()) {
+      // (a complete village's fields go on its members' menus: the sweep in slotChores, A.2)
+      for (const [i, lay] of (v.complete ? [] : v.layouts ?? []).entries()) {
         const farm = lay.farm;
         const k = i + 1;
         if (!farm?.planted || harvesting.has(`${v.name}:${k}`)) continue;
@@ -969,18 +979,21 @@ export class MineflayerWorld implements WorldAdapter {
   /**
    * Chores under way, by agent (lower-cased name; F193, 10-09: one chore an agent, so a second idle worker and the mayor
    * take chores of other kinds at the same time). `key` names what the chore works on: `slot:k:j`, `farm:k`, `start`,
-   * `annex`, `pen`, `iron` or `explore`; no two chores of a village hold the same key (the skills' own locks are taken
-   * only when an action runs, so a key also covers the time it waits in the queue).
+   * `annex`, `pen`, `iron` or `explore` (A.2's instances: `explore:i`, `start:k:j`, and further keys in `choice.holds`);
+   * no two chores of a village hold the same key (the skills' own locks are taken only when an action runs, so a key also
+   * covers the time it waits in the queue).
    */
-  private chores = new Map<string, { agent: string; village: string; key: string; status: ActionStatus[]; what: string; failed?: (why: string) => void; choice: ChoiceState }>();
+  private chores = new Map<string, ChoreEnd & { key: string; what: string }>();
   /** Keys of chores just ended, by "village|key", held until the time given. */
   private cooling = new Map<string, number>();
   /** Kinds with no sighting in range, by "village:kind": not searched for again until then. */
   private slotSkip = new Map<string, number>();
+  /** When the cake was last tried, by village (a back-off). */
+  private cakeAt = new Map<string, number>();
 
   /**
    * The keys of a village's chores still under way (from the actions' own state: a stop fails them, lesson 67); finished
-   * ones are dropped and a failure reported to their `failed`.
+   * ones are dropped and a failure reported to their `failed` (reportFailed: in model mode endChoice did, at the end).
    */
   private choreKeys(v: Village): Set<string> {
     const keys = new Set<string>();
@@ -993,26 +1006,62 @@ export class MineflayerWorld implements WorldAdapter {
       const going = c.status.some((q) => q.state === 'queued' || q.state === 'running');
       if (going && this.agents.has(id)) {
         keys.add(c.key);
+        for (const h of c.choice.holds) keys.add(h);
         continue;
       }
       // (a stopped or removed agent's statuses fail at once while its skill's finally still runs its commands (a teleport,
-      // the gate, the slot's lock): the key is held 10 s more, the design review's M3 and the diff review's L3)
+      // the gate, the slot's lock): the key is held 10 s more, the design review's M3 and the diff review's L3; its further
+      // keys with it, A.2)
       this.chores.delete(id);
       this.endChoice(c);
       this.cooling.set(`${v.name}|${c.key}`, Date.now() + 10000);
+      for (const h of c.choice.holds) this.cooling.set(`${v.name}|${h}`, Date.now() + 10000);
       this.cooling.set(`agent|${id}`, Date.now() + 10000);
-      const bad = c.status.find((q) => q.state === 'failed');
-      if (bad && c.failed) c.failed(bad.message ?? 'failed');
+      this.reportFailed(c);
     }
     return keys;
   }
 
-  private setChore(v: Village, worker: BotAgent, key: string, status: ActionStatus[], what: string, failed?: (why: string) => void) {
+  /**
+   * The keys a village's chores hold now, written nowhere (A.2). 'sweep' is what choreKeys would return at this moment
+   * (cooled keys, then the keys of chores under way whose agent is here, with their further keys; chores it would drop
+   * are not in it, nor the keys their drop would cool). 'async' (a pick checked after a model reply, an expiry or an API
+   * call) also holds every chore that ended within 10 s, dropped or not: its keys and its agent (`agent|<id>`), which
+   * closes the gap between a chore's end and the next sweep's drop (and a stop whose skill's finally still runs).
+   */
+  private heldKeys(v: Village, now: number, mode: 'sweep' | 'async'): Set<string> {
+    const keys = new Set<string>();
+    for (const [k, until] of this.cooling)
+      if (until >= now && (k.startsWith(`${v.name}|`) || (mode === 'async' && k.startsWith('agent|')))) keys.add(k.startsWith('agent|') ? k : k.slice(v.name.length + 1));
+    for (const [id, c] of this.chores) {
+      if (c.village !== v.name) continue;
+      const going = c.status.some((q) => q.state === 'queued' || q.state === 'running');
+      if (going && this.agents.has(id)) {
+        keys.add(c.key);
+        for (const h of c.choice.holds) keys.add(h);
+      } else if (mode === 'async' && now - (c.choice.endedAt ?? now) <= 10000) {
+        keys.add(c.key);
+        for (const h of c.choice.holds) keys.add(h);
+        keys.add(`agent|${id}`);
+      }
+    }
+    return keys;
+  }
+
+  private setChore(v: Village, worker: BotAgent, key: string, status: ActionStatus[], what: string, failed?: (why: string) => void, meta?: ChoiceMeta, holds: string[] = [], opt?: ChoiceOption) {
     const id = worker.name.toLowerCase();
     // (idleWorker never offers an agent holding a chore, so nothing is replaced; if one were, its end is logged)
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
-    const choice: ChoiceState = { id: choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, with: new Set() };
+    const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
+    if (opt?.kind === 'explore' && opt.at) {
+      try {
+        choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
+      } catch {
+        // (measurement only)
+      }
+    }
     // (the village's chores under way meanwhile: their deposits show in this one's storage change, and its in theirs)
     for (const o of this.chores.values())
       if (o.village === v.name && !o.choice.ended) {
@@ -1020,195 +1069,762 @@ export class MineflayerWorld implements WorldAdapter {
         choice.with.add(o.choice.id);
       }
     this.chores.set(id, { agent: worker.name, village: v.name, key, status, what, failed, choice });
-    // The decision log (A.1): today's picker takes the first feasible chore in a fixed order. `options` stays empty:
-    // listing the other feasible kinds would mean running their checks, and several of them write state as they look
-    // (slotSkip, the explore ring's visited and done, a pen's workAt, the cake's back-off); A.2's menu brings them.
-    logChoice({ id: choice.id, agent: worker.name, village: v.name, t: choice.t, key, what, kind: key.split(':')[0], reason: 'fixed order', options: [] });
+    // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
+    // (the wheat field and ripe slots) are still code-driven: no menu, `options` empty.
+    const menu = meta?.menu;
+    // (positions only for the model's own choice: a fallback ran a fixed pick from a fresh menu, and the ids the model was
+    // shown are logged apart, `shownIds`)
+    const shown = meta?.source === 'model' ? meta.shown : undefined;
+    const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
+      id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+    }));
+    const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
+    logChoice({
+      id: choice.id, agent: worker.name, village: v.name, t: choice.t, key, what, kind, reason: meta?.reason ?? 'fixed order', options,
+      ...(opt ? { chosen: opt.id } : {}), source: meta?.source ?? 'fixed', ...(meta?.why ? { why: meta.why } : {}),
+      ...(position ? { position } : {}), ...(shown ? { shownCount: shown.length } : {}),
+      ...(!shown && meta?.shown?.length ? { shownIds: meta.shown } : {}),
+      ...(meta?.modelChose ? { modelChose: meta.modelChose, modelReason: meta.modelReason ?? '' } : {}),
+      ...(meta?.decisionId && meta.shown?.length ? { seed: `${meta.decisionId}|${worker.name}` } : {}),
+      ...(meta?.model ? { model: meta.model } : {}), ...(meta?.latencyMs !== undefined ? { latencyMs: meta.latencyMs } : {}),
+      ...(meta?.waitMs !== undefined ? { waitMs: meta.waitMs } : {}), ...(meta?.queueWaitMs !== undefined ? { queueWaitMs: meta.queueWaitMs } : {}),
+      ...(meta?.promptTokens !== undefined ? { promptTokens: meta.promptTokens } : {}), ...(meta?.outputTokens !== undefined ? { outputTokens: meta.outputTokens } : {}),
+      ...(menu?.guarded.length ? { guarded: menu.guarded } : {}), ...(menu ? { ctx: menu.ctx } : {}),
+    });
+    if (meta) {
+      this.decisions.set(id, { ...meta, chosen: opt?.id ?? null, at: choice.t });
+      this.summarise(v.name, meta, opt);
+    }
   }
 
   /**
    * A chore's `[choice-end]` record, once: from choreKeys when it drops the chore, or from the tick as soon as its actions
    * have ended (choreKeys runs only every 30 s and only for villages with agents in the world, so the tick gives the
    * minutes and catches chores whose agents were all removed). Logging only: the chore stays in `chores` until choreKeys
-   * drops it.
+   * drops it. A.2: it also stamps the end (heldKeys' async hold), and feeds the outcome to the choice statistics (the
+   * guards' learning progress, bans and cooldowns), judged from the chore's own result. In model mode it also reports a
+   * failure to the chore's `failed` (reportFailed).
    */
-  private endChoice(c: { agent: string; village: string; status: ActionStatus[]; choice: ChoiceState }) {
+  private endChoice(c: ChoreEnd) {
     if (c.choice.ended) return;
     c.choice.ended = true;
+    c.choice.endedAt = Date.now();
     const bad = c.status.find((q) => q.state === 'failed');
+    const agent = this.agents.get(c.agent.toLowerCase());
+    if ((agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') this.reportFailed(c);
     const done = c.status.every((q) => q.state === 'done');
     const message = bad?.message ?? (done ? c.status[c.status.length - 1]?.message ?? '' : 'agent gone');
     const ok = !bad && done;
-    const agent = this.agents.get(c.agent.toLowerCase());
     const v = this.villages.get(c.village);
     const held = agent ? heldCounts(agent) : null;
+    const carried = held ? countsDelta(c.choice.carried, held) : null;
+    // (a stop or a removal fails every action as "cancelled", which the chores' own failed callbacks ignore too)
+    const cut = !ok && (!agent || bad?.message === 'cancelled');
+    const code = bad?.code;
+    let known: number | undefined;
+    if (c.choice.point) {
+      try {
+        known = Math.round((this.atlas.known(c.choice.point.x, c.choice.point.z, 48) - c.choice.point.known0) * 1000) / 1000;
+      } catch {
+        known = undefined;
+      }
+    }
+    const productive = choreProductive(c.choice.kind, c.status[0]?.type ?? '', ok, message, carried, known);
     logChoiceEnd({
-      id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(),
-      // (a stop or a removal fails every action as "cancelled", which the chores' own failed callbacks ignore too)
-      cut: !ok && (!agent || bad?.message === 'cancelled'),
-      yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried: held ? countsDelta(c.choice.carried, held) : null, with: [...c.choice.with] },
+      id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
+      yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
+      ...(code ? { code } : {}), productive,
     });
+    try {
+      this.noteEnd(c, ok, cut, !!code, productive, message, known);
+    } catch (e) {
+      console.error('[choice] end statistics failed:', e);
+    }
   }
 
-  /** Chores whose actions have ended (or whose agent is gone) get their end record now (see endChoice). */
+  /**
+   * A failed chore's `failed` (the iron age's back-off), once. In model mode endChoice calls it at the end itself: picks are
+   * also made outside the sweep (after a reply, an expiry, the API), and one made before choreKeys drops the chore would
+   * see the option without its back-off (RACES-1). In fixed mode every pick follows choreKeys in a sweep, so the drop
+   * reports it, as before A.2 (the golden check records the back-off's time).
+   */
+  private reportFailed(c: ChoreEnd) {
+    // (an end seen while an action still runs, its agent gone: reported by the drop, once the actions have ended)
+    if (c.failReported || c.status.some((q) => q.state === 'queued' || q.state === 'running')) return;
+    c.failReported = true;
+    const bad = c.status.find((q) => q.state === 'failed');
+    if (!bad || !c.failed) return;
+    try {
+      c.failed(bad.message ?? 'failed');
+    } catch (e) {
+      console.error("[choice] a chore's failure callback failed:", e);
+    }
+  }
+
+  /** Chores whose actions have ended (or whose agent is gone) get their end record now (see endChoice); pending decisions
+   *  whose agent went away, got busy or left a complete village are dropped (A.2, spec 6). */
   private endChoices() {
     for (const [id, c] of this.chores) {
       if (c.choice.ended) continue;
       const going = c.status.some((q) => q.state === 'queued' || q.state === 'running');
       if (!going || !this.agents.has(id)) this.endChoice(c);
     }
+    for (const p of [...this.pending.values()]) {
+      const a = this.agents.get(p.id);
+      const v = this.villages.get(p.village);
+      const why: ChoiceDrop['why'] | null = !a ? 'gone' : a !== p.agent ? 'replaced' : !a.bot.entity ? 'no body' : !v?.complete || a.village()?.name !== p.village ? 'not complete'
+        : v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name) ? 'task' : !a.idle() || this.chores.has(p.id) ? 'busy' : null;
+      if (why) this.dropDecision(p, why);
+    }
+  }
+
+  // ---- A.2: the menu ---------------------------------------------------------------------------------------------------
+
+  /** Decisions waiting for or in a model call, by agent (lower-cased). */
+  private pending = new Map<string, PendingChoice>();
+  private chooser = new ChooserQueue({ parallel: CHOOSE.parallel, queueMs: CHOOSE.queueMs });
+  private choiceStats = new ChoiceStats();
+  /** Each agent's last decision (the panel's drill-down). */
+  private decisions = new Map<string, ChoiceMeta & { chosen: string | null; at: number }>();
+  /** The kind of each agent's last model decision (the repeat rule). */
+  private lastModelKind = new Map<string, ChoiceKind>();
+  /** Each village's decisions counted (the panel's chip). */
+  private summaries = new Map<string, { s: ChoiceSummary; ms: number[]; queue: number[] }>();
+  /** Each village's last explore yields (the scouting fact). */
+  private exploreYields = new Map<string, number[]>();
+  /** Bans already logged, by "village|id", with their end. */
+  private bansLogged = new Map<string, number>();
+  /** The last [choice-none] line by village: its reasons and when. */
+  private noneAt = new Map<string, { sig: string; at: number }>();
+  /** The village facts of the latest sweep or menu, by village (C10: one per sweep time). */
+  private factsCache = new Map<string, Facts>();
+  /** The sweep under way: its village, busy keys and the first ready field's own (today's choreKeys quirk, spec 2.3). */
+  private sweepCtx: SweepCtx | undefined;
+
+  /** Fixed order or the model, by agent (memory.choose; every agent of a village runs one mode, D5). */
+  private chooseMode(a: BotAgent): 'fixed' | 'model' {
+    const m = a.memory.choose;
+    return m === 'model' || m === 'fixed' ? m : CHOOSE.mode;
+  }
+
+  /** idleWorker's test for one agent (workers and, once the village is complete, the mayor), plus no decision pending. */
+  private isIdleMember(v: Village, a: BotAgent, now: number, held?: Set<string>): boolean {
+    const id = a.name.toLowerCase();
+    return a.village()?.name === v.name && !!a.bot.entity && a.idle() && !this.chores.has(id)
+      && (this.cooling.get(`agent|${id}`) ?? 0) < now && !held?.has(`agent|${id}`)
+      && !v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name)
+      && (a.memory.villageRole !== 'mayor' || !!v.complete) && !this.pending.has(id);
+  }
+
+  /** The idle members in idleWorker's order: workers, then the mayor. */
+  private idleMembers(v: Village, now: number): BotAgent[] {
+    const free = [...this.agents.values()].filter((a) => this.isIdleMember(v, a, now));
+    return [...free.filter((a) => a.memory.villageRole !== 'mayor'), ...free.filter((a) => a.memory.villageRole === 'mayor')];
+  }
+
+  /** A2: the menu this agent would choose from now; written nowhere (spec 1.3, 4.3). */
+  choices(agent: WorldAgent): ChoiceMenu | null {
+    const a = this.agents.get(agent.name.toLowerCase());
+    if (!a || a !== (agent as unknown)) return null;
+    const v = a.village();
+    if (!v?.complete) return null;
+    const now = Date.now();
+    const ctx = this.sweepCtx?.village === v.name ? this.sweepCtx : undefined;
+    if (!this.isIdleMember(v, a, now)) return null;
+    const busy = ctx?.busy ?? this.heldKeys(v, now, 'sweep');
+    return this.menu(v, a, busy, this.chooseMode(a) === 'model', this.sweepFacts(v, now, a), ctx?.first).menu;
+  }
+
+  /** A2: run one option, checked again against a fresh menu; never throws (D9). */
+  runChoice(agent: WorldAgent, id: string, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string } {
+    return this.runPick(agent, id, meta);
   }
 
   /**
-   * The iron age (10-08; once the village is complete, after the farm slots' starts): an iron pickaxe once storage holds 3
-   * raw iron (or ingots), then a bucket; while short, trips to the iron level (dig_iron) until it is finished. Each stage
-   * backs off 10 minutes after a failure and is given up after 3. Returns whether a chore was queued.
+   * One pick run: the option `id` if it is still on the agent's fresh menu, else (a model's pick taken meanwhile, or no id:
+   * a fallback) the fresh menu's fixed pick. Inside a sweep the menu is the sweep's (its busy keys); after a reply, an
+   * expiry or an API call it holds what heldKeys' async mode holds. Never throws.
    */
-  private ironChores(v: Village, worker: BotAgent): boolean {
-    const m = v.mine;
-    if (!m || m.level === undefined) return false;
-    const made = m.ironMade ?? [];
-    // (three buckets once a cow pen holds cows: a cake takes three milk buckets at once, pens v2)
-    const cows = (v.layouts?.[0]?.slots ?? []).some((s) => s.annex && s.kind === 'cow' && (s.pen?.animals ?? 0) > 0);
-    // (buckets the village holds count too: VanC2 was stocked with three and still made one)
-    const buckets = Math.max(made.filter((t) => t === 'bucket').length, (storageContents(v).bucket ?? 0) + (storageContents(v).milk_bucket ?? 0));
-    if (made.includes('iron_pickaxe') && buckets >= (cows ? 3 : 1)) return false;
+  private runPick(agent: WorldAgent, id: string | null, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string } {
+    try {
+      const a = this.agents.get(agent.name.toLowerCase());
+      const v = a?.village();
+      const drop = (why: ChoiceDrop['why']) => {
+        if (meta.decisionId) this.logDrop(meta.decisionId, agent.name, v?.name ?? String(agent.memory.village ?? ''), why, meta.queueWaitMs, meta, id);
+        return { ok: false as const, why };
+      };
+      if (!a || a !== (agent as unknown)) return drop(a ? 'replaced' : 'gone');
+      if (!v?.complete) return drop('not complete');
+      const ctx = this.sweepCtx?.village === v.name ? this.sweepCtx : undefined;
+      // (inside a sweep, the sweep's time: its facts are reused, C10)
+      const now = ctx?.t ?? Date.now();
+      // (outside a sweep, ended chores' back-offs first: in fixed mode the drop that reports them may be 30 s away, and an
+      // API pick would see iron without its back-off, the fix review; reportFailed runs once a chore)
+      if (!ctx) for (const c of this.chores.values()) if (c.village === v.name && c.choice.ended) this.reportFailed(c);
+      const held = ctx ? undefined : this.heldKeys(v, now, 'async');
+      if (!this.isIdleMember(v, a, now, held)) return drop(!a.bot.entity ? 'no body' : v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name) ? 'task' : 'busy');
+      const busy = ctx?.busy ?? held!;
+      const fresh = this.menu(v, a, busy, this.chooseMode(a) === 'model', this.sweepFacts(v, now, a), ctx?.first);
+      // (checked against the guarded options before the trim: one the trim would cut now is still feasible, spec 6)
+      let opt = id ? fresh.feasible.find((o) => o.id === id) : undefined;
+      let m = meta;
+      if (id && !opt) m = { ...meta, source: 'fallback', why: 'taken', reason: 'fixed order', ...(meta.source === 'model' ? { modelChose: id, modelReason: meta.reason } : {}) };
+      opt ??= fixedPick(fresh.menu);
+      if (!opt) return drop('empty');
+      // (a fallback is logged with the fresh menu its fixed pick was made on; the ids shown to the model stay in `shown`)
+      if (!m.menu || m.source === 'fallback') m = { ...m, menu: fresh.menu };
+      this.runOption(v, a, opt, m);
+      return { ok: true, key: opt.key };
+    } catch (e) {
+      console.log(`[choice-error] ${agent?.name}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
+      return { ok: false, why: 'error' };
+    }
+  }
+
+  /** The facts a village's members share, once per sweep time (C10): storage, collect's filter, ripe counts, sightings. */
+  private sweepFacts(v: Village, t: number, a: BotAgent): Facts {
+    const old = this.factsCache.get(v.name);
+    if (old && old.t === t && this.agents.has(old.agent.name.toLowerCase())) return old;
+    const f = this.makeFacts(v, t, a);
+    this.factsCache.set(v.name, f);
+    return f;
+  }
+
+  private makeFacts(v: Village, t: number, a: BotAgent): Facts {
     const store = storageContents(v);
-    const iron = (store.raw_iron ?? 0) + (store.iron_ingot ?? 0);
-    const tool = made.includes('iron_pickaxe') ? 'bucket' : 'iron_pickaxe';
-    const stage = iron >= 3 ? tool : 'dig';
-    if (stage === 'dig' && m.iron?.finished) return false;
-    // (failed stages forgiven after an hour, as the farm slots')
-    if (m.ironTries && m.ironLastTry && Date.now() - m.ironLastTry.at > 60 * 60000) m.ironTries = {};
-    const t = m.ironTries?.[stage] ?? 0, last = m.ironLastTry;
-    if (t >= 3 || (last?.stage === stage && Date.now() - last.at < 10 * 60000)) return false;
-    const status = stage === 'dig'
-      ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: Math.max(1, (tool === 'bucket' ? 3 : 6) - iron) })
-      : worker.enqueue('make_iron_tool', { item: stage, chore: true });
-    const failed = (why: string) => {
-      const mm = v.mine;
-      if (!mm || why === 'cancelled') return;
-      mm.ironTries = { ...(mm.ironTries ?? {}), [stage]: (mm.ironTries?.[stage] ?? 0) + 1 };
-      mm.ironLastTry = { at: Date.now(), stage, why: why.slice(0, 200) };
-      this.villages.save();
+    const memo = <T,>(fn: (k: string) => T) => {
+      const m = new Map<string, T>();
+      return (k: string) => {
+        if (!m.has(k)) m.set(k, fn(k));
+        return m.get(k)!;
+      };
     };
-    this.setChore(v, worker, 'iron', [status], `iron: ${stage}`, failed);
-    console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${iron} iron in storage)` : `makes a ${stage}`}`);
-    return true;
+    let ok: ((p: { x: number; y: number; z: number }) => boolean) | undefined;
+    const chest = v.storage?.chests[0];
+    const startHome = chest ? { x: chest.x, z: chest.z } : villageHome(v, a.memory);
+    const read = (x: number, y: number, z: number) => {
+      for (const b of this.agents.values()) {
+        const st = b.bot.entity ? stateAt(b, x, y, z) : -1;
+        if (st >= 0) return st;
+      }
+      return -1;
+    };
+    const is = (st: number, name: string) => {
+      const b = this.registry.blocksByName[name];
+      return !!b && st >= b.minStateId && st <= b.maxStateId;
+    };
+    const lay0 = v.layouts?.[0];
+    const ax = lay0?.annex;
+    const annexHome = ax ? { x: (ax.x1 + ax.x2) / 2, z: (ax.z1 + ax.z2) / 2 } : null;
+    const bad = ax ? (ax.penBad ?? []).map((s) => (s.includes(':') ? s : `chicken:${s}`).split(':')).map(([k, c]) => [k, ...c.split(',').map(Number)] as [string, number, number, number])
+      .filter(([, , , tt]) => !tt || t - tt < 60 * 60000) : [];
+    return {
+      t, agent: a, store,
+      ok: () => (ok ??= collectFilter(a, FARM_TRIP_RANGE)),
+      startHome,
+      exploreHome: villageHome(v, a.memory),
+      // The wheat fields as farmChores reads them (everything but the busy keys and an idle worker)
+      field: memo((ks) => {
+        const k = Number(ks), farm = v.layouts?.[k - 1]?.farm;
+        const wheat = this.registry.blocksByName.wheat;
+        if (!wheat || !farm?.planted || harvesting.has(`${v.name}:${k}`)) return null;
+        if (farm.lastHarvest && !farm.lastHarvest.ok && t - farm.lastHarvest.at < (farm.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) return null;
+        if (v.tasks.some((tk) => tk.detail.startsWith(`tend_farm layout=${k} `) && (tk.status === 'open' || tk.status === 'claimed'))) return null;
+        const plot = preparedAt(v, farm);
+        if (!plot) return null;
+        let grown = 0, ripe = 0;
+        for (const [x, z] of farm.sow) {
+          let s = -1;
+          for (const b of this.agents.values()) if (b.bot.entity && (s = stateAt(b, x, plot.y + 1, z)) >= 0) break;
+          if (s < 0) return null;
+          if (s < wheat.minStateId || s > wheat.maxStateId) continue;
+          grown++;
+          if (s - wheat.minStateId >= 7) ripe++;
+        }
+        return ripe < 4 || ripe < 0.75 * grown ? null : { ripe, grown, plot };
+      }),
+      // A planted slot as slotChores' ripe loop reads it ("k:j")
+      slot: memo((kj) => {
+        const [k, j] = kj.split(':').map(Number);
+        const slot = v.layouts?.[k - 1]?.slots?.[j - 1];
+        const spec = slot?.kind ? SLOT_KINDS[slot.kind] : undefined;
+        if (!slot || !spec || slot.laying || !slot.planted || slotBusy.has(`${v.name}:${k}:${j}`)) return null;
+        if (slot.lastHarvest && !slot.lastHarvest.ok && t - slot.lastHarvest.at < (slot.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) return null;
+        const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+        if (!plot) return null;
+        const y = plot.y + 1;
+        let ripe = 0, of = 0;
+        if (spec.ripe !== undefined) {
+          const b = this.registry.blocksByName[spec.block];
+          for (const [x, z] of slot.cells ?? []) {
+            const st = read(x, y, z);
+            if (st < 0) return null;
+            if (b && is(st, spec.block)) {
+              of++;
+              if (st - b.minStateId >= spec.ripe) ripe++;
+            }
+          }
+        } else
+          for (const [x, z] of (spec.fruit ? slot.fruit : slot.cells) ?? []) {
+            const st = read(x, spec.fruit ? y : y + 1, z);
+            if (st < 0) return null;
+            if (is(st, spec.fruit ?? 'sugar_cane')) ripe++;
+          }
+        return ripe < 2 || (spec.ripe !== undefined && ripe < 0.75 * of) ? null : { ripe, of };
+      }),
+      // Sightings a start may go for, by kind (searched from collect's home, judged by collect's filter; bad sightings
+      // are the slots', left to the menu)
+      sightings: memo((kind) => (startHome ? this.atlas.sightings(kind, Math.floor(startHome.x), Math.floor(startHome.z), FARM_TRIP_RANGE) : [])),
+      // Animals a pen may lure, by kind (within 96 of the annex in 30 minutes, off village ground, away from failed spots)
+      animals: memo((kind) => (annexHome && ax ? this.atlas.animalSightings(kind, annexHome.x, annexHome.z, 96, 30 * 60000, (x, z) => onVillageGround(a, x, z) || bad.some(([bk, bx, bz]) => bk === kind && Math.hypot(x - bx, z - bz) <= 8)) : [])),
+      // Eggs lying in a chicken pen ("j"), seen by any bot
+      eggs: memo((js) => {
+        const slot = lay0?.slots?.[Number(js) - 1];
+        const plot = v.plots.find((p) => p.annex);
+        if (!slot || !plot) return false;
+        const P = penPlan(slot, slot.face ?? 'n');
+        const inPen = (q: { x: number; y: number; z: number }) => q.x >= P.inner.x1 && q.x < P.inner.x2 + 1 && q.z >= P.inner.z1 && q.z < P.inner.z2 + 1 && Math.abs(q.y - (plot.y + 1)) <= 2;
+        return [...this.agents.values()].some((b) => b.bot.entity && Object.values(b.bot.entities).some((e) => e.name === 'item' && inPen(e.position)));
+      }),
+      known: memo((xz) => {
+        const [x, z] = xz.split(',').map(Number);
+        return this.atlas.known(x, z, 48);
+      }),
+    };
+  }
+
+  /** The full menu: options (guarded and trimmed in model mode), the reasons for kinds with none, and the context; beside
+   *  it the guarded options before the trim (`feasible`, what a model's pick is checked against). */
+  private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[] } {
+    const r = this.choiceOptions(v, a, busy, guards, facts, first);
+    return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx: this.choiceContext(v, a, facts) }, feasible: r.feasible, skips: r.effects.skips };
   }
 
   /**
-   * The annex (10-09, the user's choice: pens beside the village, not on its plot's slots): once complete, an idle worker
-   * prepares it (prepare_annex); 10 minutes after a failure, given up after 3.
+   * The feasible chores for an idle member of a complete village, in rank order (today's fixed order: fields, ripe slots,
+   * farm starts, the annex, pens, pen work, the cake, the iron age, exploring). Pure: the writes the old picker made while
+   * looking are the sweep's housekeeping, the option's run (runOption) or `effects.skips` (spec 1.3). With `guards` (model
+   * mode), banned and cooling options go to `guarded` and the rest are trimmed (choose.ts trimMenu).
    */
-  private annexChores(v: Village, worker: BotAgent): boolean {
-    const lay = v.layouts?.[0];
-    if (!lay || !v.plots.some((p) => !p.annex) || lay.annex?.state === 'ready' || annexBusy.has(v.name)) return false;
-    const ax = lay.annex;
-    if (ax?.tries && ax.lastTry && Date.now() - ax.lastTry.at > 60 * 60000) ax.tries = 0;
-    if ((ax?.tries ?? 0) >= 3 || (ax?.lastTry && Date.now() - ax.lastTry.at < 10 * 60000)) return false;
-    this.setChore(v, worker, 'annex', [worker.enqueue('prepare_annex', { chore: true })], 'prepare the annex');
-    console.log(`[annex] ${v.name}: ${worker.name} prepares the annex${ax && ax.x2 >= ax.x1 ? ` at ${ax.x1},${ax.z1}..${ax.x2},${ax.z2} (again)` : ''}`);
-    return true;
+  private choiceOptions(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']):
+    { options: ChoiceOption[]; feasible: ChoiceOption[]; effects: { skips: string[] }; reasons: Partial<Record<ChoiceKind, string>>; guarded: Array<{ id: string; why: string }> } {
+    const now = facts.t;
+    const out: ChoiceOption[] = [];
+    const reasons: Partial<Record<ChoiceKind, string>> = {};
+    const skips: string[] = [];
+    const layouts = v.layouts ?? [];
+    const store = facts.store;
+    const multi = layouts.filter((l) => l.farm).length > 1;
+    const instances = (kind: string) => CHOOSE.instances.has(kind);
+    const others = (kind: ChoiceKind) => {
+      const names = [...this.chores.values()].filter((c) => c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind === kind).map((c) => c.agent);
+      return names.length ? `; on it: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}` : '';
+    };
+    const record = (kind: ChoiceKind) => {
+      const s = this.choiceStats.agentKind(v.name, a.name, kind);
+      return s ? `you: ${s.ok} of ${s.n} done, ~${Math.max(0.1, Math.round(s.minutes * 10) / 10)} min each` : 'you: never done';
+    };
+    const lastOf = (kind: ChoiceKind) => {
+      const l = this.choiceStats.villageLast(v.name, kind);
+      return l ? `; last ${ago(now - l.at)}, ${l.ok ? 'done' : 'failed'}` : '';
+    };
+    const dist = (x: number, z: number) => {
+      const p = a.bot.entity?.position;
+      return p ? `${Math.round(Math.hypot(p.x - x, p.z - z))} blocks from you` : '';
+    };
+    const add = (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => {
+      const opt: ChoiceOption = { holds: [], ...o, facts: o.facts.slice(0, 240) };
+      OPTION_RUN.set(opt, data);
+      out.push(opt);
+    };
+
+    // The wheat fields
+    for (const [i, lay] of layouts.entries()) {
+      if (!lay.farm) continue;
+      const k = i + 1;
+      const f = facts.field(String(k));
+      if (!f) {
+        reasons.farm ??= 'nothing ripe';
+        continue;
+      }
+      const excludes = [`farm:${k}`, 'pen'];
+      if (excluded(excludes, first?.k === k ? first.busy : busy)) {
+        reasons.farm ??= 'busy';
+        continue;
+      }
+      const name = `Harvest the wheat field${multi && k > 1 ? ' of the second plot' : ''}`;
+      add({
+        id: `farm:${k}`, kind: 'farm', key: `farm:${k}`, excludes, name, rank: 10 + k, at: { x: Math.floor((lay.farm.x1 + lay.farm.x2) / 2), z: Math.floor((lay.farm.z1 + lay.farm.z2) / 2) },
+        facts: `${f.ripe} of ${f.grown} ripe; ${dist((lay.farm.x1 + lay.farm.x2) / 2, (lay.farm.z1 + lay.farm.z2) / 2)}; storage: ${store.wheat ?? 0} wheat, ${store.wheat_seeds ?? 0} seeds, ${store.bread ?? 0} bread; ${record('farm')}${others('farm')}${lastOf('farm')}`,
+        effect: `about ${f.ripe} wheat and seeds`,
+      }, { kind: 'farm', k, ripe: f.ripe, grown: f.grown });
+    }
+
+    // Ripe farm slots
+    for (const [i, lay] of layouts.entries())
+      for (const [jj, slot] of (lay.slots ?? []).entries()) {
+        if (!slot.kind || !SLOT_KINDS[slot.kind]) continue;
+        const k = i + 1, j = jj + 1;
+        const f = facts.slot(`${k}:${j}`);
+        if (!f) {
+          reasons.slot ??= 'nothing ripe';
+          continue;
+        }
+        const excludes = [`slot:${k}:${j}`, 'pen'];
+        if (excluded(excludes, busy)) {
+          reasons.slot ??= 'busy';
+          continue;
+        }
+        add({
+          id: `slot:${k}:${j}`, kind: 'slot', key: `slot:${k}:${j}`, excludes, name: `Harvest the ${words(slot.kind)} farm${layouts.length > 1 && k > 1 ? ' of the second plot' : ''}${(lay.slots ?? []).filter((s) => s.kind === slot.kind).length > 1 ? ` on slot ${numberWord(j)}` : ''}`,
+          rank: 100 + 10 * k + j, at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
+          facts: `${f.ripe} ripe; ${dist((slot.x1 + slot.x2) / 2, (slot.z1 + slot.z2) / 2)}; ${record('slot')}${others('slot')}${lastOf('slot')}`,
+          effect: `about ${f.ripe} ${words(slot.kind)}`,
+        }, { kind: 'slot', k, j, ripe: f.ripe, slotKind: slot.kind });
+      }
+
+    // Farm starts: a free slot started with a kind found near the village. Single keys: one start at a time, on the first
+    // free slot, with the first kind seen (today's); instances: up to two at once, on different slots and of different
+    // kinds (each holds its slot and its kind, spec 3)
+    const freeSlots = layouts.flatMap((lay, i) => (lay.slots ?? []).map((slot, jj) => ({ slot, k: i + 1, j: jj + 1 })))
+      .filter(({ slot, k, j }) => !slot.annex && !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && effTries(slot.tries, slot.lastTry?.at, now) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
+    const startInst = instances('start');
+    const freeOpen = startInst ? freeSlots.filter(({ k, j }) => !busy.has(`start:${k}:${j}`)) : freeSlots.slice(0, 1);
+    const want = startInst ? Math.min(2, freeOpen.length) : freeOpen.length ? 1 : 0;
+    if (!freeOpen.length) reasons.start = freeSlots.length ? 'free slots taken' : 'no free slot';
+    else if (startInst ? busy.has('pen') : busy.has('start') || busy.has('pen')) reasons.start = 'busy';
+    else {
+      const free = freeOpen[0];
+      const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
+      const badSeen = new Set(layouts.flatMap((l) => (l.slots ?? []).flatMap((q) => q.bad ?? [])));
+      const home = facts.startHome;
+      let found = 0;
+      for (const [s, kind] of SLOT_ORDER.entries()) {
+        if (found >= want) break;
+        const skip = `${v.name}:${kind}`;
+        if (farmed.has(kind) || (this.slotSkip.get(skip) ?? 0) > now || !home) continue;
+        // (a kind another start holds: not walked, not skipped)
+        if (startInst && busy.has(`farmkind:${kind}`)) continue;
+        const ok = facts.ok();
+        const seen = facts.sightings(kind)
+          // (bad by column, F192; cane by the blocks a cut can take, which must cover the two a start needs: the atlas counts
+          // a stalk's blocks above its base for cane, and a one-stalk sighting of two blocks gave one and failed twice)
+          .find(([x, y, z, n]) => ok({ x, y, z }) && !badSeen.has(`${kind}@${x},${z}`) && !badSeen.has(`${kind}@${x},${y},${z}`) && (kind !== 'sugar_cane' || n >= 2));
+        if (!seen) {
+          skips.push(skip);
+          continue;
+        }
+        found++;
+        const [x, y, z, n] = seen;
+        const key = startInst ? `start:${free.k}:${free.j}` : 'start';
+        const excludes = startInst ? [`start:${free.k}:${free.j}=`, `farmkind:${kind}=`, 'pen'] : ['start', 'pen'];
+        const tries = layouts.flatMap((l) => l.slots ?? []).filter((q) => q.lastTry?.kind === kind).reduce((t, q) => t + (q.tries ?? 0), 0);
+        add({
+          id: `start:${kind}`, kind: 'start', key, holds: startInst ? [`farmkind:${kind}`] : [], excludes, name: `Start a ${words(kind)} farm`, rank: 200 + s, at: { x, y, z },
+          facts: `${words(kind)} seen ${Math.round(Math.hypot(x - home!.x, z - home!.z))} blocks from the storage${kind === 'sugar_cane' ? ` (${n} stalks)` : ''}; ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${tries ? `; the village tried this kind ${tries} time${tries === 1 ? '' : 's'}` : ''}${others('start')}`,
+          effect: `a ${words(kind)} farm to harvest`,
+        }, { kind: 'start', k: free.k, j: free.j, slotKind: kind, x, y, z });
+      }
+      if (!found) reasons.start = 'nothing seen to farm';
+    }
+
+    // The annex (before its pens)
+    const lay0 = layouts[0];
+    const ax = lay0?.annex;
+    if (!lay0 || !v.plots.some((p) => !p.annex) || ax?.state === 'ready') reasons.annex = ax?.state === 'ready' ? 'ready' : 'no layout';
+    else if (annexBusy.has(v.name) || excluded(['annex'], busy)) reasons.annex = 'busy';
+    else if (effTries(ax?.tries, ax?.lastTry?.at, now) >= 3 || (ax?.lastTry && now - ax.lastTry.at < 10 * 60000)) reasons.annex = 'backing off';
+    else
+      add({
+        id: 'annex', kind: 'annex', key: 'annex', excludes: ['annex'], name: 'Prepare the annex for animal pens', rank: 300,
+        facts: `${ax && ax.x2 >= ax.x1 ? `${ax.x2 - ax.x1 + 1}x${ax.z2 - ax.z1 + 1} at ${ax.x1},${ax.z1}, tried ${effTries(ax.tries, ax.lastTry?.at, now)} times` : 'a 13x9 field beside the village, not started'}; ${record('annex')}${others('annex')}`,
+        effect: 'room for two pens',
+      }, { kind: 'annex', again: !!(ax && ax.x2 >= ax.x1), area: ax ? `${ax.x1},${ax.z1}..${ax.x2},${ax.z2}` : '' });
+
+    // Pens on the annex: one with animals of each kind (no harvest, farm start or other lure beside it, the pen review's L3)
+    const penEx = ['pen', 'annex', 'start', 'slot', 'farm'];
+    if (!lay0 || ax?.state !== 'ready') reasons.pen = 'no annex';
+    else if (excluded(penEx, busy)) reasons.pen = 'busy';
+    else {
+      const slots = (lay0.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
+      for (const [p, kind] of PEN_ORDER.entries()) {
+        if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= 2)) continue;
+        if (PEN_KINDS[kind].lure === 'wheat' && !(store.wheat ?? 0)) continue;
+        const by = ax.penBy?.[kind];
+        // (an entry over an hour old is forgiven: the sweep deletes it)
+        if (by && now - by.at <= 60 * 60000 && (by.tries >= 3 || now - by.at < 10 * 60000)) continue;
+        const pick = slots.find(({ slot }) => slot.kind === kind && !slot.laying) ?? slots.find(({ slot }) => !slot.kind);
+        if (!pick || slotBusy.has(`${v.name}:1:${pick.j}`)) continue;
+        const near = facts.animals(kind);
+        const dy = (s: { y: number }) => s.y - (ax.y + 1);
+        const seen = near.find((s) => Math.abs(dy(s)) <= 4) ?? near.find((s) => dy(s) >= -4 && dy(s) <= 8);
+        if (!seen) continue;
+        const [x, y, z] = [Math.floor(seen.x), Math.floor(seen.y), Math.floor(seen.z)];
+        const lure = PEN_KINDS[kind].lure;
+        add({
+          id: `pen:${kind}`, kind: 'pen', key: 'pen', excludes: penEx, name: `Lead ${kind}s into a pen`, rank: 400 + p, at: { x, y, z },
+          facts: `the nearest ${kind} seen ${Math.round(Math.hypot(seen.x - (ax.x1 + ax.x2) / 2, seen.z - (ax.z1 + ax.z2) / 2))} blocks from the annex, ${Math.abs(Math.round(dy(seen)))} ${dy(seen) >= 0 ? 'above' : 'below'} it; ${store[lure] ?? 0} ${words(lure)} in storage; tried ${by && now - by.at <= 60 * 60000 ? by.tries : 0} times; ${record('pen')}`,
+          effect: `a pen of ${kind}s to breed`,
+        }, { kind: 'pen', j: pick.j, slotKind: kind, x, y, z });
+      }
+      if (!out.some((o) => o.kind === 'pen')) reasons.pen = 'no animals to lead';
+    }
+
+    // A pen's own work, then the cake (the annex ready and its plot recorded, C3)
+    const annexPlot = v.plots.find((p) => p.annex);
+    if (!lay0 || ax?.state !== 'ready' || !annexPlot) {
+      reasons.penwork = 'no pens';
+      reasons.cake = 'no annex';
+    } else {
+      const scale = timeScale();
+      const due = (pen: { workAt?: Record<string, number> }, what: string, minutes: number) => now - (pen.workAt?.[what] ?? 0) > minutes * 60000;
+      for (const [jj, slot] of (lay0.slots ?? []).entries()) {
+        const j = jj + 1, pen = slot.pen;
+        const spec = slot.kind ? PEN_KINDS[slot.kind] : undefined;
+        if (!slot.annex || !spec || !pen?.built || slot.laying || !(pen.animals ?? 0) || slotBusy.has(`${v.name}:1:${j}`)) continue;
+        const excludes = [`penwork:${j}`];
+        if (excluded(excludes, busy)) {
+          reasons.penwork ??= 'busy';
+          continue;
+        }
+        const works: Array<[number, string, string, string, string]> = [];
+        if (slot.kind === 'chicken' && due(pen, 'eggs', 1) && facts.eggs(String(j))) works.push([0, 'eggs', 'collect_eggs', 'Collect eggs in the chicken pen', 'eggs lying in the pen']);
+        if (slot.kind === 'cow' && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', 'Milk the cows', `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
+        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < spec.cap && (store[spec.lure] ?? 0) >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind}s`, `${store[spec.lure] ?? 0} ${words(spec.lure)} in storage`]);
+        const twin = (lay0.slots ?? []).filter((s) => s.annex && s.kind === slot.kind && s.pen?.built).length > 1;
+        for (const [w, what, skill, name, fact] of works) {
+          const last = pen.workAt?.[what];
+          add({
+            id: `penwork:${j}:${what}`, kind: 'penwork', key: `penwork:${j}`, excludes, name: `${name}${twin ? ` on slot ${numberWord(j)}` : ''}`, rank: 500 + 10 * j + w,
+            at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
+            facts: `${pen.animals} ${slot.kind}s in the pen; ${fact}; ${last ? `last done ${ago(now - last)}` : 'never done'}; ${record('penwork')}`,
+            effect: what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : `a young ${slot.kind}`,
+          }, { kind: 'penwork', j, what, skill, slotKind: slot.kind ?? '', animals: pen.animals ?? 0 });
+        }
+      }
+      if (!out.some((o) => o.kind === 'penwork')) reasons.penwork ??= 'nothing due';
+      // The cake (at most two in storage)
+      if (excluded(['cake'], busy)) reasons.cake = 'busy';
+      else if (cakeShort(store).length) reasons.cake = 'storage short';
+      else if ((store.cake ?? 0) >= 2) reasons.cake = 'two cakes stored';
+      else if (now - (this.cakeAt.get(v.name) ?? 0) <= 5 * 60000) reasons.cake = 'backing off';
+      else
+        add({
+          id: 'cake', kind: 'cake', key: 'cake', excludes: ['cake'], name: 'Bake a cake', rank: 600,
+          facts: `storage has ${store.milk_bucket ?? 0} milk, ${EGGS.reduce((s, e) => s + (store[e] ?? 0), 0)} eggs, ${store.wheat ?? 0} wheat, ${store.sugar ?? 0} sugar, ${store.sugar_cane ?? 0} sugar cane; ${store.cake ?? 0} cakes stored; ${record('cake')}`,
+          effect: '+1 cake in storage',
+        }, { kind: 'cake' });
+    }
+
+    // The iron age: an iron pickaxe once storage holds 3 iron, then a bucket; while short, trips to the iron level (not
+    // while milking or the cake hold the buckets: storage reads none then, the fixes review's M1)
+    const m = v.mine;
+    if (!m || m.level === undefined) reasons.iron = 'no mine';
+    else if (excluded(['iron', 'cake', 'penwork'], busy)) reasons.iron = 'busy';
+    else {
+      const made = m.ironMade ?? [];
+      // (three buckets once a cow pen holds cows: a cake takes three milk buckets at once, pens v2)
+      const cows = (lay0?.slots ?? []).some((s) => s.annex && s.kind === 'cow' && (s.pen?.animals ?? 0) > 0);
+      // (buckets the village holds count too: VanC2 was stocked with three and still made one)
+      const buckets = Math.max(made.filter((t) => t === 'bucket').length, (store.bucket ?? 0) + (store.milk_bucket ?? 0));
+      const iron = (store.raw_iron ?? 0) + (store.iron_ingot ?? 0);
+      const tool = made.includes('iron_pickaxe') ? 'bucket' : 'iron_pickaxe';
+      const stage = iron >= 3 ? tool : 'dig';
+      // (failed stages forgiven after an hour, as the farm slots': the sweep resets them)
+      const triesAll = m.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000 ? {} : m.ironTries ?? {};
+      const t = (triesAll as Record<string, number>)[stage] ?? 0, last = m.ironLastTry;
+      if (made.includes('iron_pickaxe') && buckets >= (cows ? 3 : 1)) reasons.iron = 'tools made';
+      else if (stage === 'dig' && m.iron?.finished) reasons.iron = 'iron level finished';
+      else if (t >= 3 || (last?.stage === stage && now - last.at < 10 * 60000)) reasons.iron = 'backing off';
+      else
+        add({
+          id: `iron:${stage}`, kind: 'iron', key: 'iron', excludes: ['iron', 'cake', 'penwork'],
+          name: stage === 'dig' ? 'Dig for iron in the mine' : stage === 'iron_pickaxe' ? 'Make an iron pickaxe' : 'Make a bucket', rank: 700,
+          facts: `${iron} iron in storage; ${made.length ? `made: ${made.map(words).join(', ')}` : 'no iron tools made'}; ${stage === 'dig' ? `the iron level ${m.iron ? 'being dug' : 'not started'}` : `${words(stage)} next`}; tried ${t} times; ${record('iron')}${lastOf('iron')}`,
+          effect: stage === 'dig' ? `iron toward ${tool === 'bucket' ? 'a bucket' : 'a pickaxe'}` : `a ${words(stage)}`,
+        }, { kind: 'iron', stage, tool, iron });
+    }
+
+    // Exploring: ring points FARM_TRIP_RANGE from home, the least known first, each point once (the bots at home already
+    // see ~128 blocks: view distance 8, the design review's H3); only while a farm slot is free (there is nothing else to
+    // find for yet, the diff review's L4), not beside a lure; single keys: one trip at a time, not while a start may fill
+    // the slot; instances: a trip a point, beside a start while another free slot is open
+    const exInst = instances('explore');
+    // (with single-key starts and explore instances, a running start takes one of the free slots)
+    const exFree = startInst ? freeSlots.some(({ k, j }) => !busy.has(`start:${k}:${j}`)) : freeSlots.length > (exInst && busy.has('start') ? 1 : 0);
+    const ex = v.explore;
+    const exHome = facts.exploreHome;
+    if (!exFree) reasons.explore = 'no free slot';
+    else if (exInst ? busy.has('pen') : excluded(['explore', 'start', 'pen'], busy)) reasons.explore = 'busy';
+    else if (ex?.done) reasons.explore = 'explored';
+    else if (!exHome) reasons.explore = 'no home';
+    else {
+      const visited = ex?.visited ?? [];
+      const points = Array.from({ length: 8 }, (_, i) => ({ i, x: Math.round(exHome.x + FARM_TRIP_RANGE * Math.cos((i * Math.PI) / 4)), z: Math.round(exHome.z + FARM_TRIP_RANGE * Math.sin((i * Math.PI) / 4)) }))
+        .filter((q) => !visited.includes(q.i)).map((q) => ({ ...q, known: facts.known(`${q.x},${q.z}`) }))
+        .sort((p, q) => p.known - q.known);
+      const yields = this.exploreYields.get(v.name) ?? [];
+      const dull = yields.length >= 2 && yields.slice(-2).every((y) => y < 0.1);
+      const trips = yields.length ? `last trips: ${yields.filter((y) => y >= 0.1).length} of ${yields.length} found new land` : 'no trips yet';
+      for (const [r, q] of points.entries()) {
+        const excludes = exInst ? [`explore:${q.i}=`, 'pen'] : ['explore', 'start', 'pen'];
+        if (exInst && excluded(excludes, busy)) continue;
+        add({
+          id: `explore:${q.i}`, kind: 'explore', key: exInst ? `explore:${q.i}` : 'explore', excludes, name: `Explore to the ${DIRECTIONS[q.i]}`, rank: 800 + r, at: { x: q.x, z: q.z },
+          facts: `${dist(q.x, q.z)}; ${points.length} of 8 points left; this point's land ${Math.round(q.known * 100)}% known; ${dull ? 'the last 2 trips found nothing new' : trips}${others('explore')}`,
+          effect: 'new land in the atlas',
+          ...(dull ? { lp: 0.5 } : {}),
+        }, { kind: 'explore', i: q.i, x: q.x, z: q.z, home: { x: Math.round(exHome.x), z: Math.round(exHome.z) } });
+      }
+      if (!out.some((o) => o.kind === 'explore')) reasons.explore = points.length ? 'busy' : 'all visited';
+    }
+
+    // Model mode's guards (D5): bans, the agent's own cooldown, learning progress, then the trim
+    const guarded: Array<{ id: string; why: string }> = [];
+    let options = out;
+    // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
+    let feasible = out;
+    if (guards) {
+      options = [];
+      for (const o of out) {
+        const ban = this.choiceStats.banned(v.name, o.kind, o.id, now);
+        if (ban) {
+          guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
+          continue;
+        }
+        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now)) {
+          guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
+          continue;
+        }
+        if (o.lp === undefined) o.lp = Math.round((0.5 + this.choiceStats.learningProgress(v.name, o.kind)) * 100) / 100;
+        options.push(o);
+      }
+      feasible = options;
+      const kept = trimMenu(options);
+      for (const o of options) if (!kept.includes(o)) guarded.push({ id: o.id, why: 'trimmed' });
+      options = kept;
+    }
+    for (const o of options) if (reasons[o.kind]) delete reasons[o.kind];
+    return { options, feasible, effects: { skips }, reasons, guarded };
+  }
+
+  /** The prompt's context (pure): the village at a glance, the others' chores, the agent's last outcomes. */
+  private choiceContext(v: Village, a: BotAgent, facts: Facts): ChoiceContext {
+    const s = facts.store;
+    const items = ['wheat', 'wheat_seeds', 'bread', 'raw_iron', 'bucket', 'milk_bucket', 'egg', 'sugar_cane', 'cake'].filter((n) => s[n]).map((n) => `${s[n]} ${words(n)}`);
+    const lay0 = v.layouts?.[0];
+    const slots = (v.layouts ?? []).flatMap((l) => l.slots ?? []);
+    const farms = [...(v.layouts ?? []).filter((l) => l.farm?.planted).map(() => 'a wheat field'), ...slots.filter((q) => !q.annex && q.kind).map((q) => `${words(q.kind!)} on a slot`)];
+    const freeN = slots.filter((q) => !q.annex && !q.kind).length;
+    const pens = slots.filter((q) => q.annex && q.kind && q.pen?.built).map((q) => `${q.pen?.animals ?? 0} ${q.kind}s`);
+    const m = v.mine;
+    const iron = !m || m.level === undefined ? 'no mine' : (m.ironMade ?? []).length ? `made ${(m.ironMade ?? []).map(words).join(', ')}` : m.iron ? 'being dug' : 'not started';
+    const village = [`${v.name}, complete`, `Storage: ${items.join(', ') || 'nothing of note'}`,
+      `Farms: ${farms.join(', ') || 'none'}${freeN ? `, ${freeN} slot${freeN === 1 ? '' : 's'} free` : ''}`,
+      `Pens: ${lay0?.annex?.state === 'ready' ? pens.join(', ') || 'none yet' : 'no annex yet'}`,
+      `Explored: ${v.explore?.visited.length ?? 0} of 8 points round the village`, `Iron: ${iron}`].join('. ');
+    const kinds = new Map<string, string[]>();
+    let choosing = 0, idle = 0;
+    for (const b of this.agents.values()) {
+      if (b === a || b.village()?.name !== v.name) continue;
+      const c = this.chores.get(b.name.toLowerCase());
+      if (c && !c.choice.ended) {
+        const k = c.choice.kind ?? c.key.split(':')[0];
+        kinds.set(k, [...(kinds.get(k) ?? []), b.name]);
+      } else if (this.pending.has(b.name.toLowerCase())) choosing++;
+      else if (b.idle()) idle++;
+    }
+    const others = [...[...kinds.entries()].map(([k, n]) => `${KIND_WORDS[k] ?? k} ${n.length} (${n.slice(0, 3).join(', ')}${n.length > 3 ? ', ...' : ''})`),
+      ...(choosing ? [`choosing ${choosing}`] : []), `idle ${idle}`].join(', ');
+    return {
+      persona: typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '',
+      village: village.slice(0, 300), others: others.slice(0, 200),
+      outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
+    };
   }
 
   /**
-   * A chicken pen on the annex (10-09; v1: one pen with chickens a village): a free annex slot (or a pen left empty) is
-   * started from the nearest chickens seen in the last 30 minutes within 96 blocks of the annex, off every village's
-   * ground (penned ones are seen too, the pen review's H3; the skill finds the seeds to lure them with); 10
-   * minutes after a failure, given up after 3 (`annex.penBy`, by kind).
+   * Run an option: the writes the old picker made at queue time (spec 1.3: a pen's workAt, the cake's back-off, the explore
+   * ring), then the skill queued and the chore recorded. Called only inside runPick's try (D9).
    */
-  private penChores(v: Village, worker: BotAgent): boolean {
-    const lay = v.layouts?.[0];
-    const ax = lay?.annex;
-    if (!lay || ax?.state !== 'ready') return false;
-    const now = Date.now();
-    const slots = (lay.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
-    // (measured from the annex, where the pens are: Minevale35's only cow stood 96.4 from the storage chest, F205)
-    const home = { x: (ax.x1 + ax.x2) / 2, z: (ax.z1 + ax.z2) / 2 };
-    const store = storageContents(v);
-    // (from 4 below to 8 above the pen's level, level ones first, and not near a sighting that failed: review M3. Animals
-    // follow a lure down any walkable slope or stair but not off a sheer face; the snapshot's within 96 stood at most 8
-    // above, all with a way down, F205)
-    // (an entry is "x,z,time": animals wander, so a failed spot is forgiven after an hour)
-    const bad = (ax.penBad ?? []).map((s) => (s.includes(':') ? s : `chicken:${s}`).split(':')).map(([k, c]) => [k, ...c.split(',').map(Number)] as [string, number, number, number])
-      .filter(([, , , t]) => !t || now - t < 60 * 60000);
-    // One pen with animals of each kind (pens v2: chickens, then cows on the other slot)
-    for (const kind of PEN_ORDER) {
-      // (two make a pair to breed: a pen holding one is lured into again, VanC2)
-      if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= 2)) continue;
-      // (cows follow wheat only, and wheat comes only from the field's harvests: none in storage, no trip)
-      if (PEN_KINDS[kind].lure === 'wheat' && !(store.wheat ?? 0)) continue;
-      // (failed starts by kind, 10 minutes apart, three an hour: the diff review's L1)
-      const by = ax.penBy?.[kind];
-      if (by && now - by.at > 60 * 60000) delete ax.penBy![kind];
-      else if (by && (by.tries >= 3 || now - by.at < 10 * 60000)) continue;
-      const pick = slots.find(({ slot }) => slot.kind === kind && !slot.laying) ?? slots.find(({ slot }) => !slot.kind);
-      if (!pick || slotBusy.has(`${v.name}:1:${pick.j}`)) continue;
-      const near = this.atlas.animalSightings(kind, home.x, home.z, 96, 30 * 60000, (x, z) => onVillageGround(worker, x, z) || bad.some(([bk, bx, bz]) => bk === kind && Math.hypot(x - bx, z - bz) <= 8));
-      const dy = (s: { y: number }) => s.y - (ax.y + 1);
-      const seen = near.find((s) => Math.abs(dy(s)) <= 4) ?? near.find((s) => dy(s) >= -4 && dy(s) <= 8);
-      if (!seen) continue;
-      const [x, y, z] = [Math.floor(seen.x), Math.floor(seen.y), Math.floor(seen.z)];
-      this.setChore(v, worker, 'pen', [worker.enqueue('start_pen', { layout: 1, slot: pick.j, kind, x, y, z, chore: true })], `start a ${kind} pen`);
-      console.log(`[pen] ${v.name}: ${kind} seen at ${x},${y},${z}; ${worker.name} starts a pen on annex slot ${pick.j}`);
-      this.villages.note(v, `${kind}s seen at ${x},${y},${z}: ${worker.name} leads them into a pen on the annex (a chore)`);
-      return true;
+  private runOption(v: Village, worker: BotAgent, opt: ChoiceOption, meta: ChoiceMeta) {
+    const d = OPTION_RUN.get(opt);
+    if (!d) throw new Error(`no run data for ${opt.id}`);
+    switch (d.kind) {
+      case 'farm':
+        // (`chore`: the brains leave its events alone, as the mayor's gathering)
+        this.setChore(v, worker, opt.key, [worker.enqueue('harvest_farm', { layout: d.k, chore: true })], `harvest the wheat on layout ${d.k}`, undefined, meta, opt.holds, opt);
+        console.log(`[farm] ${v.name} layout ${d.k}: ${d.ripe} of ${d.grown} wheat ripe, ${worker.name} harvests`);
+        this.villages.note(v, `${d.ripe} of ${d.grown} wheat ripe on layout ${d.k}'s farm: ${worker.name} harvests it (a chore)`);
+        return;
+      case 'slot':
+        this.setChore(v, worker, opt.key, [worker.enqueue('harvest_slot', { layout: d.k, slot: d.j, chore: true })], `harvest ${d.slotKind}`, undefined, meta, opt.holds, opt);
+        console.log(`[farm] ${v.name} slot ${d.k}.${d.j}: ${d.ripe} ${d.slotKind} ripe, ${worker.name} harvests`);
+        return;
+      case 'start':
+        this.setChore(v, worker, opt.key, [worker.enqueue('start_farm', { layout: d.k, slot: d.j, kind: d.slotKind, x: d.x, y: d.y, z: d.z, chore: true })], `start ${d.slotKind}`, undefined, meta, opt.holds, opt);
+        console.log(`[farm] ${v.name}: ${d.slotKind} seen at ${d.x},${d.y},${d.z}; ${worker.name} starts a ${d.slotKind} farm on slot ${d.k}.${d.j}`);
+        this.villages.note(v, `${d.slotKind} seen at ${d.x},${d.y},${d.z}: ${worker.name} starts a ${d.slotKind} farm on farm slot ${d.j} (a chore)`);
+        return;
+      case 'annex':
+        this.setChore(v, worker, opt.key, [worker.enqueue('prepare_annex', { chore: true })], 'prepare the annex', undefined, meta, opt.holds, opt);
+        console.log(`[annex] ${v.name}: ${worker.name} prepares the annex${d.again ? ` at ${d.area} (again)` : ''}`);
+        return;
+      case 'pen':
+        this.setChore(v, worker, opt.key, [worker.enqueue('start_pen', { layout: 1, slot: d.j, kind: d.slotKind, x: d.x, y: d.y, z: d.z, chore: true })], `start a ${d.slotKind} pen`, undefined, meta, opt.holds, opt);
+        console.log(`[pen] ${v.name}: ${d.slotKind} seen at ${d.x},${d.y},${d.z}; ${worker.name} starts a pen on annex slot ${d.j}`);
+        this.villages.note(v, `${d.slotKind}s seen at ${d.x},${d.y},${d.z}: ${worker.name} leads them into a pen on the annex (a chore)`);
+        return;
+      case 'penwork': {
+        const pen = v.layouts?.[0]?.slots?.[d.j - 1]?.pen;
+        if (!pen) throw new Error(`no pen on annex slot ${d.j}`);
+        // (each kind of work backs off after it was queued, done or not)
+        pen.workAt = { ...pen.workAt, [d.what]: Date.now() };
+        this.villages.save();
+        this.setChore(v, worker, opt.key, [worker.enqueue(d.skill, { layout: 1, slot: d.j, chore: true })], `${d.skill} on annex slot ${d.j}`, undefined, meta, opt.holds, opt);
+        console.log(`[pen] ${v.name}: ${worker.name} ${d.skill} on annex slot ${d.j} (${d.slotKind}, ${d.animals} in the pen)`);
+        return;
+      }
+      case 'cake':
+        this.cakeAt.set(v.name, Date.now());
+        this.setChore(v, worker, opt.key, [worker.enqueue('bake_cake', { chore: true })], 'bake a cake', undefined, meta, opt.holds, opt);
+        console.log(`[cake] ${v.name}: ${worker.name} bakes a cake`);
+        return;
+      case 'iron': {
+        const stage = d.stage;
+        const status = stage === 'dig'
+          ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: Math.max(1, (d.tool === 'bucket' ? 3 : 6) - d.iron) })
+          : worker.enqueue('make_iron_tool', { item: stage, chore: true });
+        const failed = (why: string) => {
+          const mm = v.mine;
+          if (!mm || why === 'cancelled') return;
+          mm.ironTries = { ...(mm.ironTries ?? {}), [stage]: (mm.ironTries?.[stage] ?? 0) + 1 };
+          mm.ironLastTry = { at: Date.now(), stage, why: why.slice(0, 200) };
+          this.villages.save();
+        };
+        this.setChore(v, worker, opt.key, [status], `iron: ${stage}`, failed, meta, opt.holds, opt);
+        console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${d.iron} iron in storage)` : `makes a ${stage}`}`);
+        return;
+      }
+      case 'explore': {
+        const ex = (v.explore ??= { visited: [] });
+        ex.visited.push(d.i);
+        ex.last = `${worker.name} to ${d.x},${d.z}`;
+        this.villages.save();
+        const out = worker.enqueue('scout', { x: d.x, z: d.z, chore: true });
+        // (home: true, teleported home when the walk back fails: Worker1 floated in a lake 4 min, F189)
+        const back = worker.enqueue('scout', { x: d.home.x, z: d.home.z, chore: true, home: true });
+        this.setChore(v, worker, opt.key, [out, back], `explore ${d.x},${d.z}`, undefined, meta, opt.holds, opt);
+        console.log(`[explore] ${v.name}: ${worker.name} scouts ${d.x},${d.z} (${ex.visited.length} of 8), then home`);
+        return;
+      }
     }
-    return false;
-  }
-
-  /** When the cake was last tried, by village (a back-off). */
-  private cakeAt = new Map<string, number>();
-
-  /**
-   * A pen's own work and the cake (pens v2, 10-09; after the lure, before the iron age): eggs lying in a chicken pen (seen
-   * by a bot: they despawn 5 minutes after they are laid), two ready adults bred (at most every 6000 ticks, the parents'
-   * cooldown, while under the pen's cap and storage holds their food), cows milked into the buckets storage holds (up to
-   * the cake's three), then a cake once storage holds what it takes. One chore a pen at a time (`penwork:j`); each kind of
-   * work backs off after it was queued, done or not.
-   */
-  private penWorkChores(v: Village, worker: BotAgent, busy: Set<string>): boolean {
-    const lay = v.layouts?.[0];
-    const plot = v.plots.find((p) => p.annex);
-    if (!lay || lay.annex?.state !== 'ready' || !plot) return false;
-    const now = Date.now();
-    const store = storageContents(v);
-    const scale = timeScale();
-    const due = (pen: { workAt?: Record<string, number> }, what: string, minutes: number) => now - (pen.workAt?.[what] ?? 0) > minutes * 60000;
-    for (const [jj, slot] of (lay.slots ?? []).entries()) {
-      const j = jj + 1, pen = slot.pen;
-      const spec = slot.kind ? PEN_KINDS[slot.kind] : undefined;
-      if (!slot.annex || !spec || !pen?.built || slot.laying || !(pen.animals ?? 0) || busy.has(`penwork:${j}`) || slotBusy.has(`${v.name}:1:${j}`)) continue;
-      const P = penPlan(slot, slot.face ?? 'n');
-      const inPen = (q: { x: number; y: number; z: number }) => q.x >= P.inner.x1 && q.x < P.inner.x2 + 1 && q.z >= P.inner.z1 && q.z < P.inner.z2 + 1 && Math.abs(q.y - (plot.y + 1)) <= 2;
-      let what = '';
-      if (slot.kind === 'chicken' && due(pen, 'eggs', 1)
-        && [...this.agents.values()].some((b) => b.bot.entity && Object.values(b.bot.entities).some((e) => e.name === 'item' && inPen(e.position)))) what = 'collect_eggs';
-      else if (slot.kind === 'cow' && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) what = 'milk_cows';
-      else if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < spec.cap && (store[spec.lure] ?? 0) >= 2 && due(pen, 'breed', 5 / scale)) what = 'breed_pen';
-      if (!what) continue;
-      pen.workAt = { ...pen.workAt, [what === 'collect_eggs' ? 'eggs' : what === 'milk_cows' ? 'milk' : 'breed']: now };
-      this.villages.save();
-      this.setChore(v, worker, `penwork:${j}`, [worker.enqueue(what, { layout: 1, slot: j, chore: true })], `${what} on annex slot ${j}`);
-      busy.add(`penwork:${j}`);
-      console.log(`[pen] ${v.name}: ${worker.name} ${what} on annex slot ${j} (${slot.kind}, ${pen.animals} in the pen)`);
-      return true;
-    }
-    // The cake (at most two in storage)
-    if (!busy.has('cake') && !cakeShort(store).length && (store.cake ?? 0) < 2 && now - (this.cakeAt.get(v.name) ?? 0) > 5 * 60000) {
-      this.cakeAt.set(v.name, now);
-      this.setChore(v, worker, 'cake', [worker.enqueue('bake_cake', { chore: true })], 'bake a cake');
-      busy.add('cake');
-      console.log(`[cake] ${v.name}: ${worker.name} bakes a cake`);
-      return true;
-    }
-    return false;
   }
 
   /**
-   * An idle village member holding no task and no chore: a worker, else (once the village is complete, the user's choice
-   * for F193) the mayor, whose brain makes no model calls by then.
+   * An idle member of a village (F193's helper, kept for the chores before completion): a worker, else (once the village
+   * is complete, the user's choice for F193) the mayor, whose brain makes no model calls by then.
    */
   private idleWorker(v: Village): BotAgent | undefined {
     const free = [...this.agents.values()].filter((a) => a.village()?.name === v.name && !!a.bot.entity && a.idle() && !this.chores.has(a.name.toLowerCase())
@@ -1219,9 +1835,8 @@ export class MineflayerWorld implements WorldAdapter {
 
   /**
    * Opportunistic farming and exploring (10-08; chores beside the board, lesson 93): a planted slot that is ripe is
-   * harvested (as the wheat: before completion only when nothing is claimable); once the village is complete, a free slot
-   * is started with the first kind (SLOT_ORDER) not farmed yet that was seen within FARM_TRIP_RANGE of home on ground
-   * collect may take from; with nothing to start, an idle worker explores, one ring point at a time.
+   * harvested (as the wheat: before completion only when nothing is claimable); once the village is complete, every idle
+   * member chooses its chore from a menu (A.2: the sweep).
    */
   private slotChores(v: Village) {
     const busy = this.choreKeys(v);
@@ -1257,6 +1872,10 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (slot.tries && slot.lastTry && now - slot.lastTry.at > 60 * 60000) slot.tries = 0;
       }
+    if (v.complete) {
+      this.sweep(v, busy);
+      return;
+    }
     const read = (x: number, y: number, z: number) => {
       for (const a of this.agents.values()) {
         const st = a.bot.entity ? stateAt(a, x, y, z) : -1;
@@ -1304,88 +1923,424 @@ export class MineflayerWorld implements WorldAdapter {
         busy.add(`slot:${k}:${j}`);
         console.log(`[farm] ${v.name} slot ${k}.${j}: ${ripe} ${slot.kind} ripe, ${worker.name} harvests`);
       }
-    if (!v.complete) return;
-    // Every idle member takes the first chore of a kind nobody holds (F193)
-    for (let worker = this.idleWorker(v); worker; worker = this.idleWorker(v))
-      if (!this.nextChore(v, worker, busy)) return;
   }
 
-  /** One chore for an idle member of a complete village, of a kind no other chore holds (`busy`); whether one was queued. */
-  private nextChore(v: Village, worker: BotAgent, busy: Set<string>): boolean {
+  /**
+   * The after-completion sweep (A.2, spec 4.1): every idle member, in idleWorker's order, gets a menu of the feasible
+   * chores; in fixed mode it runs the menu's lowest rank (today's fixed order: the first member with nothing ends the
+   * sweep, as nextChore's loop did), in model mode it decides (decide). `q` is this sweep's choreKeys: the busy keys come
+   * out exactly as the old picker's several choreKeys calls gave them (the wheat loop's first call read the cooling
+   * entries before its drops, every later call after them).
+   */
+  private sweep(v: Village, q: Set<string>) {
     const now = Date.now();
-    const layouts = v.layouts ?? [];
-    // A free slot started with a kind found near the village (one start at a time: two would choose the same slot or kind)
-    const free = layouts.flatMap((lay, i) => (lay.slots ?? []).map((slot, jj) => ({ slot, k: i + 1, j: jj + 1 })))
-      .find(({ slot, k, j }) => !slot.annex && !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && (slot.tries ?? 0) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
-    if (free && !busy.has('start') && !busy.has('pen')) {
-      const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
-      const bad = new Set(layouts.flatMap((l) => (l.slots ?? []).flatMap((q) => q.bad ?? [])));
-      // (searched from collect's home, the storage chest, and judged by collect's own filter: the design review's M1)
-      const chest = v.storage?.chests[0];
-      const home = chest ? { x: chest.x, z: chest.z } : villageHome(v, worker.memory);
-      const ok = collectFilter(worker, FARM_TRIP_RANGE);
-      for (const kind of SLOT_ORDER) {
-        const skip = `${v.name}:${kind}`;
-        if (farmed.has(kind) || (this.slotSkip.get(skip) ?? 0) > now || !home) continue;
-        const seen = this.atlas.sightings(kind, Math.floor(home.x), Math.floor(home.z), FARM_TRIP_RANGE)
-          // (bad by column, F192; cane by the blocks a cut can take, which must cover the two a start needs: the atlas counts
-          // a stalk's blocks above its base for cane, and a one-stalk sighting of two blocks gave one and failed twice)
-          .find(([x, y, z, n]) => ok({ x, y, z }) && !bad.has(`${kind}@${x},${z}`) && !bad.has(`${kind}@${x},${y},${z}`) && (kind !== 'sugar_cane' || n >= 2));
-        if (!seen) {
-          this.slotSkip.set(skip, now + 10 * 60000);
+    const all = this.heldKeys(v, now, 'sweep');
+    // Forgiven after an hour (the readers read the effective value; the old picker wrote these as it looked)
+    const ax = v.layouts?.[0]?.annex;
+    if (ax?.tries && ax.lastTry && now - ax.lastTry.at > 60 * 60000) ax.tries = 0;
+    if (ax?.penBy) for (const [k, by] of Object.entries(ax.penBy)) if (now - by.at > 60 * 60000) delete ax.penBy[k];
+    const m = v.mine;
+    if (m?.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000) m.ironTries = {};
+    // Expired guards' bookkeeping
+    for (const [k, until] of this.bansLogged) if (until < now) this.bansLogged.delete(k);
+    const members = this.idleMembers(v, now);
+    if (!members.length) return;
+    const facts = this.sweepFacts(v, now, members[0]);
+    // The fields the old wheat loop got as far as reading the busy keys for
+    const ready = (v.layouts ?? []).map((l, i) => (l.farm && facts.field(String(i + 1)) ? i + 1 : 0)).filter(Boolean);
+    const busy = new Set(ready.length ? all : q);
+    const ctx: SweepCtx = { village: v.name, t: now, busy, first: ready.length ? { k: ready[0], busy: new Set(q) } : undefined };
+    const take = (key: string) => {
+      ctx.busy.add(key);
+      ctx.first?.busy.add(key);
+    };
+    const none: Array<{ agent: string; reasons: Partial<Record<ChoiceKind, string>> }> = [];
+    let capped = 0;
+    this.sweepCtx = ctx;
+    try {
+      // (model mode's cap: decisions that call the model only while the members still to decide have keys left over
+      // the decisions in flight, C15)
+      const modelVillage = members.some((a) => this.chooseMode(a) === 'model');
+      const keysLeft = modelVillage ? new Map(members.map((a) => [a.name, new Set(this.menu(v, a, busy, true, facts, ctx.first).menu.options.map((o) => o.key))])) : null;
+      for (const [n, a] of members.entries()) {
+        if (!this.isIdleMember(v, a, now)) continue;
+        const model = this.chooseMode(a) === 'model';
+        const { menu, skips } = this.menu(v, a, ctx.busy, model, facts, ctx.first);
+        const pick = menu.options[0];
+        // (the old picker wrote these only when it walked the farm starts: a member whose pick is a field or a ripe slot
+        // never got there)
+        if (model || !pick || pick.rank >= 200) for (const s of skips) this.slotSkip.set(s, now + 10 * 60000);
+        // (every ring point visited: the ring is done once a member finds none left, as the old picker wrote it when it got
+        // that far; the village's log keeps 40 notes, so the note's timing shows in it)
+        if ((model || !pick) && menu.reasons.explore === 'all visited' && v.explore && !v.explore.done) {
+          v.explore.done = true;
+          this.villages.note(v, 'explored all round the village');
+          this.villages.save();
+        }
+        if (!pick) {
+          none.push({ agent: a.name, reasons: menu.reasons });
+          if (!model) {
+            // (today's loop stopped at the first member with nothing: the rest have nothing either)
+            for (const b of members.slice(n + 1)) if (this.isIdleMember(v, b, now)) none.push({ agent: b.name, reasons: menu.reasons });
+            break;
+          }
           continue;
         }
-        const [x, y, z] = seen;
-        this.setChore(v, worker, 'start', [worker.enqueue('start_farm', { layout: free.k, slot: free.j, kind, x, y, z, chore: true })], `start ${kind}`);
-        busy.add('start');
-        console.log(`[farm] ${v.name}: ${kind} seen at ${x},${y},${z}; ${worker.name} starts a ${kind} farm on slot ${free.k}.${free.j}`);
-        this.villages.note(v, `${kind} seen at ${x},${y},${z}: ${worker.name} starts a ${kind} farm on farm slot ${free.j} (a chore)`);
-        return true;
+        if (!model) {
+          const r = this.runChoice(a, pick.id, { source: 'fixed', reason: 'fixed order', menu });
+          if (r.ok) {
+            take(r.key);
+            for (const h of this.chores.get(a.name.toLowerCase())?.choice.holds ?? []) take(h);
+          }
+          continue;
+        }
+        const d = this.decideAt(v, a, menu);
+        if ('ran' in d) {
+          if (d.ran.ok && d.ran.key) {
+            take(d.ran.key);
+            for (const h of this.chores.get(a.name.toLowerCase())?.choice.holds ?? []) take(h);
+          }
+          continue;
+        }
+        // A model call: only while keys are left for it
+        const left = new Set<string>();
+        for (const b of members.slice(n)) for (const k of keysLeft?.get(b.name) ?? []) if (!ctx.busy.has(k)) left.add(k);
+        const inFlight = [...this.pending.values()].filter((p) => p.village === v.name).length;
+        if (left.size - inFlight <= 0) {
+          capped++;
+          continue;
+        }
+        this.submitDecision(v, a, menu, d.call);
+      }
+    } finally {
+      this.sweepCtx = undefined;
+    }
+    if (none.length || capped) this.noteNone(v, none, capped, now);
+  }
+
+  /** `[choice-none]`: idle members with nothing feasible, by reason; when the reasons change, at most every 5 minutes. */
+  private noteNone(v: Village, none: Array<{ agent: string; reasons: Partial<Record<ChoiceKind, string>> }>, capped: number, now: number) {
+    const counts = new Map<string, number>();
+    for (const n of none) for (const [k, why] of Object.entries(n.reasons)) counts.set(`${k}: ${why}`, (counts.get(`${k}: ${why}`) ?? 0) + 1);
+    if (capped) counts.set('capped', capped);
+    const sig = [...counts.keys()].sort().join('|');
+    const last = this.noneAt.get(v.name);
+    if (last && last.sig === sig && now - last.at < 5 * 60000) return;
+    this.noneAt.set(v.name, { sig, at: now });
+    console.log(`[choice-none] ${v.name}: ${none.length} idle, nothing feasible (${[...counts.entries()].map(([k, n]) => `${k} ${n}`).join(', ')})`);
+  }
+
+  /**
+   * A model-mode decision's start (spec 5.1 steps 0-4; E.4 swaps this one place for reservation and a re-ask, D6): a menu of
+   * one runs at once ('only'); within minGapMs of the agent's last model decision an option of the same kind runs
+   * ('repeat', else the fixed pick as 'rate'); over the hourly cap or the budget the fixed pick runs at once. Otherwise
+   * the call is to be made (`call`: the decision id and the model).
+   */
+  private decideAt(v: Village, a: BotAgent, menu: ChoiceMenu): { ran: { ok: boolean; key?: string } } | { call: { decisionId: string; spec: ModelSpec } } {
+    const decisionId = choiceId(v.name);
+    const now = Date.now();
+    const run = (id: string | null, meta: Omit<ChoiceMeta, 'decisionId' | 'menu'>) => {
+      const r = id ? this.runChoice(a, id, { ...meta, decisionId, menu }) : this.runPick(a, null, { ...meta, decisionId, menu });
+      return { ran: r.ok ? { ok: true, key: r.key } : { ok: false } };
+    };
+    if (menu.options.length === 1) return run(menu.options[0].id, { source: 'only', reason: 'fixed order' });
+    const id = a.name.toLowerCase();
+    if (now - this.choiceStats.lastModelAt(a.name) < CHOOSE.minGapMs) {
+      const kind = this.lastModelKind.get(id);
+      const same = kind ? menu.options.filter((o) => o.kind === kind).sort((p, q) => p.rank - q.rank)[0] : undefined;
+      return same ? run(same.id, { source: 'repeat', reason: 'fixed order' }) : run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
+    }
+    if (this.choiceStats.modelCallsLastHour(a.name, now) >= CHOOSE.perHour) return run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
+    const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+    if (!spec) return run(null, { source: 'fallback', why: 'error', reason: 'fixed order' });
+    if ((isCloudModel(spec.model) && !usage.allows('decisions')) || usage.blocked(spec.model, a.name)) return run(null, { source: 'fallback', why: 'budget', reason: 'fixed order', model: label(spec) });
+    return { call: { decisionId, spec } };
+  }
+
+  /** Steps 5-9: the decision queued, the call made, the reply run (or the fixed pick over a fresh menu). Every continuation is
+   *  caught (D9): a throw logs `[choice-error]` and releases the agent. */
+  private submitDecision(v: Village, a: BotAgent, menu: ChoiceMenu, call: { decisionId: string; spec: ModelSpec }) {
+    const id = a.name.toLowerCase();
+    const p: PendingChoice = { id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu };
+    this.pending.set(id, p);
+    this.chooser.submit(a.name, async (queueWaitMs) => {
+      try {
+        if (this.pending.get(id) !== p) return;
+        p.state = 'running';
+        p.queueWaitMs = queueWaitMs;
+        const r = await choose({ agent: a.name, spec: call.spec, level: REASONING.choose, menu, seed: call.decisionId, signal: p.ac.signal });
+        // (dropped meanwhile: the drop rule wrote its record; nothing queued, no fallback, C16)
+        if (p.ac.signal.aborted || this.pending.get(id) !== p) return;
+        this.pending.delete(id);
+        const meta: ChoiceMeta = {
+          source: r.id ? 'model' : 'fallback', ...(r.id ? {} : { why: r.why ?? 'error' }), reason: r.id ? r.reason || '(no reason)' : 'fixed order',
+          decisionId: p.decisionId, shown: r.shown, model: label(call.spec), latencyMs: r.latencyMs, waitMs: r.waitMs, queueWaitMs,
+          promptTokens: r.promptTokens, outputTokens: r.outputTokens, menu, prompt: r.prompt,
+        };
+        if (this.agents.get(id) !== a) {
+          this.logDrop(p.decisionId, a.name, v.name, this.agents.has(id) ? 'replaced' : 'gone', queueWaitMs, meta, r.id);
+          return;
+        }
+        // (a call that reached the model counts toward the agent's rate, answered or not)
+        const reached = !!r.id || r.why === 'invalid' || r.why === 'timeout' || r.why === 'error';
+        if (reached) this.choiceStats.noteModel(a.name, Date.now());
+        if (r.id) {
+          const kind = menu.options.find((o) => o.id === r.id)?.kind;
+          if (kind) this.lastModelKind.set(id, kind);
+        } else if (reached) {
+          // (the latest model decision chose nothing: no kind to repeat within the gap, the fixed pick goes as 'rate')
+          this.lastModelKind.delete(id);
+        }
+        this.runPick(a, r.id, meta);
+      } catch (e) {
+        this.choiceError(p, e);
+      }
+    }, () => {
+      try {
+        if (this.pending.get(id) !== p || p.ac.signal.aborted) return;
+        this.pending.delete(id);
+        this.runPick(a, null, { source: 'fallback', why: 'queue', reason: 'fixed order', decisionId: p.decisionId, queueWaitMs: CHOOSE.queueMs, menu });
+      } catch (e) {
+        this.choiceError(p, e);
+      }
+    });
+  }
+
+  private choiceError(p: PendingChoice, e: unknown) {
+    try {
+      console.log(`[choice-error] ${p.agent.name}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
+      if (this.pending.get(p.id) === p) this.pending.delete(p.id);
+      this.chooser.cancel(p.agent.name);
+    } catch {
+      // (nothing may escape, D9)
+    }
+  }
+
+  /** A pending decision dropped (spec 6): its call aborted or its queue entry cancelled, one record. */
+  private dropDecision(p: PendingChoice, why: ChoiceDrop['why']) {
+    if (this.pending.get(p.id) !== p) return;
+    this.pending.delete(p.id);
+    p.ac.abort();
+    this.chooser.cancel(p.agent.name);
+    this.logDrop(p.decisionId, p.agent.name, p.village, why, p.queueWaitMs);
+  }
+
+  /** A dropped decision's record; one dropped after its call carries the call's numbers (`meta`) and the model's pick
+   *  (`chose`), and its tokens count in the village's summary (no source counted: it ran nothing). */
+  private logDrop(decisionId: string, agent: string, village: string, why: ChoiceDrop['why'], queueWaitMs?: number, meta?: ChoiceMeta, chose?: string | null) {
+    const m = meta;
+    logChoiceDrop({
+      decisionId, agent, village, t: Date.now(), why, ...(queueWaitMs !== undefined ? { queueWaitMs } : {}),
+      ...(m?.model ? { model: m.model } : {}), ...(m?.latencyMs !== undefined ? { latencyMs: m.latencyMs } : {}), ...(m?.waitMs !== undefined ? { waitMs: m.waitMs } : {}),
+      ...(m?.promptTokens !== undefined ? { promptTokens: m.promptTokens } : {}), ...(m?.outputTokens !== undefined ? { outputTokens: m.outputTokens } : {}),
+      ...(m?.source === 'model' && chose ? { modelChose: chose, modelReason: m.reason } : {}),
+    });
+    const acc = this.summaryOf(village);
+    acc.s.drops++;
+    if (m) {
+      acc.s.promptTokens += m.promptTokens ?? 0;
+      acc.s.outputTokens += m.outputTokens ?? 0;
+      if (m.latencyMs && replied(m)) acc.ms = [...acc.ms, m.latencyMs].slice(-500);
+    }
+    const id = agent.toLowerCase();
+    // (the model's reply and tokens kept for the panel when the decision reached it, the fix review)
+    if (why === 'empty')
+      this.decisions.set(id, {
+        ...(m ?? {}), source: 'fallback', why: m?.why ?? 'taken', reason: 'fixed order', decisionId, chosen: null, at: Date.now(),
+        ...(m?.source === 'model' && chose ? { modelChose: chose, modelReason: m.reason } : {}),
+      });
+  }
+
+  private summaryOf(village: string) {
+    let acc = this.summaries.get(village);
+    if (!acc) this.summaries.set(village, (acc = { s: { model: 0, fixed: 0, only: 0, repeat: 0, rate: 0, fallback: {}, drops: 0, positions: [], expected: [], promptTokens: 0, outputTokens: 0, msP50: 0, queueWaitP90: 0 }, ms: [], queue: [] }));
+    return acc;
+  }
+
+  /** A decision counted for the panel's chip. */
+  private summarise(village: string, meta: ChoiceMeta, opt?: ChoiceOption) {
+    const acc = this.summaryOf(village);
+    const s = acc.s;
+    if (meta.source === 'fallback') {
+      if (meta.why === 'rate') s.rate++;
+      else if (meta.why) s.fallback[meta.why] = (s.fallback[meta.why] ?? 0) + 1;
+    } else s[meta.source]++;
+    if (meta.source === 'model' && opt && meta.shown?.length) {
+      const n = meta.shown.length, at = meta.shown.indexOf(opt.id);
+      for (let p = 0; p < n; p++) {
+        s.positions[p] ??= 0;
+        s.expected[p] = Math.round(((s.expected[p] ?? 0) + 1 / n) * 1000) / 1000;
+      }
+      if (at >= 0) s.positions[at]++;
+    }
+    s.promptTokens += meta.promptTokens ?? 0;
+    s.outputTokens += meta.outputTokens ?? 0;
+    // (the model answer's time: only decisions whose reply came, not timeouts, errors or calls never sent)
+    if (meta.latencyMs && replied(meta)) acc.ms = [...acc.ms, meta.latencyMs].slice(-500);
+    if (meta.queueWaitMs !== undefined) acc.queue = [...acc.queue, meta.queueWaitMs + (meta.waitMs ?? 0)].slice(-500);
+  }
+
+  /** An end fed to the statistics; a ban that starts is logged once (spec 7.3). */
+  private noteEnd(c: { agent: string; village: string; choice: ChoiceState }, ok: boolean, cut: boolean, contention: boolean, productive: boolean, message: string, known?: number) {
+    const kind = c.choice.kind;
+    if (!kind || !CHOICE_KINDS.includes(kind)) return;
+    const now = Date.now();
+    const id = c.choice.option ?? kind;
+    const verb = ok ? (productive ? 'done' : 'done, nothing gained') : cut ? 'cut short' : `failed (${message.slice(0, 60)})`;
+    this.choiceStats.record({
+      village: c.village, agent: c.agent, kind, id, ok, cut, contention, productive, minutes: Math.round((now - c.choice.t) / 600) / 100, at: now,
+      line: `${c.choice.name ?? id}: ${verb}, ${Math.round((now - c.choice.t) / 6000) / 10} min${known !== undefined ? `, ${known >= 0.1 ? 'new land' : 'little new land'}` : ''}`,
+    });
+    // (every trip that was not cut, failed ones too: spec 7.5's "the last 2 trips found nothing new")
+    if (kind === 'explore' && known !== undefined && !cut) this.exploreYields.set(c.village, [...(this.exploreYields.get(c.village) ?? []), known].slice(-10));
+    // Bans apply only in model mode (D5): a fixed run logs none
+    const agent = this.agents.get(c.agent.toLowerCase());
+    if (!ok && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') {
+      const ban = this.choiceStats.banned(c.village, kind, id, now);
+      // (a ban of the whole kind is logged once, under the kind's name)
+      const name = ban?.scope === 'kind' ? kind : id;
+      const k = `${c.village}|${name}`;
+      if (ban && this.bansLogged.get(k) !== ban.until) {
+        this.bansLogged.set(k, ban.until);
+        logChoiceBan({ village: c.village, t: now, id: name, scope: ban.scope, until: ban.until, message });
       }
     }
-    // The annex and its pen before the iron age (a trip ties the chores up for minutes, again and again: the pen review's M2)
-    if (!busy.has('annex') && this.annexChores(v, worker)) {
-      busy.add('annex');
-      return true;
-    }
-    // (no harvest or farm start beside the lure: their seeds tempt the chickens, the pen review's L3)
-    if (!busy.has('pen') && !busy.has('annex') && !busy.has('start') && ![...busy].some((k) => k.startsWith('slot:') || k.startsWith('farm:'))
-      && this.penChores(v, worker)) {
-      busy.add('pen');
-      return true;
-    }
-    if (this.penWorkChores(v, worker, busy)) return true;
-    // (not while milking or the cake hold the buckets: storage reads none then, the fixes review's M1)
-    if (!busy.has('iron') && !busy.has('cake') && ![...busy].some((k) => k.startsWith('penwork:')) && this.ironChores(v, worker)) {
-      busy.add('iron');
-      return true;
-    }
-    // Exploring: one ring point at a time, FARM_TRIP_RANGE from home, the least known first, each point once (the bots at
-    // home already see ~128 blocks: view distance 8, the design review's H3)
-    // (only while a slot is free: there is nothing else to find for yet, the diff review's L4; not while a start may fill
-    // it, nor beside a lure)
-    if (!free || busy.has('explore') || busy.has('start') || busy.has('pen')) return false;
-    const ex = (v.explore ??= { visited: [] });
-    if (ex.done) return false;
-    const home = villageHome(v, worker.memory);
-    if (!home) return false;
-    const points = Array.from({ length: 8 }, (_, i) => ({ i, x: Math.round(home.x + FARM_TRIP_RANGE * Math.cos((i * Math.PI) / 4)), z: Math.round(home.z + FARM_TRIP_RANGE * Math.sin((i * Math.PI) / 4)) }));
-    const next = points.filter((q) => !ex.visited.includes(q.i)).sort((p, q) => this.atlas.known(p.x, p.z, 48) - this.atlas.known(q.x, q.z, 48))[0];
-    if (!next) {
-      ex.done = true;
-      this.villages.note(v, 'explored all round the village');
-      this.villages.save();
-      return false;
-    }
-    ex.visited.push(next.i);
-    ex.last = `${worker.name} to ${next.x},${next.z}`;
-    this.villages.save();
-    const out = worker.enqueue('scout', { x: next.x, z: next.z, chore: true });
-    // (home: true, teleported home when the walk back fails: Worker1 floated in a lake 4 min, F189)
-    const back = worker.enqueue('scout', { x: Math.round(home.x), z: Math.round(home.z), chore: true, home: true });
-    this.setChore(v, worker, 'explore', [out, back], `explore ${next.x},${next.z}`);
-    busy.add('explore');
-    console.log(`[explore] ${v.name}: ${worker.name} scouts ${next.x},${next.z} (${ex.visited.length} of 8), then home`);
-    return true;
+  }
+
+  /** A2: the panel's compact line (cached fields only, C10). */
+  choiceStatus(agent: WorldAgent): ChoiceStatus | null {
+    const id = agent.name.toLowerCase();
+    const p = this.pending.get(id);
+    if (p) return { state: p.state === 'running' ? 'choosing' : 'queued', since: p.since, menuSize: p.menu.options.length };
+    const c = this.chores.get(id);
+    const d = this.decisions.get(id);
+    const last = d ? {
+      ...(d.chosen ? { name: d.menu?.options.find((o) => o.id === d.chosen)?.name, kind: d.menu?.options.find((o) => o.id === d.chosen)?.kind } : {}),
+      source: d.source, ...(d.why ? { why: d.why } : {}), reason: d.reason.slice(0, 160),
+      ...(d.source === 'model' && d.chosen && d.shown?.includes(d.chosen) ? { position: d.shown.indexOf(d.chosen) + 1 } : {}), ...(d.source === 'model' && d.shown ? { shown: d.shown.length } : {}),
+      at: d.at, ...(d.menu ? { menuSize: d.menu.options.length } : {}),
+    } : {};
+    if (c && !c.choice.ended) return { ...last, state: 'running', since: c.choice.t, ...(c.choice.name ? { name: c.choice.name } : {}), ...(c.choice.kind ? { kind: c.choice.kind } : {}) };
+    return d ? { ...last, state: 'none' } : null;
+  }
+
+  lastDecision(agent: WorldAgent): (ChoiceMeta & { chosen: string | null; at: number }) | null {
+    return this.decisions.get(agent.name.toLowerCase()) ?? null;
+  }
+
+  choiceSummary(village: string): ChoiceSummary | null {
+    const acc = this.summaries.get(village);
+    if (!acc) return null;
+    const q = (xs: number[], f: number) => {
+      const s = [...xs].sort((a, b) => a - b);
+      return s.length ? s[Math.min(s.length - 1, Math.ceil(f * s.length) - 1)] : 0;
+    };
+    return { ...acc.s, fallback: { ...acc.s.fallback }, positions: [...acc.s.positions], expected: [...acc.s.expected], msP50: q(acc.ms, 0.5), queueWaitP90: q(acc.queue, 0.9) };
   }
 }
+
+/** A2: what the sweep needs per village, once per sweep time (spec 2.3, C10). */
+interface Facts {
+  t: number;
+  /** The member the village-level reads go through (collect's filter, village ground: the same for every member). */
+  agent: BotAgent;
+  store: Counts;
+  ok: () => (p: { x: number; y: number; z: number }) => boolean;
+  startHome: { x: number; z: number } | null;
+  exploreHome: { x: number; z: number } | null;
+  field: (k: string) => { ripe: number; grown: number; plot: { y: number } } | null;
+  slot: (kj: string) => { ripe: number; of: number } | null;
+  sightings: (kind: string) => Array<[number, number, number, number]>;
+  animals: (kind: string) => Array<{ x: number; y: number; z: number }>;
+  eggs: (j: string) => boolean;
+  known: (xz: string) => number;
+}
+
+/** A chore as its end is handled: its actions, its `failed` callback and whether that was called (reportFailed). */
+interface ChoreEnd {
+  agent: string;
+  village: string;
+  status: ActionStatus[];
+  failed?: (why: string) => void;
+  failReported?: boolean;
+  choice: ChoiceState;
+}
+
+/** The sweep under way (A.2): its busy keys, and the first ready field's own (choreKeys' first-call quirk). */
+interface SweepCtx {
+  village: string;
+  t: number;
+  busy: Set<string>;
+  first?: { k: number; busy: Set<string> };
+}
+
+/** A decision waiting for or in its model call (A.2, spec 5.1). */
+interface PendingChoice {
+  id: string;
+  agent: BotAgent;
+  village: string;
+  decisionId: string;
+  ac: AbortController;
+  since: number;
+  state: 'queued' | 'running';
+  menu: ChoiceMenu;
+  queueWaitMs?: number;
+}
+
+/** What running an option takes, beside the option's data (kept off the option, which stays plain data). */
+type OptionRun =
+  | { kind: 'farm'; k: number; ripe: number; grown: number }
+  | { kind: 'slot'; k: number; j: number; ripe: number; slotKind: string }
+  | { kind: 'start'; k: number; j: number; slotKind: string; x: number; y: number; z: number }
+  | { kind: 'annex'; again: boolean; area: string }
+  | { kind: 'pen'; j: number; slotKind: string; x: number; y: number; z: number }
+  | { kind: 'penwork'; j: number; what: string; skill: string; slotKind: string; animals: number }
+  | { kind: 'cake' }
+  | { kind: 'iron'; stage: string; tool: string; iron: number }
+  | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } };
+const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
+
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore'];
+/** Ring point i's direction (0 east, clockwise: z grows to the south). */
+const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
+const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring' };
+
+/** Whether a decision's model reply came (a choice, an invalid one, or a pick taken meanwhile). */
+const replied = (m: ChoiceMeta) => m.source === 'model' || m.why === 'invalid' || !!m.modelChose;
+
+/** A chore's words-only name when it was set without an option (the wheat field and ripe slots before completion: the
+ *  outcome lines the model reads, spec 5.3), as the menu names them. */
+function choreName(key: string, what: string): string {
+  const [kind, k] = key.split(':');
+  if (kind === 'farm') return `Harvest the wheat field${Number(k) > 1 ? ' of the second plot' : ''}`;
+  const crop = /^harvest (.+)$/.exec(what)?.[1];
+  if (kind === 'slot' && crop) return `Harvest the ${words(crop)} farm`;
+  return what ? what[0].toUpperCase() + what.slice(1) : KIND_WORDS[kind] ?? kind;
+}
+
+/** An option matches a busy key (ChoiceOption.excludes: "x=" exactly, "x" as itself or a prefix of "x:..."). */
+function excluded(excludes: string[], busy: Set<string>): boolean {
+  for (const e of excludes) {
+    if (e.endsWith('=')) {
+      if (busy.has(e.slice(0, -1))) return true;
+      continue;
+    }
+    if (busy.has(e)) return true;
+    const p = `${e}:`;
+    for (const k of busy) if (k.startsWith(p)) return true;
+  }
+  return false;
+}
+
+/** Tries forgiven an hour after the last (the readers' effective value). */
+function effTries(tries: number | undefined, lastAt: number | undefined, now: number): number {
+  return tries && lastAt !== undefined && now - lastAt > 60 * 60000 ? 0 : tries ?? 0;
+}
+
+const words = (s: string) => s.replace(/_/g, ' ');
+const numberWord = (n: number) => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][n] ?? 'another';
+const ago = (ms: number) => (ms < 90000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : `${Math.round(ms / 60000)} min ago`);
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};

@@ -36,6 +36,9 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 started with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
   --verbose                     the full STATS line per agent beside the AGENTS table (over 4 agents the table replaces them)
+  --choose fixed|model          A.2: memory.choose on every spawn, how the complete village's idle members choose their chores
+                                (fixed: the code's order; model: one model call a decision); unset sends nothing, so the
+                                agent server's MC_CHOOSE (fixed by default) decides
 Stops early when every building is done, when an agent fails the same way MCAI_SAME_FAIL times (default 3), after
 MCAI_STALL_MIN minutes (default 3) without a successful action by anyone, or when one agent holding a task or running an
 action has had none for MCAI_AGENT_STALL_MIN minutes (default MCAI_STALL_MIN, at least 10; an agent with nothing to do is
@@ -195,6 +198,10 @@ p.add_argument("--fixture-at", default="", help="with --fixtures: X,Z for the ch
 p.add_argument("--fixture-clear", action="store_true", help="with --fixtures: kill the chickens and cows within 120 of the site "
                                                             "first, so only the fixtures can fill a pen (F205's review H2)")
 p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
+p.add_argument("--choose", choices=["fixed", "model"], help="A.2: how idle members of the complete village choose their chores "
+                                                          "(memory.choose on every spawn; fixed: the code's order, model: a "
+                                                          "model call per decision); unset sends nothing (the agent server's "
+                                                          "MC_CHOOSE, fixed by default)")
 p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
                                           "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
 args = p.parse_args()
@@ -234,11 +241,25 @@ SPAWN_GAP = float(os.environ.get("MCAI_SPAWN_GAP_S", "2.5"))
 def call(path, body=None, method=None):
     req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read() or "null")
-    except urllib.error.HTTPError as e:
-        return {"error": e.read().decode()[:300], "status": e.code}
+    # (a connection reset is tried twice more, 2 s apart: one reset each ended A1b1 and A1b3 at 25 bots, 10-12, with the
+    # agent server healthy; likely Windows resetting a reused port beside the server's hundreds of TIME_WAIT sockets)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read() or "null")
+        except urllib.error.HTTPError as e:
+            return {"error": e.read().decode()[:300], "status": e.code}
+        except (ConnectionError, urllib.error.URLError) as e:
+            # (urllib wraps a reset during the send in URLError, A1b3: the request never arrived, so any method is sent
+            # again; a reset raised raw came while reading the answer, after the server acted, so only a GET is; anything
+            # else, e.g. a refused port, is raised)
+            wrapped = isinstance(e, urllib.error.URLError)
+            cause = e.reason if wrapped else e
+            if attempt == 2 or not isinstance(cause, (ConnectionResetError, ConnectionAbortedError)) \
+                    or (not wrapped and req.get_method() != "GET"):
+                raise
+            print(f"[api] {path}: {cause.__class__.__name__}, trying again", flush=True)
+            time.sleep(2)
 
 
 def usage_report(since_ms, agents):
@@ -796,6 +817,8 @@ if args.fixtures:
 names = [f"Worker{i + 1}" for i in range(args.workers)]
 exec_model = os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-cloud")
 reasoning = {"reasoning": os.environ["MCAI_REASONING"]} if os.environ.get("MCAI_REASONING") else {}
+# (A.2: every spawn alike, since one village runs one mode; without --choose nothing is sent and MC_CHOOSE decides)
+choose_mem = {"choose": args.choose} if args.choose else {}
 watched = names + (["Mayor"] if args.mayor else [])
 # Spawns on a ring outside the plot and its margin (S.0: a line of 12 at x + 2i ran off the plot into trees and water)
 lay0 = (call(f"/village/{args.village}").get("layouts") or [None])[-1]
@@ -822,7 +845,7 @@ def spawn_gap():
 
 for i, n in enumerate(names):
     call(f"/agents/{n}", method="DELETE")
-    mem = {"village": args.village, "buildSpeed": 4, **reasoning}
+    mem = {"village": args.village, "buildSpeed": 4, **reasoning, **choose_mem}
     if args.brain == "tiered":
         mem.update({"planModel": args.planner, "execModel": exec_model})
     spawn_gap()
@@ -838,11 +861,11 @@ if args.mayor:
     r = call("/agents", {"name": "Mayor", "role": "mayor", "brain": "tiered", "gamemode": "survival", "reset": True,
                          "position": spawn_at(spots["Mayor"]),
                          "memory": {"village": args.village, "villageRole": "mayor", "buildSpeed": 4, "planModel": args.planner,
-                                    "execModel": exec_model, **reasoning,
+                                    "execModel": exec_model, **reasoning, **choose_mem,
                                     "plan": {"goal": "wait for the workers", "steps": [], "by": "external"}}})
     print(f"Mayor: {r}", flush=True)
     check_spawn("Mayor", spots["Mayor"])
-print(f"RUN village={args.village} agents={','.join(watched)} start={usage_since}", flush=True)
+print(f"RUN village={args.village} agents={','.join(watched)} start={usage_since}{f' choose={args.choose}' if args.choose else ''}", flush=True)
 bring_player(names[0])
 
 # ---- watch

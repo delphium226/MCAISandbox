@@ -1,13 +1,30 @@
 /**
  * The decision log (Phase A step A.1, 2026-10-10; no behaviour change): every chore code queues is a `[choice]` record and
  * its end a `[choice-end]` record (outcome, minutes, yield), printed to the log and appended to a JSONL file (`MCAI_CHOICE_LOG`, by default
- * `runs/choices-<date>.jsonl` in the repository). A write that fails is reported once and never thrown.
+ * `runs/choices-<date>.jsonl` in the repository). A write that fails is reported once and never thrown. A.2 (2026-10-12) adds the
+ * menu each choice was made on, how it was decided (the model, a fixed pick, a fallback and why), and `choice-drop` and
+ * `choice-ban` records.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ChoiceContext, ChoiceSource, FallbackWhy } from '../world';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+/** One option of the menu a choice was made on (A.2). */
+export interface ChoiceLogOption {
+  id: string;
+  kind: string;
+  key: string;
+  name: string;
+  facts: string;
+  effect: string;
+  rank: number;
+  lp?: number;
+  /** 1-based position shown to the model. */
+  shown?: number;
+}
 
 /** A chore chosen: who, where, what, and the options it was chosen from. */
 export interface ChoiceRecord {
@@ -19,8 +36,32 @@ export interface ChoiceRecord {
   key: string;
   what: string;
   kind: string;
+  /** The model's reason, or 'fixed order'. */
   reason: string;
-  options: string[];
+  /** The menu the choice was made on ([] only before A.2). */
+  options: ChoiceLogOption[];
+  chosen?: string;
+  source?: ChoiceSource;
+  why?: FallbackWhy;
+  /** The model's choice only: its 1-based position as shown, and how many were shown. */
+  position?: number;
+  shownCount?: number;
+  /** A fallback after a call: the option ids the model was shown (`options` is the fresh menu the fixed pick came from). */
+  shownIds?: string[];
+  /** A model's pick no longer feasible when the reply came ('taken'): the id it chose and its reason. */
+  modelChose?: string;
+  modelReason?: string;
+  /** `${decisionId}|${agent}`: the shuffle's seed. */
+  seed?: string;
+  model?: string;
+  latencyMs?: number;
+  waitMs?: number;
+  queueWaitMs?: number;
+  promptTokens?: number;
+  outputTokens?: number;
+  guarded?: Array<{ id: string; why: string }>;
+  /** The prompt's context, logged in fixed mode too (choicebench rebuilds prompts). */
+  ctx?: ChoiceContext;
 }
 
 /** A chore ended: its outcome, length and yield. */
@@ -35,9 +76,46 @@ export interface ChoiceEnd {
   cut: boolean;
   /**
    * What changed while it ran: the village storage's counts (other chores' deposits included: `with` names the chores of
-   * the village that overlapped it) and the agent's own inventory as Mineflayer sees it (null with the agent gone).
+   * the village that overlapped it) and the agent's own inventory as Mineflayer sees it (null with the agent gone); for
+   * an explore, how much more of its ring point's land the atlas knows (A.2).
    */
-  yield: { storage: Record<string, number>; carried: Record<string, number> | null; with: string[] };
+  yield: { storage: Record<string, number>; carried: Record<string, number> | null; with: string[]; known?: number };
+  /** A failure's contention code (another agent's work in the way): counted by neither a ban nor a cooldown (A.2). */
+  code?: string;
+  /** Whether the chore gave what it is for, judged from its own result (A.2's learning progress). */
+  productive?: boolean;
+}
+
+/** A decision dropped before it ran (A.2): its agent gone, replaced, busy, or nothing left to run. */
+export interface ChoiceDrop {
+  type: 'choice-drop';
+  decisionId: string;
+  agent: string;
+  village: string;
+  t: number;
+  why: 'gone' | 'replaced' | 'no body' | 'busy' | 'task' | 'not complete' | 'empty' | 'error';
+  queueWaitMs?: number;
+  /** A decision dropped after its call (the tokens were billed): the call's numbers, and the model's pick and reason when
+   *  its reply chose one. */
+  model?: string;
+  latencyMs?: number;
+  waitMs?: number;
+  promptTokens?: number;
+  outputTokens?: number;
+  modelChose?: string;
+  modelReason?: string;
+}
+
+/** An option id (or a whole kind) taken off a village's menus after repeated failures (A.2's guard). */
+export interface ChoiceBan {
+  type: 'choice-ban';
+  village: string;
+  t: number;
+  /** The option id, or the kind's name for a ban of the whole kind. */
+  id: string;
+  scope: 'id' | 'kind';
+  until: number;
+  message: string;
 }
 
 /** Counts by item name of a list of stacks. */
@@ -87,7 +165,10 @@ export function choiceId(village: string): string {
 
 export function logChoice(rec: ChoiceRecord) {
   try {
-    console.log(`[choice] ${JSON.stringify(rec)}`);
+    // (the console line lists the options by id and leaves the context out: a full one is ~3 KB, A.2)
+    const { ctx: _ctx, ...short } = rec;
+    void _ctx;
+    console.log(`[choice] ${JSON.stringify({ ...short, options: rec.options.map((o) => o.id) })}`);
     append({ type: 'choice', ...rec });
   } catch {
     // (logging must never stop a chore)
@@ -99,6 +180,27 @@ export function logChoiceEnd(rec: ChoiceEnd) {
     const r = { ...rec, message: rec.message.slice(0, 200) };
     console.log(`[choice-end] ${JSON.stringify(r)}`);
     append({ type: 'choice-end', ...r });
+  } catch {
+    // (as above)
+  }
+}
+
+export function logChoiceDrop(rec: Omit<ChoiceDrop, 'type'>) {
+  try {
+    const r: ChoiceDrop = { type: 'choice-drop', ...rec };
+    console.log(`[choice-drop] ${JSON.stringify(r)}`);
+    append({ ...r });
+  } catch {
+    // (as above)
+  }
+}
+
+export function logChoiceBan(rec: Omit<ChoiceBan, 'type'>) {
+  try {
+    const r: ChoiceBan = { type: 'choice-ban', ...rec, message: rec.message.slice(0, 200) };
+    const d = new Date(rec.until);
+    console.log(`[choice-ban] ${rec.village} ${rec.id}${rec.scope === 'kind' ? ' (the whole kind)' : ''} until ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} (${r.message})`);
+    append({ ...r });
   } catch {
     // (as above)
   }

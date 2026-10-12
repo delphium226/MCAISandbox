@@ -27,6 +27,8 @@ export interface ActionStatus {
   args: Record<string, unknown>;
   state: 'queued' | 'running' | 'done' | 'failed';
   message?: string;
+  /** A failure's contention code (another agent's work in the way, village.ts ContentionCode; A.2's chore ends). */
+  code?: string;
   startedTick?: number;
 }
 
@@ -190,6 +192,136 @@ export interface WorldAdapter {
    * world's map does not cover yet, in walking order around the ring. Worlds without a map leave it out.
    */
   scoutPoints?(home: { x: number; z: number }): Array<{ x: number; z: number }>;
+  /** A2: the menu this agent would choose from now (pure: no state written), or null if it is not an idle member of a
+   *  complete village. */
+  choices?(agent: WorldAgent): ChoiceMenu | null;
+  /** A2: run one option (checked again against a fresh menu); the chore is queued and logged. Never throws (D9). */
+  runChoice?(agent: WorldAgent, id: string, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string };
+  /** A2: the panel's compact line and the last full decision (cached fields; never builds a menu, C10). */
+  choiceStatus?(agent: WorldAgent): ChoiceStatus | null;
+  lastDecision?(agent: WorldAgent): (ChoiceMeta & { chosen: string | null; at: number }) | null;
+  choiceSummary?(village: string): ChoiceSummary | null;
+}
+
+/** A2: the kinds of chores a complete village's idle members choose among. */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore';
+
+/** One feasible chore instance: data only (the world runs it by id). */
+export interface ChoiceOption {
+  /** Stable instance id: 'farm:1', 'slot:1:2', 'start:pumpkin', 'annex', 'pen:cow', 'penwork:2:milk', 'cake',
+   *  'iron:dig' | 'iron:iron_pickaxe' | 'iron:bucket', 'explore:3' (ring point i, 0 = east, clockwise: 2 = south). */
+  id: string;
+  kind: ChoiceKind;
+  /** The F193 key it holds while it runs (single-key mode: 'start', 'explore'; instance mode: 'explore:3',
+   *  'start:<k>:<j>' with the slot chosen by runOption). */
+  key: string;
+  /** Further keys it holds ('farmkind:pumpkin' for an instance-mode start); cooled with the key at its end. */
+  holds: string[];
+  /** It is infeasible while any busy key matches one of these. An entry ending in '=' matches exactly (its text without
+   *  the '='); any other entry matches a key equal to it or starting with it plus ':' ('slot' matches 'slot:1:2'; 'pen'
+   *  matches 'pen' and 'pen:x', not 'penwork:2'). */
+  excludes: string[];
+  /** Menu text, words only, unique within a menu ("Explore to the north-east", "Milk the cows"). */
+  name: string;
+  /** One line, <= 240 chars. */
+  facts: string;
+  /** Expected effect in a few words ("+1 cake in storage"). */
+  effect: string;
+  /** Fixed-order position: lower runs first. */
+  rank: number;
+  at?: { x: number; y?: number; z: number };
+  /** Learning-progress weight 0.5..1.5 (model mode). */
+  lp?: number;
+}
+
+export interface ChoiceContext {
+  /** memory.persona, '' until A.3 */
+  persona: string;
+  /** <= 300 chars */
+  village: string;
+  /** <= 200 chars */
+  others: string;
+  /** The agent's last <= 5 chore ends, one line each. */
+  outcomes: string[];
+}
+
+export interface ChoiceMenu {
+  agent: string;
+  village: string;
+  t: number;
+  /** Feasible options in rank order (guarded and trimmed in model mode). */
+  options: ChoiceOption[];
+  /** Options removed by guards, with why (logged, never shown). */
+  guarded: Array<{ id: string; why: string }>;
+  /** Why each kind with no feasible option has none (for [choice-none]), e.g. { iron: 'tools made', explore: 'no free slot' }. */
+  reasons: Partial<Record<ChoiceKind, string>>;
+  ctx: ChoiceContext;
+}
+
+export type ChoiceSource = 'model' | 'fixed' | 'only' | 'repeat' | 'fallback';
+export type FallbackWhy = 'off' | 'budget' | 'rate' | 'queue' | 'withdrawn' | 'timeout' | 'invalid' | 'error' | 'taken';
+
+export interface ChoiceMeta {
+  source: ChoiceSource;
+  why?: FallbackWhy;
+  /** The model's reason; 'fixed order' for every other source (A.1's value, autonomy_metrics reads it). */
+  reason: string;
+  /** Minted when the decision starts (decide()); seeds the shuffle; setChore reuses it as the choice id. */
+  decisionId?: string;
+  /** Option ids in the order shown to the model (model and its fallbacks after a call). */
+  shown?: string[];
+  model?: string;
+  latencyMs?: number;
+  /** The gate's wait for a slot (modelCall). */
+  waitMs?: number;
+  /** ChooserQueue's wait from submit to start. */
+  queueWaitMs?: number;
+  promptTokens?: number;
+  outputTokens?: number;
+  /** The menu the decision was made on (for the log; runChoice checks it again against a fresh one); a fallback's is the
+   *  fresh menu its fixed pick was made on. */
+  menu?: ChoiceMenu;
+  /** A model's pick that was no longer feasible when its reply came ('taken'): the id it chose and its reason. */
+  modelChose?: string;
+  modelReason?: string;
+  /** The exact user prompt (kept for the panel's drill-down only, not logged). */
+  prompt?: string;
+}
+
+export interface ChoiceStatus {
+  state: 'choosing' | 'queued' | 'running' | 'none';
+  since?: number;
+  name?: string;
+  kind?: ChoiceKind;
+  source?: ChoiceSource;
+  why?: FallbackWhy;
+  /** <= 160 chars */
+  reason?: string;
+  /** 1-based, among `shown` */
+  position?: number;
+  shown?: number;
+  at?: number;
+  menuSize?: number;
+}
+
+export interface ChoiceSummary {
+  model: number;
+  fixed: number;
+  only: number;
+  repeat: number;
+  /** Fixed picks made by the rate throttle (minGapMs with no same-kind option, or the hourly cap): not failures. */
+  rate: number;
+  /** Failures only: budget, queue, withdrawn, timeout, invalid, error, taken (never 'rate'). */
+  fallback: Partial<Record<FallbackWhy, number>>;
+  /** Decisions dropped before running (agent gone, busy, village no longer complete). */
+  drops: number;
+  /** Model choices by the chosen option's shown position (index 0 = first), and the counts expected by chance. */
+  positions: number[];
+  expected: number[];
+  promptTokens: number;
+  outputTokens: number;
+  msP50: number;
+  queueWaitP90: number;
 }
 
 /**

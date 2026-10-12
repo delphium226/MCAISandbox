@@ -172,6 +172,12 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       if (!/passed/i.test(block)) return sendJson(res, 400, { error: `no chest at ${pos.x},${pos.y},${pos.z} (${block})` });
       return sendJson(res, 200, { result: registerChest({ name: 'api' }, v, pos, w.villages, typeof b.group === 'string' ? b.group : undefined), storage: v.storage });
     }
+    // The chore menu a village member would choose from now (A.2; pure, nothing written): ?agent=Worker1
+    if (v && parts[3] === 'choices' && req.method === 'GET') {
+      const a = w.get(url.searchParams.get('agent') ?? '');
+      if (!a || a.village()?.name !== v.name) return sendJson(res, 400, { error: `agent (a member of ${v.name} in the world) is required` });
+      return sendJson(res, 200, w.choices(a));
+    }
     // What a design needs and what getting it takes
     if (v && parts[3] === 'designs' && parts[5] === 'bill') {
       const d = v.designs[decodeURIComponent(parts[4] ?? '')];
@@ -286,6 +292,12 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     return sendJson(res, 200, a.events.filter((e) => e.id > since));
   }
   if (sub === 'actions') return sendJson(res, 200, { current: a.current?.status ?? null, queued: a.queue, history: a.history.slice(-30) });
+  // Run one option of the agent's chore menu (A.2, tests): {id}, checked against a fresh menu as a model's pick is
+  if (sub === 'choice' && req.method === 'POST') {
+    const body = await readJson(req);
+    const r = w.runChoice(a, String(body.id ?? ''), { source: 'fixed', reason: typeof body.reason === 'string' ? body.reason.slice(0, 200) : 'api' });
+    return sendJson(res, r.ok ? 200 : 409, r);
+  }
   // plan_layout's material count around where the agent stands, timed (F106): /api/agents/Gus/near?items=sand:64,stone:300&range=96
   if (sub === 'near') {
     const want = Object.fromEntries((url.searchParams.get('items') ?? '').split(',').filter(Boolean).map((x) => { const [n, q] = x.split(':'); return [n.trim(), Math.max(1, Number(q ?? 1) || 1)]; }));

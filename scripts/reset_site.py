@@ -250,9 +250,10 @@ def start_agents(logdir, stamp):
             return proc.poll() is not None
         return bool((status.get("worldRules") or {}).get("ok")) or proc.poll() is not None
 
-    if not wait_until(ready, 60, 1) or proc.poll() is not None:
+    # (120 s: A1b2's server, 10-12, had not answered in 60)
+    if not wait_until(ready, 120, 1) or proc.poll() is not None:
         tail = "\n".join(log.read_text(encoding="utf-8", errors="replace").splitlines()[-15:])
-        raise SystemExit(f"the test agent server is not ready: {'it exited' if proc.poll() is not None else (status.get('worldRules') or {}).get('summary', 'no answer in 60 s')}; "
+        raise SystemExit(f"the test agent server is not ready: {'it exited' if proc.poll() is not None else (status.get('worldRules') or {}).get('summary', 'no answer in 120 s')}; "
                          f"last lines:\n{tail}")
     print(f"test agent server: {status.get('server')}, world settings: {status['worldRules'].get('summary')}")
 
