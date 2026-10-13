@@ -11,7 +11,7 @@
  * Usage: node_modules/.bin/tsx scripts/checks/choose_unit.mts
  */
 import {
-  CHOOSE, ChoiceStats, ChooserQueue, MENU_MAX, PER_KIND_MAX, buildPrompt, choose, choreProductive, fixedPick, parseChoice, shuffled, trimMenu,
+  CHOOSE, ChoiceStats, ChooserQueue, MENU_MAX, PER_KIND_MAX, buildPrompt, choose, choreProductive, clearQuotaBackoff, fixedPick, parseChoice, shuffled, trimMenu,
 } from '../../server/src/choose';
 import { CallFallback, CallWithdrawn, type CallRequest, type Reply } from '../../server/src/modelCall';
 import { BudgetExceeded, usage } from '../../server/src/modelUsage';
@@ -138,6 +138,9 @@ const menu = (options: ChoiceOption[], persona = ''): ChoiceMenu => ({
   const ex = [opt('explore:7', 'explore', 'Explore to the north-east', 801), opt('explore:5', 'explore', 'Explore to the north-west', 802)];
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'Explore to the north' }), ex), 'a prefix of two names is refused');
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'Dig for diamonds' }), shown), 'an invented option is refused');
+  // (the whole option line copied as the choice: choicebench, s28)
+  const lineCopy = parseChoice(call({ reason: 'x', choice: `${shown[0].name}: ${shown[0].facts} (expected: ${shown[0].effect})` }), shown);
+  ok(!('invalid' in lineCopy) && lineCopy.id === shown[0].id, 'a copied option line names its option');
   ok('invalid' in parseChoice(call({ reason: 'x', choice: 'cake' }), shown), 'an id is not a name');
   ok('invalid' in parseChoice(call({ reason: 'x' }), shown), 'a call without a choice is refused');
   ok('invalid' in parseChoice({ calls: [], text: '' }, shown), 'an empty reply is refused');
@@ -188,6 +191,13 @@ const reply = (r: Reply, ms = 1200, waitMs = 30) => async () => ({ reply: r, ms,
   eq([e.id, e.why, e.reason], [null, 'error', ''], 'any other error');
   const e2 = await fail('a string thrown');
   eq([e2.id, e2.why], [null, 'error'], 'a non-Error thrown');
+  // (the provider's quota, s28: a 429 is a budget fallback and the model is left alone for a while, no call made)
+  const q429 = await fail(new Error('Ollama 429: {"error":"you have reached your session usage limit"}'));
+  eq([q429.id, q429.why], [null, 'budget'], 'a 429 over the quota is a budget fallback');
+  let quotaCalls = 0;
+  const q2 = await choose({ agent: 'Worker2', spec: SPEC, level: 'low', menu: m, seed: 'd', call: (async () => { quotaCalls++; throw new Error('not called'); }) as never });
+  eq([q2.why, quotaCalls], ['budget', 0], 'within the back-off the next decision makes no call');
+  clearQuotaBackoff();
   const inv = await choose({ agent: 'Worker1', spec: SPEC, level: 'low', menu: m, seed: 'd', call: reply({ calls: [{ name: 'choose', input: { reason: 'x', choice: 'Fly to the moon' } }], text: '', promptTokens: 5, outputTokens: 6 }) as never });
   eq([inv.id, inv.why, inv.promptTokens], [null, 'invalid', 5], 'an invalid reply (tokens still counted)');
   const syncThrow = await choose({ agent: 'Worker1', spec: SPEC, level: 'low', menu: m, seed: 'd', call: (() => { throw new Error('sync'); }) as never });

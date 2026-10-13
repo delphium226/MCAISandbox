@@ -1,0 +1,609 @@
+{
+  "about": "choicebench cases (A.2, spec section 10). Labelled cases have one clear answer (good: the option ids judged sensible, why: the reason); equal cases (equal: true) offer options that differ only in name or kind, so any position preference shows. Option names, facts and effects follow mcWorld.ts choiceOptions() and the context choiceContext(); ids as ChoiceOption.id. holds and excludes are filled in by the bench when left out.",
+  "cases": [
+    {
+      "name": "ripe wheat field",
+      "good": [
+        "farm:1"
+      ],
+      "why": "20 of 24 wheat ripe and the field last harvested 38 min ago; the other options are a mostly known ring point and a single ripe pumpkin",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 6 wheat, 40 wheat seeds, 2 bread, 1 bucket, 9 egg, 14 sugar cane. Farms: a wheat field, pumpkin on a slot, 1 slot free. Pens: 4 chickens. Explored: 6 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "exploring 1 (Worker4), idle 3",
+          "outcomes": [
+            "Collect eggs in the chicken pen: done, 0.1 min",
+            "Explore to the north: done, 4.4 min, new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "farm:1",
+            "kind": "farm",
+            "key": "farm:1",
+            "name": "Harvest the wheat field",
+            "facts": "20 of 24 ripe; 14 blocks from you; storage: 6 wheat, 40 seeds, 2 bread; you: 2 of 2 done, ~1.2 min each; last 38 min ago, done",
+            "effect": "about 20 wheat and seeds",
+            "rank": 11
+          },
+          {
+            "id": "slot:1:2",
+            "kind": "slot",
+            "key": "slot:1:2",
+            "name": "Harvest the pumpkin farm",
+            "facts": "1 ripe; 22 blocks from you; you: 1 of 1 done, ~0.6 min each; last 9 min ago, done",
+            "effect": "about 1 pumpkin",
+            "rank": 112
+          },
+          {
+            "id": "explore:4",
+            "kind": "explore",
+            "key": "explore:4",
+            "name": "Explore to the west",
+            "facts": "84 blocks from you; 2 of 8 points left; this point's land 71% known; last trips: 2 of 6 found new land; on it: Worker4",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 800
+          }
+        ]
+      }
+    },
+    {
+      "name": "iron for a bucket",
+      "good": [
+        "iron:bucket"
+      ],
+      "why": "the iron pickaxe is made, cows are penned and the village has no bucket to milk them; 3 raw iron in storage make one now",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 32 wheat, 61 wheat seeds, 8 bread, 3 raw iron, 12 egg, 9 sugar cane. Farms: a wheat field, sugar cane on a slot, 1 slot free. Pens: 4 chickens, 2 cows. Explored: 5 of 8 points round the village. Iron: made iron pickaxe",
+          "others": "tending pens 1 (Worker2), idle 2",
+          "outcomes": [
+            "Lead cows into a pen: done, 3.1 min",
+            "Explore to the east: done, nothing gained, 3.9 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "iron:bucket",
+            "kind": "iron",
+            "key": "iron",
+            "name": "Make a bucket",
+            "facts": "3 iron in storage; made: iron pickaxe; bucket next; tried 0 times; you: never done; last 24 min ago, done",
+            "effect": "a bucket (the village has 0; the penned cows can be milked only with buckets, and a cake takes 3 milk)",
+            "rank": 700
+          },
+          {
+            "id": "slot:1:2",
+            "kind": "slot",
+            "key": "slot:1:2",
+            "name": "Harvest the sugar cane farm",
+            "facts": "1 ripe; 19 blocks from you; you: never done; last 6 min ago, done",
+            "effect": "about 1 sugar cane",
+            "rank": 112
+          },
+          {
+            "id": "explore:2",
+            "kind": "explore",
+            "key": "explore:2",
+            "name": "Explore to the south",
+            "facts": "77 blocks from you; 3 of 8 points left; this point's land 64% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 64% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "pumpkin start after dull trips",
+      "good": [
+        "start:pumpkin"
+      ],
+      "why": "the last 2 trips found nothing new and the next points are mostly known, while a pumpkin was seen 46 blocks away and two slots are free",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 28 wheat, 50 wheat seeds, 6 bread, 1 bucket, 4 egg. Farms: a wheat field, 2 slots free. Pens: 3 chickens. Explored: 5 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Explore to the east: done, nothing gained, 3.8 min, little new land",
+            "Explore to the south: done, nothing gained, 4.2 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "start:pumpkin",
+            "kind": "start",
+            "key": "start:1:2",
+            "name": "Start a pumpkin farm",
+            "facts": "pumpkin seen 46 blocks from the storage; 2 free slots; you: never done",
+            "effect": "a pumpkin farm to harvest",
+            "rank": 201
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "92 blocks from you; 3 of 8 points left; this point's land 88% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 88% known",
+            "rank": 800,
+            "lp": 0.5
+          },
+          {
+            "id": "explore:5",
+            "kind": "explore",
+            "key": "explore:5",
+            "name": "Explore to the north-west",
+            "facts": "95 blocks from you; 3 of 8 points left; this point's land 90% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 90% known",
+            "rank": 801,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "cake ready to bake",
+      "good": [
+        "cake"
+      ],
+      "why": "storage holds everything a cake needs (3 milk, an egg, 3 wheat, 2 sugar) and no cake; exploring has found nothing new lately",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 3 wheat, 22 wheat seeds, 4 bread, 3 milk bucket, 1 egg, 7 sugar cane. Farms: a wheat field, sugar cane on a slot, 1 slot free. Pens: 4 chickens, 3 cows. Explored: 6 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "harvesting 1 (Worker3), idle 2",
+          "outcomes": [
+            "Milk the cows: done, 0.4 min",
+            "Explore to the north: done, nothing gained, 4.0 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "cake",
+            "kind": "cake",
+            "key": "cake",
+            "name": "Bake a cake",
+            "facts": "storage has 3 milk, 1 eggs, 3 wheat, 2 sugar, 7 sugar cane; 0 cakes stored; you: never done",
+            "effect": "+1 cake, the village's best food (0 stored); uses the milk, egg, wheat and sugar storage holds now",
+            "rank": 600
+          },
+          {
+            "id": "explore:3",
+            "kind": "explore",
+            "key": "explore:3",
+            "name": "Explore to the south-west",
+            "facts": "88 blocks from you; 2 of 8 points left; this point's land 85% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 85% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "a second cow for the pen",
+      "good": [
+        "pen:cow"
+      ],
+      "why": "the cow pen holds one cow and cannot breed until a second is led in; a cow was seen 28 blocks off and there is wheat to lure it; exploring finds nothing new",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 44 wheat seeds, 9 bread, 2 bucket, 7 egg, 11 sugar cane. Farms: a wheat field, sugar cane on a slot, 1 slot free. Pens: 5 chickens, 1 cows. Explored: 5 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Explore to the west: done, nothing gained, 3.6 min, little new land",
+            "Collect eggs in the chicken pen: done, 0.1 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "pen:cow",
+            "kind": "pen",
+            "key": "pen",
+            "name": "Lead cows into a pen",
+            "facts": "the nearest cow seen 28 blocks from the annex, 2 above it; 30 wheat in storage; tried 0 times; you: never done",
+            "effect": "a pen of cows to breed",
+            "rank": 401
+          },
+          {
+            "id": "explore:1",
+            "kind": "explore",
+            "key": "explore:1",
+            "name": "Explore to the south-east",
+            "facts": "81 blocks from you; 3 of 8 points left; this point's land 83% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 83% known",
+            "rank": 800,
+            "lp": 0.5
+          },
+          {
+            "id": "explore:7",
+            "kind": "explore",
+            "key": "explore:7",
+            "name": "Explore to the north-east",
+            "facts": "86 blocks from you; 3 of 8 points left; this point's land 87% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 87% known",
+            "rank": 801,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "eggs for the cake",
+      "good": [
+        "penwork:2:eggs"
+      ],
+      "why": "eggs lie in the chicken pen and are the only thing a cake still lacks (3 milk, 20 wheat, 4 sugar, 0 eggs in storage); the ring point is mostly known",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 20 wheat, 36 wheat seeds, 5 bread, 3 milk bucket, 9 sugar cane. Farms: a wheat field, sugar cane on a slot, 1 slot free. Pens: 6 chickens, 2 cows. Explored: 5 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 2",
+          "outcomes": [
+            "Milk the cows: done, 0.5 min",
+            "Explore to the south: done, nothing gained, 4.1 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "penwork:2:eggs",
+            "kind": "penwork",
+            "key": "penwork:2",
+            "name": "Collect eggs in the chicken pen",
+            "facts": "6 chickens in the pen; eggs lying in the pen; last done 12 min ago; you: 2 of 2 done, ~0.1 min each",
+            "effect": "eggs into storage",
+            "rank": 520
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "90 blocks from you; 3 of 8 points left; this point's land 82% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 82% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "milk for the cake",
+      "good": [
+        "penwork:1:milk"
+      ],
+      "why": "3 empty buckets and no milk in storage while everything else a cake needs is there; the other option is one ripe melon",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 26 wheat, 48 wheat seeds, 7 bread, 3 bucket, 5 egg, 12 sugar cane. Farms: a wheat field, melon on a slot, 1 slot free. Pens: 4 chickens, 3 cows. Explored: 6 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "harvesting 1 (Worker5), idle 2",
+          "outcomes": [
+            "Harvest the wheat field: done, 1.3 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "penwork:1:milk",
+            "kind": "penwork",
+            "key": "penwork:1",
+            "name": "Milk the cows",
+            "facts": "3 cows in the pen; 3 buckets and 0 milk in storage; never done; you: never done",
+            "effect": "milk buckets toward a cake",
+            "rank": 511
+          },
+          {
+            "id": "slot:1:3",
+            "kind": "slot",
+            "key": "slot:1:3",
+            "name": "Harvest the melon farm",
+            "facts": "1 ripe; 25 blocks from you; you: never done; last 7 min ago, done",
+            "effect": "about 1 melon",
+            "rank": 113
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: explore 2 points",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 52 wheat seeds, 8 bread, 1 bucket, 6 egg. Farms: a wheat field, 2 slots free. Pens: 4 chickens. Explored: 0 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": []
+        },
+        "options": [
+          {
+            "id": "explore:0",
+            "kind": "explore",
+            "key": "explore:0",
+            "name": "Explore to the east",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 800
+          },
+          {
+            "id": "explore:4",
+            "kind": "explore",
+            "key": "explore:4",
+            "name": "Explore to the west",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 801
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: explore 3 points",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 52 wheat seeds, 8 bread, 1 bucket, 6 egg. Farms: a wheat field, 2 slots free. Pens: 4 chickens. Explored: 2 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Explore to the east: done, 4.1 min, new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "explore:1",
+            "kind": "explore",
+            "key": "explore:1",
+            "name": "Explore to the south-east",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 12% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 800
+          },
+          {
+            "id": "explore:3",
+            "kind": "explore",
+            "key": "explore:3",
+            "name": "Explore to the south-west",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 12% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 801
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 12% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 802
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: explore 4 points",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 52 wheat seeds, 8 bread, 1 bucket, 6 egg. Farms: a wheat field, 2 slots free. Pens: 4 chickens. Explored: 0 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": []
+        },
+        "options": [
+          {
+            "id": "explore:0",
+            "kind": "explore",
+            "key": "explore:0",
+            "name": "Explore to the east",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 800
+          },
+          {
+            "id": "explore:2",
+            "kind": "explore",
+            "key": "explore:2",
+            "name": "Explore to the south",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 801
+          },
+          {
+            "id": "explore:4",
+            "kind": "explore",
+            "key": "explore:4",
+            "name": "Explore to the west",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 802
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "80 blocks from you; 8 of 8 points left; this point's land 0% known; no trips yet",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 803
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: explore 6 points",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 52 wheat seeds, 8 bread, 1 bucket, 6 egg. Farms: a wheat field, 2 slots free. Pens: 4 chickens. Explored: 2 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Explore to the east: done, 4.0 min, new land",
+            "Explore to the west: done, 3.7 min, new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "explore:1",
+            "kind": "explore",
+            "key": "explore:1",
+            "name": "Explore to the south-east",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 800
+          },
+          {
+            "id": "explore:2",
+            "kind": "explore",
+            "key": "explore:2",
+            "name": "Explore to the south",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 801
+          },
+          {
+            "id": "explore:3",
+            "kind": "explore",
+            "key": "explore:3",
+            "name": "Explore to the south-west",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 802
+          },
+          {
+            "id": "explore:5",
+            "kind": "explore",
+            "key": "explore:5",
+            "name": "Explore to the north-west",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 803
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 804
+          },
+          {
+            "id": "explore:7",
+            "kind": "explore",
+            "key": "explore:7",
+            "name": "Explore to the north-east",
+            "facts": "80 blocks from you; 6 of 8 points left; this point's land 5% known; last trips: 2 of 2 found new land",
+            "effect": "new land in the atlas, with animals and plants for pens and farms",
+            "rank": 805
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: chicken or cow pen",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 24 wheat, 24 wheat seeds, 6 bread, 1 bucket. Farms: a wheat field, 1 slot free. Pens: none yet. Explored: 4 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Prepare the annex for animal pens: done, 2.2 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "pen:chicken",
+            "kind": "pen",
+            "key": "pen",
+            "name": "Lead chickens into a pen",
+            "facts": "the nearest chicken seen 30 blocks from the annex, 1 above it; 24 wheat seeds in storage; tried 0 times; you: never done",
+            "effect": "a pen of chickens to breed",
+            "rank": 400
+          },
+          {
+            "id": "pen:cow",
+            "kind": "pen",
+            "key": "pen",
+            "name": "Lead cows into a pen",
+            "facts": "the nearest cow seen 30 blocks from the annex, 1 above it; 24 wheat in storage; tried 0 times; you: never done",
+            "effect": "a pen of cows to breed",
+            "rank": 401
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: two pumpkin farms",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 30 wheat, 52 wheat seeds, 8 bread, 1 bucket, 6 egg. Farms: a wheat field, pumpkin on a slot, pumpkin on a slot. Pens: 4 chickens. Explored: 8 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": [
+            "Collect eggs in the chicken pen: done, 0.1 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "slot:1:1",
+            "kind": "slot",
+            "key": "slot:1:1",
+            "name": "Harvest the pumpkin farm on slot one",
+            "facts": "6 ripe; 18 blocks from you; you: 1 of 1 done, ~0.8 min each; last 14 min ago, done",
+            "effect": "about 6 pumpkin",
+            "rank": 111
+          },
+          {
+            "id": "slot:1:2",
+            "kind": "slot",
+            "key": "slot:1:2",
+            "name": "Harvest the pumpkin farm on slot two",
+            "facts": "6 ripe; 18 blocks from you; you: 1 of 1 done, ~0.8 min each; last 14 min ago, done",
+            "effect": "about 6 pumpkin",
+            "rank": 112
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: two wheat fields",
+      "equal": true,
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale41, complete. Storage: 10 wheat, 30 wheat seeds, 4 bread, 1 bucket, 6 egg. Farms: a wheat field, a wheat field, 1 slot free. Pens: 4 chickens. Explored: 8 of 8 points round the village. Iron: made iron pickaxe, bucket",
+          "others": "idle 3",
+          "outcomes": []
+        },
+        "options": [
+          {
+            "id": "farm:1",
+            "kind": "farm",
+            "key": "farm:1",
+            "name": "Harvest the wheat field",
+            "facts": "18 of 24 ripe; 20 blocks from you; storage: 10 wheat, 30 seeds, 4 bread; you: 1 of 1 done, ~1.2 min each; last 30 min ago, done",
+            "effect": "about 18 wheat and seeds",
+            "rank": 11
+          },
+          {
+            "id": "farm:2",
+            "kind": "farm",
+            "key": "farm:2",
+            "name": "Harvest the wheat field of the second plot",
+            "facts": "18 of 24 ripe; 20 blocks from you; storage: 10 wheat, 30 seeds, 4 bread; you: 1 of 1 done, ~1.2 min each; last 30 min ago, done",
+            "effect": "about 18 wheat and seeds",
+            "rank": 12
+          }
+        ]
+      }
+    }
+  ]
+}

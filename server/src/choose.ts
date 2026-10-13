@@ -188,6 +188,10 @@ function match(choice: string, shown: ChoiceOption[]): ChoiceOption | { invalid:
   const folded = shown.filter((o) => fold(o.name) === f);
   if (folded.length === 1) return folded[0];
   if (folded.length > 1) return { invalid: `"${choice}" matches ${folded.length} options` };
+  // (the whole option line copied, "name: facts (expected: effect)": 8 of 330 choicebench replies, s28; the longest name
+  // that the line begins with, followed by its colon)
+  const line = shown.filter((o) => choice.startsWith(`${o.name}:`)).sort((a, b) => b.name.length - a.name.length);
+  if (line.length) return line[0];
   if (f.length >= 12) {
     const pre = shown.filter((o) => fold(o.name).startsWith(f));
     if (pre.length === 1) return pre[0];
@@ -243,7 +247,21 @@ function whyOf(err: unknown, signal?: AbortSignal): FallbackWhy {
   if (err instanceof CallWithdrawn || signal?.aborted) return 'withdrawn';
   if (err instanceof CallFallback) return 'timeout';
   if (err instanceof BudgetExceeded || (err as { budget?: unknown })?.budget === true) return 'budget';
+  if (overQuota(err)) return 'budget';
   return 'error';
+}
+
+/** How long decisions leave a model alone after the provider refused for its quota (Ollama 429). */
+export const QUOTA_BACKOFF_MS = Number(process.env.MC_CHOOSE_QUOTA_BACKOFF_MS ?? 5 * 60000);
+/** Until when each model is left alone (s28: with the account's session limit reached every decision called again at
+ *  once and came back 429; the next ones now take the fixed pick without a call). */
+const quotaUntil = new Map<string, number>();
+function overQuota(err: unknown): boolean {
+  return /^Ollama 429\b/.test(String((err as Error)?.message ?? '')) || (err as { status?: number })?.status === 429;
+}
+/** Forget the back-offs (tests). */
+export function clearQuotaBackoff(): void {
+  quotaUntil.clear();
 }
 
 /**
@@ -261,6 +279,7 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     out.prompt = p.user;
     // (the degrade levels are the cloud budget's: a local model is never held by them)
     if ((isCloudModel(req.spec.model) && !usage.allows('decisions')) || usage.blocked(req.spec.model, req.agent)) return { ...out, why: 'budget' };
+    if ((quotaUntil.get(req.spec.model) ?? 0) > Date.now()) return { ...out, why: 'budget' };
     if (req.signal?.aborted) return { ...out, why: 'withdrawn' };
     // (shown only once it goes to the model: a refusal or a withdrawal unsent showed nothing to anyone)
     out.shown = shown.map((o) => o.id);
@@ -274,6 +293,10 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     } catch (err) {
       const why = whyOf(err, req.signal);
       const elapsed = Date.now() - t0;
+      if (overQuota(err) && !((quotaUntil.get(req.spec.model) ?? 0) > Date.now())) {
+        quotaUntil.set(req.spec.model, Date.now() + QUOTA_BACKOFF_MS);
+        console.log(`[choose] ${req.spec.model} is over its quota (429): decisions take the fixed order for ${Math.round(QUOTA_BACKOFF_MS / 60000)} min`);
+      }
       // (withdrawn at the gate or refused by the budget before the send: never sent, nothing shown)
       if (err instanceof CallWithdrawn || why === 'budget') out.shown = [];
       if (err instanceof CallWithdrawn) out.waitMs = err.waitedMs;

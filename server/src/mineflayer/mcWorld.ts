@@ -1613,7 +1613,8 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: 'cake', kind: 'cake', key: 'cake', excludes: ['cake'], name: 'Bake a cake', rank: 600,
           facts: `storage has ${store.milk_bucket ?? 0} milk, ${EGGS.reduce((s, e) => s + (store[e] ?? 0), 0)} eggs, ${store.wheat ?? 0} wheat, ${store.sugar ?? 0} sugar, ${store.sugar_cane ?? 0} sugar cane; ${store.cake ?? 0} cakes stored; ${record('cake')}`,
-          effect: '+1 cake in storage',
+          // (what it is for, not only what it makes: choicebench's labelled case went to a dull scout 7 times in 10, s28)
+          effect: `+1 cake, the village's best food (${store.cake ?? 0} stored); uses the milk, egg, wheat and sugar storage holds now`,
         }, { kind: 'cake' });
     }
 
@@ -1642,17 +1643,20 @@ export class MineflayerWorld implements WorldAdapter {
           id: `iron:${stage}`, kind: 'iron', key: 'iron', excludes: ['iron', 'cake', 'penwork'],
           name: stage === 'dig' ? 'Dig for iron in the mine' : stage === 'iron_pickaxe' ? 'Make an iron pickaxe' : 'Make a bucket', rank: 700,
           facts: `${iron} iron in storage; ${made.length ? `made: ${made.map(words).join(', ')}` : 'no iron tools made'}; ${stage === 'dig' ? `the iron level ${m.iron ? 'being dug' : 'not started'}` : `${words(stage)} next`}; tried ${t} times; ${record('iron')}${lastOf('iron')}`,
-          effect: stage === 'dig' ? `iron toward ${tool === 'bucket' ? 'a bucket' : 'a pickaxe'}` : `a ${words(stage)}`,
+          // (what the tool is for: the bucket case went to a 1-ripe harvest or a scout 6 times in 10, s28)
+          effect: stage === 'dig' ? `iron toward ${tool === 'bucket' ? 'a bucket' : 'an iron pickaxe'} (${iron} of 3 in storage)`
+            : stage === 'bucket' ? `a bucket (the village has ${buckets}${cows ? '; the penned cows can be milked only with buckets, and a cake takes 3 milk' : '; milk once cows are penned'})`
+            : 'an iron pickaxe, the first iron tool (a bucket comes next)',
         }, { kind: 'iron', stage, tool, iron });
     }
 
     // Exploring: ring points FARM_TRIP_RANGE from home, the least known first, each point once (the bots at home already
     // see ~128 blocks: view distance 8, the design review's H3); only while a farm slot is free (there is nothing else to
     // find for yet, the diff review's L4), not beside a lure; single keys: one trip at a time, not while a start may fill
-    // the slot; instances: a trip a point, beside a start while another free slot is open
+    // the slot; instances: a trip a point, free slot or not (A2f, s28: two starts took both free slots in the first sweep
+    // and the eight points left every menu while 21 of 25 idled; a scout's sightings feed the pens and later farms too)
     const exInst = instances('explore');
-    // (with single-key starts and explore instances, a running start takes one of the free slots)
-    const exFree = startInst ? freeSlots.some(({ k, j }) => !busy.has(`start:${k}:${j}`)) : freeSlots.length > (exInst && busy.has('start') ? 1 : 0);
+    const exFree = exInst || freeSlots.length > 0;
     const ex = v.explore;
     const exHome = facts.exploreHome;
     if (!exFree) reasons.explore = 'no free slot';
@@ -1673,7 +1677,8 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: `explore:${q.i}`, kind: 'explore', key: exInst ? `explore:${q.i}` : 'explore', excludes, name: `Explore to the ${DIRECTIONS[q.i]}`, rank: 800 + r, at: { x: q.x, z: q.z },
           facts: `${dist(q.x, q.z)}; ${points.length} of 8 points left; this point's land ${Math.round(q.known * 100)}% known; ${dull ? 'the last 2 trips found nothing new' : trips}${others('explore')}`,
-          effect: 'new land in the atlas',
+          // (sightings are what scouting is for: animals for the pens, plants for farm starts)
+          effect: dull ? `probably little: the last 2 trips found nothing new, and the point is ${Math.round(q.known * 100)}% known` : 'new land in the atlas, with animals and plants for pens and farms',
           ...(dull ? { lp: 0.5 } : {}),
         }, { kind: 'explore', i: q.i, x: q.x, z: q.z, home: { x: Math.round(exHome.x), z: Math.round(exHome.z) } });
       }
