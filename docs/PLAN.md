@@ -1150,8 +1150,10 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     after-phase: 0 differences against HEAD, 960,000 `choices()` calls with 0 state changes, instances 0 invariants
     broken), `choose_unit.mts` 147/147; review (4 lenses, 22 of 24 survived refutation) and a fix review, all fixed.
     Live: a fixed-mode smoke test on A1b3's village (`runs/2026-10-12/smoke_a2.*`), 12 decisions with menus, 0 errors.
-    **Next:** A2f (staged at 25, fixed, instances on: the menus choicebench needs), choicebench, A2m (model mode), one
-    model-driven run; all wait for the user's cloud quota or approval (the staged runs make 0 cloud calls).
+    Then (10-13): choicebench passed (100% valid, 70/70 sensible, no position bias); A2m (model mode at 25) ran with 0
+    errors, 8% taken, decision wait p90 0.9 s, ~$0.003 a run; Minevale42 (model-driven, model mode) complete in 10.2 min.
+    **Exit status:** every criterion met except the value curve, which cannot discriminate (F223: identical fixed runs
+    spread 397-701; storage does not count scouting). Open: F224 (scouts shut out by any lure), F225 (herding).
 - [ ] A.3 **Gauges and personalities** (~1 session).
   - Village gauges in code beside `refreshNeeds`: food in storage per agent (bread, cake, eggs, milk), tools (iron
     pickaxe, buckets, shears), farms and pens running, light, storage room, land explored round the ring; each with a
@@ -2551,6 +2553,13 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-11 (s27) | **probe25c** | the same at 25 only, with F219's fix | 475 builds, 468 storage trips (11 failed), 196 find_site, 5 `[stuck]` | 10 min | 0 `[lag]`, API p90 0.048 s, mspt worst 6.7 (max 127.5 once), RCON p90 11-46 ms a 30 s window with one 722 ms window (F220; the probe's worst-minute figure 297), loop p99 274 ms, RSS 1.28 GB; the profile **51% idle**, surfaceAt 1.8% |
 | 10-11 (s27) | **Van25a** | E.1, staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 24` (25 agents) | **6/6 + lamps + signs + farm** | **4.1 min** | 1 failed (a library build short of oak stairs, requeued); 0 `[lag]`, 0 `[stuck]`, 0 RCON timeouts, RCON p90 2-8 ms, 0 SPAWN WARNING; 21% busy (16 of 25 waiting while 8 mined: the work runs short at 25); panel screenshots readable at 25 (`runs/2026-10-11/s27/panel25_*.png`) |
 | 10-12 (s28) | **A1b3** | A.1's baseline (fixed chore order), staged, 2x, minevale3 at Minevale37's site, the S.0 command with `--workers 24 --planner ollama:gpt-oss:120b-cloud --after 45 --fixtures --stock wheat:12,bucket:3,sugar_cane:2` | complete at 4.6 min; after-phase 44.2 of 45 min (the watcher died on F221 before its summary lines) | 48.5 min | **0 cloud calls** in the whole run (code lays out and completes the village); after completion **only Worker1-5 took chores, 19 of 25 never did** (Worker1 alone 73 of 125: the fixed picker always offers the first idle worker); 125 chores, 123 done (penwork 75, slot harvests 31, field 5, starts 4 (2 failed), pens 4, iron 3, cake 2, annex 1), **0 explore trips** (a feasible pumpkin start and its back-off blocked exploring the whole time); storage value 409 raw units at 15 min, 490 at the end; 43 unique (activity, target) pairs, 3 after 20 min. A1b1 (watcher, F221) and A1b2 (reset timeout) were lost; A1b4/A1b5 wait for the user (the cloud quota) |
+| 10-12 (s28) | **A2f** | A.2 part 1, fixed mode, instances on (explore, start), the A1b command with `--choose fixed` | complete at 4.3 min; after-phase 45 min | 50.2 min | 0 cloud calls; 4 agents chose after completion; 58 decisions with full menus (sizes 1-12); **0 explore trips**: two starts took both free slots in the first sweep and exploring needed a free slot, so the 8 points left every menu while 21 of 25 idled; storage 701 at the end (priced by the agent server, as every value below); after-phase busy 2% |
+| 10-12 (s28) | **A1b4** | A.1's baseline on A.2's code, fixed, single keys (`MC_CHOICE_INSTANCES=none`) | complete at 2.7 min | 47.8 min | 0 cloud calls; 5 agents chose; 51 decisions; storage 397; busy after 1%. A1b5 was lost when the machine went down at 22:55 (every log ends within 4 s, Paper's with no stop) |
+| 10-13 (s28) | **choicebench** | `scripts/bench/choicebench.mts`, gpt-oss low, N=10: A2f's 19 recorded menus plus 7 labelled and 7 equal-option cases | 330 calls; then 140 on the cases after the effect texts | 2.3 + 0.9 min | first: 97.6% valid (8 replies copied the whole option line), sensible 53/70, no significant position bias; after the effects say what a chore is for and a copied line is read: **100% valid, sensible 70/70, no position bias (p 0.22)**, 0.7 s p50, ~510 prompt / 74 output tokens, $0.017 |
+| 10-13 (s28) | **A2m** | A.2 model mode, staged at 25, 2x, `--choose model`, instances on | complete at 2.3 min | 47.4 min | 62 decisions: model 13, only 34, repeat 4, rate 6, taken 5 (8%; 2 of 53 after the first 3 min), 8 drops (empty); 0 errors, 0 `[lag]`, 4 `[stuck]`; decision wait p90 0.9 s; 26 calls, 16.4k tokens in all (~$0.003); all 8 points explored; storage **374** |
+| 10-13 (s28) | **A2f2** | the same code and command, fixed mode (the brain comparison for A2m) | complete at 4.7 min | 50.7 min | 59 fixed decisions, all 8 points explored, iron 3, penwork 28; 0 `[lag]`, 8 `[stuck]`; storage **454**. The fixed-mode staged runs end at 490, 397, 701 and 454 with the same settings, so A2m's 374 is inside the run-to-run spread |
+| 10-13 (s28) | **Minevale41** | model-driven, 1x, minevale3 (probe -1544,8), 3 agents, fixed, single keys, `MCAI_AFTER=45` (A.1's model-driven baseline) | **complete at 10.4 min** | 55.4 min | 3 failed in the build (F218's no path to -1657,65,8 again; two smelts out of fuel); after completion 30 fixed decisions, **10 iron trips** (923 items into storage), 0 explore (single keys); storage **1158**; 12 calls, $0.009 |
+| 10-13 (s28) | **Minevale42** | the same with `MC_CHOOSE=model`, instances on | **complete at 10.2 min** | 55.3 min | the same 3 build failures; 32 decisions: model 13 (65% of those with 2+ options), only 11, taken 5, 3 drops; all 8 points explored, iron 5, penwork 9; storage **511** (exploring adds nothing to storage, iron trips most); 33 calls, $0.012 |
 
 ## Findings log
 
@@ -3598,6 +3607,19 @@ CLAUDE.md when a phase ends.
   the send (any method) or while reading the answer (GET only), twice at most; `reset_site.py` waits 120 s. Not changed:
   a keep-alive connection in the watchers would remove the TIME_WAIT churn if resets come back.
 
+- F222 (10-12, s28, A1b5) A pen's work was offered on a pen whose second lure had just been queued in the same sweep: the
+  `pen` and `penwork:j` keys differ and the lure's slot lock is taken only when its action runs, so `milk_cows` failed
+  "annex slot 4 is busy" (a contention failure, harmless). Today's picker had the same race (the golden check keeps it).
+- F223 (10-13, s28, A2m/A2f2, Minevale41/42) **The storage value cannot judge A.2.** Four fixed-mode staged runs with the
+  same settings ended at 397-701 (A2m's 374 lies inside the spread), and the value counts only storage: scouting adds
+  nothing to it while an iron trip adds ~90 items, so Minevale41 (single keys: 10 iron trips, no scouting) ended at 1158
+  and Minevale42 (8 scouts, 5 iron trips) at 511. A.3's gauges (the atlas explored, pens and farms running, tools) are
+  the measure that sees what a choice was for; until then compare chore mixes, not one storage number.
+- F224 (10-13, s28, A2m) Exploring is shut out while any pen lure runs (the options exclude the `pen` key, today's
+  rule): `[choice-none]` showed "explore: busy" beside "pen: busy" with ~20 idle. Whether a scout disturbs a lure (it
+  carries no seeds) is unchecked; if not, the exclusion is the next ceiling on parallel work.
+- F225 (10-13, s28, A2m, Minevale42) Herding: 5 "taken" a run, two choosers picking the same instance in one sweep, the
+  second given the fixed pick (spec risk 4). E.4's reservation at decision start and one re-ask address it.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -3985,6 +4007,11 @@ CLAUDE.md when a phase ends.
   G2's bench v2 **waits until the user has read** `docs/research/memory/long-horizon-memory.md`; the five unpushed commits
   were **pushed** (`c5224d6..8f91251`, `tiered-brain-building` only, `main` untouched).
 
+- 10-13 (s28, Claude's) Exploring in instance mode no longer needs a free farm slot (A2f: two starts took both free slots
+  and the 8 points left every menu while 21 of 25 idled); single keys keep today's rule, so the golden check and the
+  baselines are unchanged. A cloud 429 over the quota is a budget fallback with a 5-minute back-off for decisions. The
+  effects of the bucket, the iron pickaxe, digging, the cake and exploring say what they are for (choicebench's bucket and
+  cake cases went from 4 and 3 of 10 to 10 of 10): facts written by code are the model's eyes (lesson 2).
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

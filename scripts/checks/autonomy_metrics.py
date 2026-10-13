@@ -849,7 +849,9 @@ def main():
 
     # Unique (activity, target) pairs among the finished actions, cumulative over the village
     pairs, curve, firsts = set(), [], []
-    for t, n, skill, target in sorted((x[0], n, x[1], x[2]) for n in agents for x in acts[n] if x[3]):
+    # (a target may be None: two actions at one time, one with no target, would not compare, A2m)
+    for t, n, skill, target in sorted(((x[0], n, x[1], x[2]) for n in agents for x in acts[n] if x[3]),
+                                      key=lambda q: (q[0], q[1], q[2] or "", q[3] or "")):
         if (skill, target) not in pairs:
             pairs.add((skill, target))
             firsts.append((t, n))
