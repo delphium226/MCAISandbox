@@ -323,8 +323,12 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // the agent gathering it (Minevale19: dirt gathered for a vanilla house stayed in the gatherer's hands), while a miner
   // keeps its dirt (the review: with the village's needs as the rule, every miner emptied its scaffolding into storage)
   const needed = (n: string) => v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name && new RegExp(`collect block=${n}\\b`).test(t.detail));
-  const m = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.has(n) && (!JUNK.has(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
-  if (!m) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
+  const m0 = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.has(n) && (!JUNK.has(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
+  if (!m0) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
+  // `also` (code's only: the workshop's gathering trips, "coal,raw_iron"): items picked up by the way that storage wants,
+  // put in by name with the material (a miner kept the coal and raw iron it dug, lesson 112; S.9's review, lens 4 L3)
+  const also = new Set(typeof args.also === 'string' ? args.also.split(',').map((s) => s.trim()).filter(Boolean) : []);
+  const m = also.size ? { test: (n: string) => m0.test(n) || also.has(n), label: m0.label } : m0;
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
   const carried = () => {
     const out = new Map<number, { name: string; count: number }>();

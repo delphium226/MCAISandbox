@@ -9,6 +9,7 @@
  * Settings (read once, when the module loads; CHOOSE):
  *   MC_CHOOSE             fixed (default until A.2's exit) or model
  *   MC_CHOICE_INSTANCES   kinds that run as several instances at once, default "explore,start"; empty: single keys
+ *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works" (S.9); empty: none
  *   MC_CHOOSE_PARALLEL    decisions in flight process-wide, default 2 (one below the gate's 3 cloud slots)
  *   MC_CHOOSE_QUEUE_MS    a decision not started within this gets the fixed pick ('queue'), default 30000
  *   MC_CHOOSE_WAIT_MS     the call's wait for a gate slot before it is withdrawn, default 15000
@@ -26,6 +27,8 @@ export const MENU_MAX = 8, PER_KIND_MAX = 2;
 export const CHOOSE = {
   mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model',
   instances: new Set((process.env.MC_CHOICE_INSTANCES ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
+  /** Goal-2 families switched on (S.9: make, gather, works); empty: none (the golden check, A.8's baselines). */
+  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works').split(',').map((s) => s.trim()).filter(Boolean)),
   /** 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always
    *  finds a slot free of decisions (C11). */
   parallel: Number(process.env.MC_CHOOSE_PARALLEL ?? 2),
@@ -43,7 +46,11 @@ export const CHOOSE = {
 
 const byRank = (a: ChoiceOption, b: ChoiceOption) => a.rank - b.rank;
 
-/** Model-mode trim: per kind the first PER_KIND_MAX by rank; then, over MENU_MAX, by lp desc then rank asc. */
+/**
+ * Model-mode trim: per kind the first PER_KIND_MAX by rank; then, over MENU_MAX, each kind's best first (by lp desc then
+ * rank asc), the rest of the room by lp desc then rank asc. A plain lp cut hid every workshop option (ranks 850+) behind
+ * 8 older options at the same lp (S.9's review, lens 2 M1).
+ */
 export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   const perKind = new Map<string, number>();
   const kept: ChoiceOption[] = [];
@@ -55,7 +62,10 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   }
   if (kept.length <= MENU_MAX) return kept;
   // (a missing lp counts as the neutral weight, 1)
-  const best = [...kept].sort((a, b) => (b.lp ?? 1) - (a.lp ?? 1) || a.rank - b.rank).slice(0, MENU_MAX);
+  const order = [...kept].sort((a, b) => (b.lp ?? 1) - (a.lp ?? 1) || a.rank - b.rank);
+  const seen = new Set<string>();
+  const firsts = order.filter((o) => !seen.has(o.kind) && seen.add(o.kind));
+  const best = [...firsts, ...order.filter((o) => !firsts.includes(o))].slice(0, MENU_MAX);
   return best.sort(byRank);
 }
 
@@ -468,6 +478,8 @@ const YIELD: Record<string, (m: string) => number | null> = {
   bake_cake: (m) => (/^baked a cake\b/.test(m) ? 1 : null),
   // "made a bucket (...); ..."
   make_iron_tool: (m) => (/^made an? [a-z_]+/.test(m) ? 1 : null),
+  // S.9's workshop: "made 16 torch (...); put into storage: ..."
+  make: counted(/^made (\d+) [a-z_]+/),
 };
 
 /** Items a skill's carried gain is judged by when its message gives no count. */
@@ -483,12 +495,14 @@ const NOTHING = /nothing ripe|no eggs|adults? ready to breed|pen on annex slot \
  * Whether a chore gave what it is for (spec 7.2, C13), from its own result, never from the storage (other chores'
  * deposits show there): harvests, pen work, the cake and iron by the count in the skill's own done message (YIELD; the
  * agent's carried gain where the message gives none), starts, the annex and pens by success, explore by the ring point's
- * land. Pure (scripts/checks/choose_unit.mts checks it on the skills' real messages).
+ * land; S.9's works plot by success and gathering by its deposit (the world passes the deposit's own message, which
+ * lands a partial collect's load too). Pure (scripts/checks/choose_unit.mts checks it on the skills' real messages).
  */
 export function choreProductive(kind: ChoiceKind | undefined, skill: string, ok: boolean, message: string, carried: Record<string, number> | null, known?: number): boolean {
   if (!ok) return false;
   if (kind === 'explore') return (known ?? 0) >= 0.1;
-  if (kind === 'start' || kind === 'annex' || kind === 'pen' || kind === 'cake') return true;
+  if (kind === 'start' || kind === 'annex' || kind === 'pen' || kind === 'cake' || kind === 'works') return true;
+  if (kind === 'gather') return /^deposited [1-9]/.test(message);
   const parse = YIELD[skill];
   if (parse) {
     const n = parse(message);
@@ -539,9 +553,10 @@ export class ChoiceStats {
     return n ? { n, ok, minutes: minutes / n } : null;
   }
 
-  villageLast(village: string, kind: ChoiceKind): { at: number; ok: boolean; line: string } | null {
+  /** The village's last end of a kind (`id`: of that option only; make's and gather's ids are goods and materials). */
+  villageLast(village: string, kind: ChoiceKind, id?: string): { at: number; ok: boolean; line: string } | null {
     const list = this.list(village);
-    for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === kind) return { at: list[i].at, ok: list[i].ok, line: list[i].line };
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === kind && (id === undefined || list[i].id === id)) return { at: list[i].at, ok: list[i].ok, line: list[i].line };
     return null;
   }
 
@@ -572,17 +587,19 @@ export class ChoiceStats {
   /**
    * Until when this option id is banned (per id, or the whole kind when failures span 2+ ids by 2+ agents), section 7.3:
    * 3 failed ends (not cut, no contention code) within 60 min take it off until 60 min after the third. Explore is exempt
-   * (its ring points are one-shot). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long as the id's.
+   * (its ring points are one-shot); make and gather are banned per id only (their ids are goods and materials, unrelated
+   * to each other, S.9). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long as the id's.
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore') return null;
+    const perId = kind === 'make' || kind === 'gather';
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour
     const ats = fails.filter((e) => e.id === id).map((e) => e.at).sort((a, b) => a - b);
     for (let i = 2; i < ats.length; i++) if (ats[i] - ats[i - 2] <= HOUR) own = Math.max(own, ats[i] + HOUR);
     // The whole kind: an hour's failures (3 or more) ending at one of them, spanning 2+ ids by 2+ agents
-    const all = [...fails].sort((a, b) => a.at - b.at);
+    const all = perId ? [] : [...fails].sort((a, b) => a.at - b.at);
     for (let i = 2; i < all.length; i++) {
       const w = all.filter((e) => e.at > all[i].at - HOUR && e.at <= all[i].at);
       if (w.length >= 3 && new Set(w.map((e) => e.id)).size >= 2 && new Set(w.map((e) => e.agent)).size >= 2) whole = Math.max(whole, all[i].at + HOUR);
@@ -591,9 +608,10 @@ export class ChoiceStats {
     return own > now ? { until: own, scope: 'id' } : null;
   }
 
-  /** 5 min after the agent's own failure of the kind (not cut, no contention code). */
-  agentCooling(village: string, agent: string, kind: ChoiceKind, now: number): boolean {
-    return this.list(village).some((e) => e.agent === agent && e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 5 * MIN && e.at <= now);
+  /** 5 min after the agent's own failure of the kind (not cut, no contention code); `id`: of that option only (make and
+   *  gather, as their bans: one failed barrel kept the agent off every make, S.9's review, lens 2 L3). */
+  agentCooling(village: string, agent: string, kind: ChoiceKind, now: number, id?: string): boolean {
+    return this.list(village).some((e) => e.agent === agent && e.kind === kind && (id === undefined || e.id === id) && !e.ok && !e.cut && !e.contention && e.at > now - 5 * MIN && e.at <= now);
   }
 
   /** When the agent's last model decision was made (0: never). */

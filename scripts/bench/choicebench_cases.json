@@ -310,6 +310,158 @@
       }
     },
     {
+      "name": "s9: pickaxes for the miners",
+      "good": [
+        "make:stone_pickaxe"
+      ],
+      "why": "four miners are digging and none of the 4 stone pickaxes kept is in storage, so each miner without one makes it from the village's cobblestone; ladders and the composter have nothing that uses them yet",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale43, complete. Storage: 180 cobblestone, 46 birch log, 20 wheat, 30 wheat seeds, 4 bread, 6 egg. Farms: a wheat field, 2 slots free. Pens: 3 chickens. Explored: 6 of 8 points round the village. Iron: made iron pickaxe. Workshop: 2 things made",
+          "others": "gathering for the workshop 4 (Worker3, Worker5, Worker8, ...), idle 3",
+          "outcomes": [
+            "Mine cobblestone for the workshop: done, 2.4 min",
+            "Explore to the west: done, 4.0 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "make:stone_pickaxe",
+            "kind": "make",
+            "key": "make:stone_pickaxe",
+            "name": "Make stone pickaxes",
+            "facts": "0 of the 4 kept are in storage; this batch of 4 takes 12 cobblestone, 1 birch log (all spare); crafted at the hut, ~0.3 min; you: never done; on it: none",
+            "effect": "+4 stone pickaxes (0 stored): a miner without a pickaxe takes a stone one from storage instead of the village's cobblestone",
+            "rank": 900
+          },
+          {
+            "id": "make:ladder",
+            "kind": "make",
+            "key": "make:ladder",
+            "name": "Make ladders",
+            "facts": "0 of the 12 kept are in storage; this batch of 6 takes 2 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+6 ladders (0 stored): ladders for the deep mine (later)",
+            "rank": 905
+          },
+          {
+            "id": "make:composter",
+            "kind": "make",
+            "key": "make:composter",
+            "name": "Make composters",
+            "facts": "0 of the 1 kept are in storage; this batch of 1 takes 2 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+1 composters (0 stored): turns crops into bone meal (white dye, growth) once placed (later)",
+            "rank": 906
+          },
+          {
+            "id": "explore:6",
+            "kind": "explore",
+            "key": "explore:6",
+            "name": "Explore to the north",
+            "facts": "88 blocks from you; 2 of 8 points left; this point's land 86% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 86% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "s9: a ripe field before a stock",
+      "good": [
+        "farm:1"
+      ],
+      "why": "21 of 24 wheat are ripe and the field was last harvested 41 min ago; the workshop goods are stocks that nothing uses yet and can wait",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale43, complete. Storage: 4 wheat, 12 wheat seeds, 1 bread, 120 cobblestone, 30 birch log, 6 sand. Farms: a wheat field, pumpkin on a slot, 1 slot free. Pens: 4 chickens, 2 cows. Explored: 8 of 8 points round the village. Iron: made iron pickaxe, bucket. Workshop: 5 things made",
+          "others": "making goods 3 (Worker2, Worker4, Worker7), idle 2",
+          "outcomes": [
+            "Make torches: done, 0.9 min",
+            "Make stone bricks: done, 2.6 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "farm:1",
+            "kind": "farm",
+            "key": "farm:1",
+            "name": "Harvest the wheat field",
+            "facts": "21 of 24 ripe; 16 blocks from you; storage: 4 wheat, 12 seeds, 1 bread; you: 1 of 1 done, ~1.3 min each; last 41 min ago, done",
+            "effect": "about 21 wheat and seeds",
+            "rank": 11
+          },
+          {
+            "id": "make:smooth_stone",
+            "kind": "make",
+            "key": "make:smooth_stone",
+            "name": "Make smooth stone",
+            "facts": "0 of the 8 kept are in storage; this batch of 8 takes 8 cobblestone, 3 birch log (all spare); smelted at works furnace two, ~2.9 min; you: never done",
+            "effect": "+8 smooth stone (0 stored): 3 make a blast furnace for ores (S.11)",
+            "rank": 901
+          },
+          {
+            "id": "make:glass",
+            "kind": "make",
+            "key": "make:glass",
+            "name": "Make glass",
+            "facts": "0 of the 16 kept are in storage; this batch of 6 takes 6 sand, 2 birch log (all spare); smelted at works furnace three, ~1.3 min; you: never done",
+            "effect": "+6 glass (0 stored): windows for later buildings",
+            "rank": 902
+          }
+        ]
+      }
+    },
+    {
+      "name": "s9: sand for the glass",
+      "good": [
+        "gather:sand"
+      ],
+      "why": "the workshop wants 19 sand for glass, panes and bottles and none is on the way, while the barrels' only use is a storage block nothing places yet and the ring point is almost fully known",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "Minevale43, complete. Storage: 150 cobblestone, 40 birch log, 22 wheat, 25 wheat seeds, 3 bread, 7 egg. Farms: a wheat field, 2 slots free. Pens: 3 chickens. Explored: 7 of 8 points round the village. Iron: made iron pickaxe. Workshop: 6 things made",
+          "others": "making goods 2 (Worker1, Worker6), mining 1 (Worker3), idle 2",
+          "outcomes": [
+            "Make charcoal: done, 1.7 min",
+            "Explore to the south: done, nothing gained, 4.1 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "gather:sand",
+            "kind": "gather",
+            "key": "gather:sand:1",
+            "name": "Gather sand for the workshop",
+            "facts": "sand: glass for windows, panes and bottles; storage holds 0, the workshop wants 19 (glass, glass panes, glass bottles); 0 on the way",
+            "effect": "+16 sand toward glass, glass panes, glass bottles",
+            "rank": 950
+          },
+          {
+            "id": "make:barrel",
+            "kind": "make",
+            "key": "make:barrel",
+            "name": "Make barrels",
+            "facts": "0 of the 2 kept are in storage; this batch of 1 takes 3 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+1 barrels (0 stored): a storage block for the works plot; nothing places it yet",
+            "rank": 903
+          },
+          {
+            "id": "explore:3",
+            "kind": "explore",
+            "key": "explore:3",
+            "name": "Explore to the south-west",
+            "facts": "97 blocks from you; 1 of 8 points left; this point's land 93% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 93% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
       "name": "equal: explore 2 points",
       "equal": true,
       "menu": {

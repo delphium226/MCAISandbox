@@ -53,8 +53,12 @@ REPEAT, a FAIL; scripts/checks/mine_rate.py works them out for older logs), and 
 furnace stood, placed before the hut; a STATION line as each appears), PANES (when the storage first held the windows'
 panes, set against the first house's claim) and STATIONS SWEEP (any crafting table or furnace within 8 of the layout
 outside the hut's two cells), and S.6's PREPARE lines (each part of the plot prepared at once: by whom, claimed and done;
-when the huts' ground and the whole plot were done; the plot record and the layout's one level). Workers are left in the
-world: remove them afterwards (panel or DELETE).
+when the huts' ground and the whole plot were done; the plot record and the layout's one level). With --after, S.9's
+workshop too (the agent server's MC_CHOICE_FAMILIES switches its chores on): AFTER WORKS lines as the works plot and its
+furnaces change, AFTER TECH as each first item is made, and at the end `AFTER S.9 chores: K agents took one; peak P at
+once (minute m); make N, gather G (sand s, logs l, cobblestone c), works W; busy B agent-min` and the goods in storage
+(scripts/checks/make_log.py reads the agent server's log of the same run). Workers are left in the world: remove them
+afterwards (panel or DELETE).
 """
 import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -1160,6 +1164,43 @@ def pen_text(v, an, s):
     return t
 
 
+def works_text(wk):
+    """The works plot (layouts[0].works, S.9) in one line: its state, area and tries, and each furnace recorded."""
+    if not wk:
+        return "none"
+    last = wk.get("lastTry") or {}
+    fs = wk.get("furnaces") or []
+    placed = ", ".join(f"{k + 1}@{f['x']},{f['y']},{f['z']} by {f.get('by')}" for k, f in enumerate(fs) if f) or "none"
+    return (f"{wk.get('state')} side {wk.get('side')} {wk.get('x1')}..{wk.get('x2')},{wk.get('z1')}..{wk.get('z2')} y {wk.get('y')} "
+            f"tries={wk.get('tries')}{' (' + str(last.get('why'))[:120] + ')' if last.get('why') else ''}; furnaces {sum(1 for f in fs if f)} of 3: {placed}")
+
+
+# S.9's chores, as the agents' actions show them (mcWorld.ts runOption: make, prepare_works, place_works_furnace; gathering
+# is a collect then a deposit with chore set; a deposit with keep_wood puts back what a stopped make left)
+S9_TYPES = {"make": "make", "prepare_works": "works", "place_works_furnace": "works"}
+# The workshop's goods (mcWorkshop.ts MAKE_GOODS), for the stock line at the end
+S9_GOODS = ["stone_pickaxe", "stone_hoe", "wooden_sword", "charcoal", "torch", "glass", "glass_pane", "glass_bottle", "barrel",
+            "smooth_stone", "stone_bricks", "composter", "ladder"]
+
+
+def s9_kind(action):
+    """An action's S.9 family (make, gather, works), or None."""
+    if not isinstance(action, dict):
+        return None
+    t, a = action.get("type"), action.get("args") or {}
+    if t in S9_TYPES:
+        return S9_TYPES[t]
+    if t in ("collect", "deposit") and a.get("chore"):
+        return "make" if a.get("keep_wood") else "gather"
+    return None
+
+
+def s9_material(block):
+    """A gathering collect's material from its block."""
+    b = str(block or "")
+    return "logs" if b == "logs" or b.endswith("_log") else "sand" if b in ("sand", "red_sand") else "cobblestone" if b in ("cobblestone", "stone") else b or "?"
+
+
 # ---- after completion (opportunistic farming and exploring): the chores, the slots, the sightings
 if args.after and reason == "every building is done":
     for _ in range(40):
@@ -1193,6 +1234,10 @@ if args.after and reason == "every building is done":
     busy, samples = {n: 0 for n in watched}, 0
     # (E.1: the same samples by the running action's type, {type: {agent: samples}}, for the grouped line over 6 agents)
     doing = {}
+    # (S.9: agents running a workshop chore per sample and at its peak, its samples per agent, the chores ended by family
+    # and gathering's trips by material, from the agents' action events; the works plot and the tech record as they change)
+    s9_busy, s9_peak, s9_agents, s9_ends, s9_trips = {}, (0, 0.0), set(), {"make": 0, "gather": 0, "works": 0}, {}
+    works_seen, tech_seen = None, set()
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         listing = call("/agents")
@@ -1205,12 +1250,27 @@ if args.after and reason == "every building is done":
                     kind = (a["action"].get("type") if isinstance(a["action"], dict) else None) or "?"
                     doing.setdefault(kind, {}).setdefault(a["name"], 0)
                     doing[kind][a["name"]] += 1
+            on_s9 = [a["name"] for a in listing if a.get("name") in busy and s9_kind(a.get("action"))]
+            for n in on_s9:
+                s9_busy[n] = s9_busy.get(n, 0) + 1
+                s9_agents.add(n)
+            if len(on_s9) > s9_peak[0]:
+                s9_peak = (len(on_s9), (time.time() - t2) / 60)
         for n in watched:
             events = call(f"/agents/{n}/events?since={seen[n]}")
             for e in events if isinstance(events, list) else []:
                 seen[n] = e["id"]
                 if e["type"] in ("action_done", "action_failed"):
                     print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
+                    d = e.get("data") or {}
+                    fam = s9_kind({"type": d.get("type"), "args": d.get("args")})
+                    # (a chore counted once: a make by its make, gathering by its collect, the works by each of its skills)
+                    if fam and not (d.get("type") == "deposit"):
+                        s9_ends[fam] += 1
+                        s9_agents.add(n)
+                        if fam == "gather":
+                            mat = s9_material((d.get("args") or {}).get("block"))
+                            s9_trips[mat] = s9_trips.get(mat, 0) + 1
         v = call(f"/village/{args.village}")
         stock_line(v)
         for k, lay in enumerate(v.get("layouts") or []):
@@ -1240,6 +1300,15 @@ if args.after and reason == "every building is done":
         if ex != explore_seen:
             explore_seen = ex
             print(f"AFTER {(time.time() - t2) / 60:4.1f}m EXPLORE {json.dumps(ex)[:300]}", flush=True)
+        # S.9: the works plot and its furnaces, and each first in the village's tech record
+        t = works_text(lay0.get("works"))
+        if t != works_seen:
+            works_seen = t
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m WORKS {t}", flush=True)
+        for item, te in sorted((v.get("tech") or {}).items(), key=lambda kv: kv[1].get("at", 0)):
+            if item not in tech_seen:
+                tech_seen.add(item)
+                print(f"AFTER {(time.time() - t2) / 60:4.1f}m TECH {item} ({te.get('how')} {te.get('n')}) by {te.get('by')} via {te.get('via')}", flush=True)
     a1 = call(f"/atlas?village={args.village}&radius=176") or {}
     plants = {}
     for c in a1.get("chunks") or []:
@@ -1258,6 +1327,16 @@ if args.after and reason == "every building is done":
         idle = span * len(watched) - sum(per(c) for g in doing.values() for c in g.values())
         print("AFTER busy by activity: " + ", ".join(f"{k} {per(sum(g.values())):.1f} ({len(g)} agent{'s' if len(g) != 1 else ''})" for k, g in groups)
               + f"; idle {max(0.0, idle):.1f} agent-min of {len(watched)} x {span:.1f} min", flush=True)
+    # S.9 (spec 9.2 step 9 and the exit, 9.3): who took a workshop chore, the most at once, the chores by family, the busy
+    # agent-minutes they added, and the goods in storage at the end
+    s9_min = span * sum(s9_busy.values()) / max(1, samples)
+    trips = s9_trips
+    print(f"AFTER S.9 chores: {len(s9_agents)} agents took one; peak {s9_peak[0]} at once (minute {s9_peak[1]:.1f}); make {s9_ends['make']}, "
+          f"gather {s9_ends['gather']} (sand {trips.get('sand', 0)}, logs {trips.get('logs', 0)}, cobblestone {trips.get('cobblestone', 0)}), "
+          f"works {s9_ends['works']}; busy {s9_min:.1f} agent-min", flush=True)
+    tot = storage_totals(call(f"/village/{args.village}"))
+    print("AFTER S.9 stock: " + (", ".join(f"{g} {tot[g]}" for g in S9_GOODS if tot.get(g)) or "none")
+          + f"; works {works_seen}; tech {len(tech_seen)} firsts", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 stamps.update(v["tasks"])

@@ -18,7 +18,8 @@ import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { inIronLevel, ironTrip, mineAreas } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
-import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, type Side } from '../farmSlots';
+import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
+import { MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, type SignSpot } from '../streetPlan';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
@@ -439,15 +440,19 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
  * builder that queued behind another's glass finds the made panes in storage and takes them (not with `noStockPick`:
  * make_into_storage nets the storage out itself), and the panes, doors, slabs and stairs made beyond `need` go into
  * storage by name before the furnace is let go (not with `surplus` false).
+ *
+ * The workshop's make (S.9) passes `stock` (makeHeld's view of the storage: {} once it has withdrawn its inputs itself, so
+ * nothing kept is taken) and `furnace`: false for none, or the furnace it holds and smelts at (a works furnace or the
+ * hut's, chosen by its own rule). Every other caller passes neither.
  */
 async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
-  opts: { what?: string; noStockPick?: boolean; surplus?: boolean } = {}): Promise<string | null> {
+  opts: { what?: string; noStockPick?: boolean; surplus?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number } } = {}): Promise<string | null> {
   const v = a.village();
   short = { ...short };
   // (by the hut's record, wherever the builder stands: a far builder that took no lock raced the panes' maker, S.3's review)
-  const smelts = !!v && !!villageStationCell(v, 'furnace') && a.world.materials.plan(short, {}).fuel.smelts > 0;
+  const smelts = opts.furnace === false ? false : opts.furnace ? true : !!v && !!villageStationCell(v, 'furnace') && a.world.materials.plan(short, {}).fuel.smelts > 0;
   // (the walk to the hut before the wait, then the lock: released in the finally, a stopped action sends no report)
-  const release = smelts ? await holdVillageFurnace(a, signal, `making ${listCounts(short)}${opts.what ? ` for ${opts.what}` : ''}`) : () => undefined;
+  const release = smelts ? await holdVillageFurnace(a, signal, `making ${listCounts(short)}${opts.what ? ` for ${opts.what}` : ''}`, opts.furnace || undefined) : () => undefined;
   try {
     let found: Counts = {};
     if (smelts && v && !opts.noStockPick) {
@@ -473,9 +478,10 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
 const SURPLUS_PART = /^glass(_pane)?$|_(door|slab|stairs)$/;
 
 async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
-  opts: { what?: string; surplus?: boolean; held?: boolean }): Promise<string | null> {
-  // (read after the furnace is held: another agent's withdrawals and deposits while this one queued)
-  const store = v ? storageContents(v) : {};
+  opts: { what?: string; surplus?: boolean; held?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number } }): Promise<string | null> {
+  // (read after the furnace is held: another agent's withdrawals and deposits while this one queued; a make's own view,
+  // S.9)
+  const store = opts.stock ?? (v ? storageContents(v) : {});
   const carried = inventoryCounts(a);
   // What is on hand beyond the building's own blocks (the cobblestone carried for the floor is not furnace material)
   const other: Counts = { ...carried };
@@ -487,6 +493,8 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   const near = (n: string) => {
     const p = a.bot.entity.position;
     if ((n === 'crafting_table' || n === 'furnace') && home(n)) return true;
+    // (the furnace held for the job, a works furnace: S.9)
+    if (n === 'furnace' && opts.furnace) return true;
     // (state ids read directly, not findBlock: lesson 53)
     return nearestBlocks(a, [a.world.registry.blocksByName[n].id], STATION_REACH, 4).some((b) => Math.abs(b.y - p.y) <= 3);
   };
@@ -517,9 +525,11 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
     if (f > 0) fetch[n] = f;
   }
   // The coal or charcoal the plan burns, when storage holds it (the plan counts it as fuel, but smelting burns only what is
-  // carried: F178)
+  // carried: F178); what is carried or fetched beyond the plan's ingredients (since D13 the fuel is counted without them,
+  // S.9's review, lens 3 L1)
+  const ingredientCoal = (plan.fromStock.coal ?? 0) + (plan.fromStock.charcoal ?? 0);
   for (const fuel of ['coal', 'charcoal']) {
-    const want = plan.fuel.coal - (carried.coal ?? 0) - (carried.charcoal ?? 0) - (fetch.coal ?? 0) - (fetch.charcoal ?? 0);
+    const want = plan.fuel.coal - Math.max(0, (carried.coal ?? 0) + (carried.charcoal ?? 0) + (fetch.coal ?? 0) + (fetch.charcoal ?? 0) - ingredientCoal);
     const f = Math.min(Math.max(0, want), store[fuel] ?? 0);
     if (f > 0) fetch[fuel] = (fetch[fuel] ?? 0) + f;
   }
@@ -541,6 +551,9 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   const station = (st: { item: string }) => (/_planks$|^any:planks$|^stick$/.test(st.item) ? 0 : /^(crafting_table|furnace)$/.test(st.item) ? 1 : 2);
   const steps = [...plan.steps].sort((x, y) => station(x) - station(y));
   const made: string[] = [];
+  // The coal and charcoal the plan burns, shared by its smelts, when it also takes or makes some as an ingredient (a torch
+  // batch): no more, so the ingredient is not burned (S.9's review, lens 1 M1, lens 3 M1); otherwise coal first as before
+  const coal = ingredientCoal > 0 || plan.steps.some((st) => st.item === 'coal' || st.item === 'charcoal') ? { left: plan.fuel.coal } : undefined;
   // "Any planks" (sticks, a chest, fuel) come from the kind with logs to spare: not the logs kept for log parts, nor
   // those later steps saw into planks of their own kind
   const spareKind = (from: number) => {
@@ -566,7 +579,9 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
         // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
         const spare = `${spareKind(i + 1)}_log`;
         const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log') : st.input ?? '';
-        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1) }, signal);
+        // (at the furnace held for the job when it is given one, S.9)
+        const f = opts.furnace;
+        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1), ...(coal ? { coal } : {}), ...(f ? { at: `${f.x},${f.y},${f.z}` } : {}) }, signal);
       }
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
@@ -1290,8 +1305,8 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const pad = (q: Area) => ({ x1: q.x1 - 2, z1: q.z1 - 2, x2: q.x2 + 2, z2: q.z2 + 2 });
   const all = [...a.world.villages.villages.values()];
   const taken: Area[] = [
-    // (its own annex too: it lies outside the layouts, 10-09)
-    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? o.plots.filter((q) => q.annex) : o.plots)]).map(pad),
+    // (its own annex and works plot too: they lie outside the layouts, 10-09, S.9)
+    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? o.plots.filter((q) => q.annex || q.works) : o.plots)]).map(pad),
     ...(v ? v.reservations.filter((r) => r.by !== a.name && r.until > now) : []),
   ];
   const logIds = survival ? a.world.registry.blocksArray.filter((b) => TREE_LOG.has(b.name)).map((b) => b.id) : [];
@@ -1839,14 +1854,14 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
         v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
         // (the whole of a plot that was being prepared in parts: it is whole now)
         delete v.plots[i].parts;
-      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}) });
+      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}), ...(args.works === true ? { works: true } : {}) });
       reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
     }
     // The felled logs reach the storage (C5): the ground holding the storage hut (or a whole plot) sets the storage up with
     // them while its task is open, so no chest goes on ground still to be levelled (lesson 33); every other part, and any
     // call once the storage stands, deposits them (about 300 logs were stranded with the preparers otherwise). Not the
-    // annex: its own job deposits them
-    if (a.gamemode !== 'creative' && args.annex !== true && (felledLogs || part)) {
+    // annex or the works plot: their own jobs deposit them
+    if (a.gamemode !== 'creative' && args.annex !== true && args.works !== true && (felledLogs || part)) {
       const hut = v.storageHut;
       const holdsHut = !part || !hut || (hut.x1 >= x0 && hut.x2 <= x1 && hut.z1 >= z0 && hut.z2 <= z1);
       const set = holdsHut ? await storageFromFelled(a, signal) : '';
@@ -3158,10 +3173,21 @@ export const annexBusy = new Set<string>();
  * village's buildings (+ 2), other villages' plots and layouts (+ 2), ground others reserved, this village's mine hut and
  * stairs; the annex itself must be loaded, dry, untaken, unbuilt, and its claim (+ 2) loaded and dry with ground within
  * plot.y - 4 .. + 5. Lowest score wins: earthwork, trees, and the walk from the storage hut's door.
+ *
+ * `which` 'works' (S.9): the works plot, of the same geometry, with the annex taken too; only rectangles whose farthest
+ * cell is within WORKS_TABLE_RANGE of the hut's crafting table (a craft after a smelt there still finds the hut's table,
+ * the check's L6), and "beside the annex" as a score term (D8). The annex's own search keeps off a works plot recorded.
  */
-async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal): Promise<{ rect: Area & { side: Side }; score: number } | null> {
-  const bad = new Set(v.layouts?.[0]?.annex?.bad ?? []);
-  const cands = annexCandidates(plot).filter((c) => !bad.has(`${c.x1},${c.z1}`));
+async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal, which: 'annex' | 'works' = 'annex'): Promise<{ rect: Area & { side: Side }; score: number } | null> {
+  const lay0 = v.layouts?.[0];
+  const works = which === 'works';
+  const bad = new Set((works ? lay0?.works : lay0?.annex)?.bad ?? []);
+  // (the other side plot's rectangle, recorded even while it is being prepared)
+  const other = works ? lay0?.annex : lay0?.works;
+  const table = works ? villageStationCell(v, 'crafting_table') : null;
+  if (works && !table) return null;
+  const farthest = (c: Area) => Math.max(...[[c.x1, c.z1], [c.x1, c.z2], [c.x2, c.z1], [c.x2, c.z2]].map(([x, z]) => Math.hypot(x - table!.x, z - table!.z)));
+  const cands = annexCandidates(plot).filter((c) => !bad.has(`${c.x1},${c.z1}`) && (!works || farthest(c) <= WORKS_TABLE_RANGE));
   if (!cands.length) return null;
   const cx = Math.floor((plot.x1 + plot.x2) / 2), cz = Math.floor((plot.z1 + plot.z2) / 2);
   const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + 13 + 4;
@@ -3171,8 +3197,9 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
   const taken: Area[] = [
     ...all.flatMap((o) => o.structures).map((s) => pad(s, 2)),
     ...all.filter((o) => o !== v).flatMap((o) => [...(o.layouts ?? []), ...o.plots]).map((q) => pad(q, 2)),
-    // (and its own second site, laid out or prepared: the review's L1)
-    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !p.annex)].map((q) => pad(q, 2)),
+    // (and its own second site, laid out or prepared: the review's L1; and the other side plot, the annex or the works, S.9)
+    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !(works ? p.works : p.annex))].map((q) => pad(q, 2)),
+    ...(other && other.x2 >= other.x1 ? [pad(other, 2)] : []),
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
     // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
     ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - 4) : []),
@@ -3207,7 +3234,10 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
       }
     if (!ok) continue;
     const mid = c.side === 's' ? { x: c.x1 + 6, z: c.z1 } : c.side === 'n' ? { x: c.x1 + 6, z: c.z2 } : c.side === 'e' ? { x: c.x1, z: c.z1 + 6 } : { x: c.x2, z: c.z1 + 6 };
-    const score = earth + 0.3 * rectSum(g.sums.trees, claim) + 0.5 * (Math.abs(mid.x - door.x) + Math.abs(mid.z - door.z));
+    // (the works plot beside the annex: centre to centre, D8)
+    const besideAnnex = works && other && other.x2 >= other.x1
+      ? 0.5 * (Math.abs((c.x1 + c.x2) / 2 - (other.x1 + other.x2) / 2) + Math.abs((c.z1 + c.z2) / 2 - (other.z1 + other.z2) / 2)) : 0;
+    const score = earth + 0.3 * rectSum(g.sums.trees, claim) + 0.5 * (Math.abs(mid.x - door.x) + Math.abs(mid.z - door.z)) + besideAnnex;
     if (!best || score < best.score) best = { rect: c, score };
   }
   return best;
@@ -3275,6 +3305,75 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
     throw e;
   } finally {
     annexBusy.delete(v.name);
+  }
+}
+
+/**
+ * The works plot (S.9, D8; a chore code queues once the annex is ready): a 13x9 plot of the annex's geometry beside the
+ * annex, within 48 blocks of the hut's table, prepared at the plot's level like the annex (prepareAnnex's rules: the
+ * rectangle recorded first, one that fails for its ground marked bad). Its first slot takes a row of three furnaces
+ * (place_works_furnace), its second stays free for a sheep pen later. A plot entry `works: true`: protected village ground.
+ */
+async function prepareWorks(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const lay = v?.layouts?.[0];
+  if (!v || !lay) throw new Error('prepare_works: the village has no layout');
+  const plot = v.plots.find((p) => !p.annex && !p.works && overlaps(p, lay));
+  if (!plot) throw new Error('prepare_works: the village plot is not prepared');
+  if (lay.annex?.state !== 'ready') throw new Error('prepare_works: the annex is not ready yet (the works plot goes beside it)');
+  if (!villageStationCell(v, 'crafting_table')) throw new Error("prepare_works: the storage hut's crafting table does not stand yet");
+  if (worksBusy.has(v.name)) throw new Error('prepare_works: the works plot is being prepared');
+  worksBusy.add(v.name);
+  const save = () => a.world.villages.save();
+  try {
+    let wk = lay.works;
+    if (wk?.state === 'ready') return `the works plot at ${areaText(wk)} is ready`;
+    const home = villageHome(v, a.memory);
+    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+      await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    if (!wk || wk.x2 < wk.x1) {
+      const spot = await annexSpot(a, v, plot, signal, 'works');
+      if (!spot) throw new Error(`prepare_works: no room for a 13x9 works plot beside the plot at ${areaText(plot)} within ${WORKS_TABLE_RANGE} blocks of the hut's table (every side taken, wet, too steep or built on)`);
+      wk = lay.works = { ...lay.works, x1: spot.rect.x1, z1: spot.rect.z1, x2: spot.rect.x2, z2: spot.rect.z2, y: plot.y, side: spot.rect.side, state: 'preparing' };
+      save();
+      console.log(`[works] ${v.name}: ${a.name} prepares the works plot at ${areaText(wk)} (${wk.side}, score ${Math.round(spot.score)})`);
+    }
+    const w = wk.x2 - wk.x1 + 1, d = wk.z2 - wk.z1 + 1;
+    const out = await prepareSite(a, { x: wk.x1 + Math.floor(w / 2), z: wk.z1 + Math.floor(d / 2), width: w, depth: d, y: wk.y, margin: 2, works: true }, signal);
+    const rec = v.plots.find((p) => p.x1 === wk!.x1 && p.z1 === wk!.z1 && p.x2 === wk!.x2 && p.z2 === wk!.z2);
+    if (rec) rec.works = true;
+    wk.state = 'ready';
+    save();
+    a.world.villages.note(v, `${a.name} prepared the works plot at ${areaText(wk)} for the workshop's furnaces`);
+    // (the felled trees' logs)
+    const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return '';
+    });
+    return `prepared the works plot at ${areaText(wk)} (${wk.side} of the plot) with room for ${WORKS_FURNACES} furnaces: ${out.replace(/^plot ready: /, '')}${stored ? '; deposited what it carried' : ''}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    if (why !== 'cancelled' && !signal.aborted) {
+      // (an empty rectangle: none chosen yet, or the last one given up)
+      const wk = (lay.works ??= { x1: 0, z1: 0, x2: -1, z2: -1, y: plot.y, side: 'n', state: 'preparing' });
+      // Ground that cannot be made ready: another rectangle next time
+      if (wk.state !== 'ready' && wk.x2 >= wk.x1 && /cannot be prepared here|cannot be made dry|not ready after two passes|whole area is covered|too much work/.test(why)) {
+        wk.bad = [...(wk.bad ?? []), `${wk.x1},${wk.z1}`].slice(-20);
+        wk.x2 = wk.x1 - 1;
+      }
+      wk.tries = (wk.tries ?? 0) + 1;
+      wk.lastTry = { at: Date.now(), why: why.slice(0, 200) };
+    }
+    save();
+    // The logs of trees felled before the failure go into storage too (not on a stop or an unmoved stall; S.9's review,
+    // lens 1 L3, lesson 112)
+    if (why !== 'cancelled' && !signal.aborted && !unmoved(e))
+      await STORAGE_SKILLS.deposit.run(a, { item: 'logs', keep_wood: true }, signal).catch(() => '');
+    throw e;
+  } finally {
+    worksBusy.delete(v.name);
   }
 }
 
@@ -4017,6 +4116,258 @@ async function makeIntoStorage(a: BotAgent, args: Record<string, unknown>, signa
   return text;
 }
 
+/** Items as the make's end line lists them ("cobblestone:12,oak_log:1"; "none"). */
+const countsList = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${n}:${q}`).join(',') || 'none';
+
+/**
+ * The workshop's make (S.9, D1; a chore code queues for an idle member of a complete village, not a tool for models): one
+ * batch of a good kept in stock (mcWorkshop.ts MAKE_GOODS), made at the storage hut from spare storage and put into
+ * storage by name. Beside make_into_storage, sharing its machinery: the plan is the world's (makePlan: the batch, its bill
+ * and the inputs it may take, leaving out other agents' earmarks); the inputs are withdrawn first and the batch made with
+ * an empty storage view, so nothing kept is taken (D2); a smelting batch holds furnace `furnace` (k 1-3 the works plot's,
+ * 0 the hut's) for the whole job. Every count that decides is the server's (lessons 4, 13). Its earmark ends at the
+ * withdrawal and in the finally (lesson 67); what a stop leaves in hand is in makeLeft for the world to deposit.
+ */
+async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('make: not in a village');
+  // The earmark the world set for this chore, read before any await: only that one is this run's to end (a late finally
+  // deleted the next chore's, S.9's review, lens 1 L1, lens 2 L5); a refusal ends it at once, not at the next sweep
+  const key = holdKey(v.name, a.name), mine = makeHolds.get(key);
+  const refuse = (why: string) => {
+    holdsRelease(key, mine);
+    return new Error(why);
+  };
+  const item = str(args.item, 'item');
+  const good = MAKE_GOODS.find((g) => g.item === item);
+  if (!good) throw refuse(`make: ${item} is not a good the workshop keeps`);
+  const h = v.storageHut;
+  if (!v.complete || !h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace'))
+    throw refuse("make: the workshop runs once the village is complete, with the storage hut's crafting table and furnace standing");
+  const k = args.furnace !== undefined ? Math.floor(num(args.furnace, 'furnace')) : undefined;
+  const wk = v.layouts?.[0]?.works;
+  // A works furnace the server no longer has: its record cleared, so its placement is offered again (the check's M7)
+  const gone = () => {
+    if (!k || !wk?.furnaces?.[k - 1]) return;
+    wk.furnaces[k - 1] = null;
+    a.world.villages.save();
+    console.log(`[works] ${v.name}: furnace ${k} is gone (found by ${a.name}); its record cleared`);
+  };
+  let cell: { x: number; y: number; z: number } | undefined;
+  try {
+    if (k !== undefined && k >= 1) {
+      const f = wk?.furnaces?.[k - 1];
+      if (!f) throw new Error(`make: works furnace ${k} is not recorded`);
+      cell = { x: f.x, y: f.y, z: f.z };
+      // (only a "failed" answer means gone: a cell whose chunk the server has not loaded is checked again at the smelt)
+      const r = await a.world.rcon.command(`execute if block ${f.x} ${f.y} ${f.z} minecraft:furnace`).catch(() => '');
+      if (/failed/i.test(r)) {
+        gone();
+        throw new Error(`make: works furnace ${k} is gone`);
+      }
+    } else if (k === 0) cell = villageStationCell(v, 'furnace') ?? undefined;
+  } catch (e) {
+    holdsRelease(key, mine);
+    throw e;
+  }
+  const t0 = Date.now();
+  const what = `the workshop's ${good.words}`;
+  // Before the withdrawal: what the agent carries, the server's counts for the good, the inputs and the fuel and the synced
+  // view for the rest; every gain against it goes back into storage by name (lesson 112)
+  let start: Counts | null = null, view0: Counts = {}, keyNames: string[] = [];
+  const gains = async (): Promise<Counts> => {
+    await syncInventory(a).catch(() => undefined);
+    const view = inventoryCounts(a);
+    const names = [...new Set([...keyNames, ...Object.keys(view), ...Object.keys(view0)])].filter((n) => keyNames.includes(n) || (view[n] ?? 0) !== (view0[n] ?? 0));
+    const now = await carriedCounts(a, names);
+    const out: Counts = {};
+    for (const n of names) if ((now[n] ?? 0) > (start?.[n] ?? 0)) out[n] = now[n] - (start?.[n] ?? 0);
+    return out;
+  };
+  const putBack = async (c: Counts) => {
+    for (const [n, q] of Object.entries(c)) {
+      if (q <= 0) continue;
+      await STORAGE_SKILLS.deposit.run(a, { item: n, count: q, keep_wood: true }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        console.log(`[make] ${a.name} could not put ${q} ${n} back into storage: ${e.message.slice(0, 120)}`);
+      });
+    }
+  };
+  // What is still carried beyond the start: none, or makeLeft's for the world to deposit (4.10); written only over this
+  // run's own record (a stopped make's late settle overwrote the next make's, S.9's review, lens 2 L5)
+  let leftRec: Counts | undefined;
+  const settle = async () => {
+    const left = await gains();
+    if (makeLeft.has(key) && makeLeft.get(key) !== leftRec) return left;
+    if (Object.keys(left).length) makeLeft.set(key, (leftRec = left));
+    else makeLeft.delete(key);
+    return left;
+  };
+  let planned: Counts = {}, took: Counts = {}, count = 0, smelts = false, storeBefore = 0, backDone = false;
+  const endLine = (made: number, back: Counts, left: Counts) =>
+    console.log(`[make] ${a.name} ${v.name} item=${item} made=${made} batch=${count} furnace=${smelts ? k ?? 0 : '-'} planned=${countsList(planned)} took=${countsList(took)} `
+      + `back=${countsList(back)} left=${countsList(left)} storage=${storeBefore}->${storageContents(v)[item] ?? 0} sec=${((Date.now() - t0) / 1000).toFixed(0)}`);
+  // What was gained put back by name (the batch not made), settled and logged with what went back (the end line read
+  // "back=none" after a put-back, S.9's review, lens 2 L7)
+  const backOf = (g: Counts, left: Counts) => {
+    const back: Counts = {};
+    for (const [x, q] of Object.entries(g)) if (q - (left[x] ?? 0) > 0) back[x] = q - (left[x] ?? 0);
+    return back;
+  };
+  const giveBack = async () => {
+    const g = await gains();
+    await putBack(g);
+    backDone = true;
+    const left = await settle();
+    endLine(0, backOf(g, left), left);
+  };
+  try {
+    const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what, task: 'make' };
+    await standBy(a, job, signal);
+    // The chests read again only when the record cannot make it (make_into_storage's rule)
+    let p = a.world.makePlan(v, good, a.name);
+    if ('why' in p && p.why === 'inputs short' && v.storage?.chests.length) {
+      await refreshStorage(a, v, signal);
+      p = a.world.makePlan(v, good, a.name);
+    }
+    if ('why' in p) throw new ContentionError(`make: ${item}: ${p.why}`, 'taken', `stock:${item}`);
+    // A batch offered as crafting that smelts now (the charcoal it counted on was taken): no furnace key is held for it, so
+    // it goes back to the menu, which offers it with a free furnace (S.9's review, lens 1 L4, lens 4 L5)
+    if (p.smelts && k === undefined && args.chore) throw new ContentionError(`make: ${item}: the batch smelts now and holds no furnace`, 'taken', 'furnace:0');
+    planned = p.inputs;
+    count = p.count;
+    smelts = p.smelts;
+    let bill = p.bill, craftOf = p.craft;
+    storeBefore = storageContents(v)[item] ?? 0;
+    keyNames = [...new Set([item, ...Object.keys(p.inputs), 'coal', 'charcoal'])];
+    await syncInventory(a);
+    view0 = inventoryCounts(a);
+    start = { ...view0, ...(await carriedCounts(a, keyNames)) };
+    took = { ...((await withdrawItems(a, v, p.inputs, signal)).got as Record<string, number>) };
+    holdsRelease(key, mine);
+    makeLeft.set(key, (leftRec = { ...took }));
+    // Short (another agent took some meanwhile; there is no chest lock): the largest smaller whole batch from what was
+    // withdrawn, else everything back and the contention said
+    const shortOf = Object.keys(p.inputs).find((n) => (took[n] ?? 0) < p.inputs[n]);
+    if (shortOf) {
+      const plan = (b: Counts, have: Counts) => a.world.materials.plan(b, have);
+      let smaller: ReturnType<typeof makeBill> = null;
+      for (let c = count - good.unit; c > 0 && !smaller; c -= good.unit) {
+        const b = makeBill(a.world.registry, plan, good, c, took, p.craft?.wood ?? v.wood);
+        if (b?.feasible) {
+          smaller = b;
+          count = c;
+        }
+      }
+      if (!smaller) {
+        await giveBack();
+        throw new ContentionError(`make: ${item}: another agent took the ${shortOf} (got ${took[shortOf] ?? 0} of ${p.inputs[shortOf]}); what was withdrawn went back`, 'taken', `stock:${shortOf}`);
+      }
+      bill = smaller.bill;
+      craftOf = smaller.craft;
+      smelts = plan(bill, took).fuel.smelts > 0;
+      console.log(`[make] ${a.name} ${v.name}: ${item} short of ${shortOf} (took ${took[shortOf] ?? 0} of ${p.inputs[shortOf]}): a smaller batch of ${count}`);
+      // (a smaller batch that smelts where the whole one did not: no furnace key either, as above)
+      if (smelts && k === undefined && args.chore) {
+        await giveBack();
+        throw new ContentionError(`make: ${item}: the smaller batch smelts and holds no furnace; what was withdrawn went back`, 'taken', 'furnace:0');
+      }
+    }
+    // Only what was withdrawn is used: everything carried before is the agent's own (its pickaxe), netted out
+    const need: Counts = { ...start };
+    // (no furnace held for a crafting batch; a smelting one without a key, only outside a chore, falls back to the hut's
+    // by today's rule)
+    const opts = { noStockPick: true, surplus: false, stock: {}, furnace: smelts ? cell : (false as const), what };
+    let made: string | null;
+    if (craftOf) {
+      // A variant good (barrel, composter): its planks and slabs of one kind, then the good itself at the hut's table
+      const parts: Counts = {};
+      for (const [n, q] of Object.entries(bill)) if (q > (took[n] ?? 0)) parts[n] = q - (took[n] ?? 0);
+      // (the parts withdrawn as they are stay the good's: planned against, 4 slabs withdrawn for a composter stood for the
+      // 3 still to make, nothing was made and the craft came up short, S9s1)
+      const kept: Counts = { ...need };
+      for (const [n, q] of Object.entries(bill)) if (took[n]) kept[n] = (kept[n] ?? 0) + Math.min(q, took[n]);
+      const madeParts = Object.keys(parts).length ? await makeFromStock(a, kept, parts, async () => undefined, signal, opts) : 'its parts withdrawn';
+      made = madeParts && `${madeParts}; ${await SURVIVAL_SKILLS.craft.run(a, { item, count: craftOf.count, wood: craftOf.wood }, signal)}`;
+    } else made = await makeFromStock(a, need, bill, async () => undefined, signal, opts);
+    if (!made) {
+      await giveBack();
+      throw new Error(`make: could not make ${count} ${item} from what was withdrawn (${listCounts(took) || 'nothing'})`);
+    }
+    // The batch and every leftover (planks, sticks, inputs not used) into storage by name, counted on the server
+    const g = await gains();
+    await putBack(g);
+    backDone = true;
+    const left = await settle();
+    const n = Math.max(0, (g[item] ?? 0) - (left[item] ?? 0));
+    const back: Counts = {};
+    for (const [x, q] of Object.entries(g)) if (x !== item && q - (left[x] ?? 0) > 0) back[x] = q - (left[x] ?? 0);
+    endLine(g[item] ?? 0, back, left);
+    if (!g[item]) throw new Error(`make: made no ${item} (${made})`);
+    return `made ${g[item]} ${item} (${made}); put into storage: ${n} ${item}${Object.keys(back).length ? `, ${listCounts(back)}` : ''}${Object.keys(left).length ? `; still carrying ${listCounts(left)}` : ''}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    if (/furnace at .* is gone/.test(why)) gone();
+    // As partsBack: a failure that is not a stop or an unmoved stall puts what was gained back by name; whatever is still in
+    // hand stays in makeLeft (a stopped make's leftovers: its deposits would fail on the aborted signal)
+    if (start && !backDone) {
+      // (a count that fails must not replace the error being reported, nor skip the settle: S.9's review, lens 4 L4)
+      let g: Counts = {};
+      if (why !== 'cancelled' && !signal.aborted && !unmoved(e))
+        await gains().then((x) => putBack((g = x))).catch(() => undefined);
+      await settle().then((left) => endLine(0, backOf(g, left), left)).catch(() => undefined);
+    }
+    throw e;
+  } finally {
+    holdsRelease(key, mine);
+  }
+}
+
+/**
+ * A furnace on the works plot (S.9, 6.2; a chore once the plot is ready): furnace k of worksFurnaces' row, placed as the
+ * stations are (placeStation with the cell: 8 cobblestone from storage, crafted at the hut's table, set by command with
+ * `keep` and its facing, never inside a player, confirmed on the server, given back when not placed; lessons 29, 33, 44),
+ * recorded on the works plot (found or placed). Its 8 cobblestone are earmarked by the world until they are withdrawn (the
+ * check's M5; not through the craft and the walk back, S.9's review, lens 1 L2), and only this chore's earmark is ended
+ * (as make's).
+ */
+async function placeWorksFurnace(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const key = v ? holdKey(v.name, a.name) : '';
+  const mine = key ? makeHolds.get(key) : undefined;
+  try {
+    if (!v) throw new Error('place_works_furnace: not in a village');
+    const k = Math.floor(num(args.k, 'k'));
+    const wk = v.layouts?.[0]?.works;
+    if (wk?.state !== 'ready') throw new Error('place_works_furnace: the works plot is not prepared yet');
+    if (!(k >= 1 && k <= WORKS_FURNACES)) throw new Error(`place_works_furnace: k is 1 to ${WORKS_FURNACES}, not ${k}`);
+    const c = worksFurnaces(wk)[k - 1];
+    let how = 'placed';
+    const b = await placeStation(a, 'furnace', signal, `works furnace ${k}`, 0, false, {
+      pos: { x: c.x, y: wk.y + 1, z: c.z },
+      facing: c.facing,
+      lockKey: `${v.name}:works:${k}`,
+      withdrawn: () => holdsRelease(key, mine),
+      record: (pos, found) => {
+        how = found ? 'found' : 'placed';
+        const f = (wk.furnaces ??= []);
+        while (f.length < k) f.push(null);
+        const was = f[k - 1];
+        if (was && was.x === pos.x && was.y === pos.y && was.z === pos.z) return;
+        f[k - 1] = { x: pos.x, y: pos.y, z: pos.z, by: a.name, at: Date.now() };
+        a.world.villages.note(v, `${a.name} ${how} works furnace ${k} at ${at(pos)}`);
+        a.world.villages.save();
+        console.log(`[works] ${v.name}: furnace ${k} ${how} at ${pos.x},${pos.y},${pos.z} by ${a.name}`);
+      },
+    });
+    const pos = b?.position ?? { x: c.x, y: wk.y + 1, z: c.z };
+    const stand = (wk.furnaces ?? []).slice(0, WORKS_FURNACES).filter(Boolean).length;
+    return `${how} works furnace ${k} at ${at(pos)} (${stand} of ${WORKS_FURNACES} stand on the works plot)`;
+  } finally {
+    if (key) holdsRelease(key, mine);
+  }
+}
+
 /** place_station's item: the storage hut's crafting table or furnace (S.5). */
 function stationArg(raw: unknown): StationName {
   const n = String(raw ?? '').trim().toLowerCase().replace(/^minecraft:/, '');
@@ -4106,5 +4457,9 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   make_into_storage: { check: (x) => void str(x.item, 'item'), run: makeIntoStorage },
   // (S.5's, the same: the stations placed before the storage hut)
   place_station: { check: (x) => void stationArg(x.item), run: placeStationSkill },
+  // (S.9's, chores: the workshop's make, the works plot and its furnaces)
+  make: { check: (x) => (str(x.item, 'item'), num(x.count, 'count'), undefined), run: makeGoods },
+  prepare_works: { run: prepareWorks },
+  place_works_furnace: { check: (x) => void num(x.k, 'k'), run: placeWorksFurnace },
 };
 

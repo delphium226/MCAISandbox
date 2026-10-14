@@ -22,6 +22,8 @@ export interface Plot extends Area {
   preparedBy: string;
   /** The annex prepared beside the village after completion for its pens (10-09): not a plot to build on. */
   annex?: boolean;
+  /** The works plot prepared beside the annex for the workshop's furnaces (S.9): not a plot to build on either. */
+  works?: boolean;
   /**
    * A layout prepared in parts by several agents at once (S.6): the record is the whole layout at its one level from the
    * first part done, and this lists the parts done so far; deleted once every part is.
@@ -347,17 +349,23 @@ export type FarmSlot = FarmSpot & {
 };
 
 /**
- * The annex (10-09, the user's choice): an extra 13x9 plot prepared beside the village's plot after completion, with two
- * slots for pens. `state` 'preparing' until prepare_site finished it; `bad`: rectangles that failed (by "x1,z1");
- * `penTries`, `penLastTry`: failed pen starts, a village's back-off.
+ * A 13x9 plot prepared beside the village's plot after completion (the annex, the works plot): `state` 'preparing' until
+ * prepare_site finished it; `tries`, `lastTry`: failed preparations; `bad`: rectangles that failed (by "x1,z1").
  */
-export type Annex = Area & {
+export type SidePlot = Area & {
   y: number;
   side: Side;
   state: 'preparing' | 'ready';
   tries?: number;
   lastTry?: { at: number; why: string };
   bad?: string[];
+};
+
+/**
+ * The annex (10-09, the user's choice): a side plot with two slots for pens. `penTries`, `penLastTry`: failed pen starts,
+ * a village's back-off.
+ */
+export type Annex = SidePlot & {
   penTries?: number;
   penLastTry?: { at: number; why: string };
   /** Failed pen starts by kind (pens v2: a cow pen's failures no longer hold the chickens back, the diff review's L1). */
@@ -366,6 +374,12 @@ export type Annex = Area & {
    *  passed over for an hour. */
   penBad?: string[];
 };
+
+/** A furnace on the works plot (S.9), written only after the server confirmed it: where, by whom and when (ms). */
+export interface WorksFurnace { x: number; y: number; z: number; by: string; at: number }
+
+/** The first time the village made an item (S.9's tech record): when, by whom, how, how many, and on which job. */
+export interface TechEntry { at: number; by: string; how: 'craft' | 'smelt'; n: number; via: string }
 
 export interface Village {
   name: string;
@@ -376,6 +390,8 @@ export interface Village {
   explore?: { visited: number[]; done?: boolean; last?: string };
   /** Cakes baked at the storage hut (pens v2, 10-09: milk, sugar, an egg and wheat). */
   cakes?: number;
+  /** What the village has made, by item, the first time each (S.9; kept on the village, which always exists, lesson 103). */
+  tech?: Record<string, TechEntry>;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;
@@ -419,7 +435,9 @@ export interface Village {
     /** Farm slots kept free for whatever is found (opportunistic farming, 10-08): a kind once a farm is started there. */
     slots?: FarmSlot[];
     /** The annex beside this layout's plot (the first layout only). */
-    annex?: Annex }>;
+    annex?: Annex;
+    /** The works plot beside the annex (S.9; the first layout only): its furnaces by k - 1 (null once found gone). */
+    works?: SidePlot & { furnaces?: Array<WorksFurnace | null> } }>;
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -659,6 +677,18 @@ export class VillageRegistry {
     v.log.push(text);
     if (v.log.length > 40) v.log.splice(0, v.log.length - 40);
     this.save();
+  }
+
+  /**
+   * The village made `item` (S.9's tech record): written the first time only, so a village's saves stay bounded (later
+   * crafts and smelts of it change nothing); `via` cut to 60 characters.
+   */
+  firstMade(v: Village, item: string, e: TechEntry): void {
+    if (v.tech?.[item]) return;
+    const via = e.via.length > 60 ? e.via.slice(0, 60) : e.via;
+    (v.tech ??= {})[item] = { ...e, via };
+    this.save();
+    console.log(`[tech] ${v.name}: first ${item} (${e.how} ${e.n}) by ${e.by} via ${via}`);
   }
 
   /**
@@ -1102,8 +1132,8 @@ export class VillageRegistry {
   summary(v: Village, forAgent?: string, compact = false, near?: { x: number; z: number }): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
-    // (not the annex: it is for the pens, 10-09)
-    const plots = v.plots.filter((p) => !p.annex);
+    // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9)
+    const plots = v.plots.filter((p) => !p.annex && !p.works);
     // (a plot prepared in parts, S.6: how many are done; lessons 32 and 57)
     const partsOf = (p: Plot) => (v.layouts ?? []).find((l) => l.x1 === p.x1 && l.z1 === p.z1 && l.x2 === p.x2 && l.z2 === p.z2)?.parts?.length;
     if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}${p.parts ? ` (parts ${p.parts.length} of ${partsOf(p) ?? '?'} prepared)` : ''}`));

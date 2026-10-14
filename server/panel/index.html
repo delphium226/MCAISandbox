@@ -617,6 +617,7 @@ function renderVillage(v) {
   const ground = (v.reservations || []).filter((r) => r.until > now);
   const designs = Object.values(v.designs || {});
   const chests = v.storage?.chests || [];
+  const tech = Object.entries(v.tech || {}).sort((x, y) => (y[1].at || 0) - (x[1].at || 0));
   let body = '';
   if (tab === 'tasks') {
     const fk = `${key}:filter`, f = openTabs[fk] || 'now';
@@ -633,10 +634,16 @@ function renderVillage(v) {
       const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       return `<li><b>chest ${i + 1}</b>${c.group ? ` (${esc(c.group)})` : ''}: ${e.length ? e.map(([nm, q]) => `${q} ${esc(nm)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
     }).join('')}</ul>` : '<div class="empty">no chest yet</div>';
-  else if (tab === 'plots') body = list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}${p.parts ? ` (${p.parts.length} parts prepared so far)` : ''}</span>`);
+  else if (tab === 'plots') body = list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}${p.works ? ' (works)' : ''}${p.parts ? ` (${p.parts.length} parts prepared so far)` : ''}</span>`);
   else if (tab === 'designs') body = list(designs, (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''));
   else if (tab === 'ground') body = list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`);
   else if (tab === 'log') body = list((v.log || []).slice(-25).reverse(), (l) => `<span class="clamp" title="${esc(l)}">${esc(l)}</span>`);
+  // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
+  else if (tab === 'tech') {
+    const wk = (v.layouts || [])[0]?.works;
+    const fs = (wk?.furnaces || []).map((f, k) => (f ? `${k + 1} at <span class="mono">${f.x},${f.y},${f.z}</span>` : '')).filter(Boolean);
+    body = `${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([n, t]) => `<b>${esc(words(n))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`;
+  }
   const working = tasks.filter((t) => t.status === 'claimed');
   const stat = (n, label, cls = '') => `<div class="stat${cls}"><b>${n}</b><span>${label}</span></div>`;
   return `<div class="card dcard">
@@ -647,7 +654,8 @@ function renderVillage(v) {
     ${v.choices ? `<div>${choicesChip(v)}</div>` : ''}
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
-      ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`], ['log', 'Log']])}
+      ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }
@@ -873,7 +881,7 @@ function homeView() {
   const a = agents.find((x) => x.position);
   return a ? { x: a.position.x, z: a.position.z, k: WM_ZOOM.home } : null;
 }
-/** Every agent and the whole of each running village (layouts, plots, the annex), with a margin: Auto's frame. */
+/** Every agent and the whole of each running village (layouts, plots, the annex, the works plot), with a margin: Auto's frame. */
 function autoView() {
   const agents = ((lastData && lastData.agents) || []).filter((a) => a.position);
   if (!agents.length) return null;
@@ -883,8 +891,8 @@ function autoView() {
   const running = new Set(agents.map((a) => a.village).filter(Boolean));
   for (const v of mapVillages().filter((u) => running.has(u.name))) {
     let ground = false;
-    for (const r of [...(v.layouts || []), ...(v.plots || []), ...(v.layouts || []).map((l) => l.annex).filter(Boolean)])
-      if ([r.x1, r.z1, r.x2, r.z2].every(Number.isFinite)) { add(r.x1, r.z1, r.x2 + 1, r.z2 + 1); ground = true; }
+    for (const r of [...(v.layouts || []), ...(v.plots || []), ...(v.layouts || []).flatMap((l) => [l.annex, l.works]).filter(Boolean)])
+      if ([r.x1, r.z1, r.x2, r.z2].every(Number.isFinite) && r.x2 >= r.x1) { add(r.x1, r.z1, r.x2 + 1, r.z2 + 1); ground = true; }
     const c = homeOf(v);
     if (c && !ground) add(c.x - 24, c.z - 24, c.x + 24, c.z + 24);
   }
@@ -1249,6 +1257,9 @@ function actionWords(t, args) {
     case 'start_farm': return `Starting a ${words(args.kind ?? 'new')} farm`;
     case 'harvest_slot': return 'Harvesting a farm';
     case 'prepare_annex': return 'Clearing land for the animal pens';
+    case 'make': return `Making ${n}${item || 'goods'} for the workshop`;
+    case 'prepare_works': return 'Clearing land for the works plot';
+    case 'place_works_furnace': return 'Putting a furnace on the works plot';
     case 'start_pen': return `Leading ${words(args.kind ?? 'animal')}s into a pen`;
     case 'collect_eggs': return 'Collecting eggs';
     case 'milk_cows': return 'Milking the cows';
@@ -1294,6 +1305,7 @@ const ACT_OF = {
   mine: 'mining', dig_mine: 'mining', dig_iron: 'mining', collect: 'gathering', craft: 'gathering', smelt: 'gathering',
   tend_farm: 'chores', harvest_farm: 'chores', start_farm: 'chores', harvest_slot: 'chores', prepare_annex: 'chores', start_pen: 'chores', collect_eggs: 'chores',
   milk_cows: 'chores', breed_pen: 'chores', bake_cake: 'chores', scout: 'chores', explore: 'chores', make_iron_tool: 'chores',
+  make: 'chores', prepare_works: 'chores', place_works_furnace: 'chores',
 };
 // (stone and ores come from the village mine)
 const MINED = /^(cobblestone|stone|cobbled_deepslate|deepslate|coal|raw_iron|iron_ore|coal_ore)$|_ore$/;
@@ -1404,6 +1416,14 @@ function villageLife(v) {
   const tools = {};
   for (const m of made) tools[words(m)] = (tools[words(m)] || 0) + 1;
   if (v.mine?.iron || made.length) items.push(['Iron', made.length ? `made ${Object.entries(tools).map(([n, c]) => (c > 1 ? `${c} ${n}s` : n)).join(', ')}` : 'digging for it', '']);
+  // (S.9: the things the village has made, the first time each, and the works plot with its furnaces)
+  const tech = Object.entries(v.tech || {}).sort((x, y) => (y[1].at || 0) - (x[1].at || 0));
+  if (tech.length) items.push(['Workshop', `${plural(tech.length, 'thing')} made`, tech.slice(0, 5).map(([n]) => words(n)).join(', ')]);
+  const wk = (v.layouts || [])[0]?.works;
+  if (wk || (v.complete && (v.layouts || [])[0]?.annex)) {
+    const placed = (wk?.furnaces || []).filter(Boolean).length;
+    items.push(['Works plot', !wk ? 'not started' : wk.state === 'ready' ? `ready, ${placed} of 3 furnaces` : 'being prepared', '']);
+  }
   if (!items.length) return '';
   return `<div class="card"><div class="label">Village life</div><dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl></div>`;
 }

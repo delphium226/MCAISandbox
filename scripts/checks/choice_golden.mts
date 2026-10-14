@@ -20,6 +20,13 @@
  * `check` also runs the purity check (4.3) once the world has choices(): 1,000 choices() calls a fixture after S1, round
  * robin over its agents, must change nothing. `instances` (4.4, needs A.2's world) runs the fixtures with
  * MC_CHOICE_INSTANCES=explore,start and checks invariants instead of the sequence.
+ * S.9 (runs/2026-10-14/spec_s9.md 8.1): `dump` and `check` run with MC_CHOICE_FAMILIES empty (no workshop option or
+ * reason, so the golden of the commit before stays the reference), `instances` with make,gather,works on: its fixtures
+ * also get workshop storage, a hut with stations where none, a works plot beside a ready annex (0-3 furnaces recorded,
+ * each furnace's block in the land) and sand unavailable in a quarter, from a second generator; and the workshop's
+ * invariants are checked per sweep (crafting makes at most MAKE_PARALLEL, one make a furnace and only recorded ones, the
+ * earmarks within the spare storage, none left once every chore ended, makes only below target, gathering within its
+ * need and limits, works furnaces only on a ready plot, one option a good and a material a menu).
  * Usage: node_modules/.bin/tsx scripts/checks/choice_golden.mts dump|check|instances GOLDEN.json [villages.json ...]
  * (BASES_MAX=30, PURITY_N=1000, ONLY=<substring of a fixture key>, VERBOSE=1)
  */
@@ -36,6 +43,8 @@ if (!/^(dump|check|instances)$/.test(mode ?? '') || !golden) {
 // (read when the world's modules load: set first)
 process.env.MC_CHOOSE = 'fixed';
 process.env.MC_CHOICE_INSTANCES = mode === 'instances' ? 'explore,start' : '';
+// (S.9's families off for the golden, on for the instances' invariants, D3)
+process.env.MC_CHOICE_FAMILIES = mode === 'instances' ? 'make,gather,works' : '';
 process.env.MC_TIME_SCALE = '1';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
@@ -55,7 +64,8 @@ Math.random = () => {
 };
 
 const BASES_MAX = Number(process.env.BASES_MAX ?? 30);
-const PURITY_N = Number(process.env.PURITY_N ?? 1000);
+// (instances mode runs the purity check too, with the workshop's families on, on fewer calls)
+const PURITY_N = Number(process.env.PURITY_N ?? (mode === 'instances' ? 200 : 1000));
 const ONLY = process.env.ONLY ?? '';
 const VERBOSE = !!process.env.VERBOSE;
 const VARIANTS = 16;
@@ -81,9 +91,11 @@ const say = (s: string) => quiet.log(s);
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
 const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
-const { SLOT_ORDER, PEN_ORDER, slotPlan, annexSlots, penPlan, SLOT_KINDS } = await import('../../server/src/farmSlots');
+const { SLOT_ORDER, PEN_ORDER, slotPlan, annexSlots, penPlan, SLOT_KINDS, worksFurnaces } = await import('../../server/src/farmSlots');
 const { FARM_TRIP_RANGE } = await import('../../server/src/village');
 const { collectFilter } = await import('../../server/src/mineflayer/mcSurvival');
+const { storageContents } = await import('../../server/src/mineflayer/mcStorage');
+const W9 = await import('../../server/src/mineflayer/mcWorkshop');
 // (A.2's chooser, once it exists: instances mode compares its menus with single keys and with instances)
 let CHOOSE: { instances: Set<string> } | null = null;
 try {
@@ -404,6 +416,67 @@ function makeVariant(reg: Any, base: Any, i: number, seed: string, atlasFile: An
   return { v, land, profile };
 }
 
+/**
+ * Instances mode's S.9 additions to a variant (spec 8.1 item 4), from their own generator so the rest of the variant is
+ * as in the golden: workshop storage (cobblestone, the village's logs, sand, coal, oak slabs, charcoal, glass, stone
+ * pickaxes), a 7x9 hut with station records where the village has none, a works plot beside a ready annex (absent,
+ * preparing or ready with 0-3 furnaces recorded, each furnace's block written into the land: the fakes read AIR
+ * otherwise, the check's M7) and sand unavailable in a quarter of them.
+ */
+function seedWorkshop(reg: Any, variant: Variant, key: string) {
+  const { v, land } = variant;
+  const R = rng(`${key}:s9`);
+  const ago = (m: number) => NOW - m * MIN;
+  const plot0 = v.plots.find((p: Any) => !p.annex && !p.works);
+  const wood = v.wood ?? 'oak';
+  const items = v.storage?.chests?.[0]?.items;
+  if (items) {
+    const put = (n: string, q: number) => { if (q) items[n] = (items[n] ?? 0) + q; };
+    put('cobblestone', R.pick([0, 20, 200]));
+    put(`${wood}_log`, R.pick([0, 12, 60]));
+    put('sand', R.pick([0, 6, 30]));
+    put('coal', R.pick([0, 4]));
+    put('oak_slab', R.pick([0, 7, 14]));
+    put('charcoal', R.pick([0, 8]));
+    put('glass', R.pick([0, 3]));
+    put('stone_pickaxe', R.pick([0, 1, 4]));
+  }
+  if (!v.storageHut && plot0) {
+    const x1 = plot0.x1 + 1, z1 = plot0.z1 + 1;
+    v.storageHut = { x1, z1, x2: x1 + 6, z2: z1 + 8, spots: [] };
+    const y = plot0.y + 1;
+    v.stations = { crafting_table: { x: x1 + 2, y, z: z1 + 4, by: 'golden', at: ago(60) }, furnace: { x: x1 + 4, y, z: z1 + 4, by: 'golden', at: ago(60) } };
+  }
+  if (R.chance(0.25)) v.unavailable = [...new Set([...(v.unavailable ?? []), 'sand'])];
+  const lay = v.layouts?.[0];
+  const ax = lay?.annex;
+  if (!ax || ax.state !== 'ready') return;
+  const state = R.pick(['absent', 'absent', 'preparing', 'ready', 'ready', 'ready']);
+  if (state === 'absent') return;
+  // (beside the annex along the plot's edge, the annex's geometry and side)
+  const along = ax.side === 'n' || ax.side === 's';
+  const area = along ? { x1: ax.x2 + 3, x2: ax.x2 + 15, z1: ax.z1, z2: ax.z2 } : { x1: ax.x1, x2: ax.x2, z1: ax.z2 + 3, z2: ax.z2 + 15 };
+  lay.works = { ...area, y: ax.y, side: ax.side, state };
+  if (state === 'preparing') {
+    const t = R.pick([0, 1, 2, 3]);
+    if (t) lay.works.tries = t;
+    lay.works.lastTry = { at: ago(R.pick([5, 30, 70])), why: 'x' };
+    return;
+  }
+  v.plots.push({ id: 'golden-works', ...area, y: ax.y, preparedBy: 'golden', works: true });
+  const n = R.pick([0, 1, 2, 3]);
+  const ks = [1, 2, 3].sort(() => R.next() - 0.5).slice(0, n);
+  const cells = worksFurnaces(lay.works);
+  const furnaces: Any[] = [null, null, null];
+  for (const k of ks) {
+    const c = cells[k - 1];
+    furnaces[k - 1] = { x: c.x, y: ax.y + 1, z: c.z, by: 'golden', at: ago(20) };
+    land.crops.set(`${c.x},${ax.y + 1},${c.z}`, stateOf(reg, 'furnace', 0));
+  }
+  while (furnaces.length && !furnaces[furnaces.length - 1]) furnaces.pop();
+  if (furnaces.length) lay.works.furnaces = furnaces;
+}
+
 // ---- fixtures --------------------------------------------------------------------------------------------------------
 
 interface Sweep {
@@ -478,6 +551,11 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
   clock = NOW;
   randomState = fnv(fx.key);
   const rconCmds: string[] = [];
+  // (S.9's earmarks, leftovers and works under way are module state: each fixture starts without the last one's; with the
+  // families off they stay empty)
+  for (const k of [...W9.makeHolds.keys()]) W9.holdsDelete(k);
+  W9.makeLeft.clear();
+  W9.worksBusy.clear();
   const w = new MineflayerWorld('127.0.0.1', 0, '26.1', { command: async (c: string) => { rconCmds.push(c); return ''; } } as never, dir) as Any;
   const reg = w.villages as Any;
   let saves = 0;
@@ -544,6 +622,7 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
     w.runChoice = (a: Any, id: string, meta: Any) => {
       const menu = w.choices(a);
       const opts1 = (menu?.options ?? []) as Any[];
+      checkMenuS9(fx, w, v, a.name, opts1);
       const lowest = [...opts1].sort((p, q) => p.rank - q.rank)[0];
       if (!opts1.some((o) => o.id === id)) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, not in its fresh menu (${opts1.map((o) => o.id).join(', ')})`);
       else if (lowest && lowest.id !== id) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, but its menu's lowest rank is ${lowest.id}`);
@@ -605,7 +684,17 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
     rconAt = rconCmds.length;
     notesAt = notes.length;
     sweeps.push(s);
-    if (opts.instances) checkInstances(fx, w, v);
+    if (opts.instances) {
+      checkInstances(fx, w, v);
+      mute();
+      try {
+        checkS9(fx, w, v);
+      } catch (e) {
+        invariantFails.push(`${fx.key}: the S.9 check threw: ${String((e as Error)?.stack ?? e).split('\n').slice(0, 3).join(' | ')}`);
+      } finally {
+        unmute();
+      }
+    }
   };
   const endTick = () => {
     mute();
@@ -619,7 +708,10 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
   await sweep();
   if (opts.purity && typeof w.choices === 'function') {
     const snap = () => JSON.stringify([[...reg.villages.values()], ([...w.chores.entries()] as Any[]).map(([k, c]) => [k, c.key, c.status.map((q: Any) => q.state)]),
-      [...w.cooling.entries()], [...w.slotSkip.entries()], [...w.cakeAt.entries()], saves, rconCmds.length, calls.length, notes.length, statuses.length]);
+      [...w.cooling.entries()], [...w.slotSkip.entries()], [...w.cakeAt.entries()], saves, rconCmds.length, calls.length, notes.length, statuses.length,
+      // (S.9's state, spec 8.1 item 3)
+      [[...W9.makeHolds.entries()], W9.holdsVersion(), [...W9.makeLeft.entries()], [...W9.worksBusy], [...w.makeBack.entries()], [...w.gatherBack.entries()],
+        [...w.gatherLog.entries()], [...w.worksBack.entries()]]]);
     const before = snap();
     mute();
     try {
@@ -631,7 +723,7 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
     unmute();
     newLogRecords();
     const after = snap();
-    if (!purity && after !== before) purity = `${PURITY_N} choices() calls changed the state (${['registry', 'chores', 'cooling', 'slotSkip', 'cakeAt', 'saves', 'rcon', 'enqueues', 'notes', 'statuses'].filter((_, k) => JSON.stringify(JSON.parse(before)[k]) !== JSON.stringify(JSON.parse(after)[k])).join(', ')})`;
+    if (!purity && after !== before) purity = `${PURITY_N} choices() calls changed the state (${['registry', 'chores', 'cooling', 'slotSkip', 'cakeAt', 'saves', 'rcon', 'enqueues', 'notes', 'statuses', 'workshop'].filter((_, k) => JSON.stringify(JSON.parse(before)[k]) !== JSON.stringify(JSON.parse(after)[k])).join(', ')})`;
     if (!purity && rconCmds.length !== rconAt) purity = 'choices() sent RCON commands';
   }
   // Every queued action done; 31 s on
@@ -646,8 +738,165 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
   endTick();
   clock += 11000;
   await sweep();
+  // Instances mode: every chore ended at last, no earmark or incoming is left (S.9, spec 8.1 item 5d)
+  if (opts.instances) {
+    for (const s of statuses) if (s.state === 'queued' || s.state === 'running') Object.assign(s, { state: 'done', message: `${s.type} done` });
+    endTick();
+    const left = [...W9.makeHolds.keys()].filter((k) => k.startsWith(`${v.name}|`));
+    if (left.length) invariantFails.push(`${fx.key}: earmarks left once every chore ended: ${left.join(', ')}`);
+    mute();
+    try {
+      const g = w.gatherWanted(v);
+      const inc = Object.entries(g).filter(([, x]: [string, Any]) => x.incoming).map(([m]) => m);
+      if (inc.length) invariantFails.push(`${fx.key}: incoming left once every chore ended: ${inc.join(', ')}`);
+    } finally {
+      unmute();
+    }
+  }
   void pickLog;
   return { sweeps, purity };
+}
+
+/** S.9's counts in instances mode: options seen in menus by kind and by id (works:furnace:k as works:furnace). */
+const s9Seen: Record<string, number> = {};
+const s9Fixtures = new Set<string>();
+const s9Peak: Record<string, number> = {};
+
+/** The goods' targets and the gathering limits (spec 4.4, 4.8). */
+const GOODS = new Map(W9.MAKE_GOODS.map((g) => [g.item, g]));
+
+/** The village's S.9 chores under way: makes (item, count, smelts, k) and gathering trips (material, n), with the agent. */
+function goingS9(w: Any, v: Any) {
+  const make: Array<{ agent: string; item: string; count: number; smelts: boolean; k?: number; holds: string[]; key: string }> = [];
+  const gather: Array<{ agent: string; material: string; n: number; key: string }> = [];
+  const works: Array<{ agent: string; key: string }> = [];
+  for (const c of w.chores.values() as Iterable<Any>) {
+    if (c.village !== v.name || !c.status.some((q: Any) => q.state === 'queued' || q.state === 'running')) continue;
+    if (c.choice?.make) make.push({ agent: c.agent, ...c.choice.make, holds: c.choice.holds ?? [], key: c.key });
+    if (c.choice?.gather) gather.push({ agent: c.agent, ...c.choice.gather, key: c.key });
+    if (c.choice?.kind === 'works') works.push({ agent: c.agent, key: c.key });
+  }
+  return { make, gather, works };
+}
+
+/** One menu's S.9 options (spec 8.1 item 5 e-h): makes only below target with a whole batch, one option a good and a
+ *  material, no sand where unavailable, gathering within its at-once limit, a works furnace only on a ready plot. */
+function checkMenuS9(fx: Fixture, w: Any, v: Any, agent: string, options: Any[]) {
+  const s9 = options.filter((o) => o.kind === 'make' || o.kind === 'gather' || o.kind === 'works');
+  if (!s9.length) return;
+  s9Fixtures.add(fx.key);
+  const going = goingS9(w, v);
+  const store = storageContents(v);
+  const seenIds = new Set<string>();
+  let worksFurnace = 0;
+  for (const o of s9) {
+    const group = o.id.startsWith('works:furnace:') ? 'works:furnace' : o.id;
+    s9Seen[`${o.kind}`] = (s9Seen[o.kind] ?? 0) + 1;
+    s9Seen[group] = (s9Seen[group] ?? 0) + 1;
+    if ((o.kind === 'make' || o.kind === 'gather') && seenIds.has(o.id)) invariantFails.push(`${fx.key}: ${agent}'s menu has ${o.id} twice`);
+    seenIds.add(o.id);
+    if (o.kind === 'make') {
+      const item = o.id.slice('make:'.length), g = GOODS.get(item);
+      if (!g) {
+        invariantFails.push(`${fx.key}: ${agent}'s menu has ${o.id}, not a good`);
+        continue;
+      }
+      const goingN = going.make.filter((m) => m.item === item).reduce((s, m) => s + m.count, 0);
+      const want = g.target - (store[item] ?? 0) - goingN;
+      if (want <= 0) invariantFails.push(`${fx.key}: ${o.id} offered at stock (${store[item] ?? 0} stored, ${goingN} going, target ${g.target})`);
+      const n = Number(/this batch of (\d+)/.exec(o.facts)?.[1] ?? NaN);
+      if (!(n > 0 && n <= g.batch && n % g.unit === 0 && n <= Math.ceil(Math.max(0, want) / g.unit) * g.unit))
+        invariantFails.push(`${fx.key}: ${o.id}'s batch ${n} is not a whole batch for a want of ${want} (batch ${g.batch}, unit ${g.unit})`);
+      const fk = (o.holds ?? []).find((h: string) => h.startsWith('furnace:'));
+      if (fk && fk !== 'furnace:0' && !v.layouts?.[0]?.works?.furnaces?.[Number(fk.slice(8)) - 1]) invariantFails.push(`${fx.key}: ${o.id} holds ${fk}, not recorded`);
+      if (fk && going.make.some((m) => m.holds.includes(fk))) invariantFails.push(`${fx.key}: ${o.id} offers ${fk}, held by a going make`);
+    }
+    if (o.kind === 'gather') {
+      const m = o.id.slice('gather:'.length);
+      if (m === 'sand' && v.unavailable?.includes('sand')) invariantFails.push(`${fx.key}: gather:sand offered with sand unavailable`);
+      const spec = (W9.GATHER_KINDS as Any)[m];
+      const limit = spec?.atOnce === 'faces' ? w.faces(v).faces : spec?.atOnce;
+      const n = going.gather.filter((x) => x.material === m).length;
+      if (!spec || n + 1 > limit) invariantFails.push(`${fx.key}: ${o.id} offered with ${n} going (at once ${limit})`);
+    }
+    if (o.id.startsWith('works:furnace:')) {
+      worksFurnace++;
+      if (v.layouts?.[0]?.works?.state !== 'ready') invariantFails.push(`${fx.key}: ${o.id} offered before the works plot is ready`);
+      if (v.layouts?.[0]?.works?.furnaces?.[Number(o.id.split(':')[2]) - 1]) invariantFails.push(`${fx.key}: ${o.id} offered for a recorded furnace`);
+    }
+  }
+  if (worksFurnace > 1) invariantFails.push(`${fx.key}: ${agent}'s menu has ${worksFurnace} works furnaces`);
+}
+
+/** After each sweep, the village's S.9 chores (spec 8.1 item 5 a-d, f, g). */
+function checkS9(fx: Fixture, w: Any, v: Any) {
+  const going = goingS9(w, v);
+  const lay0 = v.layouts?.[0];
+  // (a) crafting makes at most MAKE_PARALLEL
+  const crafting = going.make.filter((m) => !m.smelts).length;
+  if (crafting > W9.MAKE_PARALLEL) invariantFails.push(`${fx.key}: ${crafting} crafting makes going (at most ${W9.MAKE_PARALLEL})`);
+  // (b) a smelting make holds one furnace, a recorded one (k 0 the hut's)
+  for (const m of going.make) {
+    const fk = m.holds.filter((h) => h.startsWith('furnace:'));
+    if (m.smelts !== (fk.length === 1) || fk.length > 1) invariantFails.push(`${fx.key}: ${m.agent}'s make of ${m.item} (smelts ${m.smelts}) holds ${fk.join(', ') || 'no furnace'}`);
+    for (const h of fk) {
+      const k = Number(h.slice(8));
+      if (k >= 1 && !lay0?.works?.furnaces?.[k - 1]) invariantFails.push(`${fx.key}: ${m.agent}'s make holds ${h}, not recorded`);
+      if (m.k !== undefined && m.k !== k) invariantFails.push(`${fx.key}: ${m.agent}'s make records furnace ${m.k} but holds ${h}`);
+    }
+  }
+  // (c) the earmarks within the spare storage (store - reserve - keep), nothing of MAKE_NEVER; (d) each earmark a going
+  // make's or furnace placement's
+  const store = storageContents(v);
+  const reserve = w.storageReserve(v);
+  const held: Record<string, number> = {};
+  for (const [k, c] of W9.makeHolds as Map<string, Record<string, number>>) {
+    if (!k.startsWith(`${v.name}|`)) continue;
+    const agent = k.slice(v.name.length + 1);
+    const c0 = [...w.chores.values()].find((x: Any) => x.village === v.name && x.agent.toLowerCase() === agent && x.status.some((q: Any) => q.state === 'queued' || q.state === 'running'));
+    if (!c0 || !(c0.choice?.kind === 'make' || (c0.choice?.kind === 'works' && /^worksfurnace:/.test(c0.key)))) invariantFails.push(`${fx.key}: an earmark for ${agent} with no make or furnace placement going`);
+    for (const [n, q] of Object.entries(c)) held[n] = (held[n] ?? 0) + q;
+  }
+  const isLog = (n: string) => /_log$/.test(n);
+  // (how much the checks saw: the most earmarks, trips and works-furnace smelts at once in a sweep)
+  const most = (k: string, n: number) => (s9Peak[k] = Math.max(s9Peak[k] ?? 0, n));
+  most('earmarks', [...W9.makeHolds.keys()].filter((k) => k.startsWith(`${v.name}|`)).length);
+  most('gathering trips', going.gather.length);
+  most('makes', going.make.length);
+  most('smelts on works furnaces', going.make.filter((m) => (m.k ?? 0) >= 1).length);
+  for (const [n, q] of Object.entries(held)) {
+    if (W9.MAKE_NEVER.has(n)) {
+      if (q > 0) invariantFails.push(`${fx.key}: ${q} ${n} earmarked (never a make's input)`);
+      continue;
+    }
+    const keep = n === 'cobblestone' ? W9.MAKE_KEEP.cobblestone : n === 'coal' ? W9.MAKE_KEEP.coal : 0;
+    const cap = Math.max(0, (store[n] ?? 0) - (reserve[n] ?? 0) - keep);
+    if (q > cap) invariantFails.push(`${fx.key}: ${q} ${n} earmarked, ${cap} spare (store ${store[n] ?? 0}, reserve ${reserve[n] ?? 0}, keep ${keep})`);
+  }
+  const logsHeld = Object.entries(held).filter(([n]) => isLog(n)).reduce((s, [, q]) => s + q, 0);
+  if (logsHeld) {
+    const logsSpare = Object.entries(store).filter(([n]) => isLog(n)).reduce((s, [n, q]) => s + Math.max(0, q - (reserve[n] ?? 0)), 0) - w.logsKeep(v);
+    if (logsHeld > Math.max(0, logsSpare)) invariantFails.push(`${fx.key}: ${logsHeld} logs earmarked, ${Math.max(0, logsSpare)} spare after the keep of ${w.logsKeep(v)}`);
+  }
+  // (f) gathering: incoming as the going trips, within the need plus one trip, within the at-once limits
+  const want = w.gatherWanted(v);
+  for (const m of ['sand', 'logs', 'cobblestone']) {
+    const trips = going.gather.filter((x) => x.material === m);
+    const n = trips.reduce((s, x) => s + x.n, 0);
+    const spec = (W9.GATHER_KINDS as Any)[m];
+    if (want[m].incoming !== n) invariantFails.push(`${fx.key}: ${m} incoming ${want[m].incoming}, going trips bring ${n}`);
+    if (n > want[m].need + spec.trip) invariantFails.push(`${fx.key}: ${n} ${m} on the way for a need of ${want[m].need}`);
+    const limit = spec.atOnce === 'faces' ? w.faces(v).faces : spec.atOnce;
+    if (trips.length > limit) invariantFails.push(`${fx.key}: ${trips.length} ${m} trips at once (limit ${limit})`);
+    if (m === 'sand' && trips.length && v.unavailable?.includes('sand')) invariantFails.push(`${fx.key}: sand gathered with sand unavailable`);
+  }
+  // (g) works furnaces placed only on a ready plot, one a k
+  for (const c of going.works) if (/^worksfurnace:/.test(c.key) && lay0?.works?.state !== 'ready') invariantFails.push(`${fx.key}: ${c.agent} places ${c.key} before the works plot is ready`);
+  // Every idle member's menu now (pure, as the purity check holds)
+  for (const a of w.agents.values() as Iterable<Any>) {
+    const menu = w.choices(a);
+    if (menu) checkMenuS9(fx, w, v, a.name, menu.options ?? []);
+  }
 }
 
 /** Leaf paths that differ between two JSON values ("layouts.0.slots.3.pen.workAt.eggs"). */
@@ -725,11 +974,12 @@ for (const src of sources) {
         if (ONLY && !key.includes(ONLY)) continue;
         const variant = makeVariant(reg0, base, i, name, atlasFile);
         if (!variant) continue;
+        if (mode === 'instances') seedWorkshop(reg0, variant, key);
         const fx: Fixture = { key, src, base: base.name, variant: i, idle };
-        const r = await runFixture(dir, fx, variant, { purity: mode === 'check', instances: mode === 'instances' });
+        const r = await runFixture(dir, fx, variant, { purity: mode !== 'dump', instances: mode === 'instances' });
         out.fixtures[key] = r.sweeps;
-        if (mode === 'check' && r.purity !== undefined) purityFails.push(`${key}: ${r.purity}`);
-        if (mode === 'check') purityRuns++;
+        if (mode !== 'dump' && r.purity !== undefined) purityFails.push(`${key}: ${r.purity}`);
+        if (mode !== 'dump') purityRuns++;
       }
     }
   }
@@ -757,9 +1007,15 @@ if (mode === 'dump') {
 if (mode === 'instances') {
   const withExtras = Object.entries(extras);
   say(`instances: ${withExtras.length} fixtures with options beyond single keys${withExtras.length ? ` (${Object.entries(withExtras.reduce((s, [, e]) => { for (const [k, n] of Object.entries(e)) s[k] = (s[k] ?? 0) + n; return s; }, {} as Record<string, number>)).map(([k, n]) => `${k} ${n}`).join(', ')})` : ''}`);
+  // (S.9: options seen in menus, by kind and id, and the chores picked of each new kind)
+  const s9Kinds = ['works', 'make', 'gather'];
+  say(`S.9 options in menus (${s9Fixtures.size} fixtures): ${s9Kinds.map((k) => `${k} ${s9Seen[k] ?? 0}`).join(', ')}; by id: ${Object.entries(s9Seen).filter(([k]) => k.includes(':')).sort().map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
+  say(`S.9 chores picked: ${s9Kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join(', ')}; most at once in a sweep: ${Object.entries(s9Peak).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   for (const f of invariantFails.slice(0, 40)) say(`FAIL ${f}`);
+  for (const f of purityFails.slice(0, 20)) say(`PURITY FAIL ${f}`);
+  say(`purity: ${purityRuns} fixtures x ${PURITY_N} choices() calls, ${purityFails.length} changed state`);
   say(`${nFix} fixtures, ${invariantFails.length} invariants broken`);
-  process.exit(invariantFails.length ? 1 : 0);
+  process.exit(invariantFails.length || purityFails.length ? 1 : 0);
 }
 
 // check

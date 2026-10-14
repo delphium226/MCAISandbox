@@ -162,3 +162,21 @@ export function penPlan(s: FarmSpot, face: Side): PenPlan {
   return { ring, gate, facing, outside: step(1), approach: step(2), back: slotCell(s, 2, fr === 0 ? 5 : 1),
     inner: { x1: Math.min(ax, bx), z1: Math.min(az, bz), x2: Math.max(ax, bx), z2: Math.max(az, bz) } };
 }
+
+/**
+ * The works plot's furnaces (S.9): a 13x9 plot of the annex's geometry, its first slot holding a row of three (the second
+ * stays free for a sheep pen later). They stand at columns 0, 2 and 4 of the row one in from the slot's end facing the
+ * plot (a free column between them), each facing its stand cell on that end row.
+ */
+export function worksFurnaces(r: Area & { side: Side }): Array<{ x: number; z: number; stand: [number, number]; facing: 'north' | 'south' | 'east' | 'west' }> {
+  const s = annexSlots(r)[0];
+  const alongZ = s.water.x1 === s.water.x2;
+  // (fr as penPlan: the end row facing the plot)
+  const fr = (alongZ ? s.face === 'n' : s.face === 'w') ? 0 : 6;
+  const row = fr === 0 ? 1 : 5;
+  const facing = alongZ ? (fr === 0 ? 'north' : 'south') : fr === 0 ? 'west' : 'east';
+  return [0, 2, 4].map((c) => {
+    const [x, z] = slotCell(s, c, row);
+    return { x, z, stand: slotCell(s, c, fr), facing };
+  });
+}

@@ -1220,13 +1220,17 @@ function bodiesIn(a: BotAgent, pos: Vec3): string[] {
  * the bot's view (lessons 29, 80); then recorded. `keepCobble`: cobblestone carried for something else (a smelt's input).
  * `gather`: cobblestone the storage cannot give is collected (the stations task, F217: its executor otherwise made and
  * placed a furnace itself, inside the storage hut's footprint).
+ * `cell` (S.9's works furnaces): that cell instead of the hut's, under its own lock, set facing `facing`, and recorded by
+ * `record` alone (found or placed: never as the village's station, nor closing the stations task); `withdrawn` is told
+ * once the furnace's cobblestone is in hand (the placement's earmark ends there, S.9's review, lens 1 L2).
  */
-export async function placeStation(a: BotAgent, name: StationName, signal: AbortSignal, via: string, keepCobble = 0, gather = false): Promise<Block | null> {
+export async function placeStation(a: BotAgent, name: StationName, signal: AbortSignal, via: string, keepCobble = 0, gather = false,
+  cell?: { pos: { x: number; y: number; z: number }; facing?: string; lockKey: string; record: (pos: { x: number; y: number; z: number }, found: boolean) => void; withdrawn?: () => void }): Promise<Block | null> {
   const v = a.village();
   if (!v) throw new Error('place_station: not in a village');
-  const release = await stationLock(`${v.name}:${name}`, signal);
+  const release = await stationLock(cell ? cell.lockKey : `${v.name}:${name}`, signal);
   try {
-    const spot = villageStationCell(v, name) ?? stationSpot(v, name);
+    const spot = cell ? cell.pos : villageStationCell(v, name) ?? stationSpot(v, name);
     if (!spot) throw new Error(`place_station: the storage hut's ground is not prepared yet (the ${name} goes in its cell once the village plot is prepared)`);
     const pos = new Vec3(spot.x, spot.y, spot.z);
     const rcon = a.world.rcon;
@@ -1235,7 +1239,8 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
     const state = a.world.registry.blocksByName[name];
     const view = a.bot.world as unknown as { setBlockStateId(p: Vec3, id: number): void };
     const found = async () => {
-      if (!v.stations?.[name]) {
+      if (cell) cell.record(pos, true);
+      else if (!v.stations?.[name]) {
         recordStation(a, v, name, pos, via, true);
         a.world.villages.save();
       }
@@ -1247,7 +1252,7 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
           if (e.message === 'cancelled') throw e;
           console.log(`[station] ${a.name} could not put its spare ${name} into storage: ${e.message.slice(0, 100)}`);
         });
-      stationsReady(a, v);
+      if (!cell) stationsReady(a, v);
       return a.bot.blockAt(pos);
     };
     // (the cell's chunk may not be loaded on the server while no one is near: asked again once there)
@@ -1280,6 +1285,8 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
           if (got < short && Math.max(0, (await count('cobblestone')) - keepCobble) < 8)
             throw new Error(`place_station: the furnace needs 8 cobblestone (carrying ${8 - short}, the storage gave ${got} more); collect cobblestone, then place_station again`);
         }
+        // (the cobblestone in hand: an earmark on the storage's ends here, not after the craft and the walk back)
+        cell?.withdrawn?.();
       }
       // (the furnace at the village's table: placed first when it is not there, by this same placer)
       await craft(a, { item: name, count: 1 }, signal);
@@ -1299,7 +1306,7 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
       await rcon.command(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`).catch(() => '');
     const took = await rcon.take(a.name, name, 1);
     if (took < 1) throw new Error(`place_station: the server counts no ${name} carried`);
-    const out = await rcon.command(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:${name} keep`).catch((e: Error) => `error: ${e.message}`);
+    const out = await rcon.command(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:${name}${cell?.facing ? `[facing=${cell.facing}]` : ''} keep`).catch((e: Error) => `error: ${e.message}`);
     // Confirmed on the server (the answer can be lost: a timed-out command placed is still placed); given back if not there,
     // or if the server refused it because one stood there already (keep)
     const placed = await there();
@@ -1307,6 +1314,10 @@ export async function placeStation(a: BotAgent, name: StationName, signal: Abort
     if (!placed) throw new Error(`place_station: the ${name} could not be set at ${at(pos)} (${out.slice(0, 80)}; ${a.bot.blockAt(pos)?.name ?? 'unloaded'} there); place_station again`);
     if (/could not set/i.test(out)) return await found();
     if (a.bot.blockAt(pos)) view.setBlockStateId(pos, state.defaultState ?? state.minStateId!);
+    if (cell) {
+      cell.record(pos, false);
+      return a.bot.blockAt(pos);
+    }
     recordStation(a, v, name, pos, via);
     a.world.villages.save();
     stationsReady(a, v);
@@ -1417,7 +1428,26 @@ async function doCraft(a: BotAgent, r: Recipe, times: number, _table: Block | nu
   for (let i = 0; i < 30 && countItem(a, r.result.id) < before + made; i++) await sleep(100, signal);
   await syncInventory(a);
   a.pushEvent('crafted', `crafted ${made}x ${name}`, { item: name, count: made });
+  noteMade(a, name, made, 'craft');
   return made;
+}
+
+/**
+ * The village's tech record (S.9): the first time it makes an item, by craft or smelt, on whatever path (one place for
+ * every caller; firstMade writes only the first time, so later crafts change nothing, lesson 103). `via`: the action, a
+ * chore's mark and the claimed task. Never fails the craft.
+ */
+function noteMade(a: BotAgent, item: string, n: number, how: 'craft' | 'smelt') {
+  try {
+    const v = a.village();
+    if (!v || n <= 0 || v.tech?.[item]) return;
+    const st = a.current?.status;
+    const task = v.tasks.find((t) => t.status === 'claimed' && t.claimedBy === a.name);
+    const via = `${st?.type ?? 'a skill'}${st?.args?.chore ? ' (chore)' : ''}${task ? `: ${task.id} ${task.title}` : ''}`.slice(0, 60);
+    a.world.villages.firstMade(v, item, { at: Date.now(), by: a.name, how, n, via });
+  } catch (e) {
+    console.log(`[tech] ${a.name}: ${item} not recorded (${(e as Error).message.slice(0, 100)})`);
+  }
 }
 
 /** Craft `times` of a recipe that needs no table (planks, sticks, the table itself). */
@@ -1640,15 +1670,34 @@ const FURNACE_QUEUE = 7;
  * Hold the village's furnace for a whole job (S.3: makeFromStock from its withdrawal to its last deposit, make_into_storage):
  * walk near it, then wait for it; its own smelts go through. A no-op release where the village has no furnace yet.
  * Decided by the hut's record, not by how far the bot is: a builder on a second layout 70 blocks off took no lock and
- * raced the panes' maker for the pooled sand (S.3's review).
+ * raced the panes' maker for the pooled sand (S.3's review). `furnace`: that one instead (a works furnace, S.9).
  */
-export async function holdVillageFurnace(a: BotAgent, signal: AbortSignal, what?: string): Promise<() => void> {
+export async function holdVillageFurnace(a: BotAgent, signal: AbortSignal, what?: string, furnace?: { x: number; y: number; z: number }): Promise<() => void> {
   const v = a.village();
-  const cell = v && villageStationCell(v, 'furnace');
+  const cell = furnace ?? (v && villageStationCell(v, 'furnace'));
   if (!cell) return () => undefined;
   const pos = new Vec3(cell.x, cell.y, cell.z);
   await reach(a, pos.offset(0.5, 0, 0.5), FURNACE_QUEUE, signal);
   return furnaceLock(at(pos), signal, a.name, what);
+}
+
+/**
+ * The furnace at `pos` (S.9: a works furnace, smelt's `at`), walked near first so its chunk is in view: the bot's view,
+ * else the server's answer written into it (a placement by command is not always echoed, lesson 29). "is gone" only when
+ * the server says no furnace stands there (the make skill then clears its record); a cell the server has not loaded is
+ * not gone.
+ */
+async function furnaceAt(a: BotAgent, pos: Vec3, signal: AbortSignal): Promise<Block> {
+  await reach(a, pos.offset(0.5, 0, 0.5), FURNACE_QUEUE, signal);
+  const b = a.bot.blockAt(pos);
+  if (b?.name === 'furnace') return b;
+  const r = await a.world.rcon.command(`execute if block ${pos.x} ${pos.y} ${pos.z} minecraft:furnace`).catch((e: Error) => `error: ${e.message}`);
+  if (!/passed/i.test(r)) throw new Error(/failed/i.test(r) ? `the furnace at ${at(pos)} is gone` : `the furnace at ${at(pos)} could not be checked (${r.slice(0, 80) || 'no answer'})`);
+  const state = a.world.registry.blocksByName.furnace;
+  if (b) (a.bot.world as unknown as { setBlockStateId(p: Vec3, id: number): void }).setBlockStateId(pos, state.defaultState ?? state.minStateId!);
+  const seen = a.bot.blockAt(pos);
+  if (seen?.name !== 'furnace') throw new Error(`the furnace at ${at(pos)} is not in view (${seen?.name ?? 'unloaded'} there)`);
+  return seen;
 }
 
 async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
@@ -1665,10 +1714,14 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
   const have = countItem(a, inId);
   if (!have) throw new Error(`no ${input} in inventory`);
   const count = Math.min(have, args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : have);
-  let home = villageStation(a, 'furnace');
+  // `at` (code's only: a make on a works furnace, S.9): that furnace, asked of the server when the bot's view says
+  // otherwise (lesson 29), and an error when it is not one
+  const atCell = typeof args.at === 'string' ? args.at.split(',').map(Number) : null;
+  if (atCell && (atCell.length !== 3 || atCell.some((n) => !Number.isFinite(n)))) throw new Error(`smelt: at is "x,y,z", not ${String(args.at)}`);
+  let home = atCell ? await furnaceAt(a, new Vec3(atCell[0], atCell[1], atCell[2]), signal) : villageStation(a, 'furnace');
   // Near the storage hut's prepared ground with no furnace there yet: the village's goes into its cell (S.5), not one beside
   // the bot (the input kept out of its 8 cobblestone)
-  if (!home && stationNear(a, 'furnace')) {
+  if (!home && !atCell && stationNear(a, 'furnace')) {
     const b = await placeStation(a, 'furnace', signal, `smelting ${input}`, input === 'cobblestone' ? count : 0).catch((e: Error) => {
       if (e.message === 'cancelled' || unmoved(e)) throw e;
       // (as before S.5 then: a furnace standing near or carried, else the smelt fails asking for one)
@@ -1698,6 +1751,11 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
       // The first stack found can be a leftover of one or two planks: top up from the next when the fire goes out
       // (four glass came out one: "ran out of fuel after 1 of 4" with planks still in hand, Accept9 and Accept10)
+      // `coal` (code's only: makeHeld's plan, shared by the job's smelts as { left }): the coal and charcoal the plan burns;
+      // more is an ingredient of a later step and burns only before the logs being smelted (a torch batch's withdrawn
+      // charcoal burned ahead of its planned planks, and the torch craft came up short: S.9's review, lens 1 M1, lens 3 M1).
+      // Without it, coal first as before
+      const budget = args.coal && typeof args.coal === 'object' && typeof (args.coal as { left?: unknown }).left === 'number' ? (args.coal as { left: number }) : null;
       const addFuel = async (left: number) => {
         // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
         const items = furnace.items();
@@ -1706,12 +1764,17 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
         const spare = typeof args.fuel === 'string' ? args.fuel : '';
         // (the spare kind's logs before other kinds' planks: those are fetched for later steps, the final review; never the
         // logs being smelted)
-        const fuel = items.find((it) => FUELS.includes(it.name)) ?? items.find((it) => it.name === `${spare}_planks`)
+        const fuel = items.find((it) => FUELS.includes(it.name) && (!budget || budget.left > 0)) ?? items.find((it) => it.name === `${spare}_planks`)
           ?? (spare ? items.find((it) => it.name === `${spare}_log` && it.type !== inId) : undefined)
-          ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name) && it.type !== inId) ?? items.find((it) => /_log$/.test(it.name));
+          ?? items.find((it) => /_planks$/.test(it.name)) ?? items.find((it) => /_log$/.test(it.name) && it.type !== inId)
+          ?? (budget ? items.find((it) => FUELS.includes(it.name)) : undefined) ?? items.find((it) => /_log$/.test(it.name));
         if (!fuel) return false;
-        const perItem = FUELS.includes(fuel.name) ? 8 : 1.5;
-        await furnace.putFuel(fuel.type, null, Math.min(fuel.count, Math.ceil(left / perItem)));
+        const coal = FUELS.includes(fuel.name);
+        const perItem = coal ? 8 : 1.5;
+        let n = Math.min(fuel.count, Math.ceil(left / perItem));
+        if (budget && coal && budget.left > 0) n = Math.min(n, budget.left);
+        await furnace.putFuel(fuel.type, null, n);
+        if (budget && coal) budget.left = Math.max(0, budget.left - n);
         return true;
       };
       // What another smelt left (a cancelled one) comes out first: a different input would refuse this one
@@ -1736,6 +1799,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       }
       // S.3: one line a batch (glass made once for the village: one "into glass" a run)
       console.log(`[smelt] ${a.name} smelted ${got} ${input} into ${outName || 'nothing'} at ${at(furnaceBlock.position)}`);
+      if (got > 0 && outName) noteMade(a, outName, got, 'smelt');
       return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
     } finally {
       furnace.close();
@@ -1970,7 +2034,9 @@ export const SURVIVAL_SKILLS: Record<string, McSkill> = {
       // chests to make room for the hut, and their record was lost)
       const built = [...a.world.villages.villages.values()].find((v) =>
         v.structures.some((q) => pos.x >= q.x1 && pos.x <= q.x2 && pos.z >= q.z1 && pos.z <= q.z2 && pos.y >= q.y - 1 && pos.y <= q.y + 24)
-        || Object.values(v.stations ?? {}).some((q) => q && q.x === pos.x && q.y === pos.y && q.z === pos.z));
+        || Object.values(v.stations ?? {}).some((q) => q && q.x === pos.x && q.y === pos.y && q.z === pos.z)
+        // (and the works plot's furnaces, recorded on the plot only: S.9's review, lens 4 L1)
+        || (v.layouts?.[0]?.works?.furnaces ?? []).some((q) => q && q.x === pos.x && q.y === pos.y && q.z === pos.z));
       if (built && a.gamemode !== 'creative')
         throw new Error(`${at(pos)} is part of village ${built.name} (a building, a storage chest or a station): it is not yours to mine`);
       try {

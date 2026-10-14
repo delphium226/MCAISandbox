@@ -203,13 +203,15 @@ export interface WorldAdapter {
   choiceSummary?(village: string): ChoiceSummary | null;
 }
 
-/** A2: the kinds of chores a complete village's idle members choose among. */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore';
+/** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
+ *  gathering for the workshop). */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {
   /** Stable instance id: 'farm:1', 'slot:1:2', 'start:pumpkin', 'annex', 'pen:cow', 'penwork:2:milk', 'cake',
-   *  'iron:dig' | 'iron:iron_pickaxe' | 'iron:bucket', 'explore:3' (ring point i, 0 = east, clockwise: 2 = south). */
+   *  'iron:dig' | 'iron:iron_pickaxe' | 'iron:bucket', 'explore:3' (ring point i, 0 = east, clockwise: 2 = south),
+   *  'works:prepare' | 'works:furnace:2', 'make:torch', 'gather:sand'. */
   id: string;
   kind: ChoiceKind;
   /** The F193 key it holds while it runs (single-key mode: 'start', 'explore'; instance mode: 'explore:3',

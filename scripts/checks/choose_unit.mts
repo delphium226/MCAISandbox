@@ -6,7 +6,9 @@
  * text replies), choose() with each outcome of the call (a choice, withdrawn, timeout, budget, error, invalid; a blocked
  * budget refused before any call), the queue (the parallel cap, FIFO, the queue wait passed to the job, expiry giving
  * onExpire, cancel, a throwing job and a throwing onExpire caught, no unhandled rejection), and ChoiceStats (learning
- * progress, the per-id ban and the kind ban rule, explore exempt, the agent cooldown, the model-call rate, the facts).
+ * progress, the per-id ban and the kind ban rule, explore exempt, the agent cooldown, the model-call rate, the facts), and S.9's
+ * parts (MC_CHOICE_FAMILIES, choreProductive for make, works and gather, make and gather banned per id only, the trim's
+ * two a kind and the stone goods' names).
  * Exits non-zero on any failure.
  * Usage: node_modules/.bin/tsx scripts/checks/choose_unit.mts
  */
@@ -91,7 +93,28 @@ const menu = (options: ChoiceOption[], persona = ''): ChoiceMenu => ({
     opt('iron:dig', 'iron', 'i', 700, 1.0), opt('explore:0', 'explore', 'j', 800, 0.5),
   ];
   const t2 = trimMenu(many);
-  eq(t2.map((o) => o.id), ['farm:0', 'farm:1', 'slot:0:0', 'start:cane', 'annex', 'pen:chicken', 'cake', 'iron:dig'], 'over 8: by lp desc then rank, returned in rank order');
+  // (eight kinds: one each, the low-lp slot and explore too; S.9's review, lens 2 M1)
+  eq(t2.map((o) => o.id), ['farm:0', 'slot:0:0', 'start:cane', 'annex', 'pen:chicken', 'cake', 'iron:dig', 'explore:0'], 'over 8: each kind\'s best first, returned in rank order');
+  // Fewer kinds than room: each kind's best, then the rest by lp desc then rank
+  const few = [
+    opt('farm:0', 'farm', 'a', 10, 1.0), opt('farm:1', 'farm', 'b', 11, 1.0),
+    opt('slot:0:0', 'slot', 'c', 100, 1.0), opt('slot:0:1', 'slot', 'd', 101, 1.0),
+    opt('start:cane', 'start', 'e', 200, 1.0), opt('start:melon', 'start', 'f', 201, 1.0),
+    opt('cake', 'cake', 'g', 600, 1.0), opt('iron:dig', 'iron', 'h', 700, 1.0),
+    opt('make:torch', 'make', 'i', 900, 0.5), opt('make:glass', 'make', 'j', 901, 0.5),
+    opt('gather:sand', 'gather', 'k', 950, 0.5), opt('gather:logs', 'gather', 'l', 951, 0.5),
+  ];
+  eq(trimMenu(few).map((o) => o.id), ['farm:0', 'farm:1', 'slot:0:0', 'start:cane', 'cake', 'iron:dig', 'make:torch', 'gather:sand'], 'over 8: a settled make and gathering keep one option each behind 8 older ones');
+  // Lens 2's mature menu: the workshop's kinds survive 9 older options at the same lp
+  const mature = [
+    opt('slot:0:0', 'slot', 'a', 100, 1.0), opt('start:cane', 'start', 'b', 200, 1.0), opt('start:melon', 'start', 'c', 201, 1.0),
+    opt('pen:chicken', 'pen', 'd', 400, 1.0), opt('penwork:0:eggs', 'penwork', 'e', 500, 1.0), opt('penwork:1:milk', 'penwork', 'f', 501, 1.0),
+    opt('cake', 'cake', 'g', 600, 1.0), opt('iron:dig', 'iron', 'h', 700, 1.0), opt('explore:6', 'explore', 'i', 800, 0.5), opt('explore:7', 'explore', 'j', 801, 0.5),
+    opt('works:furnace:1', 'works', 'k', 852, 1.0), opt('make:torch', 'make', 'l', 900, 1.0), opt('gather:sand', 'gather', 'm', 950, 1.0),
+  ];
+  const tm = trimMenu(mature);
+  ok(tm.length === MENU_MAX && new Set(tm.map((o) => o.kind)).size === MENU_MAX, `a mature menu of 10 kinds: 8 options of 8 kinds (${tm.map((o) => o.id).join(', ')})`);
+  ok(tm.some((o) => o.kind === 'works') && tm.some((o) => o.kind === 'make'), 'a mature menu keeps the works furnace and a make');
   ok(trimMenu([]).length === 0, 'an empty menu stays empty');
   eq(fixedPick(menu([...OPTIONS].reverse()))?.id, 'farm:0', 'the fixed pick is the lowest rank');
   eq(fixedPick(menu([])), undefined, 'no fixed pick from an empty menu');
@@ -430,6 +453,52 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
   eq(P('penwork', 'other_skill', 'did it (not deposited: storage is full)'), true, 'generic: a storage-full note is not nothing gained');
   eq(choreProductive('farm', 'harvest_farm', false, 'harvested 14 ripe wheat', null), false, 'a failure is never productive');
   eq([choreProductive('explore', 'scout', true, '', null, 0.25), choreProductive('explore', 'scout', true, '', null, 0.05)], [true, false], 'explore by new land');
+  // S.9: the workshop's make by its count, the works plot by success, gathering by its deposit's message (the world passes it)
+  eq(P('make', 'make', 'made 16 torch (16 of 16; smelted 4 charcoal); put into storage: 16 torch'), true, 'make: made 16 torch');
+  eq(P('make', 'make', 'made 0 torch (the inputs were taken)'), false, 'make: made 0');
+  eq(choreProductive('make', 'make', false, 'make: torch: at stock', null), false, 'make: a failure');
+  eq([P('works', 'prepare_works', 'prepared the works plot at -1660..-1648, 40..48'), P('works', 'place_works_furnace', 'placed works furnace 2 at -1655,66,43')], [true, true], 'works by success');
+  eq(choreProductive('works', 'place_works_furnace', false, 'x failed', null), false, 'works: a failure');
+  eq(P('gather', 'deposit', 'deposited 16 sand (sand chest). Storage now holds 22 sand'), true, 'gather: deposited 16 sand');
+  eq(P('gather', 'deposit', 'deposited 4 oak_log, 8 birch_log'), true, 'gather: deposited mixed logs');
+  eq(P('gather', 'deposit', 'deposited 0 sand'), false, 'gather: deposited 0');
+  eq(P('gather', 'collect', 'collected 16 sand'), false, "gather: a collect's message is not its deposit");
+  eq(choreProductive('gather', 'deposit', false, 'deposited 16 sand', null), false, 'gather: a failure');
+}
+
+// --- S.9: the families' setting, bans per id, the trim and names
+{
+  const want = (process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works').split(',').map((s) => s.trim()).filter(Boolean).sort();
+  eq([...CHOOSE.families].sort(), want, 'CHOOSE.families from MC_CHOICE_FAMILIES (default make,gather,works)');
+  ok(CHOOSE.families instanceof Set, 'families is a set');
+  const T = Date.UTC(2026, 9, 14, 12);
+  const MIN = 60000;
+  for (const kind of ['make', 'gather'] as ChoiceKind[]) {
+    const s = new ChoiceStats();
+    const end = (agent: string, id: string, m: number) => s.record({ village: 'V', agent, kind, id, ok: false, cut: false, contention: false, productive: false, minutes: 1, at: T + m * MIN, line: 'x' });
+    const [a, b, c] = kind === 'make' ? ['make:torch', 'make:glass', 'make:ladder'] : ['gather:sand', 'gather:logs', 'gather:cobblestone'];
+    end('Worker1', a, 0);
+    end('Worker2', b, 5);
+    end('Worker1', a, 10);
+    eq([s.banned('V', kind, c, T + 11 * MIN), s.banned('V', kind, b, T + 11 * MIN)], [null, null], `${kind}: three failures over two ids by two agents ban no neighbour (per id only)`);
+    end('Worker2', a, 15);
+    eq(s.banned('V', kind, a, T + 16 * MIN), { until: T + 75 * MIN, scope: 'id' }, `${kind}: the third failure of one id bans that id`);
+    eq(s.banned('V', kind, c, T + 16 * MIN), null, `${kind}: and not the rest of the kind`);
+  }
+  const s9 = [
+    opt('make:stone_pickaxe', 'make', 'Make stone pickaxes', 900), opt('make:stone_bricks', 'make', 'Make stone bricks', 901),
+    opt('make:torch', 'make', 'Make torches', 902), opt('gather:sand', 'gather', 'Gather sand for the workshop', 950),
+    opt('gather:logs', 'gather', 'Fell trees for the workshop', 951), opt('gather:cobblestone', 'gather', 'Mine cobblestone for the workshop', 952),
+    opt('works:prepare', 'works', 'Prepare the works plot', 850), opt('farm:0', 'farm', 'Harvest the wheat field', 10),
+  ];
+  const t = trimMenu([...s9].reverse());
+  eq([t.filter((o) => o.kind === 'make').length, t.filter((o) => o.kind === 'gather').length], [2, 2], 'the trim keeps two makes and two gatherings');
+  eq(t.map((o) => o.id), ['farm:0', 'works:prepare', 'make:stone_pickaxe', 'make:stone_bricks', 'gather:sand', 'gather:logs'], 'the lowest ranks of each, in rank order');
+  const call = (choice: string): Reply => ({ calls: [{ name: 'choose', input: { reason: 'x', choice } }], text: '' });
+  eq(parseChoice(call('Make stone pickaxes'), s9), { id: 'make:stone_pickaxe', reason: 'x' }, 'an exact make name (pickaxes)');
+  eq(parseChoice(call('Make stone bricks'), s9), { id: 'make:stone_bricks', reason: 'x' }, 'an exact make name (bricks)');
+  ok('invalid' in parseChoice(call('Make stone'), s9), 'a prefix of both stone goods is refused');
+  eq(parseChoice(call('Mine cobblestone for the workshop'), s9), { id: 'gather:cobblestone', reason: 'x' }, 'an exact gathering name');
 }
 
 await tick(10);

@@ -12,11 +12,12 @@ import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
 import { Vec3 } from 'vec3';
-import { collectFilter, collectTargets, exposed } from './mcSurvival';
+import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
 import { mineCanGive, mineFaces } from './mcMine';
-import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan } from '../farmSlots';
+import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
+import { GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
@@ -27,7 +28,7 @@ import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Design } from '../village';
-import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts } from './mcMaterials';
+import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
@@ -65,7 +66,27 @@ type ChoiceState = {
    *  name), and for an explore its ring point with how much of its land the atlas knew at the start. */
   endedAt?: number; decisionId?: string; holds: string[]; kind?: ChoiceKind; option?: string; name?: string;
   point?: { x: number; z: number; known0: number };
+  /** S.9: a make's good, batch and furnace (k; none: crafted), netted out of its deficit while it goes; a gathering's
+   *  material and trip (`n`: the amount, counted as incoming until the chore ends). */
+  make?: { item: string; count: number; smelts: boolean; k?: number };
+  gather?: { material: Material; n: number };
+  /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
+  furnace?: number;
 };
+
+/** One good's plan for the workshop now (makePlan): the batch it makes, or why none. */
+type MakePlan = { count: number; bill: Counts; inputs: Counts; smelts: boolean; craft?: { item: string; count: number; wood: string } } | { why: string };
+/** Gathering's demand per material (gatherWanted). */
+type GatherWanted = Record<Material, { need: number; incoming: number; want: number; for: string[] }>;
+/** Gathering's materials in their table order (ties of the menu's order). */
+const MATERIALS: Material[] = ['sand', 'logs', 'cobblestone'];
+/** The smallest trip a further gatherer is sent for while some of the material is already on the way (no walk for one
+ *  log; with nothing incoming any want goes, so the last few still come). */
+const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobblestone: 8 };
+/** A gathering that found none of its material backs it off this long; a second such answer counts toward "unavailable"
+ *  only this long after the first (S.9's review, lens 4 M2). */
+const GATHER_NONE_BACK = 30 * 60000;
+const GATHER_NONE_APART = 10 * 60000;
 
 /** Stone pickaxes the supply makes into storage (S.1; S.8 raises it to 8). */
 const PICK_BATCH = 4;
@@ -429,6 +450,163 @@ export class MineflayerWorld implements WorldAdapter {
   reservedInStorage(v: Village, item: string): number {
     const r = this.storageReserve(v);
     return item === 'logs' ? Object.entries(r).filter(([k]) => /_log$/.test(k)).reduce((s, [, q]) => s + q, 0) : r[item] ?? 0;
+  }
+
+  // ---- S.9: the workshop's numbers (pure; the menu, the make skill and the offline checks read them) --------------------
+
+  /**
+   * The logs the workshop leaves in storage (spec 4.5): a pen ring's 10 for each annex pen slot with no pen built yet, and
+   * 4 for a new storage chest's and a hoe made on the spot (a ring is charged from storage through runJob, the check's M6).
+   */
+  logsKeep(v: Village): number {
+    // (an annex not yet prepared has no slots recorded: its two count, or makes took the logs down to 4 while it was
+    // prepared, S.9's review, lens 4 L2)
+    const lay0 = v.layouts?.[0];
+    const slots = lay0?.annex?.state === 'ready' || (lay0?.slots ?? []).some((s) => s.annex) ? (lay0?.slots ?? []).filter((s) => s.annex && !s.pen?.built).length : 2;
+    return Math.min(24, MAKE_KEEP.logsBase + MAKE_KEEP.logsPerPen * slots);
+  }
+
+  /**
+   * What of the storage a make may take (spec 4.5): the storage less the reserve (after completion ~nothing), the keeps
+   * (cobblestone 14, coal 2, logsKeep in the village's kind, else from the most stocked kinds) and what other agents' queued
+   * makes and furnace placements have earmarked (D6; `agent`'s own is its to withdraw); nothing of MAKE_NEVER or `except`
+   * (the good's own item: a batch is never made from its own stock).
+   */
+  makeSpare(v: Village, agent: string, except?: string, store: Counts = storageContents(v)): Counts {
+    const reserve = this.storageReserve(v);
+    const own = agent ? holdKey(v.name, agent) : '';
+    const held: Counts = {};
+    for (const [k, c] of makeHolds) if (k.startsWith(`${v.name}|`) && k !== own) for (const [n, q] of Object.entries(c)) held[n] = (held[n] ?? 0) + q;
+    const out: Counts = {};
+    for (const [n, q] of Object.entries(store)) {
+      if (MAKE_NEVER.has(n) || n === except) continue;
+      const keep = n === 'cobblestone' ? MAKE_KEEP.cobblestone : n === 'coal' ? MAKE_KEEP.coal : 0;
+      const s = q - (reserve[n] ?? 0) - keep - (held[n] ?? 0);
+      if (s > 0) out[n] = s;
+    }
+    let keep = this.logsKeep(v);
+    const kinds = v.wood ? [`${v.wood}_log`] : Object.keys(out).filter((n) => /_log$/.test(n)).sort((x, y) => out[y] - out[x]);
+    for (const k of kinds) {
+      const t = Math.min(out[k] ?? 0, keep);
+      keep -= t;
+      if (t && !(out[k] -= t)) delete out[k];
+    }
+    return out;
+  }
+
+  /**
+   * One good's plan now (spec 2.6): its deficit (the target less the stock and other agents' makes of it under way), then
+   * batches from the largest whole one down by its unit, the first whose bill plans from the spare storage with nothing to
+   * gather (lesson 1: code finds the batch). `inputs`: what the plan takes from storage plus the coal and charcoal it burns
+   * (spare coal first); `smelts` by the plan's own fuel count, the rule the skill uses too (D5).
+   */
+  makePlan(v: Village, good: MakeGood, agent: string, store: Counts = storageContents(v)): MakePlan {
+    const stock = store[good.item] ?? 0;
+    const going = this.goingS9(v, agent).make.filter((m) => m.item === good.item).reduce((s, m) => s + m.count, 0);
+    const want = good.target - stock - going;
+    if (want <= 0) return { why: 'at stock' };
+    const spare = this.makeSpare(v, agent, good.item, store);
+    const plans = new Map<string, MaterialPlan>();
+    const plan = (b: Counts, have: Counts) => {
+      const key = `${JSON.stringify(b)}|${have === spare ? '' : JSON.stringify(have)}`;
+      let p = plans.get(key);
+      if (!p) plans.set(key, (p = this.materials.plan(b, have)));
+      return p;
+    };
+    const wood = v.wood ?? this.woodOf(v, store);
+    for (let count = Math.min(good.batch, Math.ceil(want / good.unit) * good.unit); count > 0; count -= good.unit) {
+      const b = makeBill(this.registry, plan, good, count, spare, wood);
+      if (!b) return { why: 'no recipe' };
+      if (!b.feasible) continue;
+      const p = plan(b.bill, spare);
+      if (Object.keys(p.gather).length || p.problems.length) continue;
+      const inputs: Counts = { ...p.fromStock };
+      // (the fuel's coal from what the ingredients left of the spare coal, then charcoal: D13's planner counts it once)
+      let fuel = p.fuel.coal;
+      for (const n of ['coal', 'charcoal']) {
+        const t = Math.min(fuel, (spare[n] ?? 0) - (p.fromStock[n] ?? 0));
+        if (t <= 0) continue;
+        inputs[n] = (inputs[n] ?? 0) + t;
+        fuel -= t;
+      }
+      return { count, bill: b.bill, inputs, smelts: p.fuel.smelts > 0, ...(b.craft ? { craft: b.craft } : {}) };
+    }
+    return { why: 'inputs short' };
+  }
+
+  /**
+   * Gathering's demand per material (spec 4.8): the raw materials of every good's deficit (makes under way netted out, the
+   * check's M1; variants in the village's wood unless stocked slabs make them), planned from the spare storage without the
+   * goods themselves (a stock already lowers the deficit), with the works furnaces' cobblestone once the plot is ready (less
+   * the placements under way); the keeps' shortfall (logs, cobblestone). Less what gathering chores under way bring
+   * (incoming).
+   */
+  gatherWanted(v: Village, store: Counts = storageContents(v)): GatherWanted {
+    const going = this.goingS9(v);
+    const spare = this.makeSpare(v, '', undefined, store);
+    for (const g of MAKE_GOODS) delete spare[g.item];
+    const wood = v.wood ?? this.woodOf(v, store);
+    const plan = (b: Counts, have: Counts) => this.materials.plan(b, have);
+    const out = Object.fromEntries(MATERIALS.map((m) => [m, { need: 0, incoming: 0, want: 0, for: [] as string[] }])) as GatherWanted;
+    const mat = (n: string): Material | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone' : null);
+    const bill: Counts = {};
+    for (const g of MAKE_GOODS) {
+      const d = Math.max(0, g.target - (store[g.item] ?? 0) - going.make.filter((x) => x.item === g.item).reduce((s, x) => s + x.count, 0));
+      if (!d) continue;
+      const b = g.variant ? makeBill(this.registry, plan, g, d, spare, wood)?.bill : { [g.item]: d };
+      if (!b) continue;
+      for (const [n, q] of Object.entries(b)) bill[n] = (bill[n] ?? 0) + q;
+      // (what each good wants gathered, for the facts: planned alone)
+      const own = plan(b, spare).gather;
+      for (const m of new Set(Object.keys(own).map(mat))) if (m) out[m].for.push(g.words);
+    }
+    // The works furnaces' 8 cobblestone each, once the plot is ready: in the bill planned from the spare storage with the
+    // goods, less the placements under way (their 8 are earmarked, so the spare is already short of them): a stocked village
+    // gathered 24 cobblestone it held for as long as a furnace stood unplaced (S.9's review, lens 2 H1, lens 4 M1)
+    const wk = v.layouts?.[0]?.works;
+    if (wk?.state === 'ready') {
+      const placed = (wk.furnaces ?? []).slice(0, WORKS_FURNACES).filter(Boolean).length;
+      const missing = Math.max(0, WORKS_FURNACES - placed - going.furnaces.filter((k) => !wk.furnaces?.[k - 1]).length);
+      if (missing > 0) {
+        bill.cobblestone = (bill.cobblestone ?? 0) + 8 * missing;
+        if (plan({ cobblestone: 8 * missing }, spare).gather.cobblestone) out.cobblestone.for.push('the works furnaces');
+      }
+    }
+    if (Object.keys(bill).length) for (const [n, q] of Object.entries(plan(bill, spare).gather)) {
+      const m = mat(n);
+      if (m) out[m].need += q;
+    }
+    const logs = v.wood ? store[`${v.wood}_log`] ?? 0 : Object.entries(store).filter(([n]) => /_log$/.test(n)).reduce((s, [, q]) => s + q, 0);
+    const keepLogs = Math.max(0, this.logsKeep(v) - logs), keepCobble = Math.max(0, MAKE_KEEP.cobblestone - (store.cobblestone ?? 0));
+    out.logs.need += keepLogs;
+    out.cobblestone.need += keepCobble;
+    if (keepLogs) out.logs.for.push('the keep');
+    if (keepCobble) out.cobblestone.for.push('the keep');
+    for (const g of going.gather) out[g.material].incoming += g.n;
+    for (const m of MATERIALS) out[m].want = Math.max(0, out[m].need - out[m].incoming);
+    return out;
+  }
+
+  /** Free furnace keys for a smelting make (D5), in order 1, 2, 3 (the works furnaces recorded), then 0 (the hut's). */
+  freeFurnaces(v: Village, busy: Set<string>): number[] {
+    const out: number[] = [];
+    const f = v.layouts?.[0]?.works?.furnaces ?? [];
+    for (let k = 1; k <= WORKS_FURNACES; k++) if (f[k - 1] && !busy.has(`furnace:${k}`)) out.push(k);
+    if (villageStationCell(v, 'furnace') && !busy.has('furnace:0')) out.push(0);
+    return out;
+  }
+
+  /** The village's makes and gathering trips under way (S.9), but `except`'s own (its make plans with itself left out). */
+  private goingS9(v: Village, except?: string) {
+    const make: Array<{ item: string; count: number; smelts: boolean; k?: number }> = [], gather: Array<{ material: Material; n: number }> = [], furnaces: number[] = [];
+    const skip = except?.toLowerCase();
+    for (const [id, c] of this.chores) {
+      if (c.village !== v.name || id === skip || !this.agents.has(id) || !c.status.some((q) => q.state === 'queued' || q.state === 'running')) continue;
+      if (c.choice.make) make.push(c.choice.make);
+      if (c.choice.gather) gather.push(c.choice.gather);
+      if (c.choice.furnace !== undefined) furnaces.push(c.choice.furnace);
+    }
+    return { make, gather, furnaces };
   }
 
   /**
@@ -979,7 +1157,8 @@ export class MineflayerWorld implements WorldAdapter {
   /**
    * Chores under way, by agent (lower-cased name; F193, 10-09: one chore an agent, so a second idle worker and the mayor
    * take chores of other kinds at the same time). `key` names what the chore works on: `slot:k:j`, `farm:k`, `start`,
-   * `annex`, `pen`, `iron` or `explore` (A.2's instances: `explore:i`, `start:k:j`, and further keys in `choice.holds`);
+   * `annex`, `pen`, `iron` or `explore` (A.2's instances: `explore:i`, `start:k:j`, and further keys in `choice.holds`;
+   * S.9's `works`, `worksfurnace:k`, `make:<item>` holding `furnace:k` when it smelts, `gather:<material>:<n>`);
    * no two chores of a village hold the same key (the skills' own locks are taken only when an action runs, so a key also
    * covers the time it waits in the queue).
    */
@@ -990,6 +1169,15 @@ export class MineflayerWorld implements WorldAdapter {
   private slotSkip = new Map<string, number>();
   /** When the cake was last tried, by village (a back-off). */
   private cakeAt = new Map<string, number>();
+  /** S.9's back-offs: failed makes by "village:item" (10 minutes, an hour after 3), gathering by "village:material" (until),
+   *  a works furnace by "village:k" (until); and the logs gathering deposited, by village (the hourly cap). */
+  private makeBack = new Map<string, { tries: number; at: number }>();
+  private gatherBack = new Map<string, number>();
+  private worksBack = new Map<string, number>();
+  private gatherLog = new Map<string, Array<{ at: number; n: number }>>();
+  /** A gathering's first "none found" answer, by "village:material": the material is marked unavailable only on a second
+   *  from another agent at least GATHER_NONE_APART later (S.9's review, lens 4 M2). */
+  private gatherNone = new Map<string, { agent: string; at: number }>();
 
   /**
    * The keys of a village's chores still under way (from the actions' own state: a stop fails them, lesson 67); finished
@@ -1114,14 +1302,31 @@ export class MineflayerWorld implements WorldAdapter {
     const agent = this.agents.get(c.agent.toLowerCase());
     if ((agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') this.reportFailed(c);
     const done = c.status.every((q) => q.state === 'done');
-    const message = bad?.message ?? (done ? c.status[c.status.length - 1]?.message ?? '' : 'agent gone');
-    const ok = !bad && done;
+    let message = bad?.message ?? (done ? c.status[c.status.length - 1]?.message ?? '' : 'agent gone');
+    let ok = !bad && done;
+    // S.9's gathering is judged by its deposit: a partial collect ("only found 9") whose load landed is a success (the
+    // check's M3), and the deposit's message is what choreProductive reads
+    const g = c.choice.kind === 'gather' ? c.choice.gather : undefined;
+    if (g) {
+      const dep = c.status[c.status.length - 1];
+      const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', g.material) : 0;
+      ok = n > 0;
+      // (a failed deposit after a failed collect says only "not carrying sand": the collect's reason, the first failure,
+      // is the one the log and the model's last chores read; S.9's review, lens 2 L1)
+      if (dep?.state === 'done' && (n > 0 || !bad)) message = dep.message ?? message;
+      // (a load landed: the material is there after all, a first "none found" is forgotten)
+      if (n > 0) this.gatherNone.delete(`${c.village}:${g.material}`);
+      if (n > 0 && g.material === 'logs') this.gatherLog.set(c.village, [...(this.gatherLog.get(c.village) ?? []).filter((e) => Date.now() - e.at < 60 * 60000), { at: Date.now(), n }]);
+    }
+    // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
+    if (c.choice.kind === 'make' || c.choice.kind === 'works') holdsDelete(holdKey(c.village, c.agent));
     const v = this.villages.get(c.village);
     const held = agent ? heldCounts(agent) : null;
     const carried = held ? countsDelta(c.choice.carried, held) : null;
     // (a stop or a removal fails every action as "cancelled", which the chores' own failed callbacks ignore too)
     const cut = !ok && (!agent || bad?.message === 'cancelled');
-    const code = bad?.code;
+    // (a gathering whose deposit landed is no contention, whatever its collect met)
+    const code = ok ? undefined : bad?.code;
     let known: number | undefined;
     if (c.choice.point) {
       try {
@@ -1300,6 +1505,18 @@ export class MineflayerWorld implements WorldAdapter {
         return m.get(k)!;
       };
     };
+    const since = <T,>(fn: () => T) => {
+      let at: string | undefined, val: T;
+      return () => {
+        const g = this.goingS9(v);
+        const sig = `${holdsVersion()}|${JSON.stringify(g)}`;
+        if (sig !== at) {
+          val = fn();
+          at = sig;
+        }
+        return val;
+      };
+    };
     let ok: ((p: { x: number; y: number; z: number }) => boolean) | undefined;
     const chest = v.storage?.chests[0];
     const startHome = chest ? { x: chest.x, z: chest.z } : villageHome(v, a.memory);
@@ -1391,6 +1608,11 @@ export class MineflayerWorld implements WorldAdapter {
         const [x, z] = xz.split(',').map(Number);
         return this.atlas.known(x, z, 48);
       }),
+      // S.9's workshop, for no one agent (an idle member holds no earmark): planned again only once the earmarks or the
+      // makes and trips under way changed, i.e. after one was taken in the sweep (spec 4.6)
+      makePlans: since(() => new Map(MAKE_GOODS.map((g) => [g.item, this.makePlan(v, g, '', store)]))),
+      gather: since(() => this.gatherWanted(v, store)),
+      spare: since(() => this.makeSpare(v, '', undefined, store)),
     };
   }
 
@@ -1403,7 +1625,8 @@ export class MineflayerWorld implements WorldAdapter {
 
   /**
    * The feasible chores for an idle member of a complete village, in rank order (today's fixed order: fields, ripe slots,
-   * farm starts, the annex, pens, pen work, the cake, the iron age, exploring). Pure: the writes the old picker made while
+   * farm starts, the annex, pens, pen work, the cake, the iron age, exploring; then S.9's works plot, making and gathering
+   * for the workshop, while MC_CHOICE_FAMILIES names them). Pure: the writes the old picker made while
    * looking are the sweep's housekeeping, the option's run (runOption) or `effects.skips` (spec 1.3). With `guards` (model
    * mode), banned and cooling options go to `guarded` and the rest are trimmed (choose.ts trimMenu).
    */
@@ -1417,16 +1640,18 @@ export class MineflayerWorld implements WorldAdapter {
     const store = facts.store;
     const multi = layouts.filter((l) => l.farm).length > 1;
     const instances = (kind: string) => CHOOSE.instances.has(kind);
-    const others = (kind: ChoiceKind) => {
-      const names = [...this.chores.values()].filter((c) => c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind === kind).map((c) => c.agent);
+    // (`id`: that option's chores and ends only: make's and gather's, whose ids are goods and materials; a glass maker was
+    // "on it" for torches, S.9's review, lens 2 L2)
+    const others = (kind: ChoiceKind, id?: string) => {
+      const names = [...this.chores.values()].filter((c) => c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind === kind && (id === undefined || c.choice.option === id)).map((c) => c.agent);
       return names.length ? `; on it: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}` : '';
     };
     const record = (kind: ChoiceKind) => {
       const s = this.choiceStats.agentKind(v.name, a.name, kind);
       return s ? `you: ${s.ok} of ${s.n} done, ~${Math.max(0.1, Math.round(s.minutes * 10) / 10)} min each` : 'you: never done';
     };
-    const lastOf = (kind: ChoiceKind) => {
-      const l = this.choiceStats.villageLast(v.name, kind);
+    const lastOf = (kind: ChoiceKind, id?: string) => {
+      const l = this.choiceStats.villageLast(v.name, kind, id);
       return l ? `; last ${ago(now - l.at)}, ${l.ok ? 'done' : 'failed'}` : '';
     };
     const dist = (x: number, z: number) => {
@@ -1542,8 +1767,9 @@ export class MineflayerWorld implements WorldAdapter {
         effect: 'room for two pens',
       }, { kind: 'annex', again: !!(ax && ax.x2 >= ax.x1), area: ax ? `${ax.x1},${ax.z1}..${ax.x2},${ax.z2}` : '' });
 
-    // Pens on the annex: one with animals of each kind (no harvest, farm start or other lure beside it, the pen review's L3)
-    const penEx = ['pen', 'annex', 'start', 'slot', 'farm'];
+    // Pens on the annex: one with animals of each kind (no harvest, farm start or other lure beside it, the pen review's L3;
+    // nor while the works plot beside the annex is prepared, S.9)
+    const penEx = ['pen', 'annex', 'start', 'slot', 'farm', 'works'];
     if (!lay0 || ax?.state !== 'ready') reasons.pen = 'no annex';
     else if (excluded(penEx, busy)) reasons.pen = 'busy';
     else {
@@ -1687,6 +1913,167 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'explore')) reasons.explore = points.length ? 'busy' : 'all visited';
     }
 
+    // S.9's families, each only while MC_CHOICE_FAMILIES names it (off: no option and no reason). Code does the arithmetic
+    // (targets, batches, earmarks, what is wanted and how much at once), the model only chooses (lesson 1)
+    const family = (f: string) => CHOOSE.families.has(f);
+
+    // The works plot beside the annex (D8), then its three furnaces, one at a time on the menu
+    const wk = lay0?.works;
+    if (!family('works')) {
+      // (off)
+    } else if (!lay0 || ax?.state !== 'ready') reasons.works = 'no annex';
+    else if (wk?.state !== 'ready') {
+      if (worksBusy.has(v.name) || excluded(['works', 'annex', 'pen'], busy)) reasons.works = 'busy';
+      else if (effTries(wk?.tries, wk?.lastTry?.at, now) >= 3 || (wk?.lastTry && now - wk.lastTry.at < 10 * 60000)) reasons.works = 'backing off';
+      else
+        add({
+          id: 'works:prepare', kind: 'works', key: 'works', excludes: ['works', 'annex', 'pen'], name: 'Prepare the works plot', rank: 850,
+          facts: `${wk && wk.x2 >= wk.x1 ? `${wk.x2 - wk.x1 + 1}x${wk.z2 - wk.z1 + 1} at ${wk.x1},${wk.z1}, tried ${effTries(wk.tries, wk.lastTry?.at, now)} times` : 'a 13x9 field beside the annex, not started'}; ${record('works')}${others('works')}`,
+          effect: "room for a row of three furnaces (the hut's one furnace smelts one batch at a time) and later a sheep pen",
+        }, { kind: 'works', stage: 'prepare', again: !!(wk && wk.x2 >= wk.x1), area: wk ? `${wk.x1},${wk.z1}..${wk.x2},${wk.z2}` : '' });
+    } else {
+      const placed = (wk.furnaces ?? []).slice(0, WORKS_FURNACES).filter(Boolean).length;
+      const k = Array.from({ length: WORKS_FURNACES }, (_, i) => i + 1).find((kk) => !wk.furnaces?.[kk - 1] && !excluded([`worksfurnace:${kk}=`, 'works='], busy) && (this.worksBack.get(`${v.name}:${kk}`) ?? 0) <= now);
+      const spare = facts.spare().cobblestone ?? 0;
+      if (placed >= WORKS_FURNACES) reasons.works = 'furnaces placed';
+      else if (!k) reasons.works = 'busy';
+      else if (spare < 8) reasons.works = 'cobblestone short';
+      else {
+        const cell = worksFurnaces(wk)[k - 1];
+        add({
+          id: `works:furnace:${k}`, kind: 'works', key: `worksfurnace:${k}`, excludes: [`worksfurnace:${k}=`, 'works='], name: 'Put a furnace on the works plot', rank: 851 + k,
+          at: { x: cell.x, y: wk.y + 1, z: cell.z },
+          facts: `${placed} of ${WORKS_FURNACES} furnaces stand; takes 8 cobblestone (${spare} spare); ${record('works')}${others('works')}`,
+          effect: `a ${ORDINALS[placed + 2] ?? 'further'} furnace: smelting jobs side by side`,
+        }, { kind: 'works', stage: 'furnace', k });
+      }
+    }
+
+    // Making into storage (the workshop, D1): each good below its target with a whole batch from spare storage; crafting
+    // at the hut (MAKE_PARALLEL at once), smelting at a free furnace each (the works plot's, then the hut's)
+    if (!family('make')) {
+      // (off)
+    } else if (!v.storageHut || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace')) reasons.make = 'no workshop';
+    else {
+      const plans = facts.makePlans();
+      const going = this.goingS9(v).make;
+      const crafting = going.filter((g) => !g.smelts).length;
+      const free = this.freeFurnaces(v, busy);
+      let nextFurnace = 0;
+      const goingOf = (item: string) => going.filter((g) => g.item === item).reduce((s, g) => s + g.count, 0);
+      // (the deficit order: the largest share of its target missing first, ties in the table's order)
+      const order = MAKE_GOODS.map((g, i) => ({ g, i, d: Math.max(0, g.target - (store[g.item] ?? 0) - goingOf(g.item)) / g.target })).sort((p, q) => q.d - p.d || p.i - q.i);
+      const why = new Set<string>();
+      let atStock = 0;
+      for (const [r, { g }] of order.entries()) {
+        const p = plans.get(g.item);
+        if (!p || 'why' in p) {
+          if (p && p.why === 'at stock') atStock++;
+          else why.add('inputs short');
+          continue;
+        }
+        if (excluded([`make:${g.item}=`], busy)) {
+          why.add('busy');
+          continue;
+        }
+        const back = this.makeBack.get(`${v.name}:${g.item}`);
+        if (back && now - back.at < (effTries(back.tries, back.at, now) >= 3 ? 60 : 10) * 60000) {
+          why.add('backing off');
+          continue;
+        }
+        let k: number | undefined;
+        if (p.smelts) {
+          k = free[nextFurnace];
+          if (k === undefined) {
+            why.add('furnaces busy');
+            continue;
+          }
+          nextFurnace++;
+        } else if (crafting >= MAKE_PARALLEL) {
+          why.add('hut busy');
+          continue;
+        }
+        const stock = store[g.item] ?? 0;
+        const smelts = p.smelts ? this.materials.plan(p.bill, p.inputs).fuel.smelts : 0;
+        const min = Math.max(0.1, Math.round(((0.3 + (smelts * 10) / 60) / timeScale()) * 10) / 10);
+        const cell = k === undefined ? villageStationCell(v, 'crafting_table') : k === 0 ? villageStationCell(v, 'furnace') : (() => {
+          const f = wk?.furnaces?.[k - 1];
+          return f ? { x: f.x, y: f.y, z: f.z } : null;
+        })();
+        add({
+          id: `make:${g.item}`, kind: 'make', key: `make:${g.item}`, holds: k === undefined ? [] : [`furnace:${k}`], excludes: [`make:${g.item}=`, ...(k === undefined ? [] : [`furnace:${k}=`])],
+          name: `Make ${g.words}`, rank: 900 + r, ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
+          facts: `${stock} of the ${g.target} kept are in storage; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
+          effect: `+${p.count} ${g.words} (${stock} stored): ${g.forWhat}`,
+        }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }) });
+      }
+      if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === MAKE_GOODS.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
+    }
+
+    // Gathering for the workshop (D9): one option a material, as much as the goods' deficits, the keeps and the furnaces
+    // want less what is on the way; sand two at once, logs three (within the hourly cap), cobblestone a free mine face each
+    if (family('gather')) {
+      const want = facts.gather();
+      const going = this.goingS9(v).gather;
+      const order = MATERIALS.map((m, i) => ({ m, i })).sort((p, q) => want[q.m].want - want[p.m].want || p.i - q.i);
+      const logsHour = (this.gatherLog.get(v.name) ?? []).filter((e) => now - e.at < 60 * 60000).reduce((s, e) => s + e.n, 0);
+      const why: string[] = [];
+      for (const [r, { m }] of order.entries()) {
+        const w = want[m], spec = GATHER_KINDS[m];
+        if (w.want <= 0) continue;
+        const held = [...busy].filter((key) => key.startsWith(`gather:${m}:`)).length;
+        let trip = Math.min(spec.trip, w.want), extra = '';
+        if (m === 'sand' && v.unavailable?.includes('sand')) {
+          why.push('no sand near');
+          continue;
+        }
+        if ((this.gatherBack.get(`${v.name}:${m}`) ?? 0) > now) {
+          why.push('backing off');
+          continue;
+        }
+        if (spec.atOnce === 'faces') {
+          // (S.2's gate: a queued or walking miner holds no face yet, so the trips under way count against the faces; and
+          // not the stairs down once the iron level exists, the check's M2 and L12)
+          if (!mineCanGive(v, 'cobblestone')) {
+            why.push('no mine');
+            continue;
+          }
+          const f = this.faces(v);
+          const free = Math.max(0, f.faces - (v.mine?.iron ? f.down : 0) - Math.max(f.held, going.filter((x) => x.material === m).length));
+          if (free <= 0) {
+            why.push('mine busy');
+            continue;
+          }
+          extra = `; the mine has ${free} free face${free === 1 ? '' : 's'}`;
+        } else if (held >= spec.atOnce) {
+          why.push('busy');
+          continue;
+        }
+        if (m === 'logs') {
+          const left = GATHER_LOGS_HOUR - logsHour - w.incoming;
+          if (left <= 0) {
+            why.push('logs capped');
+            continue;
+          }
+          trip = Math.min(trip, left);
+        }
+        if (w.incoming > 0 && trip < GATHER_MIN_TRIP[m]) {
+          why.push('trip too small');
+          continue;
+        }
+        let n = 1;
+        while (busy.has(`gather:${m}:${n}`)) n++;
+        const stored = m === 'logs' ? (v.wood ? store[`${v.wood}_log`] ?? 0 : Object.entries(store).filter(([x]) => /_log$/.test(x)).reduce((s, [, q]) => s + q, 0)) : store[m] ?? 0;
+        const goods = w.for.slice(0, 4).join(', ') || 'the workshop';
+        add({
+          id: `gather:${m}`, kind: 'gather', key: `gather:${m}:${n}`, excludes: [`gather:${m}:${n}=`], name: spec.words, rank: 950 + r,
+          facts: `${m}: ${spec.forWhat}; storage holds ${stored}, the workshop wants ${w.need} (${goods}); ${w.incoming} on the way${extra}`,
+          effect: `+${trip} ${m} toward ${goods}`,
+        }, { kind: 'gather', material: m, n, amount: trip, block: spec.block(v.wood), deposit: spec.deposit(v.wood), need: w.need, incoming: w.incoming, for: w.for });
+      }
+      if (!out.some((o) => o.kind === 'gather')) reasons.gather = why[0] ?? 'nothing wanted';
+    }
+
     // Model mode's guards (D5): bans, the agent's own cooldown, learning progress, then the trim
     const guarded: Array<{ id: string; why: string }> = [];
     let options = out;
@@ -1700,7 +2087,7 @@ export class MineflayerWorld implements WorldAdapter {
           guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
           continue;
         }
-        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now)) {
+        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' ? o.id : undefined)) {
           guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
           continue;
         }
@@ -1826,6 +2213,81 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[explore] ${v.name}: ${worker.name} scouts ${d.x},${d.z} (${ex.visited.length} of 8), then home`);
         return;
       }
+      case 'make': {
+        const item = d.good.item;
+        const status = worker.enqueue('make', { item, count: d.count, ...(d.k !== undefined ? { furnace: d.k } : {}), chore: true });
+        // (a failure backs the good off, 10 minutes, an hour after 3; not a stop, nor another agent's work in the way)
+        const failed = (why: string) => {
+          if (why === 'cancelled' || status.code) return;
+          const k = `${v.name}:${item}`, b = this.makeBack.get(k);
+          this.makeBack.set(k, { tries: effTries(b?.tries, b?.at, Date.now()) + 1, at: Date.now() });
+        };
+        this.setChore(v, worker, opt.key, [status], `make ${d.count} ${item}`, failed, meta, opt.holds, opt);
+        const c = this.chores.get(worker.name.toLowerCase());
+        if (c) c.choice.make = { item, count: d.count, smelts: d.smelts, ...(d.k !== undefined ? { k: d.k } : {}) };
+        // Its inputs earmarked until it withdraws them (D6): other agents' plans leave them out meanwhile (set after the
+        // chore, whose replacement of an old one would end it and delete the earmark)
+        holdsSet(holdKey(v.name, worker.name), d.inputs);
+        console.log(`[make] ${v.name}: ${worker.name} makes ${d.count} ${item} (${d.stock} of ${d.good.target}; inputs ${countsList(d.inputs)}; ${d.k !== undefined ? `furnace ${d.k}` : 'crafted'})`);
+        return;
+      }
+      case 'gather': {
+        const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true });
+        // (deposit runs after a failed collect too: a partial load is put in and counts, the check's M3)
+        const deposit = worker.enqueue('deposit', { item: d.deposit, also: GATHER_ALSO, chore: true });
+        const failed = (why: string) => {
+          if (why === 'cancelled' || collect.code || deposit.code) return;
+          if (deposit.state === 'done' && depositedOf(deposit.message ?? '', d.material) > 0) return;
+          // Nothing landed. "None found" is one gatherer's answer: candidates another held as unreachable for 10 minutes, or
+          // a search from far out, gave it while sand lay near (S.9's review, lens 4 M2). The first answer backs the
+          // material off 30 minutes; sand is marked unavailable for the village (as noneToGather does: the windows and the
+          // glass goods go without) only when another agent answers the same at least GATHER_NONE_APART later. Anything
+          // else waits 10 minutes
+          const gk = `${v.name}:${d.material}`;
+          if (/cannot be gathered here/.test(collect.message ?? '')) {
+            const first = this.gatherNone.get(gk), now = Date.now();
+            if (d.material === 'sand' && first && first.agent !== worker.name && now - first.at >= GATHER_NONE_APART) {
+              this.gatherNone.delete(gk);
+              if (!v.unavailable?.includes('sand')) {
+                v.unavailable = [...(v.unavailable ?? []), 'sand'];
+                this.villages.note(v, `no sand near the village (found none by ${first.agent} and ${worker.name}): the workshop makes no glass`);
+                this.villages.save();
+              }
+              return;
+            }
+            // (the first answer is kept: the second must come from another agent; one older than two hours starts afresh)
+            if (!first || now - first.at > 2 * 60 * 60000) this.gatherNone.set(gk, { agent: worker.name, at: now });
+            this.gatherBack.set(gk, now + GATHER_NONE_BACK);
+            return;
+          }
+          this.gatherBack.set(gk, Date.now() + 10 * 60000);
+        };
+        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material}`, failed, meta, opt.holds, opt);
+        const c = this.chores.get(worker.name.toLowerCase());
+        if (c) c.choice.gather = { material: d.material, n: d.amount };
+        console.log(`[gather] ${v.name}: ${worker.name} gathers ${d.amount} ${d.material} (need ${d.need}, incoming ${d.incoming}; for ${d.for.join(', ') || 'the workshop'})`);
+        return;
+      }
+      case 'works': {
+        if (d.stage === 'prepare') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('prepare_works', { chore: true })], 'prepare the works plot', undefined, meta, opt.holds, opt);
+          console.log(`[works] ${v.name}: ${worker.name} is to prepare the works plot${d.again ? ` (again, at ${d.area})` : ''}`);
+          return;
+        }
+        const k = d.k;
+        const status = worker.enqueue('place_works_furnace', { k, chore: true });
+        // (a failed placement waits 10 minutes; the skill clears nothing on the record, the furnace k stays unrecorded)
+        const failed = (why: string) => {
+          if (why !== 'cancelled' && !status.code) this.worksBack.set(`${v.name}:${k}`, Date.now() + 10 * 60000);
+        };
+        this.setChore(v, worker, opt.key, [status], `place works furnace ${k}`, failed, meta, opt.holds, opt);
+        const c = this.chores.get(worker.name.toLowerCase());
+        if (c) c.choice.furnace = k;
+        // Its 8 cobblestone earmarked (the check's M5), as a make's inputs
+        holdsSet(holdKey(v.name, worker.name), { cobblestone: 8 });
+        console.log(`[works] ${v.name}: ${worker.name} places works furnace ${k} (8 cobblestone earmarked)`);
+        return;
+      }
     }
   }
 
@@ -1948,8 +2410,22 @@ export class MineflayerWorld implements WorldAdapter {
     if (ax?.penBy) for (const [k, by] of Object.entries(ax.penBy)) if (now - by.at > 60 * 60000) delete ax.penBy[k];
     const m = v.mine;
     if (m?.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000) m.ironTries = {};
+    // (and the works plot's, S.9)
+    const wk = v.layouts?.[0]?.works;
+    if (wk?.tries && wk.lastTry && now - wk.lastTry.at > 60 * 60000) wk.tries = 0;
     // Expired guards' bookkeeping
     for (const [k, until] of this.bansLogged) if (until < now) this.bansLogged.delete(k);
+    for (const [k, until] of this.gatherBack) if (until <= now) this.gatherBack.delete(k);
+    // What a stopped make left in an idle member's hands goes back into storage by name (S.9's 4.10, the check's L8): it is
+    // busy with that and skips this sweep's menu
+    for (const a of this.agents.values()) {
+      const hk = holdKey(v.name, a.name), left = makeLeft.get(hk);
+      if (!left || !this.isIdleMember(v, a, now)) continue;
+      makeLeft.delete(hk);
+      const items = Object.entries(left).filter(([, q]) => q > 0);
+      for (const [n, q] of items) a.enqueue('deposit', { item: n, count: q, keep_wood: true, chore: true });
+      if (items.length) console.log(`[make] ${v.name}: ${a.name} puts back what a stopped make left (${countsList(left)})`);
+    }
     const members = this.idleMembers(v, now);
     if (!members.length) return;
     const facts = this.sweepFacts(v, now, members[0]);
@@ -2261,6 +2737,10 @@ interface Facts {
   animals: (kind: string) => Array<{ x: number; y: number; z: number }>;
   eggs: (j: string) => boolean;
   known: (xz: string) => number;
+  /** S.9: every good's makePlan, by item; gathering's demand; the spare storage (makeSpare), all for no one agent. */
+  makePlans: () => Map<string, MakePlan>;
+  gather: () => GatherWanted;
+  spare: () => Counts;
 }
 
 /** A chore as its end is handled: its actions, its `failed` callback and whether that was called (reportFailed). */
@@ -2304,13 +2784,34 @@ type OptionRun =
   | { kind: 'penwork'; j: number; what: string; skill: string; slotKind: string; animals: number }
   | { kind: 'cake' }
   | { kind: 'iron'; stage: string; tool: string; iron: number }
-  | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } };
+  | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } }
+  | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number }
+  | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
+  | { kind: 'works'; stage: 'prepare'; again: boolean; area: string }
+  | { kind: 'works'; stage: 'furnace'; k: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather'];
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
-const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring' };
+const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop' };
+/** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
+const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
+
+/** Items as the facts say them ("12 cobblestone, 1 oak log") and as the log lines list them ("cobblestone:12,oak_log:1"). */
+const countsText = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${words(n)}`).join(', ') || 'nothing';
+const countsList = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map(([n, q]) => `${n}:${q}`).join(',') || 'none';
+
+/** What a deposit's message says went in of a gathering's material ("deposited 4 oak_log, 8 birch_log (...). Storage now
+ *  holds ...": only the head, not the storage's own list). */
+function depositedOf(message: string, m: Material): number {
+  const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
+  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : 'cobblestone';
+  let n = 0;
+  for (const x of head.matchAll(new RegExp(`(\\d+) ${name}\\b`, 'g'))) n += Number(x[1]);
+  return n;
+}
 
 /** Whether a decision's model reply came (a choice, an invalid one, or a pick taken meanwhile). */
 const replied = (m: ChoiceMeta) => m.source === 'model' || m.why === 'invalid' || !!m.modelChose;
