@@ -1652,15 +1652,17 @@ export class MineflayerWorld implements WorldAdapter {
 
     // Exploring: ring points FARM_TRIP_RANGE from home, the least known first, each point once (the bots at home already
     // see ~128 blocks: view distance 8, the design review's H3); only while a farm slot is free (there is nothing else to
-    // find for yet, the diff review's L4), not beside a lure; single keys: one trip at a time, not while a start may fill
-    // the slot; instances: a trip a point, free slot or not (A2f, s28: two starts took both free slots in the first sweep
-    // and the eight points left every menu while 21 of 25 idled; a scout's sightings feed the pens and later farms too)
+    // find for yet, the diff review's L4); single keys: one trip at a time, not while a start may fill the slot, and not
+    // beside a lure; instances: a trip a point, free slot or not (A2f, s28: two starts took both free slots in the first
+    // sweep and the eight points left every menu while 21 of 25 idled; a scout's sightings feed the pens and later farms
+    // too), beside a lure as well (F224, live 10-14: a scout walking past or through a led herd changed nothing; the scout
+    // skill puts a lure in hand away first, as one held took an animal away)
     const exInst = instances('explore');
     const exFree = exInst || freeSlots.length > 0;
     const ex = v.explore;
     const exHome = facts.exploreHome;
     if (!exFree) reasons.explore = 'no free slot';
-    else if (exInst ? busy.has('pen') : excluded(['explore', 'start', 'pen'], busy)) reasons.explore = 'busy';
+    else if (!exInst && excluded(['explore', 'start', 'pen'], busy)) reasons.explore = 'busy';
     else if (ex?.done) reasons.explore = 'explored';
     else if (!exHome) reasons.explore = 'no home';
     else {
@@ -1672,7 +1674,7 @@ export class MineflayerWorld implements WorldAdapter {
       const dull = yields.length >= 2 && yields.slice(-2).every((y) => y < 0.1);
       const trips = yields.length ? `last trips: ${yields.filter((y) => y >= 0.1).length} of ${yields.length} found new land` : 'no trips yet';
       for (const [r, q] of points.entries()) {
-        const excludes = exInst ? [`explore:${q.i}=`, 'pen'] : ['explore', 'start', 'pen'];
+        const excludes = exInst ? [`explore:${q.i}=`] : ['explore', 'start', 'pen'];
         if (exInst && excluded(excludes, busy)) continue;
         add({
           id: `explore:${q.i}`, kind: 'explore', key: exInst ? `explore:${q.i}` : 'explore', excludes, name: `Explore to the ${DIRECTIONS[q.i]}`, rank: 800 + r, at: { x: q.x, z: q.z },

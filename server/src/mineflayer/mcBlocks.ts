@@ -79,6 +79,8 @@ export const DEFS: BlockDef[] = [
     // (the farm's seeds go into storage like any material: kept back, a planter's withdrawn seeds stayed in its pockets)
     exclude: ['wheat_seeds'],
   },
+  // mcSurvival: what a scout must not hold in hand (F224: a passing bot holding one took a led chicken or cow away)
+  { id: 'LURE', kind: 'item', tags: ['chicken_food', 'cow_food'] },
   // mcStorage: deposit "all" keeps tools
   { id: 'TOOL', kind: 'item', tags: ['pickaxes', 'axes', 'shovels', 'hoes', 'swords'], extras: ['shears', 'flint_and_steel', 'fishing_rod', 'bucket', 'water_bucket'] },
   // mcSurvival: a fallen tree lies on these
@@ -123,6 +125,7 @@ export const HAND: Record<string, Rule> = {
   WET: /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/,
   FALLING: /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|pointed_dripstone|\w+_concrete_powder)$/,
   JUNK: /_sapling$|(?<!^wheat)_seeds$|_leaves$|_petals$|^(leaf_litter|cocoa_beans|apple|sweet_berries|bush|dirt|coarse_dirt|rooted_dirt|gravel|flint|stick|egg|brown_egg|blue_egg|feather|bone|string|rotten_flesh|poppy|dandelion|cactus_flower|dead_bush|short_grass|wildflowers|.*_tulip|pink_petals|firefly_bush)$/,
+  LURE: /_seeds$|^(wheat|pitcher_pod)$/,
   TOOL: /_(pickaxe|axe|shovel|hoe|sword)$|^(shears|flint_and_steel|fishing_rod|bucket|water_bucket)$/,
   WILD_GROUND: /^(grass_block|dirt|coarse_dirt|rooted_dirt|podzol|mycelium|mud|sand|red_sand|gravel|stone|deepslate|tuff|granite|diorite|andesite|calcite|snow_block|clay|moss_block|sandstone|red_sandstone|terracotta|.*_terracotta|packed_ice|ice)$/,
   TREE_LOG: (n) => n.endsWith('_log') && !n.startsWith('stripped_'),
@@ -202,6 +205,7 @@ export const WALK_DIG = list('WALK_DIG');
 export const WET = list('WET');
 export const FALLING = list('FALLING');
 export const JUNK = list('JUNK');
+export const LURE = list('LURE');
 export const TOOL = list('TOOL');
 export const WILD_GROUND = list('WILD_GROUND');
 export const TREE_LOG = list('TREE_LOG');

@@ -3648,6 +3648,15 @@ CLAUDE.md when a phase ends.
 - F224 (10-13, s28, A2m) Exploring is shut out while any pen lure runs (the options exclude the `pen` key, today's
   rule): `[choice-none]` showed "explore: busy" beside "pen: busy" with ~20 idle. Whether a scout disturbs a lure (it
   carries no seeds) is unchecked; if not, the exclusion is the next ceiling on parallel work.
+  **Checked live and fixed 10-14 (s29)** (`runs/2026-10-14/f224_facts.py`, `f224_*.log`; Gus in no village leads two animals
+  48 blocks in start_pen's hops on a glass-walled pad, Worker1 walks the other way past them): no scout, a scout 3.6 off,
+  and a scout straight through the herd all gave 2 of 2 followed, the farthest 3.8-4.8 from Gus, for chickens and cows
+  alike; a scout **holding seeds (or wheat) in its main hand took one animal away** (it followed the scout 47.8 blocks).
+  Pumpkin and melon seeds are junk that deposit "all" keeps, so a worker can carry a lure. Fixed: in instance mode explore
+  no longer excludes `pen` (single keys keep the rule: golden 0 differences, instances 0 invariants broken); the `scout`
+  skill selects another hotbar slot when the server says the main hand holds `#chicken_food` or `#cow_food` (a `LURE`
+  list in mcBlocks.ts); live with the real skill and seeds or wheat in hand: put away, 2 of 2 followed for both kinds.
+  Not changed: harvests and farm starts still exclude `pen` (a harvester holds seeds in hand while sowing).
 - F225 (10-13, s28, A2m, Minevale42) Herding: 5 "taken" a run, two choosers picking the same instance in one sweep, the
   second given the fixed pick (spec risk 4). E.4's reservation at decision start and one re-ask address it.
 ## Decisions log
@@ -4042,6 +4051,10 @@ CLAUDE.md when a phase ends.
   baselines are unchanged. A cloud 429 over the quota is a budget fallback with a 5-minute back-off for decisions. The
   effects of the bucket, the iron pickaxe, digging, the cake and exploring say what they are for (choicebench's bucket and
   cake cases went from 4 and 3 of 10 to 10 of 10): facts written by code are the model's eyes (lesson 2).
+- 10-14 (s29) The user's answers at the session start (all as recommended): S.9's room is a **works plot** beside the annex,
+  prepared with `prepare_annex`'s machinery, the one place for the works to come (S.11's furnace row, S.14's sheep pen);
+  the four s28 commits were **pushed** (`8f91251..5d6f06b`, `tiered-brain-building` only, `main` untouched); `MC_CHOOSE`
+  **stays `fixed`** by default until A.3's gauges can measure what the model's choices are worth (F223).
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

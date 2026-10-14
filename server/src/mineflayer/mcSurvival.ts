@@ -18,7 +18,7 @@ import {
   ContentionError, abortable, at, checkAbort, countItem, exposedAt, freeSpotNearby, onVillageGround, stepOffVillageGround, goals, itemId, itemName, nearestBlocks, num, openAt, reach, resolveItem,
   sleep, str, syncInventory, unmoved, walk, wetAt, wetOver, wetSide,
 } from './mcUtil';
-import { FALLING, TREE_LOG, WILD_GROUND } from './mcBlocks';
+import { FALLING, LURE, TREE_LOG, WILD_GROUND } from './mcBlocks';
 
 type Recipe = ReturnType<BotAgent['bot']['recipesAll']>[number];
 
@@ -1834,12 +1834,44 @@ async function explore(a: BotAgent, args: Record<string, unknown>, signal: Abort
 }
 
 /**
+ * A scout's main hand holds no lure (F224, live 10-14: a bot walking past or through a led herd with empty hands changed
+ * nothing, one holding seeds or wheat took a chicken or cow away). Pumpkin and melon seeds are junk that deposit "all" keeps
+ * back, so a worker can carry them: another hotbar slot is selected, judged on the server (lesson 4's drifting view).
+ */
+async function handFree(a: BotAgent, signal: AbortSignal): Promise<void> {
+  const bot = a.bot;
+  const lured = async () => {
+    for (const tag of ['chicken_food', 'cow_food'])
+      if (/passed/i.test(await a.world.rcon.command(`execute if items entity ${a.name} weapon.mainhand #minecraft:${tag}`).catch(() => ''))) return true;
+    return false;
+  };
+  if (!(await lured())) return;
+  const start = bot.inventory.hotbarStart;
+  // (empty slots first)
+  const order = [...Array(9).keys()].filter((i) => i !== bot.quickBarSlot)
+    .sort((i, j) => Number(!!bot.inventory.slots[start + i]) - Number(!!bot.inventory.slots[start + j]));
+  for (const i of order) {
+    const it = bot.inventory.slots[start + i];
+    if (it && LURE.has(it.name)) continue;
+    bot.setQuickBarSlot(i);
+    await sleep(250, signal);
+    if (!(await lured())) {
+      console.log(`[scout] ${a.name}: a lure in hand put away (hotbar slot ${i})`);
+      return;
+    }
+  }
+  await bot.unequip('hand').catch(() => {});
+  console.log(`[scout] ${a.name}: a lure in hand${(await lured()) ? ' could not be put away' : ' unequipped'}`);
+}
+
+/**
  * Walk toward x, z so that the land around it comes into view and into the atlas (step 2.4). It never fails (only a
  * cancel stops it): a scout that gets only part of the way still brought in what it saw, and a task run as written must
  * not fall to a model. Waits for the atlas to summarise what came into view before it reports.
  */
 async function scout(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const bot = a.bot;
+  await handFree(a, signal);
   let x = Math.floor(num(args.x, 'x')), z = Math.floor(num(args.z, 'z'));
   // Within the scouting range of the village's home (a new village's: where its agent started), and within the
   // village's range once it has ground (an executor must not use it as an explore without bounds, lesson 22)
