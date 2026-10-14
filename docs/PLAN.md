@@ -20,6 +20,35 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-14 at the close of the twenty-eighth session; the next session's prompt is
+`runs/2026-10-14/NEXT_PROMPT.md`; the notes below for the twenty-seventh session stay valid where not overridden)
+
+- **Done this session (s28), committed on `tiered-brain-building`, NOT pushed** (origin is at `8f91251`, pushed at this
+  session's start; ask before pushing): `ef5deec` A.2 part 1 (the menu, fixed picker, model mode, guards, decision log,
+  panel, `choice_golden.mts`, `choose_unit.mts`, F221's watcher retry), `31c36a5` (choicebench, exploring in instance mode
+  without a free slot, the 429 back-off, effects that say what a chore is for), `d463440` (run record, F222-F225) and the
+  close-out commit. `main` untouched.
+- **A.2 is done** (the decision log above): model mode at 25 ran with 0 errors, 8% "taken", decision wait p90 0.9 s,
+  ~$0.003 a 45-minute after-phase; choicebench 100% valid, 70/70 sensible, no position bias; Minevale42 (model mode,
+  model-driven) complete in 10.2 min. The storage value cannot judge it (F223). `MC_CHOOSE` still defaults to `fixed`
+  (D3 of the spec): switching the default to `model` is the user's call; the staged scripts take `--choose model`.
+- **Where things stand at 25:** after completion only ~2% of agent-time is busy whoever picks (A2m 21.0, A2f2 18.8
+  agent-minutes of ~1125): the menu works, the work is missing. That is the next step's job.
+- **Next (Claude's decision at the close, the user asked for it):** first F224's live check (does a scout disturb a pen
+  lure? if not, drop `pen` from explore's excludes in instance mode: the next ceiling on parallel work), then **S.9, the
+  workshop** (`make item= count=` as a chore with instance keys `make:<item>`, offered as A.2 options; `v.tech`; the Tier
+  0 goods; the works-plot question goes to the user at the start). Then S.10 (surveys) or A.3 (gauges, which also fix
+  F223's measurement), the user's call.
+- **Open findings:** F218 (no path to the hut's furnace cell -1657,65,8; reproduced in Minevale40, 41 and 42, always
+  Worker2 at ~4.7 min: the cheapest model-driven failure left), F220, F222-F225.
+- **Stack:** nothing running (the machine went down overnight; the test world is restored per site anyway). The Ollama
+  app serves gpt-oss:120b-cloud; the user's session quota ran out once this session (a 429 on every call for hours):
+  check with one tiny call before model work.
+- **How runs went this session:** drivers in `runs/2026-10-12/a2_runs.py` and `runs/2026-10-13/a2_runs2.py` (staged
+  runs with per-run env such as `MC_CHOOSE`, `MC_CHOICE_INSTANCES`, then model-driven runs with a 1x reset), detached
+  with a background watcher on `ALL RUNS DONE`. Staged runs make 0 cloud calls; auto mode may still refuse a command
+  naming the cloud planner while the user has paused cloud use.
+
 (written 2026-10-12 at the close of the twenty-seventh session; the next session's prompt is
 `runs/2026-10-12/NEXT_PROMPT.md`; the notes below for the twenty-sixth session stay valid where not overridden)
 
@@ -1115,7 +1144,8 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
   - Baseline: three staged after-phases with the fixed order (`--after 45 --fixtures --stock ...`) and one model-driven
     run (`MCAI_AFTER=45`).
   - Exit: the metrics for all four in the run record.
-- [ ] A.2 **The menu: chores become choices** (~1-2 sessions; the spine of the phase).
+- [x] A.2 **The menu: chores become choices** (~1-2 sessions; the spine of the phase). **Done 10-13 (s28)**: every exit
+  criterion met except the value curve, which cannot judge it (F223); see the progress note below.
   - World (mcWorld.ts): each chore kind split into `options(v, agent)`, its feasible instances with facts (what and where,
     materials on hand and in storage, distance, the agent's own success rate and minutes for the kind, the expected
     effect, who else is on it, when it was last done and how it went), and `run(option)`. Today's order becomes one

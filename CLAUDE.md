@@ -530,6 +530,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     10.1/11.0 min; the 25-bot probe 10 min with 0 `[lag]`, API p90 0.048 s; Van25a (25 agents, staged, 2x) 6/6 in 4.1
     min, 21% busy. G2 (long-horizon memory) started with the user: model-managed memory, both horizons, all purposes;
     `docs/research/memory/`. Lessons 125-126. Next: A.1's baseline, then A.2 (PLAN.md's handover).
+43. 2026-10-12/14 (twenty-eighth session; the five s26/s27 commits pushed at its start; its own NOT pushed at the close,
+    ask first; `main` untouched): A.1's baseline (A1b3, A1b4 staged at 25; Minevale41 model-driven) and **A.2, the menu**
+    (`ef5deec`, `31c36a5`, `d463440`): idle members of a complete village choose among feasible chore instances
+    (`choices`/`runChoice`, `server/src/choose.ts`, `MC_CHOOSE=fixed|model`, `MC_CHOICE_INSTANCES`, `--choose`), the fixed
+    order as default and fallback (golden check 0 differences on 960 fixtures), choicebench 100% valid with no position
+    bias, A2m at 25 with 0 errors, Minevale42 complete in 10.2 min. After completion only ~2% of agent-time is busy at 25:
+    the work, not the choosing, is missing (S.9 next). Lessons 127-129.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -686,7 +693,8 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
-Left after the twenty-seventh session (2026-10-12): nothing running; the test Paper went down with the machine without a
+Left after the twenty-eighth session (2026-10-14): nothing running (the machine went down overnight); no agents in either
+world; see PLAN.md's handover. Left after the twenty-seventh session (2026-10-12): nothing running; the test Paper went down with the machine without a
 save (the test world is restored per site anyway); the main Paper stopped cleanly; no agents in either world; see
 PLAN.md's handover. Left after the twenty-sixth session (2026-10-11): the stack stopped (the test Paper saved by RCON stop); E.0's uncommitted
 work in the working tree, backed up in `runs/2026-10-11/s26_e0_backup/`; see PLAN.md's handover. Before that, after the twenty-fifth session (2026-10-10): see PLAN.md's "Next session starts with" for what was left running (the
@@ -1141,6 +1149,17 @@ Lessons from the adapter:
    50 ms window cut walks with only two bots searching (each asks 15 ms a tick), and counting compute time made the
    rescue's 5 s search take 15 s. Check a shared limit against the real per-bot numbers at 1-3 agents, not made-up ones
    (the first check used 4-8 ms budgets and passed); up to 3 searches are now never cut (`MC_PF_FREE_SEARCHES`).
+127. **Facts are the model's eyes for choices too** (A.2, 2026-10-13): with effects that said only what a chore makes ("a
+   bucket", "+1 cake"), gpt-oss went to a dull scout or a 1-ripe harvest in 6-7 of 10 labelled cases; with effects that
+   say what it is for ("the penned cows can be milked only with buckets"), 10 of 10. Lesson 2 for menus: fix the facts
+   code writes before the prompt, and judge on a bench of labelled cases (`scripts/bench/choicebench.mts`).
+128. **One storage number cannot judge a brain** (F223): four fixed-order staged runs with identical settings ended at
+   397-701, and scouting adds nothing to storage while an iron trip adds ~90 items. Before comparing two brains, measure
+   the spread of identical runs and check the measure sees what each choice is for.
+129. **Count the work before building the chooser** (A2f, A2m): a menu at 25 agents still left ~2% of agent-time busy, and
+   a rule from one agent's days (scouting only while a farm slot is free) emptied every menu; the golden check could not
+   see it (it compares against today's behaviour). Check what fraction of idle agents a new mechanism can occupy, offline,
+   before the run that measures it.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone
