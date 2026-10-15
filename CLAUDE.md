@@ -29,7 +29,10 @@ the session ends. When a run teaches something new, the plan changes with it (it
      in flight and p90, the overview's size), `MC_RCON_TIMEOUT_MS` (15 s), `MC_PF_TICK_MS` (20) and `MC_PF_FREE_SEARCHES` (3) for
      the pathfinder's shared allowance (`scripts/checks/pf_share.mts`). Since s30 (2026-10-15) a complete village **grows**: code lays out neighbourhoods of up to 4
      houses until it has a house per member (`server/src/grow.ts`, `[grow]` lines; `MC_GROW=0` turns it off; a growth layout
-     saved under way is watched to its end either way). The hourly budget
+     saved under way is watched to its end either way) Food (s30): `MC_GROW_FARMS=1` gives neighbourhoods fields and
+     slots, `MC_APPETITE=18` (or 1/on) the village appetite (`[food]` lines; `MC_APPETITE_START`; `POST
+     /api/village/V/appetite {"level":N}` for tests); both off by default. The test agent server's port is
+     `MCAI_TEST_API_PORT` (default 8767). The hourly budget
      `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
      is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own
@@ -548,6 +551,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     stand by the door and along the mine from the hut; B4f 61 of 61 standing). Minevale43 (model-driven) 38% busy after
     completion but a slow build (F228). Work bounded by targets stops (lesson 130). Lessons 130-133.
 
+45. 2026-10-15 (thirtieth session; pushed at the close, the user's instruction; `main` untouched): F228's fixes (`8371ab6`:
+    the walk's arrival judged on the pathfinder's start node, F218; smelts take their input back; hand-backs deposit) and
+    Minevale44 (`505ada6`, model-driven, 9.1 min, 0 failed actions in 54 min); **a village that grows** (`209e934`,
+    `server/src/grow.ts`: neighbourhoods of up to 4 houses until a house per member, a code chore, no model calls; G25: 25
+    houses in 6 neighbourhoods, after-phase busy 4% -> 16%); **food** (`0197159`, `server/src/appetite.ts`: fields and slots
+    in every neighbourhood, `MC_GROW_FARMS`; a village appetite on peaceful, `MC_APPETITE`; both off by default; G25f: 6
+    fields, 52 meals, hungry 2.2%, FOOD ok). Lessons 134-139. Next: voting with neighbourhood variety, then roads.
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 
@@ -703,6 +713,9 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
+Left after the thirtieth session (2026-10-15): the stack stopped (the test Paper saved by RCON stop); G25f's village left in
+the test world (reset minevale3 before the next run); another program held 127.0.0.1:8767, so the test agent server ran on
+8768 (`MCAI_TEST_API_PORT=8768`, `MCAI_API=http://127.0.0.1:8768/api`); see PLAN.md's handover.
 Left after the twenty-ninth session (2026-10-15): the test Paper (25566) and its agent server (8767, on `c69dbe1`'s code)
 running with Minevale43's village (reset minevale3 before the next run); the main world stopped; see PLAN.md's handover.
 Left after the twenty-eighth session (2026-10-14): nothing running (the machine went down overnight); no agents in either
@@ -1187,6 +1200,31 @@ Lessons from the adapter:
 133. **Fixtures that cannot be reached stall every run the same way** (F227): the staged runs' fixture pumpkins at y 73-80
    above the site gave a worker 2-3 `[stuck]` lines (GoalLookAtBlock, ~11 s each) in S9s1, S9f, S9m and B4s1 alike. A
    repeated stall in the same place across runs is a test fixture's fault before it is the code's.
+
+134. **Judge arrival the way the pathfinder judges its start** (F218, 2026-10-15): on a block lower than a full one (a
+   dirt_path's 15/16, farmland, a slab) mineflayer-pathfinder starts its search from the cell above the floored feet, so a
+   GoalNear that accepts that cell resolves `goto` at once, and a check on the floored feet alone called it "no path" in
+   every model-driven run at ~4.7 min for weeks. `atGoal` (mcUtil.ts) mirrors the start-node rule; an offline check on the
+   run's exact numbers (`scripts/checks/at_goal.mts`) reproduced it before any live run.
+135. **Measure a game mechanic's numbers live before designing on it** (the hunger facts, 2026-10-15): modern Java charges
+   no exhaustion for walking (sprinting, jumping, swimming, mining and healing do), and 26.1 registered no sprint from the
+   bots: ~1,850 blocks walked on easy cost nothing. Vanilla hunger would have given the fields no consumer; the village
+   appetite is code's. And crops grow only while their chunk's centre is within ~115 blocks of a player or bot (a circle,
+   not the 6-chunk square: a diagonal case decided it). Test geometry on the diagonal too.
+136. **Work that ends by design must be counted over time** (the growth count): one extra batch of houses added ~2% busy
+   time at 25, continuous growth tied to population ~16% until a house per member, then nothing. Count the steady state a
+   mechanism leaves, not only its peak (lesson 130 again): what recurs is what drains (food) or grows without end.
+137. **A port is not owned by whoever bound it first** (2026-10-15): another program bound 127.0.0.1:8767 mid-run while the
+   agent server listened on 0.0.0.0:8767; every request to 127.0.0.1 went to it (`{"detail":"Not Found"}`, a FastAPI
+   answer) and the watcher died with a 404. A more specific bind wins. Never kill by port alone (reset_site.py now kills
+   only node listeners); move the test port (`MCAI_TEST_API_PORT`) instead.
+138. **Judge a job by its result cells, not by the stock that should have made it** (the half-sown field, s30's food
+   review): a pen lure borrowed 8 of a field's 16 seeds from storage and put them back mid-planting, so the planting sowed
+   8, its requeue check saw 16 seeds counted and closed the task done, and nothing ever sowed the bare cells. Rescan what
+   was supposed to change; keep shared stock an open task needs out of other chores' reach.
+139. **A per-option ban must not apply to an option whose refusal blocks everything else** (the food fix review): eating
+   failed three times would ban `eat` village-wide for an hour while the claim gate refused a peckish member every task
+   until it ate. Exempt such options from bans and cooldowns, and make "nothing left" a contention code, not a failure.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

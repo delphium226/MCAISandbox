@@ -20,6 +20,32 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-15 at the close of the thirtieth session; the next session's prompt is `runs/2026-10-15/NEXT_PROMPT_s31.md`)
+
+- **Done this session (s30), committed and pushed at the close (the user's instruction; `main` untouched):** `8371ab6`
+  F228's three fixes (F218's false "no path" from a dirt_path start node, smelts taking their input back, hand-backs
+  depositing what they carried), `505ada6` Minevale44 (model-driven, complete at 9.1 min, 0 failed actions in 54 min) and
+  the movable test port, `209e934` **a village that grows** (neighbourhoods of up to 4 houses until a house per member;
+  `MC_GROW`, on by default), `0197159` **food** (fields and slots in neighbourhoods behind `MC_GROW_FARMS`, the village
+  appetite behind `MC_APPETITE`, both off by default), and the close-out commit.
+- **What the runs say:** G25 grew a 25-agent village to 25 houses in 6 neighbourhoods in ~26 min, after-phase busy 4% ->
+  16%; G25f with food: 6 fields planted and harvested 16 times, 52 meals, every member ate, hungry 2.2% of member-time
+  (0% after +45), FOOD ok. Growth stops by design at a house per member, so after-phase busy time falls off again (G25f 9%
+  over 75 min); food adds little agent time (as counted) but makes the fields the limit.
+- **The user's choices this session (decisions log, s30):** growth tied to population, in neighbourhoods, the village
+  staying complete; farms in every neighbourhood with crop variety; hunger as a village appetite on peaceful (vanilla
+  hunger measured useless: walking costs no food); push at the close. **Backlog added by the user:** roads with lighting
+  between neighbourhoods; more variety in neighbourhood styles, **joined with voting** (the first vote: the next
+  neighbourhood's style; after the food step).
+- **Next (the user's order):** voting with neighbourhood variety (spec first: options code prepares, a ballot per member,
+  a bench for whether ballots follow facts or option order), then roads with lighting. Before it, small: decide with the
+  user whether `MC_GROW_FARMS`/`MC_APPETITE` go on by default (G3f/G25f passed; a model-driven Minevale45f with both on
+  first is the recommendation), F229/F230, F227.
+- **Stack:** stopped at the close (the test Paper saved by RCON stop, its agent server killed by PID). **Another program
+  (`D:\Projectspptest\...mbient.exe web`) bound 127.0.0.1:8767 this session**: start the test agent server with
+  `MCAI_TEST_API_PORT=8768` (and `MCAI_API=http://127.0.0.1:8768/api`) while it is there; reset_site.py now refuses to
+  kill a non-node listener.
+
 (written 2026-10-15 at the close of the twenty-ninth session, which ran overnight: the user went to bed early on and asked
 Claude to keep building and decide on its own; the next session's prompt is `runs/2026-10-15/NEXT_PROMPT.md`)
 
