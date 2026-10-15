@@ -2631,6 +2631,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-15 (s29) | B4s1 | B.4 smoke: staged 2x, Mayor + 3 workers, `--after 15`, families `make,gather,works,light` | complete 4.2 min; 18 of 18 torches standing in buildings, every walk ok (5 door stands, 1 fallback at the doorless meeting point); torch demand drove 2 make:torch and 1 charcoal | 19.3 min | MAKE ok 15 of 15, LIGHT ok 9 of 9; 0 `[stuck]` from lighting (4: fixture pumpkins and scouts, F227) |
 | 10-15 (s29) | **B4f** | B.4 at 25: S9f's command, families `make,gather,works,light` | complete 3.3 min; **61 of 61 torches standing** (buildings 23, mine 38; 0 dropped, 4 spots never); 15 light chores by 10 agents; torch demand 45 -> 0, driving 6 make:torch and 4 make:charcoal; 22 agents took an S.9 chore, peak 8 | 48.9 min | after-phase busy 40.2 agent-min (S9f 44.8: the same within noise), B.4's own work 5.2 (lighting 1.0, torches 4.2); LIGHT ok 15 of 15, MAKE ok 29 of 30 (one stone hoe make listed the maker's own pickaxe as left over: fixed after the run); 0 requeues, 0 cloud calls |
 | 10-15 (s29) | **Minevale43** | model-driven, 3 agents, 1x, minevale3 reset, gpt-oss every role, `MC_CHOOSE=fixed`, families `make,gather,works,light`, `MCAI_AFTER=45` (`runs/2026-10-15/mv43_run.py`) | **complete at 17.8 min** (Minevale41/42 10.4/10.2 on the same site), 10 failed actions before completion (F228); after completion 26 makes (MAKE ok 26 of 26), 11 light chores, 49 torches standing (LIGHT ok 11 of 11), works plot and furnaces, 0 requeues | 62.9 min | after-phase busy **38%** (50.9 of 134.9 agent-min; Minevale41 25%); 34 calls, $0.028 |
+| 10-15 (s30) | **Minevale44** | as Minevale43 with F228's three fixes (`8371ab6`), test agent server on 8768 (`runs/2026-10-15/mv44_run.py`; a first start lost its watcher at 2.2 min to another program on 127.0.0.1:8767 and was restarted after a reset) | **complete at 9.1 min**, **0 failed actions in the whole run** (Minevale43 10 before completion); the panes' task ran as written at 4.4 and stocked 16 panes by 5.6 (F218 gone); 0 `[stuck]`/`[lag]`/`[repath]`/`[rescue]`, no furnace waits | 54.2 min | after-phase busy **36%** (48.3 of 135.0 agent-min); 3 calls, ~$0.001 |
 
 ## Findings log
 
@@ -3652,7 +3653,7 @@ CLAUDE.md when a phase ends.
   optional call still leaves it to that task); the model-facing `place` refuses a village's ground (`onVillageGround`)
   and `mine` refuses a village's buildings, chests and stations, in survival. Minevale40: the furnace placed by the
   stations task at 4.0 min, complete in 11.0 min.
-- F218 (10-11, s27, Minevale40, open) `make_into_storage` failed "no path to -1657,65,8" from -1657,64,15, the bot's
+- F218 (10-11, s27, Minevale40; **fixed 10-15, s30, `8371ab6`**: see F228) `make_into_storage` failed "no path to -1657,65,8" from -1657,64,15, the bot's
   feet on a street's `dirt_path` (15/16 high, so they floor a block low); the executor's `move_to` along the same line
   arrived at once. Then two improvised smelts ran out of fuel (3 failed actions). Look at walks that start on dirt_path
   or farmland if it recurs. Recurred in E1a (s27, staged, 2x, with E.1): Worker2 on the street's dirt_path at -1630,65,27,
@@ -3724,6 +3725,18 @@ CLAUDE.md when a phase ends.
   made** (6 glass and 14 sand in Worker2's pockets from 11.3 to ~18.9 min, lesson 112). Worker1's executor turns took 29 s
   each (Worker2 2.8 s, same tokens). Next: fix F218 (the cheapest model-driven failure left), take the input back out of
   the furnace when a smelt runs out of fuel, and deposit by name what a handed-back task made; then a model-driven run.
+  **Fixed (10-15, s30, `8371ab6`):** (1) F218's mechanism: on a dirt_path (top 64.9375) the pathfinder starts its search
+  from the cell above the floored feet (y 65), where holdVillageFurnace's GoalNear range 7 already accepted dz 7, so `goto`
+  resolved at once, while walkOnce's arrival test looked at the floored feet (y 64) and the raw position, both just outside
+  range 7: "no path". `atGoal` now mirrors the pathfinder's start-node rule; `scripts/checks/at_goal.mts` reproduces the old
+  false "no path" on the run's numbers (6 of 6). (2) smelt: out of fuel or out of time, the output and the unsmelted input
+  come back out of the furnace and the message says so ("the 4 sand left are back in the inventory; carry planks, logs or
+  charcoal for fuel"); live with Gus (`runs/2026-10-15/s30_smelt_facts.py`): 4 of 4. Left: a smelt cancelled mid-way still
+  leaves its input in the furnace (the next smelt of the same item smelts it; uncounted between). (3) A tiered worker that
+  gives up a task deposits by name what it carries for it (`WorldAdapter.taskLeftovers`: make_into_storage's batch
+  leftovers, a gather task's material), queued as chores. **Minevale44** (model-driven): complete at 9.1 min, 0 failed
+  actions in 54 min; the panes' task ran as written (F218 gone). (2) and (3) did not come up (no smelt ran dry, no task was
+  given up): they rest on the live smelt check and the code.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -4157,6 +4170,15 @@ CLAUDE.md when a phase ends.
   houses on free land, built by the same economy). More furnaces not now (the user asked): S9f and B4f had one 30 s
   furnace wait each (both at the hut, during the build) and the works furnaces none; revisit with the growing village's
   `[furnace]` wait lines (builds could use the works furnaces first).
+- 10-15 (s30, the user's, from the count `runs/2026-10-15/s30/grow_facts.md`) **A village that grows**: the count showed
+  one extra batch adds only ~2-5% busy time at 25 (4 houses ~26 agent-minutes, ~3.1 a house plus logs; 25 agents build 4
+  in 4-5 min) and continuous growth ~20-25% until land runs out (~40 houses on gentle land within 96 of minevale3's
+  village, ~80 at slope 4). The user chose: growth **tied to population** (houses grow toward one per member, then stop);
+  new houses in **neighbourhoods** (each batch its own small plot found off the village's ground within 96 blocks, signs
+  and lamps; postLayout already takes a second plot); the village **stays complete** while it grows (a growing mark lets
+  workers claim the growth tasks beside the chores; no extra model calls). Test servers: the test agent server's port is
+  now `MCAI_TEST_API_PORT` (default 8767; s30 used 8768 after another program bound 127.0.0.1:8767 mid-run), and
+  reset_site.py kills only node listeners.
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

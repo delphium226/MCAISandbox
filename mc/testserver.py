@@ -17,7 +17,7 @@ Usage: python mc/testserver.py init | snapshot | status | regions NAME|all
 Run it with MC_SERVER_DIR=mc/testserver python mc/start.py, or with scripts/reset_site.py (Paper and an agent server on
 port 8767, both detached). The main world keeps 25565, 25575 and 8766.
 """
-import datetime, json, pathlib, shutil, socket, sys
+import datetime, json, os, pathlib, shutil, socket, sys
 
 try:
     import msvcrt
@@ -30,7 +30,9 @@ MAIN = HERE / "server"
 TEST = HERE / "testserver"
 SNAP = HERE / "testworld"
 SITES = ROOT / "scripts" / "test_sites.json"
-GAME_PORT, RCON_PORT, API_PORT = 25566, 25576, 8767
+# (the agent server's port can be moved: another program bound 127.0.0.1:8767 mid-run on 2026-10-15 and took every API
+# call from 127.0.0.1, while ours listened on 0.0.0.0)
+GAME_PORT, RCON_PORT, API_PORT = 25566, 25576, int(os.environ.get("MCAI_TEST_API_PORT", "8767"))
 # Where 26.1 keeps the overworld's chunk files (there is no world/region): blocks, entities and points of interest
 DIM = pathlib.Path("dimensions") / "minecraft" / "overworld"
 KINDS = ("region", "entities", "poi")

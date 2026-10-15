@@ -48,14 +48,24 @@ def wait_until(test, seconds, step=0.5):
     return test()
 
 
+def process_name(pid):
+    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True).stdout
+    return out.strip().split(",")[0].strip('"').lower() if out.strip().startswith('"') else ""
+
+
 def listening_pids(port):
-    """PIDs listening on a TCP port (netstat -ano)."""
+    """PIDs of node processes listening on a TCP port (netstat -ano). Only node: another program bound 127.0.0.1:8767 on
+    2026-10-15, and taskkill /F on every listener would have killed it."""
     out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
     pids = set()
     for line in out.splitlines():
         parts = line.split()
         if len(parts) >= 5 and parts[0] == "TCP" and parts[1].rsplit(":", 1)[-1] == str(port) and parts[3] == "LISTENING":
             pids.add(int(parts[4]))
+    others = {p for p in pids if process_name(p) != "node.exe"}
+    if others:
+        raise SystemExit(f"port {port} is held by a program that is not an agent server (pid {', '.join(map(str, sorted(others)))}: "
+                         f"{', '.join(process_name(p) or '?' for p in sorted(others))}); set MCAI_TEST_API_PORT and MCAI_API to another port")
     return pids
 
 
