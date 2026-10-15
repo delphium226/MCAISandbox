@@ -1,0 +1,39 @@
+{
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 2,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 45,
+  "runs": [
+    {
+      "name": "Base1",
+      "server_env": {
+        "MC_GROW": "0"
+      },
+      "args": "--after 0.5",
+      "save": "mv3_base1"
+    },
+    {
+      "name": "GrowOff",
+      "checkpoint": "mv3_base1",
+      "server_env": {
+        "MC_GROW": "0"
+      },
+      "args": "--after 10"
+    },
+    {
+      "name": "GrowOn",
+      "checkpoint": "mv3_base1",
+      "server_env": {
+        "MC_GROW": "1"
+      },
+      "args": "--after 10",
+      "checks": [
+        "agent_log",
+        "make_log"
+      ]
+    }
+  ]
+}

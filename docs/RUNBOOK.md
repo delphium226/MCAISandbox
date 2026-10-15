@@ -197,6 +197,18 @@ the short version; look here for a check script's arguments, a model detail or w
   saved: agents spawn with empty hands (`"reset": true`), and claims of the saved run are handed back at their spawn.
   Save with the agent server's `MC_GROW=0` (a growth layout is posted right after completion) and restore with whatever
   the test needs. CPv1 (`runs/2026-10-15/cp_check.py`): build 5.9 min, save + restore 0.3, then the after phase from 0.0.
+- **Run series** (2026-10-15): `scripts/run_series.py SPEC.json [RUN ...] [--dry-run] [--detach]` replaces the
+  per-session drivers (`runs/*/g_runs.py`, `b4_runs.py`, `a2_runs.py`, `s9_runs.py`; `scripts/stage_runs.py` still works).
+  A spec gives the site, a base command (`preset`: `s0` is stage_runs.py's S.0 command on minevale3, `none` for your own),
+  workers, the agent server's settings (`server_env`, through reset_site.py), stage_village.py's arguments and environment,
+  a timeout, follow-up checks and extra line prefixes to print; each run overrides any of them and may `save` a checkpoint
+  or start from one (`checkpoint`: a resumed run, its village read from the checkpoint). Checks: `make_log`
+  (scripts/checks/make_log.py on the run's agent server log, found in its reset log) and `agent_log` (`[lag]`, `[stuck]`,
+  `[stuck-world]`, `[repath]`, `[dig]` counts); add one to `CHECKS` in the script. Logs go to `out` (default
+  runs/<today>): NAME.log, reset_NAME.log, NAME.choices.jsonl, save_NAME.log, SPEC.runner.log with `--detach`. The s0 preset
+  reads its designs from `runs/2026-10-05/vanilla_designs` (gitignored, as stage_runs.py). Tested with
+  `runs/2026-10-15/series/cp_series.json`: two resumed runs from `mv3_cpv1`, 3.5 and 4.5 min each with the restore.
+  Model-driven runs (watch_village.py) are not covered yet.
 - **After completion** (chores: farm slots, harvests, exploring, the iron age; 2026-10-08): `stage_village.py ... --mayor
   --after MINUTES` keeps watching after the village is complete (only a tiered mayor sets it complete); `--fixtures`
   plants sugar cane, pumpkins and a melon 35-45 blocks off the site first (minevale3 has none within 96), `--ripen` sets

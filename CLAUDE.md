@@ -141,7 +141,11 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - **Test the after phase from a checkpoint**, not by building the village again: once a staged village is complete,
   `reset_site.py SITE --save CP` (seconds); then for each test `reset_site.py SITE --checkpoint CP` and `stage_village.py
   VILLAGE ... --resume --mayor --after MINUTES` (the after phase starts at once). `reset_site.py --list` shows them; save
-  with the agent server's `MC_GROW=0` so no growth layout is under way. Example: `runs/2026-10-15/cp_check.py`.
+  with the agent server's `MC_GROW=0` so no growth layout is under way.
+- **Run series from a spec, not a new driver per session**: `python scripts/run_series.py SPEC.json [RUN ...] --detach`
+  resets (snapshot or checkpoint), runs stage_village.py, saves checkpoints, runs checks (`make_log`, `agent_log`) and
+  prints the key lines and a table, ending "ALL DONE"; `--detach` prints the watcher to arm, `--dry-run` the commands.
+  The spec format is in its docstring; `scripts/series/example.json` saves a base village and tests growth off and on.
 - **Checks** (`scripts/checks/`, about 50): run the one for the area you changed (`site.py` for find_site and
   prepare_site, `mine.py` for the mine, `fell_trees.py` for felling, `scale_probe25.py` at 25 bots, the golden checks
   `board_golden.mts` and `choice_golden.mts` before a refactor...). Offline ones read the region files or replay data (`region_blocks.py`, `top_map.py`,
