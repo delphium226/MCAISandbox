@@ -23,8 +23,7 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 (written 2026-10-15 at the close of the twenty-ninth session, which ran overnight: the user went to bed early on and asked
 Claude to keep building and decide on its own; the next session's prompt is `runs/2026-10-15/NEXT_PROMPT.md`)
 
-- **Done this session (s29), committed on `tiered-brain-building`, NOT pushed** (origin is at `5d6f06b`, pushed at the start
-  with the user's yes; ask before pushing): `ebec76d` F224 (scouts beside a lure in instance mode; no lure in a scout's
+- **Done this session (s29), committed on `tiered-brain-building` and pushed at the close (the user's yes)**: `ebec76d` F224 (scouts beside a lure in instance mode; no lure in a scout's
   hand), `9c76d28` **S.9** (the workshop: make, gather, works with three furnaces, `v.tech`; behind `MC_CHOICE_FAMILIES`),
   `58fe85c` S.9's runs and F226, `43b3dec` **B.4** (light inside buildings and the mine, the workshop's first consumer),
   `c69dbe1` B.4's runs, lessons 130-133, and the close-out commit. `main` untouched.
@@ -35,7 +34,7 @@ Claude to keep building and decide on its own; the next session's prompt is `run
 - **Open:** F228 (Minevale43's slow build, 17.8 min with 10 failed actions: not the families; the analysis in
   `runs/2026-10-15/mv43_analysis.md`), F226 (one make planned nothing; now logged and retried), F227 (fixture pumpkins),
   F218, F220, F222-F225.
-- **Next (Claude's recommendation, the user's call):** first F228's three small fixes (F218's path to the hut's furnace,
+- **Next (the user's choice, 10-15: Claude's recommendations):** first F228's three small fixes (F218's path to the hut's furnace,
   a smelt out of fuel taking its input back, a handed-back task depositing what it made) and a model-driven run, then the
   work that fills 25 agents, which must take agent time and grow: **a village that grows** (the backlog's item: after
   completion the Mayor lays out more houses on free land, built by the same economy; every family then has a real
@@ -4153,6 +4152,11 @@ CLAUDE.md when a phase ends.
   after-phase 40.2 against 52): every correctness bar was (61 of 61 standing, LIGHT ok, the demand driving make:torch 6
   times, 10 distinct lighters, 0 requeues). Recorded as is: what fills 25 agents is work that takes agent time and grows
   (lesson 130), which placing by command does not.
+- 10-15 (s29, the user's, after waking) Claude's recommendations taken: the session's commits **pushed**; next session
+  F228's three fixes and a model-driven run, then **a village that grows** (after completion the Mayor lays out more
+  houses on free land, built by the same economy). More furnaces not now (the user asked): S9f and B4f had one 30 s
+  furnace wait each (both at the hut, during the build) and the works furnaces none; revisit with the growing village's
+  `[furnace]` wait lines (builds could use the works furnaces first).
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it
