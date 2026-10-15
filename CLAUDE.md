@@ -537,6 +537,14 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     order as default and fallback (golden check 0 differences on 960 fixtures), choicebench 100% valid with no position
     bias, A2m at 25 with 0 errors, Minevale42 complete in 10.2 min. After completion only ~2% of agent-time is busy at 25:
     the work, not the choosing, is missing (S.9 next). Lessons 127-129.
+44. 2026-10-14/15 (twenty-ninth session, overnight: the user asked Claude to keep building and decide; s28's commits pushed
+    at its start; its own NOT pushed at the close, ask first; `main` untouched): F224 (`ebec76d`: a scout passing a lure
+    does not disturb it, one holding seeds does; instance-mode exploring beside a lure, the scout's hand cleared), **S.9,
+    the workshop** with the user's wider scope (`9c76d28`, `58fe85c`: `make`, `gather` (sand, logs, mine cobblestone),
+    `works` (a works plot with three locked furnaces), `v.tech`, all behind `MC_CHOICE_FAMILIES`; S9f at 25: 23 agents took
+    a chore, peak 9, busy 4%) and **B.4, light** as its first consumer (`43b3dec`, `c69dbe1`: torches in buildings from a
+    stand by the door and along the mine from the hut; B4f 61 of 61 standing). Minevale43 (model-driven) 38% busy after
+    completion but a slow build (F228). Work bounded by targets stops (lesson 130). Lessons 130-133.
 
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
@@ -693,6 +701,8 @@ creative, block-by-block placement in survival; not built yet).
 - **Reflex** (`BotAgent.selfDefence`): a hostile mob that just hurt the bot is fought (with a sword or axe) or fled
   from (unarmed, low health, creepers); the interrupted action resumes. An LLM turn is too slow for a zombie.
 
+Left after the twenty-ninth session (2026-10-15): the test Paper (25566) and its agent server (8767, on `c69dbe1`'s code)
+running with Minevale43's village (reset minevale3 before the next run); the main world stopped; see PLAN.md's handover.
 Left after the twenty-eighth session (2026-10-14): nothing running (the machine went down overnight); no agents in either
 world; see PLAN.md's handover. Left after the twenty-seventh session (2026-10-12): nothing running; the test Paper went down with the machine without a
 save (the test world is restored per site anyway); the main Paper stopped cleanly; no agents in either world; see

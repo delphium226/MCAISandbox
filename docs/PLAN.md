@@ -20,6 +20,29 @@ done**. It changes as we learn: see "Keeping this plan honest" at the end.
 
 ## Next session starts with
 
+(written 2026-10-15 at the close of the twenty-ninth session, which ran overnight: the user went to bed early on and asked
+Claude to keep building and decide on its own; the next session's prompt is `runs/2026-10-15/NEXT_PROMPT.md`)
+
+- **Done this session (s29), committed on `tiered-brain-building`, NOT pushed** (origin is at `5d6f06b`, pushed at the start
+  with the user's yes; ask before pushing): `ebec76d` F224 (scouts beside a lure in instance mode; no lure in a scout's
+  hand), `9c76d28` **S.9** (the workshop: make, gather, works with three furnaces, `v.tech`; behind `MC_CHOICE_FAMILIES`),
+  `58fe85c` S.9's runs and F226, `43b3dec` **B.4** (light inside buildings and the mine, the workshop's first consumer),
+  `c69dbe1` B.4's runs, lessons 130-133, and the close-out commit. `main` untouched.
+- **What the runs say:** at 25 agents the families work (S9f: 23 agents took an S.9 chore, peak 9; B4f: 61 of 61 torches
+  standing; every make matching its bill on the server's counts), but after-completion busy time is still ~4% (S9f 44.8,
+  B4f 40.2 agent-minutes of ~1125), because the work is bounded by stock targets and placing by command is quick
+  (lesson 130). In a 3-agent model-driven village they matter: Minevale43's after-phase was 38% busy (Minevale41 25%).
+- **Open:** F228 (Minevale43's slow build, 17.8 min with 10 failed actions: not the families; the analysis in
+  `runs/2026-10-15/mv43_analysis.md`), F226 (one make planned nothing; now logged and retried), F227 (fixture pumpkins),
+  F218, F220, F222-F225.
+- **Next (Claude's recommendation, the user's call):** first a second model-driven run (does F228 repeat?), then the
+  work that fills 25 agents, which must take agent time and grow: **a village that grows** (the backlog's item: after
+  completion the Mayor lays out more houses on free land, built by the same economy; every family then has a real
+  consumer, and builds take minutes of many agents), or A.3 (gauges, which also give F223 its measure), or S.10
+  (surveys). `MC_CHOOSE` stays `fixed` (the user's answer at the start).
+- **Stack:** the test Paper (25566) and its agent server (8767, on `c69dbe1`'s code) are left running with Minevale43's
+  village; the main world is stopped. Restart the agent server after any server edit; reset minevale3 before a run.
+
 (written 2026-10-14 at the close of the twenty-eighth session; the next session's prompt is
 `runs/2026-10-14/NEXT_PROMPT.md`; the notes below for the twenty-seventh session stay valid where not overridden)
 
@@ -2607,6 +2630,7 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-15 (s29) | b4_facts | B.4's live facts (`runs/2026-10-15/b4_facts.py`, Gus by RCON on a pad) | tests 1-9 pass: facing points away from the support; full cubes (glass too), double slabs and stairs facing the torch hold; leaves, panes, fences, walls, single slabs, a stair's side **do not, and a torch set on them stays floating** (lesson 131); `keep` refuses water and a torch; charge exact; a torch in a bot's head cell harmless; head-height torches in a 1x2 tunnel: 0 stuck | ~5 min | the `holdsTorch` rule |
 | 10-15 (s29) | B4s1 | B.4 smoke: staged 2x, Mayor + 3 workers, `--after 15`, families `make,gather,works,light` | complete 4.2 min; 18 of 18 torches standing in buildings, every walk ok (5 door stands, 1 fallback at the doorless meeting point); torch demand drove 2 make:torch and 1 charcoal | 19.3 min | MAKE ok 15 of 15, LIGHT ok 9 of 9; 0 `[stuck]` from lighting (4: fixture pumpkins and scouts, F227) |
 | 10-15 (s29) | **B4f** | B.4 at 25: S9f's command, families `make,gather,works,light` | complete 3.3 min; **61 of 61 torches standing** (buildings 23, mine 38; 0 dropped, 4 spots never); 15 light chores by 10 agents; torch demand 45 -> 0, driving 6 make:torch and 4 make:charcoal; 22 agents took an S.9 chore, peak 8 | 48.9 min | after-phase busy 40.2 agent-min (S9f 44.8: the same within noise), B.4's own work 5.2 (lighting 1.0, torches 4.2); LIGHT ok 15 of 15, MAKE ok 29 of 30 (one stone hoe make listed the maker's own pickaxe as left over: fixed after the run); 0 requeues, 0 cloud calls |
+| 10-15 (s29) | **Minevale43** | model-driven, 3 agents, 1x, minevale3 reset, gpt-oss every role, `MC_CHOOSE=fixed`, families `make,gather,works,light`, `MCAI_AFTER=45` (`runs/2026-10-15/mv43_run.py`) | **complete at 17.8 min** (Minevale41/42 10.4/10.2 on the same site), 10 failed actions before completion (F228); after completion 26 makes (MAKE ok 26 of 26), 11 light chores, 49 torches standing (LIGHT ok 11 of 11), works plot and furnaces, 0 requeues | 62.9 min | after-phase busy **38%** (50.9 of 134.9 agent-min; Minevale41 25%); 34 calls, $0.028 |
 
 ## Findings log
 
@@ -3685,6 +3709,13 @@ CLAUDE.md when a phase ends.
   give a pumpkin start 2-3 `[stuck]` lines every run (GoalLookAtBlock, ~11 s each, `could not reach pumpkin: 3 tried`):
   the same cells in all four runs. A fixture's fault (lesson 133), not new code; place the fixture pumpkins on reachable
   ground (`--fixture-dy`, or a search for a standable cell beside each) when the staged runs are next touched.
+- F228 (10-15, s29, Minevale43) The build phase took 17.8 min with 10 failed actions (Minevale41/42 on the same site:
+  10.4/10.2 min, 3 each): F218's "no path to -1657,65,8" again, then `smelt failed: ran out of fuel after 1 of N` 4 times
+  (Minevale41 had 2, Minevale42 0) and "14 glass_pane cannot be made from the village storage yet (gather 3-6 sand)" 3
+  times. Not the new families (their first log line follows "declared complete"); the build's fuel paths are unchanged
+  by diff (no coal budget is passed for glass, the fetch is the same without an ingredient coal). The line-up against
+  Minevale42 is `runs/2026-10-15/mv43_analysis.md` (see its conclusion below when written). Next: a second model-driven
+  run to see whether it repeats.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
