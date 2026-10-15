@@ -1481,7 +1481,12 @@ Rules for every step:
 
 Goal 2 below is a tech tree. Families come in order of how much parallel work they offer soonest and how feasible they are in peaceful at minevale3. Each is tested alone with `--stock` to skip earlier tiers, measured by the `AFTER busy:` line, yield and failures, in a staged 12-agent after-phase (`--mayor --after 30 --fixtures`). A family that runs before completion must leave completion within the noise band. New families are off by flag in A.8's comparison runs.
 
-- [ ] S.9 **The workshop: `make` and the tech record** (~1 session). This is the framework.
+- [x] S.9 **The workshop: `make` and the tech record** (~1 session). This is the framework. **Done 10-15 (s29)** with the
+  user's wider scope (make + gathering, the works plot with three furnaces; the decisions of 10-14/10-15): `9c76d28`, spec
+  `runs/2026-10-14/spec_s9.md` (count, check, reviews in `runs/2026-10-14/`). S9f (25 agents, fixed): 23 agents took an
+  S.9 chore, peak 9 at once, after-phase busy 44.8 agent-min (A2f2 18.8), MAKE ok 24 of 24 made, 0 requeues; S9m (model):
+  18 agents, peak 7, 33.9 (A2m 21.0), MAKE ok 23 of 23. The work peaks at minute ~1 and stops when the targets are met:
+  B.4 (light) next, as the first consumer. Open: F226.
   - One composite skill, `make item= count=`: withdraw the inputs, make the item at the hut through `makeFromStock`, deposit it by name (lesson 112). Crafting stays charged by RCON.
   - Offered as a chore with an instance key (`make:<item>`, lesson 111). After completion first, as an A.2 option.
   - Before completion (`make` and S.10's surveys) only when all of these hold:
@@ -2590,6 +2595,10 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-13 (s28) | **A2f2** | the same code and command, fixed mode (the brain comparison for A2m) | complete at 4.7 min | 50.7 min | 59 fixed decisions, all 8 points explored, iron 3, penwork 28; 0 `[lag]`, 8 `[stuck]`; storage **454**. The fixed-mode staged runs end at 490, 397, 701 and 454 with the same settings, so A2m's 374 is inside the run-to-run spread |
 | 10-13 (s28) | **Minevale41** | model-driven, 1x, minevale3 (probe -1544,8), 3 agents, fixed, single keys, `MCAI_AFTER=45` (A.1's model-driven baseline) | **complete at 10.4 min** | 55.4 min | 3 failed in the build (F218's no path to -1657,65,8 again; two smelts out of fuel); after completion 30 fixed decisions, **10 iron trips** (923 items into storage), 0 explore (single keys); storage **1158**; 12 calls, $0.009 |
 | 10-13 (s28) | **Minevale42** | the same with `MC_CHOOSE=model`, instances on | **complete at 10.2 min** | 55.3 min | the same 3 build failures; 32 decisions: model 13 (65% of those with 2+ options), only 11, taken 5, 3 drops; all 8 points explored, iron 5, penwork 9; storage **511** (exploring adds nothing to storage, iron trips most); 33 calls, $0.012 |
+| 10-14 (s29) | f224_* | F224's live check (`runs/2026-10-14/f224_facts.py`): Gus leads 2 chickens or cows 48 blocks in start_pen's hops, Worker1 walks past or through | control, scout 3.6 off, scout through the herd: 2 of 2 followed (both kinds); scout holding seeds or wheat: 1 of 2 (one followed the scout 47.8); with the scout skill's hand check: 2 of 2 | ~1 min each | the fix in `ebec76d` |
+| 10-15 (s29) | S9s1 | S.9 smoke: staged 2x, minevale3, Mayor + 3 workers, `--after 12 --fixtures --stock wheat:12,bucket:3,sugar_cane:2`, families on | complete 4.3 min; works plot, 3 furnaces placed; 8 makes (1 failed: the composter, fixed before S9f) | 16.4 min | MAKE ok 7 of 7; 0 requeues; v.tech 33 firsts; after-phase busy 43% |
+| 10-15 (s29) | **S9f** | S.9 at 25: staged 2x, the S.0 command, Mayor + 24 workers, `--after 45 --fixtures --stock wheat:12,bucket:3,sugar_cane:2 --choose fixed`, `MC_CHOICE_FAMILIES=make,gather,works` | complete 2.7 min; **23 agents took an S.9 chore, peak 9 at once (minute 1.3)**; make 25, gather 10 (sand 3, logs 3, cobblestone 4: all landed, 147 items), works 4 (plot + 3 furnaces); every stock target reached, then `gather: nothing wanted` | 47.7 min | **after-phase busy 44.8 agent-min (A2f2 18.8), 4%**; S.9 chores 18.9; MAKE ok 24 of 24 made (1 failed, F226); 4 smelting makes at once on different furnaces; 0 requeues, 0 `[choice-error]`, 0 `[lag]`, 6 `[stuck]` (fixture pumpkins and a scout, none at the hut or works); 0 cloud calls |
+| 10-15 (s29) | **S9m** | the same with `--choose model` (`MC_CHOOSE=model`) | complete 4.4 min; 18 agents took an S.9 chore, peak 7 at once (minute 1.2); make 23, gather 4 (sand 2, cobblestone 2), works 4; every target reached | 50.1 min | after-phase busy 33.9 agent-min (A2m 21.0), 3%; MAKE ok 23 of 23; 0 requeues, 0 `[choice-error]`; 35 calls, $0.005. Reported beside S9f, not compared (F223) |
 
 ## Findings log
 
@@ -3659,6 +3668,11 @@ CLAUDE.md when a phase ends.
   Not changed: harvests and farm starts still exclude `pen` (a harvester holds seeds in hand while sowing).
 - F225 (10-13, s28, A2m, Minevale42) Herding: 5 "taken" a run, two choosers picking the same instance in one sweep, the
   second given the fixed pick (spec risk 4). E.4's reservation at decision start and one re-ask address it.
+- F226 (10-15, s29, S9f) One `make` of 8 smooth stone on the hut's furnace (before the works furnaces stood) failed in 2 s:
+  `could not make 8 smooth_stone from what was withdrawn (2 charcoal, 8 cobblestone)`, so `makeHeld` returned null at one
+  of its two early returns, though the server had the items (they went back) and the same plan offline is fine (16
+  smelts, 2 charcoal, nothing to gather; `runs/2026-10-15/scratch/smooth.mts`). Not explained from the log: the next step
+  logs what `makeHeld` saw when a make gets null, and the make resyncs and tries once more. 1 of 25 makes; soft.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -4055,6 +4069,30 @@ CLAUDE.md when a phase ends.
   prepared with `prepare_annex`'s machinery, the one place for the works to come (S.11's furnace row, S.14's sheep pen);
   the four s28 commits were **pushed** (`8f91251..5d6f06b`, `tiered-brain-building` only, `main` untouched); `MC_CHOOSE`
   **stays `fixed`** by default until A.3's gauges can measure what the model's choices are worth (F223).
+- 10-14 (s29) S.9's scope widened (the user's choice, after the offline count `runs/2026-10-14/count_s9.md`: `make` alone
+  would take after-completion busy time at 25 from ~2% to ~2.3%, the goods made once, sand with no inflow, one furnace):
+  **make + gathering**: the `gather` family (sand, the village's logs, mine cobblestone) feeding the workshop against what it
+  lacks, and three furnaces on the works plot now (S.11's row brought forward, one lock each). The user then went to bed
+  and asked Claude to keep building and decide on its own (pushing still waits for the user).
+- 10-14 (s29, Claude's, from the spec `runs/2026-10-14/spec_s9.md` and its check) S.9's design: the families sit behind
+  one flag, `MC_CHOICE_FAMILIES` (default `make,gather,works`; empty for the golden checks and A.8's baselines), not in
+  `MC_CHOICE_INSTANCES`; ranks after every existing kind (works 850, make 900+, gather 950+), so today's order is
+  untouched; `make` never gathers its own shortfall (a short input becomes gathering demand for another agent); earmarks
+  while a chore is queued; **mud bricks, chests and the stone axe, shovel and sword cut** (mud has no recipe; a carried
+  chest becomes a storage chest at every deposit; the tools have no consumer yet); barrel and composter in one wood kind
+  chosen by code (the planner chose cherry); `v.tech` recorded at `doCraft` and `smelt`, so every path counts.
+- 10-14 (s29, Claude's) **S.9's exit reset** (from "busy agents after completion at least 9 of 12"): the families are
+  bounded by stock targets, so the exit counts what they can give: in S9f (25 agents, 2x, 45-min after-phase) `MAKE ok`
+  (gains match the bills on the server's counts), 0 requeues traced to make, 0 `[choice-error]`, the works plot with 3
+  furnaces and two smelting makes overlapping, **at least 12 distinct agents taking an S.9 chore, a peak of at least 6 at
+  once, after-phase busy agent-minutes at least 32** (A2f2 18.8; the spec's estimate 37-47), gathering stopping once
+  nothing is wanted. Sustained busy agents need consumers of the goods (lighting, ladders, upgrades), a later step.
+- 10-15 (s29, Claude's, the user asleep) **Next after S.9: B.4, light inside buildings and the mine, as the workshop's first
+  consumer** (before S.10 or A.3): S9f showed the S.9 families peak at minute ~1 and stop once the stock targets are met;
+  torches used up by lighting make `make:torch`, charcoal and `gather:logs` recur, and the mine's lighting recurs as the
+  mine is dug. It is one of the user's own village-life items (10-06). Built as an S.9-style menu family (`light`, after
+  completion, behind `MC_CHOICE_FAMILIES`); the beautifying plan's open choices taken as recommended (chores after
+  completion, not counted in the objective). Spec `runs/2026-10-15/spec_b4.md`.
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

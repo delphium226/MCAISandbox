@@ -37,8 +37,9 @@ QUEUE = re.compile(r"^\[make\] (\S+): (\S+) makes (\d+) (\S+) \((.*)\)$")
 GATHER_Q = re.compile(r"^\[gather\] (\S+): (\S+) gathers (\d+) (\S+) \((.*)\)$")
 WORKS = re.compile(r"^\[works\] (.*)")
 TECH = re.compile(r"^\[tech\] (.*)")
-# Tools a miner or a farm start may take from storage while a make deposits (the storage count then rises by less)
-TAKEN_BY_OTHERS = {"stone_pickaxe", "stone_hoe"}
+# Tools a miner or a farm start may take from storage while a make deposits (the storage count then rises by less), and
+# fuel a torch make or a smelt takes meanwhile (S9m: charcoal 3->6 for 5 made)
+TAKEN_BY_OTHERS = {"stone_pickaxe", "stone_hoe", "charcoal"}
 
 
 def counts(s):
@@ -125,8 +126,13 @@ for e in ends:
         bad.append(f"left {e['left']} in hand")
     if e["item"] in e["back"]:
         bad.append(f"gave back {e['back'][e['item']]} of the good itself")
+    # (planks and slabs sawn from logs taken come back beyond the planks taken: 2 oak logs and 1 plank for two wooden
+    # swords give 3 planks back, S9f)
+    def sawn(n):
+        kind = re.sub(r"_(planks|slab)$", "", n)
+        return kind != n and any(t in e["took"] for t in (f"{kind}_log", f"{kind}_planks") if t != n)
     for n, q in e["back"].items():
-        if n in e["took"] and q > e["took"][n]:
+        if n in e["took"] and q > e["took"][n] and not sawn(n):
             bad.append(f"gave back {q} {n}, took {e['took'][n]}")
     d = e["after"] - e["before"]
     if d != e["made"]:

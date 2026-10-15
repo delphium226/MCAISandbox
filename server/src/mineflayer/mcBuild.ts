@@ -4289,7 +4289,17 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
       for (const [n, q] of Object.entries(bill)) if (took[n]) kept[n] = (kept[n] ?? 0) + Math.min(q, took[n]);
       const madeParts = Object.keys(parts).length ? await makeFromStock(a, kept, parts, async () => undefined, signal, opts) : 'its parts withdrawn';
       made = madeParts && `${madeParts}; ${await SURVIVAL_SKILLS.craft.run(a, { item, count: craftOf.count, wood: craftOf.wood }, signal)}`;
-    } else made = await makeFromStock(a, need, bill, async () => undefined, signal, opts);
+    } else {
+      made = await makeFromStock(a, need, bill, async () => undefined, signal, opts);
+      if (!made) {
+        // (F226: 8 smooth stone from 2 charcoal and 8 cobblestone refused in 2 s, the server holding both; what the view
+        // and the server said is logged, then once more after a fresh inventory)
+        const view = inventoryCounts(a), server = await carriedCounts(a, Object.keys(bill).concat(Object.keys(took)));
+        console.log(`[make] ${a.name} ${v.name}: ${item} planned nothing; view ${listCounts(view) || 'empty'}; server ${listCounts(server) || 'empty'}; need ${listCounts(need) || 'none'}; once more`);
+        await syncInventory(a);
+        made = await makeFromStock(a, need, bill, async () => undefined, signal, opts);
+      }
+    }
     if (!made) {
       await giveBack();
       throw new Error(`make: could not make ${count} ${item} from what was withdrawn (${listCounts(took) || 'nothing'})`);
