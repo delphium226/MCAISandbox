@@ -35,7 +35,8 @@ Claude to keep building and decide on its own; the next session's prompt is `run
 - **Open:** F228 (Minevale43's slow build, 17.8 min with 10 failed actions: not the families; the analysis in
   `runs/2026-10-15/mv43_analysis.md`), F226 (one make planned nothing; now logged and retried), F227 (fixture pumpkins),
   F218, F220, F222-F225.
-- **Next (Claude's recommendation, the user's call):** first a second model-driven run (does F228 repeat?), then the
+- **Next (Claude's recommendation, the user's call):** first F228's three small fixes (F218's path to the hut's furnace,
+  a smelt out of fuel taking its input back, a handed-back task depositing what it made) and a model-driven run, then the
   work that fills 25 agents, which must take agent time and grow: **a village that grows** (the backlog's item: after
   completion the Mayor lays out more houses on free land, built by the same economy; every family then has a real
   consumer, and builds take minutes of many agents), or A.3 (gauges, which also give F223 its measure), or S.10
@@ -3714,8 +3715,16 @@ CLAUDE.md when a phase ends.
   (Minevale41 had 2, Minevale42 0) and "14 glass_pane cannot be made from the village storage yet (gather 3-6 sand)" 3
   times. Not the new families (their first log line follows "declared complete"); the build's fuel paths are unchanged
   by diff (no coal budget is passed for glass, the fetch is the same without an ingredient coal). The line-up against
-  Minevale42 is `runs/2026-10-15/mv43_analysis.md` (see its conclusion below when written). Next: a second model-driven
-  run to see whether it repeats.
+  Minevale42 is `runs/2026-10-15/mv43_analysis.md`. **Conclusion (the analysis): not the code changes** (`plan()` old and
+  new give 0 differences on 7 of the run's inventories; the new smelt and makeFromStock options are never passed by
+  make_into_storage or executor smelts). The layout, bills and first 4.7 min match Minevale41/42 to the minute; all ~7.6
+  extra minutes went into "Make 14 glass_pane into storage" (done at 7.1/7.8 min in 41/42, 16.5 in 43), through three
+  older defects: F218 set it off (no path to the hut's furnace cell; the executor improvised); **a smelt that runs out of
+  fuel leaves its unsmelted sand in the furnace** (since `5710a15`, mcSurvival.ts smelt's fuel loop), where makeHeld's
+  count (carried plus storage) never sees it (~11 sand by 8.0 min); and **a worker that hands a task back keeps what it
+  made** (6 glass and 14 sand in Worker2's pockets from 11.3 to ~18.9 min, lesson 112). Worker1's executor turns took 29 s
+  each (Worker2 2.8 s, same tokens). Next: fix F218 (the cheapest model-driven failure left), take the input back out of
+  the furnace when a smelt runs out of fuel, and deposit by name what a handed-back task made; then a model-driven run.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
