@@ -2,7 +2,8 @@
 
 How the agent system fits together: the two worlds agents can live in, the world interface that lets one brain run
 in either, the two-tier brain, villages, the models behind it all, and the control panel. For running things see the
-[README](../README.md); for working notes and lessons learned see [CLAUDE.md](../CLAUDE.md).
+[README](../README.md); for working notes see [CLAUDE.md](../CLAUDE.md) and [RUNBOOK.md](RUNBOOK.md), for lessons learned
+[LESSONS.md](LESSONS.md).
 
 ## 1. The system at a glance
 
@@ -290,7 +291,7 @@ of 18.0.
 
 ### Designs: from a brief to the library
 
-`TieredBrain.design()` runs the architect (phase D, `docs/PLAN.md`). Where the world takes block states (Minecraft) it
+`TieredBrain.design()` runs the architect (phase D, `docs/plan-archive/phases-done.md`). Where the world takes block states (Minecraft) it
 offers two tools, `submit_style` first; the sandbox offers `submit_design` only.
 
 ```mermaid
@@ -632,7 +633,7 @@ breeding and the cake; pens v2) and deposits everything. The layout's `farm` rec
 sets the field ripe by command after the build and checks the bread and the resown cells.
 
 **Farm slots and exploring** (opportunistic farming v1, 2026-10-08; design `runs/2026-10-08/s22/opp_farm_design.md`,
-the decision in `docs/PLAN.md`). Where `postLayout` placed the wheat field, it places up to two kind-free farm slots
+the decision in `docs/DECISIONS.md`). Where `postLayout` placed the wheat field, it places up to two kind-free farm slots
 after the lamps, each a `placeFarm` of the field's shape near it, off the field, earlier slots and the lamp cells
 (grown by 1; no lamp is lost), recorded as `layouts[i].slots` (the field's spot plus `kind`, `cells`, `fruit`,
 `planted`, `from`, `tries`, harvests). `farmSlots.ts` holds the kinds in the order a slot takes them (`SLOT_KINDS`:
@@ -960,7 +961,7 @@ cells, nearly all known, none water, lava or built, their mean heights within 5 
 ground, ranked by height range, trees on them, distance, and logs within 48 and sand within 96 at the site's height.
 The cells are too coarse to choose the square, so the bot walks to the best candidates (the best first, then the
 nearest; 300 blocks of walking in all) and the column survey there picks the site. `collect` from the atlas is still
-planned (`docs/PLAN.md`, phase 2).
+planned (`docs/plan-archive/phases-done.md`, phase 2).
 
 ## 8. Testing
 
@@ -1030,7 +1031,7 @@ few trees) and spawns the village at the site it found (`MCAI_NO_PROBE=1` starts
 scouting tests); when a watcher dies mid-run (background tasks stop with the
 session that started them), `attach_village.py` follows the running agents instead.
 
-Staged runs and checks are made faster and repeatable in two ways (`docs/PLAN.md`, phase T). `MC_TIME_SCALE=2` runs
+Staged runs and checks are made faster and repeatable in two ways (`docs/plan-archive/phases-done.md`, phase T). `MC_TIME_SCALE=2` runs
 the game and the bots at 2x (section 5's table): walking is 1.94x faster and a staged build takes 1.5 instead of 2.2
 minutes, but mining is not faster, since digs keep their real-time length; model-driven acceptance runs stay at 1x.
 The **fixed test world** is a second Paper server in `mc/testserver` (25566, RCON 25576, agent server 8767 with
@@ -1142,7 +1143,7 @@ reach to the end of the stretch being dug, floor to ceiling `y2`, so the ground 
 pathfinder breaks blocks in them. Two trips in a row that gathered nothing end the tunnel or branch they worked on, and
 so do three that stopped at the same cell inside the mine; a bot stuck outside it ends nothing.
 
-**The iron age** (v1, 2026-10-08; design `runs/2026-10-08/s22/iron_design.md`, the decision in `docs/PLAN.md`,
+**The iron age** (v1, 2026-10-08; design `runs/2026-10-08/s22/iron_design.md`, the decision in `docs/DECISIONS.md`,
 F180-F186). The mine's levels (y 56-64) meet about 0-1 iron in 100 cells; iron peaks at y 12-27 in 26.1. Once the
 village is complete, `MineflayerWorld.ironChores` (called from `slotChores` after the farm slots' starts and the annex
 and the pens' chores, before exploring; key `iron`, never while milking or the cake holds the buckets) queues on an
@@ -1191,12 +1192,12 @@ mayor and two workers and no manual help, five times with gpt-oss as the workers
 a row) and twice with qwen3.8 (26.2 and 39.2 minutes); every failed run on the way was a code bug, since fixed. Still
 open: `collect` often cannot reach logs high on hills (9-23 failed collects in hilly or jungle-edged woods); log roofs
 make villages slow (a 9x9 log roof is 81 logs); and builders drawing on the chest at the same moment still come up short now and then (the
-requeue recovers). The shared atlas (`docs/PLAN.md`, phase 2) helps with the first: `find_site` now leaves poor land
+requeue recovers). The shared atlas (`docs/plan-archive/phases-done.md`, phase 2) helps with the first: `find_site` now leaves poor land
 for a better area the atlas knows (staged runs from the jungle hills and the lake that went wrong before built all
 three buildings, 2026-10-02); gathering from the atlas is still to come. With stair gable roofs (phase D's first step,
 2026-10-04) the same objective was built on the test world at 1x in 14.6 and 17.0 minutes with no failed actions;
 with buildings drawn from styles (D.2, D.3) in 16.1 and 19.2 minutes with no failed designs or actions. With vanilla
-villages (`docs/PLAN.md`, "Vanilla villages", V2.1-V2.3): four houses of four biomes and a library with upper-floor
+villages (`docs/plan-archive/phases-done.md`, "Vanilla villages", V2.1-V2.3): four houses of four biomes and a library with upper-floor
 doors were built at four turns with no block differing from the design (the server worked out vanilla's roof corners;
 a sixth piece lost one turn to gravel sliding onto its plot, F128); staged street
 villages built 5-6 buildings in about 3 minutes at 2x from stocked storage (VanS1-4) and 6 in 9.7 minutes from nothing

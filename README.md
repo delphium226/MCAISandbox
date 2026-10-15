@@ -48,7 +48,7 @@ actions up to completion. Minevale36 then ran on for 45 minutes after completion
 times, a pumpkin farm started, an iron pickaxe and three buckets made from iron the agents dug, and all eight scouting
 points visited. (Its wheat field was set ripe by command 26 minutes after completion, to test the cow pen sooner: cows
 are lured with wheat, and wheat grows slowly.) The first runs of this kind, in late September 2026, took 10-40 minutes,
-and the runs that failed each found a code bug; every run is recorded in [docs/PLAN.md](docs/PLAN.md).
+and the runs that failed each found a code bug; every run is recorded in [docs/RUNS.md](docs/RUNS.md).
 
 ## How the agents work
 
@@ -530,7 +530,7 @@ benches, styles never drew notes and flat hand drawings shown back came back as 
 own open gable ends were not fixed (0 of 8): what keeps designs right is keeping the architect on styles. Every refused
 try and the verdict is logged as a `[design]` line, and the control panel shows each design's elevations.
 
-**Vanilla village pieces** (Minecraft; `server/src/vanillaPieces.ts`, phase D's "Vanilla villages" in `docs/PLAN.md`).
+**Vanilla village pieces** (Minecraft; `server/src/vanillaPieces.ts`, phase D's "Vanilla villages" in `docs/plan-archive/phases-done.md`).
 The Paper server's jar holds the game's own village pieces (houses, town centres, streets) for five biomes: plains,
 savanna, snowy, taiga and desert. They are read from the local jar at runtime (`vanillaData.ts`, below; `MC_VANILLA_JAR`
 picks another jar) and never copied into the repository: they are Mojang's files. `pieceToDesign` turns a house into a
