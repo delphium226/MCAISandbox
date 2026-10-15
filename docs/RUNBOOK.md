@@ -187,6 +187,16 @@ the short version; look here for a check script's arguments, a model detail or w
   material group, the mining hut and its stairs are built and dug, and a mixed deposit is checked for sorting at the
   end, `--no-deposit-check` skips it); `--stage full` runs storage, gathering and building (~14-21 min with the huts). It stops when every building is done,
   when an agent fails the same way 3 times, or after 3 minutes without progress. Then run the model-driven village.
+- **Checkpoints** (2026-10-15): `reset_site.py SITE --save CP [--force] [--no-start]` stops the test servers (Paper saves)
+  and copies the site's region, entities and poi files, the villages on them and their atlas summaries into
+  `mc/testcheckpoints/CP/` (gitignored; ~26 MB for minevale3, a few seconds); `reset_site.py SITE --checkpoint CP` restores
+  from there instead of the snapshot; `--list` shows them with the commit they were saved at. `stage_village.py VILLAGE
+  ... --resume --after MINUTES` then reads the complete village as it stands (no designs, layout or staging; refuses
+  `--stage build`, `--harvest`, `--fixtures`, `--design-*`), spawns the members round its first layout and starts the
+  after phase at once; the build's PREPARE, CRITICAL PATH, MINE and TAIL lines are left out. Players' files are not
+  saved: agents spawn with empty hands (`"reset": true`), and claims of the saved run are handed back at their spawn.
+  Save with the agent server's `MC_GROW=0` (a growth layout is posted right after completion) and restore with whatever
+  the test needs. CPv1 (`runs/2026-10-15/cp_check.py`): build 5.9 min, save + restore 0.3, then the after phase from 0.0.
 - **After completion** (chores: farm slots, harvests, exploring, the iron age; 2026-10-08): `stage_village.py ... --mayor
   --after MINUTES` keeps watching after the village is complete (only a tiered mayor sets it complete); `--fixtures`
   plants sugar cane, pumpkins and a melon 35-45 blocks off the site first (minevale3 has none within 96), `--ripen` sets

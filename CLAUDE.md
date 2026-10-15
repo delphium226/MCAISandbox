@@ -138,6 +138,10 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   (or `--site SITE` on the test world; `--stage build` ~1 min, full ~6-9 min at 2x). After completion: `--mayor --after
   MINUTES`, with `--fixtures`, `--stock item:N,...`, `--choose`. `scripts/stage_runs.py` runs several in a row with a
   reset before each (detach it and arm a watcher). Flags and their uses: RUNBOOK.
+- **Test the after phase from a checkpoint**, not by building the village again: once a staged village is complete,
+  `reset_site.py SITE --save CP` (seconds); then for each test `reset_site.py SITE --checkpoint CP` and `stage_village.py
+  VILLAGE ... --resume --mayor --after MINUTES` (the after phase starts at once). `reset_site.py --list` shows them; save
+  with the agent server's `MC_GROW=0` so no growth layout is under way. Example: `runs/2026-10-15/cp_check.py`.
 - **Checks** (`scripts/checks/`, about 50): run the one for the area you changed (`site.py` for find_site and
   prepare_site, `mine.py` for the mine, `fell_trees.py` for felling, `scale_probe25.py` at 25 bots, the golden checks
   `board_golden.mts` and `choice_golden.mts` before a refactor...). Offline ones read the region files or replay data (`region_blocks.py`, `top_map.py`,

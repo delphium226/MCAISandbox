@@ -36,6 +36,11 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 started with MC_OLLAMA_ROUTES)
   --minutes M                   time limit (default 20)
   --verbose                     the full STATS line per agent beside the AGENTS table (over 4 agents the table replaces them)
+  --resume                      start from the village VILLAGE as it stands, complete, in a checkpoint restored by
+                                scripts/reset_site.py SITE --checkpoint CP (saved with --save CP once a staged run had
+                                completed it): no designs, layout or staging; the agents spawn into it and the watch goes
+                                straight to the after phase (needs --after). The build's PREPARE, CRITICAL PATH, MINE and
+                                TAIL lines are left out (they belong to the run that saved it)
   --choose fixed|model          A.2: memory.choose on every spawn, how the complete village's idle members choose their chores
                                 (fixed: the code's order; model: one model call a decision); unset sends nothing, so the
                                 agent server's MC_CHOOSE (fixed by default) decides
@@ -232,9 +237,18 @@ p.add_argument("--choose", choices=["fixed", "model"], help="A.2: how idle membe
                                                           "(memory.choose on every spawn; fixed: the code's order, model: a "
                                                           "model call per decision); unset sends nothing (the agent server's "
                                                           "MC_CHOOSE, fixed by default)")
+p.add_argument("--resume", action="store_true", help="start from VILLAGE complete in a restored checkpoint "
+               "(reset_site.py SITE --checkpoint CP): spawn its members and watch the after phase only (needs --after)")
 p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
                                           "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
 args = p.parse_args()
+if args.resume:
+    if not args.after:
+        p.error("--resume watches the after phase only: give --after MINUTES")
+    clash = [o for o, on in (("--stage build", args.stage == "build"), ("--harvest", args.harvest), ("--fixtures", args.fixtures),
+                             ("--design-from", args.design_from), ("--design-file", args.design_file)) if on]
+    if clash:
+        p.error(f"--resume starts from a built village: {', '.join(clash)} cannot apply (the checkpoint keeps any fixtures)")
 test_site = None
 if args.site:
     sites = json.load(open(os.path.join(ROOT, "scripts", "test_sites.json"), encoding="utf-8"))
@@ -493,60 +507,83 @@ def find_land(x, z, size):
 
 
 # ---- the village and its designs
-call("/village", {"name": args.village, "objective": f"test: {', '.join(buildings)}"})
-designs = {"testhut": TESTHUT, "testhall": TESTHALL, "stairhut": STAIRHUT, "stairhall": STAIRHALL}
-for spec in args.design_from:
-    src, name = spec.split(":")
-    d = call(f"/village/{src}").get("designs", {}).get(name)
-    if not d:
-        raise SystemExit(f"no design {name} in {src}")
-    designs[name] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
-for path in args.design_file:
-    d = json.load(open(path, encoding="utf-8"))
-    designs[d["name"]] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
-for name in set(buildings):
-    if name in GEN_STYLES and name not in designs:
-        designs[name] = generated(name)
-    if name not in designs:
-        raise SystemExit(f"unknown design {name}: use testhut, --design-from VILLAGE:{name} or --design-file FILE")
-    r = call(f"/village/{args.village}/designs", designs[name])
-    print(f"design {name}: {r}", flush=True)
-
-# ---- site and layout (the size covers the plot plus prepare_site's margin; a new village gets a 7x9 storage hut too)
-biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildings))
-size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
-if args.site_at:
-    f = args.site_at.split(",")
-    # (a sixth field, the logs of that wood near the site as find_site counts them, gives the village a wood kind as in
-    # model-driven runs: plan_layout sets one only with enough of it, F164's tests)
-    site = {"x": int(f[0]), "y": int(f[1]), "z": int(f[2]), "size": int(f[3]), **({"wood": f[4]} if len(f) > 4 else {}),
-            **({"woodLogs": int(f[5])} if len(f) > 5 else {})}
-    print(f"site given: {json.dumps(site)}", flush=True)
-elif test_site and test_site.get("site"):
-    site = test_site["site"]
-    print(f"site {test_site['name']} from test_sites.json: {json.dumps(site)}", flush=True)
-    # (a rough estimate: the layout packs tighter, e.g. two 9x9 houses, an 11x11 hall and the huts in 24x31; the layout's
-    # own answer says when they do not fit)
-    if site.get("size", size) < size:
-        print(f"the recorded site is {site['size']} blocks across, these buildings may need {size}: if the layout leaves "
-              f"some out, set its site to null in scripts/test_sites.json and run once more to find a bigger one", flush=True)
+if args.resume:
+    # A village saved complete in a checkpoint: read it as it stands
+    v = call(f"/village/{args.village}")
+    if "error" in v or not v.get("tasks"):
+        raise SystemExit(f"no village {args.village} with tasks at {API} (restore its checkpoint first: "
+                         f"python scripts/reset_site.py SITE --checkpoint CP; --list shows them): {str(v)[:200]}")
+    if not v.get("complete"):
+        raise SystemExit(f"village {args.village} is not complete in this world: --resume needs a checkpoint saved after completion")
+    tasks = v["tasks"]
+    hut = v.get("storageHut")
+    built_designs = [m.group(1) for t in tasks if t["title"].startswith("Build ") for m in [re.search(r'build_design "([^"]+)"', t["detail"])] if m]
+    lay = (v.get("layouts") or [{}])[0]
+    if test_site and test_site.get("site"):
+        site = test_site["site"]
+    elif lay and "x1" in lay:
+        site = {"x": (lay["x1"] + lay["x2"]) // 2, "y": lay.get("y", 64), "z": (lay["z1"] + lay["z2"]) // 2,
+                "size": max(lay["x2"] - lay["x1"], lay["z2"] - lay["z1"]) + 1}
+    else:
+        raise SystemExit(f"village {args.village} has no layout to spawn round")
+    size = site.get("size", 30)
+    print(f"RESUME village {args.village}: complete, {len(tasks)} tasks, {len(v.get('structures') or [])} structures, "
+          f"{len(v.get('layouts') or [])} layout(s), growth {'yes' if v.get('growth') else 'none'}; site {json.dumps(site)}", flush=True)
 else:
-    site = find_land(args.x, args.z, size)
-    if test_site:
-        found = {k: site[k] for k in ("x", "y", "z", "size", "wood", "woodLogs") if k in site}
-        print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
-r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs"),
-                                             "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {}),
-                                             # (how many will work it: S.6 splits the plot into more parts with four or more,
-                                             # and the workers are spawned only after the layout)
-                                             "workers": args.workers, **({"by": "Mayor"} if args.mayor else {})})
-print(r.get("result") or r, flush=True)
-if "error" in r:
-    raise SystemExit(1)
-tasks = r["tasks"]
-hut = call(f"/village/{args.village}").get("storageHut")
-# Every design the layout builds (the storage hut included)
-built_designs = [m.group(1) for t in tasks if t["title"].startswith("Build ") for m in [re.search(r'build_design "([^"]+)"', t["detail"])] if m]
+    call("/village", {"name": args.village, "objective": f"test: {', '.join(buildings)}"})
+    designs = {"testhut": TESTHUT, "testhall": TESTHALL, "stairhut": STAIRHUT, "stairhall": STAIRHALL}
+    for spec in args.design_from:
+        src, name = spec.split(":")
+        d = call(f"/village/{src}").get("designs", {}).get(name)
+        if not d:
+            raise SystemExit(f"no design {name} in {src}")
+        designs[name] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
+    for path in args.design_file:
+        d = json.load(open(path, encoding="utf-8"))
+        designs[d["name"]] = {**d, "layers": [[" ".join(r) for r in layer] for layer in d["layers"]]}
+    for name in set(buildings):
+        if name in GEN_STYLES and name not in designs:
+            designs[name] = generated(name)
+        if name not in designs:
+            raise SystemExit(f"unknown design {name}: use testhut, --design-from VILLAGE:{name} or --design-file FILE")
+        r = call(f"/village/{args.village}/designs", designs[name])
+        print(f"design {name}: {r}", flush=True)
+
+    # ---- site and layout (the size covers the plot plus prepare_site's margin; a new village gets a 7x9 storage hut too)
+    biggest = max(9, *(max(designs[n]["width"], designs[n]["depth"]) for n in buildings))
+    size = min(36, int(math.ceil(math.sqrt(len(buildings) + 1))) * (biggest + 3) + 8)
+    if args.site_at:
+        f = args.site_at.split(",")
+        # (a sixth field, the logs of that wood near the site as find_site counts them, gives the village a wood kind as in
+        # model-driven runs: plan_layout sets one only with enough of it, F164's tests)
+        site = {"x": int(f[0]), "y": int(f[1]), "z": int(f[2]), "size": int(f[3]), **({"wood": f[4]} if len(f) > 4 else {}),
+                **({"woodLogs": int(f[5])} if len(f) > 5 else {})}
+        print(f"site given: {json.dumps(site)}", flush=True)
+    elif test_site and test_site.get("site"):
+        site = test_site["site"]
+        print(f"site {test_site['name']} from test_sites.json: {json.dumps(site)}", flush=True)
+        # (a rough estimate: the layout packs tighter, e.g. two 9x9 houses, an 11x11 hall and the huts in 24x31; the layout's
+        # own answer says when they do not fit)
+        if site.get("size", size) < size:
+            print(f"the recorded site is {site['size']} blocks across, these buildings may need {size}: if the layout leaves "
+                  f"some out, set its site to null in scripts/test_sites.json and run once more to find a bigger one", flush=True)
+    else:
+        site = find_land(args.x, args.z, size)
+        if test_site:
+            found = {k: site[k] for k in ("x", "y", "z", "size", "wood", "woodLogs") if k in site}
+            print(f"record this in test_sites.json as the site of {test_site['name']}: {json.dumps(found)}", flush=True)
+    r = call(f"/village/{args.village}/layout", {"buildings": buildings, "x": site["x"], "y": site["y"], "z": site["z"], "size": site.get("size", size), "wood": site.get("wood"), "woodLogs": site.get("woodLogs"),
+                                                 "plan": args.plan, **({"biome": args.biome} if args.plan == "street" else {}),
+                                                 # (how many will work it: S.6 splits the plot into more parts with four or more,
+                                                 # and the workers are spawned only after the layout)
+                                                 "workers": args.workers, **({"by": "Mayor"} if args.mayor else {})})
+    print(r.get("result") or r, flush=True)
+    if "error" in r:
+        raise SystemExit(1)
+    tasks = r["tasks"]
+    hut = call(f"/village/{args.village}").get("storageHut")
+    # Every design the layout builds (the storage hut included)
+    built_designs = [m.group(1) for t in tasks if t["title"].startswith("Build ") for m in [re.search(r'build_design "([^"]+)"', t["detail"])] if m]
 GROUPS = [("logs", r"_(log|wood|stem|hyphae)$"), ("planks", r"_planks$"),
           ("cobblestone", r"^(cobblestone|cobbled_deepslate|stone|smooth_stone|deepslate|andesite|diorite|granite|tuff)$"),
           ("sand", r"^(red_)?(sand|sandstone)$"), ("glass", r"^glass(_pane)?$"), ("terracotta", r"terracotta$")]
@@ -851,7 +888,7 @@ reasoning = {"reasoning": os.environ["MCAI_REASONING"]} if os.environ.get("MCAI_
 choose_mem = {"choose": args.choose} if args.choose else {}
 watched = names + (["Mayor"] if args.mayor else [])
 # Spawns on a ring outside the plot and its margin (S.0: a line of 12 at x + 2i ran off the plot into trees and water)
-lay0 = (call(f"/village/{args.village}").get("layouts") or [None])[-1]
+lay0 = (call(f"/village/{args.village}").get("layouts") or [None])[0 if args.resume else -1]
 half = site.get("size", size) // 2
 area = lay0 if lay0 and "x1" in lay0 else {"x1": site["x"] - half, "z1": site["z"] - half, "x2": site["x"] + half - 1, "z2": site["z"] + half - 1}
 spots = ring_spawns(area, watched, int(site.get("y", 64)))
@@ -906,6 +943,10 @@ stamp = lambda: f"{(time.time() - t0) / 60:4.1f}m"
 # S.0's measurements: busy and idle time per agent, the board's stamps for the critical path, each agent's last success;
 # S.2's, the mine's
 clock, stamps, last_ok, complete_at = BusyClock(watched), BoardStamps(), {n: time.time() for n in watched}, None
+if args.resume:
+    # (setting the reason skips the build's watch below: the after phase starts at once)
+    reason, complete_at = "every building is done", t0
+    print(f"{stamp()} RESUMED complete village: the after phase starts now", flush=True)
 mine_stats = MineStats()
 stock_seen = [None, 0.0]
 # S.4's: the minutes the Mayor ran an action while it held a lamp or sign task (before completion)
@@ -2006,7 +2047,11 @@ def prepare_lines(v):
 # (the village as built to completion: the tasks before the first growth layout's first id, the spec check's M2; then the
 # growth layouts' own lines)
 base_v = {**v, "tasks": grow.base(v)}
-for line in clock.lines() + prepare_lines(base_v) + critical_path_lines(base_v["tasks"], stamps, t0, complete_at) + mine_stats.lines(base_v["tasks"], stamps) + tail_lines(base_v["tasks"], stamps, t0):
+build_lines = [] if args.resume else (prepare_lines(base_v) + critical_path_lines(base_v["tasks"], stamps, t0, complete_at)
+                                      + mine_stats.lines(base_v["tasks"], stamps) + tail_lines(base_v["tasks"], stamps, t0))
+if args.resume:
+    print("RESUMED from a checkpoint: the build's PREPARE, CRITICAL PATH, MINE and TAIL lines belong to the run that saved it")
+for line in clock.lines() + build_lines:
     print(line)
 # (only with growth: a run without it prints what it did before s30, the review's lens 3 L4)
 if (grow.on and args.after and reason.endswith(" min after")) or v.get("growth"):

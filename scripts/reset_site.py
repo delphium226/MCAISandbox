@@ -1,8 +1,17 @@
 """Restore one site of the fixed test world (plan step T.2) from its snapshot, then start the test servers again.
 
-Usage: python scripts/reset_site.py NAME [--no-start]
-  NAME        a site of scripts/test_sites.json (python mc/testserver.py regions all lists them and their region files)
-  --no-start  restore only; leave the test Paper and its agent server stopped
+Usage: python scripts/reset_site.py NAME [--no-start] [--checkpoint CP]
+       python scripts/reset_site.py NAME --save CP [--force] [--no-start]
+       python scripts/reset_site.py --list
+  NAME            a site of scripts/test_sites.json (python mc/testserver.py regions all lists them and their region files)
+  --no-start      restore (or save) only; leave the test Paper and its agent server stopped
+  --save CP       save the site as it stands now as checkpoint CP in mc/testcheckpoints/CP: the region, entities and poi
+                  files of its regions, the villages on them (villages.json) and their atlas summaries; then start the
+                  servers again. Save once a staged village is complete (stage_village.py ... --mayor --after 1), so a
+                  test of the after phase can start from there (stage_village.py ... --resume) instead of building it
+                  again. --force replaces an existing CP
+  --checkpoint CP restore from checkpoint CP instead of the snapshot (the site must be the one CP was saved from)
+  --list          list the checkpoints
 
 Steps, each printed:
   1. stop the test agent server (the port of MCAI_API, default http://127.0.0.1:8767/api; never 8766, the main world's)
@@ -15,7 +24,8 @@ Steps, each printed:
      testagents-<time>.log, and wait until the agent server has applied the world settings
 The agent server gets MC_SERVER_DIR=mc/testserver, MC_PORT=25566, the API port and MC_API_HOST=0.0.0.0; MC_TIME_SCALE
 and MC_OLLAMA_ROUTES pass through from this shell. A restore covers whole regions (512x512 blocks), so sites sharing a
-region are restored together. Forceloaded chunks, level.dat and the players' files are left as they are.
+region are restored together. Forceloaded chunks, level.dat and the players' files are left as they are (so agents
+spawned into a restored checkpoint start with empty hands: spawn them with "reset": true, as the stage scripts do).
 """
 import datetime, json, os, pathlib, shutil, subprocess, sys, time, urllib.parse, urllib.request
 
@@ -25,6 +35,9 @@ import testserver as T  # noqa: E402
 from rcon import Rcon  # noqa: E402
 
 API = os.environ.get("MCAI_API", f"http://127.0.0.1:{T.API_PORT}/api")
+# Saved states of sites (--save), each a folder laid out like the snapshot: world/<DIM>/<kind>/..., villages.json,
+# atlas.json, checkpoint.json
+CHECKS = T.HERE / "testcheckpoints"
 API_PORT = urllib.parse.urlparse(API).port or 80
 # A hidden console of their own (not DETACHED_PROCESS: java then opened a console window, and closing it would kill the
 # test Paper unsaved), their own process group, and out of the caller's job, so they outlive this shell and the session
@@ -113,8 +126,9 @@ def stop_paper():
         raise SystemExit(f"{world / 'session.lock'} is still held: a server still has the test world open")
 
 
-def restore_files(regions):
-    live, snap = T.TEST / "world" / T.DIM, T.SNAP / "world" / T.DIM
+def restore_files(regions, source=T.SNAP):
+    """From the snapshot, or from a checkpoint (laid out alike)."""
+    live, snap = T.TEST / "world" / T.DIM, source / "world" / T.DIM
     for kind in T.KINDS:
         for rx, rz in regions:
             name = T.region_name(rx, rz)
@@ -125,7 +139,7 @@ def restore_files(regions):
                 print(f"  {kind}/{name}: restored ({src.stat().st_size / 2**20:.1f} MB)")
             elif dst.exists():
                 dst.unlink()
-                print(f"  {kind}/{name}: deleted (not in the snapshot: generated since)")
+                print(f"  {kind}/{name}: deleted (not in the {'snapshot' if source == T.SNAP else 'checkpoint'}: generated since)")
             else:
                 print(f"  {kind}/{name}: in neither")
             # Oversized chunks live beside the region file as c.X.Z.mcc: the live world's go, the snapshot's come back
@@ -172,16 +186,28 @@ def write_json(p, data, indent=None):
         f.write(text)
 
 
-def restore_villages(regions):
+def restore_villages(regions, source=T.SNAP):
+    """Villages on the restored regions go; the snapshot's are put back as it had them. From a checkpoint, every village
+    it saved comes back (they are all on its regions), replacing any of the same name."""
     f = T.TEST / "villages.json"
-    if not f.exists():
+    if not f.exists() and source == T.SNAP:
         print("villages.json: none")
         return
     data = read_json(f, {})
-    before = {v["name"].lower(): v for v in read_json(T.SNAP / "villages.json", {}).get("villages", [])}
+    saved = read_json(source / "villages.json", {}).get("villages", [])
+    before = {v["name"].lower(): v for v in saved}
     kept, removed, put_back = [], 0, 0
+    if source != T.SNAP:
+        kept += saved
+        put_back = len(saved)
+        for v in saved:
+            print(f"  village {v['name']}: from the checkpoint ({'complete' if v.get('complete') else 'not complete'}, "
+                  f"{len(v.get('tasks') or [])} tasks, {len(v.get('structures') or [])} structures)")
     for v in data.get("villages", []):
-        if not any(in_regions(a, regions) for a in village_areas(v)):
+        if source != T.SNAP and v["name"].lower() in before:
+            removed += 1
+            print(f"  village {v['name']}: replaced by the checkpoint's")
+        elif not any(in_regions(a, regions) for a in village_areas(v)):
             kept.append(v)
         elif v["name"].lower() in before:
             kept.append(before[v["name"].lower()])
@@ -194,12 +220,14 @@ def restore_villages(regions):
         print("villages.json: no village in the restored regions")
         return
     backup = f.with_name(f"villages.json.bak-{datetime.datetime.now():%Y%m%d-%H%M%S}")
-    shutil.copy2(f, backup)
+    if f.exists():
+        shutil.copy2(f, backup)
     write_json(f, {**data, "villages": kept}, indent=1)
-    print(f"villages.json: {removed} removed, {put_back} put back, {len(kept)} in all (backup {backup.name})")
+    print(f"villages.json: {removed} removed, {put_back} put back, {len(kept)} in all"
+          + (f" (backup {backup.name})" if backup.exists() else ""))
 
 
-def restore_atlas(regions):
+def restore_atlas(regions, source=T.SNAP):
     f = T.TEST / "atlas.json"
     if not f.exists():
         print("atlas.json: none")
@@ -208,12 +236,64 @@ def restore_atlas(regions):
     inside = lambda s: (s["cx"] >> 5, s["cz"] >> 5) in set(regions)
     chunks = [s for s in data.get("chunks", []) if not inside(s)]
     dropped = len(data.get("chunks", [])) - len(chunks)
-    back = [s for s in read_json(T.SNAP / "atlas.json", {}).get("chunks", []) if inside(s)]
+    back = [s for s in read_json(source / "atlas.json", {}).get("chunks", []) if inside(s)]
     # (animals seen there go too: the restored region has its own; the snapshot's are put back with its summaries)
     animals = {k: s for k, s in data.get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) not in set(regions)}
-    animals.update({k: s for k, s in read_json(T.SNAP / "atlas.json", {}).get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) in set(regions)})
+    animals.update({k: s for k, s in read_json(source / "atlas.json", {}).get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) in set(regions)})
     write_json(f, {**data, "version": data.get("version", 1), "chunks": chunks + back, "animals": animals})
-    print(f"atlas.json: {dropped} chunk summaries in the restored regions dropped, {len(back)} from the snapshot put back")
+    print(f"atlas.json: {dropped} chunk summaries in the restored regions dropped, {len(back)} from the "
+          f"{'snapshot' if source == T.SNAP else 'checkpoint'} put back")
+
+
+def save_checkpoint(site, regions, name, force):
+    """Copy the site's regions as the stopped test world has them, the villages on them and their atlas summaries into
+    mc/testcheckpoints/NAME (the servers must be stopped first, so Paper has saved every chunk)."""
+    dest = CHECKS / name
+    if dest.exists():
+        if not force:
+            raise SystemExit(f"checkpoint {name} exists ({dest}); --force replaces it")
+        shutil.rmtree(dest)
+    live = T.TEST / "world" / T.DIM
+    size = 0
+    for kind in T.KINDS:
+        (dest / "world" / T.DIM / kind).mkdir(parents=True, exist_ok=True)
+        for rx, rz in regions:
+            src = live / kind / T.region_name(rx, rz)
+            for p in ([src] if src.exists() else []) + oversized(live / kind, rx, rz):
+                shutil.copy2(p, dest / "world" / T.DIM / kind / p.name)
+                size += p.stat().st_size
+    villages = [v for v in read_json(T.TEST / "villages.json", {}).get("villages", [])
+                if any(in_regions(a, regions) for a in village_areas(v))]
+    write_json(dest / "villages.json", {"villages": villages}, indent=1)
+    atlas = read_json(T.TEST / "atlas.json", {})
+    inside = set(regions)
+    write_json(dest / "atlas.json", {
+        "version": atlas.get("version", 1),
+        "chunks": [s for s in atlas.get("chunks", []) if (s["cx"] >> 5, s["cz"] >> 5) in inside],
+        "animals": {k: s for k, s in atlas.get("animals", {}).items() if (s["x"] >> 9, s["z"] >> 9) in inside}})
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    meta = {"name": name, "site": site["name"], "regions": [T.region_name(*r) for r in regions],
+            "time": f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}", "commit": commit,
+            "villages": [{"name": v["name"], "complete": bool(v.get("complete")), "tasks": len(v.get("tasks") or []),
+                          "structures": len(v.get("structures") or []),
+                          "claimed": [t["id"] for t in v.get("tasks") or [] if t.get("status") == "claimed"]} for v in villages]}
+    write_json(dest / "checkpoint.json", meta, indent=1)
+    print(f"checkpoint {name}: {size / 2**20:.1f} MB of world files, {len(villages)} village(s): "
+          + (", ".join(f"{v['name']} ({'complete' if v['complete'] else 'NOT complete'}, {v['tasks']} tasks"
+                       + (f", claimed {' '.join(v['claimed'])}: handed back when the agents spawn again" if v["claimed"] else "") + ")"
+                       for v in meta["villages"]) or "none"))
+    if not any(v["complete"] for v in meta["villages"]):
+        print(f"checkpoint {name}: no complete village; stage_village.py --resume needs one")
+
+
+def list_checkpoints():
+    found = sorted(CHECKS.glob("*/checkpoint.json")) if CHECKS.exists() else []
+    if not found:
+        print(f"no checkpoints in {CHECKS}")
+    for p in found:
+        m = read_json(p, {})
+        print(f"{m.get('name')}: site {m.get('site')}, saved {m.get('time')} at {m.get('commit')}; "
+              + ", ".join(f"{v['name']} ({'complete' if v['complete'] else 'not complete'}, {v['tasks']} tasks)" for v in m.get("villages", [])))
 
 
 def start_paper(logdir, stamp):
@@ -269,9 +349,27 @@ def start_agents(logdir, stamp):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(args) != 1 or any(a not in ("--no-start",) for a in sys.argv[1:] if a.startswith("--")):
+    argv, opts, args = sys.argv[1:], {}, []
+    while argv:
+        a = argv.pop(0)
+        if a in ("--save", "--checkpoint"):
+            if not argv or argv[0].startswith("--"):
+                raise SystemExit(f"{a} needs a checkpoint name\n\n{__doc__}")
+            opts[a] = argv.pop(0)
+        elif a in ("--no-start", "--force", "--list"):
+            opts[a] = True
+        elif a.startswith("--"):
+            raise SystemExit(__doc__)
+        else:
+            args.append(a)
+    if "--list" in opts:
+        return list_checkpoints()
+    if len(args) != 1 or ("--save" in opts and "--checkpoint" in opts) or ("--force" in opts and "--save" not in opts):
         raise SystemExit(__doc__)
+    save, cp = opts.get("--save"), opts.get("--checkpoint")
+    for n in (save, cp):
+        if n is not None and not all(c.isalnum() or c in "-_." for c in n):
+            raise SystemExit(f"checkpoint name {n!r}: letters, digits, - _ . only")
     # Whatever listens on the API port is stopped: only ever the test world's agent server
     if API_PORT != T.API_PORT:
         raise SystemExit(f"MCAI_API points at port {API_PORT}: the test world's agent server is on {T.API_PORT} (8766 is the main world's)")
@@ -283,17 +381,30 @@ def main():
         raise SystemExit("no snapshot in mc/testworld: generate the sites, stop the test Paper, then python mc/testserver.py snapshot")
     if T.settings_port() != T.GAME_PORT:
         raise SystemExit(f"mc/testserver/server.properties does not say server-port={T.GAME_PORT}: is it the test server?")
+    source = T.SNAP
+    if cp is not None:
+        source = CHECKS / cp
+        meta = read_json(source / "checkpoint.json", None)
+        if meta is None:
+            raise SystemExit(f"no checkpoint {cp} in {CHECKS} (python scripts/reset_site.py --list)")
+        if meta.get("site", "").lower() != site["name"].lower():
+            raise SystemExit(f"checkpoint {cp} was saved from site {meta.get('site')}, not {site['name']}")
     x, z = T.site_centre(site)
     print(f"site {site['name']}: {'site' if site.get('site') else 'probe'} {x},{z}, radius {site.get('radius') or 160}; "
-          f"regions {', '.join(T.region_name(*r) for r in regions)}; snapshot of {(T.snapshot_info() or {}).get('time', '?')}")
+          f"regions {', '.join(T.region_name(*r) for r in regions)}; "
+          + (f"saving as checkpoint {save}" if save else f"checkpoint {cp} of {meta.get('time')} at {meta.get('commit')}" if cp
+             else f"snapshot of {(T.snapshot_info() or {}).get('time', '?')}"))
     stop_agents()
     stop_paper()
-    print("restoring files:")
-    restore_files(regions)
-    restore_villages(regions)
-    restore_atlas(regions)
-    if "--no-start" in sys.argv:
-        print("restored; not started (--no-start)")
+    if save:
+        save_checkpoint(site, regions, save, "--force" in opts)
+    else:
+        print("restoring files:")
+        restore_files(regions, source)
+        restore_villages(regions, source)
+        restore_atlas(regions, source)
+    if "--no-start" in opts:
+        print(f"{'saved' if save else 'restored'}; not started (--no-start)")
         return
     now = datetime.datetime.now()
     logdir = ROOT / "runs" / f"{now:%Y-%m-%d}"
@@ -301,8 +412,8 @@ def main():
     stamp = f"{now:%H%M%S}"
     start_paper(logdir, stamp)
     start_agents(logdir, stamp)
-    print(f"site {site['name']} restored and running: MCAI_API={API} MC_SERVER_DIR=mc/testserver "
-          f"python scripts/stage_village.py VILLAGE --site {site['name']}")
+    print(f"site {site['name']} {'saved' if save else 'restored'} and running: MCAI_API={API} MC_SERVER_DIR=mc/testserver "
+          f"python scripts/stage_village.py VILLAGE --site {site['name']}" + (" --resume --mayor --after MINUTES" if cp else ""))
 
 
 if __name__ == "__main__":
