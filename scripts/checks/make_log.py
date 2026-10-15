@@ -185,7 +185,10 @@ for e in ends:
         bad.append(f"gave back {e['back'][e['item']]} of the good itself")
     # (planks and slabs sawn from logs taken come back beyond the planks taken: 2 oak logs and 1 plank for two wooden
     # swords give 3 planks back, S9f)
+    # (and sticks from planks or logs taken: a torch make with 2 sticks, a plank and a log gave 3 sticks back, B4f)
     def sawn(n):
+        if n == "stick":
+            return any(t.endswith(("_planks", "_log")) for t in e["took"])
         kind = re.sub(r"_(planks|slab)$", "", n)
         return kind != n and any(t in e["took"] for t in (f"{kind}_log", f"{kind}_planks") if t != n)
     for n, q in e["back"].items():

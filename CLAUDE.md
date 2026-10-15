@@ -1160,6 +1160,21 @@ Lessons from the adapter:
    a rule from one agent's days (scouting only while a farm slot is free) emptied every menu; the golden check could not
    see it (it compares against today's behaviour). Check what fraction of idle agents a new mechanism can occupy, offline,
    before the run that measures it.
+130. **Work bounded by stock targets peaks and stops; count the consumers, not only the producers** (S.9, 2026-10-14/15):
+   the offline count said `make` alone would take after-completion busy time at 25 from ~2% to ~2.3%, and with gathering
+   the run gave 4% (S9f: 23 agents took a chore, a peak of 9 at minute ~1, then nothing once every target was met). A good
+   nothing uses up is made once. Work recurs only where something drains the stock (B.4's torches) or grows (the mine).
+131. **A block set by command on a bad support stays** (B.4's live facts, `runs/2026-10-15/b4_facts.log`): a wall torch
+   `/setblock` on leaves, a pane, a fence or a slab floats until a later update from the support's side, so a server
+   re-check after placing cannot catch a bad support. Judge the support in code before setting, by a rule measured live
+   (full cubes incl. glass, double slabs, stairs facing the torch's way).
+132. **A ledger check must know every flow of the good, or it cries wolf** (S9f, S9m): planks sawn from withdrawn logs came
+   back beyond the planks taken, and another agent's torch make took charcoal while a charcoal make deposited; both read
+   as mismatches though the makes were exact. Before trusting a MISMATCH, read the make's own line: the rule may lack a
+   conversion, another chore's take, or a put-back.
+133. **Fixtures that cannot be reached stall every run the same way** (F227): the staged runs' fixture pumpkins at y 73-80
+   above the site gave a worker 2-3 `[stuck]` lines (GoalLookAtBlock, ~11 s each) in S9s1, S9f, S9m and B4s1 alike. A
+   repeated stall in the same place across runs is a test fixture's fault before it is the code's.
 
 Milestones (each tested and reported before the next): (a) done: an idle bot joins, observes, walks and chats;
 (b) partly done, then set aside for creative (the user's call, to stop the deaths): scripted skills reach a stone

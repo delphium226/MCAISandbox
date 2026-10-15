@@ -32,7 +32,7 @@ import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recor
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
-import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TREE_LOG, waterloggedEmpty } from './mcBlocks';
+import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
 
 type Pos = [number, number, number];
@@ -4191,7 +4191,10 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
   const gains = async (): Promise<Counts> => {
     await syncInventory(a).catch(() => undefined);
     const view = inventoryCounts(a);
-    const names = [...new Set([...keyNames, ...Object.keys(view), ...Object.keys(view0)])].filter((n) => keyNames.includes(n) || (view[n] ?? 0) !== (view0[n] ?? 0));
+    // (a tool in hand other than the good is the agent's own, as deposit "all" keeps it: B4f's stone_hoe make listed the
+    // maker's stone pickaxe as left over, for the sweep to put into storage)
+    const names = [...new Set([...keyNames, ...Object.keys(view), ...Object.keys(view0)])]
+      .filter((n) => keyNames.includes(n) || (view[n] ?? 0) !== (view0[n] ?? 0)).filter((n) => n === item || !TOOL.has(n));
     const now = await carriedCounts(a, names);
     const out: Counts = {};
     for (const n of names) if ((now[n] ?? 0) > (start?.[n] ?? 0)) out[n] = now[n] - (start?.[n] ?? 0);

@@ -2167,7 +2167,12 @@ lamps, signs and farm slots were (each a lesson already paid for):
   (F95's pits, the "shelf" site): a pass that turns each step over 1 block into a slope of the ground's own blocks
   (grass on top), and a 1-block grass verge between the pad's edge and the street; the stand spots and lesson 61 (never
   footing for a walk to build up to) to be checked. Costs dirt only (gathered early already, #3).
-- **B.4 Light inside buildings and the mine** (the user's two lighting items, 10-06): wall torches inside each building
+- ~~**B.4 Light inside buildings and the mine**~~: **done 10-15 (s29)** as the workshop's first consumer (`43b3dec`, spec
+  `runs/2026-10-15/spec_b4.md`, live facts and reviews in `runs/2026-10-15/`): a `light` menu family after completion,
+  torches withdrawn at the hut and set by command from a stand beside each building's door, the mine lit from the hut every
+  7 cells and again as it is dug, make:torch's target following the unlit spots. B4f (25): 61 of 61 torches standing; but
+  B.4's own work is ~5 agent-minutes (placing by command is quick): it makes the chain recur, it does not fill 25 agents.
+  The plan was: wall torches inside each building
   on the walls' inner faces at head height (vanilla pieces' own torch cells, which the importer turns to air today, as a
   first source; a wall_torch charged as a torch and placed after its supporting wall: the lamp research's notes), and
   torches along the mine's stairs and tunnels every 6-8 cells as they are dug (coal from the mine, or charcoal; the iron
@@ -2599,6 +2604,9 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-15 (s29) | S9s1 | S.9 smoke: staged 2x, minevale3, Mayor + 3 workers, `--after 12 --fixtures --stock wheat:12,bucket:3,sugar_cane:2`, families on | complete 4.3 min; works plot, 3 furnaces placed; 8 makes (1 failed: the composter, fixed before S9f) | 16.4 min | MAKE ok 7 of 7; 0 requeues; v.tech 33 firsts; after-phase busy 43% |
 | 10-15 (s29) | **S9f** | S.9 at 25: staged 2x, the S.0 command, Mayor + 24 workers, `--after 45 --fixtures --stock wheat:12,bucket:3,sugar_cane:2 --choose fixed`, `MC_CHOICE_FAMILIES=make,gather,works` | complete 2.7 min; **23 agents took an S.9 chore, peak 9 at once (minute 1.3)**; make 25, gather 10 (sand 3, logs 3, cobblestone 4: all landed, 147 items), works 4 (plot + 3 furnaces); every stock target reached, then `gather: nothing wanted` | 47.7 min | **after-phase busy 44.8 agent-min (A2f2 18.8), 4%**; S.9 chores 18.9; MAKE ok 24 of 24 made (1 failed, F226); 4 smelting makes at once on different furnaces; 0 requeues, 0 `[choice-error]`, 0 `[lag]`, 6 `[stuck]` (fixture pumpkins and a scout, none at the hut or works); 0 cloud calls |
 | 10-15 (s29) | **S9m** | the same with `--choose model` (`MC_CHOOSE=model`) | complete 4.4 min; 18 agents took an S.9 chore, peak 7 at once (minute 1.2); make 23, gather 4 (sand 2, cobblestone 2), works 4; every target reached | 50.1 min | after-phase busy 33.9 agent-min (A2m 21.0), 3%; MAKE ok 23 of 23; 0 requeues, 0 `[choice-error]`; 35 calls, $0.005. Reported beside S9f, not compared (F223) |
+| 10-15 (s29) | b4_facts | B.4's live facts (`runs/2026-10-15/b4_facts.py`, Gus by RCON on a pad) | tests 1-9 pass: facing points away from the support; full cubes (glass too), double slabs and stairs facing the torch hold; leaves, panes, fences, walls, single slabs, a stair's side **do not, and a torch set on them stays floating** (lesson 131); `keep` refuses water and a torch; charge exact; a torch in a bot's head cell harmless; head-height torches in a 1x2 tunnel: 0 stuck | ~5 min | the `holdsTorch` rule |
+| 10-15 (s29) | B4s1 | B.4 smoke: staged 2x, Mayor + 3 workers, `--after 15`, families `make,gather,works,light` | complete 4.2 min; 18 of 18 torches standing in buildings, every walk ok (5 door stands, 1 fallback at the doorless meeting point); torch demand drove 2 make:torch and 1 charcoal | 19.3 min | MAKE ok 15 of 15, LIGHT ok 9 of 9; 0 `[stuck]` from lighting (4: fixture pumpkins and scouts, F227) |
+| 10-15 (s29) | **B4f** | B.4 at 25: S9f's command, families `make,gather,works,light` | complete 3.3 min; **61 of 61 torches standing** (buildings 23, mine 38; 0 dropped, 4 spots never); 15 light chores by 10 agents; torch demand 45 -> 0, driving 6 make:torch and 4 make:charcoal; 22 agents took an S.9 chore, peak 8 | 48.9 min | after-phase busy 40.2 agent-min (S9f 44.8: the same within noise), B.4's own work 5.2 (lighting 1.0, torches 4.2); LIGHT ok 15 of 15, MAKE ok 29 of 30 (one stone hoe make listed the maker's own pickaxe as left over: fixed after the run); 0 requeues, 0 cloud calls |
 
 ## Findings log
 
@@ -3673,6 +3681,10 @@ CLAUDE.md when a phase ends.
   of its two early returns, though the server had the items (they went back) and the same plan offline is fine (16
   smelts, 2 charcoal, nothing to gather; `runs/2026-10-15/scratch/smooth.mts`). Not explained from the log: the next step
   logs what `makeHeld` saw when a make gets null, and the make resyncs and tries once more. 1 of 25 makes; soft.
+- F227 (10-15, s29, S9s1, S9f, S9m, B4s1) `--fixtures`' pumpkins at -1588..-1584, y 73-80 (on a rise above the site)
+  give a pumpkin start 2-3 `[stuck]` lines every run (GoalLookAtBlock, ~11 s each, `could not reach pumpkin: 3 tried`):
+  the same cells in all four runs. A fixture's fault (lesson 133), not new code; place the fixture pumpkins on reachable
+  ground (`--fixture-dy`, or a search for a standable cell beside each) when the staged runs are next touched.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -4093,6 +4105,14 @@ CLAUDE.md when a phase ends.
   mine is dug. It is one of the user's own village-life items (10-06). Built as an S.9-style menu family (`light`, after
   completion, behind `MC_CHOICE_FAMILIES`); the beautifying plan's open choices taken as recommended (chores after
   completion, not counted in the objective). Spec `runs/2026-10-15/spec_b4.md`.
+- 10-15 (s29, Claude's) B.4's departures and exit: buildings are lit by an agent who walks to a stand beside the door
+  (outside the building's ring, never a doorway or the cell in front of any door, within 12 of the building; no stand
+  straight out from the door, the fix review's M2: 196 of 201 stored buildings get one, 5 fall back to `standSpot`); the
+  mine is lit by command from the hut (no walk underground, lessons 35 and 101); mine parts by tunnel, not by unit (a
+  unit holds 1-2 spots). **The exit's busy-minute bars were not met** (B.4's own work 5.2 agent-min against 8; the
+  after-phase 40.2 against 52): every correctness bar was (61 of 61 standing, LIGHT ok, the demand driving make:torch 6
+  times, 10 distinct lighters, 0 requeues). Recorded as is: what fills 25 agents is work that takes agent time and grows
+  (lesson 130), which placing by command does not.
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it
