@@ -4037,6 +4037,9 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
   return `made a ${item} (${made}); ${stored}`;
 }
 
+/** A part made once for the village (make_into_storage) and the batch's leftovers that go back into storage by name. */
+export const makeKeeps = (item: string): string[] => item === 'torch' ? [item] : [item, 'glass', 'sand'];
+
 /**
  * Parts made once for the whole village (S.3; the soft task "Make 14 glass_pane into storage"): at the storage hut, as
  * many as the buildings still to draw their stock want (`partsWanted`: windows, or the lamps' torches) less what storage
@@ -4062,7 +4065,7 @@ async function makeIntoStorage(a: BotAgent, args: Record<string, unknown>, signa
   delete rest[item];
   if (v.storage?.chests.length && early > 0 && Object.keys(a.world.materials.plan({ [item]: early }, rest).gather).length) await refreshStorage(a, v, signal);
   // Leftovers carried in go in by name at the end too (sand and glass of a pane batch: lesson 112)
-  const keep = item === 'torch' ? [item] : [item, 'glass', 'sand'];
+  const keep = makeKeeps(item);
   const release = await holdVillageFurnace(a, signal, `making ${item} into storage`);
   let text: string;
   try {

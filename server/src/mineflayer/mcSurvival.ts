@@ -1784,18 +1784,42 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       await furnace.putInput(inId, null, count);
       let got = 0;
       let outName = '';
+      const takeOut = async () => {
+        if (!furnace.outputItem()) return;
+        const taken = await furnace.takeOutput();
+        got += taken?.count ?? 0;
+        outName ||= taken?.name ?? '';
+      };
+      // What is left unsmelted comes back out (F228: sand left in the village's furnace by fuel-less smelts was counted by
+      // no one, ~11 of it in Minevale43, and every make said "gather more sand"); the count taken back
+      const takeBack = async (): Promise<number> => {
+        try {
+          await takeOut();
+          const left = furnace.inputItem();
+          if (!left || left.type !== inId) return 0;
+          const n = left.count;
+          await furnace.takeInput();
+          return n;
+        } catch (e) {
+          // (the smelt's own outcome is the message; a failed take-back is only logged)
+          console.log(`[smelt] ${a.name} could not take the ${input} back out of ${at(furnaceBlock!.position)}: ${(e as Error).message}`);
+          return 0;
+        }
+      };
       const deadline = Date.now() + count * 11000 + 15000;
       while (got < count && Date.now() < deadline) {
         await sleep(2000 / timeScale(), signal);
-        const out = furnace.outputItem();
-        if (out) {
-          const taken = await furnace.takeOutput();
-          got += taken?.count ?? 0;
-          outName ||= taken?.name ?? '';
-        }
+        await takeOut();
         // The last item leaves the input slot while it is still cooking: wait for it too (8 sand gave 7 glass)
         if (!furnace.inputItem() && !furnace.outputItem() && !(furnace.progress > 0)) break;
-        if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) throw new Error(`ran out of fuel after ${got} of ${count}`);
+        if (!furnace.fuelItem() && furnace.fuel <= 0 && furnace.inputItem() && !(await addFuel(count - got))) {
+          const back = await takeBack();
+          throw new Error(`ran out of fuel after ${got} of ${count}${back ? ` (the ${back} ${input} left are back in the inventory)` : ''}; carry planks, logs or charcoal for fuel and smelt again`);
+        }
+      }
+      if (got < count) {
+        const back = await takeBack();
+        if (back) notes.push(`${back} ${input} not smelted in time, back in the inventory`);
       }
       // S.3: one line a batch (glass made once for the village: one "into glass" a run)
       console.log(`[smelt] ${a.name} smelted ${got} ${input} into ${outName || 'nothing'} at ${at(furnaceBlock.position)}`);

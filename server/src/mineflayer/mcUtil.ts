@@ -5,6 +5,7 @@
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import type { Block } from 'prismarine-block';
+import type { Bot } from 'mineflayer';
 import type { BotAgent, WalkTally } from './botAgent';
 import type { Column } from './mcAtlas';
 import { FALLING, WET, waterloggedEmpty } from './mcBlocks';
@@ -221,6 +222,20 @@ async function serverDiffers(a: BotAgent): Promise<string> {
   return out.length ? `the server differs at ${out.join(', ')}` : 'the server agrees on the 18 blocks round the feet and head';
 }
 
+/**
+ * Whether the bot stands where the goal accepts it, judged on the node the pathfinder starts its search from: on a block
+ * lower than a full one (a dirt_path's 15/16, farmland, a slab) that is the cell above the floored feet (F218: on a street's
+ * dirt_path 7 blocks from the hut's furnace, GoalNear range 7 accepted the start node, goto resolved at once, and a test on
+ * the floored feet alone called that "no path"). The goal's test takes a path node; a position has what it reads.
+ */
+export function atGoal(bot: Bot, goal: InstanceType<typeof goals.Goal>): boolean {
+  const p = bot.entity.position;
+  const fl = p.floored();
+  const b = bot.blockAt(fl);
+  const raised = !!b && p.y - fl.y > 0.001 && bot.entity.onGround && b.boundingBox !== 'empty';
+  return [fl, p, ...(raised ? [fl.offset(0, 1, 0)] : [])].some((q) => goal.isEnd(q as unknown as Parameters<typeof goal.isEnd>[0]));
+}
+
 async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, target: string, signal: AbortSignal, timeoutMs: number) {
   const bot = a.bot;
   bot.pathfinder.setMovements(a.moves());
@@ -257,8 +272,7 @@ async function walkOnce(a: BotAgent, goal: InstanceType<typeof goals.Goal>, targ
       if (typeof g.x === 'number' && typeof g.z === 'number') a.lastStall = { x: g.x + 0.5, z: g.z + 0.5, t: Date.now(), at: { x: bot.entity.position.x, z: bot.entity.position.z } };
       done(Object.assign(new Error(msg), { moved: far }));
     };
-    // (the goal's test takes a path node; a position has what it reads)
-    const arrived = () => [bot.entity.position.floored(), bot.entity.position].some((p) => goal.isEnd(p as unknown as Parameters<typeof goal.isEnd>[0]));
+    const arrived = () => atGoal(bot, goal);
     let repaths = 0;
     const watch = setInterval(() => {
       const p = bot.entity.position;

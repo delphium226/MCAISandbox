@@ -14,7 +14,7 @@ import { MC_SKILLS } from './mcSkills';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
-import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
+import { annexBusy, cakeShort, harvesting, makeKeeps, slotBusy } from './mcBuild';
 import { mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -130,6 +130,13 @@ export class MineflayerWorld implements WorldAdapter {
   readonly skills: ToolDef[] = TOOLS.filter((t) => t.name in MC_SKILLS);
   /** Skills only code-posted tasks name (S.3), kept out of the models' tools (a longer prompt each, lesson 32). */
   readonly taskSkills = ['make_into_storage', 'place_station'];
+  /** What a handed-back task's holder may carry for it (F228): a village part's batch, or a gather task's material. */
+  taskLeftovers(detail: string): string[] {
+    const make = /\bmake_into_storage item=(\S+)/.exec(detail)?.[1];
+    if (make) return makeKeeps(make.replace(/[,.;]+$/, ''));
+    const block = /\bcollect block=(\S+)/.exec(detail)?.[1]?.replace(/[,.;]+$/, '');
+    return block ? [block] : [];
+  }
   readonly registry: ReturnType<typeof minecraftData>;
   /** Bills of materials and recipe chains (mcMaterials.ts). */
   readonly materials: Materials;

@@ -171,6 +171,12 @@ export interface WorldAdapter {
   } | null;
   /** Skills code-posted tasks may name besides `skills`, never shown to a model (S.3: make_into_storage). */
   taskSkills?: string[];
+  /**
+   * The items a worker holding a task with this detail may carry for it, deposited by name when it hands the task back
+   * (F228: a worker gave up the panes' task holding 6 glass and 14 sand, and the next holder found storage empty for 7
+   * minutes; lesson 112). Empty when nothing is worth taking back.
+   */
+  taskLeftovers?(detail: string): string[];
   /** Whether its prepare_site takes a layout's part (`layout=N part=K`, S.6): plan_layout then splits a new village's plot. */
   preparesParts?: boolean;
   /** How many workers a village has now (S.6: the plot is split into more parts with four or more). */

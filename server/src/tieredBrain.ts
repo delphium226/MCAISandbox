@@ -750,6 +750,21 @@ export class TieredBrain implements AgentBrain {
   }
 
   /**
+   * What a worker carries for a task it gives up goes into storage by name (F228, lesson 112: the next holder of the
+   * panes' task found storage empty while 6 glass and 14 sand sat with the last one for 7 minutes). Queued as chores, so
+   * their events are no step of any plan; whatever cannot be queued waits for the next deposit.
+   */
+  private depositLeftovers(a: WorldAgent, detail: string) {
+    const names = a.world.taskLeftovers?.(detail) ?? [];
+    if (!names.length) return;
+    const inv = a.observe(1).inventory ?? {};
+    const carried = (n: string) => Object.keys(inv).some((k) => (inv[k] ?? 0) > 0 && (k === n || (/^logs?$/.test(n) && /_(log|stem)$/.test(k))));
+    const put = names.filter(carried);
+    for (const item of put) try { a.enqueue('deposit', { item, chore: true }); } catch { /* kept for the next deposit */ }
+    if (put.length) a.pushEvent('system', `Putting what you carried for the task back into storage: ${put.join(', ')}.`);
+  }
+
+  /**
    * A worker's soft gather task handed back because others hold what is left of its material (S.1; code 'taken'); true if
    * it was.
    */
@@ -1368,7 +1383,9 @@ export class TieredBrain implements AgentBrain {
       // (a replan the budget refuses does not count: taken back in startPlan)
       this.planUndo.replanTask = old.taskId;
       if (n >= 3) {
+        const detail = v.tasks.find((t) => t.id === old.taskId)?.detail ?? '';
         a.world.villages.giveUp(v, old.taskId, a.name, `stuck after ${n} attempts; last problem: ${why}`);
+        this.depositLeftovers(a, detail);
         a.memory.plan = { ...old, steps: [], taskId: undefined };
         this.taskReplans.delete(old.taskId);
         this.lastPlan = Date.now();
