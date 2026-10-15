@@ -1,8 +1,8 @@
 /**
  * The workshop (S.9): what a complete village's idle members make into storage once the buildings stand, what they gather
  * for it, and the works plot's furnaces. World-free data and bookkeeping shared by the world's menu (mcWorld.ts: the make,
- * gather and works families), the skills (mcBuild.ts make, prepare_works, place_works_furnace) and the offline checks
- * (scripts/checks/workshop_check.mts, choice_golden.mts). Code does the arithmetic (targets, batches, bills, earmarks);
+ * gather and works families; B.4's light), the skills (mcBuild.ts make, prepare_works, place_works_furnace,
+ * put_up_torches) and the offline checks (scripts/checks/workshop_check.mts, choice_golden.mts, light_check.mts). Code does the arithmetic (targets, batches, bills, earmarks);
  * the model, in model mode, only chooses among what code found feasible (lesson 1).
  */
 import type minecraftData from 'minecraft-data';
@@ -65,8 +65,8 @@ export const GATHER_KINDS: Record<Material, { atOnce: number | 'faces'; trip: nu
 };
 
 /** What a gathering trip deposits by name beside its material, when it picked some up by the way (lesson 112: the mine's
- *  coal and raw iron; S.9's review, lens 4 L3). */
-export const GATHER_ALSO = 'coal,raw_iron';
+ *  coal and raw iron; S.9's review, lens 4 L3; B.4: a torch picked up where its wall was dug). */
+export const GATHER_ALSO = 'coal,raw_iron,torch';
 
 /** Logs gathering for the workshop may bring a village in an hour (counted with what is on the way). */
 export const GATHER_LOGS_HOUR = Number(process.env.MC_GATHER_LOGS_HOUR ?? 96);
@@ -117,6 +117,21 @@ export const holdKey = (village: string, agent: string) => `${village}|${agent.t
 
 /** What a stopped make left in an agent's hands, "village|agent": the world has it deposited (spec 4.10). */
 export const makeLeft = new Map<string, Counts>();
+
+// ---------------------------------------------------------------------------------------------
+// Lighting (B.4): torches from storage into the buildings and the mine
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A light chore's torches at most and at least (a part with fewer unlit spots takes them all), the unlit spots a mine part
+ * still growing waits for (one torch a chore is not worth the trip; a finished part takes its last), the torches make keeps
+ * on top of the demand, and the demand counted at most (D7: make's target is max(32, min(64, demand) + 8)).
+ */
+export const LIGHT_TRIP = 16, LIGHT_MIN_TRIP = 4, MINE_LIGHT_MIN = 2, TORCH_RESERVE = 8, TORCH_DEMAND_CAP = 64;
+
+/** Torches a light chore has withdrawn and not yet placed or put back, "village|agent" (D7, L2): the skill sets and
+ *  deletes it; the demand counts them as placed, so make does not make them again while they are carried. */
+export const lightCarried = new Map<string, number>();
 
 /** Villages preparing their works plot (as annexBusy). */
 export const worksBusy = new Set<string>();

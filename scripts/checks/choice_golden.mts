@@ -27,6 +27,12 @@
  * invariants are checked per sweep (crafting makes at most MAKE_PARALLEL, one make a furnace and only recorded ones, the
  * earmarks within the spare storage, none left once every chore ended, makes only below target, gathering within its
  * need and limits, works furnaces only on a ready plot, one option a good and a material a menu).
+ * B.4 (runs/2026-10-15/spec_b4.md 7.1): `instances` also runs the light family: its fixtures get a torch stock (0, 8 or 40,
+ * from a third generator) and a light record (absent, half the spots done, or all done with some never), and the menus and
+ * sweeps are checked for lighting (at most one option a part, none for a part with nothing unlit, each trip's torches
+ * within min(unlit, LIGHT_MIN_TRIP)..min(unlit, LIGHT_TRIP) and a menu's within the spare torches, a light chore's earmark
+ * its own torches, none left and no lightCarried once every chore ended; S.9's make check against makeTarget); the purity
+ * snapshot holds lightBack and lightCarried (v.lights is in the registry).
  * Usage: node_modules/.bin/tsx scripts/checks/choice_golden.mts dump|check|instances GOLDEN.json [villages.json ...]
  * (BASES_MAX=30, PURITY_N=1000, ONLY=<substring of a fixture key>, VERBOSE=1)
  */
@@ -44,7 +50,7 @@ if (!/^(dump|check|instances)$/.test(mode ?? '') || !golden) {
 process.env.MC_CHOOSE = 'fixed';
 process.env.MC_CHOICE_INSTANCES = mode === 'instances' ? 'explore,start' : '';
 // (S.9's families off for the golden, on for the instances' invariants, D3)
-process.env.MC_CHOICE_FAMILIES = mode === 'instances' ? 'make,gather,works' : '';
+process.env.MC_CHOICE_FAMILIES = mode === 'instances' ? 'make,gather,works,light' : '';
 process.env.MC_TIME_SCALE = '1';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
@@ -448,6 +454,11 @@ function seedWorkshop(reg: Any, variant: Variant, key: string) {
     v.stations = { crafting_table: { x: x1 + 2, y, z: z1 + 4, by: 'golden', at: ago(60) }, furnace: { x: x1 + 4, y, z: z1 + 4, by: 'golden', at: ago(60) } };
   }
   if (R.chance(0.25)) v.unavailable = [...new Set([...(v.unavailable ?? []), 'sand'])];
+  // (B.4's torch stock, from its own generator so S.9's seeding stays as it was)
+  if (items) {
+    const t = rng(`${key}:b4`).pick([0, 8, 40]);
+    if (t) items.torch = (items.torch ?? 0) + t;
+  }
   const lay = v.layouts?.[0];
   const ax = lay?.annex;
   if (!ax || ax.state !== 'ready') return;
@@ -556,6 +567,7 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
   for (const k of [...W9.makeHolds.keys()]) W9.holdsDelete(k);
   W9.makeLeft.clear();
   W9.worksBusy.clear();
+  W9.lightCarried.clear();
   const w = new MineflayerWorld('127.0.0.1', 0, '26.1', { command: async (c: string) => { rconCmds.push(c); return ''; } } as never, dir) as Any;
   const reg = w.villages as Any;
   let saves = 0;
@@ -623,6 +635,7 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
       const menu = w.choices(a);
       const opts1 = (menu?.options ?? []) as Any[];
       checkMenuS9(fx, w, v, a.name, opts1);
+      checkMenuLight(fx, w, v, a.name, opts1);
       const lowest = [...opts1].sort((p, q) => p.rank - q.rank)[0];
       if (!opts1.some((o) => o.id === id)) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, not in its fresh menu (${opts1.map((o) => o.id).join(', ')})`);
       else if (lowest && lowest.id !== id) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, but its menu's lowest rank is ${lowest.id}`);
@@ -647,6 +660,16 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
     };
   }
 
+  // Instances mode: B.4's light record (absent, half the spots done, or all done with some never), from the parts as the
+  // world sees them (lightParts is pure)
+  if (opts.instances && typeof w.lightParts === 'function') {
+    mute();
+    try {
+      seedLights(w, v, fx.key);
+    } finally {
+      unmute();
+    }
+  }
   const sweeps: Sweep[] = [];
   let purity: string | undefined;
   let rconAt = 0, callsAt = 0, notesAt = 0;
@@ -711,7 +734,9 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
       [...w.cooling.entries()], [...w.slotSkip.entries()], [...w.cakeAt.entries()], saves, rconCmds.length, calls.length, notes.length, statuses.length,
       // (S.9's state, spec 8.1 item 3)
       [[...W9.makeHolds.entries()], W9.holdsVersion(), [...W9.makeLeft.entries()], [...W9.worksBusy], [...w.makeBack.entries()], [...w.gatherBack.entries()],
-        [...w.gatherLog.entries()], [...w.worksBack.entries()]]]);
+        [...w.gatherLog.entries()], [...w.worksBack.entries()],
+        // (B.4's back-off and carried torches; the lightParts cache is left out, spec 7.1 L6)
+        [...(w.lightBack?.entries() ?? [])], [...W9.lightCarried.entries()]]]);
     const before = snap();
     mute();
     try {
@@ -744,6 +769,8 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
     endTick();
     const left = [...W9.makeHolds.keys()].filter((k) => k.startsWith(`${v.name}|`));
     if (left.length) invariantFails.push(`${fx.key}: earmarks left once every chore ended: ${left.join(', ')}`);
+    const carried = [...W9.lightCarried.keys()].filter((k) => k.startsWith(`${v.name}|`));
+    if (carried.length) invariantFails.push(`${fx.key}: lightCarried left once every chore ended: ${carried.join(', ')}`);
     mute();
     try {
       const g = w.gatherWanted(v);
@@ -802,8 +829,10 @@ function checkMenuS9(fx: Fixture, w: Any, v: Any, agent: string, options: Any[])
         continue;
       }
       const goingN = going.make.filter((m) => m.item === item).reduce((s, m) => s + m.count, 0);
-      const want = g.target - (store[item] ?? 0) - goingN;
-      if (want <= 0) invariantFails.push(`${fx.key}: ${o.id} offered at stock (${store[item] ?? 0} stored, ${goingN} going, target ${g.target})`);
+      // (B.4: the torch's target follows lighting's demand, D7)
+      const target = w.makeTarget(v, g);
+      const want = target - (store[item] ?? 0) - goingN;
+      if (want <= 0) invariantFails.push(`${fx.key}: ${o.id} offered at stock (${store[item] ?? 0} stored, ${goingN} going, target ${target})`);
       const n = Number(/this batch of (\d+)/.exec(o.facts)?.[1] ?? NaN);
       if (!(n > 0 && n <= g.batch && n % g.unit === 0 && n <= Math.ceil(Math.max(0, want) / g.unit) * g.unit))
         invariantFails.push(`${fx.key}: ${o.id}'s batch ${n} is not a whole batch for a want of ${want} (batch ${g.batch}, unit ${g.unit})`);
@@ -854,7 +883,9 @@ function checkS9(fx: Fixture, w: Any, v: Any) {
     if (!k.startsWith(`${v.name}|`)) continue;
     const agent = k.slice(v.name.length + 1);
     const c0 = [...w.chores.values()].find((x: Any) => x.village === v.name && x.agent.toLowerCase() === agent && x.status.some((q: Any) => q.state === 'queued' || q.state === 'running'));
-    if (!c0 || !(c0.choice?.kind === 'make' || (c0.choice?.kind === 'works' && /^worksfurnace:/.test(c0.key)))) invariantFails.push(`${fx.key}: an earmark for ${agent} with no make or furnace placement going`);
+    if (!c0 || !(c0.choice?.kind === 'make' || c0.choice?.kind === 'light' || (c0.choice?.kind === 'works' && /^worksfurnace:/.test(c0.key)))) invariantFails.push(`${fx.key}: an earmark for ${agent} with no make, light chore or furnace placement going`);
+    // (B.4: a light chore's earmark is its own torches)
+    if (c0?.choice?.kind === 'light' && JSON.stringify(c) !== JSON.stringify({ torch: c0.choice.light?.n })) invariantFails.push(`${fx.key}: ${agent}'s light chore (${c0.choice.light?.n} torches) earmarks ${JSON.stringify(c)}`);
     for (const [n, q] of Object.entries(c)) held[n] = (held[n] ?? 0) + q;
   }
   const isLog = (n: string) => /_log$/.test(n);
@@ -895,8 +926,73 @@ function checkS9(fx: Fixture, w: Any, v: Any) {
   // Every idle member's menu now (pure, as the purity check holds)
   for (const a of w.agents.values() as Iterable<Any>) {
     const menu = w.choices(a);
-    if (menu) checkMenuS9(fx, w, v, a.name, menu.options ?? []);
+    if (menu) {
+      checkMenuS9(fx, w, v, a.name, menu.options ?? []);
+      checkMenuLight(fx, w, v, a.name, menu.options ?? []);
+    }
   }
+  // (B.4) the light chores going: each on a part, the most at once
+  const parts = new Map(((w.lightParts?.(v) ?? []) as Any[]).map((P) => [P.part, P]));
+  const lighting = ([...w.chores.values()] as Any[]).filter((c) => c.village === v.name && c.choice?.kind === 'light' && c.status.some((q: Any) => q.state === 'queued' || q.state === 'running'));
+  most('light chores', lighting.length);
+  for (const c of lighting) if (!parts.has(c.choice.light?.part)) invariantFails.push(`${fx.key}: ${c.agent} lights ${c.choice.light?.part}, not a part`);
+}
+
+/** B.4's counts in instances mode: light options seen (buildings, mine parts), fixtures with one, records seeded. */
+const lightSeen: Record<string, number> = { building: 0, mine: 0 };
+const lightFixtures = new Set<string>();
+const lightSeeded: Record<string, number> = {};
+
+/** B.4's light record seeded on a fixture's village (spec 7.1): absent, half of each part's spots done, or all done with
+ *  a building's last spot never now and then. */
+function seedLights(w: Any, v: Any, key: string) {
+  const R = rng(`${key}:b4lights`);
+  const state = R.pick(['absent', 'absent', 'half', 'done']);
+  lightSeeded[state] = (lightSeeded[state] ?? 0) + 1;
+  if (state === 'absent') return;
+  const parts = w.lightParts(v) as Any[];
+  if (!parts.length) return;
+  v.lights = {};
+  for (const P of parts) {
+    const keys: string[] = P.spots.map((s: Any) => `${s.x},${s.y},${s.z}`);
+    if (state === 'half') v.lights[P.part] = { done: keys.slice(0, Math.floor(keys.length / 2)), at: NOW - 30 * MIN, by: 'golden' };
+    else {
+      const never = P.kind === 'building' && keys.length > 1 && R.chance(0.4) ? [keys[keys.length - 1]] : [];
+      v.lights[P.part] = { done: keys.filter((k) => !never.includes(k)), ...(never.length ? { never } : {}), at: NOW - 30 * MIN, by: 'golden' };
+    }
+  }
+}
+
+/** One menu's light options (spec 7.1 a, b): one a part, a part with something unlit (2 for a growing mine part), each
+ *  trip's torches within the bounds and the menu's within the spare torches, none for a part a going chore holds. */
+function checkMenuLight(fx: Fixture, w: Any, v: Any, agent: string, options: Any[]) {
+  const ls = options.filter((o) => o.kind === 'light');
+  if (!ls.length) return;
+  lightFixtures.add(fx.key);
+  const parts = new Map(((w.lightParts?.(v) ?? []) as Any[]).map((P) => [P.part, P]));
+  const held = new Set(([...w.chores.values()] as Any[]).filter((c) => c.village === v.name && c.status.some((q: Any) => q.state === 'queued' || q.state === 'running')).map((c) => c.key));
+  const seen = new Set<string>();
+  let sum = 0;
+  for (const o of ls) {
+    const P = parts.get(String(o.id).slice('light:'.length));
+    if (seen.has(o.id)) invariantFails.push(`${fx.key}: ${agent}'s menu has ${o.id} twice`);
+    seen.add(o.id);
+    if (!P) {
+      invariantFails.push(`${fx.key}: ${agent}'s menu has ${o.id}, not a part`);
+      continue;
+    }
+    lightSeen[P.kind] = (lightSeen[P.kind] ?? 0) + 1;
+    const min = P.kind === 'mine' && P.growing ? W9.MINE_LIGHT_MIN : 1;
+    if (P.unlit < min) invariantFails.push(`${fx.key}: ${o.id} offered with ${P.unlit} unlit (at least ${min})`);
+    const n = Number(/takes (\d+) torch/.exec(o.facts)?.[1] ?? NaN);
+    if (!(n >= Math.min(P.unlit, W9.LIGHT_MIN_TRIP) && n <= Math.min(P.unlit, W9.LIGHT_TRIP))) invariantFails.push(`${fx.key}: ${o.id} takes ${n} torches for ${P.unlit} unlit`);
+    if (o.key !== o.id || !(o.excludes ?? []).includes(`${o.id}=`)) invariantFails.push(`${fx.key}: ${o.id}'s key ${o.key} or excludes ${JSON.stringify(o.excludes)}`);
+    if (held.has(o.id)) invariantFails.push(`${fx.key}: ${o.id} offered while a going chore holds it`);
+    if (!(o.rank >= 860 && o.rank < 900)) invariantFails.push(`${fx.key}: ${o.id} at rank ${o.rank}`);
+    sum += Number.isFinite(n) ? n : 0;
+  }
+  const spare = w.makeSpare(v, '').torch ?? 0;
+  if (sum > spare) invariantFails.push(`${fx.key}: ${agent}'s light options take ${sum} torches, ${spare} spare`);
 }
 
 /** Leaf paths that differ between two JSON values ("layouts.0.slots.3.pen.workAt.eggs"). */
@@ -1011,7 +1107,15 @@ if (mode === 'instances') {
   const s9Kinds = ['works', 'make', 'gather'];
   say(`S.9 options in menus (${s9Fixtures.size} fixtures): ${s9Kinds.map((k) => `${k} ${s9Seen[k] ?? 0}`).join(', ')}; by id: ${Object.entries(s9Seen).filter(([k]) => k.includes(':')).sort().map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
   say(`S.9 chores picked: ${s9Kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join(', ')}; most at once in a sweep: ${Object.entries(s9Peak).map(([k, n]) => `${k} ${n}`).join(', ')}`);
-  for (const f of invariantFails.slice(0, 40)) say(`FAIL ${f}`);
+  say(`B.4 light options in menus (${lightFixtures.size} fixtures): buildings ${lightSeen.building}, mine parts ${lightSeen.mine}; light chores picked ${byKind.light ?? 0}; light records seeded: ${Object.entries(lightSeeded).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
+  for (const f of invariantFails.slice(0, Number(process.env.FAILS_MAX ?? 40))) say(`FAIL ${f}`);
+  // (the broken invariants by what they say, agents, ids and numbers folded)
+  const byWhat: Record<string, number> = {};
+  for (const f of invariantFails) {
+    const w = f.replace(/^[^|]*\|[^|]*\|v\d+\|\w+: /, '').replace(/\b(Worker\d+|Mayor)\b/g, 'A').replace(/-?\d+/g, 'N').replace(/:[a-z_:N]+/g, ':*');
+    byWhat[w] = (byWhat[w] ?? 0) + 1;
+  }
+  for (const [w, n] of Object.entries(byWhat).sort((p, q) => q[1] - p[1]).slice(0, 15)) say(`  broken ${n}x: ${w.slice(0, 200)}`);
   for (const f of purityFails.slice(0, 20)) say(`PURITY FAIL ${f}`);
   say(`purity: ${purityRuns} fixtures x ${PURITY_N} choices() calls, ${purityFails.length} changed state`);
   say(`${nFix} fixtures, ${invariantFails.length} invariants broken`);

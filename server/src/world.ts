@@ -204,8 +204,8 @@ export interface WorldAdapter {
 }
 
 /** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
- *  gathering for the workshop). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather';
+ *  gathering for the workshop; B.4 lighting the buildings and the mine). */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {

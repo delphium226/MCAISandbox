@@ -9,7 +9,7 @@
 import { readNbt, type Nbt } from './nbt';
 import type { Design } from './village';
 import { isDoor, outsideCells, outwardStep, turnState } from './designs';
-import { DEFAULT_JAR, listEntries, readEntry } from './vanillaData';
+import { DEFAULT_JAR, listEntries, readEntry, vanillaJar } from './vanillaData';
 
 export { DEFAULT_JAR };
 
@@ -150,6 +150,13 @@ const SYMBOLS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#
 const TURNS: Record<string, number> = { south: 0, east: 1, north: 2, west: 3 }; // clockwise quarter turns to face south
 const STEP: Record<string, [number, number]> = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
 
+/**
+ * One of vanilla's own light cells in a piece (B.4), in the design's grid (layer, column i, row j, after the trim and the
+ * turns): a wall torch with its facing (away from its wall), or a standing torch (a standing lantern, as a torch). The
+ * cell itself is air in the design (torches are DECOR); lighting puts a torch back there.
+ */
+export interface VanillaLight { layer: number; i: number; j: number; block: 'wall_torch' | 'torch'; facing?: 'north' | 'south' | 'east' | 'west' }
+
 export interface ImportedPiece {
   design: Design;
   path: string;
@@ -161,6 +168,8 @@ export interface ImportedPiece {
   /** "vanilla -> ours" with counts (blocks turned to air included). */
   substitutions: Record<string, number>;
   notes: string[];
+  /** Vanilla's light cells inside the design's grid (B.4). */
+  lights: VanillaLight[];
 }
 
 /**
@@ -190,7 +199,7 @@ export function pieceToDesign(piece: Piece, biome: string): ImportedPiece {
       }
   if (!door) throw new Error('no door');
   const turns = TURNS[entrance.facing];
-  const { design, droppedBelow, subs } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
+  const { design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
   const { palette } = design, layersOut = design.layers;
   const notes: string[] = [];
   // The entrance door must open toward the entrance's side (now south): otherwise the flood got inside or the door
@@ -202,7 +211,7 @@ export function pieceToDesign(piece: Piece, biome: string): ImportedPiece {
   if (!toSouth.length) throw new Error(`the entrance door does not open south (doors in layer 1: ${doorCells.length})`);
   if (doorCells.length > toSouth.length) notes.push(`${doorCells.length - toSouth.length} other door(s) in layer 1`);
   if (droppedBelow) notes.push(`${droppedBelow} blocks below the floor dropped`);
-  return { design, path: piece.path, biome, front: entrance.facing, droppedBelow, substitutions: subs, notes };
+  return { design, path: piece.path, biome, front: entrance.facing, droppedBelow, substitutions: subs, notes, lights };
 }
 
 export interface ImportedCentre {
@@ -217,6 +226,8 @@ export interface ImportedCentre {
   /** Its plaza's dirt_path cells in layer 0 (design columns and rows): "_" in the design, laid free with the streets. */
   paths: Array<[number, number]>;
   substitutions: Record<string, number>;
+  /** Vanilla's light cells inside the design's grid (B.4). */
+  lights: VanillaLight[];
 }
 
 /**
@@ -233,7 +244,7 @@ export function centreToDesign(piece: Piece, biome: string): ImportedCentre {
   const raw = piece.cells.slice();
   for (const j of piece.jigsaws) raw[(j.y * D + j.z) * W + j.x] = j.finalState === 'structure_void' ? null : j.finalState;
   const dy = Math.min(...streets.map((j) => j.y));
-  const { design, subs, x1, z1, w0, d0 } = convert(piece, raw, biome, dy, 0, name, `vanilla ${name} (${biome}), a town centre`);
+  const { design, subs, x1, z1, w0, d0, lights } = convert(piece, raw, biome, dy, 0, name, `vanilla ${name} (${biome}), a town centre`);
   const clamp = (v: number, n: number) => Math.max(0, Math.min(n - 1, v));
   const connectors = streets.map((j) => ({ side: j.facing, offset: j.facing === 'north' || j.facing === 'south' ? clamp(j.x - x1, w0) : clamp(j.z - z1, d0) }));
   // The plaza's path is street, laid free by prepare_site like the streets (the review of V2.3: charged as dirt it was
@@ -245,14 +256,15 @@ export function centreToDesign(piece: Piece, biome: string): ImportedCentre {
   }).join(''));
   for (const [ch, b] of Object.entries(design.palette)) if (b === 'dirt_path' && !design.layers.some((l) => l.some((r) => r.includes(ch)))) delete design.palette[ch];
   design.blocks -= paths.length;
-  return { design, path: piece.path, biome, connectors, water, paths, substitutions: subs };
+  return { design, path: piece.path, biome, connectors, water, paths, substitutions: subs, lights };
 }
 
 /**
  * The conversion shared by houses and town centres: vanilla's blocks (jigsaws already their final state) from piece
  * layer `dy - 1` up as design layers (`dy` is layer 1: a house's door level, a centre's walk level), the ground in layer
  * 0, plants, structure void and air outside (a flood of layer 1 from the edge) or open to the sky as "_", blocks
- * substituted, trimmed, turned `turns` quarter turns clockwise. Returns the trim's corner and size before turning.
+ * substituted, trimmed, turned `turns` quarter turns clockwise. Returns the trim's corner and size before turning, and
+ * vanilla's light cells mapped through the same trim and turns (B.4).
  */
 function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: number, turns: number, name: string, description: string) {
   const { width: W, height: H, depth: D } = piece;
@@ -349,6 +361,23 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
   let w = x2 - x1 + 1, d = z2 - z1 + 1;
   let grid: string[][][] = out.slice(0, top + 1).map((layer) => layer.slice(z1, z2 + 1).map((row) => row.slice(x1, x2 + 1)));
 
+  // Vanilla's light cells (B.4), through the real trim and turns (the check's L1: 9 of 128 pieces trim differently with
+  // the torches marked): wall torches, standing torches and standing lanterns (as torches; a hanging one has nothing
+  // under it to stand on); dropped outside the trimmed grid, on layer 0 or above the top layer kept
+  const lights: VanillaLight[] = [];
+  for (let l = 1; l <= top; l++)
+    for (let z = z1; z <= z2; z++)
+      for (let x = x1; x <= x2; x++) {
+        const s = at(x, y0 + l, z), n = base(s);
+        const block = n === 'wall_torch' ? 'wall_torch' : n === 'torch' || (/lantern$/.test(n) && props(s!).hanging !== 'true') ? 'torch' : null;
+        if (!block) continue;
+        let [i, j, ww, dd] = [x - x1, z - z1, w, d];
+        for (let r = 0; r < turns; r++) [i, j, ww, dd] = [dd - 1 - j, i, dd, ww];
+        const facing = block === 'wall_torch' ? /facing=([a-z]+)/.exec(turnState(`wall_torch[facing=${props(s!).facing}]`, turns))?.[1] as VanillaLight['facing'] : undefined;
+        if (block === 'wall_torch' && !facing) continue;
+        lights.push({ layer: l, i, j, block, ...(facing ? { facing } : {}) });
+      }
+
   // Turned clockwise until the entrance faces south (as build_design turns: column u = depth-1-row, row v = column)
   for (let r = 0; r < turns; r++) {
     grid = grid.map((layer) => Array.from({ length: w }, (_, v) => Array.from({ length: d }, (_, u) => layer[d - 1 - u][v])));
@@ -370,7 +399,57 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
   }).join('')));
   const blocks = layersOut.reduce((t, layer) => t + layer.reduce((u, row) => u + [...row].filter((c) => c !== '_' && c !== '.').length, 0), 0);
   const design: Design = { name, description, palette, layers: layersOut, width: w, depth: d, height: layersOut.length, blocks, by: 'vanilla' };
-  return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1 };
+  return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1, lights };
+}
+
+const lightsByName = new Map<string, { key: string; lights: VanillaLight[] } | null>();
+const lightsOf = new WeakMap<Design, VanillaLight[] | null>();
+/** A jar read that failed, by jar and name: tried again a minute later, never cached (B.4's review, lens 3 L3). */
+const lightsFailed = new Map<string, number>();
+/** A design's layers and palette as one string (whether a stored design is still the jar's import). */
+const designKey = (d: Design) => JSON.stringify([d.layers, Object.entries(d.palette).sort(([a], [b]) => a.localeCompare(b))]);
+
+/**
+ * The light cells of the piece a design is named after, cached (B.4); null when no piece has the name or the design's
+ * layers and palette differ from the jar's import (a design posted under a vanilla name is not the piece, lesson 89).
+ * The jar is the world's (vanillaJar: MC_VANILLA_JAR, as the library it was imported from); a read that fails gives null
+ * for a minute and is then tried again.
+ */
+export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | null {
+  if (lightsOf.has(d)) return lightsOf.get(d)!;
+  const k = `${jar}|${d.name}`;
+  if (!lightsByName.has(k)) {
+    if (Date.now() - (lightsFailed.get(k) ?? -Infinity) < 60000) return null;
+    let found: { key: string; lights: VanillaLight[] } | null = null;
+    const biome = VILLAGE_BIOMES.find((b) => d.name.startsWith(`${b}_`));
+    if (biome)
+      try {
+        for (const kind of ['houses', 'town_centers'] as const) {
+          const path = listPieces(jar, biome, kind).find((p) => p.split('/').pop() === d.name);
+          if (!path) continue;
+          const piece = readPiece(path, jar);
+          // (a piece the importer refuses is no design of the library: null, cached; only a read is tried again)
+          let imp: ImportedPiece | ImportedCentre | null = null;
+          try {
+            imp = kind === 'houses' ? pieceToDesign(piece, biome) : centreToDesign(piece, biome);
+          } catch {
+            imp = null;
+          }
+          found = imp ? { key: designKey(imp.design), lights: imp.lights } : null;
+          break;
+        }
+      } catch (e) {
+        if (!lightsFailed.has(k)) console.log(`[light] the vanilla lights of ${d.name} could not be read from ${jar}: ${(e as Error).message.slice(0, 160)}`);
+        lightsFailed.set(k, Date.now());
+        return null;
+      }
+    lightsFailed.delete(k);
+    lightsByName.set(k, found);
+  }
+  const f = lightsByName.get(k);
+  const lights = f && f.key === designKey(d) ? f.lights : null;
+  lightsOf.set(d, lights);
+  return lights;
 }
 
 // ---------------------------------------------------------------------------------------------

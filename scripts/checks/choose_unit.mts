@@ -8,7 +8,8 @@
  * onExpire, cancel, a throwing job and a throwing onExpire caught, no unhandled rejection), and ChoiceStats (learning
  * progress, the per-id ban and the kind ban rule, explore exempt, the agent cooldown, the model-call rate, the facts), and S.9's
  * parts (MC_CHOICE_FAMILIES, choreProductive for make, works and gather, make and gather banned per id only, the trim's
- * two a kind and the stone goods' names).
+ * two a kind and the stone goods' names), and B.4's (light a family by default, choreProductive for put_up_torches by the
+ * spots lit, light banned per id only).
  * Exits non-zero on any failure.
  * Usage: node_modules/.bin/tsx scripts/checks/choose_unit.mts
  */
@@ -464,19 +465,25 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
   eq(P('gather', 'deposit', 'deposited 0 sand'), false, 'gather: deposited 0');
   eq(P('gather', 'collect', 'collected 16 sand'), false, "gather: a collect's message is not its deposit");
   eq(choreProductive('gather', 'deposit', false, 'deposited 16 sand', null), false, 'gather: a failure');
+  // B.4: lighting by the spots lit ("lit 0" when the run only skipped)
+  eq(P('light', 'put_up_torches', 'lit 5 torch spots in the library (5 of 10; 0 never)'), true, 'light: lit 5');
+  eq(P('light', 'put_up_torches', 'lit 0 torch spots in the library (2 skipped: not loaded)'), false, 'light: lit 0');
+  eq(choreProductive('light', 'put_up_torches', false, 'lit 5 torch spots in the library', null), false, 'light: a failure');
 }
 
 // --- S.9: the families' setting, bans per id, the trim and names
 {
-  const want = (process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works').split(',').map((s) => s.trim()).filter(Boolean).sort();
-  eq([...CHOOSE.families].sort(), want, 'CHOOSE.families from MC_CHOICE_FAMILIES (default make,gather,works)');
+  const want = (process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light').split(',').map((s) => s.trim()).filter(Boolean).sort();
+  eq([...CHOOSE.families].sort(), want, 'CHOOSE.families from MC_CHOICE_FAMILIES (default make,gather,works,light)');
+  if (process.env.MC_CHOICE_FAMILIES === undefined) ok(CHOOSE.families.has('light'), 'light is a family by default (B.4)');
   ok(CHOOSE.families instanceof Set, 'families is a set');
   const T = Date.UTC(2026, 9, 14, 12);
   const MIN = 60000;
-  for (const kind of ['make', 'gather'] as ChoiceKind[]) {
+  for (const kind of ['make', 'gather', 'light'] as ChoiceKind[]) {
     const s = new ChoiceStats();
     const end = (agent: string, id: string, m: number) => s.record({ village: 'V', agent, kind, id, ok: false, cut: false, contention: false, productive: false, minutes: 1, at: T + m * MIN, line: 'x' });
-    const [a, b, c] = kind === 'make' ? ['make:torch', 'make:glass', 'make:ladder'] : ['gather:sand', 'gather:logs', 'gather:cobblestone'];
+    const [a, b, c] = kind === 'make' ? ['make:torch', 'make:glass', 'make:ladder'] : kind === 'gather' ? ['gather:sand', 'gather:logs', 'gather:cobblestone']
+      : ['light:s12575', 'light:mine:0', 'light:mine:stairs'];
     end('Worker1', a, 0);
     end('Worker2', b, 5);
     end('Worker1', a, 10);

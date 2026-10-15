@@ -91,6 +91,9 @@ const CHARGE_AS: Record<string, string> = {
   grass_block: 'dirt', dirt_path: 'dirt', wheat: 'wheat_seeds',
   // (the farm slots' plants, opportunistic farming 10-08: a crop or stem is planted from its item)
   carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot_seeds', pumpkin_stem: 'pumpkin_seeds', melon_stem: 'melon_seeds',
+  // (no wall_torch: a design holding one stays refused, "no such item", as before B.4, which lights by its own skill and
+  // charges torches itself; one set over air by command drops off and is bought again on every pass, D.1's review; B.4's
+  // review, lens 3 L4)
 };
 
 export interface Option {

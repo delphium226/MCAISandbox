@@ -462,6 +462,101 @@
       }
     },
     {
+      "name": "b4: torches stored, the library dark",
+      "good": [
+        "light:s12575"
+      ],
+      "why": "24 torches wait in storage and the library's 10 spots are dark; the ring point is almost fully known and the composter has nothing that uses it",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "B4f, complete. Storage: 24 torch, 8 charcoal, 160 cobblestone, 40 birch log, 18 wheat, 22 wheat seeds, 2 bread, 5 egg. Farms: a wheat field, 2 slots free. Pens: 3 chickens. Explored: 7 of 8 points round the village. Iron: made iron pickaxe. Workshop: 6 things made",
+          "others": "making goods 2 (Worker4, Worker9), lighting 1 (Worker2), idle 3",
+          "outcomes": [
+            "Make torches: done, 0.9 min",
+            "Explore to the east: done, nothing gained, 3.8 min, little new land"
+          ]
+        },
+        "options": [
+          {
+            "id": "light:s12575",
+            "kind": "light",
+            "key": "light:s12575",
+            "name": "Light the library",
+            "facts": "10 of 10 torch spots unlit (10 vanilla's own); takes 10 torches (24 spare); walks 18 blocks from the hut and back, ~0.2 min; you: never done; on it: none",
+            "effect": "+10 torches in the library: for the village's look (time stands at day and no mobs spawn in this peaceful world, so the light is for the look)",
+            "rank": 860
+          },
+          {
+            "id": "make:composter",
+            "kind": "make",
+            "key": "make:composter",
+            "name": "Make composters",
+            "facts": "0 of the 1 kept are in storage; this batch of 1 takes 2 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+1 composters (0 stored): turns crops into bone meal (white dye, growth) once placed (later)",
+            "rank": 906
+          },
+          {
+            "id": "explore:5",
+            "kind": "explore",
+            "key": "explore:5",
+            "name": "Explore to the north-west",
+            "facts": "104 blocks from you; 1 of 8 points left; this point's land 91% known; the last 2 trips found nothing new",
+            "effect": "probably little: the last 2 trips found nothing new, and the point is 91% known",
+            "rank": 800,
+            "lp": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "b4: no torches, spots waiting",
+      "good": [
+        "make:torch"
+      ],
+      "why": "storage holds no torches while 38 torch spots wait in the houses and the mine, so no light chore can start until torches are made; the ladders and the barrel have nothing that uses them yet",
+      "menu": {
+        "ctx": {
+          "persona": "",
+          "village": "B4f, complete. Storage: 0 torch, 8 charcoal, 140 cobblestone, 36 birch log, 20 wheat, 30 wheat seeds, 3 bread, 6 egg. Farms: a wheat field, pumpkin on a slot, 1 slot free. Pens: 3 chickens, 2 cows. Explored: 8 of 8 points round the village. Iron: made iron pickaxe, bucket. Workshop: 7 things made",
+          "others": "lighting 2 (Worker5, Worker11), mining 1 (Worker3), idle 2",
+          "outcomes": [
+            "Light the mine's east tunnel: done, 0.2 min",
+            "Light the library: done, 0.4 min"
+          ]
+        },
+        "options": [
+          {
+            "id": "make:torch",
+            "kind": "make",
+            "key": "make:torch",
+            "name": "Make torches",
+            "facts": "0 of the 46 kept are in storage; this batch of 16 takes 4 charcoal, 1 birch log (all spare); crafted at the hut, ~0.3 min; you: never done; on it: none",
+            "effect": "+16 torches (0 stored): 38 more torch spots wait in the houses and the mine than storage holds torches for",
+            "rank": 904
+          },
+          {
+            "id": "make:ladder",
+            "kind": "make",
+            "key": "make:ladder",
+            "name": "Make ladders",
+            "facts": "0 of the 12 kept are in storage; this batch of 6 takes 2 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+6 ladders (0 stored): ladders for the deep mine (later)",
+            "rank": 905
+          },
+          {
+            "id": "make:barrel",
+            "kind": "make",
+            "key": "make:barrel",
+            "name": "Make barrels",
+            "facts": "0 of the 2 kept are in storage; this batch of 1 takes 3 birch log (all spare); crafted at the hut, ~0.3 min; you: never done",
+            "effect": "+1 barrels (0 stored): a storage block for the works plot; nothing places it yet",
+            "rank": 903
+          }
+        ]
+      }
+    },
+    {
       "name": "equal: explore 2 points",
       "equal": true,
       "menu": {

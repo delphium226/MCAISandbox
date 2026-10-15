@@ -381,6 +381,9 @@ export interface WorksFurnace { x: number; y: number; z: number; by: string; at:
 /** The first time the village made an item (S.9's tech record): when, by whom, how, how many, and on which job. */
 export interface TechEntry { at: number; by: string; how: 'craft' | 'smelt'; n: number; via: string }
 
+/** B.4: a part's torch spots ("x,y,z"): confirmed by the server, never able to hold one, skipped (runs, chunk loaded); the last run. */
+export interface LightRecord { done: string[]; never?: string[]; skips?: Record<string, number>; at: number; by: string }
+
 export interface Village {
   name: string;
   objective: string;
@@ -392,6 +395,8 @@ export interface Village {
   cakes?: number;
   /** What the village has made, by item, the first time each (S.9; kept on the village, which always exists, lesson 103). */
   tech?: Record<string, TechEntry>;
+  /** The torches put up in its buildings and its mine, by part ("light:<part>"'s part; B.4, kept on the village, lesson 103). */
+  lights?: Record<string, LightRecord>;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;

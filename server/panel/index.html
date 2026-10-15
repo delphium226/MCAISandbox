@@ -1267,6 +1267,7 @@ function actionWords(t, args) {
     case 'bake_cake': return 'Baking a cake';
     case 'light_streets': return 'Putting up street lamps';
     case 'put_up_signs': return 'Putting up name signs';
+    case 'put_up_torches': return /^mine(:|$)/.test(String(args.part ?? '')) ? 'Putting up torches in the mine' : 'Putting up torches in a building';
     default: return cap(words(t));
   }
 }
@@ -1305,7 +1306,7 @@ const ACT_OF = {
   mine: 'mining', dig_mine: 'mining', dig_iron: 'mining', collect: 'gathering', craft: 'gathering', smelt: 'gathering',
   tend_farm: 'chores', harvest_farm: 'chores', start_farm: 'chores', harvest_slot: 'chores', prepare_annex: 'chores', start_pen: 'chores', collect_eggs: 'chores',
   milk_cows: 'chores', breed_pen: 'chores', bake_cake: 'chores', scout: 'chores', explore: 'chores', make_iron_tool: 'chores',
-  make: 'chores', prepare_works: 'chores', place_works_furnace: 'chores',
+  make: 'chores', prepare_works: 'chores', place_works_furnace: 'chores', put_up_torches: 'chores',
 };
 // (stone and ores come from the village mine)
 const MINED = /^(cobblestone|stone|cobbled_deepslate|deepslate|coal|raw_iron|iron_ore|coal_ore)$|_ore$/;
@@ -1423,6 +1424,18 @@ function villageLife(v) {
   if (wk || (v.complete && (v.layouts || [])[0]?.annex)) {
     const placed = (wk?.furnaces || []).filter(Boolean).length;
     items.push(['Works plot', !wk ? 'not started' : wk.state === 'ready' ? `ready, ${placed} of 3 furnaces` : 'being prepared', '']);
+  }
+  // (B.4: the torches confirmed standing in the buildings and the mine, from each part's record; the spots still unlit are
+  // the world's to count, so "of M" only when the overview sends the total as lightSpots)
+  const lights = Object.entries(v.lights || {});
+  if (lights.length) {
+    const up = lights.reduce((s, [, r]) => s + (r.done || []).length, 0);
+    const never = lights.reduce((s, [, r]) => s + (r.never || []).length, 0);
+    const mine = lights.filter(([p, r]) => /^mine(:|$)/.test(p) && (r.done || []).length).length;
+    const houses = lights.filter(([p, r]) => !/^mine(:|$)/.test(p) && (r.done || []).length).length;
+    const where = [houses ? plural(houses, 'building') : '', mine ? `${plural(mine, 'part')} of the mine` : ''].filter(Boolean).join(' and ');
+    items.push(['Lights', Number.isFinite(v.lightSpots) ? `${up} of ${v.lightSpots} torches up` : `${up} torch${up === 1 ? '' : 'es'} up`,
+      `${where ? `in ${where}` : ''}${never ? `${where ? '; ' : ''}${never} spot${never === 1 ? '' : 's'} cannot hold one` : ''}`]);
   }
   if (!items.length) return '';
   return `<div class="card"><div class="label">Village life</div><dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl></div>`;

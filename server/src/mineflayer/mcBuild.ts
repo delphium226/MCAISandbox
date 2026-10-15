@@ -15,14 +15,15 @@
  */
 import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
-import { inIronLevel, ironTrip, mineAreas } from './mcMine';
+import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
-import { MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
+import { MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import { doorOutward, outsideCells, turnState } from '../designs';
-import { holdsSign, type SignSpot } from '../streetPlan';
-import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
+import { holdsSign, holdsStandingTorch, holdsTorch, placedDoor, type SignSpot } from '../streetPlan';
+import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
+import type { LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
@@ -636,15 +637,11 @@ function playersIn(a: BotAgent, pos: Pos, n: number): string[] {
 }
 
 /**
- * Where to stand during a job: 3 blocks off all the ground it works on, south first, then north, east, west, at the
- * job's level (2 up or down), off every building of the village and those laid out, with a block round them (null if no
- * footing). Minevale19's builder looked for footing 24 up and down 3 blocks south of the storage hut, found the mining
- * hut's roof across the street and pillared up to it in front of its door.
+ * The ground no one stands on to wait (standSpot's, B.4's doorStand's): the village's buildings, built or laid out, the
+ * mine, the street lamps, the name signs, the wheat field, every farm slot and the works plot. Others' reservations are
+ * the caller's.
  */
-function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } | null {
-  const area = job.claim?.area ?? job.area;
-  const cx = Math.floor((area.x1 + area.x2) / 2), cz = Math.floor((area.z1 + area.z2) / 2);
-  const v = a.village();
+function standTaken(a: BotAgent, v?: Village): Area[] {
   // (the buildings themselves, built or laid out, and the mine: a street cell beside a house is a fine place to wait)
   const taken: Area[] = [...(v?.structures ?? [])];
   for (const t of v?.tasks ?? []) {
@@ -660,6 +657,22 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   for (const l of v?.layouts ?? []) if (l.farm) taken.push({ x1: l.farm.x1, x2: l.farm.x2, z1: l.farm.z1, z2: l.farm.z2 });
   // (and every farm slot, free or farmed: opportunistic farming, 10-08)
   for (const l of v?.layouts ?? []) for (const q of l.slots ?? []) taken.push({ x1: q.x1, x2: q.x2, z1: q.z1, z2: q.z2 });
+  // (and S.9's works plot: a furnace's top is footing, lesson 61; B.4's review, lens 1 L5)
+  for (const l of v?.layouts ?? []) if (l.works && l.works.x2 >= l.works.x1 && l.works.z2 >= l.works.z1) taken.push({ x1: l.works.x1, x2: l.works.x2, z1: l.works.z1, z2: l.works.z2 });
+  return taken;
+}
+
+/**
+ * Where to stand during a job: 3 blocks off all the ground it works on, south first, then north, east, west, at the
+ * job's level (2 up or down), off every building of the village and those laid out, with a block round them (null if no
+ * footing). Minevale19's builder looked for footing 24 up and down 3 blocks south of the storage hut, found the mining
+ * hut's roof across the street and pillared up to it in front of its door.
+ */
+function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } | null {
+  const area = job.claim?.area ?? job.area;
+  const cx = Math.floor((area.x1 + area.x2) / 2), cz = Math.floor((area.z1 + area.z2) / 2);
+  const v = a.village();
+  const taken = standTaken(a, v);
   // (and ground other agents have reserved for their own jobs, S.6: a part of the plot being prepared beside this one, a
   // building going up; the in-the-way teleport put bots there, on a neighbour's fill: lessons 44 and 61), unless there is
   // nowhere else (the last pass below)
@@ -4409,6 +4422,379 @@ async function placeStationSkill(a: BotAgent, args: Record<string, unknown>, sig
   return `the village's ${name} stands in the storage hut at ${s ? `${s.x},${s.y},${s.z}` : b ? at(b.position) : 'its cell'}`;
 }
 
+/**
+ * Where a lighter stands to light a building (B.4, M5, lesson 61: somewhere to wait outside, visibly at its door; the
+ * torches are set by command, so reach is not physical): 3 out of the entrance door and 2 or 1 to either side, then 4 out
+ * and 2 to either side, then straight out 2 and 3 on its walkway (not for the mining hut, whose doorway line is the
+ * miners' way); at the building's own level only, outside its area and a block round it, within 12 blocks of its centre or
+ * its door, off the ground no one waits on (standTaken), others' reservations, every building's doorway and the cell in
+ * front of it, and other buildings' walkways 2 and 3 out (a straight-out candidate is walked to exactly). A town centre, or a building with none, a stand spot as a job's ('fallback'); null: place from where the
+ * bot stands.
+ */
+function doorStand(a: BotAgent, part: LightPart): { x: number; y: number; z: number; how: 'door' | 'fallback'; exact?: boolean } | null {
+  const v = a.village();
+  const st = part.structure;
+  if (!v || !st) return null;
+  const door = part.place ? placedDoor(part.place) : null;
+  if (door) {
+    // (the mine's tunnel boxes lie far under the street: only the hut and its stairs' box, up to the hut's floor, take ground
+    // here; a tunnel under the houses sent 16 of 203 stored buildings to the fallback)
+    const taken = standTaken(a, v).filter((q) => (q as Area & { y2?: number }).y2 === undefined || (q as Area & { y2: number }).y2 >= st.y);
+    const now = Date.now();
+    const reserved = v.reservations.filter((r) => r.by !== a.name && r.until > now);
+    // (every building's doorway and the cell in front of it; another building's walkway 2 and 3 out as well, the spec's
+    // k = 1..3: a lighter waiting there stands in the way of everyone using that door, B.4's review, lens 1 L4)
+    const doorways = new Set<string>();
+    for (const b of a.world.lightParts(v)) {
+      const d = b.kind === 'building' && b.place ? placedDoor(b.place) : null;
+      if (d) for (const k of b.part === part.part ? [0, 1] : [0, 1, 2, 3]) doorways.add(`${d.x + d.ox * k},${d.z + d.oz * k}`);
+    }
+    const inside = (q: Area, x: number, z: number) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2;
+    const near = (x: number, z: number) => Math.hypot(x - (st.x1 + st.x2) / 2, z - (st.z1 + st.z2) / 2) <= 12 || Math.hypot(x - door.x, z - door.z) <= 12;
+    const { ox, oz } = door, [sx, sz] = [oz, -ox];
+    const cands: Array<[number, number, boolean]> = [];
+    for (const s2 of [2, -2, 1, -1]) cands.push([door.x + 3 * ox + s2 * sx, door.z + 3 * oz + s2 * sz, false]);
+    for (const s2 of [2, -2]) cands.push([door.x + 4 * ox + s2 * sx, door.z + 4 * oz + s2 * sz, false]);
+    // (none straight out: range 1 from 2 out accepted the cell in front of the door, inside the building's ring, lens 1 L4,
+    // and a walk to the cell itself stalled ~10 s on a dirt path, the fix review's M2; the side cells cover 192 of 199)
+    for (const [x, z, exact] of cands) {
+      if (inside({ x1: st.x1 - 1, z1: st.z1 - 1, x2: st.x2 + 1, z2: st.z2 + 1 }, x, z) || !near(x, z)) continue;
+      if (taken.some((q) => inside(q, x, z)) || reserved.some((q) => inside(q, x, z)) || doorways.has(`${x},${z}`)) continue;
+      const y = standableY(a, x, st.y + 1, z, 2);
+      if (y !== null) return { x, y, z, how: 'door', ...(exact ? { exact } : {}) };
+    }
+  }
+  const spot = standSpot(a, { targets: [], area: { x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2 }, y: st.y, free: true, what: `the ${part.label}` });
+  return spot ? { ...spot, how: 'fallback' } : null;
+}
+
+/** A block in the bot's view with its states ("oak_stairs[facing=east,half=bottom]"), null when not loaded. */
+function stateName(a: BotAgent, x: number, y: number, z: number): string | null {
+  const b = a.bot.blockAt(new Vec3(x, y, z));
+  if (!b) return null;
+  const props = Object.entries((b.getProperties?.() ?? {}) as Record<string, unknown>).map(([k, q]) => `${k}=${String(q)}`);
+  return props.length ? `${b.name}[${props.join(',')}]` : b.name;
+}
+
+/** Which light run last wrote an agent's lightCarried ("village|agent"): only that run deletes it. */
+const lightRuns = new Map<string, symbol>();
+
+/**
+ * put_up_torches part= count= (B.4; a chore, not in TOOLS): torches from the village storage into a part's unlit spots, by
+ * command and charged one at a time (lesson 44's case is suffocation; a torch has no collision box, so no player check).
+ * At the storage hut: the part's recorded spots checked again in the bot's view, the first `count` unlit ones taken as
+ * targets and their torches withdrawn (the world's earmark ends there; carried, they lower the demand, L2). A building
+ * is lit from beside its door (doorStand; a failed walk is not fatal, but never from inside), the mine from the hut. Each
+ * spot is judged in the bot's view before it is set (a torch set on a bad support stays floating, the live facts: the
+ * rule must be exact): a building's by its planned support, the mine's by the first wall of MINE_SUPPORT; a cell not
+ * loaded is skipped and not counted, any other skip twice makes the spot never (M4). Confirmed on the server a second
+ * later (lessons 29, 50, 80), recorded on the village (v.lights, lesson 103), and torches beyond what it carried at the
+ * start put back by name (lesson 112). Stopped, stalled unmoved or not put back: what it carries beyond that is makeLeft's
+ * for the sweep to deposit. A run that confirms, finds or rules out nothing ends "no progress" (the world backs it off).
+ */
+async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('put_up_torches: not in a village');
+  // (the world's earmark for this chore, read before any await: only that one is this run's to end, as make's)
+  const key = holdKey(v.name, a.name), mine = makeHolds.get(key);
+  const refuse = (why: string) => {
+    holdsRelease(key, mine);
+    return new Error(why);
+  };
+  const part = str(args.part, 'part');
+  const count = Math.max(1, Math.floor(num(args.count, 'count')));
+  const h = v.storageHut;
+  if (!v.complete || !v.storage?.chests.length || !h) throw refuse('put_up_torches: lighting runs once the village is complete, with its storage hut and chests');
+  const P = a.world.lightParts(v).find((q) => q.part === part);
+  if (!P) throw refuse(`put_up_torches: the village has no part ${part} to light`);
+  const t0 = Date.now();
+  const reg = a.world.villages;
+  const old = v.lights?.[part];
+  const done = new Set(old?.done ?? []), never = new Set(old?.never ?? []);
+  const skips: Record<string, number> = { ...(old?.skips ?? {}) };
+  const keyOf = (q: { x: number; y: number; z: number }) => `${q.x},${q.y},${q.z}`;
+  let carried0 = 0, took = 0, placed = 0, standing = 0, dropped = 0, unconfirmed = 0, newNever = 0, skipped = 0, found = 0, back = 0, left = 0, counted = false;
+  // (the count before the last deposit: a failure during it still reports what went back, B.4's review, lens 2 L9)
+  let beforeBack: number | null = null;
+  let walked: 'ok' | 'failed' | 'none' = 'none';
+  const record = () => {
+    v.lights = { ...(v.lights ?? {}), [part]: { done: [...done], ...(never.size ? { never: [...never] } : {}), ...(Object.keys(skips).length ? { skips } : {}), at: Date.now(), by: a.name } };
+    reg.save();
+  };
+  const endLine = () => console.log(`[light] ${a.name} ${v.name} part=${part} placed=${placed} standing=${standing} dropped=${dropped} never=${newNever} skipped=${skipped} carried0=${carried0} took=${took} back=${back} left=${left} walk=${walked} sec=${((Date.now() - t0) / 1000).toFixed(0)}${unconfirmed ? ` unconfirmed=${unconfirmed}` : ''}`);
+  const skip = (k: string, loaded: boolean) => {
+    skipped++;
+    if (!loaded) return;
+    skips[k] = (skips[k] ?? 0) + 1;
+    if (skips[k] >= 2 && !never.has(k)) {
+      never.add(k);
+      newNever++;
+    }
+  };
+  const markNever = (k: string) => {
+    if (never.has(k)) return;
+    never.add(k);
+    newNever++;
+  };
+  const torch = (q: LightPart['spots'][number], name: string | null) => name === q.block || (q.block === 'wall_torch' && name === 'wall_torch');
+  // The torches it carries, for the demand (lightCarried), and what a stop or stall leaves in hand, for the sweep (makeLeft):
+  // each written and deleted only while it is this run's (a stopped run's catch awaiting RCON overwrote the agent's next
+  // chore's, B.4's review, lens 1 L6 and lens 2 L6; make's leftRec guard)
+  const run = Symbol(part);
+  const carry = (n: number) => {
+    lightRuns.set(key, run);
+    lightCarried.set(key, n);
+  };
+  const uncarry = () => {
+    if (lightRuns.get(key) !== run) return;
+    lightRuns.delete(key);
+    lightCarried.delete(key);
+  };
+  let leftRec: Counts | undefined;
+  const leave = (n: number) => {
+    if (makeLeft.has(key) && makeLeft.get(key) !== leftRec) return;
+    if (n > 0) makeLeft.set(key, (leftRec = { torch: n }));
+    else if (makeLeft.has(key)) makeLeft.delete(key);
+  };
+  const step: Record<string, [number, number]> = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+  // A spot's torch judged in the bot's view by its support (the cell itself free): the block to set, or null; `loaded`
+  // false when a support's chunk is not in the view (not the spot's fault, never counted toward never: lens 1 L8); and
+  // the support with its state, for the server to confirm before a second placement
+  const judge = (q: LightPart['spots'][number]): { block: string | null; loaded: boolean; support?: [number, number, number]; state?: string } => {
+    if (P.kind === 'mine') {
+      for (const sd of q.sides ?? []) {
+        const sup = blockName(a, ...sd.support);
+        if (sup === null) return { block: null, loaded: false };
+        if (MINE_SUPPORT.has(sup)) return { block: `wall_torch[facing=${sd.facing}]`, loaded: true, support: sd.support, state: sup };
+      }
+      return { block: null, loaded: true };
+    }
+    if (q.block === 'wall_torch' && q.facing) {
+      const [fx, fz] = step[q.facing];
+      const s: [number, number, number] = [q.x - fx, q.y, q.z - fz];
+      const sup = stateName(a, ...s);
+      if (sup === null) return { block: null, loaded: false };
+      return holdsTorch(sup, q.facing) ? { block: `wall_torch[facing=${q.facing}]`, loaded: true, support: s, state: sup } : { block: null, loaded: true };
+    }
+    if (q.block === 'torch') {
+      const s: [number, number, number] = [q.x, q.y - 1, q.z];
+      const sup = stateName(a, ...s);
+      if (sup === null) return { block: null, loaded: false };
+      return holdsStandingTorch(sup) ? { block: 'torch', loaded: true, support: s, state: sup } : { block: null, loaded: true };
+    }
+    return { block: null, loaded: true };
+  };
+  try {
+    // 0. Out of the deep first (lesson 101): never walked up from the iron level or a cave
+    const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+    if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+    // 1. At the storage hut
+    const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${P.label}'s torches`, task: 'put_up_torches' };
+    await standBy(a, job, signal);
+    // The recorded spots again, in the bot's view: one missing or wrong is unlit again (a hand dig took its wall)
+    for (const q of P.spots) {
+      const k = keyOf(q);
+      if (!done.has(k)) continue;
+      const name = blockName(a, q.x, q.y, q.z);
+      if (name !== null && !torch(q, name)) done.delete(k);
+    }
+    const faces = P.kind === 'mine' && v.mine ? mineFacesGoing(v.mine) : [];
+    const targets = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)) && !(P.kind === 'mine' && nearMineFace(faces, q))).slice(0, count);
+    if (!targets.length) throw new ContentionError(`put_up_torches: nothing unlit in the ${P.label} (another lighter was first)`, 'taken', `light:${part}`);
+    carried0 = await a.world.rcon.count(a.name, 'torch');
+    counted = true;
+    const want = Math.min(count, targets.length) - carried0;
+    if (want > 0) took = ((await withdrawItems(a, v, { torch: want }, signal)).got as Record<string, number>).torch ?? 0;
+    holdsRelease(key, mine);
+    carry(carried0 + took);
+    // (what it carries now from the server, not the chest window's count: the view drifts after withdrawals, lesson 13;
+    // B.4's review, lens 1 L7)
+    if (want > 0) {
+      const have = await a.world.rcon.count(a.name, 'torch').catch(() => null);
+      if (have !== null) {
+        took = Math.max(0, have - carried0);
+        carry(carried0 + took);
+      }
+    }
+    if (carried0 + took <= 0) throw new ContentionError('put_up_torches: no torches in storage (another agent took them)', 'taken', 'stock:torch');
+    // 2. A building: to the stand spot beside its door
+    let inside = false;
+    if (P.kind === 'building' && P.structure) {
+      const st = P.structure;
+      const spot = doorStand(a, P);
+      const within = () => {
+        const p = a.bot.entity.position;
+        return p.x >= st.x1 - 1 && p.x < st.x2 + 2 && p.z >= st.z1 - 1 && p.z < st.z2 + 2;
+      };
+      if (spot) {
+        console.log(`[light] ${a.name} walks to the ${P.label}: stand ${spot.x},${spot.y},${spot.z} (${spot.how}), ${P.walk ?? '?'} blocks from the hut`);
+        // (the second try ends on the cell itself: a range-1 goal met from inside the ring walks nowhere, lens 1 L4)
+        const go = (exact: boolean) => walk(a, new goals.GoalNear(spot.x, spot.y, spot.z, exact ? 0 : 1), `the ${P.label}'s door`, signal, 90000, { scaffold: false });
+        walked = 'ok';
+        await go(!!spot.exact).catch((e: Error) => {
+          if (e.message === 'cancelled' || unmoved(e)) throw e;
+          walked = 'failed';
+        });
+        if (within()) await go(true).catch((e: Error) => {
+          if (e.message === 'cancelled' || unmoved(e)) throw e;
+          walked = 'failed';
+        });
+      }
+      // (never placed from inside: a stand spot that left it there, or a walk that failed in the doorway)
+      inside = within();
+    }
+    // 3. Each target judged in the bot's view, then set by command and charged, paced at buildSpeed x 10 a second
+    const pace = 1000 / (Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1)) * 10 * timeScale());
+    let before = carried0 + took;
+    const set: Array<{ q: LightPart['spots'][number]; block: string }> = [];
+    // 'out': no torch left to charge (not the spot's fault)
+    const put = async (x: number, y: number, z: number, block: string): Promise<'set' | 'refused' | 'out'> => {
+      if (before <= 0) return 'out';
+      const n = await a.world.rcon.take(a.name, 'torch', 1, before);
+      if (n < 1) {
+        before = await a.world.rcon.count(a.name, 'torch');
+        return 'out';
+      }
+      before -= n;
+      const r = await a.world.rcon.command(`setblock ${x} ${y} ${z} minecraft:${block} keep`).catch(() => '');
+      if (/Changed the block/i.test(r)) {
+        placed++;
+        return 'set';
+      }
+      // (refused: water, a torch already there, a block; the torch given back)
+      await a.world.rcon.give(a.name, 'torch', 1, before).catch(() => '');
+      before += 1;
+      return 'refused';
+    };
+    for (const q of inside ? [] : targets) {
+      checkAbort(signal);
+      if (before <= 0) break;
+      const k = keyOf(q);
+      const cell = blockName(a, q.x, q.y, q.z);
+      if (cell === null) {
+        skip(k, false);
+        continue;
+      }
+      if (torch(q, cell)) {
+        done.add(k);
+        found++;
+        continue;
+      }
+      const j = cell === 'air' || cell === 'cave_air' ? judge(q) : { block: null, loaded: true };
+      if (!j.block) {
+        skip(k, j.loaded);
+        continue;
+      }
+      const r = await put(q.x, q.y, q.z, j.block);
+      if (r === 'out') break;
+      if (r === 'set') set.push({ q, block: j.block });
+      else skip(k, true);
+      await sleep(pace, signal);
+    }
+    // 4. Confirmed on the server a second later: passed is standing, failed is dropped (set once more while its support
+    // still holds one, then never); no answer (a timeout, a chunk not loaded) is neither, left to the next run's view (a
+    // lost answer counted as standing, and a timeout's retry refused by the torch there marked it never: B.4's review,
+    // lens 1 L3)
+    const there = async (x: number, y: number, z: number, block: string): Promise<boolean | null> => {
+      for (let i = 0; i < 2; i++) {
+        const r = await a.world.rcon.command(`execute if block ${x} ${y} ${z} minecraft:${block}`).catch(() => '');
+        if (/passed/i.test(r)) return true;
+        if (/failed/i.test(r)) return false;
+      }
+      return null;
+    };
+    // (a second placement is judged again first, in the view and its support on the server: a support changed, or never
+    // what the view showed, left the torch floating and recorded done, lens 1 L1)
+    const retry = async (q: LightPart['spots'][number]): Promise<(typeof set)[number] | null> => {
+      const j = judge(q);
+      if (!j.loaded) return null;
+      const held = j.block && j.support && j.state ? await there(...j.support, j.state) : false;
+      if (held === null) return null;
+      if (!held || !j.block) {
+        markNever(keyOf(q));
+        return null;
+      }
+      const r = await put(q.x, q.y, q.z, j.block);
+      if (r === 'set') return { q, block: j.block };
+      // (refused: never, unless a torch stands there after all, which the next run's view finds; out: not the spot's fault)
+      if (r === 'refused' && !torch(q, blockName(a, q.x, q.y, q.z))) markNever(keyOf(q));
+      return null;
+    };
+    if (set.length) await sleep(1000, signal);
+    const again: typeof set = [];
+    for (const t of set) {
+      const ok = await there(t.q.x, t.q.y, t.q.z, t.block);
+      if (ok) {
+        standing++;
+        done.add(keyOf(t.q));
+      } else if (ok === null) unconfirmed++;
+      else {
+        dropped++;
+        const r = await retry(t.q);
+        if (r) again.push(r);
+      }
+    }
+    if (again.length) await sleep(1000, signal);
+    for (const t of again) {
+      const ok = await there(t.q.x, t.q.y, t.q.z, t.block);
+      if (ok) {
+        standing++;
+        done.add(keyOf(t.q));
+      } else if (ok === null) unconfirmed++;
+      else {
+        dropped++;
+        markNever(keyOf(t.q));
+      }
+    }
+    // 5. The record, then torches beyond what it carried at the start back by name (a building's deposit walks to the hut);
+    // counted as carried until they are back (they were in neither storage nor the demand's offset, lens 2 L6), and what
+    // does not go back is the sweep's to deposit (a failed deposit left them unrecorded, lens 1 M1)
+    record();
+    const now = await a.world.rcon.count(a.name, 'torch');
+    const extra = Math.max(0, now - carried0);
+    carry(extra);
+    beforeBack = now;
+    if (extra) await STORAGE_SKILLS.deposit.run(a, { item: 'torch', count: extra }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
+      console.log(`[light] ${a.name} could not put ${extra} torches back into storage: ${e.message.slice(0, 120)}`);
+    });
+    left = extra ? await a.world.rcon.count(a.name, 'torch') : now;
+    back = Math.max(0, now - left);
+    leave(left - carried0);
+    uncarry();
+    endLine();
+    const lit = P.spots.filter((q) => done.has(keyOf(q))).length;
+    // (nothing newly confirmed, found lit or marked never is no progress: the world backs the part off, or it was the fixed
+    // pick again at once, forever; B.4's review, lens 2 M1; the note goes last, endChoice keys on it)
+    const progress = standing + found + newNever > 0;
+    const notes = [`${lit} of ${P.spots.length} lit`, ...(never.size ? [`${never.size} never`] : []), ...(skipped ? [`${skipped} skipped`] : []),
+      ...(unconfirmed ? [`${unconfirmed} not confirmed`] : []), ...(inside ? ['none placed: the lighter stood inside'] : []), ...(back ? [`${back} torches put back`] : []),
+      ...(progress ? [] : ['no progress'])];
+    return `lit ${standing} torch spot${standing === 1 ? '' : 's'} in the ${P.label} (${notes.join('; ')})`;
+  } catch (e) {
+    const why = (e as Error).message;
+    // What was set or found so far is recorded (the next run would find it and count it done anyway)
+    if (standing || found || newNever || Object.keys(skips).length) record();
+    if (counted) {
+      const now = await a.world.rcon.count(a.name, 'torch').catch(() => null);
+      if (now !== null) {
+        left = now;
+        // (a failure in the last deposit: what went back before it, lens 2 L9)
+        if (beforeBack !== null) back = Math.max(0, beforeBack - now);
+        // A stop, or a stall that did not move the bot (partsBack skips its deposits there, F146): what it carries beyond
+        // the start is the sweep's to deposit (its own deposits would fail on the aborted signal or stall again; lens 1
+        // M1); any other failure: partsBack puts the torches back
+        if (why === 'cancelled' || signal.aborted || unmoved(e)) leave(now - carried0);
+      }
+      endLine();
+    }
+    throw e;
+  } finally {
+    holdsRelease(key, mine);
+    uncarry();
+  }
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 /**
@@ -4471,5 +4857,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   make: { check: (x) => (str(x.item, 'item'), num(x.count, 'count'), undefined), run: makeGoods },
   prepare_works: { run: prepareWorks },
   place_works_furnace: { check: (x) => void num(x.k, 'k'), run: placeWorksFurnace },
+  // (B.4's, a chore too: torches from storage into a building or a part of the mine)
+  put_up_torches: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: partsBack(putUpTorches) },
 };
 

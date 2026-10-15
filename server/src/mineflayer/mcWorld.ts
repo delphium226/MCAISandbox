@@ -6,7 +6,7 @@
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
-import { STORAGE_HUT } from '../huts';
+import { MINING_HUT, STORAGE_HUT } from '../huts';
 import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, ChoiceOption, ChoiceStatus, ChoiceSummary, ToolDef, WorldAdapter, WorldAgent } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -15,9 +15,9 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, cakeShort, harvesting, slotBusy } from './mcBuild';
-import { mineCanGive, mineFaces } from './mcMine';
+import { mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
-import { GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
@@ -27,13 +27,14 @@ import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
-import type { Design } from '../village';
+import type { Design, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
-import { vanillaLibrary, villageBiome } from '../vanillaPieces';
+import { vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
+import { buildingLights, placedDoor, signLabel, type SignPlace } from '../streetPlan';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 
@@ -72,7 +73,24 @@ type ChoiceState = {
   gather?: { material: Material; n: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
+  /** B.4: a light chore's part and its torches. */
+  light?: { part: string; n: number };
 };
+
+/**
+ * A part the village lights (B.4): a building (a structure with its design and a done Build task) or a piece of the mine
+ * ("mine:stairs", "mine:<leg>", "mine:down:<k>", "mine:iron"), its torch spots in the world, how many are unlit (not done,
+ * not never; in the mine not within 2 cells of a face still going), whether it still grows (the mine) and, for a building,
+ * the walk from the storage hut to its door (blocks).
+ */
+export type LightPart = {
+  part: string; label: string; kind: 'building' | 'mine'; structure?: Structure; place?: SignPlace;
+  spots: Array<{ x: number; y: number; z: number; block: 'wall_torch' | 'torch'; facing?: string; sides?: MineLightSpot['sides']; src?: 'vanilla' | 'code' }>;
+  unlit: number; growing: boolean; walk?: number;
+};
+
+/** Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. */
+const LIGHT_FACADES = process.env.MC_LIGHT_FACADES !== '0';
 
 /** One good's plan for the workshop now (makePlan): the batch it makes, or why none. */
 type MakePlan = { count: number; bill: Counts; inputs: Counts; smelts: boolean; craft?: { item: string; count: number; wood: string } } | { why: string };
@@ -503,7 +521,7 @@ export class MineflayerWorld implements WorldAdapter {
   makePlan(v: Village, good: MakeGood, agent: string, store: Counts = storageContents(v)): MakePlan {
     const stock = store[good.item] ?? 0;
     const going = this.goingS9(v, agent).make.filter((m) => m.item === good.item).reduce((s, m) => s + m.count, 0);
-    const want = good.target - stock - going;
+    const want = this.makeTarget(v, good) - stock - going;
     if (want <= 0) return { why: 'at stock' };
     const spare = this.makeSpare(v, agent, good.item, store);
     const plans = new Map<string, MaterialPlan>();
@@ -551,7 +569,7 @@ export class MineflayerWorld implements WorldAdapter {
     const mat = (n: string): Material | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone' : null);
     const bill: Counts = {};
     for (const g of MAKE_GOODS) {
-      const d = Math.max(0, g.target - (store[g.item] ?? 0) - going.make.filter((x) => x.item === g.item).reduce((s, x) => s + x.count, 0));
+      const d = Math.max(0, this.makeTarget(v, g) - (store[g.item] ?? 0) - going.make.filter((x) => x.item === g.item).reduce((s, x) => s + x.count, 0));
       if (!d) continue;
       const b = g.variant ? makeBill(this.registry, plan, g, d, spare, wood)?.bill : { [g.item]: d };
       if (!b) continue;
@@ -594,6 +612,133 @@ export class MineflayerWorld implements WorldAdapter {
     for (let k = 1; k <= WORKS_FURNACES; k++) if (f[k - 1] && !busy.has(`furnace:${k}`)) out.push(k);
     if (villageStationCell(v, 'furnace') && !busy.has('furnace:0')) out.push(0);
     return out;
+  }
+
+  // ---- B.4: lighting's parts and the torch demand (pure; the menu, the skill and the offline checks read them) ----------
+
+  /** lightParts' cache, by village: the signature it was computed on (L3; left out of the golden check's purity snapshot). */
+  private lightCache = new Map<string, { sig: string; parts: LightPart[] }>();
+
+  /**
+   * The parts a village lights (B.4, D3, D9): its buildings (structures with a design in v.designs and a done Build task
+   * at their x, z; turned by the task's rotate), by unlit spots, most first, then the mine's parts. A building's spots are
+   * buildingLights' (vanilla's own cells, then code's inside ones; off its signs and lamps) at the structure's floor; the
+   * mine's mineLights'. Cached on a signature of what they are computed from. An exception (a malformed stored design, a
+   * mine record missing a field) is logged once a village and gives no parts: makeTarget, the make and gather menus and the
+   * sweep read them, and one village's bad record stopped every village's chores (B.4's review, lens 3 L5).
+   */
+  lightParts(v: Village): LightPart[] {
+    try {
+      return this.lightPartsOf(v);
+    } catch (e) {
+      if (!this.lightFailed.has(v.name)) console.error(`[light] ${v.name}: the light parts could not be worked out (no lighting):`, e);
+      this.lightFailed.add(v.name);
+      return [];
+    }
+  }
+
+  /** Villages whose light parts threw (logged once). */
+  private lightFailed = new Set<string>();
+
+  private lightPartsOf(v: Village): LightPart[] {
+    const m = v.mine;
+    const builds = v.tasks.filter((t) => t.status === 'done' && /^build_design "/.test(t.detail)).map((t) => t.detail.slice(0, 120));
+    const sig = JSON.stringify([
+      v.complete ?? false, v.structures.map((st) => `${st.id}:${st.kind}:${st.x1},${st.z1},${st.y}`), builds, Object.keys(v.designs),
+      (v.layouts ?? []).map((l) => [l.signs?.map((q) => `${q.x},${q.layer},${q.z}`), l.lamps]),
+      m ? [m.level, m.steps, m.stopped, m.dug, (m.legs ?? []).map((l) => [l.main, l.br, l.dug, l.ended, l.end]), m.down, m.iron ? [m.iron.x, m.iron.z, m.iron.steps, m.iron.level, m.iron.finished, m.iron.legs.map((l) => [l.dug, l.end])] : null] : null,
+      v.lights ?? null,
+    ]);
+    const old = this.lightCache.get(v.name);
+    if (old?.sig === sig) return old.parts;
+    const rec = (part: string) => v.lights?.[part];
+    const unlitOf = (part: string, keys: string[]) => {
+      const r = rec(part);
+      return keys.filter((k) => !r?.done.includes(k) && !r?.never?.includes(k));
+    };
+    const signs = (v.layouts ?? []).flatMap((l) => l.signs ?? []);
+    const lamps = (v.layouts ?? []).flatMap((l) => l.lamps ?? []);
+    const buildings: LightPart[] = [];
+    const labels = new Map<string, number>();
+    for (const st of v.structures) {
+      const d = v.designs[st.kind];
+      if (!d) continue;
+      // (the Build task that put it here: its centre and quarter turns, L4: rotate is in degrees)
+      let place: SignPlace | null = null;
+      for (const t of v.tasks) {
+        const mm = t.status === 'done' ? /^build_design "([^"]+)" x=(-?\d+) z=(-?\d+)(?: rotate=(-?\d+))?/.exec(t.detail) : null;
+        if (!mm || mm[1] !== st.kind) continue;
+        const rot = ((Math.round(Number(mm[4] ?? 0) / 90) % 4) + 4) % 4;
+        const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+        const x = Number(mm[2]), z = Number(mm[3]);
+        if (x - Math.floor(W / 2) !== st.x1 || z - Math.floor(D / 2) !== st.z1) continue;
+        place = { design: d, x, z, rot, ...(/_meeting_point_/.test(d.name) ? { noSign: true } : {}) };
+        break;
+      }
+      if (!place) continue;
+      const lights = buildingLights(place, { vanilla: vanillaLights(d), signs, lamps, facades: LIGHT_FACADES })
+        // (every spot inside the structure's area, the spec's assertion: one outside would light a neighbour)
+        .filter((q) => q.x >= st.x1 && q.x <= st.x2 && q.z >= st.z1 && q.z <= st.z2);
+      const spots = lights.map((q) => ({ x: q.x, y: st.y + q.layer, z: q.z, block: q.block, ...(q.facing ? { facing: q.facing } : {}), src: q.src }));
+      const vanilla = d.by === 'vanilla' || /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(d.name);
+      let label = d.name === STORAGE_HUT ? 'storage hut' : d.name === MINING_HUT ? 'mining hut' : /_meeting_point_/.test(d.name) ? 'meeting point' : signLabel(d.name, vanilla).join(' ').toLowerCase();
+      const seen = (labels.get(label) ?? 0) + 1;
+      labels.set(label, seen);
+      if (seen > 1) label = `${label} ${['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][seen] ?? seen}`;
+      const keys = spots.map((q) => `${q.x},${q.y},${q.z}`);
+      buildings.push({ part: st.id, label, kind: 'building', structure: st, place, spots, unlit: unlitOf(st.id, keys).length, growing: false });
+    }
+    // The walk from the storage hut's door to each building's (the facts' minutes)
+    const hutPart = buildings.find((b) => b.structure?.kind === STORAGE_HUT);
+    const hutDoor = (hutPart?.place && placedDoor(hutPart.place)) ?? (v.storageHut ? { x: Math.round((v.storageHut.x1 + v.storageHut.x2) / 2), z: v.storageHut.z2 + 1 } : null);
+    for (const b of buildings) {
+      const door = b.place ? placedDoor(b.place) : null;
+      const to = door ?? (b.structure ? { x: (b.structure.x1 + b.structure.x2) / 2, z: (b.structure.z1 + b.structure.z2) / 2 } : null);
+      if (hutDoor && to) b.walk = Math.round(Math.hypot(to.x - hutDoor.x, to.z - hutDoor.z));
+    }
+    buildings.sort((p, q) => q.unlit - p.unlit);
+    const mine: LightPart[] = [];
+    if (m) {
+      const faces = mineFacesGoing(m);
+      const byPart = new Map<string, MineLightSpot[]>();
+      for (const q of mineLights(m)) byPart.set(q.part, [...(byPart.get(q.part) ?? []), q]);
+      const tunnels = new Map<string, number>();
+      for (const [part, list] of byPart) {
+        const spots = list.map((q) => ({ x: q.x, y: q.y, z: q.z, block: 'wall_torch' as const, sides: q.sides }));
+        const waiting = new Set(list.filter((q) => nearMineFace(faces, q)).map((q) => `${q.x},${q.y},${q.z}`));
+        const unlit = unlitOf(part, spots.map((q) => `${q.x},${q.y},${q.z}`)).filter((k) => !waiting.has(k)).length;
+        let label = 'mine stairs';
+        const leg = /^mine:(\d+)$/.exec(part), down = /^mine:down:(\d+)$/.exec(part);
+        if (part === 'mine:iron') label = 'iron level';
+        else if (down) label = `mine's stairs down${Number(down[1]) ? ` ${['', 'two', 'three'][Number(down[1])] ?? Number(down[1]) + 1}` : ''}`;
+        else if (leg) {
+          const l = m.legs![Number(leg[1])];
+          const dir = l.dir[0] > 0 ? 'east' : l.dir[0] < 0 ? 'west' : l.dir[1] > 0 ? 'south' : 'north';
+          const n = (tunnels.get(dir) ?? 0) + 1;
+          tunnels.set(dir, n);
+          label = `mine's ${dir} tunnel${n > 1 ? ` ${['', 'one', 'two', 'three', 'four', 'five', 'six'][n] ?? n}` : ''}`;
+        }
+        mine.push({ part, label, kind: 'mine', spots, unlit, growing: mineGrowing(m, part) });
+      }
+    }
+    const parts = [...buildings, ...mine];
+    this.lightCache.set(v.name, { sig, parts });
+    return parts;
+  }
+
+  /** The torches lighting still wants (D7): every part's unlit spots, less the torches light chores carry (L2). */
+  torchDemand(v: Village): number {
+    const unlit = this.lightParts(v).reduce((n, p) => n + p.unlit, 0);
+    let carried = 0;
+    for (const [k, q] of lightCarried) if (k.startsWith(`${v.name}|`)) carried += q;
+    return Math.max(0, unlit - carried);
+  }
+
+  /** A good's target in storage (D7): torches follow lighting's demand while the light family is on, max(32, min(64,
+   *  demand) + 8); every other good, and torches with the family off, the table's. */
+  makeTarget(v: Village, g: MakeGood): number {
+    if (g.item !== 'torch' || !CHOOSE.families.has('light')) return g.target;
+    return Math.max(g.target, Math.min(TORCH_DEMAND_CAP, this.torchDemand(v)) + TORCH_RESERVE);
   }
 
   /** The village's makes and gathering trips under way (S.9), but `except`'s own (its make plans with itself left out). */
@@ -1174,6 +1319,9 @@ export class MineflayerWorld implements WorldAdapter {
   private makeBack = new Map<string, { tries: number; at: number }>();
   private gatherBack = new Map<string, number>();
   private worksBack = new Map<string, number>();
+  /** B.4: a failed light chore backs its part off, by "village:part" (until); and the demand last logged, by village. */
+  private lightBack = new Map<string, number>();
+  private lightLogged = new Map<string, { sig: string; at: number }>();
   private gatherLog = new Map<string, Array<{ at: number; n: number }>>();
   /** A gathering's first "none found" answer, by "village:material": the material is marked unavailable only on a second
    *  from another agent at least GATHER_NONE_APART later (S.9's review, lens 4 M2). */
@@ -1319,7 +1467,10 @@ export class MineflayerWorld implements WorldAdapter {
       if (n > 0 && g.material === 'logs') this.gatherLog.set(c.village, [...(this.gatherLog.get(c.village) ?? []).filter((e) => Date.now() - e.at < 60 * 60000), { at: Date.now(), n }]);
     }
     // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
-    if (c.choice.kind === 'make' || c.choice.kind === 'works') holdsDelete(holdKey(c.village, c.agent));
+    if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light') holdsDelete(holdKey(c.village, c.agent));
+    // A light run that confirmed, found and ruled out nothing (the lighter inside, spots not loaded) ends ok but backs the
+    // part off 10 minutes as a failure does: otherwise it is the fixed pick again at once, forever (B.4's review, lens 2 M1)
+    if (ok && c.choice.kind === 'light' && c.choice.light && /no progress\)$/.test(message)) this.lightBack.set(`${c.village}:${c.choice.light.part}`, Date.now() + 10 * 60000);
     const v = this.villages.get(c.village);
     const held = agent ? heldCounts(agent) : null;
     const carried = held ? countsDelta(c.choice.carried, held) : null;
@@ -1949,6 +2100,63 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
 
+    // Lighting (B.4): a chore a part, its torches from the spare storage (earmarked from the queue, D6), buildings first,
+    // most unlit first, then the mine's parts; a mine part still growing waits for 2 unlit spots (ranks 860-899: here, so
+    // the options stay in rank order, which the fixed sweep's first option relies on)
+    if (!family('light')) {
+      // (off)
+    } else if (!v.storageHut) reasons.light = 'no hut';
+    else {
+      let spare = facts.spare().torch ?? 0;
+      const why: string[] = [];
+      const ts = timeScale();
+      for (const [r, P] of this.lightParts(v).entries()) {
+        if (excluded([`light:${P.part}=`], busy)) {
+          why.push('busy');
+          continue;
+        }
+        if ((this.lightBack.get(`${v.name}:${P.part}`) ?? 0) > now) {
+          why.push('backing off');
+          continue;
+        }
+        if (P.unlit < (P.kind === 'mine' && P.growing ? MINE_LIGHT_MIN : 1)) {
+          why.push('nothing unlit');
+          continue;
+        }
+        const n = Math.min(P.unlit, LIGHT_TRIP, spare);
+        if (n < Math.min(P.unlit, LIGHT_MIN_TRIP)) {
+          why.push('torches short');
+          continue;
+        }
+        const id = `light:${P.part}`;
+        const tail = `${record('light')}${others('light', id)}${lastOf('light', id)}`;
+        let facts2: string, effect: string, at: { x: number; y?: number; z: number } | undefined;
+        if (P.kind === 'building') {
+          const r0 = v.lights?.[P.part];
+          const k = P.spots.filter((q) => q.src === 'vanilla' && !r0?.done.includes(`${q.x},${q.y},${q.z}`) && !r0?.never?.includes(`${q.x},${q.y},${q.z}`)).length;
+          const d = P.walk ?? 0;
+          const min = Math.max(0.1, Math.round(((0.3 + (2 * d) / 4.3 / 60) / ts) * 10) / 10);
+          // (short enough for add()'s 240-character cut with a record, others on it and a last end: the tail is what the cut
+          // took first, B.4's review, lens 2 L4)
+          facts2 = `${P.unlit} of ${P.spots.length} torch spots unlit${k ? ` (${k} vanilla's own)` : ''}; takes ${n} torches (${spare} spare); walks ${d} blocks from the hut and back, ~${min} min; ${tail}`;
+          effect = `+${n} torches in the ${P.label}: for the village's look (time stands at day and no mobs spawn in this peaceful world, so the light is for the look)`;
+          const door = P.place ? placedDoor(P.place) : null;
+          if (door && P.structure) at = { x: door.x, y: P.structure.y + 1, z: door.z };
+        } else {
+          const min = Math.max(0.1, Math.round((0.4 / ts) * 10) / 10);
+          facts2 = `${P.unlit} of ${P.spots.length} torch spots unlit; takes ${n} torches from storage (${spare} spare); set from the storage hut by command, ~${min} min; ${tail}`;
+          // (no claim the bots need it: they dig in the dark as well, lesson 127; B.4's review, lens 2 L3)
+          effect = `+${n} torches along the ${P.label}: for the look of the tunnels (bots dig in the dark too; no mobs spawn here)`;
+        }
+        add({
+          id, kind: 'light', key: id, excludes: [`${id}=`], name: `Light the ${P.label}`, rank: Math.min(899, 860 + r), ...(at ? { at } : {}),
+          facts: facts2, effect,
+        }, { kind: 'light', part: P.part, n, unlit: P.unlit, label: P.label });
+        spare -= n;
+      }
+      if (!out.some((o) => o.kind === 'light')) reasons.light = ['torches short', 'backing off', 'busy'].find((w) => why.includes(w)) ?? 'nothing unlit';
+    }
+
     // Making into storage (the workshop, D1): each good below its target with a whole batch from spare storage; crafting
     // at the hut (MAKE_PARALLEL at once), smelting at a free furnace each (the works plot's, then the hut's)
     if (!family('make')) {
@@ -1962,10 +2170,11 @@ export class MineflayerWorld implements WorldAdapter {
       let nextFurnace = 0;
       const goingOf = (item: string) => going.filter((g) => g.item === item).reduce((s, g) => s + g.count, 0);
       // (the deficit order: the largest share of its target missing first, ties in the table's order)
-      const order = MAKE_GOODS.map((g, i) => ({ g, i, d: Math.max(0, g.target - (store[g.item] ?? 0) - goingOf(g.item)) / g.target })).sort((p, q) => q.d - p.d || p.i - q.i);
+      // (with lighting on, torches by their demand's target, L10: both reads)
+      const order = MAKE_GOODS.map((g, i) => ({ g, i, target: this.makeTarget(v, g) })).map(({ g, i, target }) => ({ g, i, target, d: Math.max(0, target - (store[g.item] ?? 0) - goingOf(g.item)) / target })).sort((p, q) => q.d - p.d || p.i - q.i);
       const why = new Set<string>();
       let atStock = 0;
-      for (const [r, { g }] of order.entries()) {
+      for (const [r, { g, target }] of order.entries()) {
         const p = plans.get(g.item);
         if (!p || 'why' in p) {
           if (p && p.why === 'at stock') atStock++;
@@ -2003,8 +2212,10 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: `make:${g.item}`, kind: 'make', key: `make:${g.item}`, holds: k === undefined ? [] : [`furnace:${k}`], excludes: [`make:${g.item}=`, ...(k === undefined ? [] : [`furnace:${k}=`])],
           name: `Make ${g.words}`, rank: 900 + r, ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
-          facts: `${stock} of the ${g.target} kept are in storage; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
-          effect: `+${p.count} ${g.words} (${stock} stored): ${g.forWhat}`,
+          facts: `${stock} of the ${target} kept are in storage; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
+          // (torches with lighting on: the spots beyond what storage holds, or the reserve once it covers them; the demand alone
+          // read as the reason with 28 stored for 10 spots, B.4's review, lens 2 L1)
+          effect: `+${p.count} ${g.words} (${stock} stored): ${g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat}`,
         }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }) });
       }
       if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === MAKE_GOODS.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
@@ -2087,7 +2298,7 @@ export class MineflayerWorld implements WorldAdapter {
           guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
           continue;
         }
-        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' ? o.id : undefined)) {
+        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' ? o.id : undefined)) {
           guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
           continue;
         }
@@ -2106,7 +2317,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** The prompt's context (pure): the village at a glance, the others' chores, the agent's last outcomes. */
   private choiceContext(v: Village, a: BotAgent, facts: Facts): ChoiceContext {
     const s = facts.store;
-    const items = ['wheat', 'wheat_seeds', 'bread', 'raw_iron', 'bucket', 'milk_bucket', 'egg', 'sugar_cane', 'cake'].filter((n) => s[n]).map((n) => `${s[n]} ${words(n)}`);
+    const items = ['wheat', 'wheat_seeds', 'bread', 'raw_iron', 'bucket', 'milk_bucket', 'egg', 'sugar_cane', 'cake', ...(CHOOSE.families.has('light') ? ['torch'] : [])].filter((n) => s[n]).map((n) => `${s[n]} ${words(n)}`);
     const lay0 = v.layouts?.[0];
     const slots = (v.layouts ?? []).flatMap((l) => l.slots ?? []);
     const farms = [...(v.layouts ?? []).filter((l) => l.farm?.planted).map(() => 'a wheat field'), ...slots.filter((q) => !q.annex && q.kind).map((q) => `${words(q.kind!)} on a slot`)];
@@ -2228,7 +2439,7 @@ export class MineflayerWorld implements WorldAdapter {
         // Its inputs earmarked until it withdraws them (D6): other agents' plans leave them out meanwhile (set after the
         // chore, whose replacement of an old one would end it and delete the earmark)
         holdsSet(holdKey(v.name, worker.name), d.inputs);
-        console.log(`[make] ${v.name}: ${worker.name} makes ${d.count} ${item} (${d.stock} of ${d.good.target}; inputs ${countsList(d.inputs)}; ${d.k !== undefined ? `furnace ${d.k}` : 'crafted'})`);
+        console.log(`[make] ${v.name}: ${worker.name} makes ${d.count} ${item} (${d.stock} of ${this.makeTarget(v, d.good)}; inputs ${countsList(d.inputs)}; ${d.k !== undefined ? `furnace ${d.k}` : 'crafted'})`);
         return;
       }
       case 'gather': {
@@ -2286,6 +2497,22 @@ export class MineflayerWorld implements WorldAdapter {
         // Its 8 cobblestone earmarked (the check's M5), as a make's inputs
         holdsSet(holdKey(v.name, worker.name), { cobblestone: 8 });
         console.log(`[works] ${v.name}: ${worker.name} places works furnace ${k} (8 cobblestone earmarked)`);
+        return;
+      }
+      case 'light': {
+        const status = worker.enqueue('put_up_torches', { part: d.part, count: d.n, chore: true });
+        // (a failure backs the part off 10 minutes; not a stop, nor another agent's work in the way)
+        const failed = (why: string) => {
+          if (why !== 'cancelled' && !status.code) this.lightBack.set(`${v.name}:${d.part}`, Date.now() + 10 * 60000);
+        };
+        this.setChore(v, worker, opt.key, [status], `light ${d.label}`, failed, meta, opt.holds, opt);
+        const c = this.chores.get(worker.name.toLowerCase());
+        if (c) c.choice.light = { part: d.part, n: d.n };
+        // (the spare before this earmark: what the menu offered from)
+        const spare = this.makeSpare(v, worker.name).torch ?? 0;
+        // Its torches earmarked until it withdraws them (D6), set after the chore as a make's inputs
+        holdsSet(holdKey(v.name, worker.name), { torch: d.n });
+        console.log(`[light] ${v.name}: ${worker.name} lights ${d.part} (${d.label}): ${d.n} of ${d.unlit} unlit, ${spare} torches spare`);
         return;
       }
     }
@@ -2416,6 +2643,18 @@ export class MineflayerWorld implements WorldAdapter {
     // Expired guards' bookkeeping
     for (const [k, until] of this.bansLogged) if (until < now) this.bansLogged.delete(k);
     for (const [k, until] of this.gatherBack) if (until <= now) this.gatherBack.delete(k);
+    for (const [k, until] of this.lightBack) if (until <= now) this.lightBack.delete(k);
+    // The torch demand, when it changed, at most once a minute (B.4)
+    if (CHOOSE.families.has('light') && v.complete) {
+      const parts = this.lightParts(v);
+      const b = parts.filter((p) => p.kind === 'building').reduce((n, p) => n + p.unlit, 0), mn = parts.filter((p) => p.kind === 'mine').reduce((n, p) => n + p.unlit, 0);
+      const dm = this.torchDemand(v), torch = MAKE_GOODS.find((g) => g.item === 'torch');
+      const sig = `${dm}|${b}|${mn}`, last = this.lightLogged.get(v.name);
+      if (torch && last?.sig !== sig && (!last || now - last.at >= 60000)) {
+        this.lightLogged.set(v.name, { sig, at: now });
+        console.log(`[light] ${v.name}: torch demand ${dm} (buildings ${b}, mine ${mn}), make target ${this.makeTarget(v, torch)}`);
+      }
+    }
     // What a stopped make left in an idle member's hands goes back into storage by name (S.9's 4.10, the check's L8): it is
     // busy with that and skips this sweep's menu
     for (const a of this.agents.values()) {
@@ -2788,14 +3027,15 @@ type OptionRun =
   | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number }
   | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
   | { kind: 'works'; stage: 'prepare'; again: boolean; area: string }
-  | { kind: 'works'; stage: 'furnace'; k: number };
+  | { kind: 'works'; stage: 'furnace'; k: number }
+  | { kind: 'light'; part: string; n: number; unlit: number; label: string };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light'];
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 
@@ -2847,7 +3087,11 @@ function effTries(tries: number | undefined, lastAt: number | undefined, now: nu
 
 const words = (s: string) => s.replace(/_/g, ' ');
 const numberWord = (n: number) => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][n] ?? 'another';
-const ago = (ms: number) => (ms < 90000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : `${Math.round(ms / 60000)} min ago`);
+/** What a torch batch is for with lighting on (B.4): the spots storage cannot light yet, else the reserve. */
+const torchWhy = (demand: number, stock: number) => demand > stock
+  ? `${demand - stock} more torch spot${demand - stock === 1 ? '' : 's'} wait in the houses and the mine than storage holds torches for`
+  : `the reserve kept beyond the ${demand} torch spot${demand === 1 ? '' : 's'} still waiting (storage covers them)`;
+const ago =(ms: number) => (ms < 90000 ? `${Math.max(0, Math.round(ms / 1000))} s ago` : `${Math.round(ms / 60000)} min ago`);
 const clock = (t: number) => {
   const d = new Date(t);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;

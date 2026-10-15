@@ -57,8 +57,12 @@ when the huts' ground and the whole plot were done; the plot record and the layo
 workshop too (the agent server's MC_CHOICE_FAMILIES switches its chores on): AFTER WORKS lines as the works plot and its
 furnaces change, AFTER TECH as each first item is made, and at the end `AFTER S.9 chores: K agents took one; peak P at
 once (minute m); make N, gather G (sand s, logs l, cobblestone c), works W; busy B agent-min` and the goods in storage
-(scripts/checks/make_log.py reads the agent server's log of the same run). Workers are left in the world: remove them
-afterwards (panel or DELETE).
+(scripts/checks/make_log.py reads the agent server's log of the same run). And B.4's lighting (MC_CHOICE_FAMILIES with
+light): `AFTER Xm LIGHT <part> <done>/<all> never <k>` as a part's torch record changes (all: the spots its last light
+option counted, read from MCAI_CHOICE_LOG, else ?), at the end `AFTER LIGHT standing S of D` (every recorded torch tested on
+the server by RCON while the agents are still there) and `AFTER B.4 minutes: light L, for torches T` (the light chores'
+agent-minutes and those of make:torch, and of charcoal and logs gathering whose option names torches, from the choice log).
+Workers are left in the world: remove them afterwards (panel or DELETE).
 """
 import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.request
 
@@ -1201,6 +1205,72 @@ def s9_material(block):
     return "logs" if b == "logs" or b.endswith("_log") else "sand" if b in ("sand", "red_sand") else "cobblestone" if b in ("cobblestone", "stone") else b or "?"
 
 
+class ChoiceLog:
+    """B.4: the agent server's choice log (MCAI_CHOICE_LOG, the same file stage_runs.py gives both), read on as it grows:
+    each light option's spot count by part (its facts' "<unlit> of <all> torch spots"), and the [choice] and [choice-end]
+    records of this village for the minutes at the end."""
+
+    def __init__(self, path, village):
+        self.path, self.village, self.at = path, village, 0
+        self.spots, self.choices, self.ends = {}, {}, {}
+
+    def read(self):
+        if not self.path or not os.path.exists(self.path):
+            return
+        with open(self.path, "rb") as f:
+            f.seek(self.at)
+            data = f.read()
+        # (a record still being written is left for the next read)
+        cut = data.rfind(b"\n") + 1
+        self.at += cut
+        for ln in data[:cut].decode("utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if r.get("type") == "choice" and r.get("village") == self.village:
+                self.choices[r["id"]] = r
+                for o in r.get("options") or []:
+                    m = re.match(r"(\d+) of (\d+) torch spots", str(o.get("facts") or ""))
+                    if o.get("kind") == "light" and m and str(o.get("id", "")).startswith("light:"):
+                        self.spots[o["id"][len("light:"):]] = int(m.group(2))
+            elif r.get("type") == "choice-end":
+                self.ends[r.get("id")] = r
+
+    def minutes(self):
+        """B.4's own agent-minutes: the light chores', and those made for torches (make:torch; charcoal and logs gathering
+        whose chosen option's facts or effect name torches), with the counts and agents behind them."""
+        light, torches, n_light, agents, n_t = 0.0, 0.0, 0, set(), {}
+        for cid, c in self.choices.items():
+            e = self.ends.get(cid)
+            if not e:
+                continue
+            chosen = c.get("chosen") or ""
+            o = next((x for x in c.get("options") or [] if x.get("id") == chosen), {})
+            text = f"{o.get('facts', '')} {o.get('effect', '')}"
+            if c.get("kind") == "light":
+                light += e.get("minutes") or 0
+                n_light += 1
+                agents.add(c.get("agent"))
+            elif chosen == "make:torch" or (chosen in ("make:charcoal", "gather:logs") and "torch" in text):
+                torches += e.get("minutes") or 0
+                n_t[chosen] = n_t.get(chosen, 0) + 1
+        return light, torches, n_light, agents, n_t
+
+
+def light_spot_test(cell):
+    """Whether a torch stands at "x,y,z" on the server (a wall torch of any facing, or a standing one): True, False, or None
+    when the server could not say (its chunk not loaded)."""
+    x, y, z = cell.split(",")
+    for b in ("wall_torch", "torch"):
+        r = rcon_fast(f"execute if block {x} {y} {z} minecraft:{b}") or ""
+        if "passed" in r.lower():
+            return True
+        if "not loaded" in r.lower() or "cannot" in r.lower():
+            return None
+    return False
+
+
 # ---- after completion (opportunistic farming and exploring): the chores, the slots, the sightings
 if args.after and reason == "every building is done":
     for _ in range(40):
@@ -1238,6 +1308,8 @@ if args.after and reason == "every building is done":
     # and gathering's trips by material, from the agents' action events; the works plot and the tech record as they change)
     s9_busy, s9_peak, s9_agents, s9_ends, s9_trips = {}, (0, 0.0), set(), {"make": 0, "gather": 0, "works": 0}, {}
     works_seen, tech_seen = None, set()
+    # (B.4: each part's torch record as last printed, and the choice log for the spots each part has)
+    lights_seen, choice_log = {}, ChoiceLog(os.environ.get("MCAI_CHOICE_LOG"), args.village)
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         listing = call("/agents")
@@ -1309,6 +1381,14 @@ if args.after and reason == "every building is done":
             if item not in tech_seen:
                 tech_seen.add(item)
                 print(f"AFTER {(time.time() - t2) / 60:4.1f}m TECH {item} ({te.get('how')} {te.get('n')}) by {te.get('by')} via {te.get('via')}", flush=True)
+        # B.4: each part's torches as its record changes, against the spots its last light option counted
+        choice_log.read()
+        for part, rec in sorted((v.get("lights") or {}).items()):
+            done, never = len(rec.get("done") or []), len(rec.get("never") or [])
+            t = (done, never, choice_log.spots.get(part))
+            if lights_seen.get(part) != t:
+                lights_seen[part] = t
+                print(f"AFTER {(time.time() - t2) / 60:4.1f}m LIGHT {part} {done}/{t[2] if t[2] is not None else '?'} never {never} (by {rec.get('by')})", flush=True)
     a1 = call(f"/atlas?village={args.village}&radius=176") or {}
     plants = {}
     for c in a1.get("chunks") or []:
@@ -1337,6 +1417,24 @@ if args.after and reason == "every building is done":
     tot = storage_totals(call(f"/village/{args.village}"))
     print("AFTER S.9 stock: " + (", ".join(f"{g} {tot[g]}" for g in S9_GOODS if tot.get(g)) or "none")
           + f"; works {works_seen}; tech {len(tech_seen)} firsts", flush=True)
+    # B.4 (spec 9.2 step 8): every recorded torch tested on the server while the agents still hold its chunks loaded, and
+    # lighting's own agent-minutes beside those made for torches
+    lights = (call(f"/village/{args.village}") or {}).get("lights") or {}
+    if lights:
+        tested = {p: [light_spot_test(c) for c in rec.get("done") or []] for p, rec in sorted(lights.items())}
+        alls = [r for rs in tested.values() for r in rs]
+        unknown = sum(1 for r in alls if r is None)
+        missing = [f"{p} {rs.count(False)}" for p, rs in tested.items() if False in rs]
+        print(f"AFTER LIGHT standing {sum(1 for r in alls if r)} of {len(alls)}" + (f" ({unknown} not loaded)" if unknown else "")
+              + (f"; missing: {', '.join(missing)}" if missing else "")
+              + f"; buildings {sum(len(r.get('done') or []) for p, r in lights.items() if not p.startswith('mine'))}, "
+              f"mine {sum(len(r.get('done') or []) for p, r in lights.items() if p.startswith('mine'))}; "
+              f"never {sum(len(r.get('never') or []) for r in lights.values())}", flush=True)
+    choice_log.read()
+    lm, tm, ln, la, nt = choice_log.minutes()
+    print(f"AFTER B.4 minutes: light {lm:.1f}, for torches {tm:.1f} (light chores {ln} by {len(la)} agents; "
+          + (", ".join(f"{k} {n}" for k, n in sorted(nt.items())) or "nothing made for torches")
+          + ("" if choice_log.path else "; no MCAI_CHOICE_LOG: not counted") + ")", flush=True)
     reason += f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 stamps.update(v["tasks"])

@@ -9,7 +9,7 @@
  * Settings (read once, when the module loads; CHOOSE):
  *   MC_CHOOSE             fixed (default until A.2's exit) or model
  *   MC_CHOICE_INSTANCES   kinds that run as several instances at once, default "explore,start"; empty: single keys
- *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works" (S.9); empty: none
+ *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works,light" (S.9, B.4); empty: none
  *   MC_CHOOSE_PARALLEL    decisions in flight process-wide, default 2 (one below the gate's 3 cloud slots)
  *   MC_CHOOSE_QUEUE_MS    a decision not started within this gets the fixed pick ('queue'), default 30000
  *   MC_CHOOSE_WAIT_MS     the call's wait for a gate slot before it is withdrawn, default 15000
@@ -27,8 +27,8 @@ export const MENU_MAX = 8, PER_KIND_MAX = 2;
 export const CHOOSE = {
   mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model',
   instances: new Set((process.env.MC_CHOICE_INSTANCES ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
-  /** Goal-2 families switched on (S.9: make, gather, works); empty: none (the golden check, A.8's baselines). */
-  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works').split(',').map((s) => s.trim()).filter(Boolean)),
+  /** Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). */
+  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light').split(',').map((s) => s.trim()).filter(Boolean)),
   /** 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always
    *  finds a slot free of decisions (C11). */
   parallel: Number(process.env.MC_CHOOSE_PARALLEL ?? 2),
@@ -480,6 +480,8 @@ const YIELD: Record<string, (m: string) => number | null> = {
   make_iron_tool: (m) => (/^made an? [a-z_]+/.test(m) ? 1 : null),
   // S.9's workshop: "made 16 torch (...); put into storage: ..."
   make: counted(/^made (\d+) [a-z_]+/),
+  // B.4: "lit 5 torch spots in the library (...)" | "lit 0 torch spots ..." (only skips)
+  put_up_torches: counted(/^lit (\d+) torch/),
 };
 
 /** Items a skill's carried gain is judged by when its message gives no count. */
@@ -587,12 +589,13 @@ export class ChoiceStats {
   /**
    * Until when this option id is banned (per id, or the whole kind when failures span 2+ ids by 2+ agents), section 7.3:
    * 3 failed ends (not cut, no contention code) within 60 min take it off until 60 min after the third. Explore is exempt
-   * (its ring points are one-shot); make and gather are banned per id only (their ids are goods and materials, unrelated
-   * to each other, S.9). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long as the id's.
+   * (its ring points are one-shot); make, gather and light are banned per id only (their ids are goods, materials and
+   * parts, unrelated to each other, S.9, B.4). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long
+   * as the id's.
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore') return null;
-    const perId = kind === 'make' || kind === 'gather';
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light';
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour

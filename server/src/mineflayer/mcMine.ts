@@ -1400,6 +1400,126 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Torches in the mine (B.4): where they go, pure (the world's light family and scripts/checks/light_check.mts read it)
+// ---------------------------------------------------------------------------------------------
+
+/** What a torch in the mine hangs on (D5): the ground the mine digs through; never an ore (a miner takes it, and the torch
+ *  drops with it) or a falling block. */
+export const MINE_SUPPORT: ReadonlySet<string> = new Set(['stone', 'deepslate', 'tuff', 'granite', 'diorite', 'andesite', 'calcite', 'dirt']);
+
+/** A torch spot of the mine: its part ("mine:stairs", "mine:<leg>", "mine:down:<k>", "mine:iron"), the head-height cell
+ *  and the walls it may hang on, left first (facing away from each; `support` the wall's cell). */
+export interface MineLightSpot { part: string; x: number; y: number; z: number; sides: Array<{ facing: 'north' | 'south' | 'east' | 'west'; support: [number, number, number] }> }
+
+/** A unit's cells that get a torch, of the `dug` done: 4, 11, 18, ..., one on where it falls on a junction's cell (n % 3
+ *  == 0: branches go off its sides; no tunnel, branch or turned tunnel digs a wall at any other n, the check's lattice). */
+function torchCells(dug: number): number[] {
+  const out: number[] = [];
+  for (let n = 4; ; n += 7) {
+    const c = n % MAIN_STEP === 0 ? n + 1 : n;
+    if (c > dug) return out;
+    out.push(c);
+  }
+}
+
+/** A spot at a head cell of a unit going `dir`: its two walls across the unit, left first. */
+function across(part: string, x: number, y: number, z: number, [dx, dz]: [number, number]): MineLightSpot {
+  const walls: Array<[number, number]> = [[dz, -dx], [-dz, dx]];
+  return { part, x, y, z, sides: walls.map(([wx, wz]) => ({ facing: compass([-wx, -wz]) as MineLightSpot['sides'][number]['facing'], support: [x + wx, y, z + wz] as [number, number, number] })) };
+}
+
+/** A tunnel's units with their directions and cells done: the main cells, then each dug junction's branches. */
+function legUnits(l: MineLeg): Array<{ u: Unit; dir: [number, number]; dug: number }> {
+  const [dx, dz] = l.dir;
+  const out: Array<{ u: Unit; dir: [number, number]; dug: number }> = [{ u: 'main', dir: [dx, dz], dug: mainOf(l) }];
+  for (let s = 0; s < Math.floor(mainOf(l) / MAIN_STEP); s++)
+    for (const b of [3 * s + 1, 3 * s + 2]) out.push({ u: b, dir: b % 3 === 1 ? [dz, -dx] : [-dz, dx], dug: Math.min(BRANCH, brOf(l, b)) });
+  return out;
+}
+
+/**
+ * Every torch spot of the mine (B.4, D5): wall torches at head height, every 7 cells from cell 4 of each unit (the stairs'
+ * steps from step 4: steps 1-2 lie under the hut), on either wall across it. One part per cell: a turned tunnel's first
+ * stretch is an earlier tunnel's full branch, which owns its cells (M3). Abandoned iron stairs get none.
+ */
+export function mineLights(m: Mine): MineLightSpot[] {
+  const out: MineLightSpot[] = [];
+  const steps = (n: number) => { const r: number[] = []; for (let k = 4; k <= n; k += 7) r.push(k); return r; };
+  // The stairs: the hut's floor is the level plus the steps less one (the bottom step stands at the level)
+  if (m.level !== undefined) {
+    const y0 = m.level + m.steps - 1, cols = stairColumns(m);
+    for (const n of steps(m.steps)) out.push(across('mine:stairs', cols[n - 1].x, y0 - n + 2, cols[n - 1].z, m.dir));
+  }
+  for (const [k, d] of (m.down ?? []).entries()) {
+    const cols = downColumns(m, d);
+    for (const n of steps(d.steps)) out.push(across(`mine:down:${k}`, cols[n - 1].x, d.y - n + 1, cols[n - 1].z, m.dir));
+  }
+  const owned = new Set<string>();
+  const tunnels = (part: string, l: MineLeg) => {
+    for (const { u, dir, dug } of legUnits(l))
+      for (const n of torchCells(dug)) {
+        const c = cellAt(l, u, n);
+        if (!owned.has(`${c.x},${l.y},${c.z}`)) out.push(across(part, c.x, l.y + 1, c.z, dir));
+      }
+  };
+  const own = (l: MineLeg) => { for (const c of legCells(l)) owned.add(`${c.x},${l.y},${c.z}`); };
+  for (const [k, l] of (m.legs ?? []).entries()) {
+    tunnels(`mine:${k}`, l);
+    own(l);
+  }
+  const i = m.iron;
+  if (i && i.steps) {
+    const cols = ironColumns(i);
+    for (const n of steps(i.steps)) out.push(across('mine:iron', cols[n - 1].x, i.y - n + 1, cols[n - 1].z, i.dir));
+  }
+  for (const l of i?.legs ?? []) {
+    tunnels('mine:iron', l);
+    own(l);
+  }
+  return out;
+}
+
+/**
+ * The mine's faces still going, as head-height cells (B.4): each tunnel's next main cell and its open branches' next
+ * cells (while the mine can give), stairs down and iron stairs not at their level yet, the iron level's tunnels not
+ * ended. A torch spot within 2 of one waits: a miner works there.
+ */
+export function mineFacesGoing(m: Mine): Array<{ x: number; y: number; z: number }> {
+  const out: Array<{ x: number; y: number; z: number }> = [];
+  if (m.level === undefined) return out;
+  if (!m.stopped && m.dug < MAX_CELLS)
+    for (const l of m.legs ?? []) {
+      if (!l.end) { const c = cellAt(l, 'main', mainOf(l) + 1); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
+      for (const b of openBranches(l)) { const c = cellAt(l, b, brOf(l, b) + 1); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
+    }
+  for (const d of m.down ?? []) if (d.level === undefined && !d.stopped) out.push({ x: d.x + m.dir[0] * (d.steps + 1), y: d.y - d.steps, z: d.z + m.dir[1] * (d.steps + 1) });
+  const i = m.iron;
+  if (i && !i.finished) {
+    if (i.level === undefined) out.push({ x: i.x + i.dir[0] * (i.steps + 1), y: i.y - i.steps, z: i.z + i.dir[1] * (i.steps + 1) });
+    for (const l of i.legs) if (!l.end) { const c = tunnelCell(l, l.dug); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
+  }
+  return out;
+}
+
+/** Whether a torch spot lies within 2 cells of a face still going (2 across, 2 up or down: the stairs' steps). */
+export function nearMineFace(faces: Array<{ x: number; y: number; z: number }>, p: { x: number; y: number; z: number }): boolean {
+  return faces.some((f) => Math.abs(f.x - p.x) + Math.abs(f.z - p.z) <= 2 && Math.abs(f.y - p.y) <= 2);
+}
+
+/** Whether a part still grows (a tunnel not ended, or with a branch not finished; stairs down or iron stairs without a
+ *  level, the iron level not finished): a growing part is lit only with 2 spots waiting (MINE_LIGHT_MIN). */
+export function mineGrowing(m: Mine, part: string): boolean {
+  if (part === 'mine:stairs') return m.level === undefined && !m.stopped;
+  if (part === 'mine:iron') return !!m.iron && !m.iron.finished;
+  const down = /^mine:down:(\d+)$/.exec(part);
+  if (down) { const d = m.down?.[Number(down[1])]; return !!d && d.level === undefined && !d.stopped; }
+  const leg = /^mine:(\d+)$/.exec(part);
+  const l = leg ? m.legs?.[Number(leg[1])] : undefined;
+  if (!l || m.level === undefined || m.stopped || m.dug >= MAX_CELLS) return false;
+  return !l.end || openBranches(l).length > 0;
+}
+
 export const MINE_SKILLS: Record<string, McSkill> = {
   dig_mine: { check: (x) => x.max_depth !== undefined && void num(x.max_depth, 'max_depth'), run: digMine },
 };

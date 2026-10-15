@@ -5,8 +5,9 @@
  * entrance step touching the street, as vanilla's houses join their street pieces). World-independent: plan_layout
  * (layout.ts) posts the work, prepare_site lays the streets as dirt_path.
  */
-import { doorOutward, outsideCells, outwardStep } from './designs';
+import { doorOutward, outsideCells, outwardStep, turnState } from './designs';
 import type { Area, Design, Layout } from './village';
+import type { VanillaLight } from './vanillaPieces';
 
 export const STREET_WIDTH = 3;
 /** Blocks kept free between two buildings, and between a building and the centre: each build claims a block round its
@@ -534,4 +535,138 @@ export function placeSigns(places: SignPlace[], lamps: Array<{ x: number; z: num
     const vanilla = b.p.design.by === 'vanilla' || /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(b.p.design.name);
     return { x: hit[0], z: hit[1], layer: hit[2], facing: FACING[`${ox},${oz}`], text: signLabel(b.p.design.name, vanilla), building: b.p.design.name, cx: b.p.x, cz: b.p.z };
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Lights inside the buildings (B.4)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Blocks that are not a full cube, so their side holds no wall torch (B.4's live facts, runs/2026-10-15/b4_facts.log: every
+ * full cube held one, glass and ores included; panes, fences, walls, leaves, top and bottom slabs dropped it), as one set.
+ * Slabs and stairs are judged by their states in holdsTorch. A torch set by command on a bad support stays floating until a
+ * later update from that side, so no re-check catches it: the rule must be exact, and is judged before setting. 26.1's
+ * chains are iron_chain and the copper ones, its bars iron and copper (thin posts, as panes: B.4's review, lens 1 L2).
+ */
+export const NOT_TORCH_SUPPORT = /^(air|cave_air|void_air|water|lava|bubble_column|snow|vine|ladder|scaffolding|cobweb|chest|trapped_chest|ender_chest|farmland|dirt_path|cake|bell|lectern|grindstone|stonecutter|brewing_stand|hopper|cauldron|composter|anvil|chipped_anvil|damaged_anvil|enchanting_table|end_rod|lightning_rod|cactus|bamboo|campfire|soul_campfire|conduit|dragon_egg|daylight_detector|flower_pot|turtle_egg|sea_pickle|pointed_dripstone|decorated_pot|sculk_sensor|sculk_shrieker|calibrated_sculk_sensor|big_dripleaf|small_dripleaf|sniffer_egg|heavy_core|vault|trial_spawner|spawner|honey_block|mud|soul_sand)$|_leaves$|_pane$|_bars$|_chain$|^chain$|_fence$|_fence_gate$|_wall$|_door$|_trapdoor$|_sign$|_banner$|torch|lantern|carpet|_button$|_pressure_plate$|rail$|_bed$|_candle|^candle|_head$|_skull$|_coral|_sapling$|_pot$|_cauldron$|_plate$|^potted_|_bush$|_roots$|_fungus$|_mushroom$|grass$|fern$|^(poppy|dandelion|cornflower|allium|azure_bluet|blue_orchid|oxeye_daisy|lily_of_the_valley|wither_rose|torchflower|sunflower|lilac|rose_bush|peony|pitcher_plant|lily_pad|kelp|kelp_plant|seagrass|tall_seagrass|sugar_cane|wheat|carrots|potatoes|beetroots|sweet_berry_bush|cocoa|lever|tripwire|tripwire_hook|repeater|comparator|redstone_wire|frogspawn|glow_lichen|moss_carpet|pink_petals|hanging_roots|spore_blossom)$|_tulip$|_stem$|amethyst_bud$|amethyst_cluster$|_frame$|_rod$/;
+
+/**
+ * Whether a block's side holds a wall torch facing `facing` (away from it; the support is the torch's cell less its
+ * facing): any full cube, a double slab, and stairs whose own facing is the torch's (their full back, either half), not an
+ * outer corner (half its back is open; the server works shapes out from neighbours, lesson 55, so only the world's stair
+ * carries one: B.4's review, lens 1 L2); never a top or bottom slab, a stair's side or front, or anything in
+ * NOT_TORCH_SUPPORT. Without `facing`, no stairs.
+ */
+export function holdsTorch(block: string | undefined, facing?: string): boolean {
+  if (!block || block === '_' || block === '.') return false;
+  const b = block.replace(/^minecraft:/, '');
+  const n = b.replace(/[[{].*$/, '');
+  const state = (k: string) => new RegExp(`[[,]${k}=([a-z_]+)`).exec(b)?.[1];
+  if (/_slab$/.test(n)) return state('type') === 'double';
+  if (/_stairs$/.test(n)) return !!facing && state('facing') === facing && !/^outer_/.test(state('shape') ?? '');
+  return !NOT_TORCH_SUPPORT.test(n);
+}
+
+/** Whether a block's top holds a standing torch (the live facts' case 3): a full cube, glass, a fence or wall post, a
+ *  pane or bars, a top or double slab, top-half stairs (never a chain); not a bottom slab, bottom-half stairs or leaves. */
+export function holdsStandingTorch(block: string | undefined): boolean {
+  if (!block || block === '_' || block === '.') return false;
+  const b = block.replace(/^minecraft:/, '');
+  const n = b.replace(/[[{].*$/, '');
+  const state = (k: string) => new RegExp(`[[,]${k}=([a-z_]+)`).exec(b)?.[1];
+  if (/_slab$/.test(n)) return state('type') === 'top' || state('type') === 'double';
+  if (/_stairs$/.test(n)) return state('half') === 'top';
+  if (/_fence$|_wall$|_pane$|_bars$/.test(n)) return true;
+  return !NOT_TORCH_SUPPORT.test(n);
+}
+
+/** How many torches a building wants inside: one per 16 inside floor cells (layer 1's "."), 1 to 6. */
+export function torchesWanted(d: Design): number {
+  const inside = (d.layers[1] ?? []).reduce((n, row) => n + [...row].filter((c) => c === '.').length, 0);
+  return Math.max(1, Math.min(6, Math.ceil(inside / 16)));
+}
+
+/** A torch spot of a placed building: the cell (layer over its floor), the block and a wall torch's facing (away from its
+ *  wall), vanilla's own cell or code's, and whether it is inside (a "." cell, under the roof within the walls). */
+export interface LightSpot { x: number; layer: number; z: number; block: 'wall_torch' | 'torch'; facing?: SignSpot['facing']; src: 'vanilla' | 'code'; inside: boolean }
+
+const STEPS: Record<SignSpot['facing'], [number, number]> = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] };
+const CLOCKWISE: Record<SignSpot['facing'], SignSpot['facing']> = { north: 'east', east: 'south', south: 'west', west: 'north' };
+
+/**
+ * A placed building's torch spots (B.4, D4): vanilla's own light cells first, turned with the building (inside and, with
+ * `facades`, on the facade; a wall torch kept where its support holds one in the design, a standing torch on a full block
+ * or a fence or wall post, its own cell free), then code's inside spots at head height (layer 2) on an inner wall face
+ * until the inside ones number torchesWanted: off doors and the grid's outer ring, the first farthest from the entrance,
+ * each next the farthest from the inside spots already chosen (ties by row, column, then facing N, E, S, W). Off the
+ * signs' cells and the lamps' columns. Pure (scripts/checks/light_check.mts checks it at four turns).
+ */
+export function buildingLights(p: SignPlace, opts: { vanilla?: VanillaLight[] | null; signs?: SignSpot[]; lamps?: Array<{ x: number; z: number }>; facades?: boolean } = {}): LightSpot[] {
+  const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
+  const at = (x: number, l: number, z: number) => g.cells.get(`${x},${l},${z}`);
+  // (a block's states turned with the building: the grid keeps the design's, and a stair holds a torch only by its facing)
+  const turned = (x: number, l: number, z: number) => { const c = at(x, l, z); return c && c !== '_' && c !== '.' ? turnState(c, rot) : c; };
+  const free = (c: string | undefined) => c === '.' || c === '_' || c === 'air';
+  const signAt = new Set((opts.signs ?? []).map((s) => `${s.x},${s.layer},${s.z}`));
+  const lampAt = new Set((opts.lamps ?? []).map((l) => `${l.x},${l.z}`));
+  const used = new Set<string>();
+  const ok = (x: number, l: number, z: number) => !signAt.has(`${x},${l},${z}`) && !lampAt.has(`${x},${z}`) && !used.has(`${x},${l},${z}`);
+  const spots: LightSpot[] = [];
+  for (const v of opts.vanilla ?? []) {
+    const [u, w] = turnCell(v.i, v.j, d.width, d.depth, rot);
+    const x = g.area.x1 + u, z = g.area.z1 + w;
+    if (!free(at(x, v.layer, z)) || !ok(x, v.layer, z)) continue;
+    let facing = v.facing;
+    if (v.block === 'wall_torch') {
+      if (!facing) continue;
+      for (let r = 0; r < rot; r++) facing = CLOCKWISE[facing];
+      const [fx, fz] = STEPS[facing];
+      if (!holdsTorch(turned(x - fx, v.layer, z - fz), facing)) continue;
+    } else if (!holdsStandingTorch(at(x, v.layer - 1, z))) continue;
+    const inside = at(x, v.layer, z) === '.';
+    if (opts.facades === false && !inside) continue;
+    used.add(`${x},${v.layer},${z}`);
+    spots.push({ x, layer: v.layer, z, block: v.block, ...(v.block === 'wall_torch' ? { facing } : {}), src: 'vanilla', inside });
+  }
+  // Code's inside spots
+  const want = torchesWanted(d);
+  const cands: Array<{ x: number; z: number; facing: SignSpot['facing'] }> = [];
+  // (in the piece's own order, rows and columns and facings as drawn, then turned: the same spots at every turn)
+  for (let j = 1; j < d.depth - 1; j++)
+    for (let i = 1; i < d.width - 1; i++) {
+      const [u, w] = turnCell(i, j, d.width, d.depth, rot);
+      const x = g.area.x1 + u, z = g.area.z1 + w;
+      if (at(x, 2, z) !== '.' || !ok(x, 2, z)) continue;
+      const below = at(x, 1, z);
+      if (below && below !== '.' && below !== '_' && /_door$/.test(below.replace(/\[.*$/, ''))) continue;
+      for (const f0 of ['north', 'east', 'south', 'west'] as const) {
+        let f: SignSpot['facing'] = f0;
+        for (let r = 0; r < rot; r++) f = CLOCKWISE[f];
+        const [fx, fz] = STEPS[f];
+        if (holdsTorch(turned(x - fx, 2, z - fz), f)) { cands.push({ x, z, facing: f }); break; }
+      }
+    }
+  const chosen = spots.filter((s) => s.inside).map((s) => ({ x: s.x, z: s.z }));
+  const dist2 = (a: { x: number; z: number }, b: { x: number; z: number }) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+  while (chosen.length < want) {
+    const from = chosen.length ? chosen : [{ x: g.door.x, z: g.door.z }];
+    let best: (typeof cands)[number] | null = null, bestD = -1;
+    // (cands are in the piece's row, column order with one facing a cell, N, E, S, W as drawn first: a strict > keeps the
+    // first on ties)
+    for (const c of cands) {
+      if (used.has(`${c.x},2,${c.z}`)) continue;
+      const dd = Math.min(...from.map((f) => dist2(c, f)));
+      if (dd > bestD) [best, bestD] = [c, dd];
+    }
+    if (!best) break;
+    used.add(`${best.x},2,${best.z}`);
+    chosen.push({ x: best.x, z: best.z });
+    spots.push({ x: best.x, layer: 2, z: best.z, block: 'wall_torch', facing: best.facing, src: 'code', inside: true });
+  }
+  return spots;
+}
+
+/** A placed building's entrance door and its way out (placedGrid's `door`, null for a noSign place: a town centre). */
+export function placedDoor(p: SignPlace): { x: number; z: number; ox: number; oz: number } | null {
+  return p.noSign ? null : placedGrid(p).door;
 }
