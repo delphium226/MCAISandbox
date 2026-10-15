@@ -31,6 +31,7 @@ import { DESIGN_BLOCKS, DESIGN_SURVIVAL, DESIGN_TOOL, HOUSE_UNITS, HOUSE_WALLS, 
 import { STORAGE_HUT } from './huts';
 import { CLAIM_LOOK_MS, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, RESERVED_COOL_MS, SCOUT_RANGE, SIGN_TRIES, VILLAGE_RANGE, contentionOf, layoutBuildings, signTask, signsMissing, villageHome, type Design, type Task, type Village } from './village';
 import { postLayout, type Site } from './layout';
+import { GROW, growing, isGrowTask } from './grow';
 import { TaskBrain, taskCalls, taskSkillNames } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 import { CallWithdrawn, callModel, isTransient, label, parseSpec, type CallPriority, type ModelSpec, type Reply, type ToolCall } from './modelCall';
@@ -662,6 +663,15 @@ export class TieredBrain implements AgentBrain {
   private lastPlanCall: ShownCall | null = null;
   private lastExecCall: ShownCall | null = null;
 
+  /** A worker with a planner claims board tasks (the claim lives in the planner's branch of tick; s30). */
+  claimsTasks(a: WorldAgent): boolean {
+    return villageRole(a) === 'worker' && !!this.specs(a).plan;
+  }
+
+  holdsTask(a: WorldAgent, id: string): boolean {
+    return this.claimedTask === id || this.plan(a)?.taskId === id || this.gatherer.held === id;
+  }
+
   private specs(a: WorldAgent): { exec: ModelSpec; plan: ModelSpec | null } {
     const m = a.memory;
     const exec = (typeof m.execModel === 'string' && parseSpec(m.execModel)) || EXEC_SPEC;
@@ -1041,9 +1051,12 @@ export class TieredBrain implements AgentBrain {
       }
     }
 
-    if (PLAN && !this.planPending && now >= this.lastPlan && now >= this.planBackoffUntil && !v?.complete) {
+    // A complete village that grows (s30): a worker takes the neighbourhood's tasks (free, by the claim below) and plans for
+    // the one it holds, as before completion; nothing else wakes a planner there (no model call decides growth, D11)
+    const free = role === 'worker' && (!plan || complete || !plan.steps.length);
+    const heldGrow = role === 'worker' && growing(v) && !!plan?.taskId && v!.tasks.some((t) => t.id === plan.taskId && t.status === 'claimed' && t.claimedBy === a.name && isGrowTask(v!, t));
+    if (PLAN && !this.planPending && now >= this.lastPlan && now >= this.planBackoffUntil && (!v?.complete || (role === 'worker' && growing(v) && (free || heldGrow)))) {
       let why: string | null = null;
-      const free = role === 'worker' && (!plan || complete || !plan.steps.length);
       if (!plan) why = 'there is no plan yet';
       // (a mayor's reason set by the event that completed the plan goes first: find_site's library line was lost behind
       // "the previous plan is complete" when the plan was only that find_site)
@@ -1081,7 +1094,10 @@ export class TieredBrain implements AgentBrain {
         this.claimLook = { version: reg.version, at: now };
         const blocked = !!usage.blocked(PLAN.model, a.name);
         const names = taskSkillNames(a.world);
-        const next = reg.claimable(v!, a.name).find((t) => !blocked || exactCalls(t, names));
+        // (in a complete village only the neighbourhood's tasks, and only while no chore runs: a worker on a 20-minute iron
+        // trip must not sit on a build, s30)
+        const grown = !!v!.complete;
+        const next = grown && !a.idle() ? undefined : reg.claimable(v!, a.name).find((t) => (!grown || isGrowTask(v!, t)) && (!blocked || exactCalls(t, names)));
         if (next && reg.claim(v!, next.id, a.name)) this.claimedTask = next.id;
         else why = null;
       }
@@ -1240,7 +1256,10 @@ export class TieredBrain implements AgentBrain {
       state = 'acting';
       const g = role === 'mayor' && this.gatherer.held ? v?.tasks.find((t) => t.id === this.gatherer.held) : undefined;
       detail = g ? `gathering while it waits: ${g.id} ${g.title}` : 'running its queued actions';
-    } else if (v?.complete) {
+    } else if (v?.complete && role === 'worker' && growing(v) && (!plan || complete || !plan.steps.length)) {
+      state = 'waiting';
+      detail = "waiting for the neighbourhood's next task";
+    } else if (v?.complete && !(role === 'worker' && growing(v))) {
       state = 'done';
       detail = `the village ${v.name} is declared complete`;
     } else if (!plan) {
@@ -1415,6 +1434,12 @@ export class TieredBrain implements AgentBrain {
     const reg = a.world.villages;
     for (const c of reply.calls) {
       if (!v) break;
+      // (a reply landing after completion: in a village that grows, tasks posted now would take growth ids, be claimed as the
+      // neighbourhood's and hold its end, s30's review)
+      if ((c.name === 'post_tasks' || c.name === 'plan_layout') && v.complete && GROW.on) {
+        a.pushEvent('system', `The village is already complete; ${c.name} is ignored (code lays out its growth).`);
+        continue;
+      }
       if (c.name === 'post_tasks' && Array.isArray(c.input.tasks)) {
         let posted = postedTasks(c.input.tasks as unknown[]);
         // A mayor writing the building tasks by hand before any layout (gpt-oss did, with its own gather and craft
@@ -1498,6 +1523,11 @@ export class TieredBrain implements AgentBrain {
           reg.note(v, `${a.name} ${count ? `asked for ${count} ${item} in stock` : `no longer needs ${item}`}`);
           a.pushEvent('system', count ? `The village now keeps ${count} ${item} in stock: gathering for it is posted by code` : `${item} removed from the village's needs`);
         }
+      }
+      // (a village that grows stays complete: a late declare_complete must not cancel the neighbourhood's tasks, s30)
+      if (c.name === 'declare_complete' && v.complete && GROW.on) {
+        a.pushEvent('system', 'The village is already complete; its growth tasks are kept.');
+        continue;
       }
       if (c.name === 'declare_complete') {
         // Checked in code: gpt-oss once declared the village complete with nothing built

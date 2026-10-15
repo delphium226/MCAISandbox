@@ -106,9 +106,16 @@ export function prepParts(plot: Area, hut: Area, mine: Area, back: Area | undefi
  * the poster's events. A new village's plot is prepared in parts at once where the world can (S.6, `prepParts`): the
  * huts' ground first, the rest posted after the storage hut; `workers` (default: the village's workers in the world now;
  * the stage script lays out before it spawns them) decides how many.
+ *
+ * `opts.neighbourhood` (a village that grows, s30): houses on a plot of their own once the village is complete, along a
+ * cross street with lamps and signs, prepared whole; no storage, mine, stations, farm or slots, and the village's
+ * unplaced and unavailable lists left as they are. `opts.poster` (default `by`) posts the tasks ('grow' for growth, so
+ * the mayor's "laid out by me" rules never see them); `by` stays the agent the material check counts with.
  */
-export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number): string {
+export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number, opts: { poster?: string; neighbourhood?: boolean } = {}): string {
     const reg = w.villages;
+    const poster = opts.poster ?? by;
+    const nb = !!opts.neighbourhood;
     const raw = Array.isArray(buildings) ? (buildings as unknown[]) : typeof buildings === 'string' ? buildings.split(',') : [];
     const names: string[] = [];
     for (const b of raw) {
@@ -123,8 +130,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const missing = [...new Set(names.filter((n) => !v.designs[n]))];
     if (missing.length) return `plan_layout: no design yet for ${missing.map((n) => `"${n}"`).join(', ')}; draw ${missing.length > 1 ? 'them' : 'it'} with design_building first, then call plan_layout again`;
     if (!site) return `plan_layout: no site yet; run find_site first (${v.plan === 'street' ? 'size 40: room for a green' : 'size 30 for three or four small buildings'})`;
-    const laidOut = v.tasks.filter((t) => t.postedBy === by && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
-    if (v.unplaced?.length) {
+    const laidOut = v.tasks.filter((t) => t.postedBy === poster && /^Build /.test(t.title) && t.status !== 'failed' && t.status !== 'done');
+    if (!nb && v.unplaced?.length) {
       // A later layout is for the buildings that did not fit on the first site (the mayor may name them all again)
       const rest = [...v.unplaced];
       const second = names.filter((n) => {
@@ -201,8 +208,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       if (big.length > 1) return `plan_layout: ${[...new Set(big)].map((n) => `"${n}" needs ${materials.get(n)!.units} blocks gathered`).join(', ')}${big.length > new Set(big).size ? ' (and is listed more than once)' : ''}; a village has room for one building over ${HOUSE_UNITS}: lay out one of them, or draw smaller designs (under ${HOUSE_UNITS} blocks gathered, under new house names) for the rest`;
     }
     // Every material a design needs gathered must be near the site: a hall drawn in sandstone in a jungle waited for 81
-    // sandstone no one could find (Accept3). Sand is let off: without it the windows stay open
-    if (economy && w.materialsNear) {
+    // sandstone no one could find (Accept3). Sand is let off: without it the windows stay open. Not for a neighbourhood:
+    // its houses were built in this village before, from what lies within 96 of it, and the count round the new square
+    // sees only standing blocks (a refusal took a try each time on squares that give the same count, s30's reviews)
+    if (economy && w.materialsNear && !nb) {
       // How much of each, for every copy (Accept12: one sandstone block near the site passed a hall needing 81)
       const want = new Map<string, string[]>();
       const amount: Record<string, number> = {};
@@ -255,7 +264,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       return Math.max(l.width, l.depth);
     };
     let street: StreetLayout | null = null;
-    if (lib) {
+    // A neighbourhood: plain crossing streets, every house placed or none (its pad was sized for them, grow.ts padFor)
+    if (nb) {
+      const items: PlanItem[] = names.map((n) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth, ...doorOf(v.designs[n]) }));
+      street = planStreets(site.x, site.z, streetLimit, null, items);
+      if (street.unplaced.length) return `plan_layout: ${street.unplaced.join(', ')} ${street.unplaced.length > 1 ? 'do' : 'does'} not fit the ${streetLimit}x${streetLimit} neighbourhood along its streets`;
+    } else if (lib) {
       const items: PlanItem[] = names.filter((n) => n !== centre?.design.name).map((n) => ({
         name: n, width: v.designs[n].width, depth: v.designs[n].depth, ...doorOf(v.designs[n]),
         kind: n === STORAGE_HUT ? 'storage' : n === MINING_HUT ? 'mine' : undefined,
@@ -310,9 +324,14 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     if (why) return `plan_layout: the plot at ${areaText(plot)} is not free (${why}); run find_site again for another site`;
     const clash = (v.layouts ?? []).find((l) => overlaps(plot, l, 2));
     if (clash) return `plan_layout: the plot at ${areaText(plot)} overlaps the plot laid out for ${clash.buildings.join(', ')} (${areaText(clash)}); run find_site for a new site (it keeps off laid-out plots), then plan_layout again`;
+    // (a neighbourhood also keeps off the annex and the works plot, recorded while they are prepared: one chosen during its
+    // survey, D7)
+    const side = nb ? [v.layouts?.[0]?.annex, v.layouts?.[0]?.works].find((q) => q && q.x2 >= q.x1 && overlaps(plot, q, 2)) : undefined;
+    if (side) return `plan_layout: the plot at ${areaText(plot)} overlaps the village's ${side === v.layouts?.[0]?.annex ? 'annex' : 'works plot'} (${areaText(side)})`;
     const nth = (v.layouts?.length ?? 0) + 1;
-    // Materials found nowhere near the last site are looked for again (F96)
-    delete v.unavailable;
+    // Materials found nowhere near the last site are looked for again (F96; not for a neighbourhood: the village's own
+    // answer stands)
+    if (!nb) delete v.unavailable;
     const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean; afterClaimed?: boolean; retries?: number }> = [];
     const laid = withHut ? lay.places.find((p) => p.name === STORAGE_HUT) : undefined;
     // The mining hut, turned so its stairs face the nearest edge of the plot (the mine runs out from under the village)
@@ -411,7 +430,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     let farm: FarmSpot | null = null;
     let farmBack: Area | undefined;
     const biome = (v.vanillaBiome ?? site.biome ?? '').toLowerCase();
-    if (economy && w.skills.some((t) => t.name === 'tend_farm') && !(v.layouts ?? []).some((l) => l.farm)) {
+    if (economy && !nb && w.skills.some((t) => t.name === 'tend_farm') && !(v.layouts ?? []).some((l) => l.farm)) {
       // (the mining hut's back strip, above)
       farmBack = back;
       const h = v.storageHut;
@@ -532,7 +551,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         const early = /^collect block=(sand|red_sand|dirt|gravel|clay_ball|wheat_seeds) /.test(t.detail);
         // (S.6: logs once the ground whose felled trees cover them is prepared and its logs stored: the huts' for the huts,
         // every part's for the rest; they were claimed while the chests were still empty, S.1)
-        const felled = parts && /^collect block=(\S+_log|logs) /.test(t.detail) ? (p.name === STORAGE_HUT || p.name === MINING_HUT ? hutParts : allParts) : [];
+        // (a neighbourhood's too: its plot, prepared whole, fells about half the logs its houses need, s30)
+        const felled = (parts || nb) && /^collect block=(\S+_log|logs) /.test(t.detail) ? (p.name === STORAGE_HUT || p.name === MINING_HUT ? hutParts : allParts) : [];
         tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [...(storage !== undefined && !early ? [storage] : []), ...(stone ? [dig!] : []), ...felled], soft: true });
       }
       const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
@@ -611,7 +631,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       v.wood = wood;
       reg.note(v, `the village gathers and builds in ${wood} (the commonest wood near its site)`);
     }
-    const made = reg.post(v, tasks, by, 100);
+    const made = reg.post(v, tasks, poster, 100);
     // The storage task posted again (the first failed): everything still waiting for the failed one (the hut build,
     // the first plot's gathering) waits for this one
     if (typeof storage === 'number') {
@@ -620,12 +640,13 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         if (t.status === 'open' && t.after.some((id) => failed.has(id))) t.after = t.after.map((id) => (failed.has(id) ? made[storage as number].id : id));
     }
     // What is left for a later site: the first layout's leftovers, or what a later one could not place either
-    const left = [...(v.unplaced?.length ? v.unplaced : names)];
-    for (const n of placed) left.splice(left.indexOf(n), 1);
+    // (a neighbourhood places all of its houses and leaves the village's list alone)
+    const left = nb ? [] : [...(v.unplaced?.length ? v.unplaced : names)];
+    if (!nb) for (const n of placed) left.splice(left.indexOf(n), 1);
     v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
-      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}) }];
-    v.unplaced = left;
-    reg.note(v, `${by} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}) }];
+    if (!nb) v.unplaced = left;
+    reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ' as a new neighbourhood' : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
     const them = left.length > 1 ? 'them' : 'it';
     const rest = left.length

@@ -34,6 +34,9 @@ import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
+import { GROW, housesOf, taskNum } from '../grow';
+import { postLayout } from '../layout';
+import { CHOOSE } from '../choose';
 
 type Pos = [number, number, number];
 
@@ -706,6 +709,26 @@ function standSpot(a: BotAgent, job: Job): { x: number; y: number; z: number } |
   return null;
 }
 
+/**
+ * Footing 2 blocks beside a target cell (the in-the-way teleport's spot when the job's own stand is far from it), on the
+ * ground standSpot would take: off the job's own area, every building and laid-out ground (standTaken) and what other
+ * agents have reserved (lessons 44 and 61; s30's fix review: a first version could put a bot on a neighbour's fill).
+ */
+function besideTarget(a: BotAgent, job: Job, pos: Pos): { x: number; y: number; z: number } | null {
+  const area = job.claim?.area ?? job.area;
+  const v = a.village();
+  const now = Date.now();
+  const taken = [...standTaken(a, v), { x1: area.x1 - 1, z1: area.z1 - 1, x2: area.x2 + 1, z2: area.z2 + 1 },
+    ...(v?.reservations ?? []).filter((r) => r.by !== a.name && r.until > now)];
+  for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [2, -2], [-2, 2]]) {
+    const x = pos[0] + dx, z = pos[2] + dz;
+    if (taken.some((q) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) continue;
+    const y = standableY(a, x, pos[1], z, 3);
+    if (y !== null) return { x, y, z };
+  }
+  return null;
+}
+
 /** Stand just south of the site (out of the way of the blocks), where it can be seen. */
 async function standBy(a: BotAgent, job: Job, signal: AbortSignal, force = false) {
   // Outside all the ground the job works on: prepare_site fills its margin too, and a preparer standing on it was
@@ -1004,7 +1027,12 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
         }
         const bots = inBody.filter((name) => name === a.name || a.world.isAgent(name));
         if (bots.length) {
-          const spot = standSpot(a, job);
+          let spot = standSpot(a, job);
+          // (a target outside the job's area and far from its stand, a neighbourhood's lamp 55-90 blocks from the hut its
+          // job stands at: beside the target instead, s30's review; a target inside the area keeps the stand, as before)
+          const ja = job.claim?.area ?? job.area;
+          const outside = c.pos[0] < ja.x1 - 2 || c.pos[0] > ja.x2 + 2 || c.pos[2] < ja.z1 - 2 || c.pos[2] > ja.z2 + 2;
+          if (GROW.on && outside && (!spot || Math.hypot(spot.x - c.pos[0], spot.z - c.pos[2]) > 24)) spot = besideTarget(a, job, c.pos) ?? spot;
           if (spot) for (const name of bots) await a.world.rcon.command(`tp ${name} ${spot.x + 0.5} ${spot.y} ${spot.z + 0.5}`).catch(() => '');
           await sleep(300, signal);
           inBody = playersIn(a, c.pos, h);
@@ -1159,7 +1187,7 @@ interface Ground {
   extremes: Map<number, { lo: Int16Array; hi: Int16Array }>;
 }
 
-async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal): Promise<Ground> {
+async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal, noGroundWet = false): Promise<Ground> {
   const n = 2 * r + 1, x0 = cx - r, z0 = cz - r, yHint = Math.floor(a.bot.entity.position.y);
   taken = taken.filter((q) => q.x2 >= x0 && q.x1 <= x0 + n - 1 && q.z2 >= z0 && q.z1 <= z0 + n - 1);
   const y = new Int16Array(n * n), kind = new Uint8Array(n * n), trees = new Uint16Array(n * n), built = new Uint8Array(n * n);
@@ -1178,7 +1206,9 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
       }
       y[k] = c.y;
       trees[k] = c.trees;
-      if (c.liquid) kind[k] = 2;
+      // (`noGroundWet`: a column with no ground within 48 down, a ravine, counts as unusable; read as ground at yHint - 48
+      // it made a perfectly flat square of a valley, s30's review)
+      if (c.liquid || (noGroundWet && c.block === 'air')) kind[k] = 2;
       else if (!NATURAL_GROUND.has(c.block)) built[k] = 1;
     }
     // Several bots share one event loop (F16): let the others run between rows
@@ -3211,7 +3241,8 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
     ...all.flatMap((o) => o.structures).map((s) => pad(s, 2)),
     ...all.filter((o) => o !== v).flatMap((o) => [...(o.layouts ?? []), ...o.plots]).map((q) => pad(q, 2)),
     // (and its own second site, laid out or prepared: the review's L1; and the other side plot, the annex or the works, S.9)
-    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !(works ? p.works : p.annex))].map((q) => pad(q, 2)),
+    // (a growth neighbourhood padded 5, as growSite pads the side plots: two prepare margins never touch, s30's review)
+    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !(works ? p.works : p.annex))].map((q) => pad(q, 'grow' in q && q.grow ? 5 : 2)),
     ...(other && other.x2 >= other.x1 ? [pad(other, 2)] : []),
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
     // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
@@ -3318,6 +3349,133 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
     throw e;
   } finally {
     annexBusy.delete(v.name);
+  }
+}
+
+/** The village laying out a neighbourhood (one at a time; the chore's lock, held inside the skill, lesson 67). */
+export const growBusy = new Set<string>();
+
+/**
+ * Where the next neighbourhood goes (s30, D6): an S x S square of the village's own survey round its home, not find_site
+ * (its legs, atlas walks, smaller fallbacks and `lastSite` belong to the mayor's first site, lesson 74). Centres within
+ * GROW.range of home (a 23 pad's corners stay within 96), slope 2, then 4, full size only. Taken, padded 5 (two
+ * prepare_site margins of 2 never touch): find_site's list (every village's buildings and layouts, other villages' plots,
+ * its own annex and works plot); the annex and works rectangles while they are prepared; while a side plot is still to be
+ * chosen (fewer than 3 tries), a ring of 18 round the first plot for it; the mine's hut and stairs near the surface; and
+ * the chunks holding a sighted sugar cane, pumpkin or melon, each chunk padded 2 (rare plants a farm slot starts from,
+ * lesson 99); and the squares plan_layout refused before (`growth.bad`). A column with no ground within 48 counts as wet.
+ * Null with the survey's rejections.
+ */
+async function growSite(a: BotAgent, v: Village, S: number, signal: AbortSignal): Promise<{ x: number; y: number; z: number } | { why: string }> {
+  const home = villageHome(v, a.memory);
+  if (!home) return { why: 'the village has no home' };
+  const reach = growReach(S), r = reach + Math.ceil(S / 2) + 1;
+  const taken = growTaken(a, v, home, r);
+  const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
+  // (the survey takes the scan turn as find_site's and the annex's do, E.1)
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true));
+  for (const slope of [2, 4]) {
+    for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
+    const c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
+    if (c) return { x: c.x, y: c.y, z: c.z };
+  }
+  return { why: `wet ${why.wet}, steep ${why.steep}, taken ${why.occupied}, unloaded ${why.unloaded}` };
+}
+
+/** How far from home a neighbourhood's centre may be: GROW.range, less what keeps an S x S pad's corners within the
+ *  village's range (80 for 23; a 29 pad at 80 reached 99.8, s30's review). */
+const growReach = (S: number) => Math.min(GROW.range, VILLAGE_RANGE - Math.ceil(Math.max(Math.floor(S / 2), S - 1 - Math.floor(S / 2)) * Math.SQRT2));
+
+/** The ground growSite keeps off (its doc), read now: built again after the survey to test the square chosen (the village's
+ *  records may have changed meanwhile, s30's review). */
+function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: number): Area[] {
+  const lay0 = v.layouts?.[0];
+  const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
+  const all = [...a.world.villages.villages.values()];
+  const now = Date.now();
+  const sides = [lay0?.annex, lay0?.works].filter((q): q is NonNullable<typeof q> => !!q && q.x2 >= q.x1);
+  // (a side plot not chosen yet keeps a ring round the plot free for it: the annex always, the works plot with its family)
+  const ringFor = (q: { x2: number; x1: number; tries?: number } | undefined) => (!q || q.x2 < q.x1) && (q?.tries ?? 0) < 3;
+  const ring = lay0 && (ringFor(lay0.annex) || (CHOOSE.families.has('works') && ringFor(lay0.works))) ? [pad(lay0, 18)] : [];
+  const level = v.plots.find((p) => !p.annex && !p.works && lay0 && overlaps(p, lay0))?.y ?? Math.floor(a.bot.entity.position.y);
+  const plants: Area[] = [];
+  for (const kind of ['sugar_cane', 'pumpkin', 'melon'])
+    for (const [x, , z] of a.world.atlas.sightings(kind, home.x, home.z, r + 24)) {
+      const cx = Math.floor(x / 16) * 16, cz = Math.floor(z / 16) * 16;
+      plants.push({ x1: cx - 2, z1: cz - 2, x2: cx + 17, z2: cz + 17 });
+    }
+  return [
+    // (every plot of every village: its own outside the layouts too, an executor's own prepare_site, s30's review)
+    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...o.plots]).map((q) => pad(q, 5)),
+    ...sides.map((q) => pad(q, 5)),
+    ...ring,
+    ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= level - 6) : []),
+    ...plants,
+    ...(v.growth?.bad ?? []),
+    ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
+  ];
+}
+
+/**
+ * The next neighbourhood laid out (s30; a chore code queues once the village is complete and has fewer houses than
+ * members, never a model's tool): home first, a square found (growSite), then plan_layout's neighbourhood mode posts its
+ * tasks as 'grow', synchronously after the survey, so the layout record holds the ground from the moment it is chosen
+ * (D7). `houses`: the design names, comma-separated; `size`: the pad's side (grow.ts padFor).
+ */
+async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('lay_out_houses: not in a village');
+  if (!GROW.on) throw new Error('lay_out_houses: growth is off (MC_GROW)');
+  if (!v.complete) throw new Error('lay_out_houses: the village is not complete yet');
+  if (v.growth?.active) throw new Error(`lay_out_houses: neighbourhood ${v.growth.active.k} is still being built`);
+  if (growBusy.has(v.name)) throw new Error('lay_out_houses: a neighbourhood is being laid out');
+  const houses = (Array.isArray(args.houses) ? args.houses : String(args.houses ?? '').split(',')).map((h) => String(h).trim()).filter(Boolean);
+  if (!houses.length) throw new Error('lay_out_houses: give houses= (design names, comma-separated)');
+  const S = Math.max(9, Math.min(40, Math.floor(num(args.size, 'size'))));
+  growBusy.add(v.name);
+  try {
+    // Out of the deep first (lesson 101: never walked up from the iron level or a cave), then home, as prepare_annex
+    const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+    if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+    const home = villageHome(v, a.memory);
+    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+      await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    const site = await growSite(a, v, S, signal);
+    if ('why' in site) throw new Error(`lay_out_houses: no free ${S}x${S} site within ${growReach(S)} blocks of the village (${site.why})`);
+    // (no await from here to the record: D7. The village may have changed during the survey: growth stopped, enough houses
+    // for the members now, or the square taken by records written meanwhile, tested against the list read afresh)
+    if (!v.complete || v.growth?.active || v.growth?.stop) throw new Error('lay_out_houses: the village changed during the survey');
+    if (housesOf(v) >= a.world.growMembers(v).length) throw new Error('lay_out_houses: the village changed during the survey (enough houses)');
+    const square = { x1: site.x - Math.floor(S / 2), z1: site.z - Math.floor(S / 2), x2: site.x - Math.floor(S / 2) + S - 1, z2: site.z - Math.floor(S / 2) + S - 1 };
+    const clash = home && growTaken(a, v, home, growReach(S) + Math.ceil(S / 2) + 1).find((q) => overlaps(square, q));
+    if (clash) throw new Error(`lay_out_houses: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
+    const before = new Set(v.tasks.map((t) => t.id));
+    const out = postLayout(a.world, v, a.name, { x: site.x, y: site.y, z: site.z, size: S }, houses, true, undefined, { poster: 'grow', neighbourhood: true });
+    if (!out.startsWith('Laid out')) {
+      // (a square refused is kept off by the next survey, which would pick the same one: five tries on one site stopped
+      // growth, s30's review)
+      const g = (v.growth ??= { past: [] });
+      g.bad = [...(g.bad ?? []), { ...square, at: Date.now() }].slice(-8);
+      throw new Error(out);
+    }
+    const made = v.tasks.filter((t) => !before.has(t.id));
+    const n = v.layouts!.length, lay = v.layouts![n - 1];
+    const g = (v.growth ??= { past: [] });
+    const k = lay.grow ?? g.past.length + 1;
+    const members = a.world.growMembers(v).length, H = housesOf(v);
+    const builds = made.filter((t) => /^Build /.test(t.title)).map((t) => t.id);
+    const plot = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 };
+    g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '' };
+    delete g.tries;
+    delete g.noSite;
+    a.world.villages.save();
+    console.log(`[grow] ${v.name}: layout ${n} (neighbourhood ${k}) posted by ${a.name}: ${builds.length} houses (${lay.buildings.join(', ')}) on ${S}x${S} at ${areaText(plot)}, members ${members}, houses ${H}; ${made.length} tasks`);
+    a.world.villages.note(v, `${a.name} laid out neighbourhood ${k}: ${lay.buildings.join(', ')} at ${areaText(plot)}`);
+    return `laid out neighbourhood ${k}: ${builds.length} houses on ${S}x${S} at ${areaText(plot)}, ${made.length} tasks posted`;
+  } finally {
+    growBusy.delete(v.name);
   }
 }
 
@@ -4846,6 +5004,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startFarm },
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
   prepare_annex: { run: prepareAnnex },
+  // (s30's, a chore as well: the next neighbourhood of a village that grows)
+  lay_out_houses: { check: (x) => void num(x.size, 'size'), run: layOutHouses },
   start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },
   // (pens v2's, 10-09)
   collect_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: collectEggs },

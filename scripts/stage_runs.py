@@ -4,7 +4,10 @@ Run detached, with a watcher (lesson 122):
   python scripts/detach.py runs/<date>/NAME.runner.log python scripts/stage_runs.py NAME:WORKERS [NAME:WORKERS ...]
   until grep -q "ALL DONE" runs/<date>/NAME.runner.log; do sleep 15; done   (Bash, run_in_background)
 Extra stage_village.py arguments for every run: STAGE_ARGS="--after 45 --fixtures --minutes 80" (split on spaces; a later
---minutes wins over the default 30); STAGE_TIMEOUT_S caps each run (default 2700: raise it for long after-phases)."""
+--minutes wins over the default 30); STAGE_TIMEOUT_S caps each run (default 2700: raise it for long after-phases).
+The test agent server's port is MCAI_TEST_API_PORT (default 8767, as mc/testserver.py; another program took 127.0.0.1:8767
+on 2026-10-15): MCAI_API is built from it for reset_site.py and the runs. A village that grows (s30): MC_GROW=1 reaches the
+agent server through reset_site.py's environment; NAME:WORKERS:GROW (0 or 1) sets it for one run, over MC_GROW."""
 import os, subprocess, sys, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -14,11 +17,14 @@ specs = sys.argv[1:]
 os.chdir(ROOT)
 os.makedirs(OUT, exist_ok=True)
 EXTRA = os.environ.get("STAGE_ARGS", "").split()
+PORT = os.environ.get("MCAI_TEST_API_PORT", "8767")
 for spec in specs:
-    name, n = spec.split(":")
-    print(f"=== {name} ({n} workers) {time.strftime('%H:%M:%S')}", flush=True)
-    env = {**os.environ, "MC_TIME_SCALE": "2", "MCAI_API": "http://127.0.0.1:8767/api",
+    name, n, *grow = spec.split(":")
+    env = {**os.environ, "MC_TIME_SCALE": "2", "MCAI_API": f"http://127.0.0.1:{PORT}/api", "MCAI_TEST_API_PORT": PORT,
            "MCAI_CHOICE_LOG": os.path.join(OUT, f"{name}.choices.jsonl"), "PYTHONIOENCODING": "utf-8"}
+    if grow:
+        env["MC_GROW"] = grow[0]
+    print(f"=== {name} ({n} workers, port {PORT}, MC_GROW {env.get('MC_GROW') or 'unset'}) {time.strftime('%H:%M:%S')}", flush=True)
     with open(os.path.join(OUT, f"reset_{name}.log"), "w", encoding="utf-8") as f:
         r = subprocess.run([sys.executable, "scripts/reset_site.py", "minevale3"], env=env, stdout=f, stderr=subprocess.STDOUT, timeout=900)
     if r.returncode:
@@ -38,6 +44,6 @@ for spec in specs:
         except subprocess.TimeoutExpired:
             print("run timed out", flush=True)
     for line in open(log, encoding="utf-8", errors="replace"):
-        if line.startswith(("STOPPED", "CRITICAL PATH", "BUSY all")):
+        if line.startswith(("STOPPED", "CRITICAL PATH", "BUSY all", "GROW layouts")):
             print(line.rstrip()[:220], flush=True)
 print(f"ALL DONE {time.strftime('%H:%M:%S')}", flush=True)

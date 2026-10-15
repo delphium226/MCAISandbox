@@ -37,6 +37,7 @@ import { vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingLights, placedDoor, signLabel, type SignPlace } from '../streetPlan';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
+import { GROW, growing, housesOf, isGrowTask, padFor, pickHouses, taskNum } from '../grow';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -735,7 +736,12 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** The torches lighting still wants (D7): every part's unlit spots, less the torches light chores carry (L2). */
   torchDemand(v: Village): number {
-    const unlit = this.lightParts(v).reduce((n, p) => n + p.unlit, 0);
+    let unlit = this.lightParts(v).reduce((n, p) => n + p.unlit, 0);
+    // (a growing village's: the neighbourhood's lamps still to light, whose job takes stored torches first, s30)
+    if (growing(v))
+      (v.layouts ?? []).forEach((l, i) => {
+        if (l.lamps?.length && !l.lit && v.tasks.some((t) => (t.status === 'open' || t.status === 'claimed') && t.detail.startsWith(`light_streets layout=${i + 1} `))) unlit += l.lamps.length;
+      });
     let carried = 0;
     for (const [k, q] of lightCarried) if (k.startsWith(`${v.name}|`)) carried += q;
     return Math.max(0, unlit - carried);
@@ -809,7 +815,9 @@ export class MineflayerWorld implements WorldAdapter {
       if (moot.length) reg.save();
       return;
     }
-    if (own.length || v.mine?.level === undefined || !v.tasks.some((t) => /^Build /.test(t.title) && t.status === 'open')) return;
+    // (not in a complete village: a growing one's board would take it as the neighbourhood's, for miners who have pickaxes;
+    // G3 made 4 nobody needed, s30's review)
+    if (v.complete || own.length || v.mine?.level === undefined || !v.tasks.some((t) => /^Build /.test(t.title) && t.status === 'open')) return;
     const members = [...this.agents.values()].filter((a) => a.village() === v);
     const busy = new Set(v.tasks.filter((t) => t.status === 'claimed').map((t) => t.claimedBy?.toLowerCase()));
     const idle = members.filter((a) => a.role !== 'mayor' && !busy.has(a.name.toLowerCase())).length;
@@ -841,7 +849,8 @@ export class MineflayerWorld implements WorldAdapter {
    */
   refreshNeeds(v: Village) {
     if (!v.tasks.some((t) => t.title === 'Set up the village storage')) return;
-    if (v.complete) {
+    // (a growing village's neighbourhood is gathered for as before completion, s30 D12)
+    if (v.complete && !growing(v)) {
       delete v.needed;
       return;
     }
@@ -1119,6 +1128,19 @@ export class MineflayerWorld implements WorldAdapter {
     return [...this.agents.values()].filter((a) => a.village() === v && a.memory.villageRole !== 'mayor').length;
   }
 
+  /** Every member of the village in the world, its mayor included: a village that grows wants a house for each (s30). */
+  growMembers(v: Village): BotAgent[] {
+    return [...this.agents.values()].filter((a) => a.village() === v);
+  }
+
+  /** The members whose brains take board tasks (the mayor never does): a neighbourhood nobody can build is not laid out. */
+  growClaimers(v: Village): BotAgent[] {
+    return this.growMembers(v).filter((a) => a.memory.villageRole !== 'mayor' && !!a.brain?.claimsTasks?.(a));
+  }
+
+  /** When each agent (lower-cased name) was last spawned: a claim older than its holder's spawn is no longer held (s30). */
+  private spawnedAt = new Map<string, number>();
+
   async spawn(rawName: string, o: SpawnOptions = {}): Promise<BotAgent> {
     const name = rawName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16);
     if (!name) throw new Error('invalid name');
@@ -1127,6 +1149,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (brain && !MC_BRAINS[brain]) throw new Error(`unknown brain ${brain}. Options: ${Object.keys(MC_BRAINS).join(', ')}`);
     const a = new BotAgent(this, name, o.role ?? 'villager');
     this.agents.set(name.toLowerCase(), a);
+    this.spawnedAt.set(name.toLowerCase(), Date.now());
     try {
       await a.ready;
     } catch (e) {
@@ -1302,8 +1325,256 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[farm] ${v.name} layout ${k}: ${ripe} of ${grown} wheat ripe, ${worker.name} harvests`);
         this.villages.note(v, `${ripe} of ${grown} wheat ripe on layout ${k}'s farm: ${worker.name} harvests it (a chore)`);
       }
+      // (before the sweep, which leaves members to the growth's chore and tasks, s30)
+      try {
+        this.growTick(v);
+      } catch (e) {
+        console.error(`[grow] ${v.name}: check failed:`, e);
+        // (and growth rests a while: the sweep's hold on the mayor must not outlive a check that keeps failing)
+        this.growError.set(v.name, Date.now() + 10 * 60000);
+      }
       this.slotChores(v);
     }
+  }
+
+  // ---- s30: a village that grows -----------------------------------------------------------------------------------------
+
+  /** When this server first saw each village complete (the first growth waits GROW_WAIT_MS after it), by name. */
+  private growSeen = new Map<string, number>();
+  /** Villages this server has seen not complete: their completion happened here (the sweep's hold on the mayor, M1). */
+  private growWatched = new Set<string>();
+  /** The last "enough houses" line, by village (logged once per change of houses or members). */
+  private growEnough = new Map<string, string>();
+  /** Until when a village's growth rests after its check threw, by name. */
+  private growError = new Map<string, number>();
+  /** Checks in a row a growth task's holder was idle, on no chore, without its brain holding it, by "village|task". */
+  private growOrphan = new Map<string, number>();
+
+  /** Whether a village's growth chore is queued, running or not yet dropped (a pure read: no chore is dropped here). */
+  private growQueued(v: Village, now: number): boolean {
+    return this.heldKeys(v, now, 'sweep').has('grow') || [...this.chores.values()].some((c) => c.village === v.name && c.key === 'grow');
+  }
+
+  /**
+   * Whether growth waits only for a free member (D2 but the agent): on, complete, no neighbourhood on the board, not
+   * stopped or backing off, no growth chore, fewer houses than members. With `wait`, the first GROW_WAIT_MS after this
+   * server first saw the village complete count too.
+   */
+  private growDue(v: Village, now: number, wait: boolean): boolean {
+    const g = v.growth;
+    if (!GROW.on || !v.complete || g?.active || g?.stop || (g?.backoff ?? 0) > now || (this.growError.get(v.name) ?? 0) > now) return false;
+    if (wait && now - (this.growSeen.get(v.name) ?? now) < GROW_WAIT_MS) return false;
+    if (this.growQueued(v, now)) return false;
+    // (and a worker whose brain takes board tasks: the mayor never does, and a layout nobody claims sat 10 minutes until
+    // "stuck", three times over, s30's review)
+    return housesOf(v) < this.growMembers(v).length && this.growClaimers(v).length > 0;
+  }
+
+  /**
+   * The growth decision (s30, D1-D2, D14; every 30 s from farmChores, before the sweep): a neighbourhood on the board is
+   * watched to its end (growEnd); otherwise, once the village has stood complete GROW_WAIT_MS (a planner call in flight at
+   * completion ends first; the golden check's sweeps fall inside it, L1) and has fewer houses than members, the mayor (else
+   * the first idle member) gets the chore that lays out the next one. Code decides; no model is asked. A neighbourhood
+   * inherited by a server running without MC_GROW is still watched to its end (its tasks stay claimable while it is on the
+   * board: growing() does not read the flag), so it never stays on the board for good; no new one is laid out.
+   */
+  private growTick(v: Village) {
+    if (!GROW.on && !v.growth?.active) return;
+    const now = Date.now();
+    if (!v.complete) {
+      this.growWatched.add(v.name);
+      this.growSeen.delete(v.name);
+      return;
+    }
+    if (!this.growSeen.has(v.name)) this.growSeen.set(v.name, now);
+    if (now - this.growSeen.get(v.name)! < GROW_WAIT_MS) return;
+    // (a check that threw rests the growth, the neighbourhood's end included: a record it cannot read is not read again
+    // every 30 s)
+    if ((this.growError.get(v.name) ?? 0) > now) return;
+    if (v.growth?.active) return this.growEnd(v, now);
+    if (!GROW.on) return;
+    if (!this.growDue(v, now, true)) {
+      const M = this.growMembers(v).length, H = housesOf(v);
+      const sig = H >= M ? `${H}|${M}` : !this.growClaimers(v).length ? `none|${H}|${M}` : '';
+      if (sig && !v.growth?.stop && this.growEnough.get(v.name) !== sig) {
+        this.growEnough.set(v.name, sig);
+        console.log(H >= M ? `[grow] ${v.name}: enough houses (${H} for ${M} members)` : `[grow] ${v.name}: no worker here takes board tasks (houses ${H} for ${M} members)`);
+      }
+      return;
+    }
+    this.growEnough.delete(v.name);
+    const members = this.growMembers(v);
+    const agent = members.find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now)) ?? this.idleMembers(v, now)[0];
+    if (!agent) return;
+    const n = Math.min(GROW.batch, members.length - housesOf(v));
+    const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
+    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0);
+    const pad = pick.length ? padFor(pick.map((h) => v.designs[h])) : null;
+    if (!pad) return this.growStop(v, 'no house design');
+    const houses = pick.slice(0, pad.n);
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: houses.join(','), size: pad.size });
+    } catch (e) {
+      console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.setChore(v, agent, 'grow', [st], `lay out ${houses.length} house${houses.length > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why));
+    console.log(`[grow] ${v.name}: ${agent.name} lays out ${houses.length} houses (${houses.join(', ')}) on ${pad.size}x${pad.size}; houses ${housesOf(v)} for ${members.length} members`);
+  }
+
+  /** Growth stopped for good (logged once). */
+  private growStop(v: Village, why: string) {
+    const g = (v.growth ??= { past: [] });
+    if (g.stop) return;
+    g.stop = why;
+    this.villages.note(v, `the village stops growing: ${why}`);
+    this.villages.save();
+    console.log(`[grow] ${v.name}: stopped: ${why}`);
+  }
+
+  /**
+   * The growth chore failed (D14): a stop or removal is nobody's fault; "no site" stops growth on its second answer at
+   * least 5 minutes after the first (one survey of unloaded chunks must not end it) and backs off 5 minutes on the first;
+   * anything else backs off 2 minutes and stops after 5 in a row.
+   */
+  private growFailed(v: Village, by: string, why: string) {
+    if (why === 'cancelled') return;
+    const g = (v.growth ??= { past: [] });
+    const now = Date.now();
+    let wait = 2;
+    if (/^lay_out_houses: no free \d+x\d+ site/.test(why)) {
+      const first = g.noSite?.[0];
+      g.noSite = [...(g.noSite ?? []), { at: now, by }].slice(-5);
+      if (first && now - first.at >= 5 * 60000) return this.growStop(v, `no site within ${VILLAGE_GROW_REACH} blocks`);
+      wait = 5;
+    } else {
+      g.tries = (g.tries ?? 0) + 1;
+      if (g.tries >= 5) return this.growStop(v, `the layout chore failed ${g.tries} times (${why.slice(0, 120)})`);
+    }
+    g.backoff = now + wait * 60000;
+    this.villages.save();
+    console.log(`[grow] ${v.name}: chore failed: ${why.slice(0, 200)}; next try after ${wait} min`);
+  }
+
+  /**
+   * A neighbourhood watched to its end (s30, D13, D14; every growTick while it is on the board). Claims nobody holds any
+   * more are given back (below). A hard-failed prepare ends it at once (L4: every build waits for it). A failed house's
+   * gathering is closed; once every build is done or failed, the gathering and making nothing open waits for are closed and
+   * the signs of failed houses failed; once nothing is open or held, it ends. Stuck: open tasks, none held, none claimable
+   * (or no worker able to claim), no change for 10 minutes; with every house built that still ends as built. A layout that
+   * built every house resets the failures; one that did not backs off 10 minutes a failure, and three in a row stop growth.
+   */
+  private growEnd(v: Village, now: number) {
+    const g = v.growth!, act = g.active!;
+    const reg = this.villages;
+    const mine = v.tasks.filter((t) => taskNum(t) >= act.from);
+    // Claims nobody holds any more go back on the board: a holder no longer in the world (L3); one spawned again since it
+    // claimed (agent memory is not kept: its new brain knows nothing of the task); one idle, on no chore, whose brain does
+    // not hold the task, GROW_ORPHAN_CHECKS checks in a row. A claim so left stopped the layout's end and every later
+    // neighbourhood for good (the review's L-3 and M2)
+    for (const t of mine) {
+      if (t.status !== 'claimed' || !t.claimedBy) continue;
+      const id = t.claimedBy.toLowerCase(), h = this.agents.get(id), key = `${v.name}|${t.id}`;
+      let gone: string | undefined;
+      if (!h) gone = 'its holder is no longer in the world';
+      else if (h.brain?.holdsTask?.(h, t.id) === true) this.growOrphan.delete(key);
+      else if ((t.claimedAt ?? t.updated) < (this.spawnedAt.get(id) ?? 0)) gone = 'its holder was spawned again since it claimed it';
+      else if (this.chores.has(id) || this.pending.has(id) || !h.idle()) this.growOrphan.delete(key);
+      else {
+        const n = (this.growOrphan.get(key) ?? 0) + 1;
+        this.growOrphan.set(key, n);
+        if (n >= GROW_ORPHAN_CHECKS) gone = `its holder has been idle without it for ${n} checks`;
+      }
+      if (!gone) continue;
+      this.growOrphan.delete(key);
+      reg.unclaim(v, t.id, t.claimedBy, gone);
+      console.log(`[grow] ${v.name}: ${t.id} "${t.title}" handed back for ${t.claimedBy}: ${gone}`);
+    }
+    const close = (t: Task, status: 'done' | 'failed', why: string) => {
+      t.status = status;
+      t.result = why;
+      t.updated = now;
+      reg.note(v, `${t.id} "${t.title}" ${status === 'done' ? 'was not needed' : 'closed'}: ${why}`);
+    };
+    let why: 'built' | 'failed' | 'stuck' | undefined;
+    let left = 0;
+    const prep = mine.find((t) => /^Prepare the village plot/.test(t.title));
+    if (prep?.status === 'failed') {
+      for (const t of mine) if (t.status === 'open') close(t, 'failed', "cancelled: the neighbourhood's plot could not be prepared");
+      why = 'failed';
+    }
+    const builds = act.builds.map((id) => reg.task(v, id)).filter((t): t is Task => !!t);
+    // (what an open or held task still waits for stays: a lamps task put back behind new gathering when torches ran short
+    // would be claimable again without them, the review's L-1)
+    const waitedNow = () => new Set(v.tasks.filter((t) => t.status === 'open' || t.status === 'claimed').flatMap((t) => t.after));
+    let waited = waitedNow();
+    const gather = (t: Task) => !!t.soft && /^collect block=\S+ count=\d+, then deposit/.test(t.detail);
+    // A failed house's own gathering is closed at once (stockCovers no longer counts that house, so its gathering stayed
+    // claimable to the neighbourhood's end, the review's L7)
+    if (!why)
+      for (const b of builds)
+        if (b.status === 'failed')
+          for (const id of b.after) {
+            const t = reg.task(v, id);
+            if (t && t.status === 'open' && taskNum(t) >= act.from && gather(t) && !waited.has(t.id)) close(t, 'done', 'not needed: its house was not built');
+          }
+    if (!why && builds.every((t) => t.status === 'done' || t.status === 'failed')) {
+      const failed = new Set(builds.filter((t) => t.status === 'failed').map((t) => t.id));
+      const all = failed.size ? 'not needed: every house of the neighbourhood is built or failed' : 'not needed: every house of the neighbourhood is built';
+      // (until nothing more closes: the windows' sand goes once their make is closed)
+      for (let more = true; more; ) {
+        more = false;
+        waited = waitedNow();
+        for (const t of mine) {
+          if (t.status !== 'open') continue;
+          if ((gather(t) || PARTS_MAKE.test(t.title) || PICK_SUPPLY.test(t.title)) && !waited.has(t.id)) close(t, 'done', all);
+          else if (/^put_up_signs /.test(t.detail) && t.after.some((id) => failed.has(id))) close(t, 'failed', 'its house was not built');
+          else continue;
+          more = true;
+        }
+      }
+    }
+    // The stuck rule: the tasks' statuses as a signature, and when it last changed
+    const sig = mine.map((t) => t.status[0]).join('');
+    if (sig !== act.sig) {
+      act.sig = sig;
+      act.changed = now;
+    }
+    // (with no worker here able to claim, what is claimable counts for nothing: the workers left or none takes board tasks,
+    // the review's lens 3 L1)
+    if (!why && mine.some((t) => t.status === 'open') && !mine.some((t) => t.status === 'claimed') && now - act.changed >= GROW_STUCK_MS
+      && (!this.growClaimers(v).length || !reg.claimable(v).some((t) => isGrowTask(v, t)))) {
+      for (const t of mine)
+        if (t.status === 'open') {
+          close(t, 'failed', "cancelled: the neighbourhood's board is stuck");
+          left++;
+        }
+      // (every house standing: the village grew as meant, and lamps or signs left are no failed layout, lens 3 L2)
+      why = builds.length && builds.every((t) => t.status === 'done') ? 'built' : 'stuck';
+    }
+    if (mine.some((t) => t.status === 'open' || t.status === 'claimed')) {
+      // (saved only on a change: a save bumps the board's version, and every idle worker looks for a task again)
+      if (act.changed === now) reg.save();
+      return;
+    }
+    const built = builds.filter((t) => t.status === 'done').length, failed = builds.length - built;
+    why ??= failed ? 'failed' : 'built';
+    const lay = v.layouts?.[act.layout - 1];
+    const M = this.growMembers(v).length, H = housesOf(v);
+    g.past.push({ k: act.k, layout: act.layout, at: act.at, end: now, houses: builds.length, built, failed, members: act.members, why, ...(left ? { left } : {}) });
+    delete g.active;
+    for (const k of this.growOrphan.keys()) if (k.startsWith(`${v.name}|`)) this.growOrphan.delete(k);
+    if (why === 'built') delete g.fails;
+    else {
+      g.fails = (g.fails ?? 0) + 1;
+      g.backoff = now + 10 * 60000 * g.fails;
+    }
+    reg.note(v, `neighbourhood ${act.k} ended (${why}): ${built} of ${builds.length} houses built`);
+    reg.save();
+    const signs = lay?.signs ? (lay.signed ? lay.signs.length : lay.signs.filter((s) => s.up).length) : 0;
+    console.log(`[grow] ${v.name}: layout ${act.layout} ended ${why} in ${((now - act.at) / 60000).toFixed(1)} min: built ${built} of ${builds.length} houses, signs ${signs}, lamps ${lay?.lit ? 'lit' : 'not'}; houses ${H} for ${M} members${left ? `; ${left} tasks left open` : ''}`);
+    if ((g.fails ?? 0) >= 3) this.growStop(v, `${g.fails} neighbourhoods in a row ended without every house built`);
   }
 
   /**
@@ -2672,7 +2943,7 @@ export class MineflayerWorld implements WorldAdapter {
       for (const [n, q] of items) a.enqueue('deposit', { item: n, count: q, keep_wood: true, chore: true });
       if (items.length) console.log(`[make] ${v.name}: ${a.name} puts back what a stopped make left (${countsList(left)})`);
     }
-    const members = this.idleMembers(v, now);
+    const members = GROW.on ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
     if (!members.length) return;
     const facts = this.sweepFacts(v, now, members[0]);
     // The fields the old wheat loop got as far as reading the busy keys for
@@ -2745,6 +3016,24 @@ export class MineflayerWorld implements WorldAdapter {
       this.sweepCtx = undefined;
     }
     if (none.length || capped) this.noteNone(v, none, capped, now);
+  }
+
+  /**
+   * The members a growing village's sweep leaves alone (s30, D10): the first k idle workers, k the neighbourhood's tasks
+   * that can be claimed now (brains run before the sweep, so they claim on their next tick; board work first, as the
+   * wheat's rule before completion), never the mayor; and the mayor while growth waits only for a free member (the check's
+   * M1: the first sweep would send it on a 20-minute iron trip just before growTick wants it), from completion when this
+   * server saw it happen, else once the first wait has passed.
+   */
+  private growHold(v: Village, members: BotAgent[], now: number): BotAgent[] {
+    let out = members;
+    if (growing(v)) {
+      let k = this.villages.claimable(v).filter((t) => isGrowTask(v, t)).length;
+      // (only workers whose brains take board tasks: one that never claims would be held for nothing, s30's review)
+      out = out.filter((a) => a.memory.villageRole === 'mayor' || !a.brain?.claimsTasks?.(a) || k-- <= 0);
+    }
+    if (this.growDue(v, now, !this.growWatched.has(v.name))) out = out.filter((a) => a.memory.villageRole !== 'mayor');
+    return out;
   }
 
   /** `[choice-none]`: idle members with nothing feasible, by reason; when the reasons change, at most every 5 minutes. */
@@ -3038,11 +3327,17 @@ type OptionRun =
   | { kind: 'light'; part: string; n: number; unlit: number; label: string };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
+/** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks
+ *  nobody holds or can claim for GROW_STUCK_MS is ended as stuck (D13); a site within the village's range (D6). */
+const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000, VILLAGE_GROW_REACH = 96;
+/** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
+ *  handed back (s30's review, L-3). */
+const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light'];
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', grow: 'laying out houses' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 

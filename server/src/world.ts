@@ -210,8 +210,9 @@ export interface WorldAdapter {
 }
 
 /** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
- *  gathering for the workshop; B.4 lighting the buildings and the mine). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light';
+ *  gathering for the workshop; B.4 lighting the buildings and the mine). 'grow' (s30) is code-driven, never on a menu:
+ *  laying out the next neighbourhood. */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'grow';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {
@@ -346,6 +347,10 @@ export interface AgentBrain<A extends WorldAgent = WorldAgent> {
   onEvent?(agent: A, e: AgentEvent): void;
   /** What the brain is doing right now, for the control panel. */
   status?(agent: A): BrainStatus;
+  /** Whether it takes tasks from the village board for this agent (a village grows only with such a worker, s30). */
+  claimsTasks?(agent: A): boolean;
+  /** Whether it holds this board task now (a claim its holder no longer holds is given back, s30). */
+  holdsTask?(agent: A, id: string): boolean;
 }
 
 /** A brain's state at a glance: what it is doing (and since when, ms since the epoch) and why, plus details. */

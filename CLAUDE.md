@@ -27,7 +27,9 @@ the session ends. When a run teaches something new, the plan changes with it (it
      for staged runs and checks at double speed, never for model-driven acceptance runs; `MC_OLLAMA_ROUTES` is
      harmless when every role is on the cloud, and a named local model needs it). Since E.1: `GET /api/perf` (RSS, event-loop delay, tick time, RCON
      in flight and p90, the overview's size), `MC_RCON_TIMEOUT_MS` (15 s), `MC_PF_TICK_MS` (20) and `MC_PF_FREE_SEARCHES` (3) for
-     the pathfinder's shared allowance (`scripts/checks/pf_share.mts`). The hourly budget
+     the pathfinder's shared allowance (`scripts/checks/pf_share.mts`). Since s30 (2026-10-15) a complete village **grows**: code lays out neighbourhoods of up to 4
+     houses until it has a house per member (`server/src/grow.ts`, `[grow]` lines; `MC_GROW=0` turns it off; a growth layout
+     saved under way is watched to its end either way). The hourly budget
      `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
      is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own

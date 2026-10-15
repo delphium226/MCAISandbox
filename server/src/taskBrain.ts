@@ -6,6 +6,7 @@
  * latency or model mistakes. Tiered agents are for testing behaviour.
  */
 import { CLAIM_LOOK_MS, RESERVED_COOL_MS, contentionOf, type Task } from './village';
+import { growing, isGrowTask } from './grow';
 import type { AgentBrain, AgentEvent, WorldAdapter, WorldAgent } from './world';
 
 interface Call { type: string; args: Record<string, unknown> }
@@ -69,6 +70,15 @@ export class TaskBrain implements AgentBrain {
   /** The task it holds. */
   get held(): string | null {
     return this.task;
+  }
+
+  /** A worker takes board tasks; a mayor's runner only beside its plan (s30: who can build a growing village). */
+  claimsTasks(a: WorldAgent): boolean {
+    return a.memory.villageRole !== 'mayor';
+  }
+
+  holdsTask(_a: WorldAgent, id: string): boolean {
+    return this.task === id;
   }
 
   /** Whether it queued this action. */
@@ -208,7 +218,8 @@ export class TaskBrain implements AgentBrain {
       this.action = undefined;
       if (++this.failures >= 2) this.giveUp(a, 'its action was stopped twice');
     }
-    if (!v || v.complete || this.waiting || !a.idle()) return;
+    // (a complete village only while it grows, and never its mayor: the mayor takes the growth chore, not board tasks, s30)
+    if (!v || (v.complete && !(growing(v) && a.memory.villageRole !== 'mayor')) || this.waiting || !a.idle()) return;
     const reg = a.world.villages;
     const held = this.task ? v.tasks.find((t) => t.id === this.task) : undefined;
     // Finished or taken back by code (the first deposit completes the storage task; a short build goes back to the board)
@@ -227,7 +238,7 @@ export class TaskBrain implements AgentBrain {
       this.looked = { version: reg.version, at: now };
       const ready = reg.claimable(v, a.name).filter((t) => {
         const item = /collect block=(\S+)/.exec(t.detail)?.[1];
-        return !item || (this.avoid.get(item) ?? 0) < now;
+        return (!v.complete || isGrowTask(v, t)) && (!item || (this.avoid.get(item) ?? 0) < now);
       });
       const next = (this.opts.pick ? this.opts.pick(ready) : ready)[0];
       if (!next || !reg.claim(v, next.id, a.name)) return;

@@ -2157,7 +2157,12 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   shears, lanterns, tools and interiors.
 - **Roles**: a profession per worker (farmer, miner, builder) tied to its building and named on its sign (Project Sid's
   specialisation).
-- **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room.
+- **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room. (in progress, s30: neighbourhoods tied to population, farms and hunger with them.)
+- **Roads with lighting between neighbourhoods** (the user's request, 10-15, s30): a road from each neighbourhood to the
+  village (or to the nearest neighbourhood), laid like the streets (dirt path by prepare_site's rules, no structure on
+  it: lesson 62) and lit with lamp posts ~8 apart from the torch stock (another real consumer for make:torch). Open: the
+  route over uneven land and water (steps or a cut, a bridge?), and whether roads are planned when a neighbourhood is
+  laid out or as their own chore afterwards.
 - **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
 - **Upkeep**: the mayor checks buildings against their designs and repairs damage.
 - **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
@@ -2632,6 +2637,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-15 (s29) | **B4f** | B.4 at 25: S9f's command, families `make,gather,works,light` | complete 3.3 min; **61 of 61 torches standing** (buildings 23, mine 38; 0 dropped, 4 spots never); 15 light chores by 10 agents; torch demand 45 -> 0, driving 6 make:torch and 4 make:charcoal; 22 agents took an S.9 chore, peak 8 | 48.9 min | after-phase busy 40.2 agent-min (S9f 44.8: the same within noise), B.4's own work 5.2 (lighting 1.0, torches 4.2); LIGHT ok 15 of 15, MAKE ok 29 of 30 (one stone hoe make listed the maker's own pickaxe as left over: fixed after the run); 0 requeues, 0 cloud calls |
 | 10-15 (s29) | **Minevale43** | model-driven, 3 agents, 1x, minevale3 reset, gpt-oss every role, `MC_CHOOSE=fixed`, families `make,gather,works,light`, `MCAI_AFTER=45` (`runs/2026-10-15/mv43_run.py`) | **complete at 17.8 min** (Minevale41/42 10.4/10.2 on the same site), 10 failed actions before completion (F228); after completion 26 makes (MAKE ok 26 of 26), 11 light chores, 49 torches standing (LIGHT ok 11 of 11), works plot and furnaces, 0 requeues | 62.9 min | after-phase busy **38%** (50.9 of 134.9 agent-min; Minevale41 25%); 34 calls, $0.028 |
 | 10-15 (s30) | **Minevale44** | as Minevale43 with F228's three fixes (`8371ab6`), test agent server on 8768 (`runs/2026-10-15/mv44_run.py`; a first start lost its watcher at 2.2 min to another program on 127.0.0.1:8767 and was restarted after a reset) | **complete at 9.1 min**, **0 failed actions in the whole run** (Minevale43 10 before completion); the panes' task ran as written at 4.4 and stocked 16 panes by 5.6 (F218 gone); 0 `[stuck]`/`[lag]`/`[repath]`/`[rescue]`, no furnace waits | 54.2 min | after-phase busy **36%** (48.3 of 135.0 agent-min); 3 calls, ~$0.001 |
+| 10-15 (s30) | **G3** | staged, 2x, minevale3 reset, the S.0 command with B4f's settings at 2 workers and the Mayor (`--after 25 --fixtures --stock ...`, fixed, families on), **`MC_GROW=1`**, the growth code before the reviews' fixes (`runs/2026-10-15/g_runs.py G3`) | **6/6 at 5.6 min; one neighbourhood** (plains_small_house_2 on an 18x18 pad at -1586..-1569, 42..59, ~55 blocks out) posted 1.4 min after completion, built 2.6 min after posting with 3 lamps and its sign, then "enough houses (3 for 3 members)"; chores beside it (15 makes, works and 3 furnaces, 2 light chores); MAKE ok 14 of 14, LIGHT ok 2 of 2 | 30.7 min | after-phase busy **39%** (29.4 of 74.9 agent-min); 0 calls; a stone-pickaxe supply posted while growing (lens 1 L-2, fixed) |
+| 10-15 (s30) | **G25** | staged, 2x, minevale3 reset, B4f's command (24 workers and the Mayor, `--after 45 --fixtures --stock ...`, fixed, families on), **`MC_GROW=1`**, growth with the reviews' fixes (`runs/2026-10-15/g_runs.py G25`) | **6/6 at 5.0 min; 6 neighbourhoods, all built** (22x22 pads of 4 houses, the last of 3; 1.5-3.3 min from posting, median 2.6), houses 2 -> **25 for 25 members** by +25.8, then growth stopped as designed; signs and lamps on every pad; 193 torches standing (LIGHT ok 67 of 67), MAKE ok 66 of 66, 0 requeues after completion | 50.1 min | after-phase busy **177.6 agent-min (16%)** against B4f's 40.2 (4%); 0 calls; no `[lag]`; the first neighbourhood covered the fixture animals (fix review Low 3) |
 
 ## Findings log
 
@@ -4179,6 +4186,30 @@ CLAUDE.md when a phase ends.
   workers claim the growth tasks beside the chores; no extra model calls). Test servers: the test agent server's port is
   now `MCAI_TEST_API_PORT` (default 8767; s30 used 8768 after another program bound 127.0.0.1:8767 mid-run), and
   reset_site.py kills only node listeners.
+- 10-15 (s30, Claude's, from the spec `runs/2026-10-15/s30/spec_grow.md` and its check `spec_grow_check.md`: no High, 3
+  Medium, 15 Low) The growing village's design: a code chore `lay_out_houses` from the world tick (`growTick`), no model
+  calls; neighbourhood pads of up to 4 houses with a cross street (18/19/23/23 by batch, Q2), one layout at a time (Q3),
+  prepared whole (Q4); growth tasks are those with ids from the layout's first, claimable while complete; the Mayor takes
+  the growth chore, never board tasks (Q5); per-chunk keep-off for sighted plants (Q6); houses only grow (Q7). `MC_GROW`
+  off until the 25-agent staged run passes, then on (Q1). The check's fixes taken: the sweep leaves the Mayor out while
+  growth is due (M1), the end-of-run metrics limited to the first layout's tasks with a critical path per growth layout
+  (M2), stage_runs.py on `MCAI_TEST_API_PORT` (M3), and its Low items L1, L3-L5, L9.
+- 10-15 (s30, the user's, during G25) **Farms with the growth, and real hunger now.** Each neighbourhood gets a wheat field
+  and its own farm slots (cane, pumpkin, melon where sighted), like the first layout's ("fields plus crop variety"), and
+  agents get hungry and eat, in this step ("now, with the farms"; Claude had recommended hunger as a later step). Peaceful
+  difficulty never drains hunger, so this means a difficulty above peaceful with hostile spawning kept off, starvation
+  handled and an eat chore from storage. Order: finish growth (G25, the fix review's Medium, commit), then live facts on
+  hunger in 26.1 before any design (drain per activity at 1x and 2x, the starvation floor, what still spawns hostile with
+  `spawn_monsters` false: spawners, patrols, phantoms, wardens; eating and regeneration), then the food count (bread a
+  member-hour against a field's yield), spec, check, implement, reviews, runs.
+- 10-15 (s30, the user's, after the hunger facts) **Hunger as a village appetite, on peaceful.** Live (`runs/2026-10-15/
+  s30_hunger_facts.py`, Gus on easy at 2x): walking ~1,850 blocks cost **no exhaustion at all** (modern Java: walking is
+  free; sprinting 0.1 a block, jumping, swimming, mining 0.005 a block and healing cost food), and 26.1 registered no
+  sprint from the bot; the hunger effect drained food as expected (20 -> 15 in 10 s). Agents that walk and build by command
+  would lose a point or two an hour, so vanilla hunger gives farms no consumer. The user chose a **village appetite**: the
+  world stays peaceful (no mob risk; T1/T2's spawner and hostile checks are moot), code gives each member an appetite
+  (eat every N minutes of work, from storage: bread, cake, eggs ...), and a hungry member slows or stops taking work until
+  fed. Tunable so the fields have a steady consumer at 25.
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

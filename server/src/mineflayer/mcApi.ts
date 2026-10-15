@@ -14,6 +14,7 @@ import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
 import { postLayout } from '../layout';
 import { villageHome } from '../village';
+import { GROW } from '../grow';
 import type { MineflayerWorld } from './mcWorld';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
@@ -81,7 +82,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
 
   if (parts[1] === 'status') {
-    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, agents: [...w.agents.values()].map((a) => a.name) });
+    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on, agents: [...w.agents.values()].map((a) => a.name) });
   }
   // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
   if (parts[1] === 'atlas') {

@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
 import type { Side } from './farmSlots';
+import { growing, housesOf } from './grow';
 
 export interface Area {
   x1: number;
@@ -442,7 +443,22 @@ export interface Village {
     /** The annex beside this layout's plot (the first layout only). */
     annex?: Annex;
     /** The works plot beside the annex (S.9; the first layout only): its furnaces by k - 1 (null once found gone). */
-    works?: SidePlot & { furnaces?: Array<WorksFurnace | null> } }>;
+    works?: SidePlot & { furnaces?: Array<WorksFurnace | null> };
+    /** A neighbourhood laid out as the village grows (s30): its index among the growth layouts, from 1. */
+    grow?: number }>;
+  /**
+   * The village growing once complete (s30, grow.ts; kept on the village, lesson 103): the neighbourhood on the board
+   * (`from`: its first task's id number; `builds`: its Build tasks; `members` and `before`: members and houses when it was
+   * posted; `sig`/`changed`: its tasks' statuses and when they last changed, the stuck rule), those ended, failed layouts
+   * in a row and the back-off (ms), chore failures in a row, "no site" answers, squares plan_layout refused (kept off by
+   * the next survey), and why growth stopped. A past layout's `left`: tasks still open when it ended (lamps, signs).
+   */
+  growth?: {
+    active?: { k: number; layout: number; from: number; at: number; by: string; plot: Area; houses: string[];
+      builds: string[]; members: number; before: number; changed: number; sig: string };
+    past: Array<{ k: number; layout: number; at: number; end: number; houses: number; built: number; failed: number;
+      members: number; why?: 'built' | 'failed' | 'stuck'; left?: number }>;
+    fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -762,7 +778,9 @@ export class VillageRegistry {
       if (preparing.size && t.after.some((id) => preparing.has(id))) return null;
       return m && label ? { item: m[1], n: Number(m[2]), label } : null;
     };
-    const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done').map((t) => t.title.slice(6)));
+    // (not a neighbourhood's failed house, s30: its gathering, closed once the neighbourhood is over, would stay wanted for
+    // every later one, the check's L5)
+    const unbuilt = new Set(v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && !(t.status === 'failed' && t.postedBy === 'grow')).map((t) => t.title.slice(6)));
     // The windows made once (S.3): their sand counts as an unbuilt building's until the pane task is done (its own sand
     // task was never closed as covered otherwise), and so does the log that fuels the smelting (6 a log, from storage;
     // gathered on the first house with windows, and still reserved here once that house is built)
@@ -1136,6 +1154,11 @@ export class VillageRegistry {
    */
   summary(v: Village, forAgent?: string, compact = false, near?: { x: number; z: number }): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
+    const nb = growing(v) ? v.growth!.active! : undefined;
+    if (nb) {
+      const built = nb.builds.filter((id) => this.task(v, id)?.status === 'done').length;
+      lines.push(`Growing: neighbourhood ${nb.k}, ${nb.builds.length} houses at ${areaText(nb.plot)} (built ${built} of ${nb.builds.length}); houses ${housesOf(v)} for ${nb.members} members`);
+    }
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9)
     const plots = v.plots.filter((p) => !p.annex && !p.works);
@@ -1165,7 +1188,7 @@ export class VillageRegistry {
       }));
     }
     // (v.needed as the board's last refresh left it: the world's tick refreshes it every few seconds, E.0)
-    if (!v.complete && v.needed && (v.needed.for.length || Object.keys(v.needs ?? {}).length)) {
+    if ((!v.complete || !!nb) && v.needed && (v.needed.for.length || Object.keys(v.needs ?? {}).length)) {
       const items = Object.entries(v.needed.items).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
       lines.push(items.length
         ? `Materials still to gather (for ${v.needed.for.join(', ') || 'the stock the mayor asked for'}, less the storage and what workers carry; code posts gathering for them): ${items.map(([n, q]) => `${q} ${n}`).join(', ')}`

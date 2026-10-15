@@ -1425,6 +1425,14 @@ function villageLife(v) {
     const placed = (wk?.furnaces || []).filter(Boolean).length;
     items.push(['Works plot', !wk ? 'not started' : wk.state === 'ready' ? `ready, ${placed} of 3 furnaces` : 'being prepared', '']);
   }
+  // (s30: a village that grows, a neighbourhood of houses at a time; its houses' builds by id)
+  const gr = v.growth;
+  if (gr && (gr.active || gr.past?.length || gr.stop)) {
+    const a = gr.active, past = gr.past || [];
+    const built = a ? a.builds.filter((id) => v.tasks.some((t) => t.id === id && t.status === 'done')).length : 0;
+    items.push(['Growing', a ? `neighbourhood ${a.k}: ${built}/${a.builds.length} houses` : `${plural(past.length, 'neighbourhood')}, ${plural(past.reduce((s, p) => s + p.built, 0), 'house')} built`,
+      gr.stop ? `stopped: ${gr.stop}` : a ? `for ${plural(a.members, 'member')}` : '']);
+  }
   // (B.4: the torches confirmed standing in the buildings and the mine, from each part's record; the spots still unlit are
   // the world's to count, so "of M" only when the overview sends the total as lightSpots)
   const lights = Object.entries(v.lights || {});
@@ -1454,7 +1462,7 @@ function simpleVillage(v, agents) {
   // What happened: the village log (tasks and buildings) and chat, newest first
   const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 4).map((e) => `chat: ${e.text}`);
   const happened = [...chat, ...(v.log || []).slice(-8).reverse()].slice(0, 8);
-  const state = v.complete ? ['complete', 'var(--done)'] : builds.length ? ['building', 'var(--acting)'] : ['planning', 'var(--planning)'];
+  const state = v.complete && v.growth?.active ? ['growing', 'var(--acting)'] : v.complete ? ['complete', 'var(--done)'] : builds.length ? ['building', 'var(--acting)'] : ['planning', 'var(--planning)'];
   const stat = (n, label, title = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span></div>`;
   return `<div class="card vhead">
       <div class="vtitle"><span class="vname">${esc(v.name)}</span><span class="state big" style="--c:${state[1]}">${state[0]}</span>

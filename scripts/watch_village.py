@@ -8,7 +8,9 @@ The agents spawn on a ring 4 blocks outside a 40 plot round the site (the mayor'
 probe keeps it loaded, and where they stand is checked (S.0); spawns go at least MCAI_SPAWN_GAP_S seconds apart (default
 2.5, E.1). At the end: each agent's busy and idle minutes (BUSY lines),
 the critical path through the board's tasks (CRIT lines), and STOCK lines of the storage during the run for
-scripts/checks/autonomy_metrics.py.
+scripts/checks/autonomy_metrics.py. With MCAI_AFTER and a growing village (the agent server started with MC_GROW=1), the
+growth layouts as stage_village.py prints them (AFTER GROW, GROW layouts and a GROW line, critical path and task spans per
+layout), and the CRITICAL PATH counts only the tasks before the first growth layout's first id.
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
 Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30);
@@ -19,7 +21,7 @@ MCAI_DESIGN_MODEL (the architect) and MCAI_EXEC_MODEL (every executor). Name a l
 MC_OLLAMA_ROUTES and `python scripts/ollama_exec.py start`. MCAI_REASONING (e.g. exec=medium) overrides the brain's
 reasoning levels. The STOPPED line ends with the run's tokens and cost (/api/usage since the spawn).
 """
-import json, os, math, re, subprocess, sys, time, urllib.error, urllib.request
+import json, os, math, re, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
 # Chat and model text can hold any character; the Windows console encoding cannot
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -315,6 +317,220 @@ def listing():
         return None
 
 
+# A village that grows (s30, runs/2026-10-15/s30/spec_grow.md 8; as in stage_village.py, keep the two alike): the growth layouts as the village record shows them
+# (v.growth: the active layout with its first task id `from`, the past ones; layouts[] entries carry grow: k), and the
+# board split at the first growth layout's first id so the run's own lines describe the village it built
+DWELLING_PIECE = re.compile(r"^(plains|desert|savanna|taiga|snowy)_")
+
+
+def is_dwelling(name):
+    """grow.ts isDwelling (D3), for the houses count H: vanilla pieces only as small, medium or big houses, other names by
+    their words."""
+    if name in ("storage_hut", "mining_hut"):
+        return False
+    if DWELLING_PIECE.match(name):
+        return bool(re.search(r"_(small|medium|big)_house_\d+$", name))
+    return bool(re.search(r"house|cottage|home|cabin|dwelling|lodge|hut", name)) and not re.search(
+        r"hall|library|meeting|shop|smith|temple|church|tavern|inn|market|barn|storage|workshop|mine|tower", name)
+
+
+def task_num(t):
+    return int(re.sub(r"\D", "", str(t["id"])) or 0)
+
+
+GROW_GATHER = re.compile(r"^Gather \d+ (\S+)")
+# Growth tasks that take from or put into storage (builds, lamps, signs, the windows' make): their claim-to-end spans go to
+# make_log.py as GROW TASK lines, so a make they overlap is not read as a storage mismatch (lesson 132)
+GROW_STORAGE = re.compile(r"^(Build |Light the streets|Put up the sign|Make \d+ )")
+
+
+def server_grow():
+    """Whether the agent server grows villages: /api/status's `grow` (s30), else this environment's MC_GROW (an older
+    server; the server's own setting is what counts, the review's lens 3 L5)."""
+    try:
+        st = call("/status")
+        if isinstance(st, dict) and "grow" in st:
+            return bool(st["grow"])
+    except Exception:
+        pass
+    return os.environ.get("MC_GROW") == "1"
+
+
+class GrowWatch:
+    """The growth layouts seen during the after phase: each one's first task id (from the active record; a layout ended
+    between two polls falls back to its own prepare task, posted first), its record, and the lines to print."""
+
+    def __init__(self, t0, members):
+        self.t0, self.members = t0, members
+        self.k = {}
+        self.seen, self.h0, self.stop = None, None, None
+        # (whether the agent server grows villages, read at the after phase's start; the builds' takes by design)
+        self.on, self.bills = None, {}
+
+    def takes(self, v, t):
+        """What a growth build can take from storage, for make_log.py: its bill's items, what its plan crafts or smelts, and
+        fuel when it smelts (GET /api/village/V/designs/D/bill); '' when the API cannot say."""
+        m = re.match(r'build_design "([^"]+)"', t.get("detail") or "")
+        if not m:
+            return ""
+        d = m.group(1)
+        if d not in self.bills:
+            try:
+                b = call(f"/village/{urllib.parse.quote(v['name'])}/designs/{urllib.parse.quote(d)}/bill")
+            except Exception:
+                b = None
+            items = set()
+            if isinstance(b, dict) and isinstance(b.get("bill"), dict):
+                items |= set(b["bill"])
+                for st in b.get("steps") or []:
+                    items |= {x for x in (st.get("item"), st.get("input")) if x}
+                if (b.get("fuel") or {}).get("smelts"):
+                    items |= {"charcoal", "coal"}
+            self.bills[d] = ",".join(sorted(items))
+        return self.bills[d]
+
+    def froms(self, v):
+        """{k: first task id}: the active record's where seen, else the k-th growth prepare task's."""
+        out = {k: r["from"] for k, r in self.k.items() if r.get("from")}
+        preps = sorted(task_num(t) for t in v.get("tasks") or [] if t.get("postedBy") == "grow" and t["title"].startswith("Prepare "))
+        for i, n in enumerate(preps):
+            out.setdefault(i + 1, n)
+        return out
+
+    def first(self, v):
+        """The first growth layout's first id, or None (no growth: every task is the village's)."""
+        ids = list(self.froms(v).values()) + [task_num(t) for t in v.get("tasks") or [] if t.get("postedBy") == "grow"]
+        return min(ids) if ids else None
+
+    def base(self, v):
+        """The tasks posted before the first growth layout (the village as built to completion)."""
+        f = self.first(v)
+        return [t for t in v.get("tasks") or [] if f is None or task_num(t) < f]
+
+    def tasks_of(self, v, k):
+        """Layout k's tasks: from its first id to the next layout's (one layout at a time, so its requeues and needs fall
+        inside)."""
+        fr = self.froms(v)
+        lo = fr.get(k)
+        if lo is None:
+            return []
+        hi = min([n for kk, n in fr.items() if n > lo] or [float("inf")])
+        return [t for t in v.get("tasks") or [] if lo <= task_num(t) < hi]
+
+    def record(self, v, k):
+        r = dict(self.k.get(k) or {})
+        g = v.get("growth") or {}
+        for p in g.get("past") or []:
+            if p.get("k") == k:
+                r.update({kk: p[kk] for kk in ("layout", "at", "end", "built", "failed", "members", "why") if kk in p})
+                r["n"] = p.get("houses", r.get("n"))
+        lay = next((l for l in v.get("layouts") or [] if l.get("grow") == k), None)
+        if lay and not r.get("plot"):
+            r["plot"] = {q: lay.get(q) for q in ("x1", "x2", "z1", "z2")}
+        return r
+
+    def members_now(self, v):
+        g = v.get("growth") or {}
+        a = g.get("active") or {}
+        past = g.get("past") or []
+        return a.get("members") or (past[-1].get("members") if past else None) or self.members
+
+    def update(self, v):
+        """Lines for what changed since the last poll."""
+        out = []
+        g = v.get("growth") or {}
+        a = g.get("active")
+        H = sum(1 for s in v.get("structures") or [] if is_dwelling(s.get("kind", "")))
+        if self.h0 is None:
+            self.h0 = H
+        if a and a.get("k") is not None:
+            r = self.k.setdefault(a["k"], {})
+            r.update({kk: a.get(kk) for kk in ("layout", "from", "at", "plot", "houses", "builds", "members", "before")})
+            r["n"] = len(a.get("houses") or [])
+        M = self.members_now(v)
+        ks = sorted(set(self.k) | {p.get("k") for p in g.get("past") or [] if p.get("k") is not None})
+        for k in ks:
+            r = self.record(v, k)
+            builds = [t for t in self.tasks_of(v, k) if t["title"].startswith("Build ")]
+            n = r.get("n") if r.get("n") is not None else len(builds)
+            b = sum(1 for t in builds if t["status"] == "done") if builds else r.get("built", 0)
+            ended = r.get("why") or ("ended" if r.get("end") else None)
+            sig = (b, n, H, M, ended)
+            if self.k.get(k, {}).get("_sig") == sig:
+                continue
+            self.k.setdefault(k, {})["_sig"] = sig
+            p = r.get("plot") or {}
+            area = f"{p.get('x1')}..{p.get('x2')},{p.get('z1')}..{p.get('z2')}" if p else "?"
+            chests = len((v.get("storage") or {}).get("chests") or [])
+            out.append(f"GROW layout {r.get('layout', '?')} ({k}): {n} houses posted at {area}; built {b}/{n}; houses {H} for {M} members; chests {chests}"
+                       + (f"; ended {ended}: built {r.get('built', b)} of {n}, failed {r.get('failed', 0)}" if ended else ""))
+        if g.get("stop") and g["stop"] != self.stop:
+            self.stop = g["stop"]
+            out.append(f"GROW stopped: {self.stop}")
+        return out
+
+    def end_lines(self, v, stamps):
+        """The summary: one line for all layouts, then per layout its houses, members, plot, minutes from posting to built,
+        its gathering's minutes and its critical path; then the GROW TASK spans for make_log.py."""
+        g = v.get("growth") or {}
+        m = lambda s: f"+{(s - self.t0) / 60:.1f}" if s else "-"
+        ks = sorted(set(self.froms(v)) | set(self.k) | {p.get("k") for p in g.get("past") or [] if p.get("k") is not None})
+        H1 = sum(1 for s in v.get("structures") or [] if is_dwelling(s.get("kind", "")))
+        whys, mins, per, crit = {}, [], [], []
+        for k in ks:
+            r = self.record(v, k)
+            tasks = self.tasks_of(v, k)
+            builds = [t for t in tasks if t["title"].startswith("Build ")]
+            posted = (r["at"] / 1000) if r.get("at") else min([stamps.posted(t) for t in tasks if stamps.posted(t)] or [0]) or None
+            ends = [stamps.end(t) for t in builds]
+            built_at = max(ends) if builds and all(t["status"] == "done" for t in builds) and all(ends) else None
+            why = r.get("why") or ("active" if not r.get("end") else "ended")
+            whys[why] = whys.get(why, 0) + 1
+            took = (built_at - posted) / 60 if built_at and posted else None
+            if took is not None:
+                mins.append(took)
+            gather = {}
+            for t in tasks:
+                mm = GROW_GATHER.match(t["title"])
+                if not mm or t["status"] != "done" or not stamps.end(t) or not stamps.last_claim(t):
+                    continue
+                mat = "logs" if mm.group(1) == "logs" or mm.group(1).endswith("_log") else mm.group(1)
+                q = gather.setdefault(mat, [0, 0.0])
+                q[0] += 1
+                q[1] += (stamps.end(t) - stamps.last_claim(t)) / 60
+            p = r.get("plot") or {}
+            n = r.get("n") if r.get("n") is not None else len(builds)
+            per.append(f"GROW layout {r.get('layout', '?')} ({k}): {n} houses ({', '.join(r.get('houses') or []) or '-'}), members {r.get('members', '?')}, "
+                       f"plot {p.get('x1')}..{p.get('x2')},{p.get('z1')}..{p.get('z2')}, posted {m(posted)}, built "
+                       f"{sum(1 for t in builds if t['status'] == 'done')} of {len(builds)}"
+                       + (f" by {m(built_at)} ({took:.1f} min from posting)" if took is not None else "")
+                       + (f", ended {why} {m(r['end'] / 1000)}" if r.get("end") else f", {why}") + f"; {len(tasks)} tasks; gathering "
+                       + (", ".join(f"{mat} {q[0]} tasks {q[1]:.1f} min" for mat, q in sorted(gather.items())) or "none"))
+            if posted:
+                crit += [ln.replace("CRITICAL PATH", f"GROW CRITICAL PATH layout {r.get('layout', '?')} ({k}),", 1) if ln.startswith("CRITICAL PATH") else "GROW " + ln
+                         for ln in critical_path_lines(tasks, stamps, posted)]
+        srt = sorted(mins)
+        med = f" (median {srt[len(srt) // 2]:.1f})" if srt else ""
+        out = [f"GROW layouts {len(ks)} ({whys.get('built', 0)}/{whys.get('failed', 0)}/{whys.get('stuck', 0)}"
+               + "".join(f", {n} {w}" for w, n in sorted(whys.items()) if w not in ("built", "failed", "stuck"))
+               + f"), houses {self.h0 if self.h0 is not None else '?'} -> {H1} for {self.members_now(v)} members, minutes per layout "
+               + ("/".join(f"{x:.1f}" for x in mins) or "-") + med + f", stop: {g.get('stop') or '-'}"]
+        out += per + crit
+        f = self.first(v)
+        for t in v.get("tasks") or []:
+            c = stamps.first_claim(t)
+            if f is None or task_num(t) < f or not GROW_STORAGE.match(t["title"]) or not c:
+                continue
+            e = stamps.end(t)
+            # (a build's takes: what make_log.py may excuse a make's storage count by, the review's lens 3 M3)
+            takes = self.takes(v, t) if t["title"].startswith("Build ") else ""
+            out.append(f"GROW TASK {t['id']} claimed={int(c * 1000)} end={int(e * 1000) if e else '-'} by={t.get('claimedBy') or '-'} "
+                       + (f"takes={takes} " if takes else "") + t["title"])
+        return out
+
+
+grow = GrowWatch(t0, len(names))
+
 while time.time() - t0 < minutes * 60:
     time.sleep(5)
     for n in names:
@@ -383,6 +599,9 @@ if after and reason == "objective declared complete":
     print(f"{stamp()} COMPLETE; watching {after:g} min more (MCAI_AFTER)", flush=True)
     t2, slots_seen, explore_seen = time.time(), {}, None
     print(f"AFTER start at {stamp().strip()}", flush=True)
+    # (a village that grows, s30: as the agent server says, else this environment's MC_GROW)
+    grow.on = server_grow()
+    print(f"AFTER GROW {'on' if grow.on else 'off'}", flush=True)
     clock.restart()
     while time.time() - t2 < after * 60:
         time.sleep(5)
@@ -398,6 +617,10 @@ if after and reason == "objective declared complete":
                     print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
         v = call(f"/village/{village}")
         stock_line(v)
+        # (the board's stamps go on through the after phase: growth tasks are claimed and done there, the spec check's M2)
+        stamps.update(v["tasks"])
+        for line in grow.update(v):
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m {line}", flush=True)
         for k, lay in enumerate(v.get("layouts") or []):
             for j, sl in enumerate(lay.get("slots") or []):
                 t = f"{sl.get('kind') or 'free'} planted={sl.get('planted')} harvests={sl.get('harvests')} tries={sl.get('tries')}"
@@ -418,8 +641,13 @@ print(f"\nSTOPPED after {(time.time() - t0) / 60:.1f}m ({reason}); {chats} chat 
 print("TASKS")
 for t in v["tasks"]:
     print(f"  {t['id']} [{t['status']}{'/' + t['claimedBy'] if t.get('claimedBy') else ''}] {t['title']}: {t['detail'][:140]}")
-for line in clock.lines() + critical_path_lines(v["tasks"], stamps, t0, complete_at):
+# (the village as built to completion: the tasks before the first growth layout's first id; then the growth layouts')
+for line in clock.lines() + critical_path_lines(grow.base(v), stamps, t0, complete_at):
     print(line)
+# (only with growth: a run without it prints what it did before s30, the review's lens 3 L4)
+if (grow.on and after and reason.endswith(" min after")) or v.get("growth"):
+    for line in grow.end_lines(v, stamps):
+        print(line)
 print("DESIGNS", [(d["name"], f"{d['width']}x{d['depth']}x{d['height']}") for d in v["designs"].values()])
 print("PLOTS", [(p["id"], p["x1"], p["x2"], p["z1"], p["z2"], p["y"]) for p in v["plots"]])
 storage = {}

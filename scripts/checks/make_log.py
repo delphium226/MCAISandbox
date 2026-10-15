@@ -23,6 +23,16 @@ skipped=Q carried0=C took=T back=B left=L walk=... sec=...` end line (put_up_tor
 dropped, plus unconfirmed=U when the server gave no answer); and a stage log's `AFTER LIGHT standing S of D` (the server's check of every recorded spot at the end) must
 have S == D. Also the light chores queued and their walks (door or fallback stand, failed walks), the torch demand lines,
 and the light chores' minutes from the [choice] records. Prints `LIGHT ok N of M`.
+
+A village that grows (s30, runs/2026-10-15/s30/spec_grow.md risk 6): growth builds, lamps, signs and the windows' make take
+from and put into storage beside the makes, and their withdrawals are not logged. A make whose storage count is off while
+growth board work ran (its chore's [choice] to [choice-end], against the stage log's `GROW TASK id claimed=MS end=MS|- by=A
+title` spans) is a note naming that work, not a mismatch, when the work can take that good (a build by its bill, the
+stage log's takes=; lamps, signs and the windows' make by their goods). Without the spans, a make during a growth layout (the
+agent log's `[grow] V: layout L ... posted` to `... ended` lines, by log order) leaves its count unchecked: neither ok nor a
+mismatch. Read the make's own line before trusting either (lesson 132). A growth build put back for materials is a mismatch
+only when a make that took one of the short materials ran inside the build's span (traced to a make); otherwise a note.
+Without growth lines nothing changes.
 """
 import json, os, re, sys
 from collections import defaultdict
@@ -57,6 +67,12 @@ STANDING = re.compile(r"AFTER LIGHT standing (\d+) of (\d+)(?: \((\d+) not loade
 # moves is a note only when a light chore or the sweep's put-back of a stopped make's torches overlapped the make (B.4's fix
 # review, M1: otherwise a real torch shortfall was hidden)
 TAKEN_BY_OTHERS = {"stone_pickaxe", "stone_hoe", "charcoal"}
+# A village that grows (spec 2.6): a layout posted and ended in the agent log; the stage log's growth task spans; a build put
+# back for materials (its task id)
+GROW_POSTED = re.compile(r"^\[grow\] (\S+): layout (\S+) \(neighbourhood (\d+)\) posted by (\S+)")
+GROW_ENDED = re.compile(r"^\[grow\] (\S+): layout (\S+) ended (\S+) in ([\d.]+) min")
+GROW_TASK = re.compile(r"^GROW TASK (t\d+) claimed=(\d+) end=(\d+|-) by=(\S+)(?: takes=(\S*))? (.*)")
+REQUEUE_ID = re.compile(r"put (t\d+) back on the board to wait for them|(t\d+) \"[^\"]*\" waits for .*: materials were short")
 PUTBACK = re.compile(r"^\[make\] (\S+): (\S+) puts back what a stopped make left \((.*)\)")
 
 
@@ -87,7 +103,19 @@ ends, smaller, queued, gather_q, works, tech = [], {}, [], [], [], []
 choices, choice_ends = {}, {}
 light_ends, light_q, light_walks, light_demand = [], [], [], []
 putbacks = []
+grow_layouts = []
 for i, ln in enumerate(lines):
+    m = GROW_POSTED.match(ln)
+    if m:
+        grow_layouts.append(dict(village=m.group(1), layout=m.group(2), k=int(m.group(3)), by=m.group(4), i=i, end=None, why=None))
+        continue
+    m = GROW_ENDED.match(ln)
+    if m:
+        for g in reversed(grow_layouts):
+            if g["village"] == m.group(1) and g["layout"] == m.group(2) and g["end"] is None:
+                g["end"], g["why"] = i, m.group(3)
+                break
+        continue
     m = PUTBACK.match(ln)
     if m:
         putbacks.append(dict(village=m.group(1), agent=m.group(2), items=counts(m.group(3).replace(" ", "")), i=i))
@@ -139,11 +167,79 @@ for i, ln in enumerate(lines):
         if ln.startswith(tag):
             try:
                 r = json.loads(ln[len(tag):])
+                r["_i"] = i
                 store[r["id"]] = r
             except (ValueError, KeyError):
                 pass
 
 problems, notes = [], []
+
+# ---- a village that grows: the growth tasks' spans from the stage logs (ms since the epoch; end None while open)
+# (and the tasks put back for materials: such a build deposits what it withdrew)
+grow_tasks, put_back = {}, set()
+for f in stage_logs:
+    for ln in open(f, encoding="utf-8", errors="replace"):
+        m = GROW_TASK.match(ln)
+        if m:
+            grow_tasks[m.group(1)] = dict(id=m.group(1), t0=int(m.group(2)), t1=None if m.group(3) == "-" else int(m.group(3)), by=m.group(4),
+                                          takes=None if m.group(5) is None else set(filter(None, m.group(5).split(","))), title=m.group(6).strip())
+        m = REQUEUE_ID.search(ln)
+        if m:
+            put_back.add(m.group(1) or m.group(2))
+
+
+def make_window(e):
+    """A make end line's chore: its [choice] record's time (the last make choice of that agent and item before the end
+    line) and its [choice-end]'s; (None, None) when the choice log has none."""
+    c = max((c for c in choices.values() if c.get("kind") == "make" and c.get("agent") == e["agent"] and (c.get("chosen") or "") == f"make:{e['item']}"
+             and c["_i"] < e["i"]), key=lambda c: c["_i"], default=None)
+    if not c:
+        return None, None
+    return c.get("t"), choice_ends.get(c["id"], {}).get("tEnd")
+
+
+def can_take(g, item):
+    """Whether a growth task can take this good from storage (the review's lens 3 M3: any overlapping task excused any
+    good): a build what its bill holds (`takes=` from the stage log; without it, the goods a house is built of and smelting
+    fuel), the lamps torches, sticks, fences, planks and fuel, a sign signs, sticks and planks, the windows' make its glass,
+    sand and fuel, another make its own good."""
+    title, fuel = g["title"], item in ("charcoal", "coal")
+    if title.startswith("Build "):
+        if g.get("takes") is None:
+            return item in ("glass", "glass_pane", "stone_bricks", "smooth_stone") or fuel
+        # (the bill names the design's wood, oak, while the village builds in its own kind, birch: any kind matches)
+        wood = lambda n: re.sub(r"^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_", "WOOD_", n)
+        return item in g["takes"] or wood(item) in {wood(t) for t in g["takes"]}
+    if title.startswith("Light the streets"):
+        return item in ("torch", "stick") or fuel or item.endswith(("_fence", "_planks"))
+    if title.startswith("Put up the sign"):
+        return item == "stick" or item.endswith(("_sign", "_planks"))
+    m = re.match(r"Make \d+ (\S+)", title)
+    if m:
+        return item == m.group(1) or (m.group(1) in ("glass", "glass_pane") and (item in ("glass", "sand", "red_sand") or fuel))
+    return False
+
+
+def growth_during(e, more):
+    """The growth board work a make overlapped that can explain its storage count, as (text, unchecked): text '' when none
+    can (or no growth at all). A count short of what was made (`more` false) can be a growth task's withdrawal of that good;
+    one beyond it only the windows' make of that good depositing, or a build put back depositing what it withdrew. Without
+    GROW TASK spans, a growth layout under way (by log order, a short count only) leaves the count unchecked, not excused."""
+    t0, t1 = make_window(e)
+    if grow_tasks and t0:
+        hit = [g for g in grow_tasks.values() if g["t0"] < (t1 or float("inf")) and (g["t1"] is None or g["t1"] > t0)
+               and (can_take(g, e["item"]) if not more else (re.match(rf"Make \d+ {e['item']}\b", g["title"]) or (g["title"].startswith("Build ") and g["id"] in put_back)))]
+        return ", ".join(f"{g['id']} {g['title'][:40]} ({g['by']})" for g in hit[:4]) + (f" and {len(hit) - 4} more" if len(hit) > 4 else ""), False
+    # (no spans: a growth layout of the village under way, from the make's queue line to its end line; a count short of what
+    # was made only)
+    if more:
+        return "", False
+    start = max((q["i"] for q in queued if q["agent"] == e["agent"] and q["item"] == e["item"] and q["i"] < e["i"]), default=e["i"])
+    return "", any(g["village"] == e["village"] and g["i"] < e["i"] and (g["end"] is None or g["end"] > start) for g in grow_layouts)
+
+
+grow_notes = 0
+unchecked = []
 
 
 def light_during(e):
@@ -195,16 +291,23 @@ for e in ends:
         if n in e["took"] and q > e["took"][n] and not sawn(n):
             bad.append(f"gave back {q} {n}, took {e['took'][n]}")
     d = e["after"] - e["before"]
+    grown = None
     if d != e["made"]:
         if d < e["made"] and e["item"] in TAKEN_BY_OTHERS:
             notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (taken from storage meanwhile)")
         elif e["item"] == "torch" and light_during(e):
             notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (a light chore or a put-back moved torches meanwhile)")
+        elif any(grown := growth_during(e, d > e["made"])):
+            if grown[0]:
+                grow_notes += 1
+                notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (growth board work meanwhile: {grown[0]})")
+            else:
+                unchecked.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (a growth layout under way, no GROW TASK spans)")
         else:
             bad.append(f"storage {e['before']}->{e['after']} for {e['made']} made")
     if bad:
         problems.append(f"{who}: " + "; ".join(bad) + f"  [{e['line'][:200]}]")
-    else:
+    elif not (grown and not grown[0] and grown[1]):
         made_ok += 1
 
 # ---- gathering, from the chores' own records
@@ -257,15 +360,41 @@ for i, (s, e, k, _) in enumerate(spans):
 
 # ---- builds put back for materials after completion (the stage log's AFTER lines)
 requeues = []
+grow_requeues, traced = [], []
+
+
+def took_short(mat, took):
+    """Whether a make's take holds a material a requeue posted gathering for (any log for logs)."""
+    if mat == "logs" or mat.endswith("_log"):
+        return any(n.endswith("_log") for n in took)
+    return mat in took
+
+
 for f in stage_logs:
     after = False
     for ln in open(f, encoding="utf-8", errors="replace"):
         if ln.startswith("AFTER start"):
             after = True
         if after and (re.search(r"back on the board to wait for them", ln) or re.search(r"waits for .*: materials were short", ln)):
-            requeues.append(ln.strip()[:200])
+            m = REQUEUE_ID.search(ln)
+            g = grow_tasks.get(m.group(1) or m.group(2)) if m else None
+            if not g:
+                requeues.append(ln.strip()[:200])
+                continue
+            # (a growth build: traced to a make when a make that took a short material ran inside the build's span)
+            short = set(re.findall(r"Gather \d+ (\S+) for", ln))
+            hit = []
+            for e in ends:
+                t0, t1 = make_window(e)
+                if t0 and t0 < (g["t1"] or float("inf")) and (t1 is None or t1 > g["t0"]) and any(took_short(mt, e["took"]) for mt in short):
+                    hit.append(f"{e['agent']} {e['item']} took {','.join(f'{n}:{q}' for n, q in e['took'].items())}")
+            (traced if hit else grow_requeues).append(f"{g['id']} {g['title'][:40]} short of {', '.join(sorted(short)) or '?'}" + (f": {'; '.join(hit[:3])}" if hit else ""))
 if requeues:
     problems.append(f"{len(requeues)} builds put back for materials after completion (first: {requeues[0]})")
+for t in traced:
+    problems.append(f"a growth build put back for materials a make took meanwhile: {t}")
+for t in grow_requeues:
+    notes.append(f"a growth build put back for materials (no make took them meanwhile): {t}")
 
 # ---- B.4's light chores: each end line's torches and placements, the stage log's standing check
 light_ok = 0
@@ -326,6 +455,12 @@ for n in notes[:30]:
 for p in problems[:40]:
     print(f"MISMATCH {p}")
 print(f"requeues for materials after completion: {len(requeues)}" if stage_logs else "requeues: not checked (no STAGE_LOG)")
+# (a village that grows: only when its lines are there)
+if grow_layouts or grow_tasks:
+    print(f"growth: {len(grow_layouts)} layouts posted, {sum(1 for g in grow_layouts if g['end'] is not None)} ended ("
+          + (", ".join(f"{g['layout']} {g['why'] or 'open'}" for g in grow_layouts) or "-")
+          + f"); {len(grow_tasks)} GROW TASK spans; {grow_notes} makes with storage moved by growth work, {len(unchecked)} unchecked; growth builds put back "
+          f"{len(grow_requeues) + len(traced)} ({len(traced)} traced to a make)")
 # (B.4) the light chores
 by_part = defaultdict(lambda: [0, 0, 0])
 for e in light_ends:
@@ -349,6 +484,9 @@ if light_demand:
           f"last {last['demand']} (buildings {last['buildings']}, mine {last['mine']}, target {last['target']}), most {max(d['demand'] for d in light_demand)}")
 for s, d, u, f in standing:
     print(f"standing check ({os.path.basename(f)}): {s} of {d} recorded torches standing" + (f" ({u} not loaded)" if u else ""))
-print(f"MAKE ok {made_ok} of {made_n}")
+for u in unchecked[:20]:
+    print(f"unchecked: {u}")
+# (a make's storage count during growth with no GROW TASK spans is neither ok nor a mismatch: pass the stage log)
+print(f"MAKE ok {made_ok} of {made_n}" + (f"; storage unchecked {len(unchecked)} (growth without GROW TASK spans)" if unchecked else ""))
 print(f"LIGHT ok {light_ok} of {len(light_ends)}")
 sys.exit(1 if problems else 0)
