@@ -2163,6 +2163,20 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   it: lesson 62) and lit with lamp posts ~8 apart from the torch stock (another real consumer for make:torch). Open: the
   route over uneven land and water (steps or a cut, a bridge?), and whether roads are planned when a neighbourhood is
   laid out or as their own chore afterwards.
+- **More variety in neighbourhood styles** (the user's request, 10-15, s30): G25's six neighbourhoods were the same four
+  plains small houses on the same 22x22 cross-street pad, the 4-house batch repeating houses 1 and 2. Ideas: each
+  neighbourhood its own character (a biome's other houses: medium houses, other biomes' pieces that pass the survival
+  checks, V2.1's 62; model-drawn houses through `submit_style` with a theme per neighbourhood, D.2's generator; wood kinds
+  and roof styles varied per neighbourhood), other pad plans than the cross (a row along a road, a cul-de-sac, a small
+  green), and lamp and sign styles to match. Open: how much the model decides (a theme per neighbourhood from the Mayor,
+  one call each) against code choosing from the library.
+  **Joined with voting (the user's, 10-15): the next neighbourhood's style is the village's first vote**, built after the
+  food step: code prepares 2-4 buildable options (houses, wood, pad plan), every member casts a ballot (one model call:
+  the options with their facts, plus a little about the voter: home, work, what it built) with a one-line reason, code
+  tallies, applies, logs every reason and shows it on the panel (~25 gpt-oss calls a vote, ~$0.01). Measure whether
+  ballots follow each voter's facts or the option order (a bench like choicebench) before reading meaning into results;
+  agents have no lasting preferences until G2's memory, so voting and memory belong together later. Later topics: village
+  policies (stock targets, the appetite rate, growing further), then open proposals (G1-style triage).
 - **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
 - **Upkeep**: the mayor checks buildings against their designs and repairs damage.
 - **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
@@ -2639,6 +2653,8 @@ One row per model-driven or staged run worth remembering. Time is to the last bu
 | 10-15 (s30) | **Minevale44** | as Minevale43 with F228's three fixes (`8371ab6`), test agent server on 8768 (`runs/2026-10-15/mv44_run.py`; a first start lost its watcher at 2.2 min to another program on 127.0.0.1:8767 and was restarted after a reset) | **complete at 9.1 min**, **0 failed actions in the whole run** (Minevale43 10 before completion); the panes' task ran as written at 4.4 and stocked 16 panes by 5.6 (F218 gone); 0 `[stuck]`/`[lag]`/`[repath]`/`[rescue]`, no furnace waits | 54.2 min | after-phase busy **36%** (48.3 of 135.0 agent-min); 3 calls, ~$0.001 |
 | 10-15 (s30) | **G3** | staged, 2x, minevale3 reset, the S.0 command with B4f's settings at 2 workers and the Mayor (`--after 25 --fixtures --stock ...`, fixed, families on), **`MC_GROW=1`**, the growth code before the reviews' fixes (`runs/2026-10-15/g_runs.py G3`) | **6/6 at 5.6 min; one neighbourhood** (plains_small_house_2 on an 18x18 pad at -1586..-1569, 42..59, ~55 blocks out) posted 1.4 min after completion, built 2.6 min after posting with 3 lamps and its sign, then "enough houses (3 for 3 members)"; chores beside it (15 makes, works and 3 furnaces, 2 light chores); MAKE ok 14 of 14, LIGHT ok 2 of 2 | 30.7 min | after-phase busy **39%** (29.4 of 74.9 agent-min); 0 calls; a stone-pickaxe supply posted while growing (lens 1 L-2, fixed) |
 | 10-15 (s30) | **G25** | staged, 2x, minevale3 reset, B4f's command (24 workers and the Mayor, `--after 45 --fixtures --stock ...`, fixed, families on), **`MC_GROW=1`**, growth with the reviews' fixes (`runs/2026-10-15/g_runs.py G25`) | **6/6 at 5.0 min; 6 neighbourhoods, all built** (22x22 pads of 4 houses, the last of 3; 1.5-3.3 min from posting, median 2.6), houses 2 -> **25 for 25 members** by +25.8, then growth stopped as designed; signs and lamps on every pad; 193 torches standing (LIGHT ok 67 of 67), MAKE ok 66 of 66, 0 requeues after completion | 50.1 min | after-phase busy **177.6 agent-min (16%)** against B4f's 40.2 (4%); 0 calls; no `[lag]`; the first neighbourhood covered the fixture animals (fix review Low 3) |
+| 10-15 (s30) | **G3f** | as G3 with **`MC_GROW_FARMS=1 MC_APPETITE=18`**, `--after 60 --appetite-start 14`, the food code before its reviews' fixes (`runs/2026-10-15/g_runs.py G3f`) | **6/6 at 4.8 min**; one neighbourhood (19x19, a field and 2 slots; its field sown 8 of 16, food review lens 2's High); both fields planted and harvested (5 harvests), FIELDS ticking 100%; 13 bread (11 from harvests), 2 pumpkin pies, 3 cakes, a melon farm on a slot (148 slices); 10 meals, every member ate, hungry 0.0%; **FOOD ok** (made 419 points, eaten 59), MAKE ok 21 of 21, LIGHT ok 14 of 14 | 64.9 min | after-phase busy **28%** (49.9 of 179.9 agent-min); 0 calls; at 3 members the fields far outrun the appetite, as counted |
+| 10-15 (s30) | **G25f** | as G25 with **`MC_GROW_FARMS=1 MC_APPETITE=18`**, `--after 75 --appetite-start 14`, the food code with its reviews' fixes (`runs/2026-10-15/g_runs.py G25f`) | **6/6 at 2.6 min; 6 neighbourhoods** (houses 2 -> 25 by +21.5; pads 30x30 with a field and slots, the last 27x27 with no field: thin grass while storage lacked 16 seeds, the fix review's Medium, fixed after); **6 fields planted (each 16 of 16) and harvested, 16 harvests**, FIELDS ticking 100%; 58 bread (51 from harvests), 13 pumpkin pies, 8 cakes, 236 melon slices; **52 meals, every member ate; hungry 2.2% of member-time** (1.4% after +30, 0.0% after +45); **FOOD ok** (made 978 points, eaten 379); LIGHT ok 76 of 76; **MAKE ok 91 of 93** (F229, F230: not food) | 77.7 min | after-phase busy 9% (167.9 of 1874.8 agent-min over 75 min; G25 177.6 over 45): food adds little agent time, as counted; 0 calls; 0 `[lag]` |
 
 ## Findings log
 
@@ -3744,6 +3760,15 @@ CLAUDE.md when a phase ends.
   leftovers, a gather task's material), queued as chores. **Minevale44** (model-driven): complete at 9.1 min, 0 failed
   actions in 54 min; the panes' task ran as written (F218 gone). (2) and (3) did not come up (no smelt ran dry, no task was
   given up): they rest on the live smelt check and the code.
+- F229 (10-15, s30, G25f) make_log MISMATCH "glass: storage 5->8 for 8 made": Worker9's workshop make of 16 glass_pane took 5
+  glass from storage during Worker18's glass make. make_log knows growth tasks and food chores that take a good, but not
+  another workshop make consuming this make's output (lesson 132's kind). Fix in make_log: a make whose good is another
+  overlapping make's input (glass for panes, charcoal for torches, planks for many) excuses a short count up to that
+  make's take. Not a defect of the makes.
+- F230 (10-15, s30, G25f) "charcoal: made 4 of a batch of 5": the smelt of 5 logs deposited 4 charcoal and put back the
+  plan's 1 coal: the refuel took the freshly made charcoal as fuel (addFuel's FUELS-first order finds the output before the
+  coal the plan budgeted, smelt's `coal` budget being for the ingredient case only). Small (1 a batch); fix with addFuel
+  preferring the item the plan reserved as fuel, never the smelt's own output.
 ## Decisions log
 
 - 09-28 One wood kind per village, when enough of it grows near the site (user agreed).
@@ -4208,8 +4233,27 @@ CLAUDE.md when a phase ends.
   sprint from the bot; the hunger effect drained food as expected (20 -> 15 in 10 s). Agents that walk and build by command
   would lose a point or two an hour, so vanilla hunger gives farms no consumer. The user chose a **village appetite**: the
   world stays peaceful (no mob risk; T1/T2's spawner and hostile checks are moot), code gives each member an appetite
-  (eat every N minutes of work, from storage: bread, cake, eggs ...), and a hungry member slows or stops taking work until
+  (eat every N minutes of work, from storage: bread, cake, pumpkin pie, melon slices; eggs are not edible in Minecraft,
+  only an ingredient of cake and pie), and a hungry member slows or stops taking work until
   fed. Tunable so the fields have a steady consumer at 25.
+  Live check for the food spec (`runs/2026-10-15/s30_crop_reach.py`, Gus alone on the test world, 2x, 10 min, single
+  wheat cells west of him): ages 2-4 at 32-88 blocks, 1 at 96 and 3 at 104, **0 at 112, 128, 144**: crops grow in chunks up
+  to 6 from the bot's chunk (simulation-distance 6) and not beyond, so neighbourhood fields up to ~92 blocks from home grow
+  while any agent is at the hut, the mine or the works plot (no forceload or farmer needed).
+  Diagonal (`s30_crop_diag.py`, the check's M5): grew at (48,48), (64,64), (80,80) from Gus, not at (88,88) and beyond.
+  With the axis run: a cell grows when its chunk's centre is within ~115 blocks of the bot (grew at 103.6 and 115.6),
+  not from ~120 (119.6, 126.6): a circle, not the 6-chunk square. Rule for the food step: every field and slot cell within
+  96 blocks of the storage hut (Q9's cap, from the hut not from home).
+- 10-15 (s30, Claude's, from the food spec `runs/2026-10-15/s30/spec_food.md`, its count `food_count.md` and its check
+  `spec_food_check.md`: 2 High, 6 Medium, 13 Low, ready after fixes) The food step's design: neighbourhood fields and up
+  to 2 slots behind `MC_GROW_FARMS` (pads 30/27/19 by houses, a pad without a field last); the appetite on the village
+  record behind `MC_APPETITE` (both off until the staged runs pass), drained by server game time (check M4) only after
+  completion in villages with a planted field, 18 food points a busy game-hour and a quarter of that idle (Q1, Q2), eat at
+  12, hungry at 6, no "slower" stage (Q7: a hungry member takes only food work; the user's "slows or stops" taken as
+  stops), an `eat_meal` chore at the storage hut consuming food by `clear` (vanilla `eat` refuses at 20/20 on peaceful),
+  eating by code without a model call (M2); bread and pumpkin pie as workshop goods (wheat into mcMaterials' GATHER, M1);
+  no meat (Q5), no foraging (Q8). The check's High fixes: growHold counts only members the hunger gate lets claim (H1),
+  and the fixed-mode sweep goes on past an empty menu when the appetite is on (H2).
 ## Keeping this plan honest
 
 - **When a run shows something new**, add a finding with evidence (log line, numbers). Then decide: fix now if it

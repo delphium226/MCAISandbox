@@ -14,10 +14,10 @@ import { MC_SKILLS } from './mcSkills';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
-import { annexBusy, cakeShort, harvesting, makeKeeps, slotBusy } from './mcBuild';
+import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
 import { mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
-import { GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
@@ -37,7 +37,8 @@ import { vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingLights, placedDoor, signLabel, type SignPlace } from '../streetPlan';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
-import { GROW, growing, housesOf, isGrowTask, padFor, pickHouses, taskNum } from '../grow';
+import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
+import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -496,17 +497,19 @@ export class MineflayerWorld implements WorldAdapter {
    * What of the storage a make may take (spec 4.5): the storage less the reserve (after completion ~nothing), the keeps
    * (cobblestone 14, coal 2, logsKeep in the village's kind, else from the most stocked kinds) and what other agents' queued
    * makes and furnace placements have earmarked (D6; `agent`'s own is its to withdraw); nothing of MAKE_NEVER or `except`
-   * (the good's own item: a batch is never made from its own stock).
+   * (the good's own item: a batch is never made from its own stock). A food good's `allow` (s30) lets those through, less
+   * their keeps (`foodKeep`).
    */
-  makeSpare(v: Village, agent: string, except?: string, store: Counts = storageContents(v)): Counts {
+  makeSpare(v: Village, agent: string, except?: string, store: Counts = storageContents(v), allow?: string[]): Counts {
     const reserve = this.storageReserve(v);
     const own = agent ? holdKey(v.name, agent) : '';
     const held: Counts = {};
     for (const [k, c] of makeHolds) if (k.startsWith(`${v.name}|`) && k !== own) for (const [n, q] of Object.entries(c)) held[n] = (held[n] ?? 0) + q;
     const out: Counts = {};
     for (const [n, q] of Object.entries(store)) {
-      if (MAKE_NEVER.has(n) || n === except) continue;
-      const keep = n === 'cobblestone' ? MAKE_KEEP.cobblestone : n === 'coal' ? MAKE_KEEP.coal : 0;
+      const allowed = !!allow?.includes(n);
+      if ((MAKE_NEVER.has(n) && !allowed) || n === except) continue;
+      const keep = n === 'cobblestone' ? MAKE_KEEP.cobblestone : n === 'coal' ? MAKE_KEEP.coal : allowed ? this.foodKeep(v, n, store) : 0;
       const s = q - (reserve[n] ?? 0) - keep - (held[n] ?? 0);
       if (s > 0) out[n] = s;
     }
@@ -521,6 +524,25 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /**
+   * What storage keeps of a food good's inputs (s30's food step, spec 5): wheat for the cake and a cow breeding (wheatKeep),
+   * an egg for the cake when no other kind is stored, the cake's 2 sugar cane (and sugar while the cane is short), 2
+   * pumpkins while a farm slot is free (a start from storage takes them, the check's L6).
+   */
+  private foodKeep(v: Village, item: string, store: Counts): number {
+    if (item === 'wheat') return wheatKeep(v);
+    if (item === 'egg') return (store.brown_egg ?? 0) + (store.blue_egg ?? 0) > 0 ? 0 : 1;
+    if (item === 'sugar_cane') return 2;
+    if (item === 'sugar') return Math.max(0, 2 - (store.sugar_cane ?? 0));
+    if (item === 'pumpkin') return (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => !q.annex && !q.kind)) ? 2 : 0;
+    return 0;
+  }
+
+  /** The workshop's goods in a village: the food goods too where it keeps an appetite (s30). */
+  goodsFor(v: Village): MakeGood[] {
+    return appetiteOn(v) ? [...MAKE_GOODS, ...FOOD_GOODS] : MAKE_GOODS;
+  }
+
+  /**
    * One good's plan now (spec 2.6): its deficit (the target less the stock and other agents' makes of it under way), then
    * batches from the largest whole one down by its unit, the first whose bill plans from the spare storage with nothing to
    * gather (lesson 1: code finds the batch). `inputs`: what the plan takes from storage plus the coal and charcoal it burns
@@ -531,7 +553,7 @@ export class MineflayerWorld implements WorldAdapter {
     const going = this.goingS9(v, agent).make.filter((m) => m.item === good.item).reduce((s, m) => s + m.count, 0);
     const want = this.makeTarget(v, good) - stock - going;
     if (want <= 0) return { why: 'at stock' };
-    const spare = this.makeSpare(v, agent, good.item, store);
+    const spare = this.makeSpare(v, agent, good.item, store, good.allow);
     const plans = new Map<string, MaterialPlan>();
     const plan = (b: Counts, have: Counts) => {
       const key = `${JSON.stringify(b)}|${have === spare ? '' : JSON.stringify(have)}`;
@@ -750,6 +772,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** A good's target in storage (D7): torches follow lighting's demand while the light family is on, max(32, min(64,
    *  demand) + 8); every other good, and torches with the family off, the table's. */
   makeTarget(v: Village, g: MakeGood): number {
+    // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
+    if (g.food) return !appetiteOn(v) ? 0 : g.item === 'bread' ? 2 * this.growMembers(v).length : Math.ceil(this.growMembers(v).length / 2);
     if (g.item !== 'torch' || !CHOOSE.families.has('light')) return g.target;
     return Math.max(g.target, Math.min(TORCH_DEMAND_CAP, this.torchDemand(v)) + TORCH_RESERVE);
   }
@@ -1141,6 +1165,130 @@ export class MineflayerWorld implements WorldAdapter {
   /** When each agent (lower-cased name) was last spawned: a claim older than its holder's spawn is no longer held (s30). */
   private spawnedAt = new Map<string, number>();
 
+  // ---- s30: the village appetite (appetite.ts) ------------------------------------------------------------------------
+
+  /** A member's appetite state where its village keeps one, else 'fed'. */
+  private hungerOf(v: Village, a: { name: string }): 'fed' | 'peckish' | 'hungry' {
+    const e = appetiteOn(v) ? v.food!.members[a.name] : undefined;
+    return e ? stateOf(e.level) : 'fed';
+  }
+
+  /**
+   * The claim gate (D8; brains filter their claims by task with it): a peckish member with food in storage takes no new
+   * board task until it has eaten (one sweep, 30 s at most); a hungry one only food work (planting a field, its seeds).
+   * True wherever the village keeps no appetite, before completion included (nothing drains then). "Food" is a meal this
+   * member would eat (no cake while only peckish, lens 1 L1) beyond the meals other members are on their way to (M1).
+   */
+  mayClaim(agent: WorldAgent, task?: Task): boolean {
+    const v = agent.village();
+    if (!v || !appetiteOn(v)) return true;
+    const s = this.hungerOf(v, agent);
+    if (s === 'fed') return true;
+    // (food work whatever storage holds: the meal may not be runnable, all eaters' places taken or its key cooling, lens 1 M2)
+    if (s === 'hungry' && task && isFoodTask(task)) return true;
+    if (chooseMeal(v.food.members[agent.name].level, storeForMeals(v.name, storageContents(v), agent.name))) return false;
+    return s === 'peckish';
+  }
+
+  /** A member's appetite and state (the panel's bar), or null where its village keeps none. */
+  appetiteOf(agent: WorldAgent): (Appetite & { state: string }) | null {
+    const v = agent.village();
+    const e = appetiteOn(v) ? v!.food!.members[agent.name] : undefined;
+    return e ? { ...e, state: stateOf(e.level) } : null;
+  }
+
+  /** Levels set for tests (POST /api/village/:v/appetite): the members named, or every member in the world; the record
+   *  started if it was not (the appetite then holds for the village from now). Returns the members' entries. */
+  setAppetite(v: Village, names: string[], level: number): Record<string, Appetite> {
+    const f = (v.food ??= { members: {}, made: {}, eaten: {}, meals: 0 });
+    const now = Date.now();
+    for (const raw of names) {
+      const name = this.get(raw)?.name ?? raw;
+      const e = (f.members[name] ??= { level, at: now, meals: 0, hungryMs: 0 });
+      e.level = Math.max(0, Math.min(APPETITE.cap, level));
+      e.at = now;
+    }
+    this.villages.save();
+    console.log(`[food] ${v.name}: appetite set to ${level} for ${names.join(', ') || 'nobody'} (the API)`);
+    return f.members;
+  }
+
+  /** When the appetite last drained (wall ms; 0: not yet), the reference bot's world age then, and the last periodic save. */
+  private appetiteAt = 0;
+  private ageRef: { name: string; age: number } | null = null;
+  private appetiteSaved = 0;
+  private ageWarned = false;
+
+  /**
+   * Game minutes in a drain interval (the check's M4): the change in a bot's world age (the server's own ticks: a server
+   * running slow at 2x drains less, as its crops grow less), else the wall time at the configured scale; an age that went
+   * back, jumped (a rejoin) or nearly stopped falls back to the wall clock.
+   */
+  private gameMinutes(wallMs: number): number {
+    const wall = (wallMs / 60000) * timeScale();
+    const ref = [...this.agents.values()].find((a) => a.bot.entity && typeof a.bot.time?.age === 'number');
+    const last = this.ageRef;
+    this.ageRef = ref ? { name: ref.name, age: ref.bot.time.age } : null;
+    if (!ref || !last || last.name !== ref.name) return wall;
+    const game = (ref.bot.time.age - last.age) / 1200;
+    if (game >= 0.25 * wall && game <= 2 * wall + 0.05) return game;
+    if (!this.ageWarned && wall > 0) {
+      this.ageWarned = true;
+      console.log(`[food] world age moved ${game.toFixed(2)} game-min in ${(wallMs / 1000).toFixed(1)} s: draining by the wall clock (${timeScale()}x) when it does not follow it`);
+    }
+    return wall;
+  }
+
+  /**
+   * The drain (D7; every 5 s from the world tick, off when MC_APPETITE is): each member of a complete village with a planted
+   * wheat field loses appetite by game time, the full rate while busy (an action other than a meal running or queued), a
+   * quarter idle. The interval is the tick's own, at most 15 s (the check's M3: never since a stored time, so a restart or a
+   * long absence drains nothing extra). The village's record starts at its first drain; a member's entry at
+   * MC_APPETITE_START. A state change is logged and saved, other changes saved at most once a minute.
+   */
+  private appetiteTick() {
+    if (!APPETITE.rate) return;
+    const now = Date.now();
+    if (now - this.appetiteAt < 5000) return;
+    const wallMs = this.appetiteAt ? Math.min(15000, now - this.appetiteAt) : 0;
+    this.appetiteAt = now;
+    const minutes = this.gameMinutes(wallMs);
+    let changed = false, kept = false;
+    const villages = new Map<string, Village>();
+    for (const a of this.agents.values()) {
+      const v = a.village();
+      if (v) villages.set(v.name, v);
+    }
+    for (const v of villages.values()) {
+      if (!v.complete || !(v.layouts ?? []).some((l) => (l.farm?.planted ?? 0) > 0)) continue;
+      kept = true;
+      if (!v.food) {
+        v.food = { members: {}, made: {}, eaten: {}, meals: 0 };
+        changed = true;
+        console.log(`[food] ${v.name}: the appetite starts (${APPETITE.rate} a busy game-hour, ${APPETITE.rate * APPETITE.idle} idle; members start at ${APPETITE.start})`);
+      }
+      const store = storageContents(v);
+      for (const a of this.growMembers(v)) {
+        let e = v.food.members[a.name];
+        if (!e) e = v.food.members[a.name] = { level: APPETITE.start, at: now, meals: 0, hungryMs: 0 };
+        const was = stateOf(e.level);
+        const running = a.current?.status.type ?? a.queue[0]?.type;
+        e.level = drain(e.level, minutes, !a.idle() && running !== 'eat_meal');
+        e.at = now;
+        const s = stateOf(e.level);
+        if (s === 'hungry') e.hungryMs = (e.hungryMs ?? 0) + wallMs;
+        if (s !== was) {
+          changed = true;
+          console.log(`[food] ${a.name} ${s} (${e.level.toFixed(1)} of 20; storage ${foodText(store)})`);
+        }
+      }
+    }
+    if (changed || (kept && now - this.appetiteSaved >= 60000)) {
+      this.appetiteSaved = now;
+      this.villages.save();
+    }
+  }
+
   async spawn(rawName: string, o: SpawnOptions = {}): Promise<BotAgent> {
     const name = rawName.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16);
     if (!name) throw new Error('invalid name');
@@ -1188,6 +1336,14 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (o.memory) Object.assign(a.memory, o.memory);
     if (typeof a.memory.village === 'string' && a.memory.village) this.villages.ensure(a.memory.village);
+    // (a fresh start empties the appetite too, s30's D6)
+    const fresh = o.reset && APPETITE.rate ? a.village()?.food?.members[a.name] : undefined;
+    if (fresh) {
+      fresh.level = APPETITE.start;
+      fresh.at = Date.now();
+      // (saved now: the drain's periodic save may be a minute off, and a restart before it kept the old level, lens 1 L3)
+      this.villages.save();
+    }
     if (brain) {
       a.brain = MC_BRAINS[brain]();
       a.brain.init?.(a);
@@ -1238,6 +1394,11 @@ export class MineflayerWorld implements WorldAdapter {
       this.farmChores();
     } catch (e) {
       console.error('[farm] check failed:', e);
+    }
+    try {
+      this.appetiteTick();
+    } catch (e) {
+      console.error('[food] appetite check failed:', e);
     }
     try {
       this.endChoices();
@@ -1311,7 +1472,8 @@ export class MineflayerWorld implements WorldAdapter {
           grown++;
           if (s - wheat.minStateId >= 7) ripe++;
         }
-        if (unloaded || ripe < 4 || ripe < 0.75 * grown) continue;
+        // (with neighbourhood farms a field of 1-3 plants is harvested once they are ripe, so harvest_farm sows its bare cells)
+        if (unloaded || ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < 0.75 * grown) continue;
         // Never ahead of the board's work: a worker between tasks would take the next one only after the harvest (F163's
         // pattern, the diff review)
         if (!v.complete && this.villages.claimable(v).length) continue;
@@ -1404,11 +1566,36 @@ export class MineflayerWorld implements WorldAdapter {
     }
     this.growEnough.delete(v.name);
     const members = this.growMembers(v);
-    const agent = members.find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now)) ?? this.idleMembers(v, now)[0];
+    // (never a hungry member: it takes food work only, s30's D12)
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = members.find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
     if (!agent) return;
     const n = Math.min(GROW.batch, members.length - housesOf(v));
     const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
     const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0);
+    // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
+    // else the biome the agent's view has at home: a staged village has no library biome, lens 2 L5), and not once a
+    // neighbourhood's field was refused for the biome (that holds for the village: a field-sized pad for no field took the
+    // room of the squares growth needs, lens 2 L4; thin grass does not hold: harvests fill the seed stock it is judged by,
+    // the food fix review's second Medium)
+    const home = GROW_FARMS ? villageHome(v) : null;
+    const biome = (v.vanillaBiome ?? (home ? biomeAt(agent, home.x, v.plots[0]?.y ?? agent.bot.entity?.position.y ?? 64, home.z) : '')).toLowerCase();
+    const barren = (v.layouts ?? []).some((l) => l.grow && /biome/.test(l.farmWhy ?? ''));
+    if (GROW_FARMS && pick.length && !NO_FIELD_BIOME.test(biome) && !barren) {
+      const ladder = padLadder(pick.map((h) => v.designs[h]));
+      if (!ladder.length) return this.growStop(v, 'no house design');
+      const options = ladder.map((o) => `${o.size}:${o.n}:${o.slots}`).join(',');
+      let st: ActionStatus;
+      try {
+        st = agent.enqueue('lay_out_houses', { chore: true, houses: pick.join(','), options });
+      } catch (e) {
+        console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
+        return;
+      }
+      this.setChore(v, agent, 'grow', [st], `lay out ${ladder[0].n} house${ladder[0].n > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why));
+      console.log(`[grow] ${v.name}: ${agent.name} lays out up to ${ladder[0].n} houses (${pick.join(', ')}) on the first of ${ladder.map((o) => `${o.size}x${o.size}/${o.n}/${o.slots < 0 ? 'no field' : `field+${o.slots}`}`).join(', ')}; houses ${housesOf(v)} for ${members.length} members`);
+      return;
+    }
     const pad = pick.length ? padFor(pick.map((h) => v.designs[h])) : null;
     if (!pad) return this.growStop(v, 'no house design');
     const houses = pick.slice(0, pad.n);
@@ -1746,6 +1933,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
     if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light') holdsDelete(holdKey(c.village, c.agent));
+    // (and a meal's: eat_meal's finally deletes its own, s30)
+    if (c.choice.kind === 'eat') releaseMeal(c.village, c.agent);
     // A light run that confirmed, found and ruled out nothing (the lighter inside, spots not loaded) ends ok but backs the
     // part off 10 minutes as a failure does: otherwise it is the fixed pick again at once, forever (B.4's review, lens 2 M1)
     if (ok && c.choice.kind === 'light' && c.choice.light && /no progress\)$/.test(message)) this.lightBack.set(`${c.village}:${c.choice.light.part}`, Date.now() + 10 * 60000);
@@ -1988,7 +2177,7 @@ export class MineflayerWorld implements WorldAdapter {
           grown++;
           if (s - wheat.minStateId >= 7) ripe++;
         }
-        return ripe < 4 || ripe < 0.75 * grown ? null : { ripe, grown, plot };
+        return ripe < (GROW_FARMS ? Math.min(4, Math.max(1, grown)) : 4) || ripe < 0.75 * grown ? null : { ripe, grown, plot };
       }),
       // A planted slot as slotChores' ripe loop reads it ("k:j")
       slot: memo((kj) => {
@@ -2039,7 +2228,7 @@ export class MineflayerWorld implements WorldAdapter {
       }),
       // S.9's workshop, for no one agent (an idle member holds no earmark): planned again only once the earmarks or the
       // makes and trips under way changed, i.e. after one was taken in the sweep (spec 4.6)
-      makePlans: since(() => new Map(MAKE_GOODS.map((g) => [g.item, this.makePlan(v, g, '', store)]))),
+      makePlans: since(() => new Map(this.goodsFor(v).map((g) => [g.item, this.makePlan(v, g, '', store)]))),
       gather: since(() => this.gatherWanted(v, store)),
       spare: since(() => this.makeSpare(v, '', undefined, store)),
     };
@@ -2093,6 +2282,31 @@ export class MineflayerWorld implements WorldAdapter {
       out.push(opt);
     };
 
+    // A meal first (s30's appetite, D11): a peckish member's own, while storage holds food and one of APPETITE.eaters
+    // places at the hut is free (25 withdrawers at once would crowd its chest spots)
+    const ap = appetiteOn(v) ? v.food!.members[a.name] : undefined;
+    const state = ap ? stateOf(ap.level) : 'fed';
+    if (ap && state !== 'fed') {
+      // (from what the meals other members are on their way to leave: the record stays as it was until each has withdrawn,
+      // lens 1 M1)
+      const food = storeForMeals(v.name, store, a.name);
+      const meal = chooseMeal(ap.level, food);
+      const me = `eat:${a.name.toLowerCase()}`;
+      const k = Array.from({ length: APPETITE.eaters }, (_, i) => i + 1).find((i) => !busy.has(`eaters:${i}`));
+      if (!meal) reasons.eat = 'no food in storage';
+      else if (busy.has(me) || k === undefined) reasons.eat = 'busy';
+      else {
+        const after = Math.min(APPETITE.cap, ap.level + meal.n * FOOD_POINTS[meal.item]);
+        const h = v.storageHut;
+        add({
+          id: 'eat', kind: 'eat', key: me, holds: [`eaters:${k}`], excludes: [`${me}=`, `eaters:${k}=`], name: 'Eat a meal from the storage', rank: 0,
+          ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
+          facts: `you: appetite ${Math.round(ap.level)} of 20 (hungry at ${APPETITE.hungryAt}: then only food work); storage: ${foodText(food)}`,
+          effect: `back to about ${Math.round(after)} of 20 (${meal.n} ${words(meal.item)})`,
+        }, { kind: 'eat', level: ap.level, item: meal.item, n: meal.n });
+      }
+    }
+
     // The wheat fields
     for (const [i, lay] of layouts.entries()) {
       if (!lay.farm) continue;
@@ -2107,7 +2321,7 @@ export class MineflayerWorld implements WorldAdapter {
         reasons.farm ??= 'busy';
         continue;
       }
-      const name = `Harvest the wheat field${multi && k > 1 ? ' of the second plot' : ''}`;
+      const name = lay.grow ? `Harvest the wheat field of neighbourhood ${lay.grow}` : `Harvest the wheat field${multi && k > 1 ? ' of the second plot' : ''}`;
       add({
         id: `farm:${k}`, kind: 'farm', key: `farm:${k}`, excludes, name, rank: 10 + k, at: { x: Math.floor((lay.farm.x1 + lay.farm.x2) / 2), z: Math.floor((lay.farm.z1 + lay.farm.z2) / 2) },
         facts: `${f.ripe} of ${f.grown} ripe; ${dist((lay.farm.x1 + lay.farm.x2) / 2, (lay.farm.z1 + lay.farm.z2) / 2)}; storage: ${store.wheat ?? 0} wheat, ${store.wheat_seeds ?? 0} seeds, ${store.bread ?? 0} bread; ${record('farm')}${others('farm')}${lastOf('farm')}`,
@@ -2131,7 +2345,7 @@ export class MineflayerWorld implements WorldAdapter {
           continue;
         }
         add({
-          id: `slot:${k}:${j}`, kind: 'slot', key: `slot:${k}:${j}`, excludes, name: `Harvest the ${words(slot.kind)} farm${layouts.length > 1 && k > 1 ? ' of the second plot' : ''}${(lay.slots ?? []).filter((s) => s.kind === slot.kind).length > 1 ? ` on slot ${numberWord(j)}` : ''}`,
+          id: `slot:${k}:${j}`, kind: 'slot', key: `slot:${k}:${j}`, excludes, name: `Harvest the ${words(slot.kind)} farm${lay.grow ? ` of neighbourhood ${lay.grow}` : layouts.length > 1 && k > 1 ? ' of the second plot' : ''}${(lay.slots ?? []).filter((s) => s.kind === slot.kind).length > 1 ? ` on slot ${numberWord(j)}` : ''}`,
           rank: 100 + 10 * k + j, at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
           facts: `${f.ripe} ripe; ${dist((slot.x1 + slot.x2) / 2, (slot.z1 + slot.z2) / 2)}; ${record('slot')}${others('slot')}${lastOf('slot')}`,
           effect: `about ${f.ripe} ${words(slot.kind)}`,
@@ -2142,7 +2356,9 @@ export class MineflayerWorld implements WorldAdapter {
     // free slot, with the first kind seen (today's); instances: up to two at once, on different slots and of different
     // kinds (each holds its slot and its kind, spec 3)
     const freeSlots = layouts.flatMap((lay, i) => (lay.slots ?? []).map((slot, jj) => ({ slot, k: i + 1, j: jj + 1 })))
-      .filter(({ slot, k, j }) => !slot.annex && !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && effTries(slot.tries, slot.lastTry?.at, now) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000));
+      .filter(({ slot, k, j }) => !slot.annex && !slot.kind && !slotBusy.has(`${v.name}:${k}:${j}`) && effTries(slot.tries, slot.lastTry?.at, now) < 3 && (!slot.lastTry || now - slot.lastTry.at > 10 * 60000)
+        // (a neighbourhood's slot once its plot is prepared: it is laid out while the village stands complete, s30's food step)
+        && (!layouts[k - 1]?.grow || !!preparedAt(v, slot)));
     const startInst = instances('start');
     const freeOpen = startInst ? freeSlots.filter(({ k, j }) => !busy.has(`start:${k}:${j}`)) : freeSlots.slice(0, 1);
     const want = startInst ? Math.min(2, freeOpen.length) : freeOpen.length ? 1 : 0;
@@ -2151,15 +2367,35 @@ export class MineflayerWorld implements WorldAdapter {
     else {
       const free = freeOpen[0];
       const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
+      // (with neighbourhood farms, s30's D4: a slot may take a kind the village farms on another layout, started from storage)
+      const here = GROW_FARMS ? new Set((layouts[free.k - 1]?.slots ?? []).map((q) => q.kind).filter(Boolean)) : farmed;
       const badSeen = new Set(layouts.flatMap((l) => (l.slots ?? []).flatMap((q) => q.bad ?? [])));
       const home = facts.startHome;
       let found = 0;
       for (const [s, kind] of SLOT_ORDER.entries()) {
         if (found >= want) break;
         const skip = `${v.name}:${kind}`;
-        if (farmed.has(kind) || (this.slotSkip.get(skip) ?? 0) > now || !home) continue;
+        if (here.has(kind)) continue;
         // (a kind another start holds: not walked, not skipped)
         if (startInst && busy.has(`farmkind:${kind}`)) continue;
+        if (farmed.has(kind)) {
+          // Farmed elsewhere: from storage when it holds a start's worth (its harvests are the stock), never from a sighting
+          const spec = SLOT_KINDS[kind];
+          const stock = store[spec.take] ?? 0;
+          if (stock < spec.count) continue;
+          found++;
+          const fs = layouts[free.k - 1]?.slots?.[free.j - 1];
+          const key = startInst ? `start:${free.k}:${free.j}` : 'start';
+          const excludes = startInst ? [`start:${free.k}:${free.j}=`, `farmkind:${kind}=`, 'pen'] : ['start', 'pen'];
+          add({
+            id: `start:${kind}`, kind: 'start', key, holds: startInst ? [`farmkind:${kind}`] : [], excludes, name: `Start a ${words(kind)} farm`, rank: 200 + s,
+            ...(fs ? { at: { x: Math.floor((fs.x1 + fs.x2) / 2), z: Math.floor((fs.z1 + fs.z2) / 2) } } : {}),
+            facts: `from storage (${stock} ${words(spec.take)} there; the village farms ${words(kind)} on another slot); ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${others('start')}`,
+            effect: `a ${words(kind)} farm to harvest${layouts[free.k - 1]?.grow ? ` in neighbourhood ${layouts[free.k - 1].grow}` : ''}`,
+          }, { kind: 'start', k: free.k, j: free.j, slotKind: kind, x: 0, y: 0, z: 0, store: true });
+          continue;
+        }
+        if ((this.slotSkip.get(skip) ?? 0) > now || !home) continue;
         const ok = facts.ok();
         const seen = facts.sightings(kind)
           // (bad by column, F192; cane by the blocks a cut can take, which must cover the two a start needs: the atlas counts
@@ -2246,7 +2482,9 @@ export class MineflayerWorld implements WorldAdapter {
         const works: Array<[number, string, string, string, string]> = [];
         if (slot.kind === 'chicken' && due(pen, 'eggs', 1) && facts.eggs(String(j))) works.push([0, 'eggs', 'collect_eggs', 'Collect eggs in the chicken pen', 'eggs lying in the pen']);
         if (slot.kind === 'cow' && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', 'Milk the cows', `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
-        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < spec.cap && (store[spec.lure] ?? 0) >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind}s`, `${store[spec.lure] ?? 0} ${words(spec.lure)} in storage`]);
+        // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
+        const feed = (store[spec.lure] ?? 0) - (spec.lure === 'wheat_seeds' ? seedsForFields(v) : 0);
+        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < spec.cap && feed >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind}s`, `${store[spec.lure] ?? 0} ${words(spec.lure)} in storage`]);
         const twin = (lay0.slots ?? []).filter((s) => s.annex && s.kind === slot.kind && s.pen?.built).length > 1;
         for (const [w, what, skill, name, fact] of works) {
           const last = pen.workAt?.[what];
@@ -2259,10 +2497,11 @@ export class MineflayerWorld implements WorldAdapter {
         }
       }
       if (!out.some((o) => o.kind === 'penwork')) reasons.penwork ??= 'nothing due';
-      // The cake (at most two in storage)
+      // The cake (at most two in storage; with an appetite one for six members, s30's D13)
+      const cakeCap = appetiteOn(v) ? Math.max(2, Math.ceil(this.growMembers(v).length / 6)) : 2;
       if (excluded(['cake'], busy)) reasons.cake = 'busy';
       else if (cakeShort(store).length) reasons.cake = 'storage short';
-      else if ((store.cake ?? 0) >= 2) reasons.cake = 'two cakes stored';
+      else if ((store.cake ?? 0) >= cakeCap) reasons.cake = cakeCap === 2 ? 'two cakes stored' : `${cakeCap} cakes stored`;
       else if (now - (this.cakeAt.get(v.name) ?? 0) <= 5 * 60000) reasons.cake = 'backing off';
       else
         add({
@@ -2449,9 +2688,12 @@ export class MineflayerWorld implements WorldAdapter {
       const goingOf = (item: string) => going.filter((g) => g.item === item).reduce((s, g) => s + g.count, 0);
       // (the deficit order: the largest share of its target missing first, ties in the table's order)
       // (with lighting on, torches by their demand's target, L10: both reads)
-      const order = MAKE_GOODS.map((g, i) => ({ g, i, target: this.makeTarget(v, g) })).map(({ g, i, target }) => ({ g, i, target, d: Math.max(0, target - (store[g.item] ?? 0) - goingOf(g.item)) / target })).sort((p, q) => q.d - p.d || p.i - q.i);
+      // (food goods only where the village keeps an appetite, ranked by D13: after the cake, before it while food is short)
+      const goods = this.goodsFor(v);
+      const order = goods.map((g, i) => ({ g, i, target: this.makeTarget(v, g) })).map(({ g, i, target }) => ({ g, i, target, d: Math.max(0, target - (store[g.item] ?? 0) - goingOf(g.item)) / target })).sort((p, q) => q.d - p.d || p.i - q.i);
       const why = new Set<string>();
       let atStock = 0;
+      const foodLow = goods.length > MAKE_GOODS.length && foodPoints(store) < 5 * this.growMembers(v).length;
       for (const [r, { g, target }] of order.entries()) {
         const p = plans.get(g.item);
         if (!p || 'why' in p) {
@@ -2489,14 +2731,14 @@ export class MineflayerWorld implements WorldAdapter {
         })();
         add({
           id: `make:${g.item}`, kind: 'make', key: `make:${g.item}`, holds: k === undefined ? [] : [`furnace:${k}`], excludes: [`make:${g.item}=`, ...(k === undefined ? [] : [`furnace:${k}=`])],
-          name: `Make ${g.words}`, rank: 900 + r, ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
+          name: `Make ${g.words}`, rank: g.food ? (foodLow ? 590 : 610) + (g.item === 'pumpkin_pie' ? 5 : 0) : 900 + r, ...(cell ? { at: { x: cell.x, y: cell.y, z: cell.z } } : {}),
           facts: `${stock} of the ${target} kept are in storage; this batch of ${p.count} takes ${countsText(p.inputs)} (all spare); ${k === undefined ? `crafted at the hut, ~${min} min` : `smelted at ${k ? `works furnace ${numberWord(k)}` : "the hut's furnace"}, ~${min} min`}; ${record('make')}${others('make', `make:${g.item}`)}${lastOf('make', `make:${g.item}`)}`,
           // (torches with lighting on: the spots beyond what storage holds, or the reserve once it covers them; the demand alone
           // read as the reason with 28 stored for 10 spots, B.4's review, lens 2 L1)
           effect: `+${p.count} ${g.words} (${stock} stored): ${g.item === 'torch' && family('light') ? torchWhy(this.torchDemand(v), stock) : g.forWhat}`,
         }, { kind: 'make', good: g, count: p.count, inputs: p.inputs, smelts: p.smelts, stock, ...(k === undefined ? {} : { k }) });
       }
-      if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === MAKE_GOODS.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
+      if (!out.some((o) => o.kind === 'make')) reasons.make = atStock === goods.length ? 'all at stock' : ['inputs short', 'hut busy', 'furnaces busy', 'backing off', 'busy'].find((w) => why.has(w)) ?? 'all at stock';
     }
 
     // Gathering for the workshop (D9): one option a material, as much as the goods' deficits, the keeps and the furnaces
@@ -2563,8 +2805,19 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'gather')) reasons.gather = why[0] ?? 'nothing wanted';
     }
 
+    // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
+    // takes food work only (D8), the rest guarded in model mode, left out in fixed mode, with why
+    const starved: ChoiceOption[] = [];
+    if (appetiteOn(v)) {
+      out.sort((p, q) => p.rank - q.rank);
+      if (state === 'hungry') {
+        starved.push(...out.filter((o) => !isFoodKind(o.kind, o)));
+        out.splice(0, out.length, ...out.filter((o) => isFoodKind(o.kind, o)));
+        if (!guards) for (const o of starved) reasons[o.kind] ??= 'hungry';
+      }
+    }
     // Model mode's guards (D5): bans, the agent's own cooldown, learning progress, then the trim
-    const guarded: Array<{ id: string; why: string }> = [];
+    const guarded: Array<{ id: string; why: string }> = guards ? starved.map((o) => ({ id: o.id, why: 'hungry' })) : [];
     let options = out;
     // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
     let feasible = out;
@@ -2635,6 +2888,12 @@ export class MineflayerWorld implements WorldAdapter {
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
+      case 'eat':
+        this.setChore(v, worker, opt.key, [worker.enqueue('eat_meal', { chore: true })], `eat ${d.n} ${d.item}`, undefined, meta, opt.holds, opt);
+        // (held from the other members' meals and claims until the chore ends: lens 1 M1)
+        holdMeal(v.name, worker.name, { item: d.item, n: d.n });
+        console.log(`[food] ${v.name}: ${worker.name} goes to eat ${d.n} ${d.item} (${d.level.toFixed(1)} of 20)`);
+        return;
       case 'farm':
         // (`chore`: the brains leave its events alone, as the mayor's gathering)
         this.setChore(v, worker, opt.key, [worker.enqueue('harvest_farm', { layout: d.k, chore: true })], `harvest the wheat on layout ${d.k}`, undefined, meta, opt.holds, opt);
@@ -2646,6 +2905,13 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[farm] ${v.name} slot ${d.k}.${d.j}: ${d.ripe} ${d.slotKind} ripe, ${worker.name} harvests`);
         return;
       case 'start':
+        // (from storage, s30's D4: a kind the village farms on another slot)
+        if (d.store) {
+          this.setChore(v, worker, opt.key, [worker.enqueue('start_farm', { layout: d.k, slot: d.j, kind: d.slotKind, from: 'storage', chore: true })], `start ${d.slotKind}`, undefined, meta, opt.holds, opt);
+          console.log(`[farm] ${v.name}: ${worker.name} starts a ${d.slotKind} farm on slot ${d.k}.${d.j} from storage`);
+          this.villages.note(v, `${worker.name} starts a ${d.slotKind} farm on farm slot ${d.j} of layout ${d.k} from the village storage (a chore)`);
+          return;
+        }
         this.setChore(v, worker, opt.key, [worker.enqueue('start_farm', { layout: d.k, slot: d.j, kind: d.slotKind, x: d.x, y: d.y, z: d.z, chore: true })], `start ${d.slotKind}`, undefined, meta, opt.holds, opt);
         console.log(`[farm] ${v.name}: ${d.slotKind} seen at ${d.x},${d.y},${d.z}; ${worker.name} starts a ${d.slotKind} farm on slot ${d.k}.${d.j}`);
         this.villages.note(v, `${d.slotKind} seen at ${d.x},${d.y},${d.z}: ${worker.name} starts a ${d.slotKind} farm on farm slot ${d.j} (a chore)`);
@@ -2979,10 +3245,20 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (!pick) {
           none.push({ agent: a.name, reasons: menu.reasons });
-          if (!model) {
-            // (today's loop stopped at the first member with nothing: the rest have nothing either)
+          // (today's loop stopped at the first member with nothing: the rest have nothing either; not with an appetite, where
+          // menus differ by member: a hungry member's empty menu must not cost a fed one its chore, the food check's H2)
+          if (!model && !appetiteOn(v)) {
             for (const b of members.slice(n + 1)) if (this.isIdleMember(v, b, now)) none.push({ agent: b.name, reasons: menu.reasons });
             break;
+          }
+          continue;
+        }
+        // A meal is code's to run, never a model call (the food check's M2: 72-86 meals a wall-hour at 25 members)
+        if (pick.kind === 'eat') {
+          const r = this.runChoice(a, pick.id, { source: 'fixed', reason: 'appetite', menu });
+          if (r.ok) {
+            take(r.key);
+            for (const h of this.chores.get(a.name.toLowerCase())?.choice.holds ?? []) take(h);
           }
           continue;
         }
@@ -3028,11 +3304,14 @@ export class MineflayerWorld implements WorldAdapter {
   private growHold(v: Village, members: BotAgent[], now: number): BotAgent[] {
     let out = members;
     if (growing(v)) {
-      let k = this.villages.claimable(v).filter((t) => isGrowTask(v, t)).length;
-      // (only workers whose brains take board tasks: one that never claims would be held for nothing, s30's review)
-      out = out.filter((a) => a.memory.villageRole === 'mayor' || !a.brain?.claimsTasks?.(a) || k-- <= 0);
+      const tasks = this.villages.claimable(v).filter((t) => isGrowTask(v, t));
+      let k = tasks.length;
+      // (only workers whose brains take board tasks: one that never claims would be held for nothing, s30's review; and only
+      // those the appetite lets claim one of them: a peckish member held here never got its meal, the food check's H1)
+      out = out.filter((a) => a.memory.villageRole === 'mayor' || !a.brain?.claimsTasks?.(a) || !tasks.some((t) => this.mayClaim(a, t)) || k-- <= 0);
     }
-    if (this.growDue(v, now, !this.growWatched.has(v.name))) out = out.filter((a) => a.memory.villageRole !== 'mayor');
+    // (not a hungry mayor: growTick gives the chore to a fed member then, and a mayor held here would never eat)
+    if (this.growDue(v, now, !this.growWatched.has(v.name))) out = out.filter((a) => a.memory.villageRole !== 'mayor' || this.hungerOf(v, a) === 'hungry');
     return out;
   }
 
@@ -3313,7 +3592,7 @@ interface PendingChoice {
 type OptionRun =
   | { kind: 'farm'; k: number; ripe: number; grown: number }
   | { kind: 'slot'; k: number; j: number; ripe: number; slotKind: string }
-  | { kind: 'start'; k: number; j: number; slotKind: string; x: number; y: number; z: number }
+  | { kind: 'start'; k: number; j: number; slotKind: string; x: number; y: number; z: number; store?: boolean }
   | { kind: 'annex'; again: boolean; area: string }
   | { kind: 'pen'; j: number; slotKind: string; x: number; y: number; z: number }
   | { kind: 'penwork'; j: number; what: string; skill: string; slotKind: string; animals: number }
@@ -3324,7 +3603,8 @@ type OptionRun =
   | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
   | { kind: 'works'; stage: 'prepare'; again: boolean; area: string }
   | { kind: 'works'; stage: 'furnace'; k: number }
-  | { kind: 'light'; part: string; n: number; unlit: number; label: string };
+  | { kind: 'light'; part: string; n: number; unlit: number; label: string }
+  | { kind: 'eat'; level: number; item: string; n: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
 /** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks
@@ -3337,7 +3617,7 @@ const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'pe
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', grow: 'laying out houses' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', grow: 'laying out houses', eat: 'eating' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 

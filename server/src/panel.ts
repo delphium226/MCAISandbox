@@ -25,7 +25,8 @@ import { readJson, sendJson } from './api';
 import { OLLAMA_ROUTES, gate } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
-import type { Design } from './village';
+import type { Design, Village } from './village';
+import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -112,7 +113,25 @@ function agentOverview(a: WorldAgent) {
     // A2: choosing, queued or running a chore and the last decision in one line (cached fields, ~300 bytes; the menu,
     // facts and prompt are at /decision)
     choice: a.world.choiceStatus?.(a) ?? null,
+    // (s30's appetite, where the village keeps one: the bar's level and state, meals, the last meal, minutes hungry)
+    ...appetiteView(a),
   };
+}
+
+function appetiteView(a: WorldAgent) {
+  const e = a.world.appetiteOf?.(a);
+  return e ? { appetite: { level: Math.round(e.level * 10) / 10, state: e.state, meals: e.meals, lastMeal: e.lastMeal ?? null, hungryMin: Math.round((e.hungryMs ?? 0) / 6000) / 10 } } : {};
+}
+
+/** A village's food at a glance (s30): storage's food in points and items, the ledger, who is hungry or peckish. */
+function foodView(v: Village) {
+  const f = v.food;
+  // (with the appetite off, an old record is left out: the panel would show its levels as live bars, lens 3 L5)
+  if (!f || !APPETITE.rate) return f ? { food: undefined } : {};
+  const store: Record<string, number> = {};
+  for (const c of v.storage?.chests ?? []) for (const [n, q] of Object.entries(c.items)) store[n] = (store[n] ?? 0) + q;
+  const by = (s: string) => Object.entries(f.members).filter(([, e]) => stateOf(e.level) === s).map(([n]) => n);
+  return { food: { points: foodPoints(store), items: foodItems(store), meals: f.meals, made: f.made, eaten: f.eaten, used: f.used ?? {}, hungry: by('hungry'), peckish: by('peckish'), members: f.members } };
 }
 
 /**
@@ -140,7 +159,7 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     const { designs, ...rest } = v;
     // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
     const choices = w.choiceSummary?.(v.name) ?? null;
-    return send ? { ...rest, choices, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, choices };
+    return send ? { ...rest, ...foodView(v), choices, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

@@ -14,7 +14,8 @@ import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
 import { postLayout } from '../layout';
 import { villageHome } from '../village';
-import { GROW } from '../grow';
+import { GROW, GROW_FARMS } from '../grow';
+import { APPETITE } from '../appetite';
 import type { MineflayerWorld } from './mcWorld';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
@@ -82,7 +83,9 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
 
   if (parts[1] === 'status') {
-    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on, agents: [...w.agents.values()].map((a) => a.name) });
+    return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on,
+      // (s30's food step: the appetite's numbers, rate 0 when off, and the neighbourhood fields)
+      growFarms: GROW_FARMS, appetite: { rate: APPETITE.rate, idle: APPETITE.idle, start: APPETITE.start }, agents: [...w.agents.values()].map((a) => a.name) });
   }
   // The shared atlas: chunk summaries around a village's home, a point or the first agent (?village= | ?x=&z=, radius=)
   if (parts[1] === 'atlas') {
@@ -172,6 +175,18 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       const block = (await w.rcon.command(`execute if block ${pos.x} ${pos.y} ${pos.z} chest`)).trim();
       if (!/passed/i.test(block)) return sendJson(res, 400, { error: `no chest at ${pos.x},${pos.y},${pos.z} (${block})` });
       return sendJson(res, 200, { result: registerChest({ name: 'api' }, v, pos, w.villages, typeof b.group === 'string' ? b.group : undefined), storage: v.storage });
+    }
+    // Appetite levels for tests (s30): {agent?, level}, one member or every member in the world; starts the village's record
+    if (v && parts[3] === 'appetite' && req.method === 'POST') {
+      // (not with the appetite off: the record it starts would persist and switch the food rules on in a later run before
+      // any field is planted, and the watchers would follow it; lens 1 L4, lens 3 L4)
+      if (!APPETITE.rate) return sendJson(res, 400, { error: 'the appetite is off on this agent server (MC_APPETITE)' });
+      const b = await readJson(req);
+      const level = Number(b.level);
+      if (!Number.isFinite(level) || level < 0 || level > APPETITE.cap) return sendJson(res, 400, { error: `level: a number from 0 to ${APPETITE.cap}` });
+      const names = typeof b.agent === 'string' && b.agent ? [b.agent] : w.growMembers(v).map((a) => a.name);
+      if (typeof b.agent === 'string' && b.agent && w.get(b.agent)?.village()?.name !== v.name) return sendJson(res, 400, { error: `agent: ${b.agent} is not a member of ${v.name} in the world` });
+      return sendJson(res, 200, { members: w.setAppetite(v, names, level), on: true });
     }
     // The chore menu a village member would choose from now (A.2; pure, nothing written): ?agent=Worker1
     if (v && parts[3] === 'choices' && req.method === 'GET') {

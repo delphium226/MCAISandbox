@@ -1097,7 +1097,8 @@ export class TieredBrain implements AgentBrain {
         // (in a complete village only the neighbourhood's tasks, and only while no chore runs: a worker on a 20-minute iron
         // trip must not sit on a build, s30)
         const grown = !!v!.complete;
-        const next = grown && !a.idle() ? undefined : reg.claimable(v!, a.name).find((t) => (!grown || isGrowTask(v!, t)) && (!blocked || exactCalls(t, names)));
+        // (and only what the world's appetite lets this member claim: a peckish one eats first, a hungry one plants, s30)
+        const next = grown && !a.idle() ? undefined : reg.claimable(v!, a.name).find((t) => (!grown || isGrowTask(v!, t)) && (!blocked || exactCalls(t, names)) && a.world.mayClaim?.(a, t) !== false);
         if (next && reg.claim(v!, next.id, a.name)) this.claimedTask = next.id;
         else why = null;
       }

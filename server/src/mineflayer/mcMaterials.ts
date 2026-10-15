@@ -32,8 +32,9 @@ export const SMELT_FALLBACK: Record<string, string> = {
   smooth_sandstone: 'sandstone', cracked_stone_bricks: 'stone_bricks',
 };
 
-/** Found in the world as they are (gathering beats their recipes, e.g. coal from a coal block). */
-const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine']);
+/** Found in the world as they are (gathering beats their recipes, e.g. coal from a coal block; wheat from the fields: its
+ *  only recipe is from hay_block, whose recipe is from wheat, and that cycle made bread plan as gathered, s30's check M1). */
+const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat']);
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
 const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2 };

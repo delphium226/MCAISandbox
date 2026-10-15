@@ -236,9 +236,10 @@ export class TaskBrain implements AgentBrain {
       // changes with time: cooldowns and avoid entries ending, the mine's faces)
       if (was && reg.version === this.looked.version && now - this.looked.at < CLAIM_LOOK_MS) return;
       this.looked = { version: reg.version, at: now };
+      // (and those the world's appetite lets this member claim, task by task: a hungry worker may still plant a field, s30)
       const ready = reg.claimable(v, a.name).filter((t) => {
         const item = /collect block=(\S+)/.exec(t.detail)?.[1];
-        return (!v.complete || isGrowTask(v, t)) && (!item || (this.avoid.get(item) ?? 0) < now);
+        return (!v.complete || isGrowTask(v, t)) && (!item || (this.avoid.get(item) ?? 0) < now) && a.world.mayClaim?.(a, t) !== false;
       });
       const next = (this.opts.pick ? this.opts.pick(ready) : ready)[0];
       if (!next || !reg.claim(v, next.id, a.name)) return;

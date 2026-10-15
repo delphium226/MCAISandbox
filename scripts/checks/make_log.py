@@ -33,6 +33,14 @@ agent log's `[grow] V: layout L ... posted` to `... ended` lines, by log order) 
 mismatch. Read the make's own line before trusting either (lesson 132). A growth build put back for materials is a mismatch
 only when a make that took one of the short materials ran inside the build's span (traced to a make); otherwise a note.
 Without growth lines nothing changes.
+
+The village appetite (s30's food step, runs/2026-10-15/s30/spec_food.md 5 and 6): bread and pumpkin pie are workshop goods,
+and members eat them from storage while a make runs. A food make whose storage count rose by less than it made while an
+eat chore of the village ran (its [choice] kind eat, to its [choice-end]), or by more while a harvest of a wheat field baked
+bread (kind farm), is a note naming that chore, not a mismatch (lesson 132), as far as those chores' end lines say they
+moved the good ("ate N bread", "baked N bread"): beyond that it is a mismatch; without the choice records, the eat chores
+between the make's queue line and its end line count. And `food:` lines: the meals the eat chores' ends name ("ate N item"),
+the appetite state lines (`[food] <agent> peckish|hungry|fed ...`) and the food makes. Without food lines nothing changes.
 """
 import json, os, re, sys
 from collections import defaultdict
@@ -74,6 +82,14 @@ GROW_ENDED = re.compile(r"^\[grow\] (\S+): layout (\S+) ended (\S+) in ([\d.]+) 
 GROW_TASK = re.compile(r"^GROW TASK (t\d+) claimed=(\d+) end=(\d+|-) by=(\S+)(?: takes=(\S*))? (.*)")
 REQUEUE_ID = re.compile(r"put (t\d+) back on the board to wait for them|(t\d+) \"[^\"]*\" waits for .*: materials were short")
 PUTBACK = re.compile(r"^\[make\] (\S+): (\S+) puts back what a stopped make left \((.*)\)")
+# The village appetite (s30): the workshop's food goods, a member's state change, a meal's message, food points (appetite.ts
+# FOOD_POINTS for what a village makes)
+FOOD_GOODS = {"bread", "pumpkin_pie"}
+FOOD_STATE = re.compile(r"^\[food\] (?:\S+: )?(\S+) (fed|peckish|hungry)\b")
+FOOD_MEAL = re.compile(r"\bate (\d+) ([a-z_]+)")
+FOOD_POINTS = {"bread": 5, "pumpkin_pie": 8, "melon_slice": 2, "carrot": 3, "baked_potato": 5, "potato": 1, "apple": 4, "cookie": 2,
+               "beetroot": 1, "mushroom_stew": 6, "beetroot_soup": 6, "rabbit_stew": 10, "sweet_berries": 2, "glow_berries": 2,
+               "golden_carrot": 6, "cake": 14}
 
 
 def counts(s):
@@ -104,7 +120,12 @@ choices, choice_ends = {}, {}
 light_ends, light_q, light_walks, light_demand = [], [], [], []
 putbacks = []
 grow_layouts = []
+food_states = []
 for i, ln in enumerate(lines):
+    m = FOOD_STATE.match(ln)
+    if m:
+        food_states.append(dict(agent=m.group(1), state=m.group(2), i=i))
+        continue
     m = GROW_POSTED.match(ln)
     if m:
         grow_layouts.append(dict(village=m.group(1), layout=m.group(2), k=int(m.group(3)), by=m.group(4), i=i, end=None, why=None))
@@ -256,6 +277,40 @@ def light_during(e):
     return any(pb["village"] == e["village"] and "torch" in pb["items"] and start < pb["i"] < e["i"] for pb in putbacks)
 
 
+def is_eat(c):
+    return c.get("kind") == "eat" or (c.get("chosen") or "").startswith("eat")
+
+
+FOOD_BAKED = re.compile(r"\bbaked (\d+) bread")
+
+
+def food_during(e, more):
+    """The chores that can explain a food make's storage count (the village appetite, s30): eat chores of its village taking
+    the good while the make ran (a count short of what was made), or a wheat field's harvest baking bread into storage (a count
+    beyond it). By the chores' times inside the make's chore; without a make window, by log order from its queue line.
+    Returns (the chores named, how many of the good they moved: the "ate N <good>" or "baked N bread" of their end lines),
+    and the excuse holds only up to that many (lens 3 M1: a make that put back nothing must still fail)."""
+    t0, t1 = make_window(e)
+    want = (lambda c: c.get("kind") == "farm") if more else is_eat
+    if more and e["item"] != "bread":
+        return "", 0
+    hit, moved = [], 0
+    for c in choices.values():
+        if c.get("village") != e["village"] or not want(c):
+            continue
+        end = choice_ends.get(c["id"], {})
+        if t0:
+            ok = c.get("t", 0) < (t1 or float("inf")) and (end.get("tEnd") is None or end["tEnd"] > t0)
+        else:
+            start = max((q["i"] for q in queued if q["agent"] == e["agent"] and q["item"] == e["item"] and q["i"] < e["i"]), default=e["i"])
+            ok = start < c["_i"] < e["i"]
+        if ok:
+            hit.append(f"{c.get('agent')} {c.get('chosen') or c.get('key')}")
+            msg = end.get("message") or ""
+            moved += sum(int(q) for q in FOOD_BAKED.findall(msg)) if more else sum(int(q) for q, item in FOOD_MEAL.findall(msg) if item == e["item"])
+    return ", ".join(hit[:4]) + (f" and {len(hit) - 4} more" if len(hit) > 4 else ""), moved
+
+
 # ---- the make end lines
 made_ok = made_n = 0
 failed = []
@@ -295,6 +350,8 @@ for e in ends:
     if d != e["made"]:
         if d < e["made"] and e["item"] in TAKEN_BY_OTHERS:
             notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (taken from storage meanwhile)")
+        elif e["item"] in FOOD_GOODS and (fd := food_during(e, d > e["made"]))[0] and abs(d - e["made"]) <= fd[1]:
+            notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made ({'a harvest baked' if d > e['made'] else 'members ate'} {fd[1]} meanwhile: {fd[0]})")
         elif e["item"] == "torch" and light_during(e):
             notes.append(f"{who}: storage {e['before']}->{e['after']} for {e['made']} made (a light chore or a put-back moved torches meanwhile)")
         elif any(grown := growth_during(e, d > e["made"])):
@@ -486,6 +543,30 @@ for s, d, u, f in standing:
     print(f"standing check ({os.path.basename(f)}): {s} of {d} recorded torches standing" + (f" ({u} not loaded)" if u else ""))
 for u in unchecked[:20]:
     print(f"unchecked: {u}")
+# (the village appetite: only when its lines are there)
+eats = [c for c in choices.values() if is_eat(c)]
+if eats or food_states:
+    ate, ok_n, fail_n, who = defaultdict(int), 0, 0, set()
+    for c in eats:
+        end = choice_ends.get(c["id"])
+        if not end:
+            continue
+        if end.get("ok"):
+            ok_n += 1
+            who.add(c.get("agent"))
+            for q, item in FOOD_MEAL.findall(end.get("message") or ""):
+                ate[item] += int(q)
+        else:
+            fail_n += 1
+    states = defaultdict(int)
+    for f in food_states:
+        states[f["state"]] += 1
+    print(f"food: {len(eats)} eat chores, {ok_n} meals by {len(who)} agents ({sum(FOOD_POINTS.get(k, 0) * q for k, q in ate.items())} pts: "
+          + (", ".join(f"{q} {k}" for k, q in sorted(ate.items())) or "nothing") + f"), {fail_n} failed; state lines "
+          + (", ".join(f"{k} {n}" for k, n in sorted(states.items())) or "none")
+          + f" ({len({f['agent'] for f in food_states if f['state'] == 'hungry'})} agents hungry at some time)")
+    fm = [e for e in ends if e["item"] in FOOD_GOODS]
+    print("food makes: " + (", ".join(f"{k} {sum(e['made'] for e in fm if e['item'] == k)} in {sum(1 for e in fm if e['item'] == k)} makes" for k in sorted(FOOD_GOODS)) if fm else "none"))
 # (a make's storage count during growth with no GROW TASK spans is neither ok nor a mismatch: pass the stage log)
 print(f"MAKE ok {made_ok} of {made_n}" + (f"; storage unchecked {len(unchecked)} (growth without GROW TASK spans)" if unchecked else ""))
 print(f"LIGHT ok {light_ok} of {len(light_ends)}")

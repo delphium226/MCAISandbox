@@ -15,7 +15,10 @@ type Registry = ReturnType<typeof minecraftData>;
  * torches a craft, 16 panes); `words` name it in menus ("Make stone pickaxes"), `forWhat` says what it is for (lesson 127).
  * `variant`: one wood kind's slabs (and planks) make it, so its bill depends on the stock (makeBill, the check's H2).
  */
-export interface MakeGood { item: string; target: number; batch: number; unit: number; words: string; forWhat: string; variant?: 'slabs' }
+export interface MakeGood { item: string; target: number; batch: number; unit: number; words: string; forWhat: string; variant?: 'slabs';
+  /** s30's food step: food for the appetite (its target follows the members, 0 where the village keeps no appetite), and the
+   *  items of MAKE_NEVER it may take (beyond the keeps the world applies: the cake's, a breeding's, a farm start's). */
+  food?: true; allow?: string[] }
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */
 export const MAKE_GOODS: MakeGood[] = [
@@ -35,13 +38,24 @@ export const MAKE_GOODS: MakeGood[] = [
 ];
 
 /**
+ * Food goods (s30's food step, D13): made only in a village with an appetite (the world's makeTarget: bread two a member,
+ * pies one for two; 0 otherwise), so the workshop's goods, menus and checks stay as they were without it. Kept apart from
+ * MAKE_GOODS for that reason (the spec added them to it). A pie takes a plain egg only (the jar's recipe; the check's L6).
+ */
+export const FOOD_GOODS: MakeGood[] = [
+  { item: 'bread', target: 0, batch: 4, unit: 1, words: 'bread', forWhat: 'food for members: a bread is 5 of the 20 a member eats; at 6 they stop other work', food: true, allow: ['wheat'] },
+  { item: 'pumpkin_pie', target: 0, batch: 2, unit: 1, words: 'pumpkin pies', forWhat: 'food for members: a pie is 8 of the 20 a member eats; at 6 they stop other work', food: true, allow: ['pumpkin', 'sugar', 'sugar_cane', 'egg'] },
+];
+
+/**
  * Kept back from make (spec 4.5): cobblestone for a furnace's 8 and two miners' pickaxes made on the spot, coal for the
  * iron tools' smelting; logs (the village's kind) are 10 for each annex pen slot without a built pen plus 4 (a pen ring is
  * 10 logs charged from storage, a new storage chest 3, a hoe on the spot), computed per village by the world (logsKeep).
  */
 export const MAKE_KEEP = { cobblestone: 14, coal: 2, logsBase: 4, logsPerPen: 10 };
 
-/** Never an input of a make (pens, breeding, milking, the cake, bread and the iron age use them; no good's bill does). */
+/** Never an input of a make (pens, breeding, milking, the cake, bread and the iron age use them; no good's bill does), but
+ *  a food good's `allow` (s30). */
 export const MAKE_NEVER: ReadonlySet<string> = new Set(['wheat', 'wheat_seeds', 'raw_iron', 'iron_ingot', 'bucket', 'milk_bucket', 'egg', 'brown_egg', 'blue_egg', 'sugar', 'sugar_cane', 'cake', 'bread']);
 
 /** Crafting makes going at once in a village (they share the hut's table and its aisle; smelting makes go by furnace). */

@@ -482,6 +482,8 @@ const YIELD: Record<string, (m: string) => number | null> = {
   make: counted(/^made (\d+) [a-z_]+/),
   // B.4: "lit 5 torch spots in the library (...)" | "lit 0 torch spots ..." (only skips)
   put_up_torches: counted(/^lit (\d+) torch/),
+  // s30's appetite: "ate 1 bread from the village storage (appetite 9 -> 14 of 20)"
+  eat_meal: counted(/^ate (\d+) [a-z_]+/),
 };
 
 /** Items a skill's carried gain is judged by when its message gives no count. */
@@ -589,12 +591,13 @@ export class ChoiceStats {
   /**
    * Until when this option id is banned (per id, or the whole kind when failures span 2+ ids by 2+ agents), section 7.3:
    * 3 failed ends (not cut, no contention code) within 60 min take it off until 60 min after the third. Explore is exempt
-   * (its ring points are one-shot); make, gather and light are banned per id only (their ids are goods, materials and
+   * (its ring points are one-shot), and so is eating (s30: a peckish member may claim nothing while storage holds food, so a
+   * banned or cooling meal left it with neither, the food fix review's M1); make, gather and light are banned per id only (their ids are goods, materials and
    * parts, unrelated to each other, S.9, B.4). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long
    * as the id's.
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
-    if (kind === 'explore') return null;
+    if (kind === 'explore' || kind === 'eat') return null;
     const perId = kind === 'make' || kind === 'gather' || kind === 'light';
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
@@ -614,6 +617,7 @@ export class ChoiceStats {
   /** 5 min after the agent's own failure of the kind (not cut, no contention code); `id`: of that option only (make and
    *  gather, as their bans: one failed barrel kept the agent off every make, S.9's review, lens 2 L3). */
   agentCooling(village: string, agent: string, kind: ChoiceKind, now: number, id?: string): boolean {
+    if (kind === 'eat') return false;
     return this.list(village).some((e) => e.agent === agent && e.kind === kind && (id === undefined || e.id === id) && !e.ok && !e.cut && !e.contention && e.at > now - 5 * MIN && e.at <= now);
   }
 

@@ -50,6 +50,10 @@
   .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 13px; }
   .bar { width: 70px; height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
   .bar i { display: block; height: 100%; }
+  /* The village appetite (s30): a thin bar under an agent's name, its level of 20 in its state's colour */
+  .appbar { display: block; width: 100%; max-width: 120px; height: 4px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-top: 2px; }
+  .appbar i { display: block; height: 100%; }
+  .appbar.inline { display: inline-block; width: 36px; vertical-align: middle; margin: 0 0 0 4px; flex: none; }
   .section { border-top: 1px solid var(--line); margin-top: 9px; padding-top: 8px; }
   .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
   ol.steps { margin: 2px 0 0; padding-left: 0; list-style: none; }
@@ -447,9 +451,11 @@ function renderAgent(a) {
       ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
       ${choiceLine(a)}
     </div>
+    ${appetiteBar(a)}
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}
     <div class="vitals">
       <span title="health">♥ ${a.health}</span><span title="food">🍗 ${a.food}</span>
+      ${(() => { const p = appetiteOf(a); return p ? `<span title="the village appetite: eats at 12, only food work at 6" style="color:${APPETITE_COLORS[p.state]}">appetite ${p.level.toFixed(1)}/20 ${p.state}, ${plural(p.meals, 'meal')}</span>` : ''; })()}
       <span class="mono" title="position">${where}</span>
       <span title="failures since the last plan"${(st.failuresSincePlan || 0) >= 3 ? ' class="bad"' : ''}>${st.failuresSincePlan ?? 0} fails</span>
       <span title="executor calls and their average time, ~${n('execOutTokensAvg')} output tokens a turn">exec ${n('execCalls')} × ${Math.round(n('execMsAvg') / 100) / 10}s</span>
@@ -583,7 +589,7 @@ function choicesChip(v) {
 function foldedRow(a) {
   const state = agentState(a);
   return `<li><button type="button" class="rowbtn" data-card="${esc(a.name)}" data-cardto="open" title="Open ${esc(a.name)}'s card">
-    <i class="adot" style="background:${agentColor(a.name)}"></i><span class="nm">${esc(a.name)}</span>
+    <i class="adot" style="background:${agentColor(a.name)}"></i><span class="nm">${esc(a.name)}</span>${appetiteBar(a, true)}
     <span class="state" style="--c:${STATE_COLORS[state] || 'var(--idle)'}">${esc(state)}</span>
     <span class="doing">${esc(a.dead ? 'Dead' : doingWords(a))}${a.task ? ` <span class="sub">· ${esc(a.task.title)}</span>` : ''}</span>${flags(a)}</button></li>`;
 }
@@ -652,6 +658,7 @@ function renderVillage(v) {
       ${v.complete ? '<span class="state" style="--c:var(--done)">complete</span>' : ''}</div>
     <div class="stats left">${stat(`${builds.filter((t) => t.status === 'done').length}/${builds.length}`, 'buildings')}${stat(count('open'), 'open')}${stat(count('claimed'), 'claimed')}${stat(count('done'), 'done')}${stat(count('failed'), 'failed', count('failed') ? ' bad' : '')}${stat(chests.length, 'chests')}</div>
     ${v.choices ? `<div>${choicesChip(v)}</div>` : ''}
+    ${(() => { const fd = villageFood(v); return fd ? `<div class="sub" title="the village appetite: food in storage in points, meals eaten, members at 6 of 20 or below">food ${esc(foodText(fd))}; ${esc(foodSub(fd))}</div>` : ''; })()}
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
@@ -1265,6 +1272,7 @@ function actionWords(t, args) {
     case 'milk_cows': return 'Milking the cows';
     case 'breed_pen': return 'Breeding the animals';
     case 'bake_cake': return 'Baking a cake';
+    case 'eat_meal': return 'Eating at the storage hut';
     case 'light_streets': return 'Putting up street lamps';
     case 'put_up_signs': return 'Putting up name signs';
     case 'put_up_torches': return /^mine(:|$)/.test(String(args.part ?? '')) ? 'Putting up torches in the mine' : 'Putting up torches in a building';
@@ -1297,8 +1305,56 @@ function flags(a) {
   if (ev.some((e) => e.type === 'system' && /^Rescue:/.test(e.text))) out.push('<span class="flag">got stuck (rescued)</span>');
   if ((st.failuresSincePlan || 0) >= 3) out.push(`<span class="flag bad">${st.failuresSincePlan} failures lately</span>`);
   if (a.health < 20 && !a.dead) out.push(`<span class="flag">health ${a.health}</span>`);
+  if (appetiteOf(a)?.state === 'hungry') out.push('<span class="flag bad" title="appetite at 6 of 20 or below: only food work until fed">hungry</span>');
   return out.join('');
 }
+// ---- the village appetite (s30's food step, runs/2026-10-15/s30/spec_food.md 6): a member's level of 20 (fed above 12,
+// peckish at 12: eats first, hungry at 6: only food work), from the overview's `appetite` or the village's food record ----
+// (food points: appetite.ts FOOD_POINTS, cake 14 for its 7 slices of 2; food_check.mts compares this table; and the planting
+// stock a meal never takes, appetite.ts KEEP)
+const FOOD_POINTS = {
+  bread: 5, pumpkin_pie: 8, melon_slice: 2, carrot: 3, baked_potato: 5, potato: 1, apple: 4, cookie: 2, beetroot: 1, mushroom_stew: 6,
+  beetroot_soup: 6, rabbit_stew: 10, sweet_berries: 2, glow_berries: 2, golden_carrot: 6, cake: 14,
+};
+const FOOD_KEEP = { carrot: 8, potato: 8, beetroot: 8 };
+const APPETITE_COLORS = { fed: 'var(--good)', peckish: 'var(--warn)', hungry: 'var(--bad)' };
+const appetiteState = (level) => (level <= 6 ? 'hungry' : level <= 12 ? 'peckish' : 'fed');
+/** An agent's appetite { level, state, meals, lastMeal }, or null when its village keeps none. */
+function appetiteOf(a) {
+  const v = a.village ? (lastData?.villages || []).find((x) => x.name === a.village) : null;
+  // (the village record's levels only from the overview's own food summary, which it sends only with the appetite on)
+  const r = a.appetite || (Number.isFinite(v?.food?.points) ? v.food.members?.[a.name] : null);
+  const level = Number(r?.level);
+  if (!r || !Number.isFinite(level)) return null;
+  return { level, state: r.state || appetiteState(level), meals: r.meals ?? 0, lastMeal: r.lastMeal || null, hungryMin: r.hungryMin ?? (r.hungryMs ? Math.round(r.hungryMs / 6000) / 10 : 0) };
+}
+/** The thin appetite bar (`inline`: beside a name on a one-line row), its numbers in the tooltip. */
+function appetiteBar(a, inline = false) {
+  const p = appetiteOf(a);
+  if (!p) return '';
+  const why = p.state === 'hungry' ? ' (hungry: only food work until fed)' : p.state === 'peckish' ? ' (peckish: eats first when idle)' : '';
+  const last = p.lastMeal ? `; last meal ${p.lastMeal.n ?? 1} ${words(p.lastMeal.item)}${p.lastMeal.at ? ` ${ago(p.lastMeal.at)} ago` : ''}` : '';
+  const text = `appetite ${p.level.toFixed(1)} of 20${why}; ${plural(p.meals, 'meal')}${last}${p.hungryMin ? `; hungry ${p.hungryMin} min in all` : ''}`;
+  return `<span class="appbar${inline ? ' inline' : ''}" role="img" aria-label="${esc(text)}" title="${esc(text)}"><i style="width:${Math.max(0, Math.min(100, (p.level / 20) * 100))}%;background:${APPETITE_COLORS[p.state] || 'var(--idle)'}"></i></span>`;
+}
+/** The village's food: the overview's summary when it sends one ({points, items, meals, hungry}), else worked out from the
+ *  record and the storage; null when the village keeps no food record. */
+function villageFood(v) {
+  const f = v.food;
+  if (!f) return null;
+  const sum = {};
+  for (const c of v.storage?.chests || []) for (const [n, q] of Object.entries(c.items || {})) if (FOOD_POINTS[n] && q > 0) sum[n] = (sum[n] || 0) + q;
+  // (what a meal may take: storage less the planting stock, as appetite.ts foodPoints)
+  for (const [n, k] of Object.entries(FOOD_KEEP)) if (sum[n] !== undefined && (sum[n] -= k) <= 0) delete sum[n];
+  const items = f.items && typeof f.items === 'object' ? Object.entries(f.items).filter(([, q]) => q > 0) : Object.entries(sum);
+  items.sort((x, y) => (FOOD_POINTS[y[0]] || 0) * y[1] - (FOOD_POINTS[x[0]] || 0) * x[1]);
+  const points = Number.isFinite(f.points) ? f.points : items.reduce((t, [n, q]) => t + (FOOD_POINTS[n] || 0) * q, 0);
+  const hungry = Array.isArray(f.hungry) ? f.hungry : Object.entries(f.members || {}).filter(([, m]) => Number(m?.level) <= 6).map(([n]) => n);
+  const peckish = Array.isArray(f.peckish) ? f.peckish : Object.entries(f.members || {}).filter(([, m]) => Number(m?.level) > 6 && Number(m?.level) <= 12).map(([n]) => n);
+  return { points, items, meals: f.meals ?? 0, hungry, peckish };
+}
+const foodText = (fd) => `${fd.points} pts${fd.items.length ? `: ${fd.items.slice(0, 4).map(([n, q]) => `${q} ${words(n)}`).join(', ')}` : ', nothing to eat'}`;
+const foodSub = (fd) => `${plural(fd.meals, 'meal')}; hungry: ${fd.hungry.length ? fd.hungry.join(', ') : 'none'}${fd.peckish.length ? `; peckish ${fd.peckish.length}` : ''}`;
 // ---- activities: what kind of work each agent is on (the groups, filter chips and the map's overlay at 25 agents) ----
 const ACTIVITIES = [['building', 'Building'], ['mining', 'Mining'], ['gathering', 'Gathering'], ['chores', 'Chores'], ['other', 'Other'], ['idle', 'Idle']];
 const ACT_OF = {
@@ -1306,7 +1362,7 @@ const ACT_OF = {
   mine: 'mining', dig_mine: 'mining', dig_iron: 'mining', collect: 'gathering', craft: 'gathering', smelt: 'gathering',
   tend_farm: 'chores', harvest_farm: 'chores', start_farm: 'chores', harvest_slot: 'chores', prepare_annex: 'chores', start_pen: 'chores', collect_eggs: 'chores',
   milk_cows: 'chores', breed_pen: 'chores', bake_cake: 'chores', scout: 'chores', explore: 'chores', make_iron_tool: 'chores',
-  make: 'chores', prepare_works: 'chores', place_works_furnace: 'chores', put_up_torches: 'chores',
+  make: 'chores', prepare_works: 'chores', place_works_furnace: 'chores', put_up_torches: 'chores', eat_meal: 'chores',
 };
 // (stone and ores come from the village mine)
 const MINED = /^(cobblestone|stone|cobbled_deepslate|deepslate|coal|raw_iron|iron_ore|coal_ore)$|_ore$/;
@@ -1358,7 +1414,7 @@ function simpleAgents(agents, scope) {
     const color = STATE_COLORS[state] || 'var(--idle)';
     const sub = a.task && a.currentAction ? a.task.title : '';
     return `<li>
-      <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b><span class="sub">${esc(a.villageRole || a.role)}</span></div>
+      <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b>${compact ? appetiteBar(a, true) : ''}<span class="sub">${esc(a.villageRole || a.role)}</span>${compact ? '' : appetiteBar(a)}</div>
       <div class="who-doing"${compact && sub ? ` title="${esc(sub)}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
       <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since && !compact ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
   };
@@ -1386,7 +1442,7 @@ function buildingStates(v) {
 /** Storage by use: building materials, food and farm, tools and metal (anything else is left out of the summary). */
 const STOCK = [
   ['Building', [['logs', (n) => /_log$/.test(n)], ['planks', (n) => /_planks$/.test(n)], ['cobblestone', (n) => n === 'cobblestone'], ['sand', (n) => n === 'sand'], ['glass', (n) => /^glass(_pane)?$/.test(n)]]],
-  ['Food and farm', [['wheat', (n) => n === 'wheat'], ['seeds', (n) => /_seeds$/.test(n)], ['bread', (n) => n === 'bread'], ['eggs', (n) => /egg$/.test(n)], ['milk', (n) => n === 'milk_bucket'], ['cake', (n) => n === 'cake'], ['sugar cane', (n) => n === 'sugar_cane'], ['pumpkins', (n) => n === 'pumpkin'], ['melon', (n) => /^melon(_slice)?$/.test(n)]]],
+  ['Food and farm', [['wheat', (n) => n === 'wheat'], ['seeds', (n) => /_seeds$/.test(n)], ['bread', (n) => n === 'bread'], ['eggs', (n) => /egg$/.test(n)], ['milk', (n) => n === 'milk_bucket'], ['cake', (n) => n === 'cake'], ['pumpkin pie', (n) => n === 'pumpkin_pie'], ['carrots', (n) => n === 'carrot'], ['potatoes', (n) => /^(baked_)?potato$/.test(n)], ['sugar cane', (n) => n === 'sugar_cane'], ['pumpkins', (n) => n === 'pumpkin'], ['melon', (n) => /^melon(_slice)?$/.test(n)]]],
   ['Tools and metal', [['raw iron', (n) => n === 'raw_iron'], ['iron ingots', (n) => n === 'iron_ingot'], ['coal', (n) => /^(coal|charcoal)$/.test(n)], ['buckets', (n) => n === 'bucket'], ['iron tools', (n) => /^iron_(pickaxe|axe|shovel|hoe|sword)$/.test(n)]]],
 ];
 /** What the village does after its buildings: the field, farms, pens, the iron age, lamps and signs. */
@@ -1445,6 +1501,9 @@ function villageLife(v) {
     items.push(['Lights', Number.isFinite(v.lightSpots) ? `${up} of ${v.lightSpots} torches up` : `${up} torch${up === 1 ? '' : 'es'} up`,
       `${where ? `in ${where}` : ''}${never ? `${where ? '; ' : ''}${never} spot${never === 1 ? '' : 's'} cannot hold one` : ''}`]);
   }
+  // (s30: the village appetite, its food in storage in points, the meals eaten and who is hungry)
+  const fd = villageFood(v);
+  if (fd) items.push(['Food', foodText(fd), foodSub(fd)]);
   if (!items.length) return '';
   return `<div class="card"><div class="label">Village life</div><dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl></div>`;
 }

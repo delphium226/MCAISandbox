@@ -10,7 +10,9 @@ probe keeps it loaded, and where they stand is checked (S.0); spawns go at least
 the critical path through the board's tasks (CRIT lines), and STOCK lines of the storage during the run for
 scripts/checks/autonomy_metrics.py. With MCAI_AFTER and a growing village (the agent server started with MC_GROW=1), the
 growth layouts as stage_village.py prints them (AFTER GROW, GROW layouts and a GROW line, critical path and task spans per
-layout), and the CRITICAL PATH counts only the tasks before the first growth layout's first id.
+layout), and the CRITICAL PATH counts only the tasks before the first growth layout's first id. With MCAI_AFTER and the
+agent server's MC_APPETITE (s30's food step), the FOOD lines as stage_village.py prints them (every 2 minutes, then each
+member, the hungry share, the FOOD ok or FOOD MISMATCH ledger and FIELDS ticking).
 
 Usage: python scripts/watch_village.py VILLAGE X Z WORKERS MAX_MINUTES "objective" [WORKER_PLANNER] [SITE_SIZE]
 Starts near X,Z: the Mayor (as an idle agent) first searches outward from there for dry land with room for a SITE_SIZE plot (default 30);
@@ -427,6 +429,10 @@ class GrowWatch:
         lay = next((l for l in v.get("layouts") or [] if l.get("grow") == k), None)
         if lay and not r.get("plot"):
             r["plot"] = {q: lay.get(q) for q in ("x1", "x2", "z1", "z2")}
+        if lay:
+            # (the pad option the layout took, s30's food step: its size and field, or why it has none; lens 3 L9)
+            r["pad"] = (f"{lay['x2'] - lay['x1'] + 1}x{lay['z2'] - lay['z1'] + 1}, "
+                        + (f"field + {len(lay.get('slots') or [])} slots" if lay.get("farm") else f"no field ({lay['farmWhy']})" if lay.get("farmWhy") else "no field"))
         return r
 
     def members_now(self, v):
@@ -462,7 +468,8 @@ class GrowWatch:
             p = r.get("plot") or {}
             area = f"{p.get('x1')}..{p.get('x2')},{p.get('z1')}..{p.get('z2')}" if p else "?"
             chests = len((v.get("storage") or {}).get("chests") or [])
-            out.append(f"GROW layout {r.get('layout', '?')} ({k}): {n} houses posted at {area}; built {b}/{n}; houses {H} for {M} members; chests {chests}"
+            out.append(f"GROW layout {r.get('layout', '?')} ({k}): {n} houses posted at {area}" + (f" (pad {r['pad']})" if r.get("pad") else "")
+                       + f"; built {b}/{n}; houses {H} for {M} members; chests {chests}"
                        + (f"; ended {ended}: built {r.get('built', b)} of {n}, failed {r.get('failed', 0)}" if ended else ""))
         if g.get("stop") and g["stop"] != self.stop:
             self.stop = g["stop"]
@@ -501,7 +508,7 @@ class GrowWatch:
             p = r.get("plot") or {}
             n = r.get("n") if r.get("n") is not None else len(builds)
             per.append(f"GROW layout {r.get('layout', '?')} ({k}): {n} houses ({', '.join(r.get('houses') or []) or '-'}), members {r.get('members', '?')}, "
-                       f"plot {p.get('x1')}..{p.get('x2')},{p.get('z1')}..{p.get('z2')}, posted {m(posted)}, built "
+                       f"plot {p.get('x1')}..{p.get('x2')},{p.get('z1')}..{p.get('z2')}" + (f" (pad {r['pad']})" if r.get("pad") else "") + f", posted {m(posted)}, built "
                        f"{sum(1 for t in builds if t['status'] == 'done')} of {len(builds)}"
                        + (f" by {m(built_at)} ({took:.1f} min from posting)" if took is not None else "")
                        + (f", ended {why} {m(r['end'] / 1000)}" if r.get("end") else f", {why}") + f"; {len(tasks)} tasks; gathering "
@@ -526,6 +533,274 @@ class GrowWatch:
             takes = self.takes(v, t) if t["title"].startswith("Build ") else ""
             out.append(f"GROW TASK {t['id']} claimed={int(c * 1000)} end={int(e * 1000) if e else '-'} by={t.get('claimedBy') or '-'} "
                        + (f"takes={takes} " if takes else "") + t["title"])
+        return out
+
+
+# The village appetite (s30's food step, runs/2026-10-15/s30/spec_food.md 6; as in stage_village.py and watch_village.py,
+# keep the two alike): the food points an item gives (appetite.ts FOOD_POINTS, cake 14 for its 7 slices of 2;
+# scripts/checks/food_check.mts compares this table with it), and the planting stock a meal never takes (appetite.ts KEEP)
+FOOD_POINTS = {
+    "bread": 5, "pumpkin_pie": 8, "melon_slice": 2, "carrot": 3, "baked_potato": 5, "potato": 1, "apple": 4, "cookie": 2,
+    "beetroot": 1, "mushroom_stew": 6, "beetroot_soup": 6, "rabbit_stew": 10, "sweet_berries": 2, "glow_berries": 2,
+    "golden_carrot": 6, "cake": 14,
+}
+FOOD_KEEP = {"carrot": 8, "potato": 8, "beetroot": 8}
+# The foods the village makes (fields, slots, the hut's table, the cake); any other food that turns up in storage came in
+# with other work (an apple from oak leaves with the logs), which the ledger notes rather than fails (lesson 132)
+FOOD_MADE = {"bread", "pumpkin_pie", "cake", "melon_slice", "carrot", "potato", "beetroot", "baked_potato", "cookie"}
+# Food that leaves storage without a meal (the spec check's L5): a farm start from storage takes its kind's count
+# (farmSlots.ts SLOT_KINDS take and count: melon slices made into seeds, carrots and potatoes planted); a crop slot's
+# replant is netted already (harvest_slot's made is the server-counted change after it). The pie's pumpkins, sugar and egg
+# and the cake's wheat, milk, egg and sugar are not food, so the ledger in points never sees them (the conversions line
+# names them).
+FOOD_STARTS = {"melon": ("melon_slice", 6), "carrots": ("carrot", 6), "potatoes": ("potato", 6)}
+# Where a field grows (the food step's live check, s30_crop_reach.py and s30_crop_diag.py): a chunk whose centre is within
+# ~115 blocks of a bot (grew at 103.6 and 115.6, not at 119.6)
+FOOD_TICK_RANGE = 115
+FOOD_PECKISH, FOOD_HUNGRY = 12, 6
+FOOD_MEAL = re.compile(r"\bate (\d+) ([a-z_]+)")
+
+
+def food_store(v):
+    """Storage's food items, from the chests as last opened."""
+    tot = {}
+    for c in (v.get("storage") or {}).get("chests", []):
+        for k, q in (c.get("items") or {}).items():
+            if k in FOOD_POINTS and q:
+                tot[k] = tot.get(k, 0) + q
+    return tot
+
+
+def food_points(counts, meals=False):
+    """Points of food in `counts`; `meals`: only what a meal may take (less the planting stock, appetite.ts foodPoints)."""
+    return sum(FOOD_POINTS.get(k, 0) * max(0, q - (FOOD_KEEP.get(k, 0) if meals else 0)) for k, q in counts.items())
+
+
+def food_call(path):
+    """A GET that answers None for an error (stage_village.py's call returns HTTP errors, watch_village.py's raises)."""
+    try:
+        r = call(path)
+    except Exception:
+        return None
+    return None if isinstance(r, dict) and "error" in r and "status" in r else r
+
+
+class FoodWatch:
+    """The village appetite after completion (spec 6): the FOOD line every 2 minutes, then each member's appetite and meals,
+    the hungry and D7-busy shares of member-time, the FOOD ledger and how often each planted field was within growing
+    range of a bot (FIELDS ticking). Silent unless the agent server has the appetite on (/api/status `appetite.rate`, else
+    this environment's MC_APPETITE) or the village keeps a food record."""
+
+    def __init__(self, members):
+        self.members = list(members)
+        self.on = False
+        self.t0 = self.last = self.line_at = self.tick_at = None
+        self.base = None
+        self.member_s = {n: 0.0 for n in self.members}
+        self.hungry_s = {n: 0.0 for n in self.members}
+        self.busy_s = {n: 0.0 for n in self.members}
+        self.eat_s = 0.0
+        self.series = []  # (minute, hungry member-seconds, member-seconds) per sample
+        self.ticks = {}  # layout k -> [checks in range, checks]
+        self.out, self.eats, self.meal_events = {}, {}, 0
+
+    def start(self, v):
+        st = food_call("/status")
+        ap = st.get("appetite") if isinstance(st, dict) else None
+        env = os.environ.get("MC_APPETITE", "").strip().lower()
+        env_rate = 18 if env in ("1", "on", "true") else float(env) if env.replace(".", "", 1).isdigit() else 0
+        self.rate = ap.get("rate") if isinstance(ap, dict) else env_rate
+        # (the server's rate when it reports one: an old food record on a server with the appetite off is no appetite)
+        self.on = bool(self.rate) if isinstance(ap, dict) else bool(self.rate) or bool(v.get("food"))
+        self.t0 = self.last = self.line_at = self.tick_at = time.time()
+        if self.on:
+            self.base = self.snapshot(v)
+            return [f"FOOD on: appetite {self.rate or '?'} a busy game-hour" + (f", idle x{ap.get('idle')}, start {ap.get('start')}" if isinstance(ap, dict) else "")
+                    + f"; grow farms {'on' if isinstance(st, dict) and st.get('growFarms') else 'off' if isinstance(st, dict) and 'growFarms' in st else '?'}"
+                    + f"; storage {food_points(self.base['store'], True)} pts {self.items_text(self.base['store'])}"]
+        return []
+
+    def items_text(self, counts, n=5):
+        top = sorted(counts.items(), key=lambda kv: -FOOD_POINTS.get(kv[0], 0) * kv[1])[:n]
+        return "(" + (", ".join(f"{q} {k}" for k, q in top) or "none") + ")"
+
+    def levels(self, v):
+        mem = ((v.get("food") or {}).get("members") or {})
+        return {n: (mem.get(n) or {}).get("level") for n in self.members}
+
+    def event(self, name, e):
+        """An action_done event of the after phase: from-storage farm starts and crop harvests take food out without a meal,
+        and each eat_meal's message names what was eaten (checked against the record's eaten)."""
+        if not self.on or e.get("type") != "action_done":
+            return
+        d = e.get("data") or {}
+        t, a = d.get("type"), d.get("args") or {}
+        if t == "start_farm" and a.get("from") == "storage" and a.get("kind") in FOOD_STARTS:
+            item, n = FOOD_STARTS[a["kind"]]
+            self.out[item] = self.out.get(item, 0) + n
+        elif t == "eat_meal":
+            self.meal_events += 1
+            for q, item in FOOD_MEAL.findall(e.get("text") or ""):
+                self.eats[item] = self.eats.get(item, 0) + int(q)
+
+    def sample(self, v, listing):
+        """One sample of the watch loop: the members' appetite states and D7's busy (an action other than eat_meal), each
+        planted field's growing range every 30 s, and the FOOD line every 2 minutes (returned)."""
+        if not self.on:
+            return []
+        now = time.time()
+        dt, self.last = now - self.last, now
+        lv = self.levels(v)
+        acts = {a.get("name"): a for a in listing} if isinstance(listing, list) else {}
+        hungry = 0.0
+        for n in self.members:
+            if n not in acts:
+                continue
+            self.member_s[n] += dt
+            if lv.get(n) is not None and lv[n] <= FOOD_HUNGRY:
+                self.hungry_s[n] += dt
+                hungry += dt
+            act = acts[n].get("action")
+            kind = act.get("type") if isinstance(act, dict) else None
+            if kind == "eat_meal":
+                self.eat_s += dt
+            elif act:
+                self.busy_s[n] += dt
+        self.series.append(((now - self.t0) / 60, hungry, dt * sum(1 for n in self.members if n in acts)))
+        if now - self.tick_at >= 30 and isinstance(listing, list):
+            self.tick_at = now
+            bots = [(a["position"]["x"], a["position"]["z"]) for a in listing if a.get("position")]
+            for k, lay in enumerate(v.get("layouts") or []):
+                f = lay.get("farm")
+                if not f or not f.get("planted"):
+                    continue
+                chunks = [(cx * 16 + 8, cz * 16 + 8) for cx in range(f["x1"] >> 4, (f["x2"] >> 4) + 1) for cz in range(f["z1"] >> 4, (f["z2"] >> 4) + 1)]
+                near = all(any(math.hypot(x - bx, z - bz) <= FOOD_TICK_RANGE for bx, bz in bots) for x, z in chunks)
+                t = self.ticks.setdefault(k, [0, 0])
+                t[0] += near
+                t[1] += 1
+        if now - self.line_at >= 120:
+            self.line_at = now
+            return [self.line(v, lv)]
+        return []
+
+    def line(self, v, lv=None):
+        lv = lv if lv is not None else self.levels(v)
+        food = v.get("food") or {}
+        store = food_store(v)
+        b = self.base or {"made": {}, "eaten": {}, "meals": 0}
+        made = {k: q - b["made"].get(k, 0) for k, q in (food.get("made") or {}).items() if q - b["made"].get(k, 0)}
+        eaten = {k: q - b["eaten"].get(k, 0) for k, q in (food.get("eaten") or {}).items() if q - b["eaten"].get(k, 0)}
+        fields = [lay.get("farm") for lay in v.get("layouts") or [] if lay.get("farm")]
+        peckish = sum(1 for n in self.members if lv.get(n) is not None and FOOD_HUNGRY < lv[n] <= FOOD_PECKISH)
+        hungry = sum(1 for n in self.members if lv.get(n) is not None and lv[n] <= FOOD_HUNGRY)
+        return (f"FOOD stock {food_points(store, True)} pts ({', '.join(f'{store.get(k, 0)} {k}' for k in ('bread', 'cake', 'pumpkin_pie', 'melon_slice'))}"
+                + "".join(f", {q} {k}" for k, q in sorted(store.items()) if k not in ("bread", "cake", "pumpkin_pie", "melon_slice")) + ")"
+                + f" | made {' '.join(f'{k} {q}' for k, q in sorted(made.items(), key=lambda kv: -kv[1])[:6]) or 'nothing'}"
+                + f" | eaten {(food.get('meals') or 0) - b['meals']} meals {food_points(eaten)} pts"
+                + f" | fields {len(fields)} (planted {sum(1 for f in fields if f.get('planted'))}, harvested {sum(1 for f in fields if f.get('harvests'))}, harvests {sum(f.get('harvests') or 0 for f in fields)})"
+                + f" | peckish {peckish} hungry {hungry}")
+
+    def snapshot(self, v):
+        """Storage, what the members carry, the record's made, eaten and meals (and `used` if the server keeps one), and the
+        bread the fields' harvests baked, as counts."""
+        food = v.get("food") or {}
+        carried = {}
+        for n in self.members:
+            o = food_call(f"/agents/{n}")
+            for k, q in ((o.get("inventory") or {}) if isinstance(o, dict) else {}).items():
+                if k in FOOD_POINTS and q:
+                    carried[k] = carried.get(k, 0) + q
+        return {"store": food_store(v), "carried": carried, "made": dict(food.get("made") or {}), "eaten": dict(food.get("eaten") or {}),
+                "used": dict(food.get("used") or {}), "meals": food.get("meals") or 0,
+                "bread": sum(((lay.get("farm") or {}).get("bread") or 0) for lay in v.get("layouts") or [])}
+
+    def ledger(self, e, eating):
+        """Food in storage and carried changed by what was made less what was eaten and what left without a meal (lesson
+        132: every flow named): ([mismatches], [notes]). `eating`: eat_meal actions running at either snapshot (a meal in
+        flight may be taken and not yet recorded: up to 4 items each)."""
+        b = self.base
+        d = lambda key, k: e[key].get(k, 0) - b[key].get(k, 0)
+        keyed = ("store", "carried", "made", "eaten", "used")
+        items = sorted({k for s in (b, e) for key in keyed for k in s[key] if k in FOOD_POINTS} | set(self.out) | set(self.eats))
+        used_rec = bool(b["used"] or e["used"])
+        bad, notes = [], []
+        slack = 4 * eating
+        for k in items:
+            moved = d("store", k) + d("carried", k)
+            made, eaten = d("made", k), d("eaten", k)
+            used = d("used", k) if used_rec else self.out.get(k, 0)
+            u = moved - made + eaten + used
+            what = (f"{k}: storage {d('store', k):+d}, carried {d('carried', k):+d}, made {made}, eaten {eaten}"
+                    + (f", out without a meal {used}" if used else "") + f" (unexplained {u:+d})")
+            if u == 0:
+                continue
+            # (no replant excuse: harvest_slot's made is already net of its replant, lens 3 L1)
+            if abs(u) <= slack:
+                notes.append(f"{what}: {eating} meal(s) in flight")
+            elif u > 0 and k not in FOOD_MADE:
+                notes.append(f"{what}: came in with other work")
+            else:
+                bad.append(what)
+        # (bread from the harvest chore is the record's too, spec 4.5; the fields count it per layout)
+        hb = e["bread"] - b["bread"]
+        if hb > d("made", "bread"):
+            bad.append(f"bread: the harvests baked {hb} but the record's made counts {d('made', 'bread')}")
+        # (each eat_meal's message against the record's eaten: the record short of the messages is a mismatch; messages short
+        # of the record a note, a meal may end after the watch's last read of the events)
+        for k in sorted(set(self.eats) | {k for k in e["eaten"] if d("eaten", k)}):
+            said, rec = self.eats.get(k, 0), d("eaten", k)
+            if said > rec + slack:
+                bad.append(f"{k}: the meals' messages ate {said}, the record's eaten {rec}")
+            elif rec > said:
+                notes.append(f"{k}: the record's eaten {rec}, the meals' messages seen {said} (meals after the last read of the events)")
+        return bad, notes
+
+    def end_lines(self, v, listing, wait=None):
+        """At the end: FOOD per agent, the shares, the conversions, the ledger (read again up to 3 times, 5 s apart, while
+        it does not add up: agents are still at work) and FIELDS ticking."""
+        if not self.on:
+            return []
+        out = []
+        lv = self.levels(v)
+        out.append(self.line(v, lv))
+        mem = ((v.get("food") or {}).get("members") or {})
+        per = [f"{n} level {lv[n]:.1f} meals {(mem.get(n) or {}).get('meals', 0)} hungry {self.hungry_s[n] / 60:.1f} min" if lv.get(n) is not None
+               else f"{n} no record" for n in self.members]
+        out.append("FOOD per agent: " + ", ".join(per))
+        none = [n for n in self.members if not (mem.get(n) or {}).get("meals")]
+        out.append(f"FOOD members {len(self.members)}: every member ate {'yes' if not none else 'no'}" + (f" ({len(none)} without a meal: {', '.join(none)})" if none else ""))
+        span = lambda m: (sum(h for t, h, _ in self.series if t >= m), sum(s for t, _, s in self.series if t >= m))
+        share = lambda m: (lambda hs: f"{100 * hs[0] / hs[1]:.1f}%" if hs[1] else "-")(span(m))
+        total = sum(self.member_s.values())
+        out.append(f"FOOD hungry share of member-time: all {share(0)}, after +30 {share(30)}, after +45 {share(45)}; "
+                   f"busy (D7: an action other than eat_meal) {100 * sum(self.busy_s.values()) / total:.1f}%" if total else "FOOD hungry share: no samples")
+        out[-1] += f"; eating {self.eat_s / 60:.1f} agent-min, {self.meal_events} meals seen"
+        food = v.get("food") or {}
+        made = {k: q - self.base["made"].get(k, 0) for k, q in (food.get("made") or {}).items()}
+        out.append(f"FOOD conversions: bread {made.get('bread', 0)} (from harvests {sum(((lay.get('farm') or {}).get('bread') or 0) for lay in v.get('layouts') or []) - self.base['bread']}), "
+                   f"pumpkin_pie {made.get('pumpkin_pie', 0)} (pumpkins, sugar and eggs are not food), cake {made.get('cake', 0)}; "
+                   f"out without a meal {', '.join(f'{q} {k}' for k, q in sorted(self.out.items())) or 'none'}")
+        bad = notes = None
+        for attempt in range(4):
+            if attempt:
+                time.sleep(5)
+                v = food_call(f"/village/{v['name']}") or v
+                listing = food_call("/agents")
+            eating = sum(1 for a in listing or [] if a.get("name") in self.members and isinstance(a.get("action"), dict) and a["action"].get("type") == "eat_meal")
+            e = self.snapshot(v)
+            bad, notes = self.ledger(e, eating)
+            if not bad:
+                break
+        moved = food_points(e["store"]) - food_points(self.base["store"]) + food_points(e["carried"]) - food_points(self.base["carried"])
+        mp = food_points({k: q - self.base["made"].get(k, 0) for k, q in e["made"].items()})
+        ep = food_points({k: q - self.base["eaten"].get(k, 0) for k, q in e["eaten"].items()})
+        head = f"made {mp} pts, eaten {ep} pts, storage and carried {moved:+d} pts"
+        for n in notes:
+            out.append(f"FOOD note: {n}")
+        out.append(f"FOOD ok ({head})" if not bad else f"FOOD MISMATCH {'; '.join(bad)} ({head})")
+        ticks = [f"layout {k + 1} {100 * t[0] / t[1]:.0f}% of {t[1]} checks" for k, t in sorted(self.ticks.items()) if t[1]]
+        out.append("FIELDS ticking: " + (", ".join(ticks) if ticks else "no planted field checked") + f" (a chunk centre within {FOOD_TICK_RANGE} of a bot)")
         return out
 
 
@@ -602,10 +877,15 @@ if after and reason == "objective declared complete":
     # (a village that grows, s30: as the agent server says, else this environment's MC_GROW)
     grow.on = server_grow()
     print(f"AFTER GROW {'on' if grow.on else 'off'}", flush=True)
+    # (the village appetite, s30's food step: silent unless the agent server has it on)
+    food = FoodWatch(names)
+    for line in food.start(call(f"/village/{village}")):
+        print(f"AFTER {line}", flush=True)
     clock.restart()
     while time.time() - t2 < after * 60:
         time.sleep(5)
-        clock.sample(listing(), "after")
+        agents_now = listing()
+        clock.sample(agents_now, "after")
         for n in names:
             try:
                 events = call(f"/agents/{n}/events?since={seen[n]}")
@@ -615,7 +895,10 @@ if after and reason == "objective declared complete":
                 seen[n] = e["id"]
                 if e["type"] in ("action_done", "action_failed"):
                     print(f"AFTER {(time.time() - t2) / 60:4.1f}m {n:8} {e['type']:13} | {e['text'][:300]}", flush=True)
+                    food.event(n, e)
         v = call(f"/village/{village}")
+        for line in food.sample(v, agents_now):
+            print(f"AFTER {(time.time() - t2) / 60:4.1f}m {line}", flush=True)
         stock_line(v)
         # (the board's stamps go on through the after phase: growth tasks are claimed and done there, the spec check's M2)
         stamps.update(v["tasks"])
@@ -630,6 +913,8 @@ if after and reason == "objective declared complete":
         if v.get("explore") != explore_seen:
             explore_seen = v.get("explore")
             print(f"AFTER {(time.time() - t2) / 60:4.1f}m EXPLORE {json.dumps(explore_seen)[:300]}", flush=True)
+    for line in food.end_lines(call(f"/village/{village}"), listing()):
+        print(line, flush=True)
     reason += f", then {after:g} min after"
 
 v = call(f"/village/{village}")

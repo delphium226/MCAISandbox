@@ -4,7 +4,7 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, type Area, type FarmSlot, type Layout, type PlotPart, type Village } from './village';
+import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, villageHome, type Area, type FarmSlot, type Layout, type PlotPart, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -21,6 +21,12 @@ export interface Site {
   /** The biome at the site (Minecraft's name): the street plan's town centre comes from it (V2.3). */
   biome?: string;
 }
+
+/** Wheat seeds storage keeps for breeding chickens: a neighbourhood's field is sown from the rest first (s30, D3). */
+const SEED_KEEP = 8;
+/** How far from the storage hut a neighbourhood's field and slot cells may lie (s30's check M5: crops grew while a bot was
+ *  within ~115 blocks of their chunk's centre, not from ~120, and the village's bots spend most of their time at the hut). */
+const FIELD_REACH = 96;
 
 /** A part of the plot as plan_layout posts it (S.6): its rectangle, margins, and what it holds (for its task's title). */
 export type PrepPart = PlotPart & { what: string };
@@ -108,11 +114,14 @@ export function prepParts(plot: Area, hut: Area, mine: Area, back: Area | undefi
  * the stage script lays out before it spawns them) decides how many.
  *
  * `opts.neighbourhood` (a village that grows, s30): houses on a plot of their own once the village is complete, along a
- * cross street with lamps and signs, prepared whole; no storage, mine, stations, farm or slots, and the village's
- * unplaced and unavailable lists left as they are. `opts.poster` (default `by`) posts the tasks ('grow' for growth, so
- * the mayor's "laid out by me" rules never see them); `by` stays the agent the material check counts with.
+ * cross street with lamps and signs, prepared whole; no storage, mine or stations, and the village's unplaced and
+ * unavailable lists left as they are. With `opts.farm` (s30's food step, D1-D3) a wheat field by the first layout's rules
+ * and up to `opts.slots` farm slots (default 2) on the neighbourhood's pad, every cell within 96 blocks of the storage hut
+ * (fields grow only near a bot, the check's M5); a field refused leaves the houses laid out all the same, its reason on the
+ * layout (`farmWhy`). `opts.poster` (default `by`) posts the tasks ('grow' for growth, so the mayor's "laid out by me"
+ * rules never see them); `by` stays the agent the material check counts with.
  */
-export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number, opts: { poster?: string; neighbourhood?: boolean } = {}): string {
+export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number, opts: { poster?: string; neighbourhood?: boolean; farm?: boolean; slots?: number } = {}): string {
     const reg = w.villages;
     const poster = opts.poster ?? by;
     const nb = !!opts.neighbourhood;
@@ -444,16 +453,48 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         farm = null;
       }
     }
+    // A neighbourhood's field (s30's food step, D1): by the same rules, nearest the pad's centre (its pad was sized for it,
+    // grow.ts padFor), every cell within FIELD_REACH of the storage hut (crops grow only while a bot is within ~115 blocks
+    // of their chunk's centre, s30's live check; a bot at the hut keeps them growing), else the field nearest the hut on
+    // the pad; refused, the houses are laid out all the same
+    let farmWhy: string | undefined;
+    const hutAt = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : villageHome(v);
+    const fromHut = (q: Area) => (hutAt ? Math.max(...[[q.x1, q.z1], [q.x1, q.z2], [q.x2, q.z1], [q.x2, q.z2]].map(([x, z]) => Math.hypot(x - hutAt.x, z - hutAt.z))) : 0);
+    // (storage's seeds beyond the chickens' keep sow it first: the seed tasks are only for the shortfall, D3)
+    const spareSeeds = Math.max(0, (v.storage?.chests ?? []).reduce((s, c) => s + (c.items.wheat_seeds ?? 0), 0) - SEED_KEEP);
+    if (economy && nb && opts.farm && w.skills.some((t) => t.name === 'tend_farm')) {
+      if (/snowy|frozen|ice|grove|peaks|desert|badlands/.test(biome)) farmWhy = `the ${biome} biome`;
+      else {
+        farm = placeFarm(grids, plot, { streets: street?.streets, green: street?.green });
+        if (farm && hutAt && fromHut(farm) > FIELD_REACH) farm = placeFarm(grids, plot, { streets: street?.streets, green: street?.green, near: hutAt });
+        if (!farm) farmWhy = 'no free ground for a 5x7 field';
+        else if (fromHut(farm) > FIELD_REACH) {
+          farmWhy = `the field would lie ${Math.round(fromHut(farm))} blocks from the storage hut (more than ${FIELD_REACH}: it would not grow while the village is at home)`;
+          farm = null;
+        }
+      }
+      // (grass only for the seeds storage does not cover, counted round home: collect gathers within 96 of the village, not
+      // of the neighbourhood, the check's L7)
+      const short = farm ? farm.sow.length - spareSeeds : 0;
+      const home = villageHome(v);
+      const grass = farm && short > 0 && home && w.materialsNear ? w.materialsNear(by, { wheat_seeds: short * 10 }, home.x, site.y, home.z, 96, { x1: plot.x1 - 3, z1: plot.z1 - 3, x2: plot.x2 + 3, z2: plot.z2 + 3 }) : null;
+      if (farm && grass?.wheat_seeds !== undefined && grass.wheat_seeds < short * 10) {
+        farmWhy = `only ${grass.wheat_seeds} grass plants within 96 blocks of the village (${short * 10} wanted for the ${short} seeds storage does not hold)`;
+        farm = null;
+      }
+      if (farmWhy) reg.note(v, `no field in the neighbourhood at ${areaText(plot)}: ${farmWhy}`);
+    }
     // Its seed tasks and the planting, posted right after the storage hut's build (claimed in posting order, before the
     // houses' gathering; the waiting mayor gathers seeds first)
     let farmPosted = false;
     const postFarm = () => {
       if (!farm || farmPosted) return;
       farmPosted = true;
-      const n = farm.sow.length, parts = Math.ceil(n / 8);
+      // (a neighbourhood's: only the seeds storage's spare does not cover, D3)
+      const n = farm.sow.length, want = nb ? Math.max(0, n - spareSeeds) : n, parts = Math.ceil(want / 8);
       const seeds: number[] = [];
       for (let i = 0; i < parts; i++) {
-        const q = Math.floor(n / parts) + (i < n % parts ? 1 : 0);
+        const q = Math.floor(want / parts) + (i < want % parts ? 1 : 0);
         seeds.push(tasks.length);
         // (claimable at once: gathered while the plot is prepared, deposited once the storage holds something, #3)
         tasks.push({ title: `Gather ${q} wheat_seeds for the farm${parts > 1 ? ` (${i + 1}/${parts})` : ''}`, detail: `collect block=wheat_seeds count=${q}, then deposit item=all into the village storage (everything you gathered, not just part of it)`, after: [], soft: true });
@@ -461,7 +502,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // (no task for the hoe's log: prepare_site's felled trees leave logs in storage, and a gather task "for the farm" is
       // never covered by them; Minevale31's felled a whole tree for one log. tend_farm asks for one when it truly lacks it)
       const g = gate();
-      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`, after: [...allParts, ...(storage !== undefined ? [storage] : []), ...(g !== undefined ? [g] : []), ...seeds], soft: true });
+      // (a neighbourhood's waits for its plot and seeds only: the hut and its stations stand)
+      tasks.push({ title: `Plant the farm: ${n} wheat`, detail: `tend_farm layout=${nth} (lay the farm's water, till it with a hoe and sow wheat seeds from the village storage)`,
+        after: nb ? [...allParts, ...seeds] : [...allParts, ...(storage !== undefined ? [storage] : []), ...(g !== undefined ? [g] : []), ...seeds], soft: true });
     };
     // The street lamps (the user's, 10-06): a post with a torch beside the streets, about every 8 blocks, put up once the
     // storage hut stands (S.4; builders' stand spots and doorways keep clear of them); made from what the storage holds
@@ -528,6 +571,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     let fuelBilled = false;
     // Each building's Build task and label by its centre (its sign task waits for it, S.4)
     const buildOf = new Map<string, { build: number; label: string }>();
+    // (a neighbourhood's field right after its prepare: claimed in posting order before the houses' gathering, and wheat
+    // takes ~40 game-minutes to ripen, s30's food step)
+    if (nb) postFarm();
     for (const p of [...lay.places].sort((x, y) => first(x.name) - first(y.name))) {
       const k = (copies.get(p.name) ?? before.get(p.name) ?? 0) + 1;
       copies.set(p.name, k);
@@ -603,10 +649,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     if (farm) {
       const grow = (a: Area, n: number) => ({ x1: a.x1 - n, z1: a.z1 - n, x2: a.x2 + n, z2: a.z2 + n });
       const near = { x: (farm.x1 + farm.x2) / 2, z: (farm.z1 + farm.z2) / 2 };
-      for (let i = 0; i < 2; i++) {
+      // (a neighbourhood's: as many as its pad was sized for, each within FIELD_REACH of the storage hut, s30's food step)
+      const most = nb ? Math.max(0, Math.min(2, Math.floor(opts.slots ?? 2))) : 2;
+      for (let i = 0; i < most; i++) {
         const avoid = [grow(farm, 1), ...slots.map((q) => grow(q, 1)), ...lamps.map((c) => grow({ x1: c.x, z1: c.z, x2: c.x, z2: c.z }, 1))];
         const s = placeFarm(grids, plot, { streets: street?.streets, green: street?.green, back: farmBack, near, avoid });
-        if (!s) break;
+        if (!s || (nb && fromHut(s) > FIELD_REACH)) break;
         slots.push(s);
       }
       if (slots.length) reg.note(v, `${slots.length} farm slot${slots.length > 1 ? 's' : ''} kept free at ${slots.map((q) => areaText(q)).join(' and ')}`);
@@ -644,7 +692,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const left = nb ? [] : [...(v.unplaced?.length ? v.unplaced : names)];
     if (!nb) for (const n of placed) left.splice(left.indexOf(n), 1);
     v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
-      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}) }];
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(farmWhy ? { farmWhy } : {}) }];
     if (!nb) v.unplaced = left;
     reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ' as a new neighbourhood' : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

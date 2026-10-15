@@ -11,7 +11,8 @@
  *                  the way, village.ts ContentionCode; brains hand the task back rather than count a failure)
  *   damage, death, pickup, crafted, killed, broke, system: text only is enough
  */
-import type { Design, Village, VillageRegistry } from './village';
+import type { Design, Task, Village, VillageRegistry } from './village';
+import type { Appetite } from './appetite';
 
 export interface AgentEvent {
   id: number;
@@ -207,12 +208,17 @@ export interface WorldAdapter {
   choiceStatus?(agent: WorldAgent): ChoiceStatus | null;
   lastDecision?(agent: WorldAgent): (ChoiceMeta & { chosen: string | null; at: number }) | null;
   choiceSummary?(village: string): ChoiceSummary | null;
+  /** s30's appetite: whether this member may claim a board task now (false: peckish with food in storage, or hungry and
+   *  the task is no food work); true wherever the village keeps no appetite. Brains filter their claims by task with it. */
+  mayClaim?(agent: WorldAgent, task?: Task): boolean;
+  /** s30: a member's appetite and its state, or null where the village keeps none. */
+  appetiteOf?(agent: WorldAgent): (Appetite & { state: string }) | null;
 }
 
 /** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
  *  gathering for the workshop; B.4 lighting the buildings and the mine). 'grow' (s30) is code-driven, never on a menu:
- *  laying out the next neighbourhood. */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'grow';
+ *  laying out the next neighbourhood. 'eat' (s30's appetite): a meal from the village storage, on a peckish member's menu. */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'grow' | 'eat';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {

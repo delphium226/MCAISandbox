@@ -19,7 +19,7 @@ import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMin
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
-import { MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
+import { FOOD_GOODS, MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
@@ -34,7 +34,8 @@ import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { GROW, housesOf, taskNum } from '../grow';
+import { GROW, GROW_FARMS, housesOf, taskNum, type PadOption } from '../grow';
+import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
 
@@ -2658,6 +2659,39 @@ async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: Ab
   return result;
 }
 
+/** The biome at a cell in the agent's view ('' where it is not loaded or the view has none; s30's food step). */
+export function biomeAt(a: BotAgent, x: number, y: number, z: number): string {
+  try {
+    return String((a.bot.blockAt(new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))) as { biome?: { name?: string } } | null)?.biome?.name ?? '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Wheat seeds the open plantings of the fields still need (s30's food step, G3f: a pen's lure held storage's seeds while a
+ * neighbourhood field's planting ran, and the field was sown half for good): kept from the pens' lures and breeding. Only
+ * with neighbourhood fields (a first layout's field is planted before completion, when no pen works).
+ */
+export function seedsForFields(v: Village): number {
+  if (!GROW_FARMS) return 0;
+  let n = 0;
+  for (const [i, lay] of (v.layouts ?? []).entries()) {
+    const f = lay.farm;
+    if (!f || !v.tasks.some((t) => t.detail.startsWith(`tend_farm layout=${i + 1} `) && (t.status === 'open' || t.status === 'claimed'))) continue;
+    n += Math.max(0, f.sow.length - (f.planted ?? 0));
+  }
+  return n;
+}
+
+/** The level a job standing by the storage hut looks for footing at: the hut's plot's for a neighbourhood's field or slot,
+ *  whose own plot may lie blocks above or below it (s30's food step, lens 2 L2); else `y`. */
+function hutLevel(v: Village, k: number, y: number): number {
+  const h = v.storageHut;
+  if (!h || !v.layouts?.[k - 1]?.grow) return y;
+  return v.plots.find((p) => h.x1 >= p.x1 && h.x2 <= p.x2 && h.z1 >= p.z1 && h.z2 <= p.z2)?.y ?? y;
+}
+
 /**
  * A village layout's wheat field (10-08, the user's): the channel's water and the farmland are landscaping (free: water
  * needs a bucket, which needs iron; tilling uses no item), but the tiller must carry a hoe (from storage, or made at the
@@ -2680,35 +2714,46 @@ async function tendFarm(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
   const soil = (n: string) => /^(grass_block|dirt|coarse_dirt|rooted_dirt|dirt_path|farmland)$/.test(n);
   const solid = (x: number, yy: number, z: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox === 'block';
-  // Ground: each cell's at the plot's level (soil, or the channel's water already), nothing built above it
-  const till: Target[] = [];
-  const skipped: string[] = [];
-  for (let x = farm.x1; x <= farm.x2; x++)
-    for (let z = farm.z1; z <= farm.z2; z++) {
-      const ground = blockName(a, x, y, z), above = blockName(a, x, y + 1, z);
-      const wet = inWater(x, z);
-      if (ground === null || above === null) {
-        skipped.push(`${x},${z} (not loaded)`);
-        continue;
-      }
-      if (!(soil(ground) || (wet && ground === 'water')) || !(plant(above) || (!wet && above === 'wheat'))) {
-        skipped.push(`${x},${z} (${!soil(ground) && ground !== 'water' ? ground : above})`);
-        continue;
-      }
-      if (above !== 'air' && above !== 'cave_air' && above !== 'wheat') till.push({ x, y: y + 1, z, block: 'air' });
-      if (wet) {
-        // (on solid ground: sand or a cave under the channel lets it drain away, F137; and past its ends, a cut cell or air
-        // there lets it run out over the plot, the diff review)
-        if (!solid(x, y - 1, z)) till.push({ x, y: y - 1, z, block: 'dirt' });
-        for (const [ex, ez] of [[x - 1, z], [x + 1, z], [x, z - 1], [x, z + 1]])
-          if ((ex < farm.x1 || ex > farm.x2 || ez < farm.z1 || ez > farm.z2) && blockName(a, ex, y, ez) !== null && !solid(ex, y, ez)) till.push({ x: ex, y, z: ez, block: 'dirt' });
-        if (ground !== 'water') till.push({ x, y, z, block: 'water' });
-      } else if (ground !== 'farmland') till.push({ x, y, z, block: 'farmland[moisture=7]' });
-    }
   const h = v.storageHut;
   const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: farm.x1, z1: farm.z1, x2: farm.x2, z2: farm.z2 };
   const task = `tend_farm layout=${k}`;
-  const job: Job = { targets: till, area, y, free: true, what: 'the farm', task };
+  const till: Target[] = [];
+  const job: Job = { targets: till, area, y: hutLevel(v, k, y), free: true, what: 'the farm', task };
+  // Ground: each cell's at the plot's level (soil, or the channel's water already), nothing built above it
+  const skipped: string[] = [];
+  const read = () => {
+    till.length = 0;
+    skipped.length = 0;
+    for (let x = farm.x1; x <= farm.x2; x++)
+      for (let z = farm.z1; z <= farm.z2; z++) {
+        const ground = blockName(a, x, y, z), above = blockName(a, x, y + 1, z);
+        const wet = inWater(x, z);
+        if (ground === null || above === null) {
+          skipped.push(`${x},${z} (not loaded)`);
+          continue;
+        }
+        if (!(soil(ground) || (wet && ground === 'water')) || !(plant(above) || (!wet && above === 'wheat'))) {
+          skipped.push(`${x},${z} (${!soil(ground) && ground !== 'water' ? ground : above})`);
+          continue;
+        }
+        if (above !== 'air' && above !== 'cave_air' && above !== 'wheat') till.push({ x, y: y + 1, z, block: 'air' });
+        if (wet) {
+          // (on solid ground: sand or a cave under the channel lets it drain away, F137; and past its ends, a cut cell or air
+          // there lets it run out over the plot, the diff review)
+          if (!solid(x, y - 1, z)) till.push({ x, y: y - 1, z, block: 'dirt' });
+          for (const [ex, ez] of [[x - 1, z], [x + 1, z], [x, z - 1], [x, z + 1]])
+            if ((ex < farm.x1 || ex > farm.x2 || ez < farm.z1 || ez > farm.z2) && blockName(a, ex, y, ez) !== null && !solid(ex, y, ez)) till.push({ x: ex, y, z: ez, block: 'dirt' });
+          if (ground !== 'water') till.push({ x, y, z, block: 'water' });
+        } else if (ground !== 'farmland') till.push({ x, y, z, block: 'farmland[moisture=7]' });
+      }
+  };
+  read();
+  // (a claimer far off, a neighbourhood's field up to 96 from the hut and the claimer anywhere in the village's range, reads
+  // the field as not loaded: read again from the hut, where the job stands anyway; lens 2 M1)
+  if (skipped.some((s) => s.endsWith('(not loaded)'))) {
+    await standBy(a, job, signal);
+    read();
+  }
   const notes: string[] = [];
   // A hoe carried (the server's count: lesson 13), else one from storage, else one made at the hut's table
   const hoes = async () => Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} #minecraft:hoes 0`).catch(() => ''))?.[1] ?? 0);
@@ -2743,34 +2788,44 @@ async function tendFarm(a: BotAgent, args: Record<string, unknown>, signal: Abor
     out += `; again: ${await runJob(a, { ...job, targets: missing }, signal)}`;
     await sleep(1000, signal);
   }
-  // Sowing: the sow cells that are farmland now and bare, as many as there are seeds
-  const sow: Array<[number, number]> = [];
-  let sown = 0;
-  for (const [x, z] of farm.sow) {
-    if (!(await there({ x, y, z }, 'farmland'))) continue;
-    if (await there({ x, y: y + 1, z }, 'wheat')) sown++;
-    else if (blockName(a, x, y + 1, z) === 'air') sow.push([x, z]);
-  }
-  if (sow.length) {
+  // Sowing: the sow cells that are farmland now and bare, as many as there are seeds; once more while cells are still bare
+  // and seeds turn up (G3f, s30: a pen's lure put storage's seeds back while this sowed 8 of 16, and the requeue then saw
+  // them in storage, posted nothing and the field stayed half sown)
+  const scan = async () => {
+    const bare: Array<[number, number]> = [];
+    let n = 0;
+    for (const [x, z] of farm.sow) {
+      if (!(await there({ x, y, z }, 'farmland'))) continue;
+      if (await there({ x, y: y + 1, z }, 'wheat')) n++;
+      else if (blockName(a, x, y + 1, z) === 'air') bare.push([x, z]);
+    }
+    return { sown: n, bare };
+  };
+  let f = await scan(), have = 0;
+  const bare0 = f.bare.length;
+  for (let round = 0; round < 2 && f.bare.length; round++) {
     if (v.storage?.chests.length) await refreshStorage(a, v, signal);
     const carried = Number(/Found (\d+)/i.exec(await a.world.rcon.command(`clear ${a.name} wheat_seeds 0`).catch(() => ''))?.[1] ?? 0);
-    const have = carried + (storageContents(v).wheat_seeds ?? 0);
-    const n = Math.min(sow.length, have);
-    const sowJob: Job = { targets: sow.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block: 'wheat[age=0]' })), area, y, what: 'the farm', task };
-    if (n) {
-      out += `; ${await runJob(a, sowJob, signal)}`;
-      await sleep(1000, signal);
-      for (const t of sowJob.targets) if (await there(t, 'wheat')) sown++;
-    }
+    have = carried + (storageContents(v).wheat_seeds ?? 0);
+    const n = Math.min(f.bare.length, have);
+    if (!n) break;
+    const sowJob: Job = { targets: f.bare.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block: 'wheat[age=0]' })), area, y: job.y, what: 'the farm', task };
+    out += `; ${await runJob(a, sowJob, signal)}`;
+    await sleep(1000, signal);
+    f = await scan();
+  }
+  const sown = f.sown;
+  if (bare0) {
     farm.planted = sown;
     a.world.villages.save();
-    // Short of seeds: asked for once more (the field so far stays), then the farm goes ahead with what is sown
-    if (n < sow.length && !farm.requeuedSeeds) {
-      const again = await requeueBuild(a, { ...sowJob, targets: [] }, {}, { wheat_seeds: sow.length - n }, signal);
+    // Short of seeds (judged on the field: cells still bare): asked for once more (the field so far stays), then the farm
+    // goes ahead with what is sown; a harvest sows the bare cells from its seeds (harvest_farm)
+    if (f.bare.length && !farm.requeuedSeeds) {
+      const again = await requeueBuild(a, { ...job, targets: [] }, {}, { wheat_seeds: f.bare.length }, signal);
       if (again) {
         farm.requeuedSeeds = true;
         a.world.villages.save();
-        throw new Error(`tend_farm: sowed ${sown} of ${farm.sow.length} cells; short of ${sow.length - n} wheat_seeds (seeds come from breaking grass).${again}`);
+        throw new Error(`tend_farm: sowed ${sown} of ${farm.sow.length} cells; short of ${f.bare.length} wheat_seeds (seeds come from breaking grass).${again}`);
       }
     }
     if (!sown) throw new Error(`tend_farm: no wheat could be sown (${have} wheat_seeds carried and in storage; seeds come from breaking grass)`);
@@ -2821,7 +2876,7 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
   try {
     const h = v.storageHut;
     const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: farm.x1, z1: farm.z1, x2: farm.x2, z2: farm.z2 };
-    const job: Job = { targets: [], area, y: plot.y, free: true, what: 'the farm', task: `harvest_farm layout=${k}` };
+    const job: Job = { targets: [], area, y: hutLevel(v, k, plot.y), free: true, what: 'the farm', task: `harvest_farm layout=${k}` };
     await standBy(a, job, signal);
     // Room for the loot: a full inventory loses it silently (the loot command drops nothing)
     await syncInventory(a);
@@ -2868,10 +2923,31 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
     }
     if (resown < charged && !unpaid) await rcon(`give ${a.name} wheat_seeds ${charged - resown}`);
     if (looted.length > charged) notes.push(`${looted.length - charged} cells left bare: no seed to sow them`);
+    // Bare cells of the field sown from the seeds the harvest brought (s30's food step, G3f: a neighbourhood's field planted
+    // half while a pen held the seeds gave half its wheat for good), charged a seed each as the resowing is
+    let filled = 0;
+    if (GROW_FARMS && !unpaid) {
+      const bare: Array<[number, number]> = [];
+      for (const [x, z] of farm.sow) if ((await there(x, z, 'air')) && /passed/i.test(await rcon(`execute if block ${x} ${plot.y} ${z} minecraft:farmland`))) bare.push([x, z]);
+      const spare = bare.length ? await count('wheat_seeds').catch(() => 0) : 0;
+      const n = Math.min(bare.length, spare);
+      const paid = n ? await a.world.rcon.take(a.name, 'wheat_seeds', n, spare).catch(() => 0) : 0;
+      for (const [x, z] of bare.slice(0, paid)) await rcon(`setblock ${x} ${y} ${z} minecraft:wheat[age=0]`);
+      if (paid) await new Promise((r) => setTimeout(r, 1000));
+      for (const [x, z] of bare.slice(0, paid)) if (await there(x, z, 'wheat')) filled++;
+      if (filled < paid) await rcon(`give ${a.name} wheat_seeds ${paid - filled}`);
+      if (filled) {
+        farm.planted = Math.min(farm.sow.length, (farm.planted ?? 0) + filled);
+        notes.push(`sowed ${filled} bare cell${filled > 1 ? 's' : ''}`);
+      }
+    }
+    // (the village's food ledger, s30, as soon as the server's counts give it: the wheat harvested and the seeds beyond those
+    // sown; lens 3 L2)
+    noteFood(v, 'made', { wheat, wheat_seeds: gotSeeds - charged - filled });
     // Bread at the storage hut's table (never a table put down elsewhere): three wheat a loaf, from the wheat beyond the
     // reserve storage keeps for the pens and the cake (pens v2: hunger does not drain in peaceful, bread can wait)
     let bread = 0;
-    const keep = Math.max(0, WHEAT_KEEP - (storageContents(v).wheat ?? 0));
+    const keep = Math.max(0, wheatKeep(v) - (storageContents(v).wheat ?? 0));
     const loaves = Math.floor(Math.max(0, (await count('wheat')) - keep) / 3);
     if (loaves && villageStation(a, 'crafting_table')) {
       const before = await count('bread');
@@ -2880,6 +2956,7 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
         notes.push(`bread not baked: ${e.message.slice(0, 120)}`);
       });
       bread = (await count('bread')) - before;
+      noteFood(v, 'made', { bread });
     } else if (loaves) notes.push("not baked: the storage hut's crafting table is not within reach");
     const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
@@ -2948,24 +3025,56 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
   if (!spec) throw new Error(`start_farm: no farm kind ${kind} (${SLOT_ORDER.join(', ')})`);
   if (slotBusy.has(key)) throw new ContentionError(`start_farm: farm slot ${j} is busy`, 'busy', `slot:${key}`);
   if (slot.kind && !slot.laying) throw new Error(`start_farm: farm slot ${j} already holds ${slot.kind}`);
+  // (from the village storage: a kind the village farms on another slot, its harvests the stock; s30's food step, D4)
+  const fromStore = args.from === 'storage';
+  const sx = fromStore ? 0 : Math.floor(num(args.x, 'x')), sy = fromStore ? 0 : Math.floor(num(args.y, 'y')), sz = fromStore ? 0 : Math.floor(num(args.z, 'z'));
   slotBusy.add(key);
-  const sx = Math.floor(num(args.x, 'x')), sy = Math.floor(num(args.y, 'y')), sz = Math.floor(num(args.z, 'z'));
-  const sighting = `${sx},${sy},${sz}`;
+  const sighting = fromStore ? 'the village storage' : `${sx},${sy},${sz}`;
   const notes: string[] = [];
   const save = () => a.world.villages.save();
   let planted = 0, badSighting = false;
+  // (what the storage gave of a food, for the village's ledger: lesson 132)
+  let stocked = 0, had = 0, usedNoted = false;
+  // (once, by the server's count before anything goes back: the stock withdrawn and the stock carried before it, less what
+  // is left; on a failed start too, lens 2 L1 and lens 3 L2-L3)
+  const noteUsed = async () => {
+    if (!stocked || usedNoted) return;
+    const left = await serverCount(a, spec.take).catch(() => null);
+    if (left === null) return;
+    usedNoted = true;
+    noteFood(v, 'used', { [spec.take]: Math.max(0, had + stocked - left) });
+  };
   try {
-    // The first plants, where they were seen
-    const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
-    await walk(a, new goals.GoalNearXZ(sx, sz, 3), `the ${kind} at ${sighting}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
-      notes.push(`walk: ${e.message.slice(0, 100)}`);
-    });
-    // (collect fails on a part as well: what was got is counted on the server, the design review's M2)
-    await SURVIVAL_SKILLS.collect.run(a, { block: spec.take, count: spec.count, here: true, range: FARM_TRIP_RANGE }, signal).catch((e: Error) => {
-      if (e.message === 'cancelled') throw e;
-      notes.push(`collect: ${e.message.slice(0, 140)}`);
-    });
+    if (fromStore) {
+      // At the storage hut: the kind's count withdrawn (the server's count, lesson 13)
+      const h = v.storageHut;
+      const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
+      await standBy(a, { targets: [], area, y: hutLevel(v, k, plot.y), free: true, what: `the ${kind} farm`, task: `start_farm layout=${k} slot=${j}` }, signal);
+      // (what a stopped start left carried goes back by name first: seeds are junk to `deposit all`, lesson 112; lens 2 L1)
+      for (const item of new Set([spec.take, spec.item]))
+        if ((await serverCount(a, item).catch(() => 0)) > 0) await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+        });
+      had = await serverCount(a, spec.take);
+      if (had < spec.count)
+        await withdrawItems(a, v, { [spec.take]: spec.count - had }, signal).catch((e: Error) => {
+          if (e.message === 'cancelled') throw e;
+          notes.push(`withdraw: ${e.message.slice(0, 100)}`);
+        });
+      stocked = Math.max(0, (await serverCount(a, spec.take)) - had);
+    } else {
+      // The first plants, where they were seen
+      const far = Math.hypot(a.bot.entity.position.x - sx, a.bot.entity.position.z - sz);
+      await walk(a, new goals.GoalNearXZ(sx, sz, 3), `the ${kind} at ${sighting}`, signal, 30000 + 700 * Math.round(far)).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`walk: ${e.message.slice(0, 100)}`);
+      });
+      // (collect fails on a part as well: what was got is counted on the server, the design review's M2)
+      await SURVIVAL_SKILLS.collect.run(a, { block: spec.take, count: spec.count, here: true, range: FARM_TRIP_RANGE }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`collect: ${e.message.slice(0, 140)}`);
+      });
+    }
     if (spec.make) {
       const took = await serverCount(a, spec.take);
       if (took)
@@ -2976,6 +3085,7 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     }
     const items = await serverCount(a, spec.item);
     if (items < 2) {
+      if (fromStore) throw new Error(`start_farm: the village storage gave ${items} ${spec.item} for the ${kind} farm (2 needed)${notes.length ? `; ${notes.join('; ')}` : ''}`);
       // (by column, not cell: the atlas saw the cut stalk's base next and it counted as a new sighting, F192)
       slot.bad = [...(slot.bad ?? []), `${kind}@${sx},${sz}`].slice(-20);
       badSighting = true;
@@ -2986,7 +3096,8 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     slot.laying = true;
     save();
     const home = villageHome(v, a.memory);
-    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 16)
+    // (from storage it stands at the hut already: the commands reach the slot from there)
+    if (!fromStore && home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 16)
       await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 8), 'the village', signal, 240000).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
         notes.push(`walk home: ${e.message.slice(0, 100)}`);
@@ -2996,7 +3107,7 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     const h = v.storageHut;
     const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
     const task = `start_farm layout=${k} slot=${j}`;
-    const job: Job = { targets: [], area, y, free: true, what: `the ${kind} farm`, task };
+    const job: Job = { targets: [], area, y: hutLevel(v, k, y), free: true, what: `the ${kind} farm`, task };
     const soil = (n: string) => /^(grass_block|dirt|coarse_dirt|rooted_dirt|dirt_path|farmland|podzol)$/.test(n);
     const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
     const solid = (x: number, yy: number, z: number) => a.bot.blockAt(new Vec3(x, yy, z))?.boundingBox === 'block';
@@ -3076,7 +3187,7 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     }
     const n = Math.min(cells.length, await serverCount(a, spec.item));
     const block = spec.block === 'sugar_cane' ? 'sugar_cane' : `${spec.block}[age=0]`;
-    const sow: Job = { targets: cells.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block })), area, y, what: `the ${kind} farm`, task };
+    const sow: Job = { targets: cells.slice(0, n).map(([x, z]) => ({ x, y: y + 1, z, block })), area, y: job.y, what: `the ${kind} farm`, task };
     if (n) {
       out += `; ${await runJob(a, sow, signal)}`;
       await sleep(1000, signal);
@@ -3088,16 +3199,22 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     slot.planted = planted;
     slot.cells = grown;
     if (spec.fruit) slot.fruit = plan.fruit;
-    slot.from = [sx, sy, sz];
+    if (!fromStore) slot.from = [sx, sy, sz];
     delete slot.laying;
     save();
-    // What is left over goes into storage (seeds of a stem kind stay carried: JUNK)
+    // (what the storage's stock and the carried stock gave and do not get back, used other than eaten: the ledger's, L5;
+    // the carried part counted too, lens 3 L3)
+    if (stocked) await noteUsed();
+    // What is left over goes into storage (seeds of a stem kind stay carried: JUNK; from storage they go back by name)
     await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
       // (nothing to deposit is no news)
       if (!/not carrying anything/.test(e.message)) notes.push(`not deposited: ${e.message.slice(0, 100)}`);
     });
-    const done = `started a ${kind} farm on slot ${j} at ${areaText(slot)}: planted ${planted} from the ${kind} at ${sighting}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    if (fromStore && spec.item !== spec.take && (await serverCount(a, spec.item).catch(() => 0)) > 0) await STORAGE_SKILLS.deposit.run(a, { item: spec.item }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const done = `started a ${kind} farm on slot ${j} at ${areaText(slot)}: planted ${planted} from ${fromStore ? sighting : `the ${kind} at ${sighting}`}${notes.length ? ` (${notes.join('; ')})` : ''}`;
     a.world.villages.note(v, `${a.name} ${done}`);
     return `${done}: ${out}`;
   } catch (e) {
@@ -3118,6 +3235,11 @@ async function startFarm(a: BotAgent, args: Record<string, unknown>, signal: Abo
     const home = villageHome(v, a.memory);
     if (!signal.aborted && why !== 'cancelled' && home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 48)
       await teleportHome(a, signal).catch(() => null);
+    // (what a start from storage withdrew goes back by name: seeds are junk to `deposit all`, lesson 112; what it used first
+    // into the ledger, stopped or not: a stopped start's leftovers stay carried and go back at the next start's beginning)
+    if (fromStore) await noteUsed();
+    if (fromStore && stocked && !signal.aborted && why !== 'cancelled')
+      for (const item of new Set([spec.take, spec.item])) await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch(() => undefined);
     throw e;
   } finally {
     slotBusy.delete(key);
@@ -3145,10 +3267,13 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
   try {
     const h = v.storageHut;
     const area = h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : { x1: slot.x1, z1: slot.z1, x2: slot.x2, z2: slot.z2 };
-    await standBy(a, { targets: [], area, y: plot.y, free: true, what: `the ${slot.kind} farm`, task: `harvest_slot layout=${k} slot=${j}` }, signal);
+    await standBy(a, { targets: [], area, y: hutLevel(v, k, plot.y), free: true, what: `the ${slot.kind} farm`, task: `harvest_slot layout=${k} slot=${j}` }, signal);
     await roomForLoot(a, 'harvest_slot', signal);
     const notes: string[] = [];
     let taken = 0;
+    // (the village's food ledger, s30: what the harvest leaves carried, counted on the server; only where it keeps one)
+    const produce = appetiteOn(v) ? [...new Set([spec.take, spec.item, spec.fruit === 'melon' ? 'melon_slice' : spec.fruit ?? '', slot.kind === 'beetroots' ? 'beetroot' : ''].filter(Boolean))] : [];
+    const before = produce.length ? await carriedCounts(a, produce).catch(() => null) : null;
     checkAbort(signal);
     // From here on every looted cell is reset (no abort between: a cell left ripe is looted twice)
     if (spec.ripe !== undefined) {
@@ -3189,6 +3314,10 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
     if (!taken) {
       record(false, 'nothing ripe');
       return `nothing ripe on the ${slot.kind} farm at ${areaText(slot)}`;
+    }
+    if (before) {
+      const after = await carriedCounts(a, produce).catch(() => null);
+      if (after) noteFood(v, 'made', Object.fromEntries(produce.map((n) => [n, (after[n] ?? 0) - (before[n] ?? 0)])));
     }
     const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
@@ -3364,23 +3493,41 @@ export const growBusy = new Set<string>();
  * chosen (fewer than 3 tries), a ring of 18 round the first plot for it; the mine's hut and stairs near the surface; and
  * the chunks holding a sighted sugar cane, pumpkin or melon, each chunk padded 2 (rare plants a farm slot starts from,
  * lesson 99); and the squares plan_layout refused before (`growth.bad`). A column with no ground within 48 counts as wet.
- * Null with the survey's rejections.
+ * Null with the survey's rejections. The pad ladder (s30's food step, D2): one survey at the largest pad's radius, each
+ * option's size tried in order (slope 2, then 4), the first found returned with its option.
  */
-async function growSite(a: BotAgent, v: Village, S: number, signal: AbortSignal): Promise<{ x: number; y: number; z: number } | { why: string }> {
+async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: AbortSignal): Promise<{ x: number; y: number; z: number; opt: PadOption } | { why: string }> {
   const home = villageHome(v, a.memory);
   if (!home) return { why: 'the village has no home' };
-  const reach = growReach(S), r = reach + Math.ceil(S / 2) + 1;
+  const r = Math.max(...opts.map((o) => growReach(o.size) + Math.ceil(o.size / 2) + 1));
   const taken = growTaken(a, v, home, r);
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   // (the survey takes the scan turn as find_site's and the annex's do, E.1)
   const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true));
-  for (const slope of [2, 4]) {
-    for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
-    const c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
-    if (c) return { x: c.x, y: c.y, z: c.z };
+  for (const opt of opts) {
+    const S = opt.size, reach = growReach(S);
+    for (const slope of [2, 4]) {
+      for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
+      const c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
+      if (c) return { x: c.x, y: c.y, z: c.z, opt };
+    }
   }
   return { why: `wet ${why.wet}, steep ${why.steep}, taken ${why.occupied}, unloaded ${why.unloaded}` };
 }
+
+/** lay_out_houses' `options` ("30:4:2,27:3:1,22:4:-1": size, houses, slots; slots -1: no field), in order. */
+function padOptions(raw: unknown, houses: number): PadOption[] {
+  const out = String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
+    const [S, n, k] = s.split(':').map(Number);
+    if (![S, n, k].every(Number.isFinite)) throw new Error(`lay_out_houses: an option is size:houses:slots, not "${s}"`);
+    return { size: Math.max(9, Math.min(40, Math.floor(S))), n: Math.max(1, Math.min(houses, Math.floor(n))), slots: Math.max(-1, Math.min(2, Math.floor(k))) };
+  });
+  if (!out.length) throw new Error('lay_out_houses: options= is empty (size:houses:slots, comma-separated)');
+  return out;
+}
+
+/** An option as the [grow] lines name it ("30x30, 4 houses, field + 2 slots"). */
+const optionText = (o: PadOption) => `${o.size}x${o.size}, ${o.n} house${o.n > 1 ? 's' : ''}, ${o.slots < 0 ? 'no field' : `field + ${o.slots} slot${o.slots === 1 ? '' : 's'}`}`;
 
 /** How far from home a neighbourhood's centre may be: GROW.range, less what keeps an S x S pad's corners within the
  *  village's range (80 for 23; a 29 pad at 80 reached 99.8, s30's review). */
@@ -3420,7 +3567,9 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
  * The next neighbourhood laid out (s30; a chore code queues once the village is complete and has fewer houses than
  * members, never a model's tool): home first, a square found (growSite), then plan_layout's neighbourhood mode posts its
  * tasks as 'grow', synchronously after the survey, so the layout record holds the ground from the moment it is chosen
- * (D7). `houses`: the design names, comma-separated; `size`: the pad's side (grow.ts padFor).
+ * (D7). `houses`: the design names, comma-separated; `size`: the pad's side (grow.ts padFor); or `options` (s30's food
+ * step, D2: grow.ts padLadder's rungs as "size:houses:slots,...", the first `houses` of the list each, slots -1 no field),
+ * tried in order on one survey.
  */
 async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -3429,9 +3578,10 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
   if (!v.complete) throw new Error('lay_out_houses: the village is not complete yet');
   if (v.growth?.active) throw new Error(`lay_out_houses: neighbourhood ${v.growth.active.k} is still being built`);
   if (growBusy.has(v.name)) throw new Error('lay_out_houses: a neighbourhood is being laid out');
-  const houses = (Array.isArray(args.houses) ? args.houses : String(args.houses ?? '').split(',')).map((h) => String(h).trim()).filter(Boolean);
-  if (!houses.length) throw new Error('lay_out_houses: give houses= (design names, comma-separated)');
-  const S = Math.max(9, Math.min(40, Math.floor(num(args.size, 'size'))));
+  const all = (Array.isArray(args.houses) ? args.houses : String(args.houses ?? '').split(',')).map((h) => String(h).trim()).filter(Boolean);
+  if (!all.length) throw new Error('lay_out_houses: give houses= (design names, comma-separated)');
+  const ladder = args.options !== undefined;
+  const opts: PadOption[] = ladder ? padOptions(args.options, all.length) : [{ size: Math.max(9, Math.min(40, Math.floor(num(args.size, 'size')))), n: all.length, slots: -1 }];
   growBusy.add(v.name);
   try {
     // Out of the deep first (lesson 101: never walked up from the iron level or a cave), then home, as prepare_annex
@@ -3442,8 +3592,12 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
       await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
       });
-    const site = await growSite(a, v, S, signal);
-    if ('why' in site) throw new Error(`lay_out_houses: no free ${S}x${S} site within ${growReach(S)} blocks of the village (${site.why})`);
+    const site = await growSite(a, v, opts, signal);
+    if ('why' in site) {
+      const S0 = opts[0].size, rest = opts.slice(1).map((o) => `${o.size}x${o.size}`);
+      throw new Error(`lay_out_houses: no free ${S0}x${S0} site${rest.length ? ` (nor ${rest.join(', ')})` : ''} within ${growReach(S0)} blocks of the village (${site.why})`);
+    }
+    const S = site.opt.size, houses = all.slice(0, site.opt.n);
     // (no await from here to the record: D7. The village may have changed during the survey: growth stopped, enough houses
     // for the members now, or the square taken by records written meanwhile, tested against the list read afresh)
     if (!v.complete || v.growth?.active || v.growth?.stop) throw new Error('lay_out_houses: the village changed during the survey');
@@ -3452,7 +3606,10 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     const clash = home && growTaken(a, v, home, growReach(S) + Math.ceil(S / 2) + 1).find((q) => overlaps(square, q));
     if (clash) throw new Error(`lay_out_houses: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
     const before = new Set(v.tasks.map((t) => t.id));
-    const out = postLayout(a.world, v, a.name, { x: site.x, y: site.y, z: site.z, size: S }, houses, true, undefined, { poster: 'grow', neighbourhood: true });
+    const field = site.opt.slots >= 0 ? { farm: true, slots: site.opt.slots } : {};
+    // (a field's biome rule reads the village's library biome, else the site's: the biome the view has there, lens 2 L5)
+    const biome = site.opt.slots >= 0 && !v.vanillaBiome ? biomeAt(a, site.x, site.y + 1, site.z) : '';
+    const out = postLayout(a.world, v, a.name, { x: site.x, y: site.y, z: site.z, size: S, ...(biome ? { biome } : {}) }, houses, true, undefined, { poster: 'grow', neighbourhood: true, ...field });
     if (!out.startsWith('Laid out')) {
       // (a square refused is kept off by the next survey, which would pick the same one: five tries on one site stopped
       // growth, s30's review)
@@ -3471,9 +3628,11 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     delete g.tries;
     delete g.noSite;
     a.world.villages.save();
-    console.log(`[grow] ${v.name}: layout ${n} (neighbourhood ${k}) posted by ${a.name}: ${builds.length} houses (${lay.buildings.join(', ')}) on ${S}x${S} at ${areaText(plot)}, members ${members}, houses ${H}; ${made.length} tasks`);
-    a.world.villages.note(v, `${a.name} laid out neighbourhood ${k}: ${lay.buildings.join(', ')} at ${areaText(plot)}`);
-    return `laid out neighbourhood ${k}: ${builds.length} houses on ${S}x${S} at ${areaText(plot)}, ${made.length} tasks posted`;
+    // (with the ladder, the rung taken and what came of its field: s30's food step)
+    const rung = ladder ? ` (${optionText(site.opt)}${site.opt.slots >= 0 ? `: ${lay.farm ? `field at ${areaText(lay.farm)}, ${lay.slots?.length ?? 0} slots` : `no field, ${lay.farmWhy ?? 'refused'}`}` : ''})` : '';
+    console.log(`[grow] ${v.name}: layout ${n} (neighbourhood ${k}) posted by ${a.name}: ${builds.length} houses (${lay.buildings.join(', ')}) on ${S}x${S}${rung} at ${areaText(plot)}, members ${members}, houses ${H}; ${made.length} tasks`);
+    a.world.villages.note(v, `${a.name} laid out neighbourhood ${k}: ${lay.buildings.join(', ')} at ${areaText(plot)}${lay.farm ? ' with a wheat field' : ''}`);
+    return `laid out neighbourhood ${k}: ${builds.length} houses on ${S}x${S}${rung} at ${areaText(plot)}, ${made.length} tasks posted`;
   } finally {
     growBusy.delete(v.name);
   }
@@ -3644,7 +3803,8 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     // The lure: from storage, else (seeds) a few from the grass (none are used up; the wheat field took every seed gathered
     // before its first harvest, VanA2); wheat comes only from the field's harvests
     if ((await serverCount(a, lure)) < 1) {
-      const store = storageContents(v)[lure] ?? 0;
+      // (never the seeds a field's open planting still needs: G3f's lure held a neighbourhood field's 8 while it was sown, s30)
+      const store = Math.max(0, (storageContents(v)[lure] ?? 0) - (lure === 'wheat_seeds' ? seedsForFields(v) : 0));
       if (store) await withdrawItems(a, v, { [lure]: Math.min(LURE_SEEDS, store) }, signal);
       else if (lure === 'wheat_seeds')
         await SURVIVAL_SKILLS.collect.run(a, { block: 'wheat_seeds', count: 3 }, signal).catch((e: Error) => {
@@ -3844,6 +4004,10 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
 /** Wheat storage keeps for the pens and the cake: harvests bake bread only from what is beyond it (pens v2). */
 const WHEAT_KEEP = 16;
 
+/** The keep in a village with an appetite (s30's food step, D13): a cake's 3, a cow breeding's 2 and one spare; the keep of
+ *  16 baked nothing from a first harvest. Bread makes take only what is beyond it too. */
+export const wheatKeep = (v: Village | undefined) => (appetiteOn(v) ? 6 : WHEAT_KEEP);
+
 /**
  * A pen's own work (pens v2, 10-09; chores after completion): the bot walks to the cell beyond the pen's gate and the
  * work is done there by command, charged to its inventory (the design review: no bot inside a closed pen, no clicking on
@@ -3909,6 +4073,7 @@ async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: A
     }
     const n = Object.values(got).reduce((s, q) => s + q, 0);
     pen.eggs = (pen.eggs ?? 0) + n;
+    noteFood(v, 'made', got);
     pen.eggsAt = Date.now();
     a.world.villages.save();
     if (!n) return `no eggs in the chicken pen on annex slot ${j}${notes.length ? ` (${notes.join('; ')})` : ''}`;
@@ -3946,8 +4111,10 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       return ready < 2 ? `the ${kind} pen on annex slot ${j} has ${ready} adult${ready === 1 ? '' : 's'} ready to breed of ${total}` : `the ${kind} pen on annex slot ${j} is full (${total} of ${cap})`;
     }
     const have = await serverCount(a, food);
-    if (have < 2) await withdrawItems(a, v, { [food]: 2 - have }, signal);
-    if ((await serverCount(a, food)) < 2) throw new Error(`breed_pen: needs 2 ${food} to breed the ${kind}s (storage has ${storageContents(v)[food] ?? 0})`);
+    // (never the seeds a field's open planting still needs, s30)
+    const kept = food === 'wheat_seeds' ? seedsForFields(v) : 0;
+    if (have < 2 && (!kept || (storageContents(v)[food] ?? 0) - kept >= 2 - have)) await withdrawItems(a, v, { [food]: 2 - have }, signal);
+    if ((await serverCount(a, food)) < 2) throw new Error(`breed_pen: needs 2 ${food} to breed the ${kind}s (storage has ${storageContents(v)[food] ?? 0}${kept ? `, ${kept} kept for a field's planting` : ''})`);
     notes.push(await toGate(signal));
     refund = await a.world.rcon.take(a.name, `minecraft:${food}`, 2);
     if (refund < 2) throw new Error(`breed_pen: could not take 2 ${food} from the inventory`);
@@ -4009,6 +4176,7 @@ async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: Abor
       milked++;
     }
     pen.milk = (pen.milk ?? 0) + milked;
+    noteFood(v, 'made', { milk_bucket: milked });
     pen.milkAt = Date.now();
     a.world.villages.save();
     await syncInventory(a).catch(() => {});
@@ -4070,6 +4238,7 @@ async function bakeCake(a: BotAgent, _args: Record<string, unknown>, signal: Abo
     throw e;
   }
   v.cakes = (v.cakes ?? 0) + 1;
+  noteFood(v, 'made', { cake: 1 });
   a.world.villages.save();
   await syncInventory(a).catch(() => {});
   for (const item of ['cake', 'bucket'])
@@ -4080,6 +4249,69 @@ async function bakeCake(a: BotAgent, _args: Record<string, unknown>, signal: Abo
       });
   a.world.villages.note(v, `${a.name} baked a cake (${v.cakes} in all)`);
   return `baked a cake from the village storage (3 milk buckets, 2 sugar, 1 ${egg}, 3 wheat; the buckets back)${notes.length ? ` (${notes.join('; ')})` : ''}`;
+}
+
+/**
+ * A meal from the village storage (s30's appetite, D9; a chore code queues for a peckish member, never a model's tool): at
+ * the storage hut, food carried goes in first by name (a stopped meal's, lesson 112), then the meal code chooses
+ * (appetite.ts chooseMeal) is withdrawn, counted on the server and consumed by `clear` (vanilla `eat` refuses at 20/20, and
+ * peaceful refills the bar), the level raised and the meal recorded on the village; what is left goes back by name.
+ */
+async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('eat_meal: not in a village');
+  const e = appetiteOn(v) ? v.food!.members[a.name] : undefined;
+  if (!e) throw new Error('eat_meal: the village keeps no appetite for you');
+  const h = v.storageHut;
+  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'a meal', task: 'eat_meal' };
+  // (the meal chosen is held from the other members' meals and claims until this ends: the record stays as it was until a
+  // withdrawal, lens 1 M1)
+  let mine: { item: string; n: number } | undefined;
+  const choose = () => {
+    const m = chooseMeal(e.level, storeForMeals(v.name, storageContents(v), a.name));
+    if (m) mine = holdMeal(v.name, a.name, m);
+    return m;
+  };
+  try {
+    await standBy(a, job, signal);
+    const back = async (item: string) => STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((err: Error) => {
+      if (err.message === 'cancelled') throw err;
+      return '';
+    });
+    for (const item of Object.keys(inventoryCounts(a))) if (FOOD_POINTS[item] !== undefined) await back(item);
+    // The meal, withdrawn; the chests read again once when the record has nothing or the withdrawal got none
+    let meal = choose(), have = 0;
+    for (let round = 0; round < 2; round++) {
+      if (round || !meal) {
+        if (!v.storage?.chests.length) break;
+        await refreshStorage(a, v, signal);
+        meal = choose();
+      }
+      if (!meal) break;
+      have = await serverCount(a, meal.item);
+      if (have < meal.n) await withdrawItems(a, v, { [meal.item]: meal.n - have }, signal);
+      have = await serverCount(a, meal.item);
+      if (have) break;
+    }
+    // (another member was first to the last of it: contention, which neither bans eating for the village nor cools it)
+    if (!meal || !have) throw new ContentionError('eat_meal: nothing to eat in the village storage (other members took it)', 'taken', 'stock:food');
+    // (from the take to the record nothing awaits but the take itself: a stop there still records the meal, as harvest_farm's loot)
+    const took = await a.world.rcon.take(a.name, meal.item, Math.min(meal.n, have), have);
+    if (!took) throw new Error(`eat_meal: the server took no ${meal.item} from ${a.name}`);
+    const before = e.level;
+    e.level = Math.min(APPETITE.cap, e.level + took * FOOD_POINTS[meal.item]);
+    e.meals = (e.meals ?? 0) + 1;
+    e.lastMeal = { at: Date.now(), item: meal.item, n: took };
+    const f = v.food!;
+    f.eaten[meal.item] = (f.eaten[meal.item] ?? 0) + took;
+    f.meals = (f.meals ?? 0) + 1;
+    a.world.villages.save();
+    console.log(`[food] ${a.name} ate ${took} ${meal.item} (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level)})`);
+    if ((await serverCount(a, meal.item).catch(() => 0)) > 0) await back(meal.item);
+    return `ate ${took} ${meal.item} from the village storage (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)`;
+  } finally {
+    releaseMeal(v.name, a.name, mine);
+  }
 }
 
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
@@ -4313,7 +4545,7 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
     return new Error(why);
   };
   const item = str(args.item, 'item');
-  const good = MAKE_GOODS.find((g) => g.item === item);
+  const good = [...MAKE_GOODS, ...FOOD_GOODS].find((g) => g.item === item);
   if (!good) throw refuse(`make: ${item} is not a good the workshop keeps`);
   const h = v.storageHut;
   if (!v.complete || !h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace'))
@@ -4483,6 +4715,9 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
     }
     // The batch and every leftover (planks, sticks, inputs not used) into storage by name, counted on the server
     const g = await gains();
+    // (bread and pies into the village's food ledger, s30, as soon as the server's count gives them: a make stopped in its
+    // put-back leaves them in makeLeft, put back later; lens 3 L2)
+    if (good.food) noteFood(v, 'made', { [item]: g[item] ?? 0 });
     await putBack(g);
     backDone = true;
     const left = await settle();
@@ -5001,17 +5236,20 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (not in TOOLS: no model calls it; code queues it as a chore)
   harvest_farm: { check: (x) => void num(x.layout, 'layout'), run: harvestFarm },
   // (the farm slots', chores as well: opportunistic farming, 10-08)
-  start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startFarm },
+  // (from=storage: no sighting, the kind's first plants from the village storage, s30's food step D4)
+  start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), x.from === 'storage' ? undefined : (num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z'))), run: startFarm },
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
   prepare_annex: { run: prepareAnnex },
   // (s30's, a chore as well: the next neighbourhood of a village that grows)
-  lay_out_houses: { check: (x) => void num(x.size, 'size'), run: layOutHouses },
+  lay_out_houses: { check: (x) => (x.options !== undefined ? void padOptions(x.options, 4) : void num(x.size, 'size')), run: layOutHouses },
   start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },
   // (pens v2's, 10-09)
   collect_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: collectEggs },
   breed_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: breedPen },
   milk_cows: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: milkCows },
   bake_cake: { run: bakeCake },
+  // (s30's appetite: a meal from the village storage, a chore code queues for a peckish member, never a model's tool)
+  eat_meal: { run: eatMeal },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

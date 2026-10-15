@@ -10,6 +10,7 @@ import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
 import type { Side } from './farmSlots';
 import { growing, housesOf } from './grow';
+import { appetiteOn, stateOf, type Appetite } from './appetite';
 
 export interface Area {
   x1: number;
@@ -445,7 +446,14 @@ export interface Village {
     /** The works plot beside the annex (S.9; the first layout only): its furnaces by k - 1 (null once found gone). */
     works?: SidePlot & { furnaces?: Array<WorksFurnace | null> };
     /** A neighbourhood laid out as the village grows (s30): its index among the growth layouts, from 1. */
-    grow?: number }>;
+    grow?: number;
+    /** Why a neighbourhood laid out with a field has none (s30's food step: the biome, the grass, no room, too far). */
+    farmWhy?: string }>;
+  /**
+   * The village's appetite (s30's food step, appetite.ts; kept on the village, lesson 103): each member's level and meals
+   * by name; the food made, used other than eaten (seeds from melon slices, a start's carrots) and eaten, by item; the meals.
+   */
+  food?: { members: Record<string, Appetite>; made: Record<string, number>; eaten: Record<string, number>; meals: number; used?: Record<string, number> };
   /**
    * The village growing once complete (s30, grow.ts; kept on the village, lesson 103): the neighbourhood on the board
    * (`from`: its first task's id number; `builds`: its Build tasks; `members` and `before`: members and houses when it was
@@ -1211,6 +1219,12 @@ export class VillageRegistry {
         ? `Village storage, in the storage hut (deposit sorts each item into its material's chest; withdraw finds it): ${storageText(v)}${stationsText}`
         : `Village storage (deposit / withdraw; chest${v.storage.chests.length > 1 ? 's' : ''} at ${where}): ${storageText(v)}`);
     } else if (stationsText) lines.push(`Village storage: no chest yet${stationsText}`);
+    // (the appetite, s30: only once it keeps one, and not in a worker's compact summary, lesson 32)
+    if (appetiteOn(v) && !compact) {
+      const by = (s: string) => Object.entries(v.food.members).filter(([, e]) => stateOf(e.level) === s).map(([n]) => n);
+      const hungry = by('hungry'), peckish = by('peckish');
+      lines.push(`Food: ${v.food.meals} meals eaten from storage${hungry.length ? `; hungry (only food work until fed): ${hungry.join(', ')}` : ''}${peckish.length ? `; peckish: ${peckish.join(', ')}` : ''}`);
+    }
     if (v.log.length) lines.push('Recent village events:', ...v.log.slice(compact ? -3 : -6).map((l) => `- ${l.slice(0, compact ? 160 : 400)}`));
     const now = Date.now();
     const res = v.reservations.filter((r) => r.until > now && r.by !== forAgent);
