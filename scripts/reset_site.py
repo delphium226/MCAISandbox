@@ -325,8 +325,16 @@ def start_agents(logdir, stamp):
         raise SystemExit("node or node_modules/tsx not found (npm install)")
     log = logdir / f"testagents-{stamp}.log"
     env = {**os.environ, "MC_SERVER_DIR": str(T.TEST), "MC_PORT": str(T.GAME_PORT), "MC_API_PORT": str(API_PORT),
-           "MC_API_HOST": "0.0.0.0"}
-    proc = detached([node, str(cli), "server/src/mineflayer/index.ts"], cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+           "MC_API_HOST": "0.0.0.0", "MCAI_ROOT": str(ROOT)}
+    # From a snapshot of the code (scripts/snapshot_code.py), so server files can be edited while it runs; MCAI_CODE_SNAPSHOT=0
+    # runs the working tree itself
+    entry = pathlib.Path("server/src/mineflayer/index.ts")
+    if os.environ.get("MCAI_CODE_SNAPSHOT", "1") != "0":
+        import snapshot_code  # noqa: E402 (scripts/, beside this file)
+        snap = snapshot_code.snapshot()
+        entry = snap / entry
+        print(f"test agent server: code snapshot {snap.relative_to(ROOT)} ({(snap / 'CODE.txt').read_text(encoding='utf-8').splitlines()[0]})")
+    proc = detached([node, str(cli), str(entry)], cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
                             stdout=open(log, "w"), stderr=subprocess.STDOUT)
     print(f"test agent server: starting (pid {proc.pid}, port {API_PORT}"
           f"{', MC_TIME_SCALE=' + os.environ['MC_TIME_SCALE'] if os.environ.get('MC_TIME_SCALE') else ''}), log {log}")

@@ -228,6 +228,9 @@ p.add_argument("--fixture-at", default="", help="with --fixtures: X,Z for the ch
                                                 "checked against --fixture-dy; use = for a negative X)")
 p.add_argument("--fixture-clear", action="store_true", help="with --fixtures: kill the chickens and cows within 120 of the site "
                                                             "first, so only the fixtures can fill a pen (F205's review H2)")
+p.add_argument("--after-until", default="", help="with --after: end the after phase early once every one of these holds "
+               "(comma-separated; --after stays the limit): grow (no growth layout under way, and growth stopped or a house "
+               "per member) and idle:N (no member ran an action for N minutes; mind waits for growing fields)")
 p.add_argument("--ripen", action="store_true", help="with --after: set each newly planted farm slot ripe by command once")
 p.add_argument("--ripen-fields", action="store_true", help="with --after: set each layout's wheat field ripe by command once, when it is "
                "first planted (a quick meal test; G3f and G25f time natural growth and leave it off)")
@@ -242,6 +245,12 @@ p.add_argument("--resume", action="store_true", help="start from VILLAGE complet
 p.add_argument("--stock", default="", help="with --after: ITEM:N,... given to the last worker and deposited into storage once the "
                                           "village is complete (e.g. raw_iron:3 to test the iron tools without digging for it)")
 args = p.parse_args()
+until = [c.strip() for c in args.after_until.split(",") if c.strip()]
+for c in until:
+    if not (c == "grow" or re.fullmatch(r"idle:\d+(\.\d+)?", c)):
+        p.error(f"--after-until {c}: give grow or idle:N")
+if until and not args.after:
+    p.error("--after-until needs --after (the limit)")
 if args.resume:
     if not args.after:
         p.error("--resume watches the after phase only: give --after MINUTES")
@@ -1871,12 +1880,18 @@ if args.after and reason == "every building is done":
     works_seen, tech_seen = None, set()
     # (B.4: each part's torch record as last printed, and the choice log for the spots each part has)
     lights_seen, choice_log = {}, ChoiceLog(os.environ.get("MCAI_CHOICE_LOG"), args.village)
+    # (--after-until: when a member last ran an action, and the conditions met at the stop)
+    last_busy, until_met = time.time(), None
+    if until:
+        print(f"AFTER until {','.join(until)} (or {args.after:g} min)", flush=True)
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
         listing = call("/agents")
         clock.sample(listing, "after")
         if isinstance(listing, list):
             samples += 1
+            if any(a.get("name") in busy and a.get("action") for a in listing):
+                last_busy = time.time()
             for a in listing:
                 if a.get("name") in busy and a.get("action"):
                     busy[a["name"]] += 1
@@ -1911,6 +1926,18 @@ if args.after and reason == "every building is done":
         stamps.update(v["tasks"])
         for line in grow.update(v):
             print(f"AFTER {(time.time() - t2) / 60:4.1f}m {line}", flush=True)
+        if until:
+            g = v.get("growth") or {}
+            # (growth pauses at a house per member without recording a stop: new members could still come)
+            H = sum(1 for s in v.get("structures") or [] if is_dwelling(s.get("kind", "")))
+            held = {"grow": not g.get("active") and (bool(g.get("stop")) or H >= grow.members_now(v))}
+            held.update({c: time.time() - last_busy >= float(c.split(":")[1]) * 60 for c in until if c.startswith("idle:")})
+            if all(held[c] for c in until):
+                until_met = f"{','.join(until)} at {(time.time() - t2) / 60:.1f} min"
+                print(f"AFTER {(time.time() - t2) / 60:4.1f}m UNTIL met: {','.join(until)}"
+                      + (f" (growth {'stopped: ' + g['stop'] if g.get('stop') else f'paused: {H} houses for {grow.members_now(v)} members'})" if "grow" in until else "")
+                      + (f"; idle since {(last_busy - t2) / 60:.1f}m" if any(c.startswith("idle:") for c in until) else ""), flush=True)
+                break
         for k, lay in enumerate(v.get("layouts") or []):
             for j, s in enumerate(lay.get("slots") or []):
                 t = slot_text(s)
@@ -2013,7 +2040,8 @@ if args.after and reason == "every building is done":
     # The village appetite at the end: each member, the shares, the ledger, the fields' growing range (spec 6)
     for line in food.end_lines(call(f"/village/{args.village}"), call("/agents")):
         print(line, flush=True)
-    reason += f", then {args.after:g} min after"
+    # (an early stop keeps the " min after" ending the growth lines key on)
+    reason += f", until {until_met} after" if until_met else f", then {args.after:g} min after"
 v = call(f"/village/{args.village}")
 stamps.update(v["tasks"])
 stock_line(v, force=True)

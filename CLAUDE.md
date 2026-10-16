@@ -24,9 +24,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 
 - `npm run typecheck` is the main check; there is no test suite, so verify agent changes by running agents (Testing).
   `npm run dev` starts the sandbox game server (8765) and the Vite client (5173).
-- **Starting the real-Minecraft stack** (in this order; after a reboot nothing is running; the user starts the Ollama
-  app). At every session start check ports 25565, 8766 (and 25566, 8767 for the test world; 11435, 11436 only for local
-  models) and start what is missing.
+- **`python scripts/stack.py status`** at every session start, **`up [main|test]`** to start what is missing (steps 1
+  and 3 below, the agent server from a code snapshot), **`down [main|test]`** to stop cleanly (villages flushed, Paper
+  saved). The steps by hand (after a reboot nothing is running; the user starts the Ollama app):
   1. `python scripts/detach.py runs/<date>/paper.log python mc/start.py`; wait for "Done (" in
      `mc/server/logs/latest.log`. **Start servers with `scripts/detach.py`, never the Bash tool's `run_in_background`**:
      background tasks die with the session and at their 30-minute limit (Paper was killed unsaved that way).
@@ -45,7 +45,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   `scripts/test_sites.json`; minevale3 is the usual one. The main world is full of old test villages: build elsewhere
   (`scripts/checks/fresh_land.py`) if you must use it.
 - Agent-server settings worth knowing: `MC_TIME_SCALE=2` (staged runs and checks; never for model-driven acceptance
-  runs), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
+  runs), for staged after-phase tests `MC_RANDOM_TICK=30` (crops ripen ~7x faster: first harvest at +2.4 min, not ~+17)
+  and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
+  build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES`, `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.
@@ -79,9 +81,17 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - Follow long runs with a Monitor on the log (`tail -n +1 -f log | grep --line-buffered ... | awk '{print
   substr($0,1,280); fflush()}'`): `cut` at the end of the pipe, or a second `grep` without `--line-buffered`, buffers
   and delivers nothing. Stop old monitors, and re-arm one that expires (30 min) during a long run.
-- **Never edit server files while a test runs** (the user's rule).
+- **Server files may be edited while a test runs only if its agent server runs from a code snapshot** (the user's rule,
+  relaxed on 2026-10-16): `reset_site.py` starts the test agent server from one (`scripts/snapshot_code.py`, under
+  `runs/code/`; `MCAI_CODE_SNAPSHOT=0` runs the working tree). Never while an agent server runs from the working tree (the
+  main world's step 3 above, unless started from a snapshot with `MCAI_ROOT` set to the repo).
 - **Auto mode's classifier** blocks `git push`, Agent calls with `isolation: "worktree"` and edits to Claude's own
   settings. Do not work around it: ask the user to switch out of auto mode or to request the action explicitly.
+- **Two Claude sessions at once** (the user runs them): one test world means one session runs tests on it at a time
+  (check `python scripts/stack.py status` and the agent count before resetting a site); the other works offline (specs,
+  analysis, code, benches). Only the session the user names writes PLAN.md's handover and closes the session record; the
+  other leaves its notes in `runs/<date>/<session>/` for it. Logs append-only (FINDINGS, RUNS, DECISIONS) can take entries
+  from both: re-read the end of the file right before adding to it.
 - **Start sessions on the main checkout** (`D:\Projects\MCAISandbox`), never in a worktree (no worlds, run logs or
   `node_modules` there, and the desktop app refused its edits to the main checkout).
 - Write prose (README, comments) plainly; match the surrounding comment density. Run logs go in `runs/<date>/`
@@ -146,6 +156,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   resets (snapshot or checkpoint), runs stage_village.py, saves checkpoints, runs checks (`make_log`, `agent_log`) and
   prints the key lines and a table, ending "ALL DONE"; `--detach` prints the watcher to arm, `--dry-run` the commands.
   The spec format is in its docstring; `scripts/series/example.json` saves a base village and tests growth off and on.
+  `python scripts/run_report.py DIR/NAME [...]` puts runs side by side (completion, failures, busy, mine, growth, food,
+  cost, the agent log's warning counts): read it before reading a log. `--after-until grow` ends a growth test once the
+  growth is done (`idle:N` rarely holds: workshop and light chores keep members busy).
 - **Checks** (`scripts/checks/`, about 50): run the one for the area you changed (`site.py` for find_site and
   prepare_site, `mine.py` for the mine, `fell_trees.py` for felling, `scale_probe25.py` at 25 bots, the golden checks
   `board_golden.mts` and `choice_golden.mts` before a refactor...). Offline ones read the region files or replay data (`region_blocks.py`, `top_map.py`,

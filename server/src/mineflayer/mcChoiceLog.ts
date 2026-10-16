@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChoiceContext, ChoiceSource, FallbackWhy } from '../world';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /** One option of the menu a choice was made on (A.2). */
 export interface ChoiceLogOption {

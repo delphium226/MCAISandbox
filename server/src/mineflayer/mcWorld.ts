@@ -18,7 +18,7 @@ import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, s
 import { mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
-import { timeScale } from './mcRules';
+import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
@@ -1313,6 +1313,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (!o.position && sp) o.position = { x: Math.floor(sp.x) + 0.5, z: Math.floor(sp.z) + 0.5 };
     }
     if (o.gamemode === 'creative' || o.gamemode === 'survival') await this.rcon.command(`gamemode ${o.gamemode} ${name}`);
+    // (staged tests: real faster digging, MC_HASTE; after the reset's effect clear)
+    if (hasteLevel()) await this.rcon.command(`effect give ${name} minecraft:haste infinite ${hasteLevel() - 1} true`);
     if (o.position) {
       // Without y, land on the highest block at x, z
       const { x, z } = o.position;

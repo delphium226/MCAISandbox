@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck)",
+      "mcp__terminal__read_terminal",
+      "Bash(nvidia-smi)",
+      "Bash(nvidia-smi --query-gpu=*)",
+      "mcp__Claude_Browser__get_page_text",
+      "Bash(tasklist *)",
+      "mcp__Claude_Browser__find",
+      "mcp__terminal__list_terminal_tabs",
+      "mcp__Claude_Browser__preview_logs",
+      "mcp__ccd_pr__get_status"
+    ]
+  }
+}

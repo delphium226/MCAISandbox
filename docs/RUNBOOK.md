@@ -208,7 +208,23 @@ the short version; look here for a check script's arguments, a model detail or w
   runs/<today>): NAME.log, reset_NAME.log, NAME.choices.jsonl, save_NAME.log, SPEC.runner.log with `--detach`. The s0 preset
   reads its designs from `runs/2026-10-05/vanilla_designs` (gitignored, as stage_runs.py). Tested with
   `runs/2026-10-15/series/cp_series.json`: two resumed runs from `mv3_cpv1`, 3.5 and 4.5 min each with the restore.
-  Model-driven runs (watch_village.py) are not covered yet.
+  Model-driven runs (watch_village.py) are not covered yet. `--detach` moves an earlier runner log aside first (the
+  watcher would wake on its "ALL DONE").
+- **Faster test runs** (2026-10-16): `scripts/run_report.py LOG|DIR/NAME [...]` (one table per run, side by side; the
+  agent log's counts found through reset_NAME.log; `MCAI_REPORT_WIDTH`). `stage_village.py --after-until grow[,idle:N]`
+  ends the after phase once every condition holds (grow: no growth layout under way and growth stopped or a house per
+  member; idle:N: no member ran an action for N minutes, rare with the workshop and light chores on). The agent server's
+  `MC_RANDOM_TICK` (the game rule random_tick_speed, set at every start, 3 unless given): 30 gave Rt30's first harvest at
+  +2.4 min (G3f ~+17), every food line intact. `MC_HASTE` (level of an infinite Haste given at every spawn; Mineflayer's
+  digTime and Paper's check both count it: H5's `[dig]` re-digs 2, as without). One s0 build each from the snapshot
+  (2 workers and the Mayor): CPv1 (2x) complete 4.9 min, mine 35 cells/min; H5 (2x, haste 5) 4.2, 39; T3 (3x) 3.9, 41;
+  H5T3 (3x, haste 5) 3.2, 52; all 0 failed, 0 `[lag]` and `[stuck]` (single runs). `--after-until grow` ended UntilG at
+  4.4 min of 30. `scripts/stack.py status|up|down [main|test|all]`: ports, agent counts and world settings; starts Paper
+  and the agent server detached (from a snapshot, `MC_OLLAMA_ROUTES` set, MC_ settings from the shell); stops them
+  cleanly. Code snapshots: `scripts/snapshot_code.py` copies server/src, server/panel,
+  shared/src, package.json and tsconfig.json to `runs/code/<hash>/` (reused while the code is unchanged; CODE.txt names the
+  commit and uncommitted files); `reset_site.py` starts the test agent server from one with `MCAI_ROOT` (index.ts,
+  mcChoiceLog.ts and vanillaData.ts read the repo from it), so server files can be edited during a run.
 - **After completion** (chores: farm slots, harvests, exploring, the iron age; 2026-10-08): `stage_village.py ... --mayor
   --after MINUTES` keeps watching after the village is complete (only a tiered mayor sets it complete); `--fixtures`
   plants sugar cane, pumpkins and a melon 35-45 blocks off the site first (minevale3 has none within 96), `--ripen` sets

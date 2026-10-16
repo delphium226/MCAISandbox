@@ -5,7 +5,8 @@
  * Settings: MC_HOST (default 127.0.0.1), MC_PORT (25565), MC_VERSION (26.1, Mineflayer's name for the 26.1.x
  * protocol), MC_API_PORT (8766), MC_API_HOST (127.0.0.1; 0.0.0.0 serves the panel and API to the local network, with
  * no login: anyone who can reach it can spawn and command agents), MC_SERVER_DIR (mc/server; the test world is
- * mc/testserver), MC_TIME_SCALE (1; 2 runs the server and the bots at 2x for tests, mcRules.ts). The RCON port and
+ * mc/testserver), MC_TIME_SCALE (1; 2 runs the server and the bots at 2x for tests, mcRules.ts), MC_RANDOM_TICK (3, the
+ * random tick speed; staged tests raise it so crops grow faster, mcRules.ts). The RCON port and
  * password are read from the server folder's server.properties.
  */
 import fs from 'node:fs';
@@ -20,7 +21,8 @@ import { Rcon } from './rcon';
 import { gate } from '../modelCall';
 import { monthKey, usage } from '../modelUsage';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+// (MCAI_ROOT: the repo, when this runs from a code snapshot elsewhere, scripts/snapshot_code.py)
+const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 // The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json
 const SERVER_DIR = path.resolve(ROOT, process.env.MC_SERVER_DIR ?? path.join('mc', 'server'));
 const HOST = process.env.MC_HOST ?? '127.0.0.1';

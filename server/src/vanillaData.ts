@@ -12,7 +12,7 @@ import zlib from 'node:zlib';
 /** The jar vanilla's data is read from (mc/server's Paper; the test world's server runs the same version). */
 export const DEFAULT_JAR = 'mc/server/versions/26.1.2/paper-26.1.2.jar';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** A jar path resolved against the repo root (relative paths do not depend on the working directory). */
 const resolveJar = (jar: string) => path.resolve(ROOT, jar);

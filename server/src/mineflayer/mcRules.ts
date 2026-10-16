@@ -33,6 +33,27 @@ export function timeScale(): number {
   return Number.isFinite(s) && s >= 1 && s <= 4 ? s : 1;
 }
 
+/**
+ * Random ticks per chunk section a tick (MC_RANDOM_TICK, the game rule random_tick_speed; vanilla 3): what makes crops,
+ * cane, pumpkins and saplings grow, leaves decay and grass spread. Staged tests of the after phase raise it so fields
+ * ripen in minutes instead of half an hour, by the game's own growth (unlike --ripen-fields). Set at every start, so a fast
+ * value never stays for the next run; acceptance runs stay at 3.
+ */
+export function randomTickSpeed(): number {
+  const s = Number(process.env.MC_RANDOM_TICK ?? 3);
+  return Number.isInteger(s) && s >= 0 && s <= 300 ? s : 3;
+}
+
+/**
+ * Haste for every bot (MC_HASTE, the effect's level; 0 or unset: none): staged tests dig faster for real, since Paper's dig
+ * check and Mineflayer's digTime both count the effect (lesson 40 still holds: digTime is never shortened by hand). Each
+ * level is +20% dig speed (level 5 about 2x). Given at every spawn (mcWorld.ts); acceptance runs go without.
+ */
+export function hasteLevel(): number {
+  const s = Number(process.env.MC_HASTE ?? 0);
+  return Number.isInteger(s) && s >= 0 && s <= 10 ? s : 0;
+}
+
 export interface WorldRulesStatus {
   ok: boolean;
   /** The server's target tick rate as `tick query` reads it back (20 at normal speed). */
@@ -61,8 +82,17 @@ export async function applyWorldRules(rcon: Rcon): Promise<WorldRulesStatus> {
   const query = await rcon.command('tick query');
   const tickRate = Number(/target tick rate:\s*([\d.]+)/i.exec(query)?.[1]);
   if (tickRate !== rate) problems.push(`tick rate: wanted ${rate}, server says ${query.trim() || 'nothing'}`);
+  // Likewise the random tick speed (3 unless a test asks for faster growth)
+  const ticks = String(randomTickSpeed());
+  await rcon.command(`gamerule random_tick_speed ${ticks}`);
+  const tickReply = await rcon.command('gamerule random_tick_speed');
+  if (/set to:\s*(\S+)/.exec(tickReply)?.[1] !== ticks) {
+    problems.push(`random_tick_speed: wanted ${ticks}, server says ${tickReply.trim() || 'nothing'}`);
+  }
   const ok = problems.length === 0;
-  const speed = rate === 20 ? '' : `, tick rate ${rate} (${timeScale()}x)`;
+  const speed = (rate === 20 ? '' : `, tick rate ${rate} (${timeScale()}x)`)
+    + (ticks === '3' ? '' : `, random ticks ${ticks} (MC_RANDOM_TICK)`)
+    + (hasteLevel() ? `, bots with haste ${hasteLevel()} (MC_HASTE)` : '');
   const summary = ok
     ? `peaceful, no damage, keep_inventory, always day${speed} (${Object.keys(WORLD_RULES).length} game rules checked)`
     : `world settings NOT applied: ${problems.join('; ')}`;

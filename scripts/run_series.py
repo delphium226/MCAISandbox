@@ -197,6 +197,9 @@ def main():
         os.makedirs(out, exist_ok=True)
         stem = os.path.splitext(os.path.basename(spec_path))[0]
         runner = os.path.join(out, f"{stem}.runner.log")
+        # (a fresh log: the watcher waits for "ALL DONE", and an earlier series' would wake it at once)
+        if os.path.exists(runner):
+            os.replace(runner, runner + f".{time.strftime('%H%M%S')}")
         rest = [a for a in argv if a != "--detach"]
         subprocess.run([PY, "scripts/detach.py", runner, PY, "scripts/run_series.py", *rest], cwd=ROOT, check=True)
         rel = os.path.relpath(runner, ROOT).replace("\\", "/")
