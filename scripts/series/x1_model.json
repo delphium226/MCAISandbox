@@ -1,0 +1,13 @@
+{
+  "about": "X.1 in model mode on test world 1: 25 members from mv3_base25, gpt-oss chooses (--choose model) among menus with the catalogue's goods and furnishing, 20 min after, no growth. Does the model pick the new activities, and does the failed share hold?",
+  "out": "runs/2026-10-16/s34/x1_model",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 40,
+  "server_env": {"MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish"},
+  "runs": [
+    {"name": "X1m", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0"}, "args": "--after 20 --choose model"}
+  ]
+}

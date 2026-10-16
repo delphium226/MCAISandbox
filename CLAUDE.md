@@ -14,7 +14,7 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 142 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 144 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
@@ -203,8 +203,8 @@ The full list, with the stories behind them, is in `docs/LESSONS.md`; numbers be
   and z (102). Commands place blocks into players (44); spawn on ground read from the world (37).
 - **Paper times digs by the wall clock**: never shorten `digTime` (40).
 - **Add behaviour beside the brain's state, not inside it**; after-completion work is a chore beside the board (66, 93).
-- **Measure before building**: count what the land holds and test a game mechanic live (99, 113, 135); count the work a
-  mechanism can give idle agents over time, not its peak (129, 130, 136).
+- **Measure before building**: count what the land and the game's data hold and test a game mechanic live (99, 113,
+  135, 143); count the work a mechanism can give idle agents over time, not its peak, in 10-minute bins (129, 130, 136, 144).
 - **Check the path a feature takes, not only the helper** (140): count the effect in the run before reading results.
 - **Make a staged test reproduce the condition the fix is for** (95); a repeated stall in one place across runs is a
   fixture's fault first (133); reproduce live before trusting an offline replay (77).

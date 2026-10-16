@@ -38,7 +38,9 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
 const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2 };
-const gatherCost = (name: string) => GATHER_COST[name] ?? 1;
+// (a stripped log has no recipe, but no village finds one: it takes an axe on a log, a step no chore does; at 1 it tied
+// with "any logs" and a smoker planned from 4 stripped warped stems, F237)
+const gatherCost = (name: string) => GATHER_COST[name] ?? (/^stripped_/.test(name) ? 2 : 1);
 /**
  * Raw materials a village gathers well: logs, stone (cobblestone), sand, sandstone, dirt, gravel, terracotta. Anything
  * else takes finding (iron ore, animals, moss deep in lush caves: mossy cobblestone sent two workers 70 blocks down

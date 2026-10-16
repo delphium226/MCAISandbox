@@ -95,7 +95,7 @@ console.log('');
 
 // 2. Furniture demand
 {
-  const demand = { birch_stairs: 3, barrel: 2, lever: 2, crafting_table: 1, white_bed: 1, oak_fence: 2, chest: 1, smoker: 1 };
+  const demand = { birch_stairs: 3, barrel: 2, lever: 2, crafting_table: 1, white_bed: 1, oak_fence: 2, chest: 1, smoker: 1, campfire: 1 };
   const { specs, dropped } = A.buildCatalog(reg, new Materials(reg), opts('birch', demand));
   const get = (item: string) => specs.filter((s) => s.good?.item === item);
   const base = (item: string) => built.birch.specs.find((s) => s.good?.item === item)!.good!;
@@ -107,7 +107,8 @@ console.log('');
   ok(!get('white_bed').length && dropped.some((d) => d.id === 'make:white_bed'), 'a bed (wool) is dropped');
   ok(!get('oak_fence').length && dropped.some((d) => d.id === 'make:oak_fence'), 'oak fence in a birch village is dropped');
   ok(!get('chest').length && dropped.some((d) => d.id === 'make:chest'), 'a chest is dropped');
-  ok(dropped.filter((d) => d.id === 'make:smoker').length === 1, 'smoker dropped once (candidate and demand: one entry)');
+  ok(dropped.filter((d) => d.id === 'make:campfire').length === 1, 'campfire (coal) dropped once (candidate and demand: one entry)');
+  ok(get('smoker').length === 1 && get('smoker')[0].good!.target === 2, `demand raises the smoker's target to 2 (F237: planned from any logs; ${get('smoker')[0]?.good?.target})`);
   ok(new Set(specs.map((s) => s.id)).size === specs.length, 'demand gives no item two specs');
   ok(specs.length === built.birch.specs.length + 1, `demand adds exactly one spec (${specs.length} vs ${built.birch.specs.length})`);
   console.log(`demand at birch: ${specs.length} specs; dropped ${dropped.map((d) => d.id).join(', ')}`);

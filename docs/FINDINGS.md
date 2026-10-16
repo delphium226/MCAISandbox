@@ -1152,3 +1152,8 @@ CLAUDE.md when a phase ends.
 - F239 (10-16, s34, X.1's reviews) The menu and the furnish skill chose different spots (the skill took the first open
   ones whatever storage held, withdrew nothing and threw a contention the world never backed off): found by both lens
   reviews, fixed before any run (the skill picks as the menu does; none spare ends "no progress", which backs off).
+- F240 (10-16, s34, X1g0/X0g0/X1fg/X0fg) After the first 20 minutes the 25-member village is 0-1% busy in every arm,
+  with and without the catalogue, growth and food: growth stops at a house per member (~15 min at 2x), the appetite's
+  food is made ~3x faster than eaten (530 points made, 170 eaten in X1fg) and every stock target is met. Nothing drains
+  or grows without end; X.2's projects (large, voted, open-ended builds) are the next lever, with a higher appetite or
+  wear as smaller ones.

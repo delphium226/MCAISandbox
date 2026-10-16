@@ -38,7 +38,15 @@ the short version; look here for a check script's arguments, a model detail or w
      identical` is the control). Series specs: `scripts/series/a3p_fixed.json`, `a3p_fixed2.json`, `a3p_model.json`
      (world 2), `vote_staged.json`, `vote_off.json` (world 2), `vote_model.json`, `vote_model2.json`. The Claude Code CLI
      (Phase X.3's foundry): `C:\Users\rhett\AppData\Roaming\npm\claude` (2.1.301; `claude -p "..."` headless, the
-     user's subscription). The hourly budget
+     user's subscription). **Activities (X.1, s34)**: the families `catalog` (the workshop's goods from the recipe graph:
+     `server/src/activities.ts` buildCatalog, ~31 goods beyond the keeps in the village's pinned wood `v.catalogWood`,
+     each spec validated; `[catalog]` lines) and `furnish` (code-designed furniture in each house, `streetPlan.ts`
+     buildingDecor; the chore kind and skill `furnish`; `[furnish]` lines; `v.decor` records) are in
+     `MC_CHOICE_FAMILIES`'s default since s34 (`make,gather,works,light,catalog,furnish`; leave them out for S.9's menus). Checks: `activities_unit.mts`,
+     `decor_check.mts` (in check:offline). temperament_report prints distinct activities (`acts`, `acts/ag` and the
+     list); stage_village prints `BUSY after by 10 min` and furnish ends. Series: `scripts/series/x1_smoke.json`,
+     `x1_on.json`, `x1_off.json` (world 2), `x1_model.json`. Offline counts: `scripts/checks/work_count.mts`
+     (the catalogue's and furniture's work at a checkpoint), `plans_dump.mts` (every item's plan, for a before/after diff of a Materials change, lesson 76). The hourly budget
      `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
      is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own

@@ -9,7 +9,7 @@
  * Settings (read once, when the module loads; CHOOSE):
  *   MC_CHOOSE             fixed (default until A.2's exit) or model
  *   MC_CHOICE_INSTANCES   kinds that run as several instances at once, default "explore,start"; empty: single keys
- *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works,light" (S.9, B.4); empty: none
+ *   MC_CHOICE_FAMILIES    goal-2 families switched on, default "make,gather,works,light,catalog,furnish" (S.9, B.4; X.1's catalogue and furniture since s34); empty: none
  *   MC_CHOOSE_PARALLEL    decisions in flight process-wide, default 2 (one below the gate's 3 cloud slots)
  *   MC_CHOOSE_QUEUE_MS    a decision not started within this gets the fixed pick ('queue'), default 30000
  *   MC_CHOOSE_WAIT_MS     the call's wait for a gate slot before it is withdrawn, default 15000
@@ -28,7 +28,7 @@ export const CHOOSE = {
   mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model',
   instances: new Set((process.env.MC_CHOICE_INSTANCES ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
   /** Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). */
-  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light').split(',').map((s) => s.trim()).filter(Boolean)),
+  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish').split(',').map((s) => s.trim()).filter(Boolean)),
   /** 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always
    *  finds a slot free of decisions (C11). */
   parallel: Number(process.env.MC_CHOOSE_PARALLEL ?? 2),

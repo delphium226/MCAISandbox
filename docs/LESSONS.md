@@ -557,3 +557,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 142. **A status-quo shortcut breaks when "current" moves** (s33, F235): "if the vote's winner is the current style, pick
    as before" drew the village's original library, so a won "current" savanna built plains houses every other vote. When
    a decision exists, apply it the same way every time; keep the old path only for "no decision".
+143. **Read what the game's data really holds before designing a consumer on it** (s34, F236): the plan was to bring back
+   vanilla's house furnishings as the drain for the workshop's goods, but a third of the 685 cells need wool, ~70 iron,
+   and the test base's four pieces held none a peaceful village can make. A ten-line count of the jar's pieces and the
+   land (clay under water) before the spec turned it into code-designed furniture from logs and stone.
+144. **Breadth is not busy time; bin the run past the burst** (s34, X1/X0 over 60 min): a recipe-graph catalogue doubled
+   the distinct activities (58 against 27) and busy rose in the first 20 minutes, then every arm sat at 0-1% with
+   growth and food on too (growth reached a house per member in ~15 min; food was made three times faster than eaten).
+   A 20-minute window would have read as a win (lessons 130, 136): judge by 10-minute bins over an hour.
