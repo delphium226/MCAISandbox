@@ -17,7 +17,9 @@ The spec (every key optional unless said; a run's keys override the spec's, its 
     "port": 8768,                        the test agent server's port (default MCAI_TEST_API_PORT, else 8767)
     "preset": "s0",                      the base stage command (PRESETS below), or "none" to give everything in "args"
     "workers": 2,
-    "time_scale": 2,                     MC_TIME_SCALE for the agent server (0 or null for 1x)
+    "fast": true,                        the default: MC_TIME_SCALE 3 (2 from 12 workers), MC_HASTE 5, MC_RANDOM_TICK 30;
+                                         false gives 2x with vanilla digging and crop growth
+    "time_scale": 3,                     MC_TIME_SCALE for the agent server (0 or null for 1x), over "fast"
     "server_env": {"MC_GROW": "1"},      the agent server's environment (reset_site.py starts it with this)
     "stage_env": {"MCAI_STALL_MIN": "8"},  stage_village.py's environment
     "args": "--after 45 --choose fixed", stage_village.py arguments (a string, split on spaces, or a list)
@@ -124,8 +126,14 @@ def resolve(spec, run, out_default):
     if cp and "--resume" not in args:
         args.append("--resume")
     out = os.path.join(ROOT, get("out", out_default))
-    ts = get("time_scale", 2)
+    # Staged runs go fast by default (the user's decision, 2026-10-16): 3x, haste 5 and fast crops (H5T3 built 35%
+    # faster, Rt30 harvested at +2.4 min); 2x from 12 workers up, where the agent server limits and 3x is unmeasured.
+    # "fast": false in a spec or run gives 2x with vanilla digging and growth; time_scale and server_env still override.
+    fast = get("fast", True)
+    workers = int(get("workers", 2))
+    ts = get("time_scale", (3 if workers < 12 else 2) if fast else 2)
     server_env = {**({"MC_TIME_SCALE": str(ts)} if ts and float(ts) != 1 else {}),
+                  **({"MC_HASTE": "5", "MC_RANDOM_TICK": "30"} if fast else {}),
                   **spec.get("server_env", {}), **run.get("server_env", {})}
     return {
         "name": run["name"], "village": village, "site": get("site", "minevale3"), "port": port, "out": out,

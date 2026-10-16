@@ -237,6 +237,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     houses in 6 neighbourhoods, after-phase busy 4% -> 16%); **food** (`0197159`, `server/src/appetite.ts`: fields and slots
     in every neighbourhood, `MC_GROW_FARMS`; a village appetite on peaceful, `MC_APPETITE`; both off by default; G25f: 6
     fields, 52 meals, hungry 2.2%, FOOD ok). Lessons 134-139. Next: voting with neighbourhood variety, then roads.
+46. 2026-10-16 (thirty-first session; pushed at the close, the user's instruction; `main` untouched): speed work, no
+    features (the user: speed ahead of quality). The docs split (`a98d242`), checkpoints and `--resume` (`c387652`),
+    `run_series.py` (`eeaf692`), code snapshots so server files can be edited during runs, `--after-until`,
+    `MC_RANDOM_TICK`, `MC_HASTE`, `stack.py`, `run_report.py` (`fa51aac`), model calls recorded and replayable
+    (`ff9a11b`), run_series fast by default. Restore 0.3 min instead of a 5-9 min build; first harvest +2.4 min
+    (~+17); a 30-min watch stopped at 4.4; the 3-agent build 3.2 min (4.9). Next: more speed work (PLAN.md).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

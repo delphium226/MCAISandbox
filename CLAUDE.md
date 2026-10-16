@@ -160,6 +160,8 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   resets (snapshot or checkpoint), runs stage_village.py, saves checkpoints, runs checks (`make_log`, `agent_log`) and
   prints the key lines and a table, ending "ALL DONE"; `--detach` prints the watcher to arm, `--dry-run` the commands.
   The spec format is in its docstring; `scripts/series/example.json` saves a base village and tests growth off and on.
+  Its staged runs are **fast by default** (the user's decision, 10-16): 3x below 12 workers (2x from 12), haste 5, random
+  ticks 30; `"fast": false` in a spec or run turns that off.
   `python scripts/run_report.py DIR/NAME [...]` puts runs side by side (completion, failures, busy, mine, growth, food,
   cost, the agent log's warning counts): read it before reading a log. `--after-until grow` ends a growth test once the
   growth is done (`idle:N` rarely holds: workshop and light chores keep members busy).

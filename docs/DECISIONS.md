@@ -486,3 +486,14 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   eating by code without a model call (M2); bread and pumpkin pie as workshop goods (wheat into mcMaterials' GATHER, M1);
   no meat (Q5), no foraging (Q8). The check's High fixes: growHold counts only members the hunger gate lets claim (H1),
   and the fixed-mode sweep goes on past an empty menu when the appetite is on (H2).
+- 10-16 (s31, the user's) Development speed ranks ahead of quality: regression checks stay light (offline checks, a
+  report that saves reading); no smoke series required per commit, no baselines or thresholds unless asked.
+- 10-16 (s31, the user's) The no-edits-during-runs rule is relaxed for runs whose agent server runs from a code snapshot
+  (`scripts/snapshot_code.py`; reset_site.py and stack.py start from one by default).
+- 10-16 (s31, the user's) run_series.py's staged runs are fast by default: MC_TIME_SCALE 3 below 12 workers (2 from 12,
+  where 3x is unmeasured), MC_HASTE 5, MC_RANDOM_TICK 30; "fast": false turns it off. Acceptance runs stay at 1x, vanilla.
+- 10-16 (s31, the user's) The food flags (MC_GROW_FARMS, MC_APPETITE) stay off by default for now.
+- 10-16 (s31, the user's) Next session: more speed work first (25-agent 3x measurement, a second test world, model runs
+  in run_series, the SessionStart hook if approved), then voting with neighbourhood variety, then roads.
+- 10-16 (s31, Claude's) Model-call replay matches by agent, kind and call number by default (exact prompts rarely recur:
+  positions and times differ); `[replay]` lines show where prompts diverge. Recording is on by default.
