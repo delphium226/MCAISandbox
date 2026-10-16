@@ -6,16 +6,16 @@
  * sociability weights an option by how many others are on its kind now.
  *
  * Setting (read once, when the module loads):
- *   MCAI_TEMPERAMENT   off (default until A.3p's exit): no weights, tags, persona line or reminder;
+ *   MCAI_TEMPERAMENT   on (the default since s33, the user's): the vectors below;
  *                      identical: every agent the zero vector, the own-pattern reminder shown (E.8's arms);
- *                      on: the vectors below.
+ *                      off: no weights, tags, persona line or reminder (the goldens run with it).
  */
 import { fnv1a, mulberry32, shuffled } from './choose';
 import type { ChoiceKind } from './world';
 
 export type TemperamentMode = 'off' | 'on' | 'identical';
-const rawMode = (process.env.MCAI_TEMPERAMENT ?? 'off').trim().toLowerCase();
-export const TEMPERAMENT_MODE: TemperamentMode = rawMode === 'on' || rawMode === 'identical' ? rawMode : 'off';
+const rawMode = (process.env.MCAI_TEMPERAMENT ?? 'on').trim().toLowerCase();
+export const TEMPERAMENT_MODE: TemperamentMode = rawMode === 'off' || rawMode === 'identical' ? rawMode : 'on';
 
 export const TRAITS = ['curiosity', 'care', 'diligence', 'pride', 'sociability'] as const;
 export type Trait = (typeof TRAITS)[number];

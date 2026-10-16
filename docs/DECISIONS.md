@@ -517,3 +517,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   place in rank order), a meal of lowest rank first, so all-1 weights give today's order; model mode orders the trim by
   lp x tw and a disliked kind (tw < 0.7) gets no reserved place; option lines carry "[you enjoy this]" (tw >= 1.6) or "[you
   find this dull]" (tw <= 0.63). `MCAI_TEMPERAMENT` defaults to off until A.3p's exit (spec runs/2026-10-16/s33/spec_a3p.md).
+- 10-16 (s33, the user's) After A.3p part 1's runs (identifiability weak, the model keeping the tilt): temperaments on by
+  default (`MCAI_TEMPERAMENT=on`; the goldens set off themselves) and on to the first vote; skill from practice (A.3p
+  part 2) later, when longer runs can show it.

@@ -52,6 +52,9 @@ process.env.MC_CHOICE_INSTANCES = mode === 'instances' ? 'explore,start' : '';
 // (S.9's families off for the golden, on for the instances' invariants, D3)
 process.env.MC_CHOICE_FAMILIES = mode === 'instances' ? 'make,gather,works,light' : '';
 process.env.MC_TIME_SCALE = '1';
+// (A.3p: temperaments on by default since s33; the golden is of the picker without them, so off unless set, as
+// instances mode may with MCAI_TEMPERAMENT=on)
+process.env.MCAI_TEMPERAMENT ??= 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;
