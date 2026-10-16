@@ -523,5 +523,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-16 (s33, the user's) Richer activities and automated learning of them: Claude's design (activities and projects as
   validated data, a gated skill foundry with external coding agents on test world 2, an outer metric loop) written up as
   `docs/research/self-improving-activities.md` and added to the plan as Phase X, after the first vote.
-- 10-16 (s33, the user's) Phase X.3's foundry uses the Claude Code CLI (`claude -p`, headless). Not installed on this
-  machine at the time (the session ran in the VS Code extension): install and log-in pending.
+- 10-16 (s33, the user's) Phase X.3's foundry uses the Claude Code CLI (`claude -p`, headless), billed to the user's
+  Claude subscription (no API key; the foundry caps turns and time per ticket), and the user approves every merge (gated
+  work lands on `foundry/<ticket>` branches with a report). Installed by Claude the same day (`npm install -g
+  @anthropic-ai/claude-code`, 2.1.301, `C:\Users\rhett\AppData\Roaming\npm\claude`); it shares the extension's login
+  (a headless test call answered).
