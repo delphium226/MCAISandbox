@@ -221,14 +221,45 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     target, a value and a trend, shown as words with numbers (D2A). Each option carries its expected effect; code
     scores options by deficit x effect x personality weight x learning progress and shows the top 5-8 (HERAKLES;
     BioBlue: models balancing several targets drift to maximising one).
-  - Personalities: one line each in the prompt; weights and thresholds in code (curiosity: exploring and new kinds; care:
-    animals and farms; diligence: the stock gauges; pride: the village's look and projects); a reminder of the agent's
-    own pattern on a fixed schedule.
+  - Personalities: moved to A.3p below (10-16, s32), built before the first vote; the gauges here use its temperament
+    weights when they come.
   - "What the others are doing and have promised" in every menu (Project Sid's specialisation; Riedl's one sentence).
   - Exit: staged A/B (identical against distinct personalities, two runs each): distinct ones give more different
     activity histograms; low gauges draw matching choices; the value curve not below A.2's.
   - Open: personas written by the user, proposed by Claude for approval (recommended: fixed across runs so they
     compare), or generated each run.
+- [ ] A.3p **Personalities that change behaviour** (~1 session; s32's research, `docs/research/agent-individuality.md`,
+  44 sources; placed by Claude on the user's word, 10-16: **built right before the first vote**, so ballots have distinct
+  voters and the vote's bench can tell a temperament from option order).
+  - Why this shape: persona prompts move what a model says about itself, not what it does (The Personality Illusion:
+    ~24% of trait-behaviour links held; an agreeableness persona moved self-reports ~4 and behaviour ~0.03), and personas
+    collapse on tasks with a right answer, worst in RL-trained reasoning models like gpt-oss. They do act where the trait
+    names a decision with no right answer (GovSim's greedy newcomer: survival 53% -> 33%): our chore menu and ballots, not
+    executor turns. Ballots are close to questionnaires, so personas show there easily: measure vote against deed.
+    Project Sid's agents had identical traits; its roles came from social awareness (so E.8's main arms stay identical).
+  - 1. **Temperaments in code**: a fixed vector per agent name (Mayor, Worker1-24), spread by a Latin-hypercube draw over
+    a few traits (curiosity: exploring and new kinds; care: animals and farms; diligence: stock, gathering, light;
+    pride: building and the village's look), mapped to a weight per chore kind multiplied into `choose.ts`'s score
+    before the trim, so it works in the fixed picker too. Big enough to see (~2.5x the most-liked kind, ~0.4x the
+    least: small Sims trait weights went unnoticed). `MCAI_TEMPERAMENT=off|on|identical` (E.8's arms).
+  - 2. **A persona line and an own-pattern reminder**, both written by code from the vector and the agent's own record
+    ("you mostly tend the pens; 5 of your last 8 chores"), in every menu and ballot prompt (~60 tokens, <50k tokens an
+    hour at 25: ~2.5% of the budget; reminders cut drift 87%, Leins et al.).
+  - 3. **Skill from practice**: the per-kind record becomes a skill; practice raises the kind's weight, neglect lowers
+    it, a "passion" from the temperament multiplies the gain (response-threshold model, RimWorld passions); menu facts
+    "you: 5 of 5, 6 min; village: 9 min".
+  - Later, with growth and the votes: **stakes and likes** (an own house, pen or field and E.6's personal chest; a liked
+    wood and flower in the house trim, Dwarf Fortress preferences), and **ballot wiring** (persona line, reminder,
+    stakes and record in the ballot; code logs the vote the temperament predicts beside the real one, unseen by the
+    agent). Already planned elsewhere: relationships (E.3), nightly intentions and projects (E.6, A.5).
+  - Measures: per-agent chore-mix entropy, mean pairwise Jensen-Shannon divergence between agents, split-half
+    consistency, whether the model keeps or flattens the code's tilt (model mode against the fixed picker),
+    identifiability (name the agent from 10 choices; chance 1/25), say-do and vote-do agreement, and the user's test:
+    name three agents after watching for ten minutes.
+  - Exit: staged A/B from `mv3_base25` (`MCAI_TEMPERAMENT=identical` against `on`, fixed picker, then model mode):
+    divergence and identifiability clearly above identical; model mode keeps most of the tilt; no rise in failed chores.
+  - Not here: activation steering or fine-tuning (cloud weights), long backstories or MBTI, a model-rewritten identity
+    (drifts), model-judged needs or moods, temperature or reasoning level as personality, a model per agent, free chat.
 - [ ] A.4 **Journal, lessons and roles** (~1-2 sessions).
   - A village clock: a day every N real minutes, kept by code (Minecraft time stays frozen unless A.7 says otherwise),
     for recency, reflection and meetings.
@@ -1179,7 +1210,7 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   green), and lamp and sign styles to match. Open: how much the model decides (a theme per neighbourhood from the Mayor,
   one call each) against code choosing from the library.
   **Joined with voting (the user's, 10-15): the next neighbourhood's style is the village's first vote**, built after the
-  food step: code prepares 2-4 buildable options (houses, wood, pad plan), every member casts a ballot (one model call:
+  food step and after A.3p's temperaments (s32: the voters need something to differ on): code prepares 2-4 buildable options (houses, wood, pad plan), every member casts a ballot (one model call:
   the options with their facts, plus a little about the voter: home, work, what it built) with a one-line reason, code
   tallies, applies, logs every reason and shows it on the panel (~25 gpt-oss calls a vote, ~$0.01). Measure whether
   ballots follow each voter's facts or the option order (a bench like choicebench) before reading meaning into results;

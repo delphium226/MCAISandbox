@@ -505,3 +505,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-16 (s32, the user's) The vote-topic research goes into the plan with the first vote (PLAN.md, "More variety in
   neighbourhood styles": the ranked list; `docs/research/vote-topics.md`); next research: how to individualise agents
   (personalities that change behaviour).
+- 10-16 (s32, Claude's, the user left the placement to Claude) Personalities become A.3p, split from A.3's gauges and built
+  right before the first vote: temperament weights in code, a code-written persona line and own-pattern reminder, skill
+  from practice; stakes, likes and ballot wiring with the votes. The research (`docs/research/agent-individuality.md`)
+  says persona prompts act only on choices without a right answer, which the chore menu and ballots are.
