@@ -239,6 +239,9 @@ for (const file of ['mc/server/villages.json', 'mc/testserver/villages.json']) {
       if (d.layers[1]?.length === d.depth)
         d.layers[1].forEach((row, j) => [...row].forEach((ch, i) => {
           if (!/_door$/.test(d.palette[ch] ?? '')) return;
+          // (the old rule knew only doors on the grid's edge: a door inside it, as savanna_small_house_4's on its porch,
+          // stored by s33's style vote, has no old facing to compare)
+          if (i !== 0 && i !== d.width - 1 && j !== 0 && j !== d.depth - 1) return;
           const old = i === 0 ? [-1, 0] : i === d.width - 1 ? [1, 0] : j === 0 ? [0, -1] : [0, 1];
           const now = doorOutward(d, i, j, 0);
           if (old[0] !== now[0] || old[1] !== now[1]) turned.push(`door at ${i},${j} faced ${old} now ${now}`);

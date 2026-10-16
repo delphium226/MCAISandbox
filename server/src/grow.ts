@@ -51,16 +51,19 @@ export function isGrowTask(v: Village, t: Task): boolean {
  * village whose world has the library; picked ones are copied into the library, nothing is deleted) and the dwellings some
  * layout already used, 9x9 or smaller and within a house's budget (`units`, when the world can say: L6). Empty when none.
  */
-export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number): string[] {
+export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[]): string[] {
   const cands: Design[] = [];
   const add = (d: Design) => {
     if (!cands.some((c) => c.name === d.name)) cands.push(d);
   };
-  if (lib && v.plan === 'street') for (const d of lib) if (SMALL_VANILLA.test(d.name)) add(d);
+  // (`only`: a voted style's houses and none else, whatever the plan: spec_vote1 2)
+  if (only) for (const d of only) add(d);
+  if (lib && v.plan === 'street' && !only) for (const d of lib) if (SMALL_VANILLA.test(d.name)) add(d);
   const used = new Set((v.layouts ?? []).flatMap((l) => l.buildings));
-  for (const d of Object.values(v.designs))
-    if (used.has(d.name) && isDwelling(d.name) && d.width <= 9 && d.depth <= 9 && (!VANILLA_PIECE.test(d.name) || SMALL_VANILLA.test(d.name))
-      && (!units || units(d) <= HOUSE_UNITS)) add(d);
+  if (!only)
+    for (const d of Object.values(v.designs))
+      if (used.has(d.name) && isDwelling(d.name) && d.width <= 9 && d.depth <= 9 && (!VANILLA_PIECE.test(d.name) || SMALL_VANILLA.test(d.name))
+        && (!units || units(d) <= HOUSE_UNITS)) add(d);
   if (!cands.length || n < 1) return [];
   const built = new Map(cands.map((d) => [d.name, v.tasks.filter((t) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${d.name}"`)).length]));
   const out: string[] = [];

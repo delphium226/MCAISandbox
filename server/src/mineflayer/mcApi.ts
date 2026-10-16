@@ -84,6 +84,12 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
   // A.3p: every named agent's temperament, kind weights and persona line, and the mode in force
   if (parts[1] === 'temperaments') return sendJson(res, 200, { mode: TEMPERAMENT_MODE, agents: temperamentTable() });
+  // The first vote (spec_vote1): every village's votes (?village= one), the tally, each ballot and its reason
+  if (parts[1] === 'votes') {
+    const one = url.searchParams.get('village');
+    const vs = one ? [w.villages.get(one)].filter((v) => !!v) : [...w.villages.villages.values()];
+    return sendJson(res, 200, vs.map((v) => ({ village: v!.name, next: v!.growth?.next ?? null, votes: v!.votes ?? [] })));
+  }
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on,

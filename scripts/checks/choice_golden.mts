@@ -55,6 +55,8 @@ process.env.MC_TIME_SCALE = '1';
 // (A.3p: temperaments on by default since s33; the golden is of the picker without them, so off unless set, as
 // instances mode may with MCAI_TEMPERAMENT=on)
 process.env.MCAI_TEMPERAMENT ??= 'off';
+// (spec_vote1: the style vote off, so growth picks as before; the vote has its own checks)
+process.env.MC_VOTE = 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

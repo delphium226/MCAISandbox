@@ -3624,7 +3624,10 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     const members = a.world.growMembers(v).length, H = housesOf(v);
     const builds = made.filter((t) => /^Build /.test(t.title)).map((t) => t.id);
     const plot = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 };
-    g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '' };
+    // (the style voted for, spec_vote1: kept on the neighbourhood, and the vote's decision spent only now, the critique's H1)
+    const style = typeof args.style === 'string' && args.style ? args.style : undefined;
+    g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '', ...(style ? { style } : {}) };
+    delete g.next;
     delete g.tries;
     delete g.noSite;
     a.world.villages.save();

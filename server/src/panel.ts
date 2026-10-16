@@ -159,10 +159,12 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
   const designsEtag = h.toString(16);
   const send = opts.designs !== designsEtag;
   const villages = vs.map((v, i) => {
-    const { designs, ...rest } = v;
+    // (spec_vote1: only the last vote, ~8 kB at 25 ballots; /api/votes has them all)
+    const { designs, votes, ...rest } = v;
+    const vote = votes?.length ? votes[votes.length - 1] : null;
     // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
     const choices = w.choiceSummary?.(v.name) ?? null;
-    return send ? { ...rest, ...foodView(v), choices, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices };
+    return send ? { ...rest, ...foodView(v), choices, vote, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

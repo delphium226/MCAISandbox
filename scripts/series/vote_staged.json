@@ -1,0 +1,12 @@
+{
+  "about": "The first vote, staged (spec_vote1 5.3): 25 members from mv3_base25, growth on, ballots predicted from temperaments (free), 12 min after completion: votes held, the winning style's neighbourhoods built. Compare with vote_off.json (world 2, the vote off) run at the same time.",
+  "out": "runs/2026-10-16/s33/vote",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 30,
+  "runs": [
+    {"name": "Vp", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "1", "MC_VOTE": "predicted"}, "args": "--after 12"}
+  ]
+}

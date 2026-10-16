@@ -22,6 +22,7 @@ import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, trimMenu } from '../choose';
 import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
+import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
@@ -38,7 +39,7 @@ import { vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingLights, placedDoor, signLabel, type SignPlace } from '../streetPlan';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
-import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
+import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -202,6 +203,20 @@ export class MineflayerWorld implements WorldAdapter {
       if (this.atlas.known(x, z, 64) < 0.5) out.push({ x, z });
     }
     return out;
+  }
+
+  /** The first vote's style (spec_vote1 1): a biome's accepted small houses, each with its bill's units, size and gathering. */
+  styleHouses(biome: string): Array<StyleHouse & { design: Design }> {
+    const lib = this.vanillaLibrary(biome)?.houses ?? [];
+    return lib.filter((d) => /_small_house_\d+$/.test(d.name)).map((d) => {
+      const m = this.materialTasks(d, d.name);
+      const gather: Record<string, number> = {};
+      for (const t of m.tasks ?? []) {
+        const g = /^Gather (\d+) (\w+)/.exec(t.title);
+        if (g) gather[g[2]] = (gather[g[2]] ?? 0) + Number(g[1]);
+      }
+      return { name: d.name, units: m.units ?? 0, volume: d.width * d.depth * d.height, gather, design: d };
+    });
   }
 
   /**
@@ -1543,6 +1558,145 @@ export class MineflayerWorld implements WorldAdapter {
    * inherited by a server running without MC_GROW is still watched to its end (its tasks stay claimable while it is on the
    * board: growing() does not read the flag), so it never stays on the board for good; no new one is laid out.
    */
+  // ---------------------------------------------------------------------------------------------
+  // The first vote: the next neighbourhood's style (spec runs/2026-10-16/s33/spec_vote1.md)
+  // ---------------------------------------------------------------------------------------------
+
+  /** Votes under way, by village: in memory only (a restart forgets one; growth then holds a new one, the critique's M6). */
+  private voting = new Map<string, VoteRun>();
+
+  /** MC_VOTE, else model when the village's members choose their chores by model (memory.choose), else predicted. */
+  private voteMode(v: Village): VoteMode {
+    if (VOTE_SETTING) return VOTE_SETTING;
+    return this.growMembers(v).some((a) => this.chooseMode(a) === 'model') ? 'model' : 'predicted';
+  }
+
+  /** The style of a layout's houses: the biome all its vanilla small houses share; null when it has none, or drawn or mixed. */
+  private layoutStyle(names: string[]): string | null {
+    const b = new Set(names.filter(isDwelling).map((n) => /^(plains|desert|savanna|taiga|snowy)_small_house_\d+$/.exec(n)?.[1] ?? '?'));
+    return b.size === 1 && !b.has('?') ? [...b][0] : null;
+  }
+
+  /** The village's current style: that of its last layout with houses (the critique's M7), null when not one vanilla style. */
+  currentStyle(v: Village): string | null {
+    for (const l of [...(v.layouts ?? [])].reverse()) if (l.buildings.some(isDwelling)) return this.layoutStyle(l.buildings);
+    return null;
+  }
+
+  /**
+   * The vote's options (spec 1, the critique's M5): the current style first, then each other biome with 2+ accepted small
+   * houses whose bill's uncommon materials (not logs, cobblestone, sand or dirt) lie near home for a whole neighbourhood
+   * (GROW.batch houses), counted from a member within 32 blocks of home (none there: such styles are left out); at most 4.
+   */
+  private styleOptions(v: Village, current: string): VoteOption[] {
+    const built = (b: string) => (v.layouts ?? []).filter((l) => this.layoutStyle(l.buildings) === b).length;
+    const cur = this.styleHouses(current);
+    if (!cur.length) return [];
+    const out: VoteOption[] = [styleOption(current, cur, built(current), true)];
+    const home = villageHome(v);
+    const y = v.plots[0]?.y ?? 64;
+    const near = home ? this.growMembers(v).find((a) => a.bot.entity && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) <= 32) : undefined;
+    for (const b of Object.keys(STYLE_LOOK)) {
+      if (b === current || out.length >= 4) continue;
+      const hs = this.styleHouses(b);
+      if (hs.length < 2) continue;
+      const want: Record<string, number> = {};
+      for (const h of hs) for (const [k, q] of Object.entries(h.gather)) if (!/(_log|^logs|^cobblestone|^sand|^dirt)$/.test(k)) want[k] = (want[k] ?? 0) + (q / hs.length) * GROW.batch;
+      if (Object.keys(want).length) {
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, 96) : null;
+        if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) {
+          console.log(`[vote] ${v.name}: ${STYLE_LOOK[b].name} left off the ballot (${Object.entries(want).map(([k, q]) => `${Math.ceil(q)} ${k}`).join(', ')} wanted near home; ${found ? `found ${Object.entries(want).map(([k]) => found[k] ?? 0).join(', ')}` : 'no member near home to look'})`);
+          continue;
+        }
+      }
+      out.push(styleOption(b, hs, built(b), false));
+    }
+    return out;
+  }
+
+  /** What a voter sees of itself and the village (spec 3). */
+  private voterContext(v: Village, a: BotAgent): { persona: string; pattern: string; self: string; village: string } {
+    const mine = v.structures.filter((s) => s.builtBy === a.name).length;
+    const styles = new Map<string, number>();
+    for (const l of v.layouts ?? []) {
+      const s = this.layoutStyle(l.buildings);
+      if (s) styles.set(s, (styles.get(s) ?? 0) + 1);
+    }
+    const hoods = [...styles.entries()].map(([s, n]) => `${n} of ${(STYLE_LOOK[s]?.name ?? s).toLowerCase()}`).join(', ');
+    return {
+      persona: (typeof a.memory.persona === 'string' && a.memory.persona) || personaOf(a.name),
+      pattern: this.patternLine(v, a),
+      self: `You built ${mine} of the village's ${v.structures.length} buildings.`,
+      village: `${v.name}, ${housesOf(v)} houses for ${this.growMembers(v).length} members; areas of houses: ${hoods || 'none of one style'}`,
+    };
+  }
+
+  /**
+   * The next neighbourhood's style (spec 2): a biome (its houses only; the current: the picks as before), null (no vote:
+   * growth as before), or undefined (a vote under way: growth waits). The style decided stays in `growth.next` until its
+   * layout is posted (lay_out_houses clears it, the critique's H1).
+   */
+  private styleFor(v: Village, now: number): string | null | undefined {
+    const g = (v.growth ??= { past: [] });
+    if (g.next) return g.next.style || null;
+    const run = this.voting.get(v.name);
+    if (run) return run.done || now - run.started >= VOTE_MAX_MS + 35000 ? this.closeVote(v, run, now) : undefined;
+    const mode = this.voteMode(v);
+    if (mode === 'off' || v.plan !== 'street') return null;
+    const current = this.currentStyle(v);
+    const options = current ? this.styleOptions(v, current) : [];
+    if (options.length < 2) {
+      g.next = { style: '', vote: 'none' };
+      console.log(`[vote] ${v.name}: no style vote (${!current ? 'its houses are of no one vanilla style' : 'no other style buildable here'})`);
+      return null;
+    }
+    const k = g.past.length + 1;
+    const id = `${v.name}-n${k}-${now.toString(36)}`;
+    const voters = this.growMembers(v).filter((a) => a.bot.entity);
+    const r: VoteRun = { id, k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
+    this.voting.set(v.name, r);
+    console.log(`[vote] ${v.name}: style vote ${id} for neighbourhood ${k} (${mode}, ${voters.length} voters): ${options.map((o) => `${o.name}${o.current ? ' (current)' : ''}`).join(', ')}`);
+    const predicted = (name: string) => predictedChoice(temperament(name), options, `${id}|${name}`);
+    if (mode === 'predicted') {
+      r.ballots = voters.map((a) => predictedBallot(id, a.name, options, predicted(a.name)));
+      return this.closeVote(v, r, now);
+    }
+    const reqs: BallotRequest[] = [];
+    for (const a of voters) {
+      const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: this.voterContext(v, a), signal: r.ac.signal });
+    }
+    castAll(id, reqs, BALLOTS_PARALLEL, now + VOTE_MAX_MS, r.ballots).then(() => (r.done = true), (e) => {
+      console.log(`[vote] ${v.name}: ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      r.done = true;
+    });
+    return undefined;
+  }
+
+  /** The tally (spec 3): the record written, the style kept for the next neighbourhood; returns the winner. */
+  private closeVote(v: Village, r: VoteRun, now: number): string {
+    this.voting.delete(v.name);
+    r.ac.abort();
+    const ballots = [...r.ballots];
+    for (const name of r.voters) if (!ballots.some((b) => b.agent === name)) ballots.push({ agent: name, choice: null, reason: '', why: 'late', predicted: null, shown: [], source: 'model' });
+    const t = tally(r.id, r.options, ballots);
+    const rec: VoteRecord = {
+      id: r.id, topic: 'style', k: r.k, at: r.started, mode: r.mode, options: r.options.map((o) => ({ id: o.id, name: o.name, facts: o.facts })),
+      ballots, tally: t.tally, winner: t.winner, ...(t.tie ? { tie: t.tie } : {}), closedAt: now,
+    };
+    v.votes = [...(v.votes ?? []), rec].slice(-20);
+    const g = (v.growth ??= { past: [] });
+    g.next = { style: t.winner, vote: r.id };
+    const name = (id: string) => r.options.find((o) => o.id === id)?.name ?? id;
+    for (const b of ballots) console.log(`[ballot] ${v.name}: ${b.agent} -> ${b.choice ? name(b.choice) : `none (${b.why ?? '?'})`} (predicted ${b.predicted ? name(b.predicted) : '-'}${b.position ? `, shown ${b.position} of ${b.shown.length}` : ''}): ${b.reason.replace(/\s+/g, ' ').slice(0, 160)}`);
+    const cast = ballots.filter((b) => b.choice), agree = cast.filter((b) => b.choice === b.predicted).length;
+    const counts = r.options.map((o) => `${o.name} ${t.tally[o.id]}`).join(', ');
+    console.log(`[vote] ${v.name}: ${name(t.winner)} wins for neighbourhood ${r.k} (${counts})${t.tie ? `, a tie drawn among ${t.tie.map(name).join(', ')}` : ''}; ${cast.length} of ${ballots.length} ballots cast, ${agree} as their temperament predicts; ${Math.round((now - r.started) / 1000)} s`);
+    this.villages.note(v, `the village voted ${name(t.winner)} for neighbourhood ${r.k} (${counts})`);
+    this.villages.save();
+    return t.winner;
+  }
+
   private growTick(v: Village) {
     if (!GROW.on && !v.growth?.active) return;
     const now = Date.now();
@@ -1568,6 +1722,9 @@ export class MineflayerWorld implements WorldAdapter {
       return;
     }
     this.growEnough.delete(v.name);
+    // The next neighbourhood's style (spec_vote1): a vote under way holds the growth
+    const style = this.styleFor(v, now);
+    if (style === undefined) return;
     const members = this.growMembers(v);
     // (never a hungry member: it takes food work only, s30's D12)
     const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
@@ -1575,7 +1732,11 @@ export class MineflayerWorld implements WorldAdapter {
     if (!agent) return;
     const n = Math.min(GROW.batch, members.length - housesOf(v));
     const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
-    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0);
+    // (a style voted in: its houses only, the current one too: as before, a won "current" savanna drew the village's own
+    // plains library, Vm; no vote: the picks as before)
+    const only = style ? this.styleHouses(style).map((h) => h.design) : undefined;
+    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only);
+    const styled = style ? { style } : {};
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
     // else the biome the agent's view has at home: a staged village has no library biome, lens 2 L5), and not once a
     // neighbourhood's field was refused for the biome (that holds for the village: a field-sized pad for no field took the
@@ -1590,7 +1751,7 @@ export class MineflayerWorld implements WorldAdapter {
       const options = ladder.map((o) => `${o.size}:${o.n}:${o.slots}`).join(',');
       let st: ActionStatus;
       try {
-        st = agent.enqueue('lay_out_houses', { chore: true, houses: pick.join(','), options });
+        st = agent.enqueue('lay_out_houses', { chore: true, houses: pick.join(','), options, ...styled });
       } catch (e) {
         console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
         return;
@@ -1604,7 +1765,7 @@ export class MineflayerWorld implements WorldAdapter {
     const houses = pick.slice(0, pad.n);
     let st: ActionStatus;
     try {
-      st = agent.enqueue('lay_out_houses', { chore: true, houses: houses.join(','), size: pad.size });
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: houses.join(','), size: pad.size, ...styled });
     } catch (e) {
       console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
       return;
@@ -1752,7 +1913,7 @@ export class MineflayerWorld implements WorldAdapter {
     why ??= failed ? 'failed' : 'built';
     const lay = v.layouts?.[act.layout - 1];
     const M = this.growMembers(v).length, H = housesOf(v);
-    g.past.push({ k: act.k, layout: act.layout, at: act.at, end: now, houses: builds.length, built, failed, members: act.members, why, ...(left ? { left } : {}) });
+    g.past.push({ k: act.k, layout: act.layout, at: act.at, end: now, houses: builds.length, built, failed, members: act.members, why, ...(left ? { left } : {}), ...(act.style ? { style: act.style } : {}) });
     delete g.active;
     for (const k of this.growOrphan.keys()) if (k.startsWith(`${v.name}|`)) this.growOrphan.delete(k);
     if (why === 'built') delete g.fails;
@@ -2860,6 +3021,16 @@ export class MineflayerWorld implements WorldAdapter {
     return { options, feasible, effects: { skips }, reasons, guarded };
   }
 
+  /** A.3p's own-pattern line from the agent's last 10 ends ('' when temperaments are off or none yet). */
+  private patternLine(v: Village, a: BotAgent): string {
+    const counts = TEMPERAMENT_MODE === 'off' ? [] : this.choiceStats.kindCounts(v.name, a.name, 10);
+    const total = counts.reduce((s, c) => s + c.n, 0);
+    // (farm and slot are both harvesting: one entry a phrase, in the counts' order)
+    const byPhrase = new Map<string, number>();
+    for (const c of counts) byPhrase.set(KIND_PHRASE[c.kind] ?? c.kind, (byPhrase.get(KIND_PHRASE[c.kind] ?? c.kind) ?? 0) + c.n);
+    return total ? `Your last ${total} chore${total === 1 ? '' : 's'}: ${[...byPhrase.entries()].sort((x, y) => y[1] - x[1]).map(([p, n]) => `${p} ${n}`).join(', ')}` : '';
+  }
+
   /** The prompt's context (pure): the village at a glance, the others' chores, the agent's last outcomes. */
   private choiceContext(v: Village, a: BotAgent, facts: Facts): ChoiceContext {
     const s = facts.store;
@@ -2890,12 +3061,7 @@ export class MineflayerWorld implements WorldAdapter {
       ...(choosing ? [`choosing ${choosing}`] : []), `idle ${idle}`].join(', ');
     // (A.3p: the user's own persona first, else the temperament's line; the own-pattern reminder from the last 10 ends)
     const own = typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '';
-    const counts = TEMPERAMENT_MODE === 'off' ? [] : this.choiceStats.kindCounts(v.name, a.name, 10);
-    const total = counts.reduce((s, c) => s + c.n, 0);
-    // (farm and slot are both harvesting: one entry a phrase, in the counts' order)
-    const byPhrase = new Map<string, number>();
-    for (const c of counts) byPhrase.set(KIND_PHRASE[c.kind] ?? c.kind, (byPhrase.get(KIND_PHRASE[c.kind] ?? c.kind) ?? 0) + c.n);
-    const pattern = total ? `Your last ${total} chore${total === 1 ? '' : 's'}: ${[...byPhrase.entries()].sort((x, y) => y[1] - x[1]).map(([p, n]) => `${p} ${n}`).join(', ')}` : '';
+    const pattern = this.patternLine(v, a);
     return {
       persona: own || personaOf(a.name),
       ...(pattern ? { pattern } : {}),
@@ -3662,6 +3828,9 @@ const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light'];
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
+/** A vote under way (spec_vote1): its ballots come in as the calls end. */
+interface VoteRun { id: string; k: number; options: VoteOption[]; started: number; mode: VoteMode; done: boolean; ballots: Ballot[]; voters: string[]; ac: AbortController }
+
 /** A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). */
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
 

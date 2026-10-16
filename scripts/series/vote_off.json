@@ -1,0 +1,12 @@
+{
+  "about": "Growth with the vote off from mv3_base25 on test world 2, alongside vote_staged.json: the baseline for growth speed (the critique M4).",
+  "out": "runs/2026-10-16/s33/vote", "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 30,
+  "runs": [
+    {"name": "V0", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "1", "MC_VOTE": "off"}, "args": "--after 12"}
+  ]
+}

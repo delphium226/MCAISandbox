@@ -23,15 +23,15 @@
  * spend ledger's file is written by a sink the agent server sets, and its totals are read back by the server (seedSpend).
  */
 
-/** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts). */
-export const CALL_KINDS = ['exec', 'plan', 'design', 'choose'] as const;
+/** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts); 'ballot': a member's vote (vote.ts). */
+export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 export type ReasoningLevel = 'low' | 'medium' | 'high';
 export type Reasoning = Record<CallKind, ReasoningLevel>;
 
 const LEVELS: readonly string[] = ['low', 'medium', 'high'];
 
-export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low' };
+export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low', ballot: 'low' };
 
 /** Warnings printed once per distinct text (a bad setting would otherwise repeat on every call). */
 const warned = new Set<string>();

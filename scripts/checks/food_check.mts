@@ -51,6 +51,8 @@ const SRC = argv[0] ?? 'runs/2026-10-15/s30/scratch/g25_villages.json';
 // (read when the world's modules load: set first; model calls go nowhere, the farms and the appetite on)
 process.env.MC_GROW = '1';
 process.env.MC_GROW_FARMS = '1';
+// (spec_vote1: the style vote off, so growth picks as before)
+process.env.MC_VOTE = 'off';
 process.env.MC_APPETITE = '18';
 process.env.MC_APPETITE_IDLE = '0.25';
 process.env.MC_CHOOSE = 'fixed';

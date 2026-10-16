@@ -1132,3 +1132,8 @@ CLAUDE.md when a phase ends.
 - F234 (10-16, s33, Mid/Mon) In model mode at 25 members most decisions never reach the model: Mid 9 model picks of 151
   (fallback 'rate' 49 from MC_CHOOSE_MIN_GAP_MS 90 s, 'taken' 31, 'repeat' 41, 'only' 21). With choices this sparse the
   model's share of a run is small; the 'taken' ones are the model's picks too (modelChose) and count for its tilt.
+- F235 (10-16, s33, Vm) A style that won while it was already the current one built the village's own library's houses:
+  growTick took today's picks (`pickHouses` without `only`) when the winner equalled the current style, and those draw
+  the village's biome library (plains), so after savanna won neighbourhood 1, the savanna "current" won neighbourhoods 2
+  and 4 and plains houses were laid out (current flipping plains/savanna each vote). Fixed the same day: a voted style
+  always builds its own houses only (villages that cannot vote never reach this path).

@@ -4,6 +4,7 @@
  * Everything is saved to <world>/villages.json shortly after every change (E.0: written at most every 250 ms to 1 s, to a
  * temporary file renamed over it; flushSync() at shutdown), so it survives restarts.
  */
+import type { VoteRecord } from './vote';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
@@ -463,12 +464,17 @@ export interface Village {
    */
   growth?: {
     active?: { k: number; layout: number; from: number; at: number; by: string; plot: Area; houses: string[];
-      builds: string[]; members: number; before: number; changed: number; sig: string };
+      builds: string[]; members: number; before: number; changed: number; sig: string; style?: string };
     past: Array<{ k: number; layout: number; at: number; end: number; houses: number; built: number; failed: number;
-      members: number; why?: 'built' | 'failed' | 'stuck'; left?: number }>;
+      members: number; why?: 'built' | 'failed' | 'stuck'; left?: number; style?: string }>;
+    /** The next neighbourhood's style, decided by a vote (spec_vote1): kept until its layout is posted (the critique's
+     *  H1: a failed lay-out does not vote again). style '' and vote 'none': no vote this time (growth as before). */
+    next?: { style: string; vote: string };
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
+  /** The village's votes (spec_vote1), the last 20, written at the tally only (a vote under way is held in memory). */
+  votes?: VoteRecord[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
   needs?: Record<string, number>;
   /**

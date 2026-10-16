@@ -29,7 +29,7 @@ console.warn = (...a: unknown[]) => void warns.push(a.join(' '));
 const quietLog = (...a: unknown[]) => void logs.push(a.join(' '));
 
 // --- parseReasoning
-eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium', choose: 'low' }, 'reasoning from a string');
+eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium', choose: 'low', ballot: 'low' }, 'reasoning from a string');
 eq(parseReasoning('choose=medium'), { ...DEFAULT_REASONING, choose: 'medium' }, 'the choose kind (A.2)');
 eq(parseReasoning({ design: 'high' }), { ...DEFAULT_REASONING, design: 'high' }, 'reasoning from an object');
 eq(parseReasoning(undefined), DEFAULT_REASONING, 'reasoning unset');

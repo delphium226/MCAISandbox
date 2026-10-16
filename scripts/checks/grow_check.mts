@@ -38,6 +38,8 @@ const sources = argv.length ? argv : ['mc/testserver/villages.json'];
 
 // (read when the world's modules load: set first)
 process.env.MC_GROW = '1';
+// (spec_vote1: the style vote off, so growth picks as before; the vote has its own checks)
+process.env.MC_VOTE = 'off';
 process.env.MC_CHOOSE = 'fixed';
 process.env.MC_CHOICE_INSTANCES = '';
 process.env.MC_CHOICE_FAMILIES = '';

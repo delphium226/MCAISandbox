@@ -1091,6 +1091,29 @@ Order and size: about 13-16 sessions in all.
 4. A.5, then E.5, E.6 and E.7.
 5. The snapshot, then E.8's full run, E.9 and E.10.
 
+## Phase X: richer activities and a self-improving loop (the user's request, 10-16, s33; after the first vote)
+
+Design: `docs/research/self-improving-activities.md`. Activities and projects become data a model can author and code can
+validate; the few actions that need new code come from a gated skill foundry run by external coding agents (Claude Code,
+Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry tickets. Speed first; each step up the ladder.
+
+- [ ] X.1 **Activity specs and a catalogue generated from the game** (1-2 sessions): the spec format and its validator,
+  the catalogue from the jar's data (craftables with a use, crops, animals, smeltables, pieces), menus ranked by need x
+  temperament x learning progress; the workshop's `MAKE_GOODS` replaced by the recipe graph; members may author specs live
+  (validated, tried once, kept or retired). Exit: many more distinct activities done per run (A.3p's report), no rise in
+  failures.
+- [ ] X.2 **Projects and proposals for votes** (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
+  docks, orchards, bee yards, gardens, lit roads...), proposals by members from gauges and temperament, code's validation
+  and costing, 2-4 on a ballot through s33's vote machinery, outcomes measured and fed back.
+- [ ] X.3 **The skill foundry** (~2 sessions): tickets for missing actions or recurring failures, `scripts/foundry.py`
+  running one external CLI headless in a worktree, the gates (typecheck, check:offline, its own live check on world 2, a
+  staged series without regression, a review agent), a candidate branch for the user to merge. First target: fishing or
+  villager trading.
+- [ ] X.4 **The outer loop** (later): scheduled series, failure clusters ranked by agent-minutes lost, tickets filed
+  automatically, kept only on a metric that rewards breadth, projects finished and diversity.
+- Open (the user's, before X.3): which CLIs are installed and their budget; merge autonomy; permissions for worktrees and
+  the foundry script (auto mode blocks them); whether gpt-oss may write live code (proposed: no, specs only).
+
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
 (Deferred by the user on 2026-10-02: batch R and step 2.4 come first.)
@@ -1219,6 +1242,12 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   and roof styles varied per neighbourhood), other pad plans than the cross (a row along a road, a cul-de-sac, a small
   green), and lamp and sign styles to match. Open: how much the model decides (a theme per neighbourhood from the Mayor,
   one call each) against code choosing from the library.
+  **Status (s33, 10-16): the first vote built** (spec `runs/2026-10-16/s33/spec_vote1.md`, `server/src/vote.ts`):
+  before each neighbourhood, every member votes on its house style (the current biome's small houses against other
+  biomes' that pass the survival checks and whose materials lie near; desert needs natural sandstone); `MC_VOTE=model|
+  predicted|off` (default per village: model when its members choose chores by model); `/api/votes`, the panel's "Last
+  vote". Bench: no order bias, identical voters unanimous for the cheapest, temperaments split them. Vm2: savanna won 4 of
+  4 (14-19 votes), built as voted. Wood, pad plans and lamp styles per neighbourhood not yet; the next topics in Phase X.2.
   **Joined with voting (the user's, 10-15): the next neighbourhood's style is the village's first vote**, built after the
   food step and after A.3p's temperaments (s32: the voters need something to differ on): code prepares 2-4 buildable options (houses, wood, pad plan), every member casts a ballot (one model call:
   the options with their facts, plus a little about the voter: home, work, what it built) with a one-line reason, code
