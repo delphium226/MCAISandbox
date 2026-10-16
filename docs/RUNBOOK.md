@@ -225,6 +225,15 @@ the short version; look here for a check script's arguments, a model detail or w
   shared/src, package.json and tsconfig.json to `runs/code/<hash>/` (reused while the code is unchanged; CODE.txt names the
   commit and uncommitted files); `reset_site.py` starts the test agent server from one with `MCAI_ROOT` (index.ts,
   mcChoiceLog.ts and vanillaData.ts read the repo from it), so server files can be edited during a run.
+- **Model calls recorded and replayed** (2026-10-16, `modelCall.ts`): every successful call is appended to
+  `runs/model-calls/<date>-<pid>.jsonl` (a `system` line once per system prompt by hash, then per call: agent, kind, model,
+  level, its number for that agent and kind, the prompt's hash, the user prompt, the reply, ms; `MC_MODEL_RECORD=FILE` or
+  `0`). `MC_MODEL_REPLAY=FILE[,FILE]` on the agent server answers calls from recordings: no gate slot, no tokens, no
+  wait. Sequence mode (default) gives the Nth call of an agent and kind the Nth recorded reply; `MC_MODEL_REPLAY_MODE=exact`
+  only word-for-word prompts, in order. Anything not recorded goes live. Each call logs `[replay] AGENT KIND #N: replayed
+  (prompt same|differs)` or `nothing recorded; calling MODEL`. Rec1/Rep1 (resumed `mv3_cpv1`, `--choose model`): 5 choose
+  calls recorded; the replay answered all 5 (the first 3 prompts identical: a resumed staged run is deterministic up to
+  the first model decision), 2 later calls went live; tokens 4.1k -> 1.8k. In run_series specs give it in `server_env`.
 - **After completion** (chores: farm slots, harvests, exploring, the iron age; 2026-10-08): `stage_village.py ... --mayor
   --after MINUTES` keeps watching after the village is complete (only a tiered mayor sets it complete); `--fixtures`
   plants sugar cane, pumpkins and a melon 35-45 blocks off the site first (minevale3 has none within 96), `--ripen` sets

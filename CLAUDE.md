@@ -107,6 +107,10 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   their own pinned servers (`scripts/ollama_exec.py start|stop|status`, ports 11435/11436, two RTX 3090s). Run `status`
   before a local run series: a model spilled into system RAM (it can be reported as fully in VRAM) means stop and start.
   Keep `num_ctx` at 8192. Pull models through the API, not the CLI (the CLI launches and may update the app).
+- **Every model call is recorded** (`runs/model-calls/<date>-<pid>.jsonl`; `MC_MODEL_RECORD=0` off) and a run can be
+  replayed without the models: start the agent server with `MC_MODEL_REPLAY=<that file>` and each call is answered from
+  it at once, free, matched by agent, call kind and number (`MC_MODEL_REPLAY_MODE=exact`: only word-for-word prompts);
+  `[replay]` lines say where prompts began to differ. Use it to check a fix against a model-driven run's decisions.
 - Benches on the real prompts (`scripts/bench/`): `mayorbench.mts` after changing the mayor's prompt or tools,
   `designbench.mts`, `choicebench.mts`, `execbench.mts`, `planbench.mts`; `PEEK=1` prints raw tool calls (look at them
   before judging a model). Claude API calls are billed separately from the user's Claude subscription.

@@ -22,6 +22,9 @@
  * billed nothing); one sent with a fallbackMs is cut off at that time from the send (CallFallback), its caller then runs
  * its fixed order. The budget is checked once a slot is taken (a refused call gives it back at once).
  */
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolDef } from './world';
 import { usage, isCloudModel, thinkFor, type CallKind, type ReasoningLevel } from './modelUsage';
@@ -365,6 +368,90 @@ export class CallGate {
 export const gate = new CallGate(parseSlots(process.env.MC_CALL_SLOTS));
 
 // ---------------------------------------------------------------------------------------------
+// Recording and replay
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Every successful call is recorded (MC_MODEL_RECORD: a file, or 0 for none; default runs/model-calls/<date>-<pid>.jsonl
+ * under MCAI_ROOT or the working directory): a line per call with the agent, kind, model, the call's number for that agent
+ * and kind, the prompt's hash, the user prompt and the reply; each system prompt once, by its hash. A recorded run can be
+ * replayed (MC_MODEL_REPLAY: the recording's file, several comma-separated): a call is answered from it at once, with no
+ * slot, tokens or cost, so a fix can be checked against a model-driven run's own decisions without the models.
+ * MC_MODEL_REPLAY_MODE: sequence (default; the Nth call of an agent and kind gets the Nth reply recorded for it, whether or
+ * not the prompt is the same: prompts carry positions and times that differ from run to run) or exact (only a prompt
+ * recorded word for word, in recorded order). A call with nothing to replay goes to the model. Each replay is logged
+ * ([replay] ... prompt same / differs), so where the run left the recording shows in the log.
+ */
+const RECORD_FILE = ((): string | null => {
+  const v = process.env.MC_MODEL_RECORD;
+  if (v === '0' || v === 'off') return null;
+  if (v) return v;
+  const day = new Date().toISOString().slice(0, 10);
+  return path.join(process.env.MCAI_ROOT ?? process.cwd(), 'runs', 'model-calls', `${day}-${process.pid}.jsonl`);
+})();
+const recordedSystems = new Set<string>();
+/** Calls so far per agent and kind (recorded or replayed), for the sequence key. */
+const callNumbers = new Map<string, number>();
+const hash = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 16);
+
+interface Recorded { agent: string; kind: string; model: string; n: number; hash: string; reply: Reply; ms: number }
+
+const REPLAY_MODE = process.env.MC_MODEL_REPLAY_MODE === 'exact' ? 'exact' : 'sequence';
+const replay = ((): { bySeq: Map<string, Recorded>; byHash: Map<string, Recorded[]> } | null => {
+  const files = (process.env.MC_MODEL_REPLAY ?? '').split(',').map((f) => f.trim()).filter(Boolean);
+  if (!files.length) return null;
+  const bySeq = new Map<string, Recorded>(), byHash = new Map<string, Recorded[]>();
+  let n = 0;
+  for (const f of files) {
+    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      const r = JSON.parse(line) as Recorded & { type?: string };
+      if (r.type === 'system') continue;
+      bySeq.set(`${r.agent}|${r.kind}|${r.n}`, r);
+      byHash.set(r.hash, [...(byHash.get(r.hash) ?? []), r]);
+      n++;
+    }
+  }
+  console.log(`[replay] ${n} recorded calls from ${files.join(', ')} (${REPLAY_MODE} mode)`);
+  return { bySeq, byHash };
+})();
+if (RECORD_FILE) {
+  try {
+    fs.mkdirSync(path.dirname(RECORD_FILE), { recursive: true });
+  } catch { /* the first append reports it */ }
+}
+
+function promptHash(req: CallRequest): { key: string; sys: string } {
+  const sys = hash(req.system);
+  return { key: hash(`${req.spec.provider}:${req.spec.model}\n${sys}\n${req.user}\n${req.tools.map((t) => t.name).join(',')}`), sys };
+}
+
+/** The recorded reply for this call, if replaying and one fits. */
+function replayed(req: CallRequest, n: number, key: string): Recorded | null {
+  if (!replay) return null;
+  if (REPLAY_MODE === 'exact') {
+    const list = replay.byHash.get(key);
+    return list?.length ? list.shift()! : null;
+  }
+  return replay.bySeq.get(`${req.agent}|${req.kind}|${n}`) ?? null;
+}
+
+function record(req: CallRequest, n: number, key: string, sys: string, reply: Reply, ms: number) {
+  if (!RECORD_FILE) return;
+  try {
+    let out = '';
+    if (!recordedSystems.has(sys)) {
+      recordedSystems.add(sys);
+      out += `${JSON.stringify({ type: 'system', hash: sys, system: req.system })}\n`;
+    }
+    out += `${JSON.stringify({ at: Date.now(), agent: req.agent, kind: req.kind, model: label(req.spec), level: req.level, n, hash: key, system: sys, user: req.user, reply, ms })}\n`;
+    fs.appendFileSync(RECORD_FILE, out);
+  } catch (err) {
+    console.warn(`[record] ${RECORD_FILE}: ${(err as Error).message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // One call
 // ---------------------------------------------------------------------------------------------
 
@@ -399,6 +486,17 @@ const ctxWarned = new Set<string>();
  */
 export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: number; waitMs: number }> {
   const { spec, agent, kind } = req;
+  const seqKey = `${agent}|${kind}`;
+  const callNo = (callNumbers.get(seqKey) ?? 0) + 1;
+  callNumbers.set(seqKey, callNo);
+  const { key, sys } = promptHash(req);
+  const hit = replayed(req, callNo, key);
+  if (hit) {
+    console.log(`[replay] ${agent} ${kind} #${callNo}: replayed (prompt ${hit.hash === key ? 'same' : 'differs'})`);
+    req.onSend?.();
+    return { reply: hit.reply, ms: 0, waitMs: 0 };
+  }
+  if (replay) console.log(`[replay] ${agent} ${kind} #${callNo}: nothing recorded; calling ${label(spec)}`);
   // A refusal comes at once, holding no slot (and once more after the wait: the budget may trip meanwhile)
   if (usage.blocked(spec.model, agent)) usage.check(spec.model, agent, kind);
   let slot: { release: () => void; waitMs: number };
@@ -433,6 +531,7 @@ export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: n
     }
     const ms = Date.now() - t0;
     usage.record({ model: spec.model, agent, kind, promptTokens: reply.promptTokens ?? 0, outputTokens: reply.outputTokens ?? 0, ms });
+    record(req, callNo, key, sys, reply, ms);
     // The cloud reads a long prompt whole, but a local fallback would cut its start off at num_ctx
     const n = reply.promptTokens ?? 0;
     if (isCloudModel(spec.model) && n > OLLAMA_CTX && !ctxWarned.has(`${agent}|${kind}`)) {

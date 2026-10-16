@@ -141,10 +141,12 @@ def resolve(spec, run, out_default):
 def envs(run):
     api = f"http://127.0.0.1:{run['port']}/api"
     base = {**os.environ, "MCAI_API": api, "MCAI_TEST_API_PORT": run["port"], "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
-    # (reset_site.py starts the agent server with its own environment: the server settings go there)
-    server = {**base, **run["server_env"]}
+    # (reset_site.py starts the agent server with its own environment: the server settings go there, and the choice log,
+    # which the agent server writes and stage_village.py reads)
+    choices = os.path.join(run["out"], f"{run['name']}.choices.jsonl")
+    server = {**base, "MCAI_CHOICE_LOG": choices, **run["server_env"]}
     stage = {**base, "MC_SERVER_DIR": "mc/testserver", "MCAI_STALL_MIN": "8", "MCAI_AGENT_STALL_MIN": "8",
-             "MCAI_CHOICE_LOG": os.path.join(run["out"], f"{run['name']}.choices.jsonl"), **run["stage_env"]}
+             "MCAI_CHOICE_LOG": choices, **run["stage_env"]}
     # (stage_village.py reads MC_APPETITE and MC_GROW from its own environment when the server does not report them)
     stage.update({k: v for k, v in run["server_env"].items() if k in ("MC_GROW", "MC_APPETITE", "MC_GROW_FARMS")})
     stage.pop("MC_TIME_SCALE", None)
