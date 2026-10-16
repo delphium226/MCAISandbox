@@ -546,3 +546,14 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 139. **A per-option ban must not apply to an option whose refusal blocks everything else** (the food fix review): eating
    failed three times would ban `eat` village-wide for an hour while the claim gate refused a peckish member every task
    until it ate. Exempt such options from bans and cooldowns, and make "nothing left" a contention code, not a failure.
+140. **Check the path the feature takes, not the helper it should call** (s33, A.3p): the weighted `fixedPick` passed its
+   unit checks and the golden's invariants, but the fixed sweep took `menu.options[0]` and never called it, so the first
+   A/B's "on" arm ran without temperaments. A one-line probe of the real path (how often the pick left the lowest rank:
+   0 of 136) would have shown it; the review found it independently. Count the effect in the run before reading it.
+141. **Preferences do nothing where work is scarce** (s33, F232): with 25 members 6% busy and 70% of menus offering one
+   or two kinds, chore weights barely separated agents; whoever came first in the sweep took each chore. Divergence came
+   from the response threshold (likers first, a disliked chore left 90 s), and lasting variety needs more kinds of work
+   on offer (Phase X).
+142. **A status-quo shortcut breaks when "current" moves** (s33, F235): "if the vote's winner is the current style, pick
+   as before" drew the village's original library, so a won "current" savanna built plains houses every other vote. When
+   a decision exists, apply it the same way every time; keep the old path only for "no decision".

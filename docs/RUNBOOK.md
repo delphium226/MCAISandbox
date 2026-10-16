@@ -26,7 +26,19 @@ the short version; look here for a check script's arguments, a model detail or w
      saved under way is watched to its end either way) Food (s30): `MC_GROW_FARMS=1` gives neighbourhoods fields and
      slots, `MC_APPETITE=18` (or 1/on) the village appetite (`[food]` lines; `MC_APPETITE_START`; `POST
      /api/village/V/appetite {"level":N}` for tests); both off by default. The test agent server's port is
-     `MCAI_TEST_API_PORT` (default 8767). The hourly budget
+     `MCAI_TEST_API_PORT` (default 8767). **Personalities and votes (s33)**: `MCAI_TEMPERAMENT=on|identical|off` (on by
+     default; `server/src/temperament.ts`; `GET /api/temperaments` lists every agent's traits, weights and persona line;
+     the goldens set off themselves), `MC_DECLINE_MS` (90 s: a disliked chore waits this long for a member who likes it,
+     `[temper]` lines); `MC_VOTE=model|predicted|off` (unset: model when the village's members choose chores by model, else
+     predicted; `server/src/vote.ts`; `[vote]` and `[ballot]` lines; `GET /api/votes?village=`; `MC_VOTE_MAX_MS` 4 min,
+     `MC_BALLOTS_PARALLEL` 2, `MC_BALLOT_FALLBACK_MS` 30 s). Checks: `scripts/checks/temperament_table.mts` (prints the
+     25 temperaments; `--json`), `vote_unit.mts` (both in check:offline). Measures: `python scripts/temperament_report.py
+     DIR/NAME ...` (per-agent chore mixes: entropy, JSD, identifiability, rho, tilt, failed share), `scripts/bench/
+     ballotbench.mts` (the style ballot for 25 voters, order bias and agreement with the predicted ballot; `MCAI_TEMPERAMENT=
+     identical` is the control). Series specs: `scripts/series/a3p_fixed.json`, `a3p_fixed2.json`, `a3p_model.json`
+     (world 2), `vote_staged.json`, `vote_off.json` (world 2), `vote_model.json`, `vote_model2.json`. The Claude Code CLI
+     (Phase X.3's foundry): `C:\Users\rhett\AppData\Roaming\npm\claude` (2.1.301; `claude -p "..."` headless, the
+     user's subscription). The hourly budget
      `MC_TOKEN_BUDGET_HOUR` defaults to 2,000,000 cloud tokens (0 or off disables it); `MC_REASONING=exec=medium,plan=low,design=medium`
      is the default (A.0's benches: low executors missed "step already done", a medium mayor re-posted work instead of waiting); for tests, `MC_TOKEN_WINDOW_MS` and `POST /api/usage/budget {"tokensPerHour":N}`.
   The **test world** (phase T, `docs/PLAN.md`): a second Paper in `mc/testserver` (25566, RCON 25576) with its own

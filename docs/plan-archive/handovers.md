@@ -3,6 +3,43 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-16 at the close of the thirty-second session; the next session's prompt is
+`runs/2026-10-16/NEXT_PROMPT_s33.md`)
+
+- **Done this session (s32), committed and pushed (the user's instruction; `main` untouched):** the speed steps the user
+  chose, then two research reports. `97328af`: a second test world (`MCAI_TEST_WORLD=2`: `mc/testserver2`, 25567/25577/8768;
+  every test-world script takes it, run_series `"world"`), model-driven runs in run_series (`"preset": "watch"`, calls
+  recorded to NAME.calls.jsonl, `"replay": RUN`), a PERF line per run (`/api/perf` + Paper's mspt; run_report's load rows),
+  `npm run check:offline` (typecheck, both goldens, 15 offline checks, ~35 s; vanilla_tags' missing LURE entry fixed), the
+  SessionStart hook (`scripts/session_start.py`: git against origin, the stack, this section's first lines; **first run at
+  this session's start: check its output appeared**), the research in `docs/research/vote-topics.md` and
+  `agent-individuality.md`. `b8585a6`: A.3p in the plan, world 1's series recorded.
+- **What the runs say (RUNS.md, s32 rows):** 25 agents at 3x built 0.2 min sooner and grew no faster than 2x (4 layouts,
+  houses 2 -> 14 in 10 min either way; `[stuck]` 23 against 2, F231), load fine at both (0 `[lag]`, mspt <=3.5): run_series
+  keeps 2x from 12 workers. W2a (world 2, model-driven, 1x) complete in 10.8 min for $0.009; its replay W2r answered all 13
+  calls from the recording, 0 live, $0, complete in 11.2. World 1's staged series ran at the same time, all clean.
+- **The user's decisions (10-16, DECISIONS.md):** the speed steps above; vote research into the plan's voting item;
+  personality placement left to Claude, who made it **A.3p, built right before the first vote**.
+- **Next (in order):**
+  1. **A.3p, personalities that change behaviour** (PLAN.md, Phase A, after A.3; ~1 session): temperaments in code (a fixed
+     trait vector per agent name, Latin-hypercube spread, ~2.5x/0.4x weights per chore kind in `choose.ts`'s score before
+     the trim, `MCAI_TEMPERAMENT=off|on|identical`), a code-written persona line and own-pattern reminder in menu (and
+     later ballot) prompts, skill from practice. Spec first (lesson 124's method, small step: one implementer plus a
+     review); `choice_golden` must stay 0 differences with `MCAI_TEMPERAMENT=off`. Exit: staged A/B from `mv3_base25`
+     (identical against on, fixed picker then model mode): divergence and identifiability above identical.
+  2. **The first vote: the next neighbourhood's style** (PLAN.md backlog, "More variety in neighbourhood styles"): spec,
+     a ballot bench (facts and temperament against option order), code, a 25-member run from `mv3_base25`.
+  3. Then the next public work and the use of free land (the same machinery), then roads with lighting.
+- **Stack:** test world 1 left running (Paper 25566, agent server 8767 from a code snapshot, 0 agents); test world 2
+  stopped and saved (`python scripts/stack.py up test2` or `MCAI_TEST_WORLD=2 python scripts/reset_site.py SITE`); the main
+  world stopped. Checkpoints (`reset_site.py --list`): `mv3_cpv1` (3 members), `mv3_base1` (3 members, s32), **`mv3_base25`**
+  (25 members, village B25x2, complete, `MC_GROW=0`; the base for A.3p and the vote). Specs: `scripts/series/scale25.json`,
+  `watch_example.json`, `example.json`. One stale worktree, `.claude/worktrees/dreamy-elbakyan-b1cc1f` (s15, merged, clean):
+  remove it once the user agrees (CLAUDE.md, worktree clean-up; the hook lists worktrees each session).
+- **How to run things now:** `python scripts/stack.py status|up|down [main|test|test2|all]`; `npm run check:offline` before
+  commits that touch agent code; a series: `python scripts/run_series.py SPEC --detach` and arm the watcher it prints;
+  compare with `python scripts/run_report.py DIR/NAME ...` (now with load rows).
+
 (written 2026-10-16 at the close of the thirty-first session; the next session's prompt is
 `runs/2026-10-16/NEXT_PROMPT_s32.md`)
 

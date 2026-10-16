@@ -249,6 +249,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     12); W2a/W2r: a model-driven run and its free replay on world 2 beside a staged series on world 1. Online research:
     vote topics and agent individuality (`docs/research/`); personalities planned as A.3p before the first vote
     (`b8585a6`). Next: A.3p, then the first vote.
+48. 2026-10-16 (thirty-third session; pushed up to `e1a1fc7` at the user's word, the close-out commits after it):
+    A.3p part 1, personalities (`cee9cef`: five traits with the user's sociability, Latin-hypercube vectors, 2.5x/0.4x
+    chore weights, persona and own-pattern lines, option tags, the response threshold in the fixed sweep); temperaments on
+    by default (`1c2d330`); the first vote, each neighbourhood's house style (`e1a1fc7`: `vote.ts`, ballots by gpt-oss or
+    predicted, ballotbench, /api/votes, the panel); Vm2 voted savanna 4 times and built it. The user asked for richer
+    activities and a self-improving loop: Phase X (`docs/research/self-improving-activities.md`); the Claude Code CLI
+    installed for its foundry (the user's subscription, the user approves merges). Next: Phase X.1.
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

@@ -30,42 +30,38 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 
 ## Next session starts with
 
-(written 2026-10-16 at the close of the thirty-second session; the next session's prompt is
-`runs/2026-10-16/NEXT_PROMPT_s33.md`)
+(written 2026-10-16 at the close of the thirty-third session; the next session's prompt is
+`runs/2026-10-16/NEXT_PROMPT_s34.md`)
 
-- **Done this session (s32), committed and pushed (the user's instruction; `main` untouched):** the speed steps the user
-  chose, then two research reports. `97328af`: a second test world (`MCAI_TEST_WORLD=2`: `mc/testserver2`, 25567/25577/8768;
-  every test-world script takes it, run_series `"world"`), model-driven runs in run_series (`"preset": "watch"`, calls
-  recorded to NAME.calls.jsonl, `"replay": RUN`), a PERF line per run (`/api/perf` + Paper's mspt; run_report's load rows),
-  `npm run check:offline` (typecheck, both goldens, 15 offline checks, ~35 s; vanilla_tags' missing LURE entry fixed), the
-  SessionStart hook (`scripts/session_start.py`: git against origin, the stack, this section's first lines; **first run at
-  this session's start: check its output appeared**), the research in `docs/research/vote-topics.md` and
-  `agent-individuality.md`. `b8585a6`: A.3p in the plan, world 1's series recorded.
-- **What the runs say (RUNS.md, s32 rows):** 25 agents at 3x built 0.2 min sooner and grew no faster than 2x (4 layouts,
-  houses 2 -> 14 in 10 min either way; `[stuck]` 23 against 2, F231), load fine at both (0 `[lag]`, mspt <=3.5): run_series
-  keeps 2x from 12 workers. W2a (world 2, model-driven, 1x) complete in 10.8 min for $0.009; its replay W2r answered all 13
-  calls from the recording, 0 live, $0, complete in 11.2. World 1's staged series ran at the same time, all clean.
-- **The user's decisions (10-16, DECISIONS.md):** the speed steps above; vote research into the plan's voting item;
-  personality placement left to Claude, who made it **A.3p, built right before the first vote**.
+- **Done this session (s33):** `cee9cef` A.3p part 1, personalities (`server/src/temperament.ts`: five traits, the user's
+  sociability added; Latin-hypercube vectors per name; chore-kind weights 2.5x/0.4x as `tw` on every option; the
+  weighted fixed pick, the trim, option tags, a code-written persona line and own-pattern line; the response threshold in
+  the fixed sweep: likers first, a disliked pick left 90 s); `1c2d330` temperaments on by default (the user's);
+  `e1a1fc7` the first vote (`server/src/vote.ts`: before each neighbourhood every member votes on its house style, the
+  current biome's small houses against other biomes' that pass the survival checks and whose materials lie near; gpt-oss
+  ballots or the temperament's predicted ones; `/api/votes`, the panel's "Last vote"; ballotbench) and the Phase X design
+  (`docs/research/self-improving-activities.md`); `c3e4d2b`/`af365f0` the foundry's settings; this close-out. Pushed up
+  to `e1a1fc7` (the user's word); the close-out commits after it are local unless the user said push.
+- **What the runs say (RUNS.md, s33 rows):** temperaments alone barely separate agents where work is scarce (Tid/Ton,
+  F232); with the threshold the tilt shows (Ton2 rho 0.52 vs 0.07-0.15, JSD 0.60 vs 0.50) and the model keeps it (Mon:
+  the most-liked kind 72% of its picks vs 43% identical); identifiability stays weak at ~7 choices an agent in 20 min.
+  Ballots: no order bias; identical voters unanimous for the cheapest set, temperaments split them; Vm2 voted savanna 4 of
+  4 and built 4 savanna neighbourhoods for $0.014, growth as fast as with the vote off (Vp/V0). F233 (a hut no-path spot
+  on minevale3's workshop), F234 (most model-mode decisions at 25 never reach the model), F235 (fixed).
+- **The user's decisions (10-16, DECISIONS.md):** the trait set, strength and code-written personas; temperaments on;
+  the vote's design left to Claude; Phase X after the vote, with the Claude Code CLI (installed, logged in, the user's
+  subscription) and the user approving every foundry merge. A.3p part 2 (skill from practice) later.
 - **Next (in order):**
-  1. **A.3p, personalities that change behaviour** (PLAN.md, Phase A, after A.3; ~1 session): temperaments in code (a fixed
-     trait vector per agent name, Latin-hypercube spread, ~2.5x/0.4x weights per chore kind in `choose.ts`'s score before
-     the trim, `MCAI_TEMPERAMENT=off|on|identical`), a code-written persona line and own-pattern reminder in menu (and
-     later ballot) prompts, skill from practice. Spec first (lesson 124's method, small step: one implementer plus a
-     review); `choice_golden` must stay 0 differences with `MCAI_TEMPERAMENT=off`. Exit: staged A/B from `mv3_base25`
-     (identical against on, fixed picker then model mode): divergence and identifiability above identical.
-  2. **The first vote: the next neighbourhood's style** (PLAN.md backlog, "More variety in neighbourhood styles"): spec,
-     a ballot bench (facts and temperament against option order), code, a 25-member run from `mv3_base25`.
-  3. Then the next public work and the use of free land (the same machinery), then roads with lighting.
-- **Stack:** test world 1 left running (Paper 25566, agent server 8767 from a code snapshot, 0 agents); test world 2
-  stopped and saved (`python scripts/stack.py up test2` or `MCAI_TEST_WORLD=2 python scripts/reset_site.py SITE`); the main
-  world stopped. Checkpoints (`reset_site.py --list`): `mv3_cpv1` (3 members), `mv3_base1` (3 members, s32), **`mv3_base25`**
-  (25 members, village B25x2, complete, `MC_GROW=0`; the base for A.3p and the vote). Specs: `scripts/series/scale25.json`,
-  `watch_example.json`, `example.json`. One stale worktree, `.claude/worktrees/dreamy-elbakyan-b1cc1f` (s15, merged, clean):
-  remove it once the user agrees (CLAUDE.md, worktree clean-up; the hook lists worktrees each session).
-- **How to run things now:** `python scripts/stack.py status|up|down [main|test|test2|all]`; `npm run check:offline` before
-  commits that touch agent code; a series: `python scripts/run_series.py SPEC --detach` and arm the watcher it prints;
-  compare with `python scripts/run_report.py DIR/NAME ...` (now with load rows).
+  1. **Phase X.1, activity specs and a catalogue generated from the game** (PLAN.md, Phase X; design in
+     `docs/research/self-improving-activities.md`): spec format and validator, the catalogue from the jar's data, menus
+     ranked by need x temperament x learning progress, MAKE_GOODS replaced by the recipe graph, live spec authoring by
+     members (validated, tried, kept or retired). The prompt gives the method (multi-agent, safe).
+  2. X.2 projects and proposals for votes; X.3 the foundry (Claude CLI); A.3p part 2 when longer runs can show it.
+- **Stack:** test world 1 running (Paper 25566, agent server 8767 from a code snapshot, 0 agents); test world 2 stopped
+  and saved; the main world stopped. Checkpoints: `mv3_base25` (25 members, B25x2, complete, MC_GROW=0; the base for every
+  s33 test), `mv3_base1`, `mv3_cpv1`.
+- **How to run things now:** as s32's (stack.py, check:offline, run_series + run_report), plus `temperament_report.py`
+  and ballotbench (RUNBOOK, "Personalities and votes").
 
 ## Earlier phases
 
@@ -228,7 +224,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     activity histograms; low gauges draw matching choices; the value curve not below A.2's.
   - Open: personas written by the user, proposed by Claude for approval (recommended: fixed across runs so they
     compare), or generated each run.
-- [ ] A.3p **Personalities that change behaviour** (~1 session; s32's research, `docs/research/agent-individuality.md`,
+- [~] A.3p **Personalities that change behaviour** (part 1 done s33; part 2, skill from practice, later) (~1 session; s32's research, `docs/research/agent-individuality.md`,
   44 sources; placed by Claude on the user's word, 10-16: **built right before the first vote**, so ballots have distinct
   voters and the vote's bench can tell a temperament from option order).
   - Why this shape: persona prompts move what a model says about itself, not what it does (The Personality Illusion:

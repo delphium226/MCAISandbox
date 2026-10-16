@@ -14,7 +14,7 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 139 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 142 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
@@ -52,7 +52,7 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
   build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES`, `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
-  `GET /api/temperaments`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
+  `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.
 - Stop: `python mc/rcon.py stop` (saves the world; killing Paper loses up to 5 minutes), `python scripts/ollama_exec.py
@@ -205,6 +205,7 @@ The full list, with the stories behind them, is in `docs/LESSONS.md`; numbers be
 - **Add behaviour beside the brain's state, not inside it**; after-completion work is a chore beside the board (66, 93).
 - **Measure before building**: count what the land holds and test a game mechanic live (99, 113, 135); count the work a
   mechanism can give idle agents over time, not its peak (129, 130, 136).
+- **Check the path a feature takes, not only the helper** (140): count the effect in the run before reading results.
 - **Make a staged test reproduce the condition the fix is for** (95); a repeated stall in one place across runs is a
   fixture's fault first (133); reproduce live before trusting an offline replay (77).
 - **Judge a job by the cells it was meant to change**, not by the stock that should have made it (138).
