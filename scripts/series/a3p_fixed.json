@@ -1,0 +1,13 @@
+{
+  "about": "A.3p part 1's staged A/B (spec runs/2026-10-16/s33/spec_a3p.md 5.2): 25 members from mv3_base25, the fixed picker, 20 min after completion, temperaments identical against on. Read with scripts/temperament_report.py.",
+  "out": "runs/2026-10-16/s33/a3p_fixed",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 40,
+  "runs": [
+    {"name": "Tid", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "identical"}, "args": "--after 20"},
+    {"name": "Ton", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "on"}, "args": "--after 20"}
+  ]
+}

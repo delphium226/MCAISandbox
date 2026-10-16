@@ -16,6 +16,7 @@ import { postLayout } from '../layout';
 import { villageHome } from '../village';
 import { GROW, GROW_FARMS } from '../grow';
 import { APPETITE } from '../appetite';
+import { TEMPERAMENT_MODE, temperamentTable } from '../temperament';
 import type { MineflayerWorld } from './mcWorld';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
@@ -81,6 +82,8 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
 
   // Load at a glance (E.1): memory, the event loop, the world tick, RCON and the panel's overview
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
+  // A.3p: every named agent's temperament, kind weights and persona line, and the mode in force
+  if (parts[1] === 'temperaments') return sendJson(res, 200, { mode: TEMPERAMENT_MODE, agents: temperamentTable() });
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on,

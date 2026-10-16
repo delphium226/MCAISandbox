@@ -1,0 +1,14 @@
+{
+  "about": "A.3p part 1 in model mode (spec 5.3) on test world 2: 25 members from mv3_base25, gpt-oss chooses (--choose model), 20 min after; temperaments identical against on (persona line, own-pattern reminder, option tags, the tilted trim). Does the model keep the tilt?",
+  "out": "runs/2026-10-16/s33/a3p_model",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 40,
+  "runs": [
+    {"name": "Mid", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "identical"}, "args": "--after 20 --choose model"},
+    {"name": "Mon", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "on"}, "args": "--after 20 --choose model"}
+  ]
+}

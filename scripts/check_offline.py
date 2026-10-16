@@ -20,7 +20,8 @@ GOLDENS = {
 }
 # The scripts/checks/*.mts that run with no arguments and no server (each under ~35 s)
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",
-         "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes"]
+         "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes",
+         "temperament_table"]
 
 
 def commands():
@@ -39,7 +40,9 @@ def run(name, cmd, needs, logdir):
         return name, "skipped", 0.0, f"no {', '.join(missing)}"
     t = time.time()
     try:
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+        # (A.3p: temperaments off, whatever the shell says: the goldens are of the picker without them)
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                           env={**os.environ, "MCAI_TEMPERAMENT": "off"})
         code, text, out = r.returncode, r.stdout + r.stderr, r.stdout
     except subprocess.TimeoutExpired:
         code, text, out = "timeout", "", ""

@@ -27,6 +27,7 @@ import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
 import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
+import { personaOf } from './temperament';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -103,6 +104,8 @@ function agentOverview(a: WorldAgent) {
     task: task ?? null,
     village: v?.name ?? null,
     villageRole: typeof m.villageRole === 'string' ? m.villageRole : null,
+    // (A.3p: the persona line its chore menus show; '' with MCAI_TEMPERAMENT off and no memory.persona)
+    persona: (typeof m.persona === 'string' && m.persona) || personaOf(a.name),
     notes: typeof m.notes === 'string' ? m.notes : null,
     stats: m.stats ?? null,
     rescues: m.rescues ?? null,

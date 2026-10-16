@@ -104,8 +104,12 @@ const { storageContents } = await import('../../server/src/mineflayer/mcStorage'
 const W9 = await import('../../server/src/mineflayer/mcWorkshop');
 // (A.2's chooser, once it exists: instances mode compares its menus with single keys and with instances)
 let CHOOSE: { instances: Set<string> } | null = null;
+// (A.3p: the fixed pick, which weighs temperaments when MCAI_TEMPERAMENT is on; the lowest rank otherwise)
+let FIXED_PICK: ((menu: Any) => Any) | null = null;
 try {
-  CHOOSE = ((await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any).CHOOSE ?? null;
+  const C = (await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any;
+  CHOOSE = C.CHOOSE ?? null;
+  FIXED_PICK = C.fixedPick ?? null;
 } catch {
   CHOOSE = null;
 }
@@ -636,9 +640,9 @@ async function runFixture(dir: string, fx: Fixture, variant: Variant, opts: { pu
       const opts1 = (menu?.options ?? []) as Any[];
       checkMenuS9(fx, w, v, a.name, opts1);
       checkMenuLight(fx, w, v, a.name, opts1);
-      const lowest = [...opts1].sort((p, q) => p.rank - q.rank)[0];
+      const lowest = menu && FIXED_PICK ? FIXED_PICK(menu) : [...opts1].sort((p, q) => p.rank - q.rank)[0];
       if (!opts1.some((o) => o.id === id)) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, not in its fresh menu (${opts1.map((o) => o.id).join(', ')})`);
-      else if (lowest && lowest.id !== id) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, but its menu's lowest rank is ${lowest.id}`);
+      else if (lowest && lowest.id !== id) invariantFails.push(`${fx.key}: ${a.name} ran ${id}, but its menu's fixed pick is ${lowest.id}`);
       // Options beyond single keys: only a second or later explore or start
       if (CHOOSE) {
         const inst = [...CHOOSE.instances];

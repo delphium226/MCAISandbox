@@ -20,7 +20,8 @@ import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurna
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
-import { CHOOSE, ChoiceStats, ChooserQueue, choose, choreProductive, fixedPick, trimMenu } from '../choose';
+import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, trimMenu } from '../choose';
+import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
@@ -1788,6 +1789,8 @@ export class MineflayerWorld implements WorldAdapter {
   private worksBack = new Map<string, number>();
   /** B.4: a failed light chore backs its part off, by "village:part" (until); and the demand last logged, by village. */
   private lightBack = new Map<string, number>();
+  /** A.3p: since when a disliked option has been left by members (by village|option id); anyone takes it after DECLINE_MS. */
+  private declined = new Map<string, number>();
   private lightLogged = new Map<string, { sig: string; at: number }>();
   private gatherLog = new Map<string, Array<{ at: number; n: number }>>();
   /** A gathering's first "none found" answer, by "village:material": the material is marked unavailable only on a second
@@ -1880,7 +1883,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -2807,6 +2810,16 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'gather')) reasons.gather = why[0] ?? 'nothing wanted';
     }
 
+    // A.3p: the temperament's weight on every option (both modes; the fixed pick and the trim read it), from the kind and
+    // sociability's pull toward the kinds other members are on now
+    if (TEMPERAMENT_MODE !== 'off') {
+      const tv = temperament(a.name);
+      const weights = kindWeights(tv);
+      const on = new Map<string, number>();
+      for (const c of this.chores.values()) if (c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind) on.set(c.choice.kind, (on.get(c.choice.kind) ?? 0) + 1);
+      for (const o of out) o.tw = optionWeight(tv, weights, o.kind, on.get(o.kind) ?? 0);
+    }
+
     // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
     // takes food work only (D8), the rest guarded in model mode, left out in fixed mode, with why
     const starved: ChoiceOption[] = [];
@@ -2875,8 +2888,17 @@ export class MineflayerWorld implements WorldAdapter {
     }
     const others = [...[...kinds.entries()].map(([k, n]) => `${KIND_WORDS[k] ?? k} ${n.length} (${n.slice(0, 3).join(', ')}${n.length > 3 ? ', ...' : ''})`),
       ...(choosing ? [`choosing ${choosing}`] : []), `idle ${idle}`].join(', ');
+    // (A.3p: the user's own persona first, else the temperament's line; the own-pattern reminder from the last 10 ends)
+    const own = typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '';
+    const counts = TEMPERAMENT_MODE === 'off' ? [] : this.choiceStats.kindCounts(v.name, a.name, 10);
+    const total = counts.reduce((s, c) => s + c.n, 0);
+    // (farm and slot are both harvesting: one entry a phrase, in the counts' order)
+    const byPhrase = new Map<string, number>();
+    for (const c of counts) byPhrase.set(KIND_PHRASE[c.kind] ?? c.kind, (byPhrase.get(KIND_PHRASE[c.kind] ?? c.kind) ?? 0) + c.n);
+    const pattern = total ? `Your last ${total} chore${total === 1 ? '' : 's'}: ${[...byPhrase.entries()].sort((x, y) => y[1] - x[1]).map(([p, n]) => `${p} ${n}`).join(', ')}` : '';
     return {
-      persona: typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '',
+      persona: own || personaOf(a.name),
+      ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
     };
@@ -3190,6 +3212,7 @@ export class MineflayerWorld implements WorldAdapter {
     for (const [k, until] of this.bansLogged) if (until < now) this.bansLogged.delete(k);
     for (const [k, until] of this.gatherBack) if (until <= now) this.gatherBack.delete(k);
     for (const [k, until] of this.lightBack) if (until <= now) this.lightBack.delete(k);
+    for (const [k, at] of this.declined) if (now - at > 10 * DECLINE_MS) this.declined.delete(k);
     // The torch demand, when it changed, at most once a minute (B.4)
     if (CHOOSE.families.has('light') && v.complete) {
       const parts = this.lightParts(v);
@@ -3211,7 +3234,7 @@ export class MineflayerWorld implements WorldAdapter {
       for (const [n, q] of items) a.enqueue('deposit', { item: n, count: q, keep_wood: true, chore: true });
       if (items.length) console.log(`[make] ${v.name}: ${a.name} puts back what a stopped make left (${countsList(left)})`);
     }
-    const members = GROW.on ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
+    let members = GROW.on ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
     if (!members.length) return;
     const facts = this.sweepFacts(v, now, members[0]);
     // The fields the old wheat loop got as far as reading the busy keys for
@@ -3230,14 +3253,24 @@ export class MineflayerWorld implements WorldAdapter {
       // the decisions in flight, C15)
       const modelVillage = members.some((a) => this.chooseMode(a) === 'model');
       const keysLeft = modelVillage ? new Map(members.map((a) => [a.name, new Set(this.menu(v, a, busy, true, facts, ctx.first).menu.options.map((o) => o.key))])) : null;
+      // (A.3p, the response threshold: in a fixed sweep with temperaments on, the members who like their best option most
+      // choose first, so a chore goes to one who likes it rather than to Worker1 because it is first)
+      if (TEMPERAMENT_MODE === 'on' && !modelVillage && members.length > 1) {
+        const best = new Map(members.map((a) => [a.name, fixedPick(this.menu(v, a, busy, false, facts, ctx.first).menu)?.tw ?? 0]));
+        members = [...members].sort((x, y) => (best.get(y.name) ?? 0) - (best.get(x.name) ?? 0));
+      }
       for (const [n, a] of members.entries()) {
         if (!this.isIdleMember(v, a, now)) continue;
         const model = this.chooseMode(a) === 'model';
         const { menu, skips } = this.menu(v, a, ctx.busy, model, facts, ctx.first);
-        const pick = menu.options[0];
+        // (A.3p: with temperament weights on the options, the fixed pick weighs them; without, the first in rank order as
+        // before)
+        const pick = !model && menu.options.some((o) => o.tw !== undefined) ? fixedPick(menu) : menu.options[0];
         // (the old picker wrote these only when it walked the farm starts: a member whose pick is a field or a ripe slot
         // never got there)
-        if (model || !pick || pick.rank >= 200) for (const s of skips) this.slotSkip.set(s, now + 10 * 60000);
+        // (A.3p: judged on the first in rank order, as before temperaments, so they never change when skips are written)
+        const first = menu.options[0];
+        if (model || !first || first.rank >= 200) for (const s of skips) this.slotSkip.set(s, now + 10 * 60000);
         // (every ring point visited: the ring is done once a member finds none left, as the old picker wrote it when it got
         // that far; the village's log keeps 40 notes, so the note's timing shows in it)
         if ((model || !pick) && menu.reasons.explore === 'all visited' && v.explore && !v.explore.done) {
@@ -3265,7 +3298,18 @@ export class MineflayerWorld implements WorldAdapter {
           continue;
         }
         if (!model) {
+          // (A.3p: a disliked pick is left for a member who likes it, until it has waited DECLINE_MS; then anyone takes it)
+          if (pick.tw !== undefined && pick.tw < DISLIKED) {
+            const dk = `${v.name}|${pick.id}`;
+            const since = this.declined.get(dk);
+            if (since === undefined) {
+              this.declined.set(dk, now);
+              console.log(`[temper] ${v.name}: ${a.name} leaves ${pick.id} (weight ${pick.tw}) for one who likes it, at most ${Math.round(DECLINE_MS / 1000)} s`);
+            }
+            if (since === undefined || now - since < DECLINE_MS) continue;
+          }
           const r = this.runChoice(a, pick.id, { source: 'fixed', reason: 'fixed order', menu });
+          if (r.ok) this.declined.delete(`${v.name}|${pick.id}`);
           if (r.ok) {
             take(r.key);
             for (const h of this.chores.get(a.name.toLowerCase())?.choice.holds ?? []) take(h);
@@ -3618,6 +3662,9 @@ const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light'];
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
+/** A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). */
+const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
+
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
   works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', grow: 'laying out houses', eat: 'eating' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */

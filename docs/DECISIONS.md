@@ -509,3 +509,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   right before the first vote: temperament weights in code, a code-written persona line and own-pattern reminder, skill
   from practice; stakes, likes and ballot wiring with the votes. The research (`docs/research/agent-individuality.md`)
   says persona prompts act only on choices without a right answer, which the chore menu and ballots are.
+- 10-16 (s33, the user's) A.3p's temperaments: five traits (curiosity, care, diligence, pride and **sociability**, added
+  to the plan's four), weights 2.5x / 0.4x (the most- and least-liked kind), persona lines written by code from the traits
+  (not by the user, not approved line by line). The stale s15 worktree removed.
+- 10-16 (s33, Claude's) Sociability acts per option by how many other members are on the same kind now (2.5^(s x
+  min(1, n/2))): sociable members join, loners avoid; by position is later. The fixed pick weighs tw x 0.85^(the kind's
+  place in rank order), a meal of lowest rank first, so all-1 weights give today's order; model mode orders the trim by
+  lp x tw and a disliked kind (tw < 0.7) gets no reserved place; option lines carry "[you enjoy this]" (tw >= 1.6) or "[you
+  find this dull]" (tw <= 0.63). `MCAI_TEMPERAMENT` defaults to off until A.3p's exit (spec runs/2026-10-16/s33/spec_a3p.md).

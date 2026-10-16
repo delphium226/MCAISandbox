@@ -22,6 +22,8 @@ export interface ChoiceLogOption {
   effect: string;
   rank: number;
   lp?: number;
+  /** A.3p: the temperament's weight. */
+  tw?: number;
   /** 1-based position shown to the model. */
   shown?: number;
 }

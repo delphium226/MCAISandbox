@@ -260,6 +260,16 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     divergence and identifiability clearly above identical; model mode keeps most of the tilt; no rise in failed chores.
   - Not here: activation steering or fine-tuning (cloud weights), long backstories or MBTI, a model-rewritten identity
     (drifts), model-judged needs or moods, temperature or reasoning level as personality, a model per agent, free chat.
+  - **Status (s33, 10-16): part 1 built** (items 1-2; spec `runs/2026-10-16/s33/spec_a3p.md`): `server/src/temperament.ts`
+    (five traits with the user's sociability, Latin-hypercube vectors, 2.5x/0.4x kind weights, the code-written line),
+    `tw` on every option, the weighted fixed pick and trim, option tags, the own-pattern line, the response threshold in the
+    fixed sweep (liker first, a disliked pick left 90 s), `/api/temperaments`, the panel's line, `temperament_table.mts`
+    (in check:offline), `scripts/temperament_report.py`. `MCAI_TEMPERAMENT` still defaults to off. Exit runs (RUNS.md,
+    s33): fixed Ton2 against Tid/Tid2 JSD 0.60 vs 0.49/0.50, rho 0.52 vs 0.07/0.15, ident 0.29 vs 0.27/0.18; model Mon
+    against Mid JSD 0.48 vs 0.39, ident 0.20 vs 0.07, rho 0.44 vs -0.01, the model's own picks the most-liked kind 72% vs
+    43%: **the model keeps the tilt; identifiability is weak at ~7 choices an agent in 20 min** (F232, F234); failed
+    share 5-8% vs 1-3%, mostly a hut no-path spot seen with identical temperaments too (F233). Part 2 (skill from
+    practice) not started.
 - [ ] A.4 **Journal, lessons and roles** (~1-2 sessions).
   - A village clock: a day every N real minutes, kept by code (Minecraft time stays frozen unless A.7 says otherwise),
     for recency, reflection and meetings.

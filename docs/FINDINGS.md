@@ -1117,3 +1117,18 @@ CLAUDE.md when a phase ends.
 - F231 (10-16, s32, G25x3) 23 `[stuck]` lines at 3x against 2 at 2x in the same 25-member growth test: 12 are Worker3 in
   water at -1674,60,-21 (swimming in place, "water 617" ticks, goals to the plot and to -1681/-1667,-28), 7 Worker4. One run
   each, so possibly the spot (lesson 133) rather than the speed; not looked into further since 3x is not used at 25.
+- F232 (10-16, s33, A.3p Tid/Ton) Temperament weights alone barely separate agents in a 25-member village after
+  completion: the fixed pick moved 42 of 156 choices off the lowest rank (tilt 1.22 against 1.03, rho 0.20 against 0.07),
+  but JSD (0.41 against 0.49) and identifiability (0.17 against 0.27) were no higher than with identical temperaments.
+  Members were busy 6% of the time and 41% of menus held one kind (70% two or fewer): with a surplus of idle members the
+  sweep's order (Worker1 first) hands each chore to whoever comes first, liked or not. Choice needs either more work on
+  offer or a way to leave work to those who like it (the response threshold: liker-first sweep order and declining a
+  disliked chore until it has waited 90 s, added the same day). Also found by the run: the fixed sweep took
+  `menu.options[0]` and never called `fixedPick` (fixed before Ton; the review found it too).
+- F233 (10-16, s33, Mid/Mon on world 2, once in Ton2) Workshop smelts fail "no path to -1631,66,10 / -1629,66,10 from
+  -16xx,66,17 (blocked by terrain, water or buildings)": 3 in Mid (identical), 5 in Mon, 1 in Ton2, none in Tid/Tid2/Ton.
+  The same spot in `mv3_base25` across temperament arms, so the fixture or hut crowding (lesson 133), not temperaments; the
+  temperament-on runs' failed share (5-8% against 1-3%) is mostly these and the workshop's input and furnace shortages.
+- F234 (10-16, s33, Mid/Mon) In model mode at 25 members most decisions never reach the model: Mid 9 model picks of 151
+  (fallback 'rate' 49 from MC_CHOOSE_MIN_GAP_MS 90 s, 'taken' 31, 'repeat' 41, 'only' 21). With choices this sparse the
+  model's share of a run is small; the 'taken' ones are the model's picks too (modelChose) and count for its tilt.

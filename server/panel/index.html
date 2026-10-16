@@ -450,6 +450,7 @@ function renderAgent(a) {
       <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
       ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
       ${choiceLine(a)}
+      ${a.persona ? `<div class="sub clamp" title="its temperament (A.3p), shown in its chore menus">${esc(a.persona)}</div>` : ''}
     </div>
     ${appetiteBar(a)}
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}

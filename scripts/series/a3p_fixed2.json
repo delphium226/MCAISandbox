@@ -1,0 +1,13 @@
+{
+  "about": "A.3p's identical arm again on the fixed sweep pick (Tid ran before the sweep used fixedPick; with identical weights that differs from the old first-option pick only where options are not in rank order). Compare with a3p_fixed's Ton.",
+  "out": "runs/2026-10-16/s33/a3p_fixed",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 40,
+  "runs": [
+    {"name": "Tid2", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "identical"}, "args": "--after 20"},
+    {"name": "Ton2", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MCAI_TEMPERAMENT": "on"}, "args": "--after 20"}
+  ]
+}

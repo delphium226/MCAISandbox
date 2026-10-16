@@ -247,11 +247,15 @@ export interface ChoiceOption {
   at?: { x: number; y?: number; z: number };
   /** Learning-progress weight 0.5..1.5 (model mode). */
   lp?: number;
+  /** Temperament weight 0.16..6.25 (A.3p: the kind's weight times sociability's; absent when MCAI_TEMPERAMENT is off). */
+  tw?: number;
 }
 
 export interface ChoiceContext {
-  /** memory.persona, '' until A.3 */
+  /** memory.persona, else the temperament's line (A.3p); '' when off */
   persona: string;
+  /** A.3p: the agent's own pattern, "Your last 10 chores: exploring 5, ..." (absent when off or none yet). */
+  pattern?: string;
   /** <= 300 chars */
   village: string;
   /** <= 200 chars */

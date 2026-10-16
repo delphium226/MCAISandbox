@@ -61,16 +61,18 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
     kept.push(o);
   }
   if (kept.length <= MENU_MAX) return kept;
-  // (a missing lp counts as the neutral weight, 1)
-  const order = [...kept].sort((a, b) => (b.lp ?? 1) - (a.lp ?? 1) || a.rank - b.rank);
+  // (a missing lp or tw counts as the neutral weight, 1; A.3p: a kind its agent dislikes, tw below DISLIKED, gets no
+  // reserved place and competes for the rest of the room)
+  const w = (o: ChoiceOption) => (o.lp ?? 1) * (o.tw ?? 1);
+  const order = [...kept].sort((a, b) => w(b) - w(a) || a.rank - b.rank);
   const seen = new Set<string>();
-  const firsts = order.filter((o) => !seen.has(o.kind) && seen.add(o.kind));
+  const firsts = order.filter((o) => (o.tw ?? 1) >= DISLIKED && !seen.has(o.kind) && seen.add(o.kind));
   const best = [...firsts, ...order.filter((o) => !firsts.includes(o))].slice(0, MENU_MAX);
   return best.sort(byRank);
 }
 
 /** FNV-1a, 32 bits. */
-function fnv1a(s: string): number {
+export function fnv1a(s: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -80,7 +82,7 @@ function fnv1a(s: string): number {
 }
 
 /** mulberry32: a small seeded PRNG giving floats in [0, 1). */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -102,16 +104,40 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
   return out;
 }
 
-/** The lowest rank (the first of equals). */
+/** A.3p: how much each later kind (in rank order) counts against a temperament's weight in the fixed pick. */
+export const KIND_DECAY = 0.85;
+/** A.3p: a kind below this weight gets no reserved place in the trim. */
+export const DISLIKED = 0.7;
+/** A.3p: the prompt's tags: at or above ENJOYED "you enjoy this", at or below DULL "you find this dull". */
+const ENJOYED = 1.6, DULL = 0.63;
+
+/**
+ * The lowest rank (the first of equals). A.3p, when the options carry temperament weights: a meal of lowest rank first,
+ * else the best of tw x KIND_DECAY^(its kind's place among the menu's kinds in rank order), ties by rank; all weights 1
+ * gives the lowest rank again.
+ */
 export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   let best: ChoiceOption | undefined;
   for (const o of menu.options) if (!best || o.rank < best.rank) best = o;
+  if (!best || best.kind === 'eat' || !menu.options.some((o) => o.tw !== undefined)) return best;
+  const place = new Map<string, number>();
+  for (const o of [...menu.options].sort(byRank)) if (!place.has(o.kind)) place.set(o.kind, place.size);
+  const score = (o: ChoiceOption) => (o.tw ?? 1) * KIND_DECAY ** (place.get(o.kind) ?? 0);
+  for (const o of menu.options) {
+    const d = score(o) - score(best);
+    if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < best.rank)) best = o;
+  }
   return best;
 }
 
 const SYSTEM = 'You are a member of a Minecraft village. The village is built; now you choose your next chore yourself. '
   + 'Read the options and their facts, think briefly about what helps the village most and what you do well, and call '
   + '`choose` with a short reason (one sentence) and the exact name of one option. Never invent an option.';
+/** A.3p: added when a persona line is shown. */
+const SYSTEM_PERSONA = ' Choose as the person described would.';
+
+/** A.3p's tag on an option line, from its temperament weight. */
+const tag = (o: ChoiceOption) => (o.tw === undefined ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -121,6 +147,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
   const ctx = menu.ctx;
   const lines: string[] = [];
   if (ctx.persona?.trim()) lines.push(ctx.persona.trim());
+  if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
   if (ctx.village?.trim()) lines.push(labelled('Village', ctx.village.trim()));
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   lines.push(`Your last chores: ${ctx.outcomes?.length ? ctx.outcomes.join(' | ') : 'none yet'}`);
@@ -128,7 +155,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
   for (const o of shown) {
     const facts = o.facts?.trim();
     const effect = o.effect?.trim();
-    lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}`);
+    lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${tag(o)}`);
   }
   lines.push('Call choose with your reason and the exact name of one option.');
   const tools: ToolDef[] = [{
@@ -143,7 +170,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
       required: ['reason', 'choice'],
     },
   }];
-  return { system: SYSTEM, user: lines.join('\n'), tools };
+  return { system: ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM, user: lines.join('\n'), tools };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -562,6 +589,22 @@ export class ChoiceStats {
     const list = this.list(village);
     for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === kind && (id === undefined || list[i].id === id)) return { at: list[i].at, ok: list[i].ok, line: list[i].line };
     return null;
+  }
+
+  /** A.3p: the kinds of the agent's last n ends (eating and cut ends left out), most first, ties by the latest. */
+  kindCounts(village: string, agent: string, n: number): Array<{ kind: ChoiceKind; n: number }> {
+    const counts = new Map<ChoiceKind, { n: number; last: number }>();
+    const list = this.list(village);
+    let seen = 0;
+    for (let i = list.length - 1; i >= 0 && seen < n; i--) {
+      const e = list[i];
+      if (e.agent !== agent || e.kind === 'eat' || e.cut) continue;
+      seen++;
+      const c = counts.get(e.kind);
+      if (c) c.n++;
+      else counts.set(e.kind, { n: 1, last: i });
+    }
+    return [...counts.entries()].sort((a, b) => b[1].n - a[1].n || b[1].last - a[1].last).map(([kind, c]) => ({ kind, n: c.n }));
   }
 
   /** The agent's last n end lines, oldest first. */
