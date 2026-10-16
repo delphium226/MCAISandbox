@@ -523,3 +523,5 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-16 (s33, the user's) Richer activities and automated learning of them: Claude's design (activities and projects as
   validated data, a gated skill foundry with external coding agents on test world 2, an outer metric loop) written up as
   `docs/research/self-improving-activities.md` and added to the plan as Phase X, after the first vote.
+- 10-16 (s33, the user's) Phase X.3's foundry uses the Claude Code CLI (`claude -p`, headless). Not installed on this
+  machine at the time (the session ran in the VS Code extension): install and log-in pending.

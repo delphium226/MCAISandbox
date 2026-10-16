@@ -1111,8 +1111,9 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   villager trading.
 - [ ] X.4 **The outer loop** (later): scheduled series, failure clusters ranked by agent-minutes lost, tickets filed
   automatically, kept only on a metric that rewards breadth, projects finished and diversity.
-- Open (the user's, before X.3): which CLIs are installed and their budget; merge autonomy; permissions for worktrees and
-  the foundry script (auto mode blocks them); whether gpt-oss may write live code (proposed: no, specs only).
+- Open (the user's, before X.3): the CLI is the Claude Code CLI (the user's, s33; not installed yet); its budget; merge
+  autonomy; permissions for worktrees and the foundry script (auto mode blocks them); whether gpt-oss may write live code
+  (proposed: no, specs only).
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
