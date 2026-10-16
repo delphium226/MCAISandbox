@@ -3,6 +3,43 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-16 at the close of the thirty-first session; the next session's prompt is
+`runs/2026-10-16/NEXT_PROMPT_s32.md`)
+
+- **Done this session (s31), all committed and pushed (the user's instruction; `main` untouched):** a speed session, no
+  feature work. `a98d242` the docs split (CLAUDE.md 133 -> ~19 KB, PLAN.md 523 -> ~140 KB; RUNBOOK, LESSONS, HISTORY,
+  FINDINGS, RUNS, DECISIONS, plan-archive); `c387652` checkpoints (`reset_site.py --save/--checkpoint/--list`,
+  `stage_village.py --resume`); `eeaf692` `run_series.py` (staged series from a JSON spec); `fa51aac` code snapshots (the
+  test agent server runs from `runs/code/<hash>/`, so **server files may be edited during a run**: the user relaxed the
+  rule), `--after-until grow`, `MC_RANDOM_TICK`, `MC_HASTE`, `stack.py`, `run_report.py`, `.claude/settings.json` allow
+  rules; `ff9a11b` model calls recorded (`runs/model-calls/`) and replayable (`MC_MODEL_REPLAY`); the close-out commit
+  (run_series's fast default and these notes).
+- **What the runs say (RUNS.md, s31 rows):** a checkpoint restore takes 0.3 min instead of a 5-9 min build; fast crops
+  (`MC_RANDOM_TICK=30`) gave the first harvest at +2.4 min (~+17 before); `--after-until grow` stopped a 30-min watch at
+  4.4; haste 5 + 3x built the 3-agent s0 village in 3.2 min (4.9 at 2x), `[dig]` re-digs unchanged; replay answered all 5
+  recorded calls (the first 3 prompts identical). All single runs on minevale3 with 3 agents.
+- **The user's decisions (10-16, DECISIONS.md):** speed ahead of quality (light regression checks only, no per-commit
+  smoke series); edits during runs allowed from a code snapshot; staged runs fast by default in run_series (3x below 12
+  workers, 2x from 12; haste 5; random ticks 30; `"fast": false` turns it off); food flags (`MC_GROW_FARMS`,
+  `MC_APPETITE`) stay off; **next session: more speed work first**, then voting with neighbourhood variety (s30's plan,
+  unchanged), then roads.
+- **Next (speed work, Claude's proposed order; confirm with the user at the start):**
+  1. Measure 3x (and haste) at 25 agents from a checkpoint: a 25-agent base village saved once (`MC_GROW=0`), then 2x
+     against 3x with `run_report.py`; if `/api/perf`'s loop and `[lag]` stay clean, lift run_series's 12-worker cap.
+  2. A second test world (copy of `mc/testserver` on its own ports, `reset_site.py`/`stack.py` taking the world), so two
+     series or two sessions can test at once.
+  3. `watch_village.py` in run_series (model-driven runs from a spec, with recording on and replay as an option).
+  4. The SessionStart hook (ports, git status, the handover's first lines), if the user approves editing settings;
+     `stack.py status` covers most of it meanwhile.
+  5. `npm run check:offline` (typecheck + the two goldens + offline checks), only if quick; the golden fixtures and the
+     s0 designs still live in gitignored `runs/` (`runs/2026-10-14/golden_*`, `runs/2026-10-05/vanilla_designs`).
+- **Stack:** the test world left running (Paper 25566, agent server 8767 from a code snapshot, 0 agents, minevale3 holds
+  checkpoint `mv3_cpv1`'s village CPv1); the main world stopped. Checkpoints in `mc/testcheckpoints/`: `mv3_cpv1` (CPv1, 3
+  members, complete, at `a98d242`'s code). Model recordings in `runs/model-calls/`.
+- **How to run things now:** `python scripts/stack.py status|up|down`; a series: write a spec (`scripts/series/example.json`),
+  `python scripts/run_series.py SPEC --detach`, arm the watcher it prints; read results with `python scripts/run_report.py
+  DIR/NAME ...`. After-phase tests from a checkpoint with `--after-until grow`.
+
 (written 2026-10-15 at the close of the thirtieth session; the next session's prompt is `runs/2026-10-15/NEXT_PROMPT_s31.md`)
 
 - **Done this session (s30), committed and pushed at the close (the user's instruction; `main` untouched):** `8371ab6`

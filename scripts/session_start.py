@@ -27,6 +27,13 @@ def git_lines():
     changed = [l for l in git("status", "--porcelain").splitlines() if l.strip()]
     out.append(f"git: {'clean tree' if not changed else str(len(changed)) + ' changed: ' + ', '.join(l[3:] for l in changed[:8])}"
                + (" ..." if len(changed) > 8 else ""))
+    # Stale worktrees (CLAUDE.md: clean them up regularly; sessions never work in one)
+    trees = [l.split(None, 1)[1] for l in git("worktree", "list", "--porcelain").splitlines() if l.startswith("worktree ")][1:]
+    for t in trees:
+        when = git("-C", t, "log", "-1", "--format=%cs %h") or "?"
+        dirty = len([l for l in git("-C", t, "status", "--porcelain").splitlines() if l.strip()])
+        out.append(f"git: stale worktree {t} (last commit {when}{f', {dirty} uncommitted' if dirty else ''}): "
+                   f"ask the user, then git worktree remove it and delete its branch")
     return out
 
 

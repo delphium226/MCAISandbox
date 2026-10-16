@@ -243,6 +243,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     `MC_RANDOM_TICK`, `MC_HASTE`, `stack.py`, `run_report.py` (`fa51aac`), model calls recorded and replayable
     (`ff9a11b`), run_series fast by default. Restore 0.3 min instead of a 5-9 min build; first harvest +2.4 min
     (~+17); a 30-min watch stopped at 4.4; the 3-agent build 3.2 min (4.9). Next: more speed work (PLAN.md).
+47. 2026-10-16 (thirty-second session; pushed at the close, the user's instruction; `main` untouched): speed work, then
+    research. A second test world (`MCAI_TEST_WORLD`), model-driven runs and replays in run_series, per-run load figures,
+    `npm run check:offline`, a SessionStart hook (`97328af`); 25 agents at 3x no faster than 2x (run_series keeps 2x from
+    12); W2a/W2r: a model-driven run and its free replay on world 2 beside a staged series on world 1. Online research:
+    vote topics and agent individuality (`docs/research/`); personalities planned as A.3p before the first vote
+    (`b8585a6`). Next: A.3p, then the first vote.
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

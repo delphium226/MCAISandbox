@@ -97,6 +97,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   from both: re-read the end of the file right before adding to it.
 - **Start sessions on the main checkout** (`D:\Projects\MCAISandbox`), never in a worktree (no worlds, run logs or
   `node_modules` there, and the desktop app refused its edits to the main checkout).
+- **Clean up stale worktrees regularly** (the user's, 2026-10-16): the SessionStart hook lists any besides the main
+  checkout (`git worktree list`); after checking with the user that nothing in it is wanted (uncommitted files, an
+  unmerged branch), `git worktree remove <path>` and `git branch -D <its branch>`.
 - Write prose (README, comments) plainly; match the surrounding comment density. Run logs go in `runs/<date>/`
   (gitignored).
 
