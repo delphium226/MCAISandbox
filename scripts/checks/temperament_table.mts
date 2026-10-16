@@ -8,7 +8,7 @@
  * Exits non-zero on any failure.
  * Usage: node_modules/.bin/tsx scripts/checks/temperament_table.mts [--json]
  */
-import { TRAITS, KINDS, WEIGHT_MAX, kindWeights, optionWeight, personaLine, temperament, temperamentTable, vectorOf } from '../../server/src/temperament';
+import { TRAITS, activeKinds, WEIGHT_MAX, kindWeights, optionWeight, personaLine, temperament, temperamentTable, vectorOf } from '../../server/src/temperament';
 import { fixedPick, trimMenu } from '../../server/src/choose';
 import type { ChoiceKind, ChoiceMenu, ChoiceOption } from '../../server/src/world';
 
@@ -37,7 +37,7 @@ for (const t of TRAITS) {
 }
 // Weights
 for (const r of table) {
-  const ws = KINDS.map((k) => r.weights[k]);
+  const ws = activeKinds().map((k) => r.weights[k]);
   ok(ws.every((w) => w >= 1 / WEIGHT_MAX - 0.01 && w <= WEIGHT_MAX + 0.01), `${r.name}: weights in range`);
   ok(Math.abs(Math.max(...ws) - WEIGHT_MAX) < 0.01 || Math.abs(Math.min(...ws) - 1 / WEIGHT_MAX) < 0.01, `${r.name}: the strongest at an end`);
   ok(r.weights.eat === 1, `${r.name}: eat 1`);
@@ -71,7 +71,7 @@ const many = [...nine.map((k, i) => opt(`${k}:x`, k, 10 + 100 * i, 1)), opt('pen
 ok(!trimMenu(many).some((o) => o.kind === 'pen'), 'trim: a disliked kind cut when the room is short');
 ok(trimMenu(many.map((o) => ({ ...o, tw: 1 }))).some((o) => o.kind === 'pen'), 'trim: a neutral kind keeps its place');
 
-const top = (w: Record<string, number>) => KINDS.slice().sort((a, b) => w[b] - w[a]);
+const top = (w: Record<string, number>) => activeKinds().sort((a, b) => w[b] - w[a]);
 for (const r of table) {
   const order = top(r.weights);
   const v = TRAITS.map((t) => `${t.slice(0, 4)} ${r.vector[t] >= 0 ? '+' : ''}${r.vector[t].toFixed(2)}`).join(' ');

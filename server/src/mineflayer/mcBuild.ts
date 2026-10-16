@@ -19,7 +19,7 @@ import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMin
 import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
-import { FOOD_GOODS, MAKE_GOODS, WORKS_FURNACES, WORKS_TABLE_RANGE, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
+import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
@@ -4548,8 +4548,13 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
     return new Error(why);
   };
   const item = str(args.item, 'item');
-  const good = [...MAKE_GOODS, ...FOOD_GOODS].find((g) => g.item === item);
-  if (!good) throw refuse(`make: ${item} is not a good the workshop keeps`);
+  // (the world's goods: the keeps, food where kept, X.1's catalogue; a good the menu offered can leave the catalogue before
+  // the skill runs, its furniture's demand met: another agent's work in the way, not a failure, the critique's 9)
+  const good = a.world.goodsFor(v).find((g) => g.item === item);
+  if (!good) {
+    holdsRelease(key, mine);
+    throw new ContentionError(`make: ${item} is not a good the workshop keeps now`, 'taken', `make:${item}`);
+  }
   const h = v.storageHut;
   if (!v.complete || !h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace'))
     throw refuse("make: the workshop runs once the village is complete, with the storage hut's crafting table and furnace standing");
@@ -5197,6 +5202,323 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
   }
 }
 
+/** Which furnish run last wrote an agent's decorCarried ("village|agent"): only that run deletes it (as lightRuns). */
+const decorRuns = new Map<string, symbol>();
+
+/**
+ * furnish part= count= (X.1; a chore, not in TOOLS): furniture from the village storage into a building's open spots (the
+ * world's decorParts: buildingDecor's cells inside the structure's box, off its torch spots and signs), by command and
+ * charged one piece at a time. At the storage hut: the recorded spots checked again in the bot's view, the first `count`
+ * open ones taken as targets and their pieces withdrawn (the world's earmark ends there; carried, they lower the demand).
+ * From beside the door (doorStand; never from inside), each spot judged before it is set: the cell (and a table's plate
+ * cell) air in the bot's view, a support under it that holds a standing block (lesson 131's case: a block set by command
+ * on a bad support stays), nothing but dropped items in it on the server (lesson 44: furniture has a collision box); a
+ * cell not loaded or an entity there is skipped and not counted, any other skip twice makes the spot never. Charged
+ * first (/clear 1), set with `keep`, confirmed by block name a second later (lessons 29, 80; states such as a chest's type
+ * may differ), recorded on the village (v.decor, lesson 103); pieces beyond what it carried at the start go back by name
+ * (lesson 112). Stopped or failed: what it carries beyond that is makeLeft's for the sweep to deposit. A run that
+ * confirms, finds or rules out nothing ends "no progress" (the world backs the building off).
+ */
+async function furnishSkill(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('furnish: not in a village');
+  // (the world's earmark for this chore, read before any await: only that one is this run's to end, as make's)
+  const key = holdKey(v.name, a.name), mine = makeHolds.get(key);
+  const refuse = (why: string) => {
+    holdsRelease(key, mine);
+    return new Error(why);
+  };
+  const part = str(args.part, 'part');
+  const count = Math.max(1, Math.min(16, Math.floor(num(args.count, 'count'))));
+  const h = v.storageHut;
+  if (!v.complete || !v.storage?.chests.length || !h) throw refuse('furnish: furnishing runs once the village is complete, with its storage hut and chests');
+  const P = a.world.decorParts(v).find((q) => q.part === part);
+  if (!P) throw refuse(`furnish: the village has no building ${part} to furnish`);
+  const t0 = Date.now();
+  const reg = a.world.villages;
+  const old = v.decor?.[part];
+  const done = new Set(old?.done ?? []), never = new Set(old?.never ?? []);
+  const skips: Record<string, number> = { ...(old?.skips ?? {}) };
+  const keyOf = (q: { x: number; y: number; z: number }) => `${q.x},${q.y},${q.z}`;
+  const baseOf = (block: string) => block.replace(/^minecraft:/, '').replace(/\[.*$/, '');
+  let standing = 0, placed = 0, dropped = 0, unconfirmed = 0, newNever = 0, skipped = 0, found = 0, counted = false;
+  let carried0: Counts = {}, took: Counts = {}, back: Counts = {}, left: Counts = {};
+  let walked: 'ok' | 'failed' | 'none' = 'none';
+  const record = () => {
+    v.decor = { ...(v.decor ?? {}), [part]: { done: [...done], ...(never.size ? { never: [...never] } : {}), ...(Object.keys(skips).length ? { skips } : {}), at: Date.now(), by: a.name } };
+    reg.save();
+  };
+  const endLine = () => console.log(`[furnish] ${a.name} ${v.name} part=${part} placed=${placed} standing=${standing} dropped=${dropped} never=${newNever} skipped=${skipped} found=${found} carried0=${countsList(carried0)} took=${countsList(took)} back=${countsList(back)} left=${countsList(left)} walk=${walked} sec=${((Date.now() - t0) / 1000).toFixed(0)}${unconfirmed ? ` unconfirmed=${unconfirmed}` : ''}`);
+  const skip = (k: string, loaded: boolean) => {
+    skipped++;
+    if (!loaded) return;
+    skips[k] = (skips[k] ?? 0) + 1;
+    if (skips[k] >= 2 && !never.has(k)) {
+      never.add(k);
+      newNever++;
+    }
+  };
+  const run = Symbol(part);
+  const carry = (c: Counts) => {
+    decorRuns.set(key, run);
+    decorCarried.set(key, c);
+  };
+  const uncarry = () => {
+    if (decorRuns.get(key) !== run) return;
+    decorRuns.delete(key);
+    decorCarried.delete(key);
+  };
+  let leftRec: Counts | undefined;
+  const leave = (c: Counts) => {
+    if (makeLeft.has(key) && makeLeft.get(key) !== leftRec) return;
+    const pos = Object.fromEntries(Object.entries(c).filter(([, q]) => q > 0));
+    if (Object.keys(pos).length) makeLeft.set(key, (leftRec = pos));
+    else if (makeLeft.has(key)) makeLeft.delete(key);
+  };
+  // What it carries of `names` now, by the server's counts (lesson 13)
+  const carriedOf = async (names: string[]) => {
+    const out: Counts = {};
+    for (const n of names) out[n] = await a.world.rcon.count(a.name, n);
+    return out;
+  };
+  const minus = (x: Counts, y: Counts) => Object.fromEntries(Object.keys(x).map((n) => [n, Math.max(0, (x[n] ?? 0) - (y[n] ?? 0))]));
+  let names: string[] = [];
+  try {
+    // 0. Out of the deep first (lesson 101)
+    const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+    if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+    // 1. At the storage hut
+    const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${P.label}'s furniture`, task: 'furnish' };
+    await standBy(a, job, signal);
+    // The recorded spots again, in the bot's view: one missing or changed is open again
+    for (const q of P.spots) {
+      const k = keyOf(q);
+      if (!done.has(k)) continue;
+      const name = blockName(a, q.x, q.y, q.z);
+      if (name !== null && name !== baseOf(q.block)) done.delete(k);
+    }
+    const open = P.spots.filter((q) => !done.has(keyOf(q)) && !never.has(keyOf(q)));
+    if (!open.length) throw new ContentionError(`furnish: nothing open in the ${P.label} (another furnisher was first)`, 'taken', `furnish:${part}`);
+    const piecesOf = (q: (typeof open)[number]) => {
+      const c: Counts = { [q.item]: 1 };
+      if (q.also) c[q.also.item] = (c[q.also.item] ?? 0) + 1;
+      return c;
+    };
+    names = [...new Set(open.flatMap((q) => Object.keys(piecesOf(q))))];
+    carried0 = await carriedOf(names);
+    counted = true;
+    // The targets as the menu chose them: the first `count` open spots whose pieces are carried or spare in storage (its
+    // own earmark included; others' left out); the first open spots whatever storage held withdrew nothing and threw a
+    // contention the world never backed off (the reviews' H1)
+    const avail: Counts = { ...a.world.makeSpare(v, a.name) };
+    for (const [n, q] of Object.entries(carried0)) avail[n] = (avail[n] ?? 0) + q;
+    const targets: typeof open = [];
+    const want: Counts = {};
+    for (const q of open) {
+      if (targets.length >= count) break;
+      const c = piecesOf(q);
+      if (!Object.entries(c).every(([n, k]) => (avail[n] ?? 0) - (want[n] ?? 0) >= k)) continue;
+      for (const [n, k] of Object.entries(c)) want[n] = (want[n] ?? 0) + k;
+      targets.push(q);
+    }
+    if (!targets.length) {
+      holdsRelease(key, mine);
+      endLine();
+      return `furnished 0 of 0 spots in the ${P.label} (no furniture spare for its ${open.length} open spots; no progress)`;
+    }
+    const need = minus(want, carried0);
+    // (counted as carried from before the earmark ends: the pieces are then neither stored nor carried for the demand, L5)
+    carry(Object.fromEntries(names.map((n) => [n, Math.max(carried0[n] ?? 0, want[n] ?? 0)])));
+    if (Object.values(need).some((q) => q > 0)) took = (await withdrawItems(a, v, Object.fromEntries(Object.entries(need).filter(([, q]) => q > 0)), signal)).got as Counts;
+    holdsRelease(key, mine);
+    // (what it carries now from the server, not the chest window's count: lesson 13; the demand's copy kept apart from
+    // `have`, which the placements lower before the record, the review's L2)
+    const have = await carriedOf(names);
+    took = minus(have, carried0);
+    carry({ ...have });
+    if (names.every((n) => !have[n])) {
+      endLine();
+      return `furnished 0 of ${targets.length} spots in the ${P.label} (no furniture in storage after all: another agent took it; no progress)`;
+    }
+    // 2. To the stand spot beside its door
+    const st = P.structure;
+    const lp: LightPart = { part: P.part, label: P.label, kind: 'building', structure: st, place: P.place, spots: [], unlit: 0, growing: false, ...(P.walk !== undefined ? { walk: P.walk } : {}) };
+    const spot = doorStand(a, lp);
+    const within = () => {
+      const p = a.bot.entity.position;
+      return p.x >= st.x1 - 1 && p.x < st.x2 + 2 && p.z >= st.z1 - 1 && p.z < st.z2 + 2;
+    };
+    if (spot) {
+      const go = (exact: boolean) => walk(a, new goals.GoalNear(spot.x, spot.y, spot.z, exact ? 0 : 1), `the ${P.label}'s door`, signal, 90000, { scaffold: false });
+      walked = 'ok';
+      await go(!!spot.exact).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        walked = 'failed';
+      });
+      if (within()) await go(true).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        walked = 'failed';
+      });
+    }
+    // (never placed from inside: furniture set where the furnisher stands would enclose it)
+    const inside = within();
+    // 3. Each target judged, then charged and set by command, paced at buildSpeed x 10 a second
+    const pace = 1000 / (Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1)) * 10 * timeScale());
+    const set: Array<{ q: (typeof targets)[number]; also: boolean }> = [];
+    // No entity but dropped items in these cells, as a condition of the command itself (lesson 44: a check and a setblock
+    // two round trips apart let a player step in, the review's L2)
+    const clear = (cells: Array<[number, number, number]>) => cells.map(([x, y, z]) => `unless entity @e[type=!item,x=${x},y=${y},z=${z},dx=0,dy=0,dz=0] `).join('');
+    // One piece charged and set: 'set', 'refused' (given back; `busy`: an entity was in a cell) or 'out' (none to charge)
+    const put = async (x: number, y: number, z: number, item: string, block: string, cells: Array<[number, number, number]>): Promise<{ r: 'set' | 'refused' | 'out'; busy?: boolean }> => {
+      if (!(have[item] > 0)) return { r: 'out' };
+      const n = await a.world.rcon.take(a.name, item, 1, have[item]);
+      if (n < 1) {
+        have[item] = await a.world.rcon.count(a.name, item);
+        return { r: 'out' };
+      }
+      have[item] -= n;
+      const r = await a.world.rcon.command(`execute ${clear(cells)}run setblock ${x} ${y} ${z} minecraft:${block} keep`).catch(() => null);
+      if (r !== null && /Changed the block/i.test(r)) {
+        placed++;
+        return { r: 'set' };
+      }
+      // (no reply, or a reply that set nothing: the block there decides, so a lost reply never gives back a piece set, L3)
+      const there = await a.world.rcon.command(`execute if block ${x} ${y} ${z} minecraft:${baseOf(block)}`).catch(() => '');
+      if (/passed/i.test(there) && r === null) {
+        placed++;
+        return { r: 'set' };
+      }
+      await a.world.rcon.give(a.name, item, 1, have[item]).catch(() => '');
+      have[item] += 1;
+      const ent = await a.world.rcon.command(`execute if entity @e[type=!item,x=${x},y=${y},z=${z},dx=0,dy=0,dz=${cells.length > 1 ? 1 : 0}]`).catch(() => '');
+      return { r: 'refused', busy: !/failed/i.test(ent) };
+    };
+    const free = (n: string | null) => n === 'air' || n === 'cave_air';
+    for (const q of inside ? [] : targets) {
+      checkAbort(signal);
+      const k = keyOf(q);
+      const cell = blockName(a, q.x, q.y, q.z);
+      const alsoY = q.also ? st.y + q.also.layer : 0;
+      const alsoCell = q.also ? blockName(a, q.x, alsoY, q.z) : 'air';
+      if (cell === null || alsoCell === null) {
+        skip(k, false);
+        continue;
+      }
+      // (a table's fence standing without its plate: the plate alone, L5's second half)
+      const baseThere = cell === baseOf(q.block);
+      if (baseThere && (!q.also || alsoCell === baseOf(q.also.block))) {
+        done.add(k);
+        found++;
+        continue;
+      }
+      if (baseThere && q.also && free(alsoCell) && have[q.also.item] > 0) {
+        const r2 = await put(q.x, alsoY, q.z, q.also.item, q.also.block, [[q.x, alsoY, q.z]]);
+        if (r2.r === 'set') set.push({ q, also: true });
+        else if (r2.r === 'refused') skip(k, !r2.busy);
+        continue;
+      }
+      const under = stateName(a, q.x, q.y - 1, q.z);
+      if (under === null) {
+        skip(k, false);
+        continue;
+      }
+      if (!free(cell) || !free(alsoCell) || !holdsStandingTorch(under)) {
+        skip(k, true);
+        continue;
+      }
+      if (!(have[q.item] > 0) || (q.also && !((have[q.also.item] ?? 0) >= (q.also.item === q.item ? 2 : 1)))) continue;
+      const cells: Array<[number, number, number]> = [[q.x, q.y, q.z], ...(q.also ? [[q.x, alsoY, q.z] as [number, number, number]] : [])];
+      const r = await put(q.x, q.y, q.z, q.item, q.block, cells);
+      if (r.r === 'out') continue;
+      if (r.r === 'refused') {
+        // (an entity in the cell is not the spot's fault: uncounted)
+        skip(k, !r.busy);
+        continue;
+      }
+      const r2 = q.also ? await put(q.x, alsoY, q.z, q.also.item, q.also.block, [[q.x, alsoY, q.z]]) : { r: 'set' as const };
+      set.push({ q, also: !!q.also && r2.r === 'set' });
+      await sleep(pace, signal);
+    }
+    // 4. Confirmed on the server a second later by block name (passed: standing; failed: dropped, the piece given back
+    // while the cell stays empty; no answer: neither, the next run's view decides)
+    const there = async (x: number, y: number, z: number, block: string): Promise<boolean | null> => {
+      for (let i = 0; i < 2; i++) {
+        const r = await a.world.rcon.command(`execute if block ${x} ${y} ${z} minecraft:${baseOf(block)}`).catch(() => '');
+        if (/passed/i.test(r)) return true;
+        if (/failed/i.test(r)) return false;
+      }
+      return null;
+    };
+    if (set.length) await sleep(1000, signal);
+    for (const t of set) {
+      const ok = await there(t.q.x, t.q.y, t.q.z, t.q.block);
+      const alsoY = t.q.also ? st.y + t.q.also.layer : 0;
+      // (a spot is done with its plate standing too; one set without it is open again for the plate alone, L5)
+      const plate = t.q.also ? (t.also ? await there(t.q.x, alsoY, t.q.z, t.q.also.block) : false) : true;
+      if (ok && plate) {
+        standing++;
+        done.add(keyOf(t.q));
+      } else if (ok === null || (ok && plate === null)) unconfirmed++;
+      else if (ok) skip(keyOf(t.q), false);
+      else {
+        dropped++;
+        const empty = await a.world.rcon.command(`execute if block ${t.q.x} ${t.q.y} ${t.q.z} minecraft:air`).catch(() => '');
+        if (/passed/i.test(empty)) {
+          await a.world.rcon.give(a.name, t.q.item, 1).catch(() => '');
+          have[t.q.item] = (have[t.q.item] ?? 0) + 1;
+        }
+        // (its plate with nothing under it: taken down and given back, lesson 131, the review's L4)
+        if (t.q.also && t.also) {
+          const r = await a.world.rcon.command(`execute if block ${t.q.x} ${alsoY} ${t.q.z} minecraft:${baseOf(t.q.also.block)} run setblock ${t.q.x} ${alsoY} ${t.q.z} minecraft:air`).catch(() => '');
+          if (/Changed the block/i.test(r)) {
+            await a.world.rcon.give(a.name, t.q.also.item, 1).catch(() => '');
+            have[t.q.also.item] = (have[t.q.also.item] ?? 0) + 1;
+          }
+        }
+        skip(keyOf(t.q), true);
+      }
+    }
+    // 5. The record, then pieces beyond what it carried at the start back by name; counted as carried until they are back
+    record();
+    const now = await carriedOf(names);
+    const extra = minus(now, carried0);
+    carry(extra);
+    for (const [n, q] of Object.entries(extra)) {
+      if (q <= 0) continue;
+      await STORAGE_SKILLS.deposit.run(a, { item: n, count: q, keep_wood: true }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        console.log(`[furnish] ${a.name} could not put ${q} ${n} back into storage: ${e.message.slice(0, 120)}`);
+      });
+    }
+    left = await carriedOf(names);
+    back = minus(now, left);
+    leave(minus(left, carried0));
+    uncarry();
+    endLine();
+    const fitted = P.spots.filter((q) => done.has(keyOf(q))).length;
+    const progress = standing + found + newNever > 0;
+    const notes = [`${fitted} of ${P.spots.length} in place`, ...(never.size ? [`${never.size} never`] : []), ...(skipped ? [`${skipped} skipped`] : []),
+      ...(unconfirmed ? [`${unconfirmed} not confirmed`] : []), ...(inside ? ['none placed: the furnisher stood inside'] : []),
+      ...(Object.values(back).some((q) => q > 0) ? [`put back ${countsList(back)}`] : []), ...(progress ? [] : ['no progress'])];
+    return `furnished ${standing} of ${targets.length} spots in the ${P.label} (${notes.join('; ')})`;
+  } catch (e) {
+    if (standing || found || newNever || Object.keys(skips).length) record();
+    if (counted) {
+      const now = await carriedOf(names).catch(() => null);
+      if (now) {
+        left = now;
+        // (anything it carries beyond the start is the sweep's to deposit: its own deposits may fail the same way)
+        leave(minus(now, carried0));
+      }
+      endLine();
+    }
+    throw e;
+  } finally {
+    holdsRelease(key, mine);
+    uncarry();
+  }
+}
+
 const box = (x: Record<string, unknown>) => ['x1', 'y1', 'z1', 'x2', 'y2', 'z2'].forEach((k) => num(x[k], k));
 
 /**
@@ -5266,5 +5588,6 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   place_works_furnace: { check: (x) => void num(x.k, 'k'), run: placeWorksFurnace },
   // (B.4's, a chore too: torches from storage into a building or a part of the mine)
   put_up_torches: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: partsBack(putUpTorches) },
+  furnish: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: furnishSkill },
 };
 

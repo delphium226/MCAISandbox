@@ -1255,7 +1255,7 @@ def works_text(wk):
 
 # S.9's chores, as the agents' actions show them (mcWorld.ts runOption: make, prepare_works, place_works_furnace; gathering
 # is a collect then a deposit with chore set; a deposit with keep_wood puts back what a stopped make left)
-S9_TYPES = {"make": "make", "prepare_works": "works", "place_works_furnace": "works"}
+S9_TYPES = {"make": "make", "prepare_works": "works", "place_works_furnace": "works", "furnish": "furnish"}
 # The workshop's goods (mcWorkshop.ts MAKE_GOODS), for the stock line at the end
 S9_GOODS = ["stone_pickaxe", "stone_hoe", "wooden_sword", "charcoal", "torch", "glass", "glass_pane", "glass_bottle", "barrel",
             "smooth_stone", "stone_bricks", "composter", "ladder"]
@@ -1878,7 +1878,7 @@ if args.after and reason == "every building is done":
     doing = {}
     # (S.9: agents running a workshop chore per sample and at its peak, its samples per agent, the chores ended by family
     # and gathering's trips by material, from the agents' action events; the works plot and the tech record as they change)
-    s9_busy, s9_peak, s9_agents, s9_ends, s9_trips = {}, (0, 0.0), set(), {"make": 0, "gather": 0, "works": 0}, {}
+    s9_busy, s9_peak, s9_agents, s9_ends, s9_trips = {}, (0, 0.0), set(), {"make": 0, "gather": 0, "works": 0, "furnish": 0}, {}
     works_seen, tech_seen = None, set()
     # (B.4: each part's torch record as last printed, and the choice log for the spots each part has)
     lights_seen, choice_log = {}, ChoiceLog(os.environ.get("MCAI_CHOICE_LOG"), args.village)
@@ -2017,7 +2017,7 @@ if args.after and reason == "every building is done":
     trips = s9_trips
     print(f"AFTER S.9 chores: {len(s9_agents)} agents took one; peak {s9_peak[0]} at once (minute {s9_peak[1]:.1f}); make {s9_ends['make']}, "
           f"gather {s9_ends['gather']} (sand {trips.get('sand', 0)}, logs {trips.get('logs', 0)}, cobblestone {trips.get('cobblestone', 0)}), "
-          f"works {s9_ends['works']}; busy {s9_min:.1f} agent-min", flush=True)
+          f"works {s9_ends['works']}, furnish {s9_ends['furnish']}; busy {s9_min:.1f} agent-min", flush=True)
     tot = storage_totals(call(f"/village/{args.village}"))
     print("AFTER S.9 stock: " + (", ".join(f"{g} {tot[g]}" for g in S9_GOODS if tot.get(g)) or "none")
           + f"; works {works_seen}; tech {len(tech_seen)} firsts", flush=True)

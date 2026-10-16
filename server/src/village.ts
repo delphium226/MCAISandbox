@@ -400,6 +400,11 @@ export interface Village {
   tech?: Record<string, TechEntry>;
   /** The torches put up in its buildings and its mine, by part ("light:<part>"'s part; B.4, kept on the village, lesson 103). */
   lights?: Record<string, LightRecord>;
+  /** X.1: the furniture put up in its buildings, by part (the structure id; the same record as lights'). */
+  decor?: Record<string, LightRecord>;
+  /** X.1: the wood kind the workshop's catalogue makes wood goods in, pinned once (v.wood, else the most stocked logs then):
+   *  a kind that flipped with each gathering trip orphaned the old kind's stock and targets (the critique's 2). */
+  catalogWood?: string;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;

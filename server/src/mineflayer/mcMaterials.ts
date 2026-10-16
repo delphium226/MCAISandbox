@@ -47,8 +47,8 @@ const gatherCost = (name: string) => GATHER_COST[name] ?? 1;
 const EASY_GATHER = /^(any:logs|any:cobblestone|.*_(log|stem)|cobblestone|stone|sand|red_sand|sandstone|red_sandstone|dirt|gravel|(.*_)?terracotta)$/;
 export const hardToGather = (gather: Counts) => Object.keys(gather).filter((n) => !EASY_GATHER.test(n));
 
-/** Not obtainable in a peaceful overworld: Nether blocks and hostile-mob drops. */
-const UNOBTAINABLE: Record<string, string> = {
+/** Not obtainable in a peaceful overworld: Nether blocks and hostile-mob drops (also the activity validator's, activities.ts). */
+export const UNOBTAINABLE: Record<string, string> = {
   glowstone_dust: 'Nether only', glowstone: 'Nether only', quartz: 'Nether only', netherrack: 'Nether only', soul_sand: 'Nether only',
   blaze_rod: 'Nether only', string: 'dropped by spiders (no hostile mobs in peaceful)', gunpowder: 'dropped by creepers (none in peaceful)',
   bone: 'dropped by skeletons (none in peaceful)', slime_ball: 'dropped by slimes (none in peaceful)', ender_pearl: 'dropped by endermen (none in peaceful)',

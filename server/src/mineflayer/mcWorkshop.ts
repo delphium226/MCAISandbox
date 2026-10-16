@@ -18,7 +18,10 @@ type Registry = ReturnType<typeof minecraftData>;
 export interface MakeGood { item: string; target: number; batch: number; unit: number; words: string; forWhat: string; variant?: 'slabs';
   /** s30's food step: food for the appetite (its target follows the members, 0 where the village keeps no appetite), and the
    *  items of MAKE_NEVER it may take (beyond the keeps the world applies: the cake's, a breeding's, a farm start's). */
-  food?: true; allow?: string[] }
+  food?: true; allow?: string[];
+  /** X.1's catalogue: a good of one wood kind (birch doors), planned only from that kind's logs and planks (a plan from
+   *  "any logs" took oak logs for birch planks and the craft failed, the critique's 2). */
+  wood?: string }
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */
 export const MAKE_GOODS: MakeGood[] = [
@@ -146,6 +149,17 @@ export const LIGHT_TRIP = 16, LIGHT_MIN_TRIP = 4, MINE_LIGHT_MIN = 2, TORCH_RESE
 /** Torches a light chore has withdrawn and not yet placed or put back, "village|agent" (D7, L2): the skill sets and
  *  deletes it; the demand counts them as placed, so make does not make them again while they are carried. */
 export const lightCarried = new Map<string, number>();
+
+// ---------------------------------------------------------------------------------------------
+// Furnishing (X.1): furniture from storage into the village's buildings
+// ---------------------------------------------------------------------------------------------
+
+/** A furnish chore's spots at most, and at least where a building has more open (one piece a trip is not worth it). */
+export const FURNISH_TRIP = 6, FURNISH_MIN_TRIP = 2;
+
+/** Furniture a furnish chore has withdrawn and not yet placed or put back, "village|agent" (as lightCarried): the demand
+ *  counts it as placed, so make does not make it again while it is carried. */
+export const decorCarried = new Map<string, Counts>();
 
 /** Villages preparing their works plot (as annexBusy). */
 export const worksBusy = new Set<string>();

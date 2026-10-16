@@ -528,3 +528,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   work lands on `foundry/<ticket>` branches with a report). Installed by Claude the same day (`npm install -g
   @anthropic-ai/claude-code`, 2.1.301, `C:\Users\rhett\AppData\Roaming\npm\claude`); it shares the extension's login
   (a headless test call answered).
+- 10-16 (s34, the user's) Phase X.1's scope: the workshop from the recipe graph and decoration that uses goods up come
+  first (forestry, more crops and animals later); catalogue goods keep giving work through consumers in the catalogue
+  (furnishing, food, the reserves' gathering), not stock targets alone (lesson 130); members' live spec authoring waits
+  for X.2, with proposals (X.1 delivers the format and its validator).

@@ -34,6 +34,10 @@ class BusyClock:
         self.busy = {ph: dict.fromkeys(self.names, 0.0) for ph in ("before", "after")}
         self.span = {ph: dict.fromkeys(self.names, 0.0) for ph in ("before", "after")}
         self.last = None
+        # (X.1: the after phase's busy share by 10 minutes from its first sample, [busy, span] a bin: the steady state after a
+        # burst of work, lessons 130 and 136)
+        self.after0 = None
+        self.bins = {}
 
     def restart(self):
         """Sampling resumes after a pause (the checks between the build and the after phase)."""
@@ -46,11 +50,18 @@ class BusyClock:
         dt = 0.0 if self.last is None else min(30.0, now - self.last)
         self.last = now
         running = {a.get("name"): bool(a.get("action")) for a in listing if isinstance(a, dict)}
+        if phase == "after" and self.after0 is None:
+            self.after0 = now
+        b = self.bins.setdefault(int((now - self.after0) // 600), [0.0, 0.0]) if phase == "after" else None
         for n in self.names:
             if n in running:
                 self.span[phase][n] += dt
+                if b is not None:
+                    b[1] += dt
                 if running[n]:
                     self.busy[phase][n] += dt
+                    if b is not None:
+                        b[0] += dt
 
     def lines(self):
         def part(label, b, s):
@@ -66,6 +77,8 @@ class BusyClock:
         bb, sb, ba, sa = tot(self.busy["before"]), tot(self.span["before"]), tot(self.busy["after"]), tot(self.span["after"])
         out.append(f"BUSY all: before completion {pct(bb, sb)} busy ({bb / 60:.1f} of {sb / 60:.1f} agent-min), after {pct(ba, sa)} "
                    f"({ba / 60:.1f} of {sa / 60:.1f}), whole run {pct(bb + ba, sb + sa)} ({(bb + ba) / 60:.1f} of {(sb + sa) / 60:.1f})")
+        if self.bins:
+            out.append("BUSY after by 10 min: " + ", ".join(f"{10 * k}-{10 * k + 10} {pct(*self.bins[k])}" for k in sorted(self.bins)))
         return out
 
 

@@ -217,8 +217,9 @@ export interface WorldAdapter {
 
 /** A2: the kinds of chores a complete village's idle members choose among (S.9 adds the works plot, making and
  *  gathering for the workshop; B.4 lighting the buildings and the mine). 'grow' (s30) is code-driven, never on a menu:
- *  laying out the next neighbourhood. 'eat' (s30's appetite): a meal from the village storage, on a peckish member's menu. */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'grow' | 'eat';
+ *  laying out the next neighbourhood. 'eat' (s30's appetite): a meal from the village storage, on a peckish member's menu.
+ *  'furnish' (X.1): furniture from storage into a building (the furnish family). */
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'grow' | 'eat';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {

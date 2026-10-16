@@ -10,7 +10,7 @@
  *                      identical: every agent the zero vector, the own-pattern reminder shown (E.8's arms);
  *                      off: no weights, tags, persona line or reminder (the goldens run with it).
  */
-import { fnv1a, mulberry32, shuffled } from './choose';
+import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import type { ChoiceKind } from './world';
 
 export type TemperamentMode = 'off' | 'on' | 'identical';
@@ -24,7 +24,12 @@ export type Temperament = Record<Trait, number>;
 /** The weight of the most-liked kind (the least-liked gets its inverse, 0.4). */
 export const WEIGHT_MAX = 2.5;
 /** The kinds a temperament weights (eat is always 1). */
-export const KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light'];
+export const KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish'];
+/** Kinds behind a family that weigh only while it is on (X.1: a village that never offers furnishing must not move every
+ *  other kind's centred weight, nor tell a member it most enjoys furnishing; the critique's 10). */
+const FAMILY_KINDS: Partial<Record<ChoiceKind, string>> = { furnish: 'furnish' };
+/** The kinds weighed now: KINDS less those whose family is off. */
+export const activeKinds = (): ChoiceKind[] => KINDS.filter((k) => !FAMILY_KINDS[k] || CHOOSE.families.has(FAMILY_KINDS[k]!));
 const KIND_TRAITS: Trait[] = ['curiosity', 'care', 'diligence', 'pride'];
 /** Each kind's loading on the four kind traits (spec 1). */
 const LOAD: Record<string, Partial<Record<Trait, number>>> = {
@@ -41,12 +46,13 @@ const LOAD: Record<string, Partial<Record<Trait, number>>> = {
   light: { diligence: 0.4, pride: 0.6 },
   make: { diligence: 0.6, pride: 0.4 },
   gather: { diligence: 1 },
+  furnish: { pride: 0.8, care: 0.2 },
 };
 /** A kind in the persona line's words (farm and slot are both harvesting). */
 export const KIND_PHRASE: Record<string, string> = {
   farm: 'harvesting', slot: 'harvesting', start: 'starting new farms', annex: 'preparing the annex', pen: 'leading animals into pens',
   penwork: 'tending the pens', cake: 'baking', iron: 'digging for iron', explore: 'exploring', works: 'setting up the works',
-  make: 'making goods', gather: 'gathering materials', light: 'lighting the village',
+  make: 'making goods', gather: 'gathering materials', light: 'lighting the village', furnish: 'furnishing the houses',
 };
 
 const ZERO: Temperament = { curiosity: 0, care: 0, diligence: 0, pride: 0, sociability: 0 };
@@ -81,6 +87,7 @@ export function temperament(name: string, mode: TemperamentMode = TEMPERAMENT_MO
 
 /** Each kind's weight (0.4..2.5) from a vector: affinities centred over the kinds, scaled so the strongest is +-1. */
 export function kindWeights(v: Temperament): Record<string, number> {
+  const KINDS = activeKinds();
   const a = KINDS.map((k) => KIND_TRAITS.reduce((s, t) => s + (LOAD[k][t] ?? 0) * v[t], 0));
   const mean = a.reduce((s, x) => s + x, 0) / a.length;
   const c = a.map((x) => x - mean);
@@ -111,7 +118,7 @@ export function personaLine(v: Temperament): string {
   const w = kindWeights(v);
   // (farm and slot share a phrase: one place each)
   const phrases: Array<{ p: string; w: number }> = [];
-  for (const k of KINDS) {
+  for (const k of activeKinds()) {
     const p = KIND_PHRASE[k];
     const had = phrases.find((x) => x.p === p);
     if (had) had.w = Math.max(had.w, w[k]);

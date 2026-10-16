@@ -1,0 +1,14 @@
+{
+  "about": "X.1 on (world 1): the catalogue and furnishing, from mv3_base25, 60 minutes after completion; without growth or food (X1g0), then with the appetite and growth (X1fg). Compare with x1_off.json on world 2.",
+  "out": "runs/2026-10-16/s34/x1_on",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 90,
+  "server_env": {"MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish"},
+  "runs": [
+    {"name": "X1g0", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0"}, "args": "--after 60"},
+    {"name": "X1fg", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "1", "MC_APPETITE": "18"}, "args": "--after 60"}
+  ]
+}

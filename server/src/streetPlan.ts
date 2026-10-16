@@ -666,6 +666,115 @@ export function buildingLights(p: SignPlace, opts: { vanilla?: VanillaLight[] | 
   return spots;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Furniture inside the buildings (X.1)
+// ---------------------------------------------------------------------------------------------
+
+/** A furniture spot of a placed building: the cell (layer over its floor, 1 the door's level), the block as the world
+ *  holds it at the building's turn and the item it takes; a table's plate on top in `also`. */
+export interface DecorSpot { x: number; layer: number; z: number; block: string; item: string; also?: { layer: number; block: string; item: string } }
+
+
+/**
+ * A placed house's furniture spots (X.1, code-designed from goods the site can supply): layer 1 inside cells (".") with
+ * head room (layer 2 "."), against an inner wall (a block that holds a sign at layers 1 and 2, so
+ * never a door, a gate or a bed's low side), off every door and its 4 neighbours, off the entrance's inside cell and its
+ * neighbours, off the given lights' and signs' cells at layers 1 and 2. clamp(inside cells / 6, 1, 8) of them, the first
+ * farthest from the entrance, each next the farthest from those chosen (ties in the piece's row, column order: the same
+ * spots, turned, at every turn); a spot that would cut an inside cell off from the entrance is dropped. The pieces cycle
+ * chair, table, crafting table, barrel, grindstone, composter (no smoker: the catalogue cannot make one, its recipe plans
+ * from stripped warped stems; no furnace: a far bot's smelt in it left items out of storage, lesson 112): a chair's stair
+ * backs onto its wall (a
+ * stair's tall back is on its `facing` side, as holdsTorch reads it), a smoker and a furnace face away from it, a
+ * grindstone runs along it. The caller skips the huts and town centres. Pure (scripts/checks/decor_check.mts checks it at
+ * four turns over the vanilla houses).
+ */
+export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: LightSpot[]; signs?: SignSpot[] } = {}): DecorSpot[] {
+  const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
+  // (worked out in the design's own cells, so distances and ties are the same at every turn; turned at the end)
+  const cell = (l: number, i: number, j: number) => {
+    const ch = d.layers[l]?.[j]?.[i];
+    return ch === undefined ? undefined : ch === '_' || ch === '.' ? ch : d.palette[ch] ?? 'air';
+  };
+  const world = (i: number, j: number) => { const [u, w] = turnCell(i, j, d.width, d.depth, rot); return { x: g.area.x1 + u, z: g.area.z1 + w }; };
+  const isDoorBlock = (c: string | undefined) => !!c && c !== '.' && c !== '_' && /_door$/.test(c.replace(/^minecraft:/, '').replace(/\[.*$/, ''));
+  const taken = new Set<string>();
+  for (const s of opts.lights ?? []) if (s.layer === 1 || s.layer === 2) taken.add(`${s.x},${s.z}`);
+  for (const s of opts.signs ?? []) if (s.layer === 1 || s.layer === 2) taken.add(`${s.x},${s.z}`);
+  const near = new Set<string>();
+  const ring = (i: number, j: number) => { for (const [a, b] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) near.add(`${i + a},${j + b}`); };
+  for (let j = 0; j < d.depth; j++) for (let i = 0; i < d.width; i++) if (isDoorBlock(cell(1, i, j))) ring(i, j);
+  const { door, out } = doorOf(d);
+  ring(door[0] - out[0], door[1] - out[1]);
+  const free = (i: number, j: number) => cell(1, i, j) === '.';
+  const DIRS = ['north', 'east', 'south', 'west'] as const;
+  const cands: Array<{ i: number; j: number; wall: SignSpot['facing'] }> = [];
+  let inside = 0;
+  for (let j = 0; j < d.depth; j++)
+    for (let i = 0; i < d.width; i++) {
+      if (!free(i, j)) continue;
+      inside++;
+      // (the floor under it may be "_": vanilla's ground floors; furnish checks the support in the world)
+      if (cell(2, i, j) !== '.' || cell(0, i, j) === '.' || near.has(`${i},${j}`)) continue;
+      const w = world(i, j);
+      if (taken.has(`${w.x},${w.z}`)) continue;
+      // (the first wall N, E, S, W as drawn)
+      const wall = DIRS.find((f) => { const [a, b] = STEPS[f]; return holdsSign(cell(1, i + a, j + b)) && holdsSign(cell(2, i + a, j + b)); });
+      if (wall) cands.push({ i, j, wall });
+    }
+  const want = Math.max(1, Math.min(8, Math.floor(inside / 6)));
+  // The inside cells the entrance reaches (through the door's own cell), with some cells taken
+  const reach = (used: Set<string>) => {
+    const seen = new Set<string>(), queue: Array<[number, number]> = [[door[0], door[1]]];
+    while (queue.length) {
+      const [i, j] = queue.pop()!;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const k = `${i + a},${j + b}`;
+        if (seen.has(k) || used.has(k) || !free(i + a, j + b)) continue;
+        seen.add(k);
+        queue.push([i + a, j + b]);
+      }
+    }
+    return seen;
+  };
+  const before = reach(new Set());
+  const used = new Set<string>();
+  const chosen: Array<(typeof cands)[number]> = [];
+  const dist2 = (a: { i: number; j: number }, b: { i: number; j: number }) => (a.i - b.i) ** 2 + (a.j - b.j) ** 2;
+  const tried = new Set<string>();
+  while (chosen.length < want) {
+    const from = chosen.length ? chosen : [{ i: door[0], j: door[1] }];
+    let best: (typeof cands)[number] | null = null, bestD = -1;
+    // (a strict > keeps the first in the piece's order on ties)
+    for (const c of cands) {
+      if (tried.has(`${c.i},${c.j}`)) continue;
+      const dd = Math.min(...from.map((f) => dist2(c, f)));
+      if (dd > bestD) [best, bestD] = [c, dd];
+    }
+    if (!best) break;
+    tried.add(`${best.i},${best.j}`);
+    used.add(`${best.i},${best.j}`);
+    const after = reach(used);
+    if ([...before].some((k) => !used.has(k) && !after.has(k))) { used.delete(`${best.i},${best.j}`); continue; }
+    chosen.push(best);
+  }
+  const PIECES = ['chair', 'table', 'crafting_table', 'barrel', 'grindstone', 'composter'] as const;
+  return chosen.map((c, n) => {
+    let wall = c.wall;
+    for (let r = 0; r < rot; r++) wall = CLOCKWISE[wall];
+    const { x, z } = world(c.i, c.j);
+    const piece = PIECES[n % PIECES.length];
+    const spot = (block: string, item: string): DecorSpot => ({ x, layer: 1, z, block, item });
+    switch (piece) {
+      case 'chair': return spot(`${wood}_stairs[facing=${wall},half=bottom]`, `${wood}_stairs`);
+      case 'table': return { ...spot(`${wood}_fence`, `${wood}_fence`), also: { layer: 2, block: `${wood}_pressure_plate`, item: `${wood}_pressure_plate` } };
+      case 'barrel': return spot('barrel[facing=up]', 'barrel');
+      case 'grindstone': return spot(`grindstone[face=floor,facing=${CLOCKWISE[wall]}]`, 'grindstone');
+      default: return spot(piece, piece);
+    }
+  });
+}
+
 /** A placed building's entrance door and its way out (placedGrid's `door`, null for a noSign place: a town centre). */
 export function placedDoor(p: SignPlace): { x: number; z: number; ox: number; oz: number } | null {
   return p.noSign ? null : placedGrid(p).door;

@@ -1137,3 +1137,18 @@ CLAUDE.md when a phase ends.
   the village's biome library (plains), so after savanna won neighbourhood 1, the savanna "current" won neighbourhoods 2
   and 4 and plains houses were laid out (current flipping plains/savanna each vote). Fixed the same day: a voted style
   always builds its own houses only (villages that cannot vote never reach this path).
+- F236 (10-16, s34, X.1's spec check and counts) Vanilla's house furnishings are mostly out of a peaceful village's reach:
+  of 685 furnishing cells in the five biomes' houses, ~230 need wool (beds, banners, carpets), ~70 iron (MAKE_NEVER), 39
+  wheat (hay), 45 a potted plant, 56 jungle buttons; `mv3_base25`'s four vanilla pieces hold 2 beds, a lectern and a bell,
+  none makeable. Clay near minevale3: 47 blocks within 96, under water (collect refuses blocks with water above). Hence
+  X.1's furniture is code-designed (`buildingDecor`), from logs, cobblestone and sand only.
+- F237 (10-16, s34, X.1) `Materials.plan` makes a smoker from 4 stripped warped stems and a campfire from coal and stripped
+  warped stems: a stripped log has no recipe, so it counts as gathered at cost 1 and ties with `any:logs`, and the exact
+  variant comes first. The catalogue drops both (its gather rule); the decor cycle leaves the smoker out. A tie-break
+  preferring `any:` options would bring them back (and must be checked against materials.mts and the goldens).
+- F238 (10-16, s34, X1s; also s33's Mon) A torch make's charcoal smelt failed "no oak_log in inventory" while it carried the
+  birch log its plan took: lesson 88's generic fuel/input step still picks a kind it does not hold (the plan withdrew
+  birch_log:1 and oak_planks:2). Rare (1 of 53 makes in X1s).
+- F239 (10-16, s34, X.1's reviews) The menu and the furnish skill chose different spots (the skill took the first open
+  ones whatever storage held, withdrew nothing and threw a contention the world never backed off): found by both lens
+  reviews, fixed before any run (the skill picks as the menu does; none spare ends "no progress", which backs off).

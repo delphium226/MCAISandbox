@@ -15,6 +15,7 @@ Per run: the chores chosen after completion (`choice` records with a menu; eatin
 Usage: python scripts/temperament_report.py RUN.choices.jsonl [...] (a directory/NAME or NAME.log finds NAME.choices.jsonl)
 """
 import collections
+import re
 import json
 import math
 import os
@@ -139,6 +140,15 @@ def report(path, weights):
                 rhos.append(rho)
     failed = sum(1 for e in ends if not e.get("ok")) / len(ends) if ends else 0.0
     n = len(seqs)
+    # X.1: distinct activities, the option ids with a building or part stripped to its kind (make:torch, gather:sand,
+    # furnish, light), in the village and per agent (mean); counted on the choices ended ok
+    ok_ids = {e["id"] for e in ends if e.get("ok")}
+    act = lambda r: r["kind"] if r["kind"] in ("furnish", "light", "start", "slot", "pen", "penwork", "explore", "farm") else re.sub(r":\d+$", "", r.get("chosen") or r["kind"])
+    acts_v = {act(r) for r in choices if r["id"] in ok_ids}
+    acts_a = collections.defaultdict(set)
+    for r in choices:
+        if r["id"] in ok_ids:
+            acts_a[r["agent"]].add(act(r))
     return {
         "choices": len(choices), "agents": n, "sources": dict(sources),
         "H_village": entropy(village), "H_agent": sum(entropy(per[a]) for a in big) / len(big) if big else 0.0,
@@ -146,6 +156,8 @@ def report(path, weights):
         "ident": identifiability(seqs), "chance": 1 / n if n else 0.0,
         "rho": sum(rhos) / len(rhos) if rhos else None, "tilt": sum(tilts) / len(tilts) if tilts else None,
         "failed": failed, "kinds": dict(village.most_common()),
+        "acts": len(acts_v), "acts_agent": sum(len(x) for x in acts_a.values()) / len(acts_a) if acts_a else 0.0,
+        "act_list": sorted(acts_v),
     }
 
 
@@ -159,12 +171,13 @@ def main():
         p = path_of(arg)
         rows.append((os.path.basename(p).replace(".choices.jsonl", ""), report(p, weights)))
     f = lambda x, d=2: "-" if x is None else f"{x:.{d}f}"
-    print(f"{'run':<14}{'choices':>8}{'agents':>7}{'H vill':>8}{'H agent':>8}{'JSD':>7}{'ident':>7}{'chance':>7}{'rho':>7}{'tilt':>6}{'failed':>7}  sources")
+    print(f"{'run':<14}{'choices':>8}{'agents':>7}{'H vill':>8}{'H agent':>8}{'JSD':>7}{'ident':>7}{'chance':>7}{'rho':>7}{'tilt':>6}{'failed':>7}{'acts':>6}{'acts/ag':>8}  sources")
     for name, r in rows:
         print(f"{name:<14}{r['choices']:>8}{r['agents']:>7}{f(r['H_village']):>8}{f(r['H_agent']):>8}{f(r['JSD']):>7}{f(r['ident']):>7}"
-              f"{f(r['chance']):>7}{f(r['rho']):>7}{f(r['tilt']):>6}{f(r['failed']):>7}  {r['sources']}")
+              f"{f(r['chance']):>7}{f(r['rho']):>7}{f(r['tilt']):>6}{f(r['failed']):>7}{r['acts']:>6}{f(r['acts_agent'], 1):>8}  {r['sources']}")
     for name, r in rows:
         print(f"{name}: {', '.join(f'{k} {v}' for k, v in r['kinds'].items())}")
+        print(f"{name} activities done: {', '.join(r['act_list'])}")
 
 
 if __name__ == "__main__":
