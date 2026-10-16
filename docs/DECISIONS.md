@@ -497,3 +497,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   in run_series, the SessionStart hook if approved), then voting with neighbourhood variety, then roads.
 - 10-16 (s31, Claude's) Model-call replay matches by agent, kind and call number by default (exact prompts rarely recur:
   positions and times differ); `[replay]` lines show where prompts diverge. Recording is on by default.
+- 10-16 (s32, Claude's, from G25x2/G25x3) run_series keeps 2x from 12 workers: 3x at 25 agents grew the same 4 layouts in
+  the same wall-clock time (the after phase is bound by work and walking, not the game clock), with more `[stuck]`; the
+  load was fine at 3x (no `[lag]`, mspt 2.4 of 16.7).
+- 10-16 (s32, the user's) This session's speed steps: 25 agents at 3x, a second test world, the SessionStart hook, model
+  runs in run_series; check:offline if quick (it was: 35 s).
+- 10-16 (s32, the user's) The vote-topic research goes into the plan with the first vote (PLAN.md, "More variety in
+  neighbourhood styles": the ranked list; `docs/research/vote-topics.md`); next research: how to individualise agents
+  (personalities that change behaviour).

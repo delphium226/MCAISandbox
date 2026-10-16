@@ -1114,3 +1114,6 @@ CLAUDE.md when a phase ends.
   plan's 1 coal: the refuel took the freshly made charcoal as fuel (addFuel's FUELS-first order finds the output before the
   coal the plan budgeted, smelt's `coal` budget being for the ingredient case only). Small (1 a batch); fix with addFuel
   preferring the item the plan reserved as fuel, never the smelt's own output.
+- F231 (10-16, s32, G25x3) 23 `[stuck]` lines at 3x against 2 at 2x in the same 25-member growth test: 12 are Worker3 in
+  water at -1674,60,-21 (swimming in place, "water 617" ticks, goals to the plot and to -1681/-1667,-28), 7 Worker4. One run
+  each, so possibly the spot (lesson 133) rather than the speed; not looked into further since 3x is not used at 25.

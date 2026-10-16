@@ -11,6 +11,8 @@ runs/<today>/{paper,agents}-<world>-<time>.log. The Ollama app (11434) is the us
 (11435, 11436) are scripts/ollama_exec.py's.
 down: the agent server's villages are flushed, then it is killed (only a node process on its port); Paper is stopped by
 RCON, which saves the world.
+Test worlds 2 to 9 (mc/testserverN, set up with MCAI_TEST_WORLD=N python mc/testserver.py init) are named test2...test9;
+status lists every one that is set up, and "all" covers them too.
 """
 import datetime, json, os, pathlib, subprocess, sys, time, urllib.request
 
@@ -23,8 +25,13 @@ import reset_site as R  # noqa: E402 (scripts/, beside this file: detached, wait
 ROUTES = "qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436"
 WORLDS = {
     "main": {"dir": T.MAIN, "game": 25565, "api": 8766},
-    "test": {"dir": T.TEST, "game": T.GAME_PORT, "api": T.API_PORT},
+    "test": {"dir": T.HERE / "testserver", "game": 25566, "api": T.API_PORT if T.WORLD == 1 else 8767},
 }
+# (the other test worlds that are set up; MCAI_TEST_API_PORT moves only the world MCAI_TEST_WORLD names)
+for _n in range(2, 10):
+    if (T.HERE / f"testserver{_n}" / "server.properties").exists():
+        WORLDS[f"test{_n}"] = {"dir": T.HERE / f"testserver{_n}", "game": 25565 + _n,
+                               "api": T.API_PORT if T.WORLD == _n else 8766 + _n}
 OTHERS = {"Ollama app": 11434, "local model 1 (qwen3:30b)": 11435, "local model 2 (qwen3.8)": 11436}
 
 
@@ -131,7 +138,7 @@ def down(names):
 
 def main():
     a = sys.argv[1:]
-    if not a or a[0] not in ("status", "up", "down") or len(a) > 2 or (len(a) == 2 and a[1] not in ("main", "test", "all")):
+    if not a or a[0] not in ("status", "up", "down") or len(a) > 2 or (len(a) == 2 and a[1] not in (*WORLDS, "all")):
         raise SystemExit(__doc__)
     names = list(WORLDS) if len(a) == 1 or a[1] == "all" else [a[1]]
     if a[0] == "status":

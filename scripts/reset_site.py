@@ -26,6 +26,8 @@ The agent server gets MC_SERVER_DIR=mc/testserver, MC_PORT=25566, the API port a
 and MC_OLLAMA_ROUTES pass through from this shell. A restore covers whole regions (512x512 blocks), so sites sharing a
 region are restored together. Forceloaded chunks, level.dat and the players' files are left as they are (so agents
 spawned into a restored checkpoint start with empty hands: spawn them with "reset": true, as the stage scripts do).
+MCAI_TEST_WORLD=N works on test world N instead (mc/testserverN, its own ports: mc/testserver.py); its logs are named
+testpaper-wN-<time>.log and testagents-wN-<time>.log.
 """
 import datetime, json, os, pathlib, shutil, subprocess, sys, time, urllib.parse, urllib.request
 
@@ -382,13 +384,14 @@ def main():
     if API_PORT != T.API_PORT:
         raise SystemExit(f"MCAI_API points at port {API_PORT}: the test world's agent server is on {T.API_PORT} (8766 is the main world's)")
     if T.settings_rcon_port() != T.RCON_PORT:
-        raise SystemExit(f"mc/testserver/server.properties does not say rcon.port={T.RCON_PORT}: a stop could reach another server")
+        raise SystemExit(f"{T.REL}/server.properties does not say rcon.port={T.RCON_PORT}: a stop could reach another server"
+                         + (f" (set it up with MCAI_TEST_WORLD={T.WORLD} python mc/testserver.py init)" if T.WORLD > 1 else ""))
     site = T.get_site(args[0])
     regions = T.site_regions(site)
     if not (T.SNAP / "world" / "level.dat").exists():
         raise SystemExit("no snapshot in mc/testworld: generate the sites, stop the test Paper, then python mc/testserver.py snapshot")
     if T.settings_port() != T.GAME_PORT:
-        raise SystemExit(f"mc/testserver/server.properties does not say server-port={T.GAME_PORT}: is it the test server?")
+        raise SystemExit(f"{T.REL}/server.properties does not say server-port={T.GAME_PORT}: is it the test server?")
     source = T.SNAP
     if cp is not None:
         source = CHECKS / cp
@@ -417,10 +420,10 @@ def main():
     now = datetime.datetime.now()
     logdir = ROOT / "runs" / f"{now:%Y-%m-%d}"
     logdir.mkdir(parents=True, exist_ok=True)
-    stamp = f"{now:%H%M%S}"
+    stamp = f"{now:%H%M%S}" if T.WORLD == 1 else f"w{T.WORLD}-{now:%H%M%S}"
     start_paper(logdir, stamp)
     start_agents(logdir, stamp)
-    print(f"site {site['name']} {'saved' if save else 'restored'} and running: MCAI_API={API} MC_SERVER_DIR=mc/testserver "
+    print(f"site {site['name']} {'saved' if save else 'restored'} and running: MCAI_API={API} MC_SERVER_DIR={T.REL} "
           f"python scripts/stage_village.py VILLAGE --site {site['name']}" + (" --resume --mayor --after MINUTES" if cp else ""))
 
 

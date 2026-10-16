@@ -11,6 +11,7 @@
     "build": "vite build --config client/vite.config.ts",
     "start": "tsx server/src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:offline": "python scripts/check_offline.py",
     "mc:setup": "python mc/setup.py",
     "mc:server": "python mc/start.py",
     "mc:agents": "tsx server/src/mineflayer/index.ts",

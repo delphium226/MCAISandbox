@@ -269,9 +269,11 @@ if args.site:
         print(f"--site {args.site}: X Z ignored", flush=True)
     args.x, args.z = test_site["probe"]["x"], test_site["probe"]["z"]
     # The test world's servers, unless told otherwise (rcon.py reads MC_SERVER_DIR)
+    # (MCAI_TEST_WORLD=N: test world N, mc/testserverN with its agent server on 8766+N; mc/testserver.py)
+    world = int(os.environ.get("MCAI_TEST_WORLD") or 1)
     if "MCAI_API" not in os.environ:
-        API = "http://127.0.0.1:8767/api"
-    os.environ.setdefault("MC_SERVER_DIR", "mc/testserver")
+        API = f"http://127.0.0.1:{os.environ.get('MCAI_TEST_API_PORT') or 8766 + world}/api"
+    os.environ.setdefault("MC_SERVER_DIR", "mc/testserver" if world == 1 else f"mc/testserver{world}")
     print(f"test world: API {API}, server folder {os.environ['MC_SERVER_DIR']}", flush=True)
     # The village records (API) and the RCON commands (server folder) must reach the same world
     props = os.path.join(ROOT, os.environ["MC_SERVER_DIR"], "server.properties")

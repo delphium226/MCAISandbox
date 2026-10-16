@@ -35,6 +35,12 @@ the short version; look here for a check script's arguments, a model detail or w
   snapshot in `mc/testworld` and starts both servers detached; then `MCAI_API=http://127.0.0.1:8767/api
   MC_SERVER_DIR=mc/testserver python scripts/stage_village.py V --site SITE` (or watch_village.py with the same two
   settings and the site's probe point). Sites: `scripts/test_sites.json`.
+  **More test worlds** (2026-10-16, s32): `MCAI_TEST_WORLD=N` (2-9; 1 is `mc/testserver`) picks `mc/testserverN` on
+  game port 25565+N, RCON 25575+N, agent server 8766+N (world 2: 25567, 25577, 8768), read by `mc/testserver.py`,
+  `reset_site.py`, `stage_village.py --site`, `stack.py` (worlds `test2`...) and run_series.py (`"world": N`). Set one up
+  with `MCAI_TEST_WORLD=2 python mc/testserver.py init` (world 1's settings and the snapshot's world, ~330 MB); the
+  snapshot and the checkpoints are shared, only world 1 takes a snapshot. Two worlds let two series (or two sessions)
+  test at once; a run's load figures are its own only when the other world is idle.
   4. a test: first the staged one without models, `python scripts/stage_village.py <Village> -160 -100 --stage build`
      (~1 min; `--stage full` ~8 min), then a model-driven village, the survival economy:
      `MCAI_API=http://127.0.0.1:8766/api MCAI_GAMEMODE=survival MCAI_STALL_MIN=5 MCAI_SAME_FAIL=6 python
@@ -208,8 +214,13 @@ the short version; look here for a check script's arguments, a model detail or w
   runs/<today>): NAME.log, reset_NAME.log, NAME.choices.jsonl, save_NAME.log, SPEC.runner.log with `--detach`. The s0 preset
   reads its designs from `runs/2026-10-05/vanilla_designs` (gitignored, as stage_runs.py). Tested with
   `runs/2026-10-15/series/cp_series.json`: two resumed runs from `mv3_cpv1`, 3.5 and 4.5 min each with the restore.
-  Model-driven runs (watch_village.py) are not covered yet. `--detach` moves an earlier runner log aside first (the
-  watcher would wake on its "ALL DONE").
+  `--detach` moves an earlier runner log aside first (the watcher would wake on its "ALL DONE"). Since s32: a PERF line per
+  run from `/api/perf` and Paper's mspt sampled every 10 s (NAME.perf.jsonl; run_report.py's load rows: loop and tick p99,
+  mspt against its budget at the run's time scale, RCON p90, RSS); `"world"` (above); **model-driven runs** with
+  `"preset": "watch"` (watch_village.py: `objective`, `minutes`, `after`, `planner`, `site_size`, `x`/`z`, default the
+  site's probe; 1x, survival, stall 5, same-fail 6 by default), their calls recorded to NAME.calls.jsonl and replayable
+  with `"replay": "RUN"` (a run of the spec) or a recording's path; the `model_calls` check counts recorded and replayed
+  calls. Example: `scripts/series/watch_example.json` (a run, then its replay).
 - **Faster test runs** (2026-10-16): `scripts/run_report.py LOG|DIR/NAME [...]` (one table per run, side by side; the
   agent log's counts found through reset_NAME.log; `MCAI_REPORT_WIDTH`). `stage_village.py --after-until grow[,idle:N]`
   ends the after phase once every condition holds (grow: no growth layout under way and growth stopped or a house per

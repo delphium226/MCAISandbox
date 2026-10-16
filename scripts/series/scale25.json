@@ -1,0 +1,15 @@
+{
+  "about": "25 agents (Mayor + Worker1-24) at 2x against 3x, both with haste 5 and fast crops: the build from the snapshot, then 10 min of growth from the 25-member base village (PLAN, s32's speed step 1). PERF lines and run_report's load rows say whether 3x holds at 25.",
+  "out": "runs/2026-10-16/s32/scale25",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 30,
+  "runs": [
+    {"name": "B25x2", "time_scale": 2, "server_env": {"MC_GROW": "0"}, "args": "--after 0.5", "save": "mv3_base25"},
+    {"name": "B25x3", "time_scale": 3, "server_env": {"MC_GROW": "0"}, "args": "--after 0.5"},
+    {"name": "G25x2", "checkpoint": "mv3_base25", "time_scale": 2, "server_env": {"MC_GROW": "1"}, "args": "--after 10"},
+    {"name": "G25x3", "checkpoint": "mv3_base25", "time_scale": 3, "server_env": {"MC_GROW": "1"}, "args": "--after 10"}
+  ]
+}

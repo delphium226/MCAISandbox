@@ -1185,6 +1185,22 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   ballots follow each voter's facts or the option order (a bench like choicebench) before reading meaning into results;
   agents have no lasting preferences until G2's memory, so voting and memory belong together later. Later topics: village
   policies (stock targets, the appetite rate, growing further), then open proposals (G1-style triage).
+  **What else to vote on** (s32's research, 10-16, the user's request: `docs/research/vote-topics.md`, 26 sources: Project
+  Sid, GovSim and GovSim-SelfGovern, the AI Village's election, CivMC/Towny/Hermitcraft, Frostpunk, RimWorld, Dwarf
+  Fortress, Ostrom). Ranked for this world, effort S/M/L on today's systems: 1. the next public work, a participatory
+  budget over 2-4 validated projects (a lit road, a well, a second storage hut, a mine level, a wider farm; M, S after
+  A.5); 2. the use of the next free land (housing, farm, pasture, tree reserve, park: a `zone` rule; M); 3. forestry rules
+  (logs a day per area, saplings per tree, no-fell radius from the green; re-voted when a dusk tree count crosses a line;
+  S-M); 4. the crop mix of new farm slots (S); 5. who gets the next house (lottery, longest-serving, most deposits, the
+  Mayor: shows status; S); 6. herd caps per pen (also guards Paper's tick; S); 7. the road and lamp standard (M, after
+  roads); 8. street and neighbourhood names, put on signs (S); then a levy on deposits, storage caps and floors, working
+  hours and a rest day, graduated sanctions, the Mayor's election and term, feast days and monuments, mine rules. Not
+  here: PvP and mob toggles, war and diplomacy, one-off content votes, trading halls and redstone, prices and currency,
+  exile, export bans, moral laws, religion by ballot, free-form constitutions. What the sources say for the design: a vote
+  on a trigger code detects (each topic recurs), the facts each option changes shown on the ballot, losing options kept
+  for the next ballot (the mob vote's complaint), the ballot run by code (the AI Village's own ballot form was never
+  published and tied three ways), agents propose caps above all (GovSim-SelfGovern: 1,921 of 2,236 proposals), and
+  reasoning models free-ride on levies (~40% contributed against ~90%): judge every vote by what it changed in the world.
 - **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
 - **Upkeep**: the mayor checks buildings against their designs and repairs damage.
 - **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).

@@ -3,6 +3,7 @@ so its land is the original land, untouched by any test village; and its snapsho
 scripts/reset_site.py copies back site by site before a staged run. Both folders are gitignored.
 
 Usage: python mc/testserver.py init | snapshot | status | regions NAME|all
+       MCAI_TEST_WORLD=N python mc/testserver.py ...   (another test world, N from 2 to 9: see below)
 
   init      create mc/testserver from mc/server: the jar, libraries, config, plugins, whitelist and the rest, but no world,
             logs, villages or atlas. Its server.properties: game port 25566, RCON 25576, peaceful, whitelist on; the rest
@@ -16,6 +17,13 @@ Usage: python mc/testserver.py init | snapshot | status | regions NAME|all
 
 Run it with MC_SERVER_DIR=mc/testserver python mc/start.py, or with scripts/reset_site.py (Paper and an agent server on
 port 8767, both detached). The main world keeps 25565, 25575 and 8766.
+
+More test worlds (s32, so two series or two sessions can test at once): MCAI_TEST_WORLD=N (2 to 9; 1, the default, is
+mc/testserver) picks mc/testserverN with game port 25565+N, RCON 25575+N and agent server 8766+N (world 2: 25567, 25577,
+8768). Every script that takes the test world (reset_site.py, stack.py, stage_village.py --site, run_series.py's "world")
+reads it. `init` for N>1 copies mc/testserver's settings (whitelist, ops, plugins, server.properties with its own ports)
+and the snapshot's world; the snapshot (mc/testworld) and the checkpoints (mc/testcheckpoints) are shared by every world,
+and only world 1 may take a snapshot.
 """
 import datetime, json, os, pathlib, shutil, socket, sys
 
@@ -27,18 +35,24 @@ except ImportError:
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 MAIN = HERE / "server"
-TEST = HERE / "testserver"
+WORLD = int(os.environ.get("MCAI_TEST_WORLD") or 1)
+if not 1 <= WORLD <= 9:
+    # (from 10 the game port would be the main world's RCON port)
+    raise SystemExit(f"MCAI_TEST_WORLD={WORLD}: test worlds are 1 to 9")
+TEST = HERE / ("testserver" if WORLD == 1 else f"testserver{WORLD}")
+# (as the scripts print it and pass it as MC_SERVER_DIR)
+REL = f"mc/{TEST.name}"
 SNAP = HERE / "testworld"
 SITES = ROOT / "scripts" / "test_sites.json"
 # (the agent server's port can be moved: another program bound 127.0.0.1:8767 mid-run on 2026-10-15 and took every API
 # call from 127.0.0.1, while ours listened on 0.0.0.0)
-GAME_PORT, RCON_PORT, API_PORT = 25566, 25576, int(os.environ.get("MCAI_TEST_API_PORT", "8767"))
+GAME_PORT, RCON_PORT, API_PORT = 25565 + WORLD, 25575 + WORLD, int(os.environ.get("MCAI_TEST_API_PORT") or 8766 + WORLD)
 # Where 26.1 keeps the overworld's chunk files (there is no world/region): blocks, entities and points of interest
 DIM = pathlib.Path("dimensions") / "minecraft" / "overworld"
 KINDS = ("region", "entities", "poi")
 # Never copied by init: the world and everything the server or the agent server writes about it
 SKIP = {"world", "logs", "villages.json", "atlas.json", "usercache.json", "console.log", "crash-reports", "debug"}
-PROPS = {"server-port": "25566", "query.port": "25566", "rcon.port": "25576", "level-name": "world",
+PROPS = {"server-port": str(GAME_PORT), "query.port": str(GAME_PORT), "rcon.port": str(RCON_PORT), "level-name": "world",
          "level-seed": "1793578865", "difficulty": "peaceful", "white-list": "true", "enable-rcon": "true"}
 
 
@@ -124,12 +138,17 @@ def snapshot_info():
 
 def init():
     if (TEST / "world").exists():
-        raise SystemExit(f"{TEST / 'world'} exists: the test server is set up already (delete mc/testserver to start over)")
-    if not (MAIN / "paper.jar").exists():
-        raise SystemExit("no mc/server/paper.jar: run python mc/setup.py first")
+        raise SystemExit(f"{TEST / 'world'} exists: the test server is set up already (delete {REL} to start over)")
+    # World 1 from the main server; the others from world 1, which has the test settings (whitelist, max-players...)
+    src = MAIN if WORLD == 1 else HERE / "testserver"
+    if not (src / "paper.jar").exists():
+        raise SystemExit(f"no {src / 'paper.jar'}: " + ("run python mc/setup.py first" if WORLD == 1 else "set up test world 1 first"))
+    if WORLD > 1 and not (SNAP / "world" / "level.dat").exists():
+        raise SystemExit("no snapshot in mc/testworld: another test world starts from it")
     TEST.mkdir(exist_ok=True)
-    for p in sorted(MAIN.iterdir()):
-        if p.name in SKIP or p.name.startswith("world") or p.name.endswith(".pid") or p.name == "server.properties":
+    for p in sorted(src.iterdir()):
+        if (p.name in SKIP or p.name.startswith(("world", "villages.json.bak")) or p.name.endswith(".pid")
+                or p.name == "server.properties"):
             continue
         if p.is_dir():
             shutil.copytree(p, TEST / p.name, dirs_exist_ok=True)
@@ -137,7 +156,7 @@ def init():
             shutil.copy2(p, TEST / p.name)
         print(f"copied {p.name}{'/' if p.is_dir() else ''}")
     lines, done = [], set()
-    for line in (MAIN / "server.properties").read_text().splitlines():
+    for line in (src / "server.properties").read_text().splitlines():
         key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else None
         if key in PROPS:
             line = f"{key}={PROPS[key]}"
@@ -145,12 +164,23 @@ def init():
         lines.append(line)
     lines += [f"{k}={v}" for k, v in PROPS.items() if k not in done]
     (TEST / "server.properties").write_text("\n".join(lines) + "\n", newline="\n")
-    print("server.properties: " + ", ".join(f"{k}={v}" for k, v in PROPS.items()) + "; the rest as mc/server's")
+    print("server.properties: " + ", ".join(f"{k}={v}" for k, v in PROPS.items()) + f"; the rest as {src.relative_to(ROOT)}'s")
+    if WORLD > 1:
+        shutil.copytree(SNAP / "world", TEST / "world", ignore=shutil.ignore_patterns("session.lock"))
+        for name in ("villages.json", "atlas.json"):
+            if (SNAP / name).exists():
+                shutil.copy2(SNAP / name, TEST / name)
+        print(f"copied the snapshot's world{', villages.json and atlas.json' if (SNAP / 'villages.json').exists() else ''}")
+        print(f"set up {TEST}: MCAI_TEST_WORLD={WORLD} python scripts/reset_site.py SITE restores a site and starts it "
+              f"(Paper {GAME_PORT}, RCON {RCON_PORT}, agent server {API_PORT})")
+        return
     print(f"set up {TEST}. Start it with MC_SERVER_DIR=mc/testserver python mc/start.py (or scripts/reset_site.py once a "
           f"snapshot exists); the world is generated at the first start")
 
 
 def snapshot():
+    if WORLD != 1:
+        raise SystemExit("only test world 1 takes the snapshot (every test world restores from it)")
     if listening(GAME_PORT) or world_locked(TEST / "world"):
         raise SystemExit("the test Paper is running: stop it first (MC_SERVER_DIR=mc/testserver python mc/rcon.py stop)")
     if not (TEST / "world" / "level.dat").exists():
@@ -182,7 +212,7 @@ def snapshot():
 def status():
     for what, port in (("test Paper (game)", GAME_PORT), ("test Paper (RCON)", RCON_PORT), ("test agent server", API_PORT)):
         print(f"{what} on {port}: {'listening' if listening(port) else 'not running'}")
-    print(f"test server folder: {'set up' if (TEST / 'paper.jar').exists() else 'missing (python mc/testserver.py init)'}"
+    print(f"test server folder {REL}: {'set up' if (TEST / 'paper.jar').exists() else 'missing (python mc/testserver.py init)'}"
           f"{', world generated' if (TEST / 'world' / 'level.dat').exists() else ', no world yet'}"
           f"{', world in use (session locked)' if world_locked(TEST / 'world') else ''}")
     info = snapshot_info()

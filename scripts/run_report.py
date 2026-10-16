@@ -6,9 +6,10 @@ Usage: python scripts/run_report.py LOG [LOG ...]
 Each LOG is a stage_village.py log. The agent server's log of the same run is found through reset_NAME.log beside it
 (run_series.py and stage_runs.py write one) for the [lag], [stuck], [stuck-world], [repath] and [dig] counts.
 Rows: how the run started and stopped, completion and total minutes, failed actions before and after completion, busy
-shares, the mine's rate, growth, food, tokens and cost, and the agent server's warning lines. A row no run has is left out.
+shares, the mine's rate, growth, food, tokens and cost, the agent server's warning lines, and the load figures run_series.py
+sampled (NAME.perf.jsonl: event loop, tick, Paper's mspt, RCON, memory). A row no run has is left out.
 """
-import os, re, sys
+import json, os, re, sys
 
 # Widest cell; a longer value is cut (MCAI_REPORT_WIDTH to change)
 W = int(os.environ.get("MCAI_REPORT_WIDTH", "44"))
@@ -35,6 +36,39 @@ def agent_log_counts(log):
     if not text:
         return {}
     return {k: text.count(k) for k in ("[lag]", "[stuck]", "[stuck-world]", "[repath]", "[dig]")}
+
+
+def perf_summary(path):
+    """The figures of NAME.perf.jsonl (run_series.py samples /api/perf and Paper's mspt every 10 s during a stage run):
+    {row: text}, empty without samples. Loop and tick are the worst minute's p99 (each sample covers the last minute or
+    two), mspt Paper's 5 s average, RCON its p90."""
+    rows = []
+    for line in read(path).splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    if not rows:
+        return {}
+    vals = lambda f: [v for v in (f(r) for r in rows) if v is not None]
+    med = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
+    loop99, loopmax = vals(lambda r: (r.get("loop") or {}).get("p99")), vals(lambda r: (r.get("loop") or {}).get("max"))
+    tick99 = vals(lambda r: (r.get("tick") or {}).get("p99"))
+    mspt = vals(lambda r: r.get("mspt"))
+    rcon = vals(lambda r: (r.get("rcon") or {}).get("p90"))
+    rss = vals(lambda r: r.get("rss"))
+    out = {"perf samples": f"{len(rows)} over {(rows[-1]['at'] - rows[0]['at']) / 60000:.1f} min, {max(r.get('agents', 0) for r in rows)} agents"}
+    if loop99:
+        out["loop p99 med / max (ms)"] = f"{med(loop99):g} / {max(loop99):g}, worst stall {max(loopmax or [0]):g}"
+    if tick99:
+        out["tick p99 med / max (ms)"] = f"{med(tick99):g} / {max(tick99):g}"
+    if mspt:
+        out["mspt med / max"] = f"{med(mspt):g} / {max(mspt):g} (budget {rows[0].get('mspt_budget', 50):g})"
+    if rcon:
+        out["rcon p90 med / max (ms)"] = f"{med(rcon):g} / {max(rcon):g}"
+    if rss:
+        out["rss max (MB)"] = f"{max(rss) / 2**20:.0f}"
+    return out
 
 
 def report(log):
@@ -70,6 +104,7 @@ def report(log):
     r["tokens / cost"] = first(r"; tokens (.*)$", t)
     for k, n in agent_log_counts(log).items():
         r[k] = str(n)
+    r.update(perf_summary(log[:-len(".log")] + ".perf.jsonl"))
     return r
 
 

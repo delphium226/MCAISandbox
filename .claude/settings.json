@@ -12,5 +12,19 @@
       "mcp__Claude_Browser__preview_logs",
       "mcp__ccd_pr__get_status"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/session_start.py",
+            "timeout": 40
+          }
+        ]
+      }
+    ]
   }
 }

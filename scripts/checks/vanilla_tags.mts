@@ -28,6 +28,7 @@ const META: Record<string, { file: string; note: string; within?: 'solid' }> = {
   FALLING: { file: 'mcUtil.ts, mcMine.ts', note: 'wetOver: water above a stack of these comes down; the mine: a ceiling of these is no solid ceiling' },
   JUNK: { file: 'mcStorage.ts', note: 'deposit "all" keeps these back (unless a claimed collect task of the agent names the item, F132)' },
   TOOL: { file: 'mcStorage.ts', note: 'deposit "all" keeps tools' },
+  LURE: { file: 'mcSurvival.ts, mcBuild.ts', note: 'items that lead chickens and cows: a hand slot holding one is not picked for a tool; the pen chore withdraws seeds' },
   WILD_GROUND: { file: 'mcSurvival.ts', note: 'fallen-tree check: at least half the row must lie on these' },
   TREE_LOG: { file: 'mcSurvival.ts, mcBuild.ts', note: "felling and collect's tree logs, find_site's wood count, the preparer's logs" },
   MINE_DIGGABLE: { file: 'mcMine.ts', within: 'solid', note: 'the mine digs only these (a solid cell not in it ends the tunnel: "not natural ground")' },

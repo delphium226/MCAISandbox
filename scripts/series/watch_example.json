@@ -1,0 +1,13 @@
+{
+  "about": "A model-driven run on minevale3 (gpt-oss cloud for every role, 1x, survival), its calls recorded to W1.calls.jsonl; then the same run replayed from that recording, free and at once, to check a fix against the models' own decisions.",
+  "site": "minevale3",
+  "preset": "watch",
+  "workers": 2,
+  "minutes": 20,
+  "objective": "Build a small village: a house for each of us and a storage hut",
+  "checks": ["agent_log"],
+  "runs": [
+    {"name": "W1"},
+    {"name": "W1r", "village": "W1", "replay": "W1"}
+  ]
+}

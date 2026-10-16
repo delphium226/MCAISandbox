@@ -1,5 +1,6 @@
 runtime/
 server/
 testserver/
+testserver[2-9]/
 testworld/
 testcheckpoints/

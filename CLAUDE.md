@@ -22,7 +22,8 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 
 ## Running and checking
 
-- `npm run typecheck` is the main check; there is no test suite, so verify agent changes by running agents (Testing).
+- `npm run typecheck` is the main check (`npm run check:offline`: it, the two goldens and 15 offline checks in ~35 s);
+  there is no test suite, so verify agent changes by running agents (Testing).
   `npm run dev` starts the sandbox game server (8765) and the Vite client (5173).
 - **`python scripts/stack.py status`** at every session start, **`up [main|test]`** to start what is missing (steps 1
   and 3 below, the agent server from a code snapshot), **`down [main|test]`** to stop cleanly (villages flushed, Paper
@@ -41,7 +42,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   agent server on 8767 (`MCAI_TEST_API_PORT` moves it if another program holds the port), same seed.
   `MCAI_API=http://127.0.0.1:8767/api python scripts/reset_site.py SITE` restores a site from `mc/testworld` and starts
   both servers detached; then `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver python
-  scripts/stage_village.py V --site SITE` (or watch_village.py with the same two settings). Sites:
+  scripts/stage_village.py V --site SITE` (or watch_village.py with the same two settings). `MCAI_TEST_WORLD=2` (any
+  script, or `"world": 2` in a run_series spec) uses a second test world (`mc/testserver2`, 25567, agent server 8768), so
+  two series can run at once. Sites:
   `scripts/test_sites.json`; minevale3 is the usual one. The main world is full of old test villages: build elsewhere
   (`scripts/checks/fresh_land.py`) if you must use it.
 - Agent-server settings worth knowing: `MC_TIME_SCALE=2` (staged runs and checks; never for model-driven acceptance
