@@ -18,7 +18,8 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
-- `README.md` (features, skills, API) and `docs/ARCHITECTURE.md` (how the system fits together, with diagrams).
+- `README.md` (a short overview), `docs/ARCHITECTURE.md` (how the system fits together, with diagrams), `docs/API.md`
+  (the REST API), `docs/SANDBOX.md` (the browser sandbox).
 
 ## Running and checking
 
