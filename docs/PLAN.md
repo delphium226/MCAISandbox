@@ -33,35 +33,32 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 (written 2026-10-17 at the close of the thirty-fourth session; the next session's prompt is
 `runs/2026-10-17/NEXT_PROMPT_s35.md`)
 
-- **Done this session (s34), committed locally, not pushed (ask the user):** `35312b0` Phase X.1 (`server/src/activities.ts`:
-  the activity spec format and its validator, buildCatalog: the keeps, food and ~31 goods of the recipe graph in the
-  village's pinned wood `v.catalogWood`, kept only when their plan gathers logs, cobblestone or sand; code-designed
-  furniture, `streetPlan.ts` buildingDecor, the `furnish` chore and skill; checks activities_unit, decor_check);
-  `204da9a` both families on by default, F237 (smoker) and F238 (charcoal's log kind) fixed; `8985b32` X.2 part 1, public
-  works (`MC_PROJECTS`, on): when growth has nothing to do the village votes among 3 non-dwelling vanilla pieces of a
-  pool of 48 and "no new work" (it may win once in a row), and builds the winner through growth's path (lay_out_houses
-  `project=`), each then furnished and lit.
-- **What the runs say (RUNS.md, s34 rows):** X.1 doubles the distinct activities (58/27, 60/28, model mode 60) with a
-  lower failed share, but busy time only bursts: from minute 20 every arm is 0-1% busy (F240, lesson 144: judge in
-  10-minute bins over an hour). Public works make it recur: 7 works an hour staged (X2p), 6 in 30 min with gpt-oss ballots
-  (X2m, $0.064); steady busy 3-4% (from 1%), because a ~140-unit work takes 25 members only 1.5-3.5 min at the fast staged
-  settings and rests and gaps fill the rest of each cycle (F241).
-- **The user's decisions (DECISIONS.md, 10-16):** X.1's families (workshop from the recipe graph, decoration that uses
-  goods up), consumers rather than targets, live authoring in X.2; code-designed decoration; 60-minute runs. After that
-  the user left the decisions to Claude: catalogue, furnishing and public works on by default, the status quo's
-  once-in-a-row rule, the 2-minute rest.
+- **Done this session (s34), committed locally, not pushed (ask the user):** `35312b0`/`204da9a` Phase X.1
+  (`server/src/activities.ts`: the activity spec format, its validator and buildCatalog, ~31 goods of the recipe graph in
+  the village's pinned wood; code-designed furniture, `streetPlan.ts` buildingDecor and the `furnish` chore; F237/F238);
+  `8985b32` X.2 part 1, public works voted (a pool of 48 non-dwelling vanilla pieces, "no new work" once in a row) and
+  built through growth's path; `f01136f` part 2a, works as quarters of up to 3 pieces (`MC_QUARTER`), the pathfinder
+  crash F242 guarded (patch + `[crash-guard]`), works fit the room left (F243); the last commit: F244's path reset, runs,
+  this handover. Catalogue, furnishing and public works are on by default (Claude's decisions; the user away).
+- **What the runs say (RUNS.md, s34 rows):** X.1 doubles distinct activities (58/27; 60 in model mode) with a lower failed
+  share, but alone busy time only bursts and falls to 0-1% after minute 20 (F240, lesson 144). Public works make work
+  recur: at 1x the village holds 6-25% busy past minute 20 where it otherwise falls to 0 (X2q1 against X0q1); in model
+  mode at 1x 24% over 30 min (X2qm, $0.051); fast staged runs 8-15%. Room round the village is the next limit (F243).
+- **Open:** F244, repeated stalls in fast quarter runs inside or beside the same public works (butcher shop, armorer);
+  watch one live before changing anything. F234 (most model-mode decisions never reach the model) as before.
 - **Next (Claude's proposal, in order):**
-  1. **Larger public works** (X.2 part 2a): a work of 2-3 pieces on one pad (a craft quarter), the larger pieces the pool
-     refuses today (stables, big libraries, the 343-unit taiga temple) with a raised budget, and measure steady busy at
-     1x (no haste) where builds take ~4x longer; target 15%+ past minute 20.
-  2. **Members' proposals** (X.2 part 2b): a proposal call when a work ends (G1 triage), validated against the pool and
-     the spec format; live activity specs authored by members through activities.ts's validator.
-  3. X.3's foundry: first ticket shearing (wool unlocks beds, carpets, banners: a third of vanilla's furnishings, F236).
-- **Stack:** test worlds 1 and 2 running from code snapshots (0 agents after the runs; their agent servers hold the last
-  run's settings, reset_site restarts them); the main world stopped. Checkpoints as before (`mv3_base25` the base).
-- **How to run things now:** as s33's, plus RUNBOOK's "Activities (X.1, s34)" note; series specs `scripts/series/x1_*.json`,
-  `x2_works.json`, `x2_model.json`; `temperament_report.py` prints distinct activities; stage_village prints `BUSY after by
-  10 min`; `[catalog]`, `[furnish]`, `[work]` lines in the agent log.
+  1. F244 live (a quarter run on world 1, watch the butcher shop's spot), then growth's reach for works (a second ring of
+     sites once the first is full).
+  2. **Members' proposals** (X.2 part 2b): a proposal call when a work ends (G1 triage), validated against the pool and the
+     activity spec format (live specs authored by members), losers kept for the next ballot, outcomes fed back; a
+     proposalbench first.
+  3. X.3's foundry: first ticket shearing (wool unlocks beds, carpets and banners, a third of vanilla's furnishings, F236).
+- **Stack:** test worlds 1 and 2 up from code snapshots, 0 agents (each agent server keeps its last run's settings; reset_site
+  restarts them); the main world stopped. Checkpoints as before (`mv3_base25` the base).
+- **How to run things now:** RUNBOOK's "Activities (X.1, s34)" note; `MC_PROJECTS` (on), `MC_QUARTER` (3),
+  `MC_PROJECT_REST_MS` (2 min); `[catalog]`, `[furnish]`, `[work]`, `[crash-guard]` lines; series specs
+  `scripts/series/x1_*.json` and `x2_*.json` (`x2_quarters_1x.json` and `x2_baseline_1x.json` for 1x); temperament_report's
+  distinct activities; stage_village's `BUSY after by 10 min`.
 
 ## Earlier phases
 
@@ -1101,8 +1098,8 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   (validated, tried once, kept or retired). Exit: many more distinct activities done per run (A.3p's report), no rise in
   failures.
 - [ ] X.2 **Projects and proposals for votes** (part 1 done s34, `8985b32`: public works voted among code's options and
-  built through growth's path, spec `runs/2026-10-16/s34/spec_x2.md`, X2p/X2m; part 2 open: larger works, members'
-  proposals and live activity specs, outcomes fed back) (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
+  built through growth's path, spec `runs/2026-10-16/s34/spec_x2.md`, X2p/X2m; part 2a done, `f01136f`: quarters, room;
+  part 2b open: members' proposals and live activity specs, outcomes fed back) (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
   docks, orchards, bee yards, gardens, lit roads...), proposals by members from gauges and temperament, code's validation
   and costing, 2-4 on a ballot through s33's vote machinery, outcomes measured and fed back.
 - [ ] X.3 **The skill foundry** (~2 sessions): tickets for missing actions or recurring failures, `scripts/foundry.py`

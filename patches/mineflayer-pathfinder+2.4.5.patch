@@ -1,5 +1,5 @@
 diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
-index b38bd30..163d817 100644
+index b38bd30..68266aa 100644
 --- a/node_modules/mineflayer-pathfinder/index.js
 +++ b/node_modules/mineflayer-pathfinder/index.js
 @@ -61,7 +61,10 @@ function inject (bot) {
@@ -54,14 +54,16 @@ index b38bd30..163d817 100644
      }
  
      if (bot.pathfinder.LOSWhenPlacingBlocks && returningPos) {
-@@ -530,6 +538,12 @@ function inject (bot) {
+@@ -530,6 +538,14 @@ function inject (bot) {
          })
          return
        }
 +      // MCAISandbox (F153a, s34): after a gate or door is opened the next placement can be none while `placing` stays
-+      // true; reading its y threw inside the physics tick and took the whole agent server down (X2q)
++      // true; reading its y threw inside the physics tick and took the whole agent server down (X2q). The path is reset
++      // and planned again from here, as a bot without scaffolding always did (resetPath below): only ending the placing
++      // left bots standing at the door on the old path, "path moving, fwd 0" (F244, X2q2/X2q3)
 +      if (!placingBlock) {
-+        placing = false
++        resetPath('door_opened')
 +        return
 +      }
        const block = stateMovements.getScaffoldingItem()

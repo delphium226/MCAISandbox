@@ -261,7 +261,9 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     furniture (`buildingDecor`, the `furnish` chore), both on by default; distinct activities doubled (58 vs 27) but busy
     time only burst (F240, lessons 143-144). X.2 part 1 (`8985b32`): public works voted (a pool of 48 vanilla shops,
     smithies, libraries, temples) and built one after another through growth's path; 7 works an hour staged, 6 in 30 min
-    with gpt-oss ballots; steady busy 1% -> 3-4%. The user away for most of it ("make the decisions yourself").
+    with gpt-oss ballots. Part 2a (`f01136f`): works as quarters of up to 3 pieces; at 1x the village holds 6-25% busy past
+    minute 20 where it otherwise falls to 0; the pathfinder crash F242 guarded (lesson 145); F244 (stalls near the same
+    works) open. The user away for most of it ("make the decisions yourself").
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

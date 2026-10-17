@@ -1174,3 +1174,10 @@ CLAUDE.md when a phase ends.
   not the piece's (kept on offer), and later quarters drop companions until their pad fits N - 1 (`growth.workRoom`).
   Growth's reach itself is the next limit. The same run had 23 `[stuck]` (45 `[repath]`), spread over walks out to
   trees through the packed core; X2q1 and X0q1 had none.
+- F244 (10-17, s34, X2q2/X2q3/X2q4, open) In fast quarter runs bots stall repeatedly at the same spots, "path moving, fwd
+  0" and moved 0.00 (23, 36 and 17 `[stuck]`; none at 1x in X2q1/X2qm, none without works): chiefly inside or beside the
+  public works built at the same places every run (the plains butcher shop at -1625..-1614, 62..72, y 63, and the armorer
+  at -1643..-1636, -22..-14), a few at sand near -1673,60,-22. A first guess, that F242's guard left bots on a stale path
+  after opening a door, gave only 2 door resets in X2q4 (the guard now resets the path all the same, as the library did
+  for bots without scaffolding). Next: watch one live (lesson 77), check the butcher shop's pad level against the street
+  and its doors (lesson 133: a fixture first).

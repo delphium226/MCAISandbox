@@ -1,0 +1,24 @@
+{
+  "about": "X.2 part 2a in model mode at 1x on world 2: quarters voted by gpt-oss ballots, members choose by model, vanilla digging (fast off, time scale 1), from mv3_base25, no growth, 30 minutes after.",
+  "out": "runs/2026-10-17/s34/x2_model_1x",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 55,
+  "runs": [
+    {
+      "name": "X2qm",
+      "checkpoint": "mv3_base25",
+      "server_env": {
+        "MC_GROW": "0"
+      },
+      "args": "--after 30 --choose model"
+    }
+  ]
+}

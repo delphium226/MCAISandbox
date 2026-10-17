@@ -1,0 +1,23 @@
+{
+  "about": "X.2 quarters staged on world 1 after F244 (the pathfinder resets its path after a door instead of only ending the placing): [stuck] should fall back from X2q2/X2q3 (23, 36); fast, 40 minutes after.",
+  "out": "runs/2026-10-17/s34/x2_quarters_d",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 70,
+  "runs": [
+    {
+      "name": "X2q4",
+      "checkpoint": "mv3_base25",
+      "server_env": {
+        "MC_GROW": "0",
+        "MC_VOTE": "predicted"
+      },
+      "args": "--after 40"
+    }
+  ]
+}
