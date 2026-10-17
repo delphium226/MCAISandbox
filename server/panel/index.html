@@ -682,9 +682,9 @@ function thoughtsBody(a) {
     + calls.map((c) => {
       const ans = (c.calls || []).map((x) => `${x.name}(${JSON.stringify(x.input)})`).join('; ') || c.text || '';
       const head = `<b>${esc(c.kind)}</b> <span class="sub">${ago(c.at)} ago, ${Math.round(c.ms / 100) / 10}s${c.outputTokens ? `, ${c.outputTokens} tokens out` : ''}</span><div class="sub clamp">${esc(c.thinking ? `thinks: ${c.thinking.slice(0, 220)}` : '')}</div><div class="mono sub clamp">→ ${esc(ans.slice(0, 200) || '(nothing)')}</div>`;
-      return det(`thought:${a.name}:${c.at}`, head, `${c.thinking ? `<div class="label">Its reasoning</div><pre class="prompt">${esc(c.thinking)}</pre>` : '<div class="sub">the model returned no reasoning</div>'}`
-        + `<div class="label">It answered</div><pre class="prompt">${esc(ans || '(nothing)')}</pre><div class="label">What it saw</div><pre class="prompt">${esc(c.user)}</pre>`
-        + det(`thought:sys:${a.name}:${c.at}`, 'its system prompt', `<pre class="prompt">${esc(c.system)}</pre>`));
+      return det(`thought:${a.name}:${c.at}`, head, `${c.thinking ? `<div class="label">Its reasoning</div><pre class="prompt" data-scroll="th:${esc(a.name)}:${c.at}">${esc(c.thinking)}</pre>` : '<div class="sub">the model returned no reasoning</div>'}`
+        + `<div class="label">It answered</div><pre class="prompt" data-scroll="ta:${esc(a.name)}:${c.at}">${esc(ans || '(nothing)')}</pre><div class="label">What it saw</div><pre class="prompt" data-scroll="tu:${esc(a.name)}:${c.at}">${esc(c.user)}</pre>`
+        + det(`thought:sys:${a.name}:${c.at}`, 'its system prompt', `<pre class="prompt" data-scroll="ts:${esc(a.name)}:${c.at}">${esc(c.system)}</pre>`));
     }).join('');
 }
 /** What an agent carries: persona and temperament, the chores it has done, every memory field. */
@@ -698,7 +698,7 @@ function mindBody(a) {
   const chores = [...(d.chores || [])].reverse().map((c) => `<li>${c.ok ? '✓' : '<span class="bad">✗</span>'} <b>${esc(c.kind)}</b> <span class="mono sub">${esc(c.id)}</span> `
     + `<span class="sub">${ago(c.at)} ago, ${c.minutes} min${c.ok && !c.productive ? ', nothing gained' : ''}${c.cut ? ', cut short' : ''}</span>${c.line ? `<div class="sub clamp">${esc(c.line)}</div>` : ''}</li>`).join('');
   const mem = d.memory || {};
-  const fields = Object.keys(mem).sort().map((k) => det(`mind:${a.name}:${k}`, `<b>${esc(k)}</b> <span class="sub">${esc(preview(mem[k]))}</span>`, `<pre class="prompt">${esc(JSON.stringify(mem[k], null, 2))}</pre>`)).join('');
+  const fields = Object.keys(mem).sort().map((k) => det(`mind:${a.name}:${k}`, `<b>${esc(k)}</b> <span class="sub">${esc(preview(mem[k]))}</span>`, `<pre class="prompt" data-scroll="mf:${esc(a.name)}:${esc(k)}">${esc(JSON.stringify(mem[k], null, 2))}</pre>`)).join('');
   return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}`
     + `${traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : ''}`
     + `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`
@@ -1674,9 +1674,13 @@ function render(d) {
     : f.act ? `button[data-act="${CSS.escape(f.act)}"][data-agent="${CSS.escape(f.agent || '')}"]`
     : 'actf' in f ? `button[data-actf="${CSS.escape(f.actf)}"][data-scope="${CSS.escape(f.scope || '')}"]`
     : f.card ? `button[data-card="${CSS.escape(f.card)}"]` : null;
+  // (the window's own scroll as well, and the refocused button without scrolling to it: a tab clicked, then the page
+  // scrolled, jumped back to that tab every second, s34)
+  const winY = window.scrollY;
   renderNow(d);
   for (const [k, top] of scrolls) { const el = document.querySelector(`[data-scroll="${CSS.escape(k)}"]`); if (el) el.scrollTop = top; }
-  if (focus) document.querySelector(focus)?.focus();
+  if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
+  if (Math.abs(window.scrollY - winY) > 1) window.scrollTo(0, winY);
 }
 /** Who is doing what, in the world map's corner (each dot the agent's trail colour). */
 function drawActivity(d) {
