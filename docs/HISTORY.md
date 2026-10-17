@@ -256,6 +256,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     predicted, ballotbench, /api/votes, the panel); Vm2 voted savanna 4 times and built it. The user asked for richer
     activities and a self-improving loop: Phase X (`docs/research/self-improving-activities.md`); the Claude Code CLI
     installed for its foundry (the user's subscription, the user approves merges). Next: Phase X.1.
+49. 2026-10-16/17 (thirty-fourth session; local commits, not pushed): Phase X.1 (`35312b0`, `204da9a`): the activity spec
+    format and validator, a catalogue of ~31 goods from the recipe graph in the village's pinned wood, code-designed
+    furniture (`buildingDecor`, the `furnish` chore), both on by default; distinct activities doubled (58 vs 27) but busy
+    time only burst (F240, lessons 143-144). X.2 part 1 (`8985b32`): public works voted (a pool of 48 vanilla shops,
+    smithies, libraries, temples) and built one after another through growth's path; 7 works an hour staged, 6 in 30 min
+    with gpt-oss ballots; steady busy 1% -> 3-4%. The user away for most of it ("make the decisions yourself").
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

@@ -3,6 +3,39 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-16 at the close of the thirty-third session; the next session's prompt is
+`runs/2026-10-16/NEXT_PROMPT_s34.md`)
+
+- **Done this session (s33):** `cee9cef` A.3p part 1, personalities (`server/src/temperament.ts`: five traits, the user's
+  sociability added; Latin-hypercube vectors per name; chore-kind weights 2.5x/0.4x as `tw` on every option; the
+  weighted fixed pick, the trim, option tags, a code-written persona line and own-pattern line; the response threshold in
+  the fixed sweep: likers first, a disliked pick left 90 s); `1c2d330` temperaments on by default (the user's);
+  `e1a1fc7` the first vote (`server/src/vote.ts`: before each neighbourhood every member votes on its house style, the
+  current biome's small houses against other biomes' that pass the survival checks and whose materials lie near; gpt-oss
+  ballots or the temperament's predicted ones; `/api/votes`, the panel's "Last vote"; ballotbench) and the Phase X design
+  (`docs/research/self-improving-activities.md`); `c3e4d2b`/`af365f0` the foundry's settings; this close-out. Pushed up
+  to `e1a1fc7` (the user's word); the close-out commits after it are local unless the user said push.
+- **What the runs say (RUNS.md, s33 rows):** temperaments alone barely separate agents where work is scarce (Tid/Ton,
+  F232); with the threshold the tilt shows (Ton2 rho 0.52 vs 0.07-0.15, JSD 0.60 vs 0.50) and the model keeps it (Mon:
+  the most-liked kind 72% of its picks vs 43% identical); identifiability stays weak at ~7 choices an agent in 20 min.
+  Ballots: no order bias; identical voters unanimous for the cheapest set, temperaments split them; Vm2 voted savanna 4 of
+  4 and built 4 savanna neighbourhoods for $0.014, growth as fast as with the vote off (Vp/V0). F233 (a hut no-path spot
+  on minevale3's workshop), F234 (most model-mode decisions at 25 never reach the model), F235 (fixed).
+- **The user's decisions (10-16, DECISIONS.md):** the trait set, strength and code-written personas; temperaments on;
+  the vote's design left to Claude; Phase X after the vote, with the Claude Code CLI (installed, logged in, the user's
+  subscription) and the user approving every foundry merge. A.3p part 2 (skill from practice) later.
+- **Next (in order):**
+  1. **Phase X.1, activity specs and a catalogue generated from the game** (PLAN.md, Phase X; design in
+     `docs/research/self-improving-activities.md`): spec format and validator, the catalogue from the jar's data, menus
+     ranked by need x temperament x learning progress, MAKE_GOODS replaced by the recipe graph, live spec authoring by
+     members (validated, tried, kept or retired). The prompt gives the method (multi-agent, safe).
+  2. X.2 projects and proposals for votes; X.3 the foundry (Claude CLI); A.3p part 2 when longer runs can show it.
+- **Stack:** test world 1 running (Paper 25566, agent server 8767 from a code snapshot, 0 agents); test world 2 stopped
+  and saved; the main world stopped. Checkpoints: `mv3_base25` (25 members, B25x2, complete, MC_GROW=0; the base for every
+  s33 test), `mv3_base1`, `mv3_cpv1`.
+- **How to run things now:** as s32's (stack.py, check:offline, run_series + run_report), plus `temperament_report.py`
+  and ballotbench (RUNBOOK, "Personalities and votes").
+
 (written 2026-10-16 at the close of the thirty-second session; the next session's prompt is
 `runs/2026-10-16/NEXT_PROMPT_s33.md`)
 

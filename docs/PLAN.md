@@ -30,38 +30,38 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 
 ## Next session starts with
 
-(written 2026-10-16 at the close of the thirty-third session; the next session's prompt is
-`runs/2026-10-16/NEXT_PROMPT_s34.md`)
+(written 2026-10-17 at the close of the thirty-fourth session; the next session's prompt is
+`runs/2026-10-17/NEXT_PROMPT_s35.md`)
 
-- **Done this session (s33):** `cee9cef` A.3p part 1, personalities (`server/src/temperament.ts`: five traits, the user's
-  sociability added; Latin-hypercube vectors per name; chore-kind weights 2.5x/0.4x as `tw` on every option; the
-  weighted fixed pick, the trim, option tags, a code-written persona line and own-pattern line; the response threshold in
-  the fixed sweep: likers first, a disliked pick left 90 s); `1c2d330` temperaments on by default (the user's);
-  `e1a1fc7` the first vote (`server/src/vote.ts`: before each neighbourhood every member votes on its house style, the
-  current biome's small houses against other biomes' that pass the survival checks and whose materials lie near; gpt-oss
-  ballots or the temperament's predicted ones; `/api/votes`, the panel's "Last vote"; ballotbench) and the Phase X design
-  (`docs/research/self-improving-activities.md`); `c3e4d2b`/`af365f0` the foundry's settings; this close-out. Pushed up
-  to `e1a1fc7` (the user's word); the close-out commits after it are local unless the user said push.
-- **What the runs say (RUNS.md, s33 rows):** temperaments alone barely separate agents where work is scarce (Tid/Ton,
-  F232); with the threshold the tilt shows (Ton2 rho 0.52 vs 0.07-0.15, JSD 0.60 vs 0.50) and the model keeps it (Mon:
-  the most-liked kind 72% of its picks vs 43% identical); identifiability stays weak at ~7 choices an agent in 20 min.
-  Ballots: no order bias; identical voters unanimous for the cheapest set, temperaments split them; Vm2 voted savanna 4 of
-  4 and built 4 savanna neighbourhoods for $0.014, growth as fast as with the vote off (Vp/V0). F233 (a hut no-path spot
-  on minevale3's workshop), F234 (most model-mode decisions at 25 never reach the model), F235 (fixed).
-- **The user's decisions (10-16, DECISIONS.md):** the trait set, strength and code-written personas; temperaments on;
-  the vote's design left to Claude; Phase X after the vote, with the Claude Code CLI (installed, logged in, the user's
-  subscription) and the user approving every foundry merge. A.3p part 2 (skill from practice) later.
-- **Next (in order):**
-  1. **Phase X.1, activity specs and a catalogue generated from the game** (PLAN.md, Phase X; design in
-     `docs/research/self-improving-activities.md`): spec format and validator, the catalogue from the jar's data, menus
-     ranked by need x temperament x learning progress, MAKE_GOODS replaced by the recipe graph, live spec authoring by
-     members (validated, tried, kept or retired). The prompt gives the method (multi-agent, safe).
-  2. X.2 projects and proposals for votes; X.3 the foundry (Claude CLI); A.3p part 2 when longer runs can show it.
-- **Stack:** test world 1 running (Paper 25566, agent server 8767 from a code snapshot, 0 agents); test world 2 stopped
-  and saved; the main world stopped. Checkpoints: `mv3_base25` (25 members, B25x2, complete, MC_GROW=0; the base for every
-  s33 test), `mv3_base1`, `mv3_cpv1`.
-- **How to run things now:** as s32's (stack.py, check:offline, run_series + run_report), plus `temperament_report.py`
-  and ballotbench (RUNBOOK, "Personalities and votes").
+- **Done this session (s34), committed locally, not pushed (ask the user):** `35312b0` Phase X.1 (`server/src/activities.ts`:
+  the activity spec format and its validator, buildCatalog: the keeps, food and ~31 goods of the recipe graph in the
+  village's pinned wood `v.catalogWood`, kept only when their plan gathers logs, cobblestone or sand; code-designed
+  furniture, `streetPlan.ts` buildingDecor, the `furnish` chore and skill; checks activities_unit, decor_check);
+  `204da9a` both families on by default, F237 (smoker) and F238 (charcoal's log kind) fixed; `8985b32` X.2 part 1, public
+  works (`MC_PROJECTS`, on): when growth has nothing to do the village votes among 3 non-dwelling vanilla pieces of a
+  pool of 48 and "no new work" (it may win once in a row), and builds the winner through growth's path (lay_out_houses
+  `project=`), each then furnished and lit.
+- **What the runs say (RUNS.md, s34 rows):** X.1 doubles the distinct activities (58/27, 60/28, model mode 60) with a
+  lower failed share, but busy time only bursts: from minute 20 every arm is 0-1% busy (F240, lesson 144: judge in
+  10-minute bins over an hour). Public works make it recur: 7 works an hour staged (X2p), 6 in 30 min with gpt-oss ballots
+  (X2m, $0.064); steady busy 3-4% (from 1%), because a ~140-unit work takes 25 members only 1.5-3.5 min at the fast staged
+  settings and rests and gaps fill the rest of each cycle (F241).
+- **The user's decisions (DECISIONS.md, 10-16):** X.1's families (workshop from the recipe graph, decoration that uses
+  goods up), consumers rather than targets, live authoring in X.2; code-designed decoration; 60-minute runs. After that
+  the user left the decisions to Claude: catalogue, furnishing and public works on by default, the status quo's
+  once-in-a-row rule, the 2-minute rest.
+- **Next (Claude's proposal, in order):**
+  1. **Larger public works** (X.2 part 2a): a work of 2-3 pieces on one pad (a craft quarter), the larger pieces the pool
+     refuses today (stables, big libraries, the 343-unit taiga temple) with a raised budget, and measure steady busy at
+     1x (no haste) where builds take ~4x longer; target 15%+ past minute 20.
+  2. **Members' proposals** (X.2 part 2b): a proposal call when a work ends (G1 triage), validated against the pool and
+     the spec format; live activity specs authored by members through activities.ts's validator.
+  3. X.3's foundry: first ticket shearing (wool unlocks beds, carpets, banners: a third of vanilla's furnishings, F236).
+- **Stack:** test worlds 1 and 2 running from code snapshots (0 agents after the runs; their agent servers hold the last
+  run's settings, reset_site restarts them); the main world stopped. Checkpoints as before (`mv3_base25` the base).
+- **How to run things now:** as s33's, plus RUNBOOK's "Activities (X.1, s34)" note; series specs `scripts/series/x1_*.json`,
+  `x2_works.json`, `x2_model.json`; `temperament_report.py` prints distinct activities; stage_village prints `BUSY after by
+  10 min`; `[catalog]`, `[furnish]`, `[work]` lines in the agent log.
 
 ## Earlier phases
 
@@ -1093,12 +1093,16 @@ Design: `docs/research/self-improving-activities.md`. Activities and projects be
 validate; the few actions that need new code come from a gated skill foundry run by external coding agents (Claude Code,
 Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry tickets. Speed first; each step up the ladder.
 
-- [ ] X.1 **Activity specs and a catalogue generated from the game** (1-2 sessions): the spec format and its validator,
+- [x] X.1 **Activity specs and a catalogue generated from the game** (done s34: `35312b0`, `204da9a`; spec
+  `runs/2026-10-16/s34/spec_x1.md`, `spec_x1_v2.md`; X1/X0 pairs and X1m in RUNS.md; furniture is code-designed, since
+  vanilla's needs wool, iron and clay, F236; live authoring moved to X.2 part 2, the user's) (1-2 sessions): the spec format and its validator,
   the catalogue from the jar's data (craftables with a use, crops, animals, smeltables, pieces), menus ranked by need x
   temperament x learning progress; the workshop's `MAKE_GOODS` replaced by the recipe graph; members may author specs live
   (validated, tried once, kept or retired). Exit: many more distinct activities done per run (A.3p's report), no rise in
   failures.
-- [ ] X.2 **Projects and proposals for votes** (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
+- [ ] X.2 **Projects and proposals for votes** (part 1 done s34, `8985b32`: public works voted among code's options and
+  built through growth's path, spec `runs/2026-10-16/s34/spec_x2.md`, X2p/X2m; part 2 open: larger works, members'
+  proposals and live activity specs, outcomes fed back) (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
   docks, orchards, bee yards, gardens, lit roads...), proposals by members from gauges and temperament, code's validation
   and costing, 2-4 on a ballot through s33's vote machinery, outcomes measured and fed back.
 - [ ] X.3 **The skill foundry** (~2 sessions): tickets for missing actions or recurring failures, `scripts/foundry.py`
