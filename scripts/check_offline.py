@@ -21,7 +21,7 @@ GOLDENS = {
 # The scripts/checks/*.mts that run with no arguments and no server (each under ~35 s)
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",
          "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes",
-         "temperament_table", "vote_unit", "activities_unit", "decor_check"]
+         "temperament_table", "vote_unit", "activities_unit", "decor_check", "public_works"]
 
 
 def commands():

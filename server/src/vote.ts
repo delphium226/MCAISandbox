@@ -61,10 +61,13 @@ export interface Ballot {
   ms?: number;
 }
 
+/** What a vote decides: the next neighbourhood's style (s33), or the next public work (X.2). */
+export type VoteTopic = 'style' | 'work';
+
 export interface VoteRecord {
   id: string;
-  topic: 'style';
-  /** The neighbourhood it decides (growth's next layout number). */
+  topic: VoteTopic;
+  /** The neighbourhood it decides (growth's next layout number); for a public work, the project's number. */
   k: number;
   at: number;
   mode: VoteMode;
@@ -139,10 +142,16 @@ export function predictedChoice(t: Temperament, options: VoteOption[], seed?: st
 // The ballot as the model sees it
 // ---------------------------------------------------------------------------------------------
 
-const SYSTEM = 'You are a member of a Minecraft village. The village votes on the style of its next neighbourhood of houses; '
-  + 'every member has one vote and the most votes win. Read the options and their facts, think briefly about what you want '
+const SYSTEM_OF: Record<VoteTopic, string> = {
+  style: 'You are a member of a Minecraft village. The village votes on the style of its next neighbourhood of houses; ',
+  // (X.2: the members then build the winner together, gathering its materials; "none" leaves them idle)
+  work: 'You are a member of a Minecraft village. The village votes on its next public work, a building every member then helps to gather for and build; ',
+};
+const SYSTEM_TAIL = 'every member has one vote and the most votes win. Read the options and their facts, think briefly about what you want '
   + 'for the village and for yourself, and call `vote` with a one-sentence reason and the exact name of one option. '
   + 'Never invent an option.';
+const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.' };
+const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '' };
 const SYSTEM_PERSONA = ' Vote as the person described would.';
 
 export interface VoterContext {
@@ -156,14 +165,14 @@ export interface VoterContext {
   village: string;
 }
 
-export function buildBallot(ctx: VoterContext, shown: VoteOption[]): { system: string; user: string; tools: ToolDef[] } {
+export function buildBallot(ctx: VoterContext, shown: VoteOption[], topic: VoteTopic = 'style'): { system: string; user: string; tools: ToolDef[] } {
   const lines: string[] = [];
   if (ctx.persona.trim()) lines.push(ctx.persona.trim());
   if (ctx.pattern.trim()) lines.push(ctx.pattern.trim());
   if (ctx.self.trim()) lines.push(ctx.self.trim());
   if (ctx.village.trim()) lines.push(`Village: ${ctx.village.trim()}`);
-  lines.push('The vote: the style of the next neighbourhood. Options (in no particular order):');
-  for (const o of shown) lines.push(`- ${o.name}: ${o.facts}${o.current ? ' (the current style)' : ''}`);
+  lines.push(`${QUESTION[topic]} Options (in no particular order):`);
+  for (const o of shown) lines.push(`- ${o.name}: ${o.facts}${o.current ? CURRENT[topic] : ''}`);
   lines.push('Call vote with your reason and the exact name of one option.');
   const tools: ToolDef[] = [{
     name: 'vote',
@@ -177,7 +186,8 @@ export function buildBallot(ctx: VoterContext, shown: VoteOption[]): { system: s
       required: ['reason', 'choice'],
     },
   }];
-  return { system: ctx.persona.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM, user: lines.join('\n'), tools };
+  const system = SYSTEM_OF[topic] + SYSTEM_TAIL;
+  return { system: ctx.persona.trim() ? system + SYSTEM_PERSONA : system, user: lines.join('\n'), tools };
 }
 
 /** parseChoice reads `choose` calls and calls carrying a `choice`: the vote tool carries one. */
@@ -196,6 +206,8 @@ export interface BallotRequest {
   maxWaitMs?: number;
   /** Injected in tests and benches; callModel by default. */
   call?: typeof callModel;
+  /** What the vote decides (X.2; style when absent). */
+  topic?: VoteTopic;
 }
 
 /** One member's ballot by the model; never throws (an abstention with `why` on any failure). */
@@ -204,7 +216,7 @@ export async function castBallot(req: BallotRequest): Promise<Ballot & { prompt:
   const out: Ballot & { prompt: string } = { agent: req.agent, choice: null, reason: '', predicted: req.predicted, shown: shownOpts.map((o) => o.id), source: 'model', prompt: '' };
   const t0 = Date.now();
   try {
-    const p = buildBallot(req.ctx, shownOpts);
+    const p = buildBallot(req.ctx, shownOpts, req.topic);
     out.prompt = p.user;
     if ((isCloudModel(req.spec.model) && !usage.allows('decisions')) || usage.blocked(req.spec.model, req.agent)) return { ...out, why: 'budget' };
     const r = await (req.call ?? callModel)({

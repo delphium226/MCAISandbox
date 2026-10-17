@@ -1157,3 +1157,9 @@ CLAUDE.md when a phase ends.
   food is made ~3x faster than eaten (530 points made, 170 eaten in X1fg) and every stock target is met. Nothing drains
   or grows without end; X.2's projects (large, voted, open-ended builds) are the next lever, with a higher appetite or
   wear as smaller ones.
+- F241 (10-16/17, s34, X2p) With predicted ballots the status quo wins every first work vote 13-12: three works split the
+  hard-working and proud voters while the easy-going and sociable all take "no new work". Plurality with a lone status quo
+  favours it; deterministic predicted ballots then repeat it forever, hence "none may win once in a row" (spec_x2). Each
+  cycle was ~5 min resting, ~1 min gap and ~2 min building, so the rest went to 2 min. A work of ~140 units takes 25
+  members 1.5-3.5 min at 2x with haste: in fast staged runs projects look cheap, and larger works or several pieces a
+  project are the next lever for steady busy time.

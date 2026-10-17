@@ -88,7 +88,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
   if (parts[1] === 'votes') {
     const one = url.searchParams.get('village');
     const vs = one ? [w.villages.get(one)].filter((v) => !!v) : [...w.villages.villages.values()];
-    return sendJson(res, 200, vs.map((v) => ({ village: v!.name, next: v!.growth?.next ?? null, votes: v!.votes ?? [] })));
+    return sendJson(res, 200, vs.map((v) => ({ village: v!.name, next: v!.growth?.next ?? null, work: v!.growth?.work ?? null, votes: v!.votes ?? [] })));
   }
 
   if (parts[1] === 'status') {

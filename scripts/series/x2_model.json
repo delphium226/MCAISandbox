@@ -1,0 +1,12 @@
+{
+  "about": "X.2 part 1 in model mode on world 1: public works voted by gpt-oss ballots (members choose chores by model, so MC_VOTE defaults to model), the defaults otherwise (catalogue, furnishing, works on, rest 2 min), from mv3_base25, no growth, 30 minutes after.",
+  "out": "runs/2026-10-17/s34/x2_model",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 50,
+  "runs": [
+    {"name": "X2m", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0"}, "args": "--after 30 --choose model"}
+  ]
+}

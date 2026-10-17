@@ -57,6 +57,8 @@ process.env.MC_TIME_SCALE = '1';
 process.env.MCAI_TEMPERAMENT ??= 'off';
 // (spec_vote1: the style vote off, so growth picks as before; the vote has its own checks)
 process.env.MC_VOTE = 'off';
+// (X.2's public works: on by default since s34, off here as the votes: the golden is of the chores)
+process.env.MC_PROJECTS = 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

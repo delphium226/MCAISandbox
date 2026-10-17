@@ -77,7 +77,8 @@ STANDING = re.compile(r"AFTER LIGHT standing (\d+) of (\d+)(?: \((\d+) not loade
 TAKEN_BY_OTHERS = {"stone_pickaxe", "stone_hoe", "charcoal"}
 # A village that grows (spec 2.6): a layout posted and ended in the agent log; the stage log's growth task spans; a build put
 # back for materials (its task id)
-GROW_POSTED = re.compile(r"^\[grow\] (\S+): layout (\S+) \(neighbourhood (\d+)\) posted by (\S+)")
+# (X.2: a public work's layout too, "[work] V: layout N (public work piece) posted by A"; its number is the layout's)
+GROW_POSTED = re.compile(r"^\[(?:grow|work)\] (\S+): layout (\S+) \((?:neighbourhood (\d+)|public work \S+)\) posted by (\S+)")
 GROW_ENDED = re.compile(r"^\[grow\] (\S+): layout (\S+) ended (\S+) in ([\d.]+) min")
 GROW_TASK = re.compile(r"^GROW TASK (t\d+) claimed=(\d+) end=(\d+|-) by=(\S+)(?: takes=(\S*))? (.*)")
 REQUEUE_ID = re.compile(r"put (t\d+) back on the board to wait for them|(t\d+) \"[^\"]*\" waits for .*: materials were short")
@@ -128,7 +129,7 @@ for i, ln in enumerate(lines):
         continue
     m = GROW_POSTED.match(ln)
     if m:
-        grow_layouts.append(dict(village=m.group(1), layout=m.group(2), k=int(m.group(3)), by=m.group(4), i=i, end=None, why=None))
+        grow_layouts.append(dict(village=m.group(1), layout=m.group(2), k=int(m.group(3)) if m.group(3) else 0, by=m.group(4), i=i, end=None, why=None))
         continue
     m = GROW_ENDED.match(ln)
     if m:

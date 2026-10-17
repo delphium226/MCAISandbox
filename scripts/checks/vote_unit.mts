@@ -54,6 +54,14 @@ const tool = p.tools[0] as { input_schema: { properties: { choice: { enum: strin
 ok(JSON.stringify(tool.input_schema.properties.choice.enum) === JSON.stringify(['Desert houses', 'Plains cottages']), 'the enum in shown order');
 ok(/Vote as the person described would\./.test(p.system) && !/Vote as the person/.test(buildBallot({ persona: '', pattern: '', self: '', village: '' }, opts).system), 'persona clause only with a persona');
 ok(p.user.includes('- Plains cottages:') && p.user.includes('(the current style)') && !/\n1\./.test(p.user), 'named, the current marked, not numbered');
+// X.2: the public work topic's wording; the status quo not called a style
+{
+  const none: VoteOption = { id: 'none', name: 'No new public work for now', facts: 'members stay free', current: true, novel: false, units: 0, volume: 0 };
+  const lib: VoteOption = { id: 'plains_library_2', name: 'A library (plains)', facts: 'a 9x8 library', current: false, novel: true, units: 180, volume: 500 };
+  const w = buildBallot({ persona: '', pattern: '', self: '', village: '' }, [lib, none], 'work');
+  ok(/next public work/.test(w.system) && /The vote: the next public work\./.test(w.user) && !/style/.test(w.user), 'the work topic: its own question, no style words');
+  ok(predictedChoice({ curiosity: 0, care: 0, diligence: -1, pride: 0, sociability: 0 }, [lib, none]) === 'none' && predictedChoice({ curiosity: 0, care: 0, diligence: 1, pride: 1, sociability: 0 }, [lib, none]) === 'plains_library_2', 'the easy-going predicted for no new work, the hard-working and proud for the library');
+}
 
 const reply = (input: unknown) => async () => ({ ms: 5, waitMs: 0, reply: { text: '', calls: [{ name: 'vote', input }], promptTokens: 10, outputTokens: 2 } });
 const spec = { provider: 'ollama', model: 'fake-local' } as never;

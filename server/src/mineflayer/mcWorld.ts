@@ -22,7 +22,7 @@ import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, trimMenu } from '../choose';
 import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
-import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord } from '../vote';
+import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
@@ -35,7 +35,7 @@ import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
-import { vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
+import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { vanillaJar } from '../vanillaData';
@@ -1777,7 +1777,7 @@ export class MineflayerWorld implements WorldAdapter {
     const g = (v.growth ??= { past: [] });
     if (g.next) return g.next.style || null;
     const run = this.voting.get(v.name);
-    if (run) return run.done || now - run.started >= VOTE_MAX_MS + 35000 ? this.closeVote(v, run, now) : undefined;
+    if (run) return run.topic !== 'style' ? undefined : run.done || now - run.started >= VOTE_MAX_MS + 35000 ? this.closeVote(v, run, now) : undefined;
     const mode = this.voteMode(v);
     if (mode === 'off' || v.plan !== 'street') return null;
     const current = this.currentStyle(v);
@@ -1790,7 +1790,7 @@ export class MineflayerWorld implements WorldAdapter {
     const k = g.past.length + 1;
     const id = `${v.name}-n${k}-${now.toString(36)}`;
     const voters = this.growMembers(v).filter((a) => a.bot.entity);
-    const r: VoteRun = { id, k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
+    const r: VoteRun = { id, topic: 'style', k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
     this.voting.set(v.name, r);
     console.log(`[vote] ${v.name}: style vote ${id} for neighbourhood ${k} (${mode}, ${voters.length} voters): ${options.map((o) => `${o.name}${o.current ? ' (current)' : ''}`).join(', ')}`);
     const predicted = (name: string) => predictedChoice(temperament(name), options, `${id}|${name}`);
@@ -1817,25 +1817,30 @@ export class MineflayerWorld implements WorldAdapter {
     const ballots = [...r.ballots];
     for (const name of r.voters) if (!ballots.some((b) => b.agent === name)) ballots.push({ agent: name, choice: null, reason: '', why: 'late', predicted: null, shown: [], source: 'model' });
     const t = tally(r.id, r.options, ballots);
+    // (a work vote with no ballot cast starts nothing nobody chose: a rest, the review's 5)
+    if (r.topic === 'work' && !ballots.some((b) => b.choice)) t.winner = PROJECT_NONE;
     const rec: VoteRecord = {
-      id: r.id, topic: 'style', k: r.k, at: r.started, mode: r.mode, options: r.options.map((o) => ({ id: o.id, name: o.name, facts: o.facts })),
+      id: r.id, topic: r.topic, k: r.k, at: r.started, mode: r.mode, options: r.options.map((o) => ({ id: o.id, name: o.name, facts: o.facts })),
       ballots, tally: t.tally, winner: t.winner, ...(t.tie ? { tie: t.tie } : {}), closedAt: now,
     };
     v.votes = [...(v.votes ?? []), rec].slice(-20);
     const g = (v.growth ??= { past: [] });
-    g.next = { style: t.winner, vote: r.id };
+    // (X.2: a public work's vote decides the next work, '' for "no new work"; the style vote the next neighbourhood's style)
+    if (r.topic === 'work') g.work = { piece: t.winner === PROJECT_NONE ? '' : t.winner, vote: r.id, at: now };
+    else g.next = { style: t.winner, vote: r.id };
+    const what = r.topic === 'work' ? `public work ${r.k}` : `neighbourhood ${r.k}`;
     const name = (id: string) => r.options.find((o) => o.id === id)?.name ?? id;
     for (const b of ballots) console.log(`[ballot] ${v.name}: ${b.agent} -> ${b.choice ? name(b.choice) : `none (${b.why ?? '?'})`} (predicted ${b.predicted ? name(b.predicted) : '-'}${b.position ? `, shown ${b.position} of ${b.shown.length}` : ''}): ${b.reason.replace(/\s+/g, ' ').slice(0, 160)}`);
     const cast = ballots.filter((b) => b.choice), agree = cast.filter((b) => b.choice === b.predicted).length;
     const counts = r.options.map((o) => `${o.name} ${t.tally[o.id]}`).join(', ');
-    console.log(`[vote] ${v.name}: ${name(t.winner)} wins for neighbourhood ${r.k} (${counts})${t.tie ? `, a tie drawn among ${t.tie.map(name).join(', ')}` : ''}; ${cast.length} of ${ballots.length} ballots cast, ${agree} as their temperament predicts; ${Math.round((now - r.started) / 1000)} s`);
-    this.villages.note(v, `the village voted ${name(t.winner)} for neighbourhood ${r.k} (${counts})`);
+    console.log(`[vote] ${v.name}: ${name(t.winner)} wins for ${what} (${counts})${t.tie ? `, a tie drawn among ${t.tie.map(name).join(', ')}` : ''}; ${cast.length} of ${ballots.length} ballots cast, ${agree} as their temperament predicts; ${Math.round((now - r.started) / 1000)} s`);
+    this.villages.note(v, `the village voted ${name(t.winner)} for ${what} (${counts})`);
     this.villages.save();
     return t.winner;
   }
 
   private growTick(v: Village) {
-    if (!GROW.on && !v.growth?.active) return;
+    if (!GROW.on && !PROJECTS_ON && !v.growth?.active) return;
     const now = Date.now();
     if (!v.complete) {
       this.growWatched.add(v.name);
@@ -1847,15 +1852,22 @@ export class MineflayerWorld implements WorldAdapter {
     // (a check that threw rests the growth, the neighbourhood's end included: a record it cannot read is not read again
     // every 30 s)
     if ((this.growError.get(v.name) ?? 0) > now) return;
+    // A vote ended or overdue is closed here, whatever its topic: a member joining or leaving mid-vote moves growTick to
+    // the other topic's path, which never closed it (the X.2 review's H1)
+    const run = this.voting.get(v.name);
+    if (run && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
     if (v.growth?.active) return this.growEnd(v, now);
-    if (!GROW.on) return;
-    if (!this.growDue(v, now, true)) {
-      const M = this.growMembers(v).length, H = housesOf(v);
-      const sig = H >= M ? `${H}|${M}` : !this.growClaimers(v).length ? `none|${H}|${M}` : '';
-      if (sig && !v.growth?.stop && this.growEnough.get(v.name) !== sig) {
-        this.growEnough.set(v.name, sig);
-        console.log(H >= M ? `[grow] ${v.name}: enough houses (${H} for ${M} members)` : `[grow] ${v.name}: no worker here takes board tasks (houses ${H} for ${M} members)`);
+    if (!GROW.on || !this.growDue(v, now, true)) {
+      if (GROW.on) {
+        const M = this.growMembers(v).length, H = housesOf(v);
+        const sig = H >= M ? `${H}|${M}` : !this.growClaimers(v).length ? `none|${H}|${M}` : '';
+        if (sig && !v.growth?.stop && this.growEnough.get(v.name) !== sig) {
+          this.growEnough.set(v.name, sig);
+          console.log(H >= M ? `[grow] ${v.name}: enough houses (${H} for ${M} members)` : `[grow] ${v.name}: no worker here takes board tasks (houses ${H} for ${M} members)`);
+        }
       }
+      // X.2: a public work when growth has nothing to do
+      if (PROJECTS_ON) this.projectTick(v, now);
       return;
     }
     this.growEnough.delete(v.name);
@@ -1911,6 +1923,204 @@ export class MineflayerWorld implements WorldAdapter {
     console.log(`[grow] ${v.name}: ${agent.name} lays out ${houses.length} houses (${houses.join(', ')}) on ${pad.size}x${pad.size}; houses ${housesOf(v)} for ${members.length} members`);
   }
 
+  // ---- X.2: public works, voted (spec runs/2026-10-16/s34/spec_x2.md) --------------------------------------------------
+
+  /** The pool, once a process: every biome's non-dwelling vanilla pieces that pass the survival test (the vanilla
+   *  library's: placeable, no problems, a landmark's units and smelts) and fit a pad; null when the jar cannot be read. */
+  private works: Array<{ biome: string; design: Design; units: number; volume: number; gather: Counts; size: number }> | null | undefined;
+
+  publicWorks(): NonNullable<MineflayerWorld['works']> {
+    if (this.works !== undefined) return this.works ?? [];
+    const out: NonNullable<MineflayerWorld['works']> = [];
+    try {
+      const jar = vanillaJar();
+      for (const biome of VILLAGE_BIOMES)
+        for (const path of listPieces(jar, biome, 'houses')) {
+          const name = path.split('/').pop()!;
+          if (isDwelling(name)) continue;
+          let d: Design;
+          try {
+            d = pieceToDesign(readPiece(path, jar), biome).design;
+          } catch {
+            continue;
+          }
+          if (!validateDesign({ ...d } as unknown as Record<string, unknown>, 'vanilla', { isPlaceable: (b) => this.isPlaceable(b), states: true, requireDoor: true }).design) continue;
+          const m = this.materialTasks(d, d.name);
+          if (m.problems.length || (m.units ?? 0) > LANDMARK_UNITS || (m.smelts ?? 0) > MAX_SMELTS) continue;
+          const pad = padFor([d]);
+          if (!pad) continue;
+          const gather: Counts = {};
+          for (const [n, q] of Object.entries(this.materials.plan(designBill(d)).gather)) gather[n] = q;
+          out.push({ biome, design: d, units: m.units ?? 0, volume: d.width * d.depth * d.height, gather, size: pad.size });
+        }
+      this.works = out;
+      console.log(`[work] ${out.length} public works in the pool (${VILLAGE_BIOMES.map((b) => `${b} ${out.filter((w) => w.biome === b).length}`).join(', ')})`);
+    } catch (e) {
+      console.warn(`[work] cannot read the public works: ${(e as Error).message}`);
+      this.works = null;
+    }
+    return this.works ?? [];
+  }
+
+  /**
+   * A public work vote's options (spec_x2 3): pieces not built here nor refused before, the village's biome first then
+   * by cost, one of a kind (a library, a toolsmith...), their uncommon materials near home (as styleOptions), at most 3;
+   * then the status quo, "no new public work for now", unless it won the last work vote: it may win once in a row (three
+   * works split the builders' votes, and the easy-going's "none" won every predicted vote, 13 of 25).
+   */
+  private projectOptions(v: Village): VoteOption[] {
+    const g = v.growth ?? { past: [] };
+    const built = new Set([...v.structures.map((s) => s.kind), ...(v.layouts ?? []).flatMap((l) => l.buildings)]);
+    const bad = new Set(g.projectBad ?? []);
+    const own = v.vanillaBiome ? villageBiome(v.vanillaBiome) : this.currentStyle(v) ?? 'plains';
+    const kindOf = (name: string) => name.replace(/^(plains|desert|savanna|snowy|taiga)_/, '').replace(/_\d+$/, '').replace(/_(house|shop)$/, '').replace(/s$/, '');
+    const home = villageHome(v);
+    const y = v.plots[0]?.y ?? 64;
+    const near = home ? this.growMembers(v).find((a) => a.bot.entity && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) <= 32) : undefined;
+    const cands = this.publicWorks().filter((w) => !built.has(w.design.name) && !bad.has(w.design.name))
+      .sort((p, q) => Number(q.biome === own) - Number(p.biome === own) || p.units - q.units || p.design.name.localeCompare(q.design.name));
+    const out: VoteOption[] = [];
+    const kinds = new Set<string>();
+    for (const w of cands) {
+      if (out.length >= 3) break;
+      const kind = kindOf(w.design.name);
+      if (kinds.has(kind)) continue;
+      const want: Counts = {};
+      for (const [k, q] of Object.entries(w.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) want[k] = q;
+      if (Object.keys(want).length) {
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, 96) : null;
+        if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) continue;
+      }
+      kinds.add(kind);
+      const words = kind.replace(/_/g, ' ');
+      const main = Object.entries(w.gather).filter(([, q]) => q >= 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, q]) => `~${Math.round(q)} ${k.replace(/^any:/, '').replace(/_/g, ' ')}`).join(', ');
+      const look = STYLE_LOOK[w.biome]?.look ?? `${w.biome} building`;
+      out.push({
+        id: w.design.name, name: `A ${words} (${w.biome})`,
+        facts: `a ${w.design.width}x${w.design.depth} ${words} in the ${w.biome} look (${look}); ~${w.units} units to gather (${main}); then furnished and lit`.slice(0, 200),
+        current: false, novel: true, units: w.units, volume: w.volume,
+      });
+    }
+    const rested = !!g.work && !g.work.piece;
+    if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
+    return out;
+  }
+
+  /** Whether a public work may start now (spec_x2 2): growth has nothing to do, nothing on the board or queued, a worker
+   *  takes board tasks, a minute after the last layout ended, growth's back-off and failure rules. */
+  private projectDue(v: Village, now: number): boolean {
+    const g = v.growth;
+    if (!PROJECTS_ON || !v.complete || g?.active || (g?.backoff ?? 0) > now || (g?.projectBackoff ?? 0) > now || (g?.projectFails ?? 0) >= 3 || (this.growError.get(v.name) ?? 0) > now) return false;
+    // (growth's stop for want of room or after failures holds projects too; one for want of house designs does not)
+    if (g?.stop && !/house design/.test(g.stop)) return false;
+    if (this.growQueued(v, now)) return false;
+    if (GROW.on && !g?.stop && housesOf(v) < this.growMembers(v).length) return false;
+    const last = g?.past?.[g.past.length - 1];
+    if (last && now - last.end < 60000) return false;
+    return this.growClaimers(v).length > 0;
+  }
+
+  /** The next public work (as styleFor): a piece, null (none now: "no new work" won lately, or nothing buildable), or
+   *  undefined (a vote under way). With MC_VOTE off, code's first option. */
+  private projectFor(v: Village, now: number): string | null | undefined {
+    const g = (v.growth ??= { past: [] });
+    if (g.work?.piece) return g.work.piece;
+    const run = this.voting.get(v.name);
+    if (run) {
+      if (run.topic !== 'work') return undefined;
+      if (!run.done && now - run.started < VOTE_MAX_MS + 35000) return undefined;
+      const w = this.closeVote(v, run, now);
+      return w === PROJECT_NONE ? null : w;
+    }
+    if (g.work && !g.work.piece && now - g.work.at < PROJECT_REST_MS) return null;
+    // (nothing buildable found lately on the same buildings and refusals: not searched again for 5 minutes, the review's 4)
+    const noneSig = `${v.structures.length}|${(v.layouts ?? []).length}|${g.projectBad?.length ?? 0}`, none = this.workNone.get(v.name);
+    if (none && none.sig === noneSig && none.until > now) return null;
+    const options = this.projectOptions(v);
+    if (!options.some((o) => o.id !== PROJECT_NONE) || (options.length < 2 && options[0]?.id === PROJECT_NONE)) {
+      if (this.workLogged.get(v.name) !== 'none') console.log(`[work] ${v.name}: no public work buildable here (pool ${this.publicWorks().length}, refused ${g.projectBad?.length ?? 0})`);
+      this.workLogged.set(v.name, 'none');
+      this.workNone.set(v.name, { sig: noneSig, until: now + 5 * 60000 });
+      return null;
+    }
+    this.workLogged.delete(v.name);
+    // (each work vote its own number: a rest and the vote after it were both "public work 1", the review's 6)
+    const k = (v.votes ?? []).filter((x) => x.topic === 'work').length + 1;
+    const mode = this.voteMode(v);
+    if (mode === 'off') {
+      g.work = { piece: options[0].id, vote: 'none', at: now };
+      return options[0].id;
+    }
+    const id = `${v.name}-w${k}-${now.toString(36)}`;
+    const voters = this.growMembers(v).filter((a) => a.bot.entity);
+    const r: VoteRun = { id, topic: 'work', k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
+    this.voting.set(v.name, r);
+    console.log(`[vote] ${v.name}: public work vote ${id} (${mode}, ${voters.length} voters): ${options.map((o) => o.name).join(', ')}`);
+    const predicted = (name: string) => predictedChoice(temperament(name), options, `${id}|${name}`);
+    if (mode === 'predicted') {
+      r.ballots = voters.map((a) => predictedBallot(id, a.name, options, predicted(a.name)));
+      const w = this.closeVote(v, r, now);
+      return w === PROJECT_NONE ? null : w;
+    }
+    const reqs: BallotRequest[] = [];
+    for (const a of voters) {
+      const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: this.voterContext(v, a), signal: r.ac.signal, topic: 'work' });
+    }
+    castAll(id, reqs, BALLOTS_PARALLEL, now + VOTE_MAX_MS, r.ballots).then(() => (r.done = true), (e) => {
+      console.log(`[vote] ${v.name}: ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      r.done = true;
+    });
+    return undefined;
+  }
+
+  /** What public works last logged, by village (once a change); when "nothing buildable" was last found, and on what. */
+  private workLogged = new Map<string, string>();
+  private workNone = new Map<string, { sig: string; until: number }>();
+
+  /**
+   * A public work's layout chore failed (the review's 3): its piece is never offered again and projects alone back off
+   * (5 min a failure in a row, stopping after 3): growth's own counters, "no site" answers and stop stay its own.
+   */
+  private projectFailed(v: Village, piece: string, why: string) {
+    if (why === 'cancelled') return;
+    const g = (v.growth ??= { past: [] });
+    g.projectBad = [...new Set([...(g.projectBad ?? []), piece])];
+    delete g.work;
+    g.projectFails = (g.projectFails ?? 0) + 1;
+    g.projectBackoff = Date.now() + 5 * 60000 * g.projectFails;
+    this.villages.save();
+    console.log(`[work] ${v.name}: the public work ${piece} could not be laid out (${why.slice(0, 160)}); not offered again; projects rest ${5 * g.projectFails} min`);
+  }
+
+  /** A public work from vote to layout (spec_x2 5): the piece's design into the village's, its pad, the layout chore. */
+  private projectTick(v: Village, now: number) {
+    if (!this.projectDue(v, now)) return;
+    const piece = this.projectFor(v, now);
+    if (!piece) return;
+    const g = (v.growth ??= { past: [] });
+    const w = this.publicWorks().find((x) => x.design.name === piece);
+    if (!w) {
+      g.projectBad = [...new Set([...(g.projectBad ?? []), piece])];
+      delete g.work;
+      this.villages.save();
+      return;
+    }
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    if (!agent) return;
+    if (!v.designs[piece]) v.designs[piece] = structuredClone(w.design);
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: piece, size: w.size, project: piece });
+    } catch (e) {
+      console.log(`[work] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.setChore(v, agent, 'grow', [st], `lay out the public work ${piece}`, (why) => this.projectFailed(v, piece, why));
+    console.log(`[work] ${v.name}: ${agent.name} lays out the public work ${piece} (${w.units} units) on ${w.size}x${w.size}`);
+  }
+
   /** Growth stopped for good (logged once). */
   private growStop(v: Village, why: string) {
     const g = (v.growth ??= { past: [] });
@@ -1938,7 +2148,14 @@ export class MineflayerWorld implements WorldAdapter {
       wait = 5;
     } else {
       g.tries = (g.tries ?? 0) + 1;
-      if (g.tries >= 5) return this.growStop(v, `the layout chore failed ${g.tries} times (${why.slice(0, 120)})`);
+      if (g.tries >= 5) {
+        this.growStop(v, `the layout chore failed ${g.tries} times (${why.slice(0, 120)})`);
+        // (and a back-off all the same: growStop writes nothing when growth had stopped already, and a chore failing every
+        // 30 s ran on, the X.2 review's 2)
+        g.backoff = now + 10 * 60000;
+        this.villages.save();
+        return;
+      }
     }
     g.backoff = now + wait * 60000;
     this.villages.save();
@@ -2050,15 +2267,25 @@ export class MineflayerWorld implements WorldAdapter {
     why ??= failed ? 'failed' : 'built';
     const lay = v.layouts?.[act.layout - 1];
     const M = this.growMembers(v).length, H = housesOf(v);
-    g.past.push({ k: act.k, layout: act.layout, at: act.at, end: now, houses: builds.length, built, failed, members: act.members, why, ...(left ? { left } : {}), ...(act.style ? { style: act.style } : {}) });
+    g.past.push({ k: act.k, layout: act.layout, at: act.at, end: now, houses: builds.length, built, failed, members: act.members, why, ...(left ? { left } : {}), ...(act.style ? { style: act.style } : {}), ...(act.project ? { project: act.project } : {}) });
+    // (X.2: a public work not built is never offered again)
+    if (act.project && why !== 'built') g.projectBad = [...new Set([...(g.projectBad ?? []), act.project])];
+    if (act.project) console.log(`[work] ${v.name}: public work ${act.project} ended ${why} in ${((now - act.at) / 60000).toFixed(1)} min`);
     delete g.active;
     for (const k of this.growOrphan.keys()) if (k.startsWith(`${v.name}|`)) this.growOrphan.delete(k);
-    if (why === 'built') delete g.fails;
+    if (act.project) {
+      // (a public work's failures are projects' own: house growth keeps its counters, the review's 3)
+      if (why === 'built') delete g.projectFails;
+      else {
+        g.projectFails = (g.projectFails ?? 0) + 1;
+        g.projectBackoff = now + 10 * 60000 * g.projectFails;
+      }
+    } else if (why === 'built') delete g.fails;
     else {
       g.fails = (g.fails ?? 0) + 1;
       g.backoff = now + 10 * 60000 * g.fails;
     }
-    reg.note(v, `neighbourhood ${act.k} ended (${why}): ${built} of ${builds.length} houses built`);
+    reg.note(v, act.project ? `the public work ${act.project} ended (${why})` : `neighbourhood ${act.k} ended (${why}): ${built} of ${builds.length} houses built`);
     reg.save();
     const signs = lay?.signs ? (lay.signed ? lay.signs.length : lay.signs.filter((s) => s.up).length) : 0;
     console.log(`[grow] ${v.name}: layout ${act.layout} ended ${why} in ${((now - act.at) / 60000).toFixed(1)} min: built ${built} of ${builds.length} houses, signs ${signs}, lamps ${lay?.lit ? 'lit' : 'not'}; houses ${H} for ${M} members${left ? `; ${left} tasks left open` : ''}`);
@@ -3627,7 +3854,8 @@ export class MineflayerWorld implements WorldAdapter {
       for (const [n, q] of items) a.enqueue('deposit', { item: n, count: q, keep_wood: true, chore: true });
       if (items.length) console.log(`[make] ${v.name}: ${a.name} puts back what a stopped make left (${countsList(left)})`);
     }
-    let members = GROW.on ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
+    // (a public work's tasks are held for as a neighbourhood's, X.2)
+    let members = GROW.on || PROJECTS_ON ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
     if (!members.length) return;
     const facts = this.sweepFacts(v, now, members[0]);
     // The fields the old wheat loop got as far as reading the busy keys for
@@ -4057,7 +4285,12 @@ const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'pe
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
-interface VoteRun { id: string; k: number; options: VoteOption[]; started: number; mode: VoteMode; done: boolean; ballots: Ballot[]; voters: string[]; ac: AbortController }
+interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption[]; started: number; mode: VoteMode; done: boolean; ballots: Ballot[]; voters: string[]; ac: AbortController }
+
+/** X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo
+ *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
+const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
+const PROJECT_NONE = 'none', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
 
 /** A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). */
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);

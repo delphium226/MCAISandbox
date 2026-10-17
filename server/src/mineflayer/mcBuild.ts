@@ -582,8 +582,12 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
       else {
         // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
         // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
+        // (the view synced first: just after a withdrawal it can lack the logs fetched, and the old fallback, oak, failed "no
+        // oak_log in inventory" on a birch log the plan took, F238; failing a view, the log kind the plan took from storage)
+        if (st.input === 'any:logs') await syncInventory(a).catch(() => undefined);
         const spare = `${spareKind(i + 1)}_log`;
-        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? 'oak_log') : st.input ?? '';
+        const fetchedLog = Object.keys(plan.fromStock).find((n) => /_log$/.test(n));
+        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? fetchedLog ?? 'oak_log') : st.input ?? '';
         // (at the furnace held for the job when it is given one, S.9)
         const f = opts.furnace;
         await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1), ...(coal ? { coal } : {}), ...(f ? { at: `${f.x},${f.y},${f.z}` } : {}) }, signal);
@@ -1033,7 +1037,7 @@ async function runJob(a: BotAgent, job: Job, signal: AbortSignal, felled = 0): P
           // job stands at: beside the target instead, s30's review; a target inside the area keeps the stand, as before)
           const ja = job.claim?.area ?? job.area;
           const outside = c.pos[0] < ja.x1 - 2 || c.pos[0] > ja.x2 + 2 || c.pos[2] < ja.z1 - 2 || c.pos[2] > ja.z2 + 2;
-          if (GROW.on && outside && (!spot || Math.hypot(spot.x - c.pos[0], spot.z - c.pos[2]) > 24)) spot = besideTarget(a, job, c.pos) ?? spot;
+          if ((GROW.on || !!a.village()?.growth?.active?.project) && outside && (!spot || Math.hypot(spot.x - c.pos[0], spot.z - c.pos[2]) > 24)) spot = besideTarget(a, job, c.pos) ?? spot;
           if (spot) for (const name of bots) await a.world.rcon.command(`tp ${name} ${spot.x + 0.5} ${spot.y} ${spot.z + 0.5}`).catch(() => '');
           await sleep(300, signal);
           inBody = playersIn(a, c.pos, h);
@@ -3574,7 +3578,9 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
 async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('lay_out_houses: not in a village');
-  if (!GROW.on) throw new Error('lay_out_houses: growth is off (MC_GROW)');
+  // (X.2: a public work, one non-dwelling piece the village voted for: growth's path, without its on/off and houses rules)
+  const project = typeof args.project === 'string' && args.project ? args.project : undefined;
+  if (!GROW.on && !project) throw new Error('lay_out_houses: growth is off (MC_GROW)');
   if (!v.complete) throw new Error('lay_out_houses: the village is not complete yet');
   if (v.growth?.active) throw new Error(`lay_out_houses: neighbourhood ${v.growth.active.k} is still being built`);
   if (growBusy.has(v.name)) throw new Error('lay_out_houses: a neighbourhood is being laid out');
@@ -3600,8 +3606,9 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     const S = site.opt.size, houses = all.slice(0, site.opt.n);
     // (no await from here to the record: D7. The village may have changed during the survey: growth stopped, enough houses
     // for the members now, or the square taken by records written meanwhile, tested against the list read afresh)
-    if (!v.complete || v.growth?.active || v.growth?.stop) throw new Error('lay_out_houses: the village changed during the survey');
-    if (housesOf(v) >= a.world.growMembers(v).length) throw new Error('lay_out_houses: the village changed during the survey (enough houses)');
+    // (a public work goes on after growth stopped for want of house designs, as projectDue lets it: the X.2 review's 2)
+    if (!v.complete || v.growth?.active || (v.growth?.stop && !(project && /house design/.test(v.growth.stop)))) throw new Error('lay_out_houses: the village changed during the survey');
+    if (!project && housesOf(v) >= a.world.growMembers(v).length) throw new Error('lay_out_houses: the village changed during the survey (enough houses)');
     const square = { x1: site.x - Math.floor(S / 2), z1: site.z - Math.floor(S / 2), x2: site.x - Math.floor(S / 2) + S - 1, z2: site.z - Math.floor(S / 2) + S - 1 };
     const clash = home && growTaken(a, v, home, growReach(S) + Math.ceil(S / 2) + 1).find((q) => overlaps(square, q));
     if (clash) throw new Error(`lay_out_houses: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
@@ -3626,13 +3633,20 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     const plot = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 };
     // (the style voted for, spec_vote1: kept on the neighbourhood, and the vote's decision spent only now, the critique's H1)
     const style = typeof args.style === 'string' && args.style ? args.style : undefined;
-    g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '', ...(style ? { style } : {}) };
-    delete g.next;
+    g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '', ...(style ? { style } : {}), ...(project ? { project } : {}) };
+    // (a public work spends the work vote's decision, a neighbourhood the style vote's)
+    if (project) delete g.work;
+    else delete g.next;
     delete g.tries;
     delete g.noSite;
     a.world.villages.save();
     // (with the ladder, the rung taken and what came of its field: s30's food step)
     const rung = ladder ? ` (${optionText(site.opt)}${site.opt.slots >= 0 ? `: ${lay.farm ? `field at ${areaText(lay.farm)}, ${lay.slots?.length ?? 0} slots` : `no field, ${lay.farmWhy ?? 'refused'}`}` : ''})` : '';
+    if (project) {
+      console.log(`[work] ${v.name}: layout ${n} (public work ${project}) posted by ${a.name} on ${S}x${S} at ${areaText(plot)}; ${made.length} tasks`);
+      a.world.villages.note(v, `${a.name} laid out the public work ${project} at ${areaText(plot)}`);
+      return `laid out the public work ${project} on ${S}x${S} at ${areaText(plot)}, ${made.length} tasks posted`;
+    }
     console.log(`[grow] ${v.name}: layout ${n} (neighbourhood ${k}) posted by ${a.name}: ${builds.length} houses (${lay.buildings.join(', ')}) on ${S}x${S}${rung} at ${areaText(plot)}, members ${members}, houses ${H}; ${made.length} tasks`);
     a.world.villages.note(v, `${a.name} laid out neighbourhood ${k}: ${lay.buildings.join(', ')} at ${areaText(plot)}${lay.farm ? ' with a wheat field' : ''}`);
     return `laid out neighbourhood ${k}: ${builds.length} houses on ${S}x${S}${rung} at ${areaText(plot)}, ${made.length} tasks posted`;

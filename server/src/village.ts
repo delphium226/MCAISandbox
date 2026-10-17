@@ -469,12 +469,20 @@ export interface Village {
    */
   growth?: {
     active?: { k: number; layout: number; from: number; at: number; by: string; plot: Area; houses: string[];
-      builds: string[]; members: number; before: number; changed: number; sig: string; style?: string };
+      builds: string[]; members: number; before: number; changed: number; sig: string; style?: string;
+      /** X.2: a public work (the piece's design name), not a neighbourhood of houses. */
+      project?: string };
     past: Array<{ k: number; layout: number; at: number; end: number; houses: number; built: number; failed: number;
-      members: number; why?: 'built' | 'failed' | 'stuck'; left?: number; style?: string }>;
+      members: number; why?: 'built' | 'failed' | 'stuck'; left?: number; style?: string; project?: string }>;
     /** The next neighbourhood's style, decided by a vote (spec_vote1): kept until its layout is posted (the critique's
      *  H1: a failed lay-out does not vote again). style '' and vote 'none': no vote this time (growth as before). */
     next?: { style: string; vote: string };
+    /** X.2: the next public work decided by a vote (a piece, or '' for "no new work"), kept until its layout is posted;
+     *  pieces that failed as a project (never offered again); when the last "no new work" won. */
+    work?: { piece: string; vote: string; at: number };
+    projectBad?: string[];
+    /** X.2: public works' own failures in a row and back-off (house growth's `fails`/`backoff` stay its own). */
+    projectFails?: number; projectBackoff?: number;
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];

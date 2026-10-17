@@ -1487,14 +1487,17 @@ function villageLife(v) {
   if (gr && (gr.active || gr.past?.length || gr.stop)) {
     const a = gr.active, past = gr.past || [];
     const built = a ? a.builds.filter((id) => v.tasks.some((t) => t.id === id && t.status === 'done')).length : 0;
-    items.push(['Growing', a ? `neighbourhood ${a.k}: ${built}/${a.builds.length} houses` : `${plural(past.length, 'neighbourhood')}, ${plural(past.reduce((s, p) => s + p.built, 0), 'house')} built`,
+    // (X.2: a public work on the board, and the works done, apart from the neighbourhoods)
+    const hoods = past.filter((p) => !p.project), works = past.filter((p) => p.project && p.why === 'built');
+    items.push(['Growing', a ? (a.project ? `public work ${a.project}: ${built}/${a.builds.length} built` : `neighbourhood ${a.k}: ${built}/${a.builds.length} houses`)
+      : `${plural(hoods.length, 'neighbourhood')}, ${plural(hoods.reduce((s, p) => s + p.built, 0), 'house')} built${works.length ? `; ${plural(works.length, 'public work')}` : ''}`,
       gr.stop ? `stopped: ${gr.stop}` : a ? `for ${plural(a.members, 'member')}` : '']);
   }
   // (spec_vote1: the last vote, its tally and what the next neighbourhood will be)
   if (v.vote) {
     const vt = v.vote, nm = (id) => (vt.options.find((o) => o.id === id) || {}).name || id;
     const cast = vt.ballots.filter((b) => b.choice).length;
-    items.push(['Last vote', `${nm(vt.winner)} for neighbourhood ${vt.k}: ${vt.options.map((o) => `${o.name} ${vt.tally[o.id] || 0}`).join(', ')}`,
+    items.push(['Last vote', `${nm(vt.winner)} for ${vt.topic === 'work' ? 'public work' : 'neighbourhood'} ${vt.k}: ${vt.options.map((o) => `${o.name} ${vt.tally[o.id] || 0}`).join(', ')}`,
       `${cast} of ${vt.ballots.length} ballots, ${vt.mode}${vt.tie ? ', a tie drawn' : ''}`]);
   }
   // (B.4: the torches confirmed standing in the buildings and the mine, from each part's record; the spots still unlit are
