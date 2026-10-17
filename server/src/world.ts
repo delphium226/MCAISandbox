@@ -207,6 +207,8 @@ export interface WorldAdapter {
   /** A2: the panel's compact line and the last full decision (cached fields; never builds a menu, C10). */
   choiceStatus?(agent: WorldAgent): ChoiceStatus | null;
   lastDecision?(agent: WorldAgent): (ChoiceMeta & { chosen: string | null; at: number }) | null;
+  /** s34: the agent's last chore ends in its village (kind, option id, ok, productive, minutes, when, the end's line). */
+  choiceHistory?(agent: WorldAgent): Array<{ kind: string; id: string; ok: boolean; cut: boolean; productive: boolean; minutes: number; at: number; line: string }>;
   choiceSummary?(village: string): ChoiceSummary | null;
   /** s30's appetite: whether this member may claim a board task now (false: peckish with food in storage, or hungry and
    *  the task is no food work); true wherever the village keeps no appetite. Brains filter their claims by task with it. */

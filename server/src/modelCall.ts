@@ -436,7 +436,35 @@ function replayed(req: CallRequest, n: number, key: string): Recorded | null {
   return replay.bySeq.get(`${req.agent}|${req.kind}|${n}`) ?? null;
 }
 
+/** One model call as the panel's Thoughts tab shows it (s34): what the agent saw, its reasoning and its answer. */
+export interface RecentCall { at: number; kind: string; model: string; level?: string; ms: number; system: string; user: string; thinking: string; text: string; calls: Array<{ name: string; input: unknown }>; promptTokens?: number; outputTokens?: number }
+/** Each agent's last RECENT_KEEP calls in memory, by agent (lower-cased); the recording on disk keeps them all. */
+const RECENT_KEEP = 40, RECENT_CHARS = 12000;
+const recentByAgent = new Map<string, RecentCall[]>();
+const systemTexts = new Map<string, string>();
+
+/** An agent's recent model calls, newest last (s34: the panel's Thoughts tab). */
+export function recentCalls(agent: string): RecentCall[] {
+  return recentByAgent.get(agent.toLowerCase()) ?? [];
+}
+
+function remember(req: CallRequest, sys: string, reply: Reply, ms: number) {
+  if (!systemTexts.has(sys)) systemTexts.set(sys, req.system.slice(0, RECENT_CHARS));
+  const k = req.agent.toLowerCase();
+  const list = recentByAgent.get(k) ?? [];
+  list.push({
+    at: Date.now(), kind: req.kind, model: label(req.spec), level: req.level, ms, system: systemTexts.get(sys)!, user: req.user.slice(0, RECENT_CHARS),
+    thinking: (reply.thinking ?? '').slice(0, RECENT_CHARS), text: (reply.text ?? '').slice(0, RECENT_CHARS),
+    calls: (reply.calls ?? []).map((c) => ({ name: c.name, input: c.input })), promptTokens: reply.promptTokens, outputTokens: reply.outputTokens,
+  });
+  if (list.length > RECENT_KEEP) list.splice(0, list.length - RECENT_KEEP);
+  recentByAgent.set(k, list);
+}
+
 function record(req: CallRequest, n: number, key: string, sys: string, reply: Reply, ms: number) {
+  try {
+    remember(req, sys, reply, ms);
+  } catch { /* the panel's view only */ }
   if (!RECORD_FILE) return;
   try {
     let out = '';

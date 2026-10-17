@@ -4245,6 +4245,11 @@ export class MineflayerWorld implements WorldAdapter {
     return d ? { ...last, state: 'none' } : null;
   }
 
+  choiceHistory(agent: WorldAgent) {
+    const v = agent.village();
+    return v ? this.choiceStats.agentHistory(v.name, agent.name) : [];
+  }
+
   lastDecision(agent: WorldAgent): (ChoiceMeta & { chosen: string | null; at: number }) | null {
     return this.decisions.get(agent.name.toLowerCase()) ?? null;
   }

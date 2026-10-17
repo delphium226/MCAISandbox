@@ -8,6 +8,9 @@
  *                       left out while `designsEtag` still matches the page's copy)
  *   GET /api/agents/:name/calls  the agent's last planner and executor calls in full (prompt and reply); the overview
  *                       carries only their time, length and tokens
+ *   GET /api/agents/:name/thoughts  the agent's last 40 model calls (s34): kind, what it saw, its reasoning, its answer
+ *   GET /api/agents/:name/mind      what the agent carries (s34): its memory fields, temperament, persona, chore record
+ *                                   (not /memory: the agent API's own route, read by the watch scripts)
  *   GET /api/agents/:name/decision  the agent's last chore decision in full (A2: menu, order shown, choice, reason,
  *                       prompt); the overview carries only `choice`, its one-line status
  *   GET /api/models     the models Ollama has loaded (name, VRAM, cloud)
@@ -22,12 +25,12 @@ import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { WorldAdapter, WorldAgent } from './world';
 import { readJson, sendJson } from './api';
-import { OLLAMA_ROUTES, gate } from './modelCall';
+import { OLLAMA_ROUTES, gate, recentCalls } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
 import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
-import { personaOf } from './temperament';
+import { TEMPERAMENT_MODE, kindWeights, personaOf, temperament } from './temperament';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -169,6 +172,18 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }
 
+/** A memory object made safe to send: long strings cut, long arrays cut to their last 30, depth 5 (s34's Memory tab). */
+function capped(x: unknown, depth = 0): unknown {
+  if (typeof x === 'string') return x.length > 2000 ? `${x.slice(0, 2000)}... (${x.length} chars)` : x;
+  if (x === null || typeof x !== 'object') return typeof x === 'function' ? undefined : x;
+  if (depth >= 5) return '...';
+  if (Array.isArray(x)) return (x.length > 30 ? x.slice(-30) : x).map((y) => capped(y, depth + 1));
+  if (x instanceof Set || x instanceof Map) return `(${x.constructor.name} of ${x.size})`;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) out[k] = capped(v, depth + 1);
+  return out;
+}
+
 /** `?agents=A,B` as a set of names, or undefined for every agent. */
 function agentsParam(url: URL): Set<string> | undefined {
   const names = url.searchParams.get('agents')?.split(',').map((s) => s.trim()).filter(Boolean);
@@ -229,6 +244,23 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     if (!a) return sendJson(res, 404, { error: `no agent called ${name}` }), true;
     const st = a.brain?.status?.(a);
     return sendJson(res, 200, { name, planner: st?.lastPlannerCall ?? null, executor: st?.lastExecutorCall ?? null }), true;
+  }
+  // s34: an agent's recent model calls with its reasoning (in memory, the last 40), and what it carries
+  const thoughts = /^\/api\/agents\/([^/]+)\/thoughts$/.exec(url.pathname);
+  if (thoughts) {
+    const name = decodeURIComponent(thoughts[1]);
+    return sendJson(res, 200, { name, calls: recentCalls(name) }), true;
+  }
+  const memory = /^\/api\/agents\/([^/]+)\/mind$/.exec(url.pathname);
+  if (memory) {
+    const name = decodeURIComponent(memory[1]);
+    const a = w.agentList().find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!a) return sendJson(res, 404, { error: `no agent ${name}` }), true;
+    const tv = temperament(a.name);
+    return sendJson(res, 200, {
+      name: a.name, memory: capped(a.memory), temperament: { mode: TEMPERAMENT_MODE, vector: tv, weights: kindWeights(tv), persona: (typeof a.memory.persona === 'string' && a.memory.persona) || personaOf(a.name) },
+      chores: w.choiceHistory?.(a) ?? [],
+    }), true;
   }
   // A2: the agent's last chore decision in full (the menu with its facts, the order shown, the choice, the reason,
   // latency, tokens and the prompt), for the panel's Choice tab

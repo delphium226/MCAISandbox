@@ -570,6 +570,11 @@ export class ChoiceStats {
     if (list.length > KEEP) list.splice(0, list.length - KEEP);
   }
 
+  /** One agent's last `n` chore ends in a village, newest last (s34: the panel's Memory tab). */
+  agentHistory(village: string, agent: string, n = 30): ChoiceOutcome[] {
+    return this.list(village).filter((e) => e.agent === agent).slice(-n);
+  }
+
   private list(village: string): ChoiceOutcome[] {
     return this.ends.get(village) ?? [];
   }

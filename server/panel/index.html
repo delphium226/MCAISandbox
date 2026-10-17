@@ -310,7 +310,7 @@ $('mode').onclick = () => {
   history.replaceState(null, '', simple ? '#simple' : '#detailed');
   applyMode();
   if (lastData) render(lastData);
-  if (!simple) { refreshMaps(); refreshCalls(); }
+  if (!simple) { refreshMaps(); refreshCalls(); refreshExtras(); }
 };
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
 $('player').value = store.get('panel.player', '');
@@ -439,6 +439,9 @@ function renderAgent(a) {
       </div></div>`;
   else if (tab === 'stats') body = renderStats(a.stats) + renderRescues(a.rescues);
   else if (tab === 'choice') body = choiceBody(a);
+  else if (tab === 'thoughts') body = thoughtsBody(a);
+  else if (tab === 'mind') body = mindBody(a);
+  else if (tab === 'votes') body = a.village ? votesBody(a.village, a.name) : '<div class="empty">in no village</div>';
   return `<div class="card dcard">
     <div class="card-head">
       <i class="adot" style="background:${agentColor(a.name)}" title="its colour on the maps"></i><span class="name">${esc(a.name)}</span>
@@ -462,8 +465,8 @@ function renderAgent(a) {
       <span title="executor calls and their average time, ~${n('execOutTokensAvg')} output tokens a turn">exec ${n('execCalls')} × ${Math.round(n('execMsAvg') / 100) / 10}s</span>
       <span title="actions done / failed">${n('actionsDone')} done${n('actionsFailed') ? ` · <span class="bad">${n('actionsFailed')} failed</span>` : ''}</span>
     </div>
-    ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
-      (a.choice || tab === 'choice') && ['choice', 'Choice'], ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
+    ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['thoughts', 'Thoughts'], ['mind', 'Memory'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
+      (a.choice || tab === 'choice') && ['choice', 'Choice'], a.village && ['votes', 'Votes'], ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
       `<button type="button" class="tab fold" data-card="${esc(a.name)}" data-cardto="closed" title="Fold this card to one line">Fold ▴</button>`)}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
     <div class="acts">${watch}
@@ -606,6 +609,102 @@ function seenBody(c) {
     <div class="label">It answered</div>${calls ? `<ul class="list mono">${calls}</ul>` : ''}${c.text ? `<div class="sub">${esc(c.text)}</div>` : ''}${!calls && !c.text ? '<div class="empty">nothing</div>' : ''}`;
 }
 
+// ---- s34: votes, an agent's thoughts and what it carries. Fetched only while their tab is open, every 8 s at most ----
+const extraData = new Map(); // key -> { at, data, err }
+const EXTRA_MS = 8000;
+async function fetchExtra(key, path) {
+  const e = extraData.get(key);
+  if (e && Date.now() - e.at < EXTRA_MS) return false;
+  extraData.set(key, { ...(e || {}), at: Date.now() });
+  try { extraData.set(key, { at: Date.now(), data: await api(path) }); }
+  catch (err) { extraData.set(key, { at: Date.now(), data: e && e.data, err: String((err && err.message) || err) }); }
+  return true;
+}
+async function refreshExtras() {
+  if (paused || simple || !lastData) return;
+  const open = new Set(openCardNames());
+  const jobs = [];
+  for (const a of lastData.agents || []) {
+    if (!open.has(a.name)) continue;
+    const tab = openTabs[`agent:${a.name}`], q = encodeURIComponent(a.name);
+    if (tab === 'thoughts') jobs.push(fetchExtra(`thoughts:${a.name}`, `/api/agents/${q}/thoughts`));
+    if (tab === 'mind') jobs.push(fetchExtra(`mind:${a.name}`, `/api/agents/${q}/mind`));
+    if (tab === 'votes' && a.village) jobs.push(fetchExtra(`votes:${a.village}`, `/api/votes?village=${encodeURIComponent(a.village)}`));
+  }
+  for (const v of lastData.villages || []) if (openTabs[`village:${v.name}`] === 'votes') jobs.push(fetchExtra(`votes:${v.name}`, `/api/votes?village=${encodeURIComponent(v.name)}`));
+  if (!jobs.length) return;
+  if ((await Promise.all(jobs)).some(Boolean) && lastData) render(lastData);
+}
+/** Loading, an error, or an agent server from before these views (its routes answer 404). */
+function extraState(key) {
+  const e = extraData.get(key);
+  if (!e || (!e.data && !e.err)) return '<div class="empty">fetching…</div>';
+  if (!e.data) return `<div class="empty">${/: 404/.test(e.err) ? 'this agent server predates this view (s34): it shows after its next start' : esc(e.err)}</div>`;
+  return '';
+}
+const preview = (x) => (typeof x === 'string' ? x : JSON.stringify(x) ?? '').slice(0, 140);
+const VOTE_TOPICS = { style: 'Neighbourhood style', work: 'Public work' };
+/** Votes of a village, newest first: options with their facts and tally, every ballot with its reason; with `agent`, only
+ *  the votes it took part in, its own ballot first. */
+function votesBody(village, agent) {
+  const st = extraState(`votes:${village}`);
+  if (st) return st;
+  const rec = (extraData.get(`votes:${village}`).data || [])[0] || {};
+  const votes = [...(rec.votes || [])].reverse();
+  const pending = rec.work && rec.work.piece ? `<div class="sub">decided, not laid out yet: ${esc(rec.work.piece)}</div>` : '';
+  if (!votes.length) return `${pending}<div class="empty">no vote yet</div>`;
+  const rows = votes.map((vt) => {
+    const nm = (id) => (vt.options.find((o) => o.id === id) || {}).name || id;
+    const mine = agent ? vt.ballots.find((b) => b.agent === agent) : null;
+    if (agent && !mine) return '';
+    const cast = vt.ballots.filter((b) => b.choice).length;
+    const max = Math.max(1, ...Object.values(vt.tally || {}));
+    const ballot = (b) => `<li><b>${esc(b.agent)}</b> → ${b.choice ? esc(nm(b.choice)) : `<span class="sub">no vote (${esc(b.why || '?')})</span>`}`
+      + `${b.predicted && b.predicted !== b.choice ? ` <span class="sub">(its temperament predicted ${esc(nm(b.predicted))})</span>` : ''}`
+      + `${b.source === 'predicted' ? ' <span class="sub">(predicted ballot, no model call)</span>' : ''}${b.reason && b.source !== 'predicted' ? `<div class="sub">“${esc(b.reason)}”</div>` : ''}</li>`;
+    const opts = vt.options.map((o) => `<li><b>${esc(o.name)}</b>${o.id === vt.winner ? ' <span class="state" style="--c:var(--done)">won</span>' : ''} `
+      + `<span class="mono">${(vt.tally || {})[o.id] || 0}</span> <span style="display:inline-block;height:6px;vertical-align:middle;border-radius:3px;background:var(--accent);width:${Math.round((80 * ((vt.tally || {})[o.id] || 0)) / max)}px"></span>`
+      + `<div class="sub">${esc(o.facts)}</div></li>`).join('');
+    const others = vt.ballots.filter((b) => b !== mine);
+    const title = `${esc(VOTE_TOPICS[vt.topic] || vt.topic)} ${esc(vt.k)}: <b>${esc(nm(vt.winner))}</b> <span class="sub">${ago(vt.closedAt || vt.at)} ago, ${cast} of ${vt.ballots.length} ballots, ${esc(vt.mode)}${vt.tie ? ', a tie drawn' : ''}${mine ? `; it voted ${mine.choice ? esc(nm(mine.choice)) : 'none'}` : ''}</span>`;
+    return det(`vote:${vt.id}:${agent || ''}`, title, `${mine ? `<div class="label">Its ballot</div><ul class="list">${ballot(mine)}</ul>` : ''}<div class="label">Options</div><ul class="list">${opts}</ul>`
+      + `<div class="label">${mine ? 'The others' : 'Ballots'}</div><ul class="list">${others.map(ballot).join('')}</ul>`, !agent && vt === votes[0]);
+  }).join('');
+  return `${pending}${rows || '<div class="empty">it has not voted yet</div>'}`;
+}
+/** An agent's recent model calls, newest first: what it decided at a glance, its reasoning, what it saw. */
+function thoughtsBody(a) {
+  const st = extraState(`thoughts:${a.name}`);
+  if (st) return st;
+  const calls = [...(extraData.get(`thoughts:${a.name}`).data.calls || [])].reverse();
+  if (!calls.length) return '<div class="empty">no model call yet</div>';
+  return `<div class="sub">its last ${calls.length} model calls, newest first (planning, acting, choosing a chore, voting...); open one for its reasoning and what it saw</div>`
+    + calls.map((c) => {
+      const ans = (c.calls || []).map((x) => `${x.name}(${JSON.stringify(x.input)})`).join('; ') || c.text || '';
+      const head = `<b>${esc(c.kind)}</b> <span class="sub">${ago(c.at)} ago, ${Math.round(c.ms / 100) / 10}s${c.outputTokens ? `, ${c.outputTokens} tokens out` : ''}</span><div class="sub clamp">${esc(c.thinking ? `thinks: ${c.thinking.slice(0, 220)}` : '')}</div><div class="mono sub clamp">→ ${esc(ans.slice(0, 200) || '(nothing)')}</div>`;
+      return det(`thought:${a.name}:${c.at}`, head, `${c.thinking ? `<div class="label">Its reasoning</div><pre class="prompt">${esc(c.thinking)}</pre>` : '<div class="sub">the model returned no reasoning</div>'}`
+        + `<div class="label">It answered</div><pre class="prompt">${esc(ans || '(nothing)')}</pre><div class="label">What it saw</div><pre class="prompt">${esc(c.user)}</pre>`
+        + det(`thought:sys:${a.name}:${c.at}`, 'its system prompt', `<pre class="prompt">${esc(c.system)}</pre>`));
+    }).join('');
+}
+/** What an agent carries: persona and temperament, the chores it has done, every memory field. */
+function mindBody(a) {
+  const st = extraState(`mind:${a.name}`);
+  if (st) return st;
+  const d = extraData.get(`mind:${a.name}`).data;
+  const t = d.temperament || {};
+  const traits = t.vector ? Object.entries(t.vector).map(([k, x]) => `${esc(k)} <b>${x > 0 ? '+' : ''}${Number(x).toFixed(2)}</b>`).join(' · ') : '';
+  const weights = t.weights ? Object.entries(t.weights).filter(([k]) => k !== 'eat').sort((x, y) => y[1] - x[1]).map(([k, w]) => `${esc(k)} ${w}`).join(', ') : '';
+  const chores = [...(d.chores || [])].reverse().map((c) => `<li>${c.ok ? '✓' : '<span class="bad">✗</span>'} <b>${esc(c.kind)}</b> <span class="mono sub">${esc(c.id)}</span> `
+    + `<span class="sub">${ago(c.at)} ago, ${c.minutes} min${c.ok && !c.productive ? ', nothing gained' : ''}${c.cut ? ', cut short' : ''}</span>${c.line ? `<div class="sub clamp">${esc(c.line)}</div>` : ''}</li>`).join('');
+  const mem = d.memory || {};
+  const fields = Object.keys(mem).sort().map((k) => det(`mind:${a.name}:${k}`, `<b>${esc(k)}</b> <span class="sub">${esc(preview(mem[k]))}</span>`, `<pre class="prompt">${esc(JSON.stringify(mem[k], null, 2))}</pre>`)).join('');
+  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}`
+    + `${traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : ''}`
+    + `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`
+    + `<div class="label">Memory <span class="sub">(every field it keeps: plan, notes, site, stats...)</span></div>${fields || '<div class="empty">empty</div>'}`;
+}
+
 /** The storage hut's table and furnace once they stand (S.5: placed before the hut), for the storage tab's line. */
 const stationsText = (v) => {
   const s = Object.entries(v.stations || {}).map(([n, p]) => `${n === 'crafting_table' ? 'table' : esc(n)} <span class="mono">${p.x},${p.y},${p.z}</span>`);
@@ -645,6 +744,7 @@ function renderVillage(v) {
   else if (tab === 'designs') body = list(designs, (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''));
   else if (tab === 'ground') body = list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`);
   else if (tab === 'log') body = list((v.log || []).slice(-25).reverse(), (l) => `<span class="clamp" title="${esc(l)}">${esc(l)}</span>`);
+  else if (tab === 'votes') body = votesBody(v.name);
   // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
   else if (tab === 'tech') {
     const wk = (v.layouts || [])[0]?.works;
@@ -663,7 +763,7 @@ function renderVillage(v) {
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['log', 'Log']])}
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }
@@ -1627,7 +1727,7 @@ document.addEventListener('click', async (e) => {
     if (af) { actFilter = actFilter === af.dataset.actf ? '' : af.dataset.actf; store.set('panel.actFilter', actFilter); }
     else { cardPrefs[cb.dataset.card] = cb.dataset.cardto; store.set('panel.cards', JSON.stringify(cardPrefs)); }
     if (lastData) render(lastData);
-    refreshMaps(); refreshCalls();
+    refreshMaps(); refreshCalls(); refreshExtras();
     return;
   }
   const tb = e.target.closest('button[data-tab]');
@@ -1639,6 +1739,7 @@ document.addEventListener('click', async (e) => {
     if (lastData) render(lastData);
     if (openTabs[k] === 'map') refreshMaps();
     if (openTabs[k] === 'exec' || openTabs[k] === 'planner' || openTabs[k] === 'choice') refreshCalls();
+    if (openTabs[k] === 'thoughts' || openTabs[k] === 'mind' || openTabs[k] === 'votes') refreshExtras();
     return;
   }
   const b = e.target.closest('button[data-act]');
@@ -1687,6 +1788,7 @@ async function refresh() {
     return;
   }
   refreshCalls();
+  refreshExtras();
 }
 
 // Token use since the agent server started (all agents, not per run) and the hourly cloud budget

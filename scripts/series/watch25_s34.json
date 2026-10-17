@@ -1,0 +1,15 @@
+{
+  "about": "A new model-driven village at 25 for the user to watch (s34): gpt-oss for every role, 1x survival, Mayor + Worker1-24 on minevale3 (test world 1, reset from the snapshot), then 45 minutes after completion: growth to a house per member, the catalogue, furnishing and public works voted by the model.",
+  "out": "runs/2026-10-17/s34/watch25",
+  "site": "minevale3",
+  "preset": "watch",
+  "workers": 24,
+  "minutes": 45,
+  "after": 45,
+  "objective": "Build a small village: a few houses, a storage hut and a meeting place for all of us",
+  "checks": ["agent_log"],
+  "timeout_min": 110,
+  "runs": [
+    {"name": "Watch25"}
+  ]
+}
