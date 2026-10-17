@@ -565,3 +565,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    the distinct activities (58 against 27) and busy rose in the first 20 minutes, then every arm sat at 0-1% with
    growth and food on too (growth reached a house per member in ~15 min; food was made three times faster than eaten).
    A 20-minute window would have read as a win (lessons 130, 136): judge by 10-minute bins over an hour.
+145. **A library crash found by reading is a guard to write, not a backlog line** (s34, F242): F153(a) was read in the
+   pathfinder's code in session 17 and left in the backlog as "not seen in any run"; eleven sessions later public works put
+   doors on every path and it took 25 bots down at once. Guard the library's own state in the patch when the edge is
+   found, and keep a logged process-level net so one bot's exception cannot end every bot's run (lesson 104).

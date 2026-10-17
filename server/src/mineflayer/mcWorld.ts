@@ -1973,7 +1973,7 @@ export class MineflayerWorld implements WorldAdapter {
     const built = new Set([...v.structures.map((s) => s.kind), ...(v.layouts ?? []).flatMap((l) => l.buildings)]);
     const bad = new Set(g.projectBad ?? []);
     const own = v.vanillaBiome ? villageBiome(v.vanillaBiome) : this.currentStyle(v) ?? 'plains';
-    const kindOf = (name: string) => name.replace(/^(plains|desert|savanna|snowy|taiga)_/, '').replace(/_\d+$/, '').replace(/_(house|shop)$/, '').replace(/s$/, '');
+    const kindOf = workKind;
     const home = villageHome(v);
     const y = v.plots[0]?.y ?? 64;
     const near = home ? this.growMembers(v).find((a) => a.bot.entity && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) <= 32) : undefined;
@@ -1991,19 +1991,64 @@ export class MineflayerWorld implements WorldAdapter {
         const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, 96) : null;
         if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) continue;
       }
+      // (with the quarter it leads: its companions' uncommon materials checked the same way, X.2 part 2a)
+      const q = this.quarterOf(v, w.design.name);
+      if (!q) continue;
+      const others: Counts = {};
+      for (const c of q.pieces.slice(1)) for (const [k, n] of Object.entries(c.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) others[k] = (others[k] ?? 0) + n;
+      if (Object.keys(others).length) {
+        const found = near && home ? this.materialsNear(near.name, others, home.x, y, home.z, 96) : null;
+        if (!found || Object.entries(others).some(([k, n]) => (found[k] ?? 0) < Math.ceil(n))) continue;
+      }
       kinds.add(kind);
       const words = kind.replace(/_/g, ' ');
-      const main = Object.entries(w.gather).filter(([, q]) => q >= 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, q]) => `~${Math.round(q)} ${k.replace(/^any:/, '').replace(/_/g, ' ')}`).join(', ');
-      const look = STYLE_LOOK[w.biome]?.look ?? `${w.biome} building`;
+      const rest = q.pieces.slice(1).map((c) => workKind(c.design.name).replace(/_/g, ' '));
+      const gather: Counts = {};
+      for (const c of q.pieces) for (const [k, n] of Object.entries(c.gather)) gather[k] = (gather[k] ?? 0) + n;
+      const main = Object.entries(gather).filter(([, n]) => n >= 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `~${Math.round(n)} ${k.replace(/^any:/, '').replace(/_/g, ' ')}`).join(', ');
       out.push({
-        id: w.design.name, name: `A ${words} (${w.biome})`,
-        facts: `a ${w.design.width}x${w.design.depth} ${words} in the ${w.biome} look (${look}); ~${w.units} units to gather (${main}); then furnished and lit`.slice(0, 200),
-        current: false, novel: true, units: w.units, volume: w.volume,
+        id: w.design.name, name: rest.length ? `A ${words}'s quarter (${w.biome})` : `A ${words} (${w.biome})`,
+        facts: `${rest.length ? `a ${words}${rest.length > 1 ? `, a ${rest.slice(0, -1).join(', a ')} and a ${rest[rest.length - 1]}` : ` and a ${rest[0]}`}` : `a ${w.design.width}x${w.design.depth} ${words}`} in the ${w.biome} look on one street; ~${q.units} units to gather (${main}); then furnished and lit`.slice(0, 200),
+        current: false, novel: true, units: q.units, volume: q.pieces.reduce((s, c) => s + c.volume, 0),
       });
     }
     const rested = !!g.work && !g.work.piece;
     if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
     return out;
+  }
+
+  /**
+   * A public work's quarter (X.2 part 2a): the voted piece and up to QUARTER - 1 companions of its biome, the cheapest
+   * not built here nor refused, each of a kind no other piece of it has, at most one over a house's budget (postLayout's
+   * village rule), on the smallest pad that places them (padFor drops the last until they fit). A lone piece built in
+   * 1.5-3.5 min and the rests and gaps filled the rest of each cycle (F241). null when the lead is not in the pool.
+   */
+  quarterOf(v: Village, lead: string): { pieces: Array<NonNullable<MineflayerWorld['works']>[number]>; size: number; units: number } | null {
+    const pool = this.publicWorks(), L = pool.find((w) => w.design.name === lead);
+    if (!L) return null;
+    const g = v.growth ?? { past: [] };
+    const built = new Set([...v.structures.map((s) => s.kind), ...(v.layouts ?? []).flatMap((l) => l.buildings)]);
+    const bad = new Set(g.projectBad ?? []);
+    const pieces = [L];
+    const kinds = new Set([workKind(L.design.name)]);
+    let big = L.units > HOUSE_UNITS ? 1 : 0;
+    for (const w of pool.filter((x) => x.biome === L.biome && x.design.name !== lead && !built.has(x.design.name) && !bad.has(x.design.name)).sort((p, q) => p.units - q.units || p.design.name.localeCompare(q.design.name))) {
+      if (pieces.length >= QUARTER) break;
+      if (kinds.has(workKind(w.design.name)) || (w.units > HOUSE_UNITS && big)) continue;
+      pieces.push(w);
+      kinds.add(workKind(w.design.name));
+      if (w.units > HOUSE_UNITS) big++;
+    }
+    // (no larger than the room a failed survey left: companions dropped until the pad fits, F243)
+    const room = g.workRoom ?? Infinity;
+    let pad = padFor(pieces.map((w) => w.design));
+    while (pad && pad.size > room && pieces.length > 1) {
+      pieces.pop();
+      pad = padFor(pieces.map((w) => w.design));
+    }
+    if (!pad || pad.size > room) return null;
+    const kept = pieces.slice(0, pad.n);
+    return { pieces: kept, size: pad.size, units: kept.reduce((s, w) => s + w.units, 0) };
   }
 
   /** Whether a public work may start now (spec_x2 2): growth has nothing to do, nothing on the board or queued, a worker
@@ -2034,7 +2079,7 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (g.work && !g.work.piece && now - g.work.at < PROJECT_REST_MS) return null;
     // (nothing buildable found lately on the same buildings and refusals: not searched again for 5 minutes, the review's 4)
-    const noneSig = `${v.structures.length}|${(v.layouts ?? []).length}|${g.projectBad?.length ?? 0}`, none = this.workNone.get(v.name);
+    const noneSig = `${v.structures.length}|${(v.layouts ?? []).length}|${g.projectBad?.length ?? 0}|${g.workRoom ?? ''}`, none = this.workNone.get(v.name);
     if (none && none.sig === noneSig && none.until > now) return null;
     const options = this.projectOptions(v);
     if (!options.some((o) => o.id !== PROJECT_NONE) || (options.length < 2 && options[0]?.id === PROJECT_NONE)) {
@@ -2085,6 +2130,16 @@ export class MineflayerWorld implements WorldAdapter {
   private projectFailed(v: Village, piece: string, why: string) {
     if (why === 'cancelled') return;
     const g = (v.growth ??= { past: [] });
+    // No free square of that size: the land's fault, not the piece's; later works ask for smaller pads (F243)
+    const noSite = /^lay_out_houses: no free (\d+)x\d+ site/.exec(why);
+    if (noSite) {
+      g.workRoom = Math.min(g.workRoom ?? Infinity, Number(noSite[1]) - 1);
+      delete g.work;
+      g.projectBackoff = Date.now() + 2 * 60000;
+      this.villages.save();
+      console.log(`[work] ${v.name}: no room for the public work ${piece} (${why.slice(0, 120)}); works now ask for pads up to ${g.workRoom}x${g.workRoom}`);
+      return;
+    }
     g.projectBad = [...new Set([...(g.projectBad ?? []), piece])];
     delete g.work;
     g.projectFails = (g.projectFails ?? 0) + 1;
@@ -2099,8 +2154,9 @@ export class MineflayerWorld implements WorldAdapter {
     const piece = this.projectFor(v, now);
     if (!piece) return;
     const g = (v.growth ??= { past: [] });
-    const w = this.publicWorks().find((x) => x.design.name === piece);
-    if (!w) {
+    const q = this.quarterOf(v, piece);
+    const w = q?.pieces[0];
+    if (!q || !w) {
       g.projectBad = [...new Set([...(g.projectBad ?? []), piece])];
       delete g.work;
       this.villages.save();
@@ -2109,16 +2165,17 @@ export class MineflayerWorld implements WorldAdapter {
     const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
     const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
     if (!agent) return;
-    if (!v.designs[piece]) v.designs[piece] = structuredClone(w.design);
+    for (const c of q.pieces) if (!v.designs[c.design.name]) v.designs[c.design.name] = structuredClone(c.design);
+    const names = q.pieces.map((c) => c.design.name);
     let st: ActionStatus;
     try {
-      st = agent.enqueue('lay_out_houses', { chore: true, houses: piece, size: w.size, project: piece });
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: names.join(','), size: q.size, project: piece });
     } catch (e) {
       console.log(`[work] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
       return;
     }
     this.setChore(v, agent, 'grow', [st], `lay out the public work ${piece}`, (why) => this.projectFailed(v, piece, why));
-    console.log(`[work] ${v.name}: ${agent.name} lays out the public work ${piece} (${w.units} units) on ${w.size}x${w.size}`);
+    console.log(`[work] ${v.name}: ${agent.name} lays out the public work ${piece}${names.length > 1 ? ` with ${names.slice(1).join(', ')}` : ''} (${q.units} units) on ${q.size}x${q.size}`);
   }
 
   /** Growth stopped for good (logged once). */
@@ -4291,6 +4348,10 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
 const PROJECT_NONE = 'none', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
+/** X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). */
+const QUARTER = Math.max(1, Number(process.env.MC_QUARTER ?? 3));
+/** A non-dwelling piece's kind ("plains_tool_smith_1" -> "tool_smith"): one of a kind on a ballot and in a quarter. */
+const workKind = (name: string) => name.replace(/^(plains|desert|savanna|snowy|taiga)_/, '').replace(/_\d+$/, '').replace(/_(house|shop)$/, '').replace(/s$/, '');
 
 /** A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). */
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);

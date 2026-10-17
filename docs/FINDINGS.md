@@ -1163,3 +1163,14 @@ CLAUDE.md when a phase ends.
   cycle was ~5 min resting, ~1 min gap and ~2 min building, so the rest went to 2 min. A work of ~140 units takes 25
   members 1.5-3.5 min at 2x with haste: in fast staged runs projects look cheap, and larger works or several pieces a
   project are the next lever for steady busy time.
+- F242 (10-17, s34, X2q on world 2) F153(a) happened: at minute 33 the agent server died on a TypeError inside
+  mineflayer-pathfinder's `monitorMovement` (`placingBlock.y` of undefined, index.js:546, in the physics tick) and dropped
+  all 25 bots; the public works' new doors put it on members' paths. Fixed: patch-package's pathfinder patch ends placing
+  when the next placement is none; the agent server now logs an uncaught exception and carries on (`[crash-guard]`),
+  exiting only after more than 10 in a minute. F153(b) stays open.
+- F243 (10-17, s34, X2q2) After 10 layouts (8 neighbourhood-sized pads of public works round minevale3's village) no free
+  26x26 square was left within growth's reach of 77 blocks (taken 17,773 cells, steep 530, wet 302): two works failed and
+  projects rested 10 and 20 min, so the last 20 minutes fell to 1-3% busy. Fixed: a "no free NxN site" is the land's,
+  not the piece's (kept on offer), and later quarters drop companions until their pad fits N - 1 (`growth.workRoom`).
+  Growth's reach itself is the next limit. The same run had 23 `[stuck]` (45 `[repath]`), spread over walks out to
+  trees through the packed core; X2q1 and X0q1 had none.

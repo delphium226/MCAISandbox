@@ -153,4 +153,18 @@ const shutdown = () => {
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// An exception nobody caught (a library's own tick: mineflayer-pathfinder's placement read an undefined block after a door,
+// F153a, and took every bot down, X2q, s34): logged and survived, unless they come fast (more than 10 in a minute: a
+// state that keeps throwing is not run on; the villages are flushed on the way out)
+const crashes: number[] = [];
+process.on('uncaughtException', (e) => {
+  const now = Date.now();
+  crashes.push(now);
+  while (crashes.length && now - crashes[0] > 60000) crashes.shift();
+  console.error(`[crash-guard] uncaught exception (${crashes.length} in the last minute):`, e);
+  if (crashes.length > 10) {
+    console.error('[crash-guard] too many in a minute: exiting');
+    process.exit(1);
+  }
+});
 process.on('exit', () => world.villages.flushSync());

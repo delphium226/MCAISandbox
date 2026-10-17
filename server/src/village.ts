@@ -483,6 +483,9 @@ export interface Village {
     projectBad?: string[];
     /** X.2: public works' own failures in a row and back-off (house growth's `fails`/`backoff` stay its own). */
     projectFails?: number; projectBackoff?: number;
+    /** X.2: the largest pad a public work may still ask for, after a "no free NxN site" (N - 1; the land round the village
+     *  fills up: X2q2's 26x26 found none after 10 layouts). */
+    workRoom?: number;
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];

@@ -1,0 +1,14 @@
+{
+  "about": "X.2 part 2a at 1x on world 1: quarters of up to 3 pieces, predicted ballots, vanilla digging and growth (fast off, time scale 1), from mv3_base25, no growth, 60 minutes after: the steady busy share at real speed.",
+  "out": "runs/2026-10-17/s34/x2_quarters_1x",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": ["agent_log"],
+  "timeout_min": 100,
+  "runs": [
+    {"name": "X2q1", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "0", "MC_VOTE": "predicted"}, "args": "--after 60"}
+  ]
+}
