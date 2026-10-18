@@ -269,6 +269,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     fast-forwarded. The user's ideas became Phase N (a needs-driven village: initiatives, needs and escalation, owned
     houses, storage and furnace rooms, villagers, a second agent-server process, beds); N.0 initiatives built, committed
     off by default, untested. Lesson 146 (a checkpoint save stopped another run's test world).
+51. 2026-10-18 (thirty-sixth session, with two sessions it started: s37 "N.2 housing + storage fixes" and the X.3
+    foundry): N.0 tested live and fixed, greens and own gathering (`71aa99d`); N.1 needs behind `MC_NEEDS`; N.2 housing
+    and storage fixes (`8c393fd`, s37; the model-driven Hm reached busy 45%); the skill foundry with agy by default
+    (`8e3fb4a`) and its first ticket `shear_sheep` merged (`b3ab0b7`); a village running time (`runMs`) from another
+    session; pushed and `main` fast-forwarded (the user's word). New ways of working (the user's): flagged batches checked
+    offline then one combined live series; the todo list moved to GitHub issues (#1-#16). A pool of 50 human names
+    whitelisted for workers' usernames. Lesson 147 (a gauge's unit: chests are not storage).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

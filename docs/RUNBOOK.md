@@ -38,7 +38,10 @@ the short version; look here for a check script's arguments, a model detail or w
      identical` is the control). Series specs: `scripts/series/a3p_fixed.json`, `a3p_fixed2.json`, `a3p_model.json`
      (world 2), `vote_staged.json`, `vote_off.json` (world 2), `vote_model.json`, `vote_model2.json`. The Claude Code CLI
      (Phase X.3's foundry): `C:\Users\rhett\AppData\Roaming\npm\claude` (2.1.301; `claude -p "..."` headless, the
-     user's subscription). **Activities (X.1, s34)**: the families `catalog` (the workshop's goods from the recipe graph:
+     user's subscription). The foundry's second back-end, the Antigravity CLI: `C:\Users\rhett\AppData\Local\agy\bin\
+     agy.exe` (1.4.2, on the user PATH; the user's Google AI Pro login, cached): `agy -p "..." --model
+     gemini-4-argon-medium --output-format json --print-timeout 3m` (`agy models` lists the slugs). Gemini CLI (`gemini`,
+     still installed) refuses AI Pro accounts since 2026-06-18. **Activities (X.1, s34)**: the families `catalog` (the workshop's goods from the recipe graph:
      `server/src/activities.ts` buildCatalog, ~31 goods beyond the keeps in the village's pinned wood `v.catalogWood`,
      each spec validated; `[catalog]` lines) and `furnish` (code-designed furniture in each house, `streetPlan.ts`
      buildingDecor; the chore kind and skill `furnish`; `[furnish]` lines; `v.decor` records) are in
@@ -111,6 +114,27 @@ the short version; look here for a check script's arguments, a model detail or w
 - `GET /api/block?x=&y=&z=` inspects the world; `loaded: false` means the chunk is not loaded (unloaded blocks used to read
   as air, which caused false conclusions).
 
+## Phase N and the foundry (s36-s37, 2026-10-18)
+
+- **Flags:** `MC_NEEDS=off|show|on` (N.1 needs: `server/src/needs.ts`, `[need]` lines, `GET /api/needs[?village=]`, the
+  panel's Needs tab; `on` puts need facts and weights on menus); `MC_HOUSING=on` (N.2: owners, name signs, the menu's
+  `grow:street`, own-house furnish/light; `[home]` lines); `MC_PARTS=on` (a `parts` chest group, spare wooden parts
+  burned as fuel). All three off by default. `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
+  `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
+- **Checks:** `scripts/checks/menu_probe.mts [CHECKPOINT_DIR] [--families ...] [--sweeps N] [--idle all|N] [--stand]
+  [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also
+  prints the needs), `needs_unit.mts`, `housing.mts`, `parts_unit.mts` (all in check:offline). `run_report.py` adds
+  "busy after by 10 min", initiatives (started / joins / steps, built / failed / lapsed) and need changes.
+- **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
+- **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
+  tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes
+  in a worktree on `foundry/<ticket>`, then six gates (scope, typecheck, check:offline, review, the ticket's live check,
+  a series against a baseline); report in `runs/<date>/foundry/<ticket>/report.md`; the user merges. Auto mode blocks
+  its CLI runs and worktrees: the user allows them.
+- **Names:** a pool of 50 human first names in `server/src/agentNames.ts`, whitelisted on every world (the user's
+  decision: workers' usernames, issue #11; not used by the code yet).
+- **The todo list is GitHub issues** (`gh issue list`), labelled by phase.
+
 ## Models (gpt-oss for every role; local models as a fallback)
 
 - **Every role defaults to `ollama:gpt-oss:120b-cloud`** (the user's decision, 2026-10-10, A.0): mayor, architect,
@@ -150,6 +174,13 @@ the short version; look here for a check script's arguments, a model detail or w
 - qwen3.8 worker plans measured ~12-28 s on 2026-09-27 (not the 7-10 s benchmarked earlier), with GPU 0 nearly full.
 - Running the `ollama` CLI launches the Ollama app, which may auto-update itself.
 - Claude API calls are billed separately from the user's Claude subscription.
+- **Read-only jobs for Gemini** (2026-10-18): the user's global `agy-delegate` skill (`~/.claude/skills/agy-delegate/`,
+  every project) runs the Antigravity CLI (`agy` 1.4.2, the user's Google AI Pro account) headless in plan mode, in the
+  background, answer in `~/.agy-jobs/MCAISandbox/<date>/NAME/result.md`. Good jobs here: counting and summarising agent
+  and model-call logs, a refuter or lens review of a spec or diff (`--context "git diff"`), cross-checks against
+  LESSONS.md. It never edits: findings come back to the session, which checks them and edits under this repo's rules.
+  Measured here: a pro review of an 8.8 KB server diff took 294 s and 156k tokens, accurate, no false bugs. Its git
+  check flags any change during a run, so another session editing this checkout shows up as a WARNING.
 
 ## Testing agents
 

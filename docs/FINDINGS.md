@@ -1181,3 +1181,22 @@ CLAUDE.md when a phase ends.
   after opening a door, gave only 2 door resets in X2q4 (the guard now resets the path all the same, as the library did
   for bots without scaffolding). Next: watch one live (lesson 77), check the butcher shop's pad level against the street
   and its doors (lesson 133: a fixture first).
+- F245 (10-18, s36, N0on, fixed `71aa99d`) N.0 as built in s35 failed live in three ways the offline menu probe also
+  found: an initiator's first step held only its `initiate:<name>` key, so another member was offered the same build in
+  the same sweep (duplicate builds, "already stands"); a public works quarter was laid over an open initiative's spot
+  (growTaken ignored initiatives); and room for small works ran out after ~3 on the plots. Fixed: the step's own key held,
+  growTaken keeps off initiatives, greens (a 15x15 plot prepared as the first step when the plots are full, one per 5
+  members). `scripts/checks/menu_probe.mts` reproduces menus and sweeps offline on a checkpoint.
+- F246 (10-18, s36, N1on/N1show, fixed s37 `8c393fd`) N.1's storage gauge read "9 of 9" (full) in every run, but it
+  counted chests, not slots: storage held 99 of 216 slots (46%); only the three misc chests were full, mostly of leftover
+  building parts. Fixed: the gauge counts slots, a `parts` chest group, spare wooden parts burned as fuel (MC_PARTS).
+  Lesson 147.
+- F247 (10-18, s36, survey) Furnaces were never the workshop's bottleneck: all four held at once once a run, no make ever
+  refused for "furnaces busy"; the binding limits were make back-off and the hut's crafting cap. N.3's furnace room waits
+  for a measured need (issue #3).
+- F248 (10-18, s36/s37, open, issue #7) `plains_small_house_3` traps bots inside: Worker14 in N1show (18 `[stuck]`),
+  Worker7 in s37's Son (22 of 32), at -1623..-1617, 63..69 on mv3_grown25, moved 0.00 on every try. F244's family; the
+  house's door or interior needs a look (lesson 133: a fixture first).
+- F249 (10-18, s36, N1m, fixed) A fresh green's own reservation (held by prepare_green until prepareSite had deposited the
+  felled logs, after the plot was recorded) blocked the whole green, and the initiative failed "no spot for it on its
+  green". The green's own reservation is left out, and no verdict is given while its preparer works.

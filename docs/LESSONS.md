@@ -573,3 +573,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    stops the test world's Paper to copy its files; chained after a status line nobody read, it cut off another run's 25
    agents. Read `stack.py status` and the agent count first, and act only on a world with 0 agents or one this session
    started.
+147. **Know the unit a gauge counts before acting on it** (s36, F246): N.1's storage gauge read full in every run because
+   it counted chests (9 of 9 spots taken), not the room in them (46% of slots used); it nearly justified building storage
+   rooms nobody needed. A need gauge measures the thing that runs short (slots, not containers), and a survey of the
+   records (lesson 143) comes before a work is built to answer it.

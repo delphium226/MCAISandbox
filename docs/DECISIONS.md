@@ -553,7 +553,25 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   per-member weights on the menus and detects escalation (logged as ignored, blocked or no answer yet); the vote comes with
   the concrete works that answer needs (a storage room, a furnace room, a street of houses), since today any chore that
   answers a need is taken at once by idle members (spec_needs_v1's check, M1).
+- 10-18 (s36, the user's) **The foundry gets a second back-end: the Antigravity CLI** (`agy -p`, headless), on the
+  user's Google AI Pro subscription, beside the Claude Code CLI (`foundry.py --cli claude|agy`, same gates, branches
+  and merge approval). The CLI, not the Antigravity IDE (its window cannot be driven reliably), and not Gemini CLI (it
+  stopped serving AI Pro accounts on 2026-06-18; Google points individuals to agy). Headless agy uses the credentials
+  cached by one interactive login, which the user does; running the official binary as a child process is the
+  supported use (reusing its tokens elsewhere is not). Tool approval through scoped `permissions.allow` rules rather
+  than `--dangerously-skip-permissions`.
 - 10-18 (s36, the user's) After N.0/N.1: **N.2 housing and N.3 storage and furnace rooms specified and built together**, as
   one batch tested in one combined series (storage was full in every s36 run: 9 of 9 chest spots). **Initiatives gather
   their own materials** (the crew gathers the bill; storage stays for the workshop and public works: crews formed only when
   something was short, ~4 joins a run). **Greens grow with the members**: one per 5 members.
+- 10-18 (s36, the user's) **The next batch is N.2 housing plus storage fixes; storage and furnace rooms wait** for a
+  measured need (s36's surveys: storage 99 of 216 slots used, only the misc chests full, of leftover building parts;
+  furnaces never all held at once, no make refused for them). Storage fixes: the gauge counts slots, not chests; misc
+  overflows into empty group chests; **leftover parts reused** (builds, furnishing and initiatives take matching parts
+  from storage first), **wooden parts burned as furnace fuel**, a **"parts" chest group**; **nothing discarded**. The
+  batch is done in a new session.
+- 10-18 (s36, the user's) **Workers get human first names as their real usernames**: the bots log in as names from a pool
+  of 50 (`server/src/agentNames.ts`, all whitelisted on every world), replacing Worker1-24; scripts, specs and checks read
+  the pool. The Mayor stays Mayor and Gus stays Gus.
+- 10-18 (s36, the user's) **The foundry (X.3) starts now, in its own session, and defaults to the Antigravity CLI**
+  (`foundry.py --cli agy` the default; `--cli claude` the alternative), on its own test world 3.

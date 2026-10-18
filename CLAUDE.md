@@ -7,6 +7,9 @@ session, so keep it short and put detail in the files below.
 
 **Current work is planned in `docs/PLAN.md`**: read its "Next session starts with" and the current phase at the start
 of every session, work step by step, and record as you go (PLAN.md's "How to use" says where each kind of note goes).
+**The todo list is GitHub issues** (the user's, 2026-10-18): `gh issue list` (labels `phase-N`, `phase-X`, `bug`,
+`idea`, `on-hold`); close or comment on an issue with the commit that settles it, and file new work as an issue, not as
+a checkbox in PLAN.md.
 
 ## Where things are
 
@@ -14,7 +17,7 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 146 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 147 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
@@ -45,14 +48,16 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
   both servers detached; then `MCAI_API=http://127.0.0.1:8767/api MC_SERVER_DIR=mc/testserver python
   scripts/stage_village.py V --site SITE` (or watch_village.py with the same two settings). `MCAI_TEST_WORLD=2` (any
   script, or `"world": 2` in a run_series spec) uses a second test world (`mc/testserver2`, 25567, agent server 8768), so
-  two series can run at once. Sites:
+  two series can run at once; test world 3 (`MCAI_TEST_WORLD=3`, 25568, agent server 8769) belongs to the skill foundry
+  (`scripts/foundry.py`, agy CLI by default). Sites:
   `scripts/test_sites.json`; minevale3 is the usual one. The main world is full of old test villages: build elsewhere
   (`scripts/checks/fresh_land.py`) if you must use it.
 - Agent-server settings worth knowing: `MC_TIME_SCALE=2` (staged runs and checks; never for model-driven acceptance
   runs), for staged after-phase tests `MC_RANDOM_TICK=30` (crops ripen ~7x faster: first harvest at +2.4 min, not ~+17)
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
   build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
-  `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES`, `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
+  `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37), `MC_NEEDS=off|show|on`,
+  `MC_HOUSING=on`, `MC_PARTS=on` (Phase N, all off by default; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
   `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.

@@ -3,6 +3,32 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-18 at the close of the thirty-fifth session; the next session's prompt is
+`runs/2026-10-18/NEXT_PROMPT_s36.md`)
+
+- **Done since s34's close (s35, 10-17/18):** a 25-agent model-driven village from scratch (Watch25: built, grown to 25
+  houses, a style vote by model ballots, the first public-works vote 12-11 for a tool smith's quarter), resumed after the
+  PC restarted; the panel's Votes, Thoughts (each agent's last 40 model calls with its reasoning) and Memory tabs
+  (`0ccc2a4`, `aa4b5a2`); the README cut to 100 lines with the API and the sandbox in docs/ (`d7af51b`); pushed, and `main`
+  fast-forwarded to the branch (the user's word). Then the user's ideas, settled into **Phase N, a needs-driven
+  village** (PLAN.md; DECISIONS.md 10-18): initiatives (members' own small works others join), needs and escalation,
+  owned houses, storage and furnace rooms, villagers as a growing population, a second agent-server process, beds and
+  the day's rhythm; the foundry (X.3) alongside. The last commit: **N.0 initiatives built and committed off by default,
+  not yet tested live** (`server/src/smallWorks.ts`, mcWorld's `initiate`/`help` kinds, the panel's Initiatives tab).
+- **A mistake to learn from (lesson 146):** `reset_site.py minevale3 --save` was run while another run used test world 1
+  (25 agents at fast settings): the save stops Paper, so that run was cut off at 09:19 on 10-18. Check `stack.py status`
+  and the agent count before any reset_site call, `--save` included.
+- **Next (in order; the user wants a multi-agent approach in Claude Code):**
+  1. **N.0 tested**: staged on a test world from a checkpoint with room (`mv3_base25` has room for ~4 small works at once:
+     save a grown village first, e.g. a staged growth run, then test there), families + `initiatives`, 60 min fast,
+     binned busy; then a model-driven run; then on by default.
+  2. **N.1 needs and escalation** (spec, adversarial check, implement, reviews, tests).
+  3. N.2 housing and N.3 storage/furnace rooms, with the foundry (X.3) built alongside (test world 3 to set up).
+- **Stack:** everything stopped (test worlds 1 and 2 saved; the main world stopped). Checkpoints `mv3_base25`,
+  `mv3_base1`, `mv3_cpv1`. Test world 1 holds the end of another run's B25x2 (cut off): reset before use.
+- **How to run things now:** as s34's handover (RUNBOOK "Activities (X.1, s34)"), plus `MC_INITIATIVES` (3) and the
+  `initiatives` family; `scripts/checks/small_works.mts` (in check:offline); `[initiative]` lines.
+
 (written 2026-10-17 at the close of the thirty-fourth session; the next session's prompt is
 `runs/2026-10-17/NEXT_PROMPT_s35.md`)
 

@@ -11,16 +11,20 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 - `docs/LESSONS.md`: the durable lessons (findings that generalise); `docs/HISTORY.md`: what each session did;
 - `docs/plan-archive/`: finished phases (`phases-done.md`) and earlier handovers (`handovers.md`).
 
+**The todo list lives in GitHub issues** (the user's, 2026-10-18): https://github.com/delphium226/MCAISandbox/issues
+(`gh issue list`), labelled by phase (`phase-N`, `phase-X`, ...), `bug`, `idea`, `on-hold`. This file keeps the handover,
+each phase's goal and design, and links to its issues; it no longer carries checkboxes for open work.
+
 ## How to use this plan in a session
 
 1. **Start:** read CLAUDE.md, then this file's "Next session starts with" and the current phase. Bring the stack up
    (CLAUDE.md, "Running and checking"). Check `git status` for uncommitted work left from the last session.
-2. **Pick one step** (or a few small ones). Work only on that; note anything else you find in `docs/FINDINGS.md`,
-   not in code.
+2. **Pick one step** from the handover or an open issue (`gh issue list --label phase-N`), or a few small ones. Work
+   only on that; note anything else you find in `docs/FINDINGS.md`, or as a new issue, not in code.
 3. **Test up the ladder** (cheapest first, stop at the first failure): typecheck → targeted test of the change →
    staged run (`scripts/stage_village.py`, scripted workers) → benchmark if a prompt changed (`scripts/bench/`) →
    model-driven village run (`scripts/watch_village.py`). Never edit server files while a run is going.
-4. **Record:** tick the step here, add a row to `docs/RUNS.md`, findings to `docs/FINDINGS.md` and decisions to
+4. **Record:** comment on or close the step's issue (`gh issue close N --comment ...`, with the commit), add a row to `docs/RUNS.md`, findings to `docs/FINDINGS.md` and decisions to
    `docs/DECISIONS.md`, each with the date; a lesson that generalises goes to `docs/LESSONS.md`, and a line on the
    session to `docs/HISTORY.md`.
 5. **Commit** the tested step (CRLF preserved; `git diff --stat` vs `git diff --ignore-cr-at-eol --stat`). Ask the
@@ -30,31 +34,28 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 
 ## Next session starts with
 
-(written 2026-10-18 at the close of the thirty-fifth session; the next session's prompt is
-`runs/2026-10-18/NEXT_PROMPT_s36.md`)
+(written 2026-10-18 at the close of the thirty-sixth session, which ran sessions s37 (N.2) and the foundry beside it)
 
-- **Done since s34's close (s35, 10-17/18):** a 25-agent model-driven village from scratch (Watch25: built, grown to 25
-  houses, a style vote by model ballots, the first public-works vote 12-11 for a tool smith's quarter), resumed after the
-  PC restarted; the panel's Votes, Thoughts (each agent's last 40 model calls with its reasoning) and Memory tabs
-  (`0ccc2a4`, `aa4b5a2`); the README cut to 100 lines with the API and the sandbox in docs/ (`d7af51b`); pushed, and `main`
-  fast-forwarded to the branch (the user's word). Then the user's ideas, settled into **Phase N, a needs-driven
-  village** (PLAN.md; DECISIONS.md 10-18): initiatives (members' own small works others join), needs and escalation,
-  owned houses, storage and furnace rooms, villagers as a growing population, a second agent-server process, beds and
-  the day's rhythm; the foundry (X.3) alongside. The last commit: **N.0 initiatives built and committed off by default,
-  not yet tested live** (`server/src/smallWorks.ts`, mcWorld's `initiate`/`help` kinds, the panel's Initiatives tab).
-- **A mistake to learn from (lesson 146):** `reset_site.py minevale3 --save` was run while another run used test world 1
-  (25 agents at fast settings): the save stops Paper, so that run was cut off at 09:19 on 10-18. Check `stack.py status`
-  and the agent count before any reset_site call, `--save` included.
-- **Next (in order; the user wants a multi-agent approach in Claude Code):**
-  1. **N.0 tested**: staged on a test world from a checkpoint with room (`mv3_base25` has room for ~4 small works at once:
-     save a grown village first, e.g. a staged growth run, then test there), families + `initiatives`, 60 min fast,
-     binned busy; then a model-driven run; then on by default.
-  2. **N.1 needs and escalation** (spec, adversarial check, implement, reviews, tests).
-  3. N.2 housing and N.3 storage/furnace rooms, with the foundry (X.3) built alongside (test world 3 to set up).
-- **Stack:** everything stopped (test worlds 1 and 2 saved; the main world stopped). Checkpoints `mv3_base25`,
-  `mv3_base1`, `mv3_cpv1`. Test world 1 holds the end of another run's B25x2 (cut off): reset before use.
-- **How to run things now:** as s34's handover (RUNBOOK "Activities (X.1, s34)"), plus `MC_INITIATIVES` (3) and the
-  `initiatives` family; `scripts/checks/small_works.mts` (in check:offline); `[initiative]` lines.
+- **Done since s35's close (s36 and its two sessions, 10-18), all pushed, `main` fast-forwarded:**
+  `71aa99d` N.0 tested and fixed (greens, own gathering, step keys; `scripts/checks/menu_probe.mts`) and N.1 needs behind
+  `MC_NEEDS`; `8c393fd` (s37) N.2 housing behind `MC_HOUSING` and storage fixes behind `MC_PARTS`, the `initiatives`
+  family on by default; `8e3fb4a` the skill foundry (`scripts/foundry.py`, six gates, test world 3 on 25568/8769, the
+  Antigravity CLI `agy` by default); `b3ab0b7` its first ticket merged, `shear_sheep`. Results: `runs/2026-10-18/s36/notes.md`,
+  `runs/2026-10-18/s37/notes.md`, `runs/2026-10-18/foundry/shear/report.md`. Best after-phase run yet: s37's model-driven
+  Hm, busy 45% (members start their own streets and own their houses).
+- **New ways of working (the user's, 10-18):** develop in flagged batches verified offline, then one combined live series
+  (CLAUDE.md "Batch development"); **the todo list is GitHub issues** (#1-#16 for Phases N and X; the older phases and
+  the backlog are being triaged into issues, `runs/2026-10-18/s36/backlog_triage.md`, for the user's approval).
+- **Next (the user's order, 10-18; see the issues):** a quick-wins batch: workers' human usernames [#11](https://github.com/delphium226/MCAISandbox/issues/11) (pool
+  `server/src/agentNames.ts`, all whitelisted), neighbourhood names [#10](https://github.com/delphium226/MCAISandbox/issues/10), `MC_HOUSING`/`MC_PARTS` on by default
+  [#2](https://github.com/delphium226/MCAISandbox/issues/2); then one mechanism for needs-driven works (rooms [#3](https://github.com/delphium226/MCAISandbox/issues/3), mines [#8](https://github.com/delphium226/MCAISandbox/issues/8), farms [#9](https://github.com/delphium226/MCAISandbox/issues/9)) with
+  the need vote [#1](https://github.com/delphium226/MCAISandbox/issues/1); the foundry's next tickets [#14](https://github.com/delphium226/MCAISandbox/issues/14) (a skill tree is proposed, [#15](https://github.com/delphium226/MCAISandbox/issues/15),
+  `docs/research/foundry-skill-tree.md`; the user said document it, build nothing yet). Bug [#7](https://github.com/delphium226/MCAISandbox/issues/7):
+  `plains_small_house_3` traps bots.
+- **Stack:** main, test 1, test 2 and test 3 (the foundry's) may be up; check `python scripts/stack.py status` and the agent
+  counts before any reset (lesson 146). Checkpoints: `mv3_base25`, `mv3_grown25` (25 houses, s36), `mv3_base1`, `mv3_cpv1`.
+- **Uncommitted at the close:** nothing of this session's; another session's village running time (`runMs`) was committed
+  apart. Two sessions share this checkout at times: stage only your own files and hunks.
 
 ## Earlier phases
 
@@ -1093,12 +1094,12 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   temperament x learning progress; the workshop's `MAKE_GOODS` replaced by the recipe graph; members may author specs live
   (validated, tried once, kept or retired). Exit: many more distinct activities done per run (A.3p's report), no rise in
   failures.
-- [ ] X.2 **Projects and proposals for votes** (part 1 done s34, `8985b32`: public works voted among code's options and
+- X.2 **Projects and proposals for votes** (part 2b: [#13](https://github.com/delphium226/MCAISandbox/issues/13)) (part 1 done s34, `8985b32`: public works voted among code's options and
   built through growth's path, spec `runs/2026-10-16/s34/spec_x2.md`, X2p/X2m; part 2a done, `f01136f`: quarters, room;
   part 2b open: members' proposals and live activity specs, outcomes fed back) (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
   docks, orchards, bee yards, gardens, lit roads...), proposals by members from gauges and temperament, code's validation
   and costing, 2-4 on a ballot through s33's vote machinery, outcomes measured and fed back.
-- [ ] X.3 **The skill foundry** (~2 sessions; built alongside Phase N.2-N.3, its first ticket shearing for N.6's beds; it
+- X.3 **The skill foundry** ([#14](https://github.com/delphium226/MCAISandbox/issues/14); built s36: `8e3fb4a`, first ticket `shear_sheep` merged `b3ab0b7`; a skill tree proposed, [#15](https://github.com/delphium226/MCAISandbox/issues/15)) (~2 sessions; built alongside Phase N.2-N.3, its first ticket shearing for N.6's beds; it
   tests on its own test world 3, `MCAI_TEST_WORLD=3`, set up once with `mc/testserver.py init`, so it never competes with
   the session's tests; auto mode's classifier must be told to allow its worktrees and CLI, scoped to its script): tickets
   for missing actions or recurring failures, `scripts/foundry.py`
@@ -1124,10 +1125,18 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   the series C1 equal to both baseline runs on every count. Open: wire `shear_sheep` into N.6's chores; try
   gemini-4-argon-medium and a tighter "read first" list on the next ticket (turns, not thinking, took the time); the
   claude back-end untried (`--max-turns` is a hidden flag in this build).
-- [ ] X.4 **The outer loop** (later): scheduled series, failure clusters ranked by agent-minutes lost, tickets filed
+- X.4 **The outer loop** ([#16](https://github.com/delphium226/MCAISandbox/issues/16)) (later): scheduled series, failure clusters ranked by agent-minutes lost, tickets filed
   automatically, kept only on a metric that rewards breadth, projects finished and diversity.
 - Settled (the user's, s33): the Claude Code CLI (installed, logged in), the user's subscription, the user approves every
-  merge. Open: permissions for worktrees and the foundry script (auto mode blocks them); whether gpt-oss may write live
+  merge. Added (the user's, s36): a second back-end, the Antigravity CLI (`agy -p`, headless, the user's Google AI Pro
+  subscription; not the Antigravity IDE window and not Gemini CLI, which stopped serving AI Pro on 2026-06-18).
+  `foundry.py` takes `--cli claude|agy` (its flags: `--output-format stream-json`, `--print-timeout`, `--model`, scoped
+  `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` rather than `--dangerously-skip-permissions`), the
+  same gates and branches for both. Installed and logged in by the user on 10-18 (agy 1.4.2, on the user PATH); a
+  headless test answered (`gemini-4-argon-medium`, 18 s, one JSON envelope; ~11.7k input tokens of agy's own prompt
+  on every call). Its models: Gemini 4 Argon and Gemini 3.8 Flash (low/medium/high each), and also Claude Opus 5.5,
+  Claude Sonnet 5.5 and GPT-OSS 120B on the Google plan. Only the official binary as a child process, never its tokens
+  reused. Open: permissions for worktrees and the foundry script (auto mode blocks them); whether gpt-oss may write live
   code (proposed: no, specs only).
 
 ## Phase N: a needs-driven village (the user's direction, 10-18, s35)
@@ -1140,7 +1149,7 @@ geometry and the safety (lesson 1). The civilisation should grow from needs, not
 **Order (the user's, 10-18):** N.0, N.1, then N.2-N.3 with the foundry (X.3) built alongside (its own worktree and test
 world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing gives).
 
-- [ ] N.0 **Initiatives** (built s35, committed off by default: the family `initiatives` is not in MC_CHOICE_FAMILIES' default; untested live): small works on the village's ground (`server/src/smallWorks.ts`:
+- [x] N.0 **Initiatives** (done s35-s37: live-tested, the family `initiatives` on by default since s37): small works on the village's ground (`server/src/smallWorks.ts`:
   well, bench, market stall, woodshed, statue, lamp posts, gazebo, signpost) started by a member from its chore menu
   ("Start building a well (your own project)") and helped by others ("Help Worker7 build a well: gather 12 cobblestone"),
   run as chores; at most 3 open (MC_INITIATIVES), one a member; spec `runs/2026-10-18/s35/spec_initiatives_v2.md`. Room:
@@ -1151,15 +1160,19 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   materials; greens one per 5 members; the family on by default. `scripts/checks/menu_probe.mts` probes menus offline.
   **s37:** own gathering and greens confirmed live (s37's four staged runs: 19-36 started, 16-33 built, 0-3 failed);
   **the `initiatives` family is on by default** (choose.ts).
-- [ ] N.1 **Needs and escalation**: gauges code measures (members without a house, storage nearly full, smelts waiting,
+- N.1 **Needs and escalation** ([#1](https://github.com/delphium226/MCAISandbox/issues/1)): gauges code measures (members without a house, storage nearly full, smelts waiting,
   food per member, tools short, buildings unlit or unfurnished, mine faces busy), shown on the panel; each need offers
   responses in the three tiers by size; a need that grows while nobody takes it up is put to a vote by the Mayor.
   **s36:** built behind `MC_NEEDS=off|show|on` (spec `runs/2026-10-18/s36/spec_needs_v2.md`): `server/src/needs.ts`
   (light, furnish, food, housing, storage, mine), needTick every 30 s, `Village.needStates`, need facts and weights on
   menus, `[need]` lines, `/api/needs`, the panel's Needs tab. **The vote waits for N.2/N.3** (the user's): it comes with
-  the works that answer needs. Storage reached 9 of 9 chest spots in every s36 run: the first need without an answer.
-- **N.2 and N.3 together** (the user's, s36): specified and built as one batch, tested in one combined series.
-- [ ] N.2 **Housing**: each member owns a house (its name on the plate); building its own house is a houseless member's
+  the works that answer needs. (s36's "9 of 9 chest spots" was the gauge counting chests; s37 counts slots: 46% used.)
+- **Next batch (the user's, s36, revised after the surveys):** N.2 housing plus storage fixes, built and tested as one
+  batch in a new session; storage and furnace rooms wait for a measured need (storage 46% of slots used, only the misc
+  chests full of leftover parts; furnaces never the bottleneck). Surveys: `runs/2026-10-18/s36/survey_n2_housing.md`,
+  `survey_n3_storage.md`, `survey_n3_furnaces.md`. Storage fixes: the gauge counts slots; misc overflows into empty group
+  chests; leftover parts reused first, wooden parts burned as fuel, a "parts" chest group; nothing discarded.
+- N.2 **Housing** ([#2](https://github.com/delphium226/MCAISandbox/issues/2)): each member owns a house (its name on the plate); building its own house is a houseless member's
   first preference (others may help); decorating its own house a chore of its own; growth's code trigger retired, a
   street for a cluster of houses a voluntary or voted work.
   **s37:** built behind `MC_HOUSING=on` with the storage fixes behind `MC_PARTS=on` (spec, check, reviews and results in
@@ -1168,19 +1181,33 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   and light; the storage gauge in slots, a parts chest group, the last spot kept, spare wooden parts burned as fuel.
   Staged from mv3_base25: members started 6 streets, 23 houses in 16.1 min (code growth 18.4); busy 29% vs 31%.
   Checks `housing.mts`, `parts_unit.mts`. Next: the model-driven run's reading (notes.md), then both flags on by default.
-- [ ] N.3 **Storage rooms and furnace rooms** as needs-driven works (storage nearly full; smelts queueing), replacing the
+- N.3 **Storage rooms and furnace rooms** ([#3](https://github.com/delphium226/MCAISandbox/issues/3), on hold) as needs-driven works (storage nearly full; smelts queueing), replacing the
   works plot's fixed furnace row; more of either built when the need comes back.
-- [ ] N.4 **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a
+- N.4 ([#4](https://github.com/delphium226/MCAISandbox/issues/4)) **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a
   bed and a workstation, the village needs food, villagers breed when beds are free; members' ambitions (a bigger house,
   upgrades, gardens) and turnover (members leave, new ones arrive) as further sources of needs; daughter villages when
   room runs out.
-- [ ] N.5 **More agents: a second agent-server process** (the user's, 10-18): one process tops out around 30-40 bots (one
+- N.5 ([#5](https://github.com/delphium226/MCAISandbox/issues/5)) **More agents: a second agent-server process** (the user's, 10-18): one process tops out around 30-40 bots (one
   event loop); Paper has headroom (~5% of its tick budget at 25 bots: likely 100+). Needs villages, the board and storage
   shared across processes, and model throughput (Ollama Cloud's 3 requests at once) shared or widened. Measure first: 50
   staged bots over two processes.
-- [ ] N.6 **Beds and the day's rhythm**: shearing (the foundry's first ticket, X.3) for wool, a bed in every owned house;
+- N.6 **Beds and the day's rhythm** ([#6](https://github.com/delphium226/MCAISandbox/issues/6)): shearing (the foundry's first ticket, X.3) for wool, a bed in every owned house;
   then the day/night cycle back on (work by day, home at dusk, sleep at night; evening meetings and votes), its own
   decision (it halves working time).
+
+**To consider (the user's ideas, 10-18 s36; now issues):** and the bug [#7](https://github.com/delphium226/MCAISandbox/issues/7) (`plains_small_house_3` traps bots).
+- [#8](https://github.com/delphium226/MCAISandbox/issues/8) **More mines as needs-driven works**: a second (or further) mine built when a need shows (mine faces all held,
+  stone or ore short), like N.3's rooms: measured first, then offered as an initiative or voted work.
+- [#9](https://github.com/delphium226/MCAISandbox/issues/9) **More farms of every type as needs-driven works**: wheat fields, the pumpkin/melon/sugar cane/cocoa slots and
+  the animal pens, built when a need shows (food per member, a crop short), as initiatives or voted works.
+- [#10](https://github.com/delphium226/MCAISandbox/issues/10) **Neighbourhood names**: the signs in front of a neighbourhood are blank; give each neighbourhood a name (chosen
+  by its residents or the vote that made it, or generated), shown on its signs, the panel and in the village summary.
+- [#11](https://github.com/delphium226/MCAISandbox/issues/11) **A unique human first name for each worker**: decided (the user's, 10-18): real usernames from a pool of 50
+  (`server/src/agentNames.ts`, whitelisted on every world). Before that decision: the bot usernames (Mayor, Worker1-24) are fixed for the
+  whitelist, scripts and the user's own lookups (CLAUDE.md "Agent names"); the likely form is a display name per member
+  (persona, chat, signs, panel) beside the username. Decide which before building.
+- [#12](https://github.com/delphium226/MCAISandbox/issues/12) **An economy?** (an open question): goods with values, trade between members (the market stalls exist as small
+  works), wages or ownership of stock; a design question for later, after housing gives members something of their own.
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 
