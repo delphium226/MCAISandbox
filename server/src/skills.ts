@@ -51,4 +51,5 @@ export const TOOLS: ToolDef[] = [
   { name: 'light_streets', description: 'Put up the street lamps of a village layout (a code-posted task: the posts and torches are made from the village storage).', input_schema: obj({ layout: n }, ['layout']) },
   { name: 'put_up_signs', description: "Put up a building's name sign beside its door: x and z are the building's centre, as its task gives them (without them, every sign of the layout). A code-posted task: the signs are made from the village storage.", input_schema: obj({ layout: n, x: n, z: n }, ['layout']) },
   { name: 'tend_farm', description: 'Lay, till and sow the wheat field of a village layout (the code-posted task "Plant the farm": seeds from the village storage).', input_schema: obj({ layout: n }, ['layout']) },
+  { name: 'shear_sheep', description: 'Shear nearby adult sheep with shears from the inventory to gather wool (up to `count` wool, default 3, within `radius` blocks, default 24) without harming the sheep.', input_schema: obj({ count: n, radius: n }) },
 ];

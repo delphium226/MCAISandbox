@@ -10,6 +10,7 @@ import { BUILD_SKILLS } from './mcBuild';
 import { STORAGE_SKILLS } from './mcStorage';
 import { SURVIVAL_SKILLS } from './mcSurvival';
 import { MINE_SKILLS } from './mcMine';
+import { ANIMAL_SKILLS } from './mcAnimals';
 import { at, goals, num, sleep, standableY, str, walk } from './mcUtil';
 
 export interface McSkill {
@@ -61,4 +62,5 @@ export const MC_SKILLS: Record<string, McSkill> = {
   ...BUILD_SKILLS,
   ...STORAGE_SKILLS,
   ...MINE_SKILLS,
+  ...ANIMAL_SKILLS,
 };
