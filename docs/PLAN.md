@@ -1105,6 +1105,25 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   running one external CLI headless in a worktree, the gates (typecheck, check:offline, its own live check on world 2, a
   staged series without regression, a review agent), a candidate branch for the user to merge. First target: fishing or
   villager trading.
+  **Built (s36 foundry session, 10-18):** test world 3 set up (`mc/testserver3`, 25568/25578/8769, world
+  1's whitelist, minevale3 restored and running); `scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default),
+  tickets in `scripts/foundry/tickets/` (the first: `shear.json`, a `shear_sheep` skill in a new `mcAnimals.ts` plus
+  `scripts/checks/shear.py`), the no-regression series `scripts/foundry/series_base.json` (one after-phase run from the
+  foundry's own copy of `mv3_base1`, `foundry_mv3_base1`; the baseline twice from the base commit, cached under
+  `runs/foundry/`), `snapshot_code.py`'s `MCAI_CODE_FROM` (the agent server runs a worktree's code). Spec
+  `runs/2026-10-18/foundry/spec_x3.md`, its adversarial check's 12 findings folded in (notes `runs/2026-10-18/foundry/`).
+  Worktrees in `.foundry/<id>` (excluded locally, `node_modules` a junction); gates in order: scope (the ticket's files,
+  CRLF, no other world's ports or folders), typecheck, check:offline (only checks passing on the base), review (read-only
+  agy or claude), live (the ticket's check on world 3 from the worktree's snapshot), series; failed gates go back to the
+  same conversation as repair rounds. agy measured: a denied command ends its turn (the foundry resumes it), chained
+  commands are refused, its workspace stops at the worktree (probe). **The shear ticket passed every gate**: candidate
+  `foundry/shear` at `560db05` (unmerged: the user's call; report `runs/2026-10-18/foundry/shear/report.md`). Written by
+  agy on gemini-4-argon-high in one round, 151 tool steps in 36 min, mostly reading files in small pieces (it hit the
+  then step cap of 150 just after writing the four files; caps now 500 steps, the 45 min time cap the real limit); the
+  gates then ran with `--gates-only` in 11 min: the live check sheared 5 wool from 2 sheep, 0 of 3,234 cells changed;
+  the series C1 equal to both baseline runs on every count. Open: wire `shear_sheep` into N.6's chores; try
+  gemini-4-argon-medium and a tighter "read first" list on the next ticket (turns, not thinking, took the time); the
+  claude back-end untried (`--max-turns` is a hidden flag in this build).
 - [ ] X.4 **The outer loop** (later): scheduled series, failure clusters ranked by agent-minutes lost, tickets filed
   automatically, kept only on a metric that rewards breadth, projects finished and diversity.
 - Settled (the user's, s33): the Claude Code CLI (installed, logged in), the user's subscription, the user approves every

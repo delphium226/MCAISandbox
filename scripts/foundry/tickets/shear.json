@@ -1,0 +1,58 @@
+{
+  "id": "shear",
+  "title": "Shearing: a shear_sheep skill (sheep -> wool, for N.6's beds)",
+  "brief": "Add a new skill shear_sheep to the real-Minecraft world (Mineflayer), so an agent with shears can get wool from sheep. Arguments: count (wool wanted, default 3, at most 32), radius (how far to look for sheep, default 24, at most 48). The skill: needs shears in the inventory (fail with: no shears; craft them from 2 iron ingots, or make_iron_tool shears); finds adult, unsheared sheep within radius (from bot.entities: filter inside the search, never bot.findBlocks); walks near each one with the project's walk helpers (mcUtil walk/reach, which keep the pathfinder off village work and protected ground); equips the shears and uses them on the sheep (bot.activateEntity, as use_on does in mcSurvival.ts); picks up the wool the sheep drops (walk to the item entities); skips a sheep that gave nothing and does not try it again in this call; stops when count wool is gathered, when no shearable sheep is left in range, or when the shears break. Count the wool on the server, not from Mineflayer's inventory view (CLAUDE.md: 'clear <name> <item> 0'; the agent's rcon helpers, as milk_cows and serverCount in mcBuild.ts use; any colour of wool counts: the item tag #minecraft:wool). Never attack, kill, lead or move a sheep by command, and dig or place no block (the walk may not dig: check walk's options and the protection rules). Result message: how much wool it got, from how many sheep, where, and how many shearable sheep are left in range. Failure messages say what is short and what to do next (no shears; no sheep within radius: try explore or a pen; all sheared: wool regrows when sheep eat grass, try later). The skill must accept anything Mineflayer can pass it (an entity whose position or metadata is missing, an entity gone mid-walk: lesson 104). Put the skill in a new file server/src/mineflayer/mcAnimals.ts exporting ANIMAL_SKILLS (Record<string, McSkill>, as the other skill files do), register it in MC_SKILLS (mcSkills.ts), and add its tool definition to TOOLS in server/src/skills.ts (name, a one-sentence description a model can act on, input_schema with count and radius; keep it in the style of the others). The sandbox world (server/src/agents.ts) needs no implementation: both worlds offer only the TOOLS they implement. Also write the live acceptance check scripts/checks/shear.py (Python 3, standard library only, in the style of scripts/checks/fell_trees.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server). The foundry runs it against a real test server (env MCAI_API and MC_SERVER_DIR are set for it; never default to the main world: if MCAI_API is not set, exit 2). The check: find the ground near the test site's centre (-1563, -36 on minevale3; read the ground height with /api/block or 'execute if block' probes, and pick an open, dry spot away from any village plot), remove any agent Gus, spawn Gus there (brain idle, gamemode survival, reset true), give Gus shears by RCON, summon 4 adult sheep 4-8 blocks away by RCON (/summon minecraft:sheep x y z, with a tag of the check's own so it can count and remove them after), record the blocks of a box around Gus and the sheep (every cell from 2 below the ground to 3 above, a radius covering where they stand plus 6, read with RCON 'execute if block' or /api/block), run shear_sheep count 4 through /api/agents/Gus/act, wait for action_done or action_failed, then verify: wool on the server (clear Gus #minecraft:wool 0) >= 3; at least 2 of the tagged sheep are sheared (execute if entity @e[tag=...,nbt={Sheared:1b}]); all 4 tagged sheep still alive; no 'broke' or 'placed' event from Gus during the skill and no cell of the box changed; then a second call with count 2 after all are sheared must fail or report that no shearable sheep is left (not hang). Clean up (kill the tagged sheep, remove Gus) in a finally. Print one line per verification and end with exactly 'SHEAR OK' on success or 'SHEAR FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), world.ts beyond McSkill's shape, mcWorld.ts, the pathfinder's sources.",
+  "read": [
+    "CLAUDE.md",
+    "server/src/skills.ts (TOOLS: the tool definitions)",
+    "server/src/mineflayer/mcSkills.ts (MC_SKILLS: the registry)",
+    "server/src/mineflayer/mcSurvival.ts: only use_on (search 'use_on: {') and the imports at the top",
+    "server/src/mineflayer/mcUtil.ts: only walk, reach, sleep, checkAbort, countItem, itemId, at, num, str, onVillageGround",
+    "server/src/mineflayer/mcBuild.ts: only milkCows and serverCount (search for them)",
+    "scripts/checks/fell_trees.py (the style of a live check)",
+    "mc/rcon.py",
+    "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block)"
+  ],
+  "lessons": [
+    4,
+    13,
+    16,
+    29,
+    30,
+    31,
+    35,
+    40,
+    44,
+    49,
+    79,
+    80,
+    102,
+    104,
+    105,
+    127,
+    145
+  ],
+  "deliver": [
+    "server/src/mineflayer/mcAnimals.ts",
+    "server/src/mineflayer/mcSkills.ts",
+    "server/src/skills.ts",
+    "scripts/checks/shear.py"
+  ],
+  "may_touch": [],
+  "check": {
+    "file": "scripts/checks/shear.py",
+    "args": [],
+    "timeout_min": 10,
+    "pass": "^SHEAR OK"
+  },
+  "series": "scripts/foundry/series_base.json",
+  "caps": {
+    "minutes": 45,
+    "turns": 500,
+    "rounds": 3
+  },
+  "model": {
+    "agy": "gemini-4-argon-high",
+    "claude": "claude-opus-5-5"
+  }
+}
