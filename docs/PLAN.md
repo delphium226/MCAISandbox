@@ -44,8 +44,8 @@ each phase's goal and design, and links to its issues; it no longer carries chec
   `runs/2026-10-18/s37/notes.md`, `runs/2026-10-18/foundry/shear/report.md`. Best after-phase run yet: s37's model-driven
   Hm, busy 45% (members start their own streets and own their houses).
 - **New ways of working (the user's, 10-18):** develop in flagged batches verified offline, then one combined live series
-  (CLAUDE.md "Batch development"); **the todo list is GitHub issues** (#1-#16 for Phases N and X; the older phases and
-  the backlog are being triaged into issues, `runs/2026-10-18/s36/backlog_triage.md`, for the user's approval).
+  (CLAUDE.md "Batch development"); **the todo list is GitHub issues**: #1-#16 for Phases N and X, #17-#65 from the
+  older phases and the backlog (triaged and approved by the user, `docs/plan-archive/triage-2026-10-18.md`).
 - **Next (the user's order, 10-18; see the issues):** a quick-wins batch: workers' human usernames [#11](https://github.com/delphium226/MCAISandbox/issues/11) (pool
   `server/src/agentNames.ts`, all whitelisted), neighbourhood names [#10](https://github.com/delphium226/MCAISandbox/issues/10), `MC_HOUSING`/`MC_PARTS` on by default
   [#2](https://github.com/delphium226/MCAISandbox/issues/2); then one mechanism for needs-driven works (rooms [#3](https://github.com/delphium226/MCAISandbox/issues/3), mines [#8](https://github.com/delphium226/MCAISandbox/issues/8), farms [#9](https://github.com/delphium226/MCAISandbox/issues/9)) with
@@ -153,7 +153,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
   collecting at once, counting `[lag]` lines, the API's response time and Paper's tick time (`mspt`/`tps`). Exit: a
   number of agents one agent server holds without stalls over ~2 s, or the finding that bots must be split across
   processes (a second agent server per village).
-- [ ] A.1 **Decision log and the baseline** (~half a session; no behaviour change). The code is in (`85ddef1`, s26:
+- [x] (done, triage 10-18) A.1 **Decision log and the baseline** (~half a session; no behaviour change). The code is in (`85ddef1`, s26:
   `[choice]`/`[choice-end]` records, `mcChoiceLog.ts`, per-run JSONL via `MCAI_CHOICE_LOG`, `autonomy_metrics.py`, which
   reads the AGENTS table since E.1); **the baseline runs are still to do** (as of s27).
   - Every chore decision logged as a `[choice]` record (agent, time, the options offered with their facts, the choice,
@@ -205,7 +205,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     errors, 8% taken, decision wait p90 0.9 s, ~$0.003 a run; Minevale42 (model-driven, model mode) complete in 10.2 min.
     **Exit status:** every criterion met except the value curve, which cannot discriminate (F223: identical fixed runs
     spread 397-701; storage does not count scouting). Open: F224 (scouts shut out by any lure), F225 (herding).
-- [ ] A.3 **Gauges and personalities** (~1 session).
+- [ ] (merged into [#1](https://github.com/delphium226/MCAISandbox/issues/1)) A.3 **Gauges and personalities** (~1 session).
   - Village gauges in code beside `refreshNeeds`: food in storage per agent (bread, cake, eggs, milk), tools (iron
     pickaxe, buckets, shears), farms and pens running, light, storage room, land explored round the ring; each with a
     target, a value and a trend, shown as words with numbers (D2A). Each option carries its expected effect; code
@@ -235,7 +235,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
   - 2. **A persona line and an own-pattern reminder**, both written by code from the vector and the agent's own record
     ("you mostly tend the pens; 5 of your last 8 chores"), in every menu and ballot prompt (~60 tokens, <50k tokens an
     hour at 25: ~2.5% of the budget; reminders cut drift 87%, Leins et al.).
-  - 3. **Skill from practice**: the per-kind record becomes a skill; practice raises the kind's weight, neglect lowers
+  - ([#17](https://github.com/delphium226/MCAISandbox/issues/17)) 3. **Skill from practice**: the per-kind record becomes a skill; practice raises the kind's weight, neglect lowers
     it, a "passion" from the temperament multiplies the gain (response-threshold model, RimWorld passions); menu facts
     "you: 5 of 5, 6 min; village: 9 min".
   - Later, with growth and the votes: **stakes and likes** (an own house, pen or field and E.6's personal chest; a liked
@@ -260,7 +260,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     43%: **the model keeps the tilt; identifiability is weak at ~7 choices an agent in 20 min** (F232, F234); failed
     share 5-8% vs 1-3%, mostly a hut no-path spot seen with identical temperaments too (F233). Part 2 (skill from
     practice) not started.
-- [ ] A.4 **Journal, lessons and roles** (~1-2 sessions).
+- [ ] (obsolete, triage 10-18) A.4 **Journal, lessons and roles** (~1-2 sessions).
   - A village clock: a day every N real minutes, kept by code (Minecraft time stays frozen unless A.7 says otherwise),
     for recency, reflection and meetings.
   - A journal per agent written by code (typed events: chores with outcome, minutes and yield; first times; sightings;
@@ -274,7 +274,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     too; roles show on the panel (house signs later: the backlog's Roles item).
   - Exit: over a 2-3 hour staged after-phase, success rates and minutes per trip improve for the kinds that failed
     early; no lesson contradicts the world when checked; roles persist across days.
-- [ ] A.5 **Projects** (~2 sessions). Proposed by models, checked and compiled by code.
+- [ ] (merged into [#13](https://github.com/delphium226/MCAISandbox/issues/13)) A.5 **Projects** (~2 sessions). Proposed by models, checked and compiled by code.
   - A fixed vocabulary compiled into existing machinery, each with a completion condition code checks: a building (a
     vanilla piece or a drawn design on the annex or a second plot, through find_site and plan_layout), a farm or pen
     (more slots, a second annex), stock (add_need: keep N of X), a beautifying piece (B.1-B.7 as they land), a path to a
@@ -290,7 +290,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     feasible.
   - Exit: in a staged 2-hour after-phase, at least two projects proposed, validated and finished; none counted done that
     the server does not show.
-- [ ] A.6 **Requests, meetings and village rules** (~1-2 sessions).
+- [ ] (obsolete, triage 10-18) A.6 **Requests, meetings and village rules** (~1-2 sessions).
   - Typed acts: request, offer, accept or decline with a reason, report done, ask the Mayor for help after a failure,
     propose, vote. Code routes each to the addressee's next menu as an option, closes it (accepted, done, expired),
     keeps a ledger of commitments, and checks any claim about the world before the others see it (the AI Village's
@@ -304,7 +304,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     CRSEC); the starting values are code's.
   - Exit: requests made and met in a staged run; a vote held and its rule enforced; messages per hour no higher than
     today's.
-- [ ] A.7 **Day, night and culture** (~1 session).
+- [ ] (merged into [#6](https://github.com/delphium226/MCAISandbox/issues/6), [#31](https://github.com/delphium226/MCAISandbox/issues/31)) A.7 **Day, night and culture** (~1 session).
   - Open (the user's): Minecraft's daylight cycle back on (harmless in peaceful; the lamps stand; beds later need wool,
     so shears, so iron) or the code clock alone. Dawn: journal summary, gauges, intention; day: choices at chore
     boundaries; dusk: the meeting; night: reflection, lessons, roles, the chronicle, fresh contexts (Cursor's fresh
@@ -314,7 +314,7 @@ Steps (each up the ladder before the next: typecheck, offline bench or check, st
     by gpt-oss from recorded events, novel against earlier entries, written into a book in the library by command; caps
     on what culture creates (the AI Village's expansion arms race).
   - Exit: the user reads a few days of chronicle and finds it accurate and worth reading; all three use the same names.
-- [ ] A.8 **The comparison** (recurring: after A.2, A.3 and A.5, and at the end). On restored minevale3, the same
+- [ ] (obsolete, triage 10-18) A.8 **The comparison** (recurring: after A.2, A.3 and A.5, and at the end). On restored minevale3, the same
   after-phase length (60-90 min) and several seeds: (1) scripted chores, (2) menu, (3) with gauges and personalities,
   (4) with journal and lessons, (5) with projects and social acts; A.1's metrics for each, then a pairwise ranking of
   replays by the user. Then 2-4 hour runs with stop rules for autonomy (no decision for N minutes, the same failure
@@ -510,7 +510,7 @@ Rules for every step:
     - prediction 3.6-4.0 (the 3.1-3.3 lower bound leaves no slack);
     - Van12 at least 1.3 min ahead of Van3.
 
-- [ ] S.7 **Twelve model-driven agents** (~half a session).
+- [x] (done, triage 10-18) S.7 **Twelve model-driven agents** (~half a session).
   - At most 3 model calls in flight across the process (Ollama Cloud Pro), the Mayor's plans and designs first. A call's timeout starts at dispatch, not at queueing.
   - An RCON request timeout that drops late replies by id goes in only if S.0 shows a latency tail. A timed-out `clear` or `give` is counted again on the server before any refund (lesson 4).
   - This runs before A.6's felling rules, overriding A.8's "~6 a village" (see Decisions).
@@ -520,7 +520,7 @@ Rules for every step:
     - Minevale38 (1x, model-driven, 11 workers) complete with 0 failed actions;
     - `Worker3`-`Worker11` whitelisted first.
 
-- [ ] S.8 **A village sized for twelve: two plots at once** (~1-1.5 sessions).
+- [ ] (obsolete, triage 10-18) S.8 **A village sized for twelve: two plots at once** (~1-1.5 sessions).
   - `plan_layout` lays out every plot in one call when the Mayor names more buildings than one plot holds.
     - Plot 1 takes the huts, the landmark and about 4 houses; plot 2 sits beside it and takes about 7 houses and a centre.
     - Plots come from find_site's best squares that do not overlap.
@@ -569,7 +569,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
     - ladders.
   - Exit: storage gains match the bills on the server's counts; 0 requeues traced to `make`; busy agents after completion at least 9 of 12.
 
-- [ ] S.10 **Research: surveys and yield experiments** (~1-1.5 sessions). This is what "research" means here.
+- [ ] ([#18](https://github.com/delphium226/MCAISandbox/issues/18)) S.10 **Research: surveys and yield experiments** (~1-1.5 sessions). This is what "research" means here.
   - Survey tasks are typed questions with answers code checks. A task is done when the atlas holds a new record. Examples:
     - "nearest lava source the mine reaches" (none within 96 of minevale3 lies above y 31);
     - "bee nests within 160";
@@ -586,7 +586,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
   - Copy the atlas before any reset (lesson 115).
   - Exit: 4-8 surveys at once during a Van12 build with completion within noise; every survey's answer matches the snapshot (`region_blocks.py`).
 
-- [ ] S.11 **The smelting works, ore side-yield and XP** (~1 session).
+- [ ] ([#19](https://github.com/delphium226/MCAISandbox/issues/19)) S.11 **The smelting works, ore side-yield and XP** (~1 session).
   - A furnace row on S.9's works plot with one lock per furnace. A blast furnace (5 iron + furnace + 3 smooth stone) for ores and a smoker for food.
   - Iron-age tunnels also keep copper, lapis and redstone, with redstone only with an iron pickaxe. Lesson 102 applies: no veins chased into floors.
   - Copper (32k blocks within 96 of minevale3) carries the decorative lines later.
@@ -597,7 +597,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
     - no station outside the works plot or hut;
     - XP per agent-hour recorded for S.16.
 
-- [ ] S.12 **String and fishing** (~1 session).
+- [ ] ([#20](https://github.com/delphium226/MCAISandbox/issues/20)) S.12 **String and fishing** (~1 session).
   - Cobwebs drop string only to a sword (`requiresCorrectToolForDrops`; by hand they take about 20 s and drop nothing). String comes from a wooden sword (2 planks + 1 stick).
     - The planner's string <- cobweb rule carries the tool and replaces the UNOBTAINABLE entry (`mcMaterials.ts:52`).
     - Within 96 of minevale3 there are 57 cobwebs, all in a mineshaft at y 12-34, 30-50 blocks under the surface (nearest about 70 away). `collect`'s filter (home level - 16, `mcSurvival.ts:214-215`) excludes them.
@@ -617,7 +617,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
     - leather per fisher-hour recorded for S.13;
     - whether live `fish()` works recorded for S.16's XP.
 
-- [ ] S.13 **The library: paper, books, shelves** (~1-1.5 sessions). The first half of the spell book.
+- [ ] ([#21](https://github.com/delphium226/MCAISandbox/issues/21)) S.13 **The library: paper, books, shelves** (~1-1.5 sessions). The first half of the spell book.
   - There is no sugar cane within 96 of minevale3, so cane farms come from the 160-block sightings (or `--fixtures`). Then paper, books (3 paper + 1 leather), bookshelves and a lectern placed in the library building.
   - Leather binds, not cane (about 0.9 cane a minute from 16 plants). With culling off it comes only from fishing junk:
     - one shelf (3 books) is about 1.5 fisher-hours;
@@ -628,7 +628,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
   - Cane harvests leave the bottom block.
   - Exit: `--stock sugar_cane:30,leather:7` gives 7 books: 2 shelves (or 1 shelf and a lectern) and 1 spare book, placed and checked with `execute if block`.
 
-- [ ] S.14 **Iron and copper goods, and textiles** (~1.5 sessions).
+- [ ] (merged into [#6](https://github.com/delphium226/MCAISandbox/issues/6)) S.14 **Iron and copper goods, and textiles** (~1.5 sessions).
   - Shears, then a sheep pen on S.9's works plot (6 sheep within 96, 21 within 160; test the gate geometry live, lesson 110), then wool, beds, carpets and banners.
   - Dyes come from what the site holds. Within 96: wildflowers (yellow, about 1,630), lilac (magenta, 20), lily of the valley (white, 15), plus bone meal (white) and lapis (blue, and light blue mixed with white). There is no red, green, orange, pink, lime, cyan, purple or brown here. Measure bone meal on grass before counting on other flowers.
   - The Mayor picks a banner or bed from a vocabulary code builds from the 32 `no_item_required` patterns and the dyes S.10's survey found. Code compiles it to `/setblock` and charges the dyes as well as the wool.
@@ -637,7 +637,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
   - Iron is the binding cost: iron goods come only after the iron pickaxe and buckets.
   - Exit: `--stock iron_ingot:10` gives shears, a sheep pen and a bed in a house; the iron age's own goals are still met.
 
-- [ ] S.15 **The deep mine** (~1.5-2 sessions).
+- [ ] ([#22](https://github.com/delphium226/MCAISandbox/issues/22)) S.15 **The deep mine** (~1.5-2 sessions).
   - Stairs from the iron level (y 18) down to about y -58, with several starts (lesson 100), then one branch per miner.
   - The iron mine is separate code with no holders (`nextIronLeg`, `ironBusy`, one `stuckAt`). This step brings S.2's holders and branch record to it explicitly.
   - Lava is handled with a carried water bucket. The jar's `is_fire` damage tag includes lava, so `fire_damage false` should cover it; test only the walking and pathing live.
@@ -645,7 +645,7 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
   - Every miner is teleported home at the end (lesson 101).
   - Exit: 3-6 miners at depth, no `[stuck]` clusters on the deep stair, diamonds and deep lapis and redstone in storage.
 
-- [ ] S.16 **Obsidian and the spell book** (~2 sessions). This is "spell book development".
+- [ ] ([#23](https://github.com/delphium226/MCAISandbox/issues/23)) S.16 **Obsidian and the spell book** (~2 sessions). This is "spell book development".
   - `cast_obsidian`: no lava within 96 of minevale3 is reachable from the surface (all at y 31 or lower), so the lava comes from where S.15's mine meets it.
     - Either cast at that level (pour water by bucket, confirm on the server, mine it with a diamond pickaxe, teleport home), or carry a lava bucket up and cast in a lined pit by the hut.
   - The enchanting table needs a book, 2 diamonds and 4 obsidian.
@@ -660,11 +660,11 @@ Goal 2 below is a tech tree. Families come in order of how much parallel work th
   - Exit: `--stock diamond:2,obsidian:4,book:3,lapis_lazuli:6 --xp 30` (a new `stage_village.py` option, via `xp add`) gives an enchanted pickaxe and a book, both checked on the server.
 
 **Later, not scheduled:** each waits for a measurement or for a site.
-- Bees, honey and candles (candles need honeycomb; 1 nest within 96).
-- Cartography (the atlas already does the mapping).
-- Rails and redstone; the hopper egg collector alone is 0.5.
-- Archaeology and trading (minevale3 has no suspicious blocks or villages within 320); the wandering trader as a 0.5 chore.
-- The Nether: harmless in peaceful, but 4-6 sessions.
+- (merged into [#13](https://github.com/delphium226/MCAISandbox/issues/13)) Bees, honey and candles (candles need honeycomb; 1 nest within 96).
+- (obsolete, triage 10-18) Cartography (the atlas already does the mapping).
+- ([#24](https://github.com/delphium226/MCAISandbox/issues/24)) Rails and redstone; the hopper egg collector alone is 0.5.
+- (merged into [#14](https://github.com/delphium226/MCAISandbox/issues/14), [#4](https://github.com/delphium226/MCAISandbox/issues/4)) Archaeology and trading (minevale3 has no suspicious blocks or villages within 320); the wandering trader as a 0.5 chore.
+- ([#25](https://github.com/delphium226/MCAISandbox/issues/25)) The Nether: harmless in peaceful, but 4-6 sessions.
 
 **Interleaving with Phase A.**
 - S.0 runs together with A.1: the same busy counts, plus the `[choice]` log.
@@ -823,7 +823,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
     - 25 bots work for 10 minutes with no `[lag]` over 3.5 s, API p90 under 0.1 s, `mspt` under 25, and RCON p90 under 50 ms with builds and deposits running.
     - The panel's screenshot is readable at 25 cards (headless Edge).
     - If stalls show, worker threads come before a second process: two writers would overwrite each other's whole-file saves.
-- [ ] E.2 **Agent state, memory and the clock** (~1 session; takes A.4's journal, table and clock).
+- [ ] ([#26](https://github.com/delphium226/MCAISandbox/issues/26)) E.2 **Agent state, memory and the clock** (~1 session; takes A.4's journal, table and clock).
   - **`memory.intent = {kind, what, why, since, source}`:** written by the controller, and by `mcWorld`'s `setChore` directly (chores run in the world, so no hook is needed). Today chores bypass the brain and an agent cannot say what it is doing.
   - **Stores** (`social.ts`), keyed by village, run id and agent:
     - append-only JSONL for the choice and commitment ledgers;
@@ -837,7 +837,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
   - Exit:
     - An agent server restart mid-run, followed by a respawn, keeps every agent's journal and table.
     - The panel shows each agent's intent during chores.
-- [ ] E.3 **Social awareness** (~1 session; replaces A.3's "others" bullet).
+- [ ] ([#27](https://github.com/delphium226/MCAISandbox/issues/27)) E.3 **Social awareness** (~1 session; replaces A.3's "others" bullet).
   - **The awareness block** (`social.ts` `awareness(agent)`), capped at about 300 tokens:
     - counts by activity kind ("mining 6; farming 3; pens 0, nobody");
     - up to 5 profiles, chosen in this order: open acts with this agent, nearby, most interactions;
@@ -857,7 +857,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
   - Exit:
     - A prompt-size test holds the cap at 25 agents.
     - Scripted staged runs at each switch setting differ from `on` only in the listed fields.
-- [ ] E.4 **The controller: coherence and goal generation** (~1-2 sessions; extends A.2's `choose`).
+- [ ] ([#28](https://github.com/delphium226/MCAISandbox/issues/28)) E.4 **The controller: coherence and goal generation** (~1-2 sessions; extends A.2's `choose`).
   - **`controller.ts` `decide(agent, point)`** takes these inputs:
     - the persona line (identical in test conditions) and the community goal;
     - the agent's last 5 choices with their outcomes;
@@ -889,7 +889,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
   - Exit:
     - `socialbench.mts` (at least 10 samples a case, lesson 20): at least 95% valid; `say` consistent with the choice at least 90% before the drop filter; no position over 1.5x chance.
     - In a model-driven staged 12-agent after-phase: no two agents hold the same instance, no stall, and a fallback share of 5% or less.
-- [ ] E.5 **Acts, the board and proximity talk** (~1-2 sessions; replaces A.6's acts).
+- [ ] ([#29](https://github.com/delphium226/MCAISandbox/issues/29)) E.5 **Acts, the board and proximity talk** (~1-2 sessions; replaces A.6's acts).
   - **Channels**, all in design C's types in `social.ts`:
     - typed private acts: request, offer, accept, decline, release, report;
     - a notice board, shown as a ranked digest of 4 items;
@@ -910,7 +910,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
   - Exit:
     - A scripted staged run: every act type delivered, closed and logged; 0 false claims delivered.
     - A model-driven staged 12-agent run: requests made and met; acts per agent-hour at or below decisions; a broken commitment's gossip changes a hearer's later choice at least once.
-- [ ] E.6 **Reflection, meetings and rules** (~2 sessions; replaces A.6's meetings and rules, extends A.4's reflection).
+- [ ] ([#30](https://github.com/delphium226/MCAISandbox/issues/30)) E.6 **Reflection, meetings and rules** (~2 sessions; replaces A.6's meetings and rules, extends A.4's reflection).
   - **Nightly reflection** (medium reasoning, on E.2's clock with per-agent offsets; A.4's inputs plus touched profiles and gossip heard). It outputs:
     - lesson edits;
     - profile edits;
@@ -933,7 +933,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
     - A scripted staged run holds a vote that changes a code-enforced quota, and the skills obey it.
     - socialbench ballot and feedback cases at least 95% valid.
     - The dusk window at 25 clears in about 30 s on Pro without touching the held slot.
-- [ ] E.7 **Culture** (~1 session; replaces A.7's culture).
+- [ ] ([#31](https://github.com/delphium226/MCAISandbox/issues/31)) E.7 **Culture** (~1 session; replaces A.7's culture).
   - **Cultural items:** place names (the finder names a feature once a day; competing names coexist, and each agent sees the one it last heard or used), sayings, beliefs and customs.
   - **A custom is also a menu action** with a world effect code can count: a flower pot beside the agent's door, a torch on the shrine stone at the green. It is offered to every agent from t=0 in every condition, so exposure never adds an option.
   - **Exposure and adoption:**
@@ -966,7 +966,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
 - **Metrics:** computed over model decisions only, and over non-seeded agents only. The Mayor is reported separately: its name and history are seeded authority, and its role prompt differs. Each metric is reported beside its value under the null picker.
 - **Budget:** `MC_TOKEN_BUDGET_HOUR` at 250k x agents, so degradation should never fire, with `MC_SPEND_CAP_USD` as the real limit.
 
-- [ ] E.8 **Experiment 1: specialisation** (~1-2 sessions of runs).
+- [ ] ([#32](https://github.com/delphium226/MCAISandbox/issues/32)) E.8 **Experiment 1: specialisation** (~1-2 sessions of runs).
   - **Pilot** (after E.4): 12 agents, (a), (b2) and (c), 1 replicate each. It checks the pipeline, fallback share, cost per hour and decision rate. Its numbers feed the cost table, and no claim is made from it.
   - **Full run** (after E.7): 25 agents (Mayor, Worker1-24), 90-minute after-phases (4.5 days), the same community goal.
   - **Conditions:**
@@ -991,7 +991,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
     - in (a)-(b2), any inferred role label ("the village's miner", "you have become") outside the fixed prompt templates, and "top 2 kinds" logged;
     - in (b2), any other agent's name or activity in any prompt.
   - Exit: (a) beats (b2) on the primary at p < 0.05; or the finding that it does not, recorded with the numbers.
-- [ ] E.9 **Experiment 2: a rule changed by vote, and its compliance** (~1-2 sessions of runs).
+- [ ] ([#33](https://github.com/delphium226/MCAISandbox/issues/33)) E.9 **Experiment 2: a rule changed by vote, and its compliance** (~1-2 sessions of runs).
   - **Setup:** 25 agents, 100-minute runs, a `levy` rule starting at 20%. The agenda is opened to levy proposals on day 2. Ballot at day 2's dusk; days 3-5 under the result.
   - **Influencers:** 3 of 25 (Sid's 12%) get a persona line for or against the levy and speak through E.5's `advocate` act in proximity talk. They do not vote, and the log notes whether their votes could have swung the ballot.
   - **Conditions:**
@@ -1008,7 +1008,7 @@ Steps (E.0-E.1 can run beside Phase S; E.2 onwards needs A.2. Each step goes thr
     - the direction of pro against anti.
   - **Missing treatment:** a run with no levy item on the ballot or no quorum is reported as a "no vote" outcome and replaced, up to 2 per condition. Beyond that, the finding is that votes do not happen.
   - Exit: the primary contrast at p < 0.05 with pro and anti in the predicted direction; or a free-riding or option-following finding for gpt-oss, recorded.
-- [ ] E.10 **Experiment 3: culture spreading** (~1-2 sessions of runs).
+- [ ] ([#34](https://github.com/delphium226/MCAISandbox/issues/34)) E.10 **Experiment 3: culture spreading** (~1-2 sessions of runs).
   - **Setup:** 25 agents, 90 minutes. A saying and its custom are seeded in committed agents.
   - **Conditions:**
     - k = 4 committed (5);
@@ -1216,34 +1216,37 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
 The user asks the mayor in chat ("build me a house by the river", "we need a bigger hall"); the village designs,
 lays out, gathers and builds it, and the mayor answers in chat.
 
-- [ ] 3.1 **Talking to the mayor in tests**: an API route that posts a player's message as chat the mayor hears
+- [ ] ([#35](https://github.com/delphium226/MCAISandbox/issues/35)) 3.1 **Talking to the mayor in tests**: an API route that posts a player's message as chat the mayor hears
       (`POST /api/village/:v/say {from, text}`), or a real player message over RCON if one can be made to arrive as
       chat. Keep the 30 s chat limit and keep workers out of it (only the mayor answers players).
-- [ ] 3.2 **The mayor hears requests**: player chat naming the mayor or the village wakes its planner (today chat
+- [ ] ([#36](https://github.com/delphium226/MCAISandbox/issues/36)) 3.2 **The mayor hears requests**: player chat naming the mayor or the village wakes its planner (today chat
       only wakes the executor) with the request as a new objective or an addition to the current one.
-- [ ] 3.3 **Code places it**: "by the river", "next to the hall", "here" become a site search near a place (atlas:
+- [ ] ([#37](https://github.com/delphium226/MCAISandbox/issues/37)) 3.3 **Code places it**: "by the river", "next to the hall", "here" become a site search near a place (atlas:
       water, forest), a building, or the player's position; a second plot when the first is full.
-- [ ] 3.4 **Code checks it can be built**: materials within reach (atlas), unobtainable blocks refused, rough time
+- [ ] ([#38](https://github.com/delphium226/MCAISandbox/issues/38)) 3.4 **Code checks it can be built**: materials within reach (atlas), unobtainable blocks refused, rough time
       estimate from the bill of materials.
-- [ ] 3.5 **The mayor answers**: what it will build, where, and roughly how long, in one chat line.
-- [ ] 3.6 mayorbench cases for chat requests; then runs with the user in the game.
+- [ ] ([#39](https://github.com/delphium226/MCAISandbox/issues/39)) 3.5 **The mayor answers**: what it will build, where, and roughly how long, in one chat line.
+- [ ] ([#40](https://github.com/delphium226/MCAISandbox/issues/40)) 3.6 mayorbench cases for chat requests; then runs with the user in the game.
 
 ## Phase 4: speed and scale
 
-- [ ] 4.1 ~~Gathering that finishes trees~~ (moved to 2.2); choose trees by reachable logs (atlas `low` counts).
-- [ ] 4.2 The storage chest between the plot and the nearest trees and stone, not wherever the first deposit is.
-- [ ] 4.3 More workers where gathering allows (4 workers only paid off with enough trees apart; see F12).
-- [ ] 4.4 Executors on gpt-oss (benchmark with `scripts/bench/execbench.mts` first). Low value now: workers make
+- [ ] ([#41](https://github.com/delphium226/MCAISandbox/issues/41)) 4.1 ~~Gathering that finishes trees~~ (moved to 2.2); choose trees by reachable logs (atlas `low` counts).
+- [ ] (obsolete, triage 10-18) 4.2 The storage chest between the plot and the nearest trees and stone, not wherever the first deposit is.
+- [ ] (obsolete, triage 10-18) 4.3 More workers where gathering allows (4 workers only paid off with enough trees apart; see F12).
+- [x] (done, triage 10-18) 4.4 Executors on gpt-oss (benchmark with `scripts/bench/execbench.mts` first). Low value now: workers make
       few model calls since run-as-written.
 
 ## Backlog (not scheduled)
+
+(Triaged 2026-10-18, `docs/plan-archive/triage-2026-10-18.md`: open entries are GitHub issues #17-#65, linked on
+their lines; entries marked done, obsolete or merged into an issue stay here as the record.)
 
 **Village life (the user's list, 10-06, eighteenth session).** Order agreed so far: lamp posts (under way), then signs,
 then farming; iron age suggested as the fourth (it unlocks buckets, shears, lanterns and interiors). The rest unordered.
 - ~~**Lamp posts** along the streets and the green's ring~~: done 10-06 (`980a5cd`, the user's choices: a fence of the
   village's wood with a torch, charged, about every 8 blocks, completion waits for them). Vanilla's per-biome lamp pieces
   later, with the iron age (snowy's lanterns; plains' wall torches need a wall_torch charge and supports-first order).
-- ~~**A sign beside each building's door** naming its function~~: done 10-08 (`cfe8b8c`, the user's choices: a wall
+- ([#57](https://github.com/delphium226/MCAISandbox/issues/57)) ~~**A sign beside each building's door** naming its function~~: done 10-08 (`cfe8b8c`, the user's choices: a wall
   sign beside the entrance door, every building with a door labelled by its use, a separate soft task after the lamps,
   waxed, completion waits). Leftovers: F161.
 - ~~**Farming** v1~~: done 10-08 (`24e7037`, `e28198e`; the user's choices: seeds by gather tasks into storage, a 5x7
@@ -1278,16 +1281,16 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   bounded trips, winding down after trips with nothing new), and the same rule farms what turns up. Tests need a "keep
   going after completion" mode with its own time limit. Vanilla's 12 animal pens (dropped like the farms, F123) as pen
   shapes.
-- **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
+- (done, triage 10-18) **Furnished interiors**: put back what the importer turns to air where the economy can make it (crafting tables,
   furnaces, chests, bookshelves, wall torches from the mine's coal; beds need wool).
-- **Internal lighting inside buildings** (the user's, 10-06): torches on the inside walls (the importer drops vanilla's
+- (done, triage 10-18) **Internal lighting inside buildings** (the user's, 10-06): torches on the inside walls (the importer drops vanilla's
   wall torches today; they need a wall_torch charge mapping and supports-first placement, the lamp research's notes).
-- **Internal lighting inside mines** (the user's, 10-06): torches along the stairs and tunnels as they are dug (coal from
+- (done, triage 10-18) **Internal lighting inside mines** (the user's, 10-06): torches along the stairs and tunnels as they are dug (coal from
   the mine, or charcoal).
-- **Gardens and fences**: a fenced front garden with flowers the agents pick.
-- **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
-- **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
-- **Animal pens**: v1 done 10-09 (`ecb7cf7`, chickens on the annex; see the decisions and `runs/2026-10-08/s23/`); v2
+- (merged into [#45](https://github.com/delphium226/MCAISandbox/issues/45)) **Gardens and fences**: a fenced front garden with flowers the agents pick.
+- (merged into [#48](https://github.com/delphium226/MCAISandbox/issues/48)) **A stock board**: signs at the storage hut showing what storage holds, rewritten on every deposit.
+- (merged into [#48](https://github.com/delphium226/MCAISandbox/issues/48)) **Campfires and chimneys** (logs, sticks, coal) on the green and the houses.
+- (merged into [#9](https://github.com/delphium226/MCAISandbox/issues/9), [#6](https://github.com/delphium226/MCAISandbox/issues/6)) **Animal pens**: v1 done 10-09 (`ecb7cf7`, chickens on the annex; see the decisions and `runs/2026-10-08/s23/`); v2
   (eggs, breeding, cows, milk, a cake) done 10-09 (`119df92`; `runs/2026-10-09/`: design, live facts, research, reviews;
   open F205: a pen of one gets no second trip when the other animals stand above the annex's level +-4). Left: sheep
   (wool needs shears: iron), pigs (carrots/potatoes), more pens than the annex's two slots. What was known before v1: sheep, cows,
@@ -1318,19 +1321,19 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
     seeds, at what distance and speed (a bot walks ~4.3 m/s, faster than a chicken), how to walk so they keep up (short
     hops, waits), whether a fence gate opened and closed by command keeps them in, and how to count them inside on the
     server (`execute if entity @e[type=chicken,x=,y=,z=,dx=,dy=,dz=]`).
-- **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns. After
+- (done, triage 10-18) **Iron age**: smelt the mine's iron for iron tools, buckets (water for farms), shears (wool) and lanterns. After
   farming (the user's choice, 10-08): ore is a new gathering problem (the mine takes stone only; iron lies in seams at
   depth; atlas ores can be far or in caves) and adds smelting time to every village; its payoff is spread over buckets,
   shears, lanterns, tools and interiors.
-- **Roles**: a profession per worker (farmer, miner, builder) tied to its building and named on its sign (Project Sid's
+- (merged into [#27](https://github.com/delphium226/MCAISandbox/issues/27)) **Roles**: a profession per worker (farmer, miner, builder) tied to its building and named on its sign (Project Sid's
   specialisation).
-- **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room. (in progress, s30: neighbourhoods tied to population, farms and hunger with them.)
-- **Roads with lighting between neighbourhoods** (the user's request, 10-15, s30): a road from each neighbourhood to the
+- (done, triage 10-18) **A village that grows**: once the objective is met, the mayor plans the next houses on its own, up to the site's room. (in progress, s30: neighbourhoods tied to population, farms and hunger with them.)
+- ([#42](https://github.com/delphium226/MCAISandbox/issues/42)) **Roads with lighting between neighbourhoods** (the user's request, 10-15, s30): a road from each neighbourhood to the
   village (or to the nearest neighbourhood), laid like the streets (dirt path by prepare_site's rules, no structure on
   it: lesson 62) and lit with lamp posts ~8 apart from the torch stock (another real consumer for make:torch). Open: the
   route over uneven land and water (steps or a cut, a bridge?), and whether roads are planned when a neighbourhood is
   laid out or as their own chore afterwards.
-- **More variety in neighbourhood styles** (the user's request, 10-15, s30): G25's six neighbourhoods were the same four
+- ([#43](https://github.com/delphium226/MCAISandbox/issues/43)) **More variety in neighbourhood styles** (the user's request, 10-15, s30): G25's six neighbourhoods were the same four
   plains small houses on the same 22x22 cross-street pad, the 4-house batch repeating houses 1 and 2. Ideas: each
   neighbourhood its own character (a biome's other houses: medium houses, other biomes' pieces that pass the survival
   checks, V2.1's 62; model-drawn houses through `submit_style` with a theme per neighbourhood, D.2's generator; wood kinds
@@ -1350,7 +1353,7 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   ballots follow each voter's facts or the option order (a bench like choicebench) before reading meaning into results;
   agents have no lasting preferences until G2's memory, so voting and memory belong together later. Later topics: village
   policies (stock targets, the appetite rate, growing further), then open proposals (G1-style triage).
-  **What else to vote on** (s32's research, 10-16, the user's request: `docs/research/vote-topics.md`, 26 sources: Project
+  (merged into [#13](https://github.com/delphium226/MCAISandbox/issues/13), [#1](https://github.com/delphium226/MCAISandbox/issues/1)) **What else to vote on** (s32's research, 10-16, the user's request: `docs/research/vote-topics.md`, 26 sources: Project
   Sid, GovSim and GovSim-SelfGovern, the AI Village's election, CivMC/Towny/Hermitcraft, Frostpunk, RimWorld, Dwarf
   Fortress, Ostrom). Ranked for this world, effort S/M/L on today's systems: 1. the next public work, a participatory
   budget over 2-4 validated projects (a lit road, a well, a second storage hut, a mine level, a wider farm; M, S after
@@ -1366,9 +1369,9 @@ then farming; iron age suggested as the fourth (it unlocks buckets, shears, lant
   for the next ballot (the mob vote's complaint), the ballot run by code (the AI Village's own ballot form was never
   published and tied three ways), agents propose caps above all (GovSim-SelfGovern: 1,921 of 2,236 proposals), and
   reasoning models free-ride on levies (~40% contributed against ~90%): judge every vote by what it changed in the world.
-- **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
-- **Upkeep**: the mayor checks buildings against their designs and repairs damage.
-- **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
+- (merged into [#6](https://github.com/delphium226/MCAISandbox/issues/6)) **Day and night**: time unfrozen; agents go home and sleep in their beds (needs beds, so wool).
+- ([#44](https://github.com/delphium226/MCAISandbox/issues/44)) **Upkeep**: the mayor checks buildings against their designs and repairs damage.
+- (merged into [#4](https://github.com/delphium226/MCAISandbox/issues/4), [#34](https://github.com/delphium226/MCAISandbox/issues/34)) **Two villages**: a road between them and trade of surplus (Project Sid's economy at small scale).
 - (Phase 3, talking to the mayor, stays its own phase below the plan's phases.)
 
 **Beautifying the village (the user's request, 10-08, twenty-second session; proposed, not scheduled: the order and the
@@ -1385,16 +1388,16 @@ lamps, signs and farm slots were (each a lesson already paid for):
   93, the decision of farming and the iron age: never holding completion or the critical path), unless the user wants a
   piece counted in the objective as lamps and signs are. Staged tests on minevale3 with `--after`, then
   `render_design.py` on a saved `/api/blocks` box of the plot and a panel screenshot to judge the look (lesson 58).
-- **B.1 Flower beds and front gardens** (first: cheap, natural, very visible). Flowers are collected like seeds (any
+- ([#45](https://github.com/delphium226/MCAISandbox/issues/45)) **B.1 Flower beds and front gardens** (first: cheap, natural, very visible). Flowers are collected like seeds (any
   small flower in the biome: dandelion, poppy, cornflower, wildflowers; collect already resolves plant blocks); a placer
   picks the 1-2 cells either side of each door's walkway along the house front and a ring of beds round the green's
   centrepiece; planted on grass by command, one flower an item. Later: a low fence (village wood) with a gate round each
   house's front garden, the "Gardens and fences" item.
-- **B.2 Trees and hedges.** Saplings drop from the leaves prepare_site fells (today JUNK, never deposited: keep the
+- ([#46](https://github.com/delphium226/MCAISandbox/issues/46)) **B.2 Trees and hedges.** Saplings drop from the leaves prepare_site fells (today JUNK, never deposited: keep the
   village wood's saplings); plant 4-8 on the green and at the plot's corners (2+ from everything, room for a canopy) and
   let them grow (random ticks run with time frozen, only near agents: lesson 92). Hedges of leaves are not obtainable
   without shears (the iron age's shears would make them so).
-- **B.3 The plot's edges blended into the land.** prepare_site's cut and fill leaves sheer steps up to its 2-block margin
+- ([#47](https://github.com/delphium226/MCAISandbox/issues/47)) **B.3 The plot's edges blended into the land.** prepare_site's cut and fill leaves sheer steps up to its 2-block margin
   (F95's pits, the "shelf" site): a pass that turns each step over 1 block into a slope of the ground's own blocks
   (grass on top), and a 1-block grass verge between the pad's edge and the street; the stand spots and lesson 61 (never
   footing for a walk to build up to) to be checked. Costs dirt only (gathered early already, #3).
@@ -1408,14 +1411,14 @@ lamps, signs and farm slots were (each a lesson already paid for):
   first source; a wall_torch charged as a torch and placed after its supporting wall: the lamp research's notes), and
   torches along the mine's stairs and tunnels every 6-8 cells as they are dug (coal from the mine, or charcoal; the iron
   level keeps its coal now). Lanterns instead once iron is plentiful (snowy villages' pieces use them).
-- **B.5 Furnished interiors**: the importer's air back to what the economy can make (crafting tables, furnaces, chests,
+- (done, triage 10-18) **B.5 Furnished interiors**: the importer's air back to what the economy can make (crafting tables, furnaces, chests,
   bookshelves from paper and leather: sugar cane from the farm slots gives paper; barrels, flower pots from bricks of
   clay; beds wait for wool). Per piece, from the jar's own blocks; materials by the bill (lesson 76: plan every item).
-- **B.6 The green's centre and street furniture**: the meeting point's well or bell is vanilla's; add benches (stairs
+- ([#48](https://github.com/delphium226/MCAISandbox/issues/48)) **B.6 The green's centre and street furniture**: the meeting point's well or bell is vanilla's; add benches (stairs
   of the village wood facing the centre), a campfire (logs, sticks, coal: chimneys of cobblestone walls over a few houses'
   roofs too, the "Campfires and chimneys" item), and a notice board at the storage hut (the "stock board" item: signs
   rewritten from storage on every deposit).
-- **B.7 Window boxes and shutters**: trapdoors beside windows (vanilla pieces carry some; F112's inside shutters are the
+- ([#49](https://github.com/delphium226/MCAISandbox/issues/49)) **B.7 Window boxes and shutters**: trapdoors beside windows (vanilla pieces carry some; F112's inside shutters are the
   warning: outside faces only, checked at four turns with rotate_design.py) and flower pots on sills.
 - **Recommended order:** B.1, B.2, B.4 (light), B.3, B.6, B.5, B.7: visible and cheap first; edges before furniture
   because they change what stand spots and walks see; interiors last (largest bills, lesson 76). Each step: research
@@ -1426,88 +1429,88 @@ lamps, signs and farm slots were (each a lesson already paid for):
   biome's own kinds (recommended) or a fixed palette; trees of the village wood (recommended) or the biome's; whether
   the edge blending may take a ring of ground outside the plot (it needs 2-4 blocks beyond the margin on steep sites).
 
-- Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
-- Events carry no timestamp (the panel cannot say "2 min ago").
-- Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
-- The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them
+- ([#50](https://github.com/delphium226/MCAISandbox/issues/50)) Stairs and fence collision in the sandbox; a real downloaded schematic; `/save` API route.
+- ([#51](https://github.com/delphium226/MCAISandbox/issues/51)) Events carry no timestamp (the panel cannot say "2 min ago").
+- ([#52](https://github.com/delphium226/MCAISandbox/issues/52)) Two builders drawing on the chest at once still come up short now and then (the requeue recovers).
+- ([#53](https://github.com/delphium226/MCAISandbox/issues/53)) The pathfinder's own dirt pillars and bridges (scaffolding while walking) are left standing; track and remove them
   (felling's server check removes those in a climb column, F57).
-- Whole-tree felling overshoots small tasks on 2x2 jungle trees (81 and 105 logs for 9-10-log tasks, over 5 min
+- (done, triage 10-18) Whole-tree felling overshoots small tasks on 2x2 jungle trees (81 and 105 logs for 9-10-log tasks, over 5 min
   each), and a held gather task is not closed when storage covers it (F62).
-- The timed review ("no step completed for 3 minutes") re-plans workers in the middle of long collects; the executor
+- (obsolete, triage 10-18) The timed review ("no step completed for 3 minutes") re-plans workers in the middle of long collects; the executor
   then queues more collects (61 cobblestone for a 31 task, F67). No timed review while a code-posted step's action
   is still running.
 - ~~A bot stuck twice in a 1-deep pocket beside a plot on its way to a chest (F71)~~: explained and fixed by F147 (the
   half width's rounding at z 128), 10-05.
 - ~~F148: a 12 s stand-still beside the storage hut's aisle on VanG's site~~: explained and fixed 10-06 (F151, the
   patched pathfinder). F133 (no reproduction; probably the same mechanism, F151).
-- F150: the Mayor's sand walk through water (not reproduced 10-06 by Gus or a staged run; watch the next model-driven
+- (obsolete, triage 10-18) F150: the Mayor's sand walk through water (not reproduced 10-06 by Gus or a staged run; watch the next model-driven
   runs on -1628,65,47, whose `[stuck]` lines now carry the goal and path detail).
-- The mine's doorway repaired before walking in (F131's third part; the cause, walks placing on village ground, was
+- ([#54](https://github.com/delphium226/MCAISandbox/issues/54)) The mine's doorway repaired before walking in (F131's third part; the cause, walks placing on village ground, was
   fixed 10-04; backlog by the user's choice 10-06).
-- F153: the pathfinder's door branch with dirt carried, and `arrived()` without the cell above.
+- ([#55](https://github.com/delphium226/MCAISandbox/issues/55)) F153: the pathfinder's door branch with dirt carried, and `arrived()` without the cell above.
 - ~~F155: a mayor plan of only "wait" with nothing laid out escapes the plan_layout nudge (~3 min in Minevale26).~~ Fixed
   10-06 (eighteenth session, `52f5b19`).
-- F157: the Mayor stood 30 s in a 1x1 pocket on a lake shore (probably its own sand-dig hole; the pathfinder followed a
+- (obsolete, triage 10-18) F157: the Mayor stood 30 s in a 1x1 pocket on a lake shore (probably its own sand-dig hole; the pathfinder followed a
   "success" path whose first step no jump reaches, while the partial path's jump south was the way out). Self-recovered.
-- F158: a stray drawn design in the library (Minevale26's "cottage") wins over the vanilla houses: gpt-oss laid out
+- (obsolete, triage 10-18) F158: a stray drawn design in the library (Minevale26's "cottage") wins over the vanilla houses: gpt-oss laid out
   cottage, cottage, plains_library_2 12 times in 12 (valid, slower). The executor no longer runs stale design steps
   (F155's fix), the usual source.
-- F159: street lamps know only each building's entrance door, not side doors (0 lamps on any walkway in 96 test
+- ([#56](https://github.com/delphium226/MCAISandbox/issues/56)) F159: street lamps know only each building's entrance door, not side doors (0 lamps on any walkway in 96 test
   layouts); stockCovers never closes requeued lamp gathering; `--stage build` stocks no lamp materials.
-- The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
+- ([#58](https://github.com/delphium226/MCAISandbox/issues/58)) The pathfinder still tunnels under plots below their protected 4 layers (StageH15: 29 andesite picked up on the way,
   a bot at y 60 under the storage hut); harmless to buildings so far.
-- The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
+- ([#59](https://github.com/delphium226/MCAISandbox/issues/59)) The hut chain: a failed prepare or storage hut build blocks the whole village until the mayor steps in (decisions
   log, 09-29).
-- Not yet exercised in a run: the mayor's `add_need`, and a gather task code posts for a shortfall (V.3).
-- Side pickups (V.4) rarely trigger: logs are excluded and what villages need seldom lies within 4 blocks of the
+- (obsolete, triage 10-18) Not yet exercised in a run: the mayor's `add_need`, and a gather task code posts for a shortfall (V.3).
+- (obsolete, triage 10-18) Side pickups (V.4) rarely trigger: logs are excluded and what villages need seldom lies within 4 blocks of the
   material being gathered. Worth more with ores in the mine walls (V.6) or wider radii.
-- F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure): count it done only
+- (obsolete, triage 10-18) F83: a prepare task credited for a plot prepared elsewhere (by the executor after a failure): count it done only
   when a prepared plot covers the laid-out one. (The margin half is fixed, F93: prepare_site leaves margin columns over
   a drop as they are; the plot-column error no longer says "find another site".)
-- Two miners on crossing tunnels (F82): a dig aborted by the other bot counts toward an empty trip.
-- Mine yield (log analysis of 10-01): branches end early at gravel pockets, gullies and the stairs' keep-off (6 of 9
+- (done, triage 10-18) Two miners on crossing tunnels (F82): a dig aborted by the other bot counts toward an empty trip.
+- ([#60](https://github.com/delphium226/MCAISandbox/issues/60)) Mine yield (log analysis of 10-01): branches end early at gravel pockets, gullies and the stairs' keep-off (6 of 9
   side branches of Minevale2's two later tunnels); diorite, andesite and granite are dug but do not count toward
   cobblestone (StageM7: 43 diorite); a second miner waits up to 2 minutes when the busy tunnel has no finished junction
   and both stairs-bottom turns are used (Minevale2, 28.3-30.4 min); it could take an unfinished branch instead.
-- The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
+- (done, triage 10-18) The Mayor's executor follows workers' distress chat ("I'm under attack") instead of its design steps (F84).
 - ~~Fallen trees (26.1's lying logs without leaves) count as built: collect gives up on them after minutes (F94).~~
   Fixed 10-02 (F94 fixed, below F99).
 - ~~find_site's wood count has a window tied to the bot's height like F88's (`floorY = bot y - 16`, mcBuild.ts ~866): a
   bot on a hill misses a valley site's trees, one in the mine counts buried logs (T.3 review).~~ Fixed 10-02 (F98).
-- find_site's log search stops at 4,096 logs within 128 blocks: in dense woods (~8,000) its wood counts run ~30% low
+- (obsolete, triage 10-18) find_site's log search stops at 4,096 logs within 128 blocks: in dense woods (~8,000) its wood counts run ~30% low
   (F98). Harmless while sites pass the 30-log bar; matters if wood is ever compared closely.
 - ~~Kelp reaching the water's surface makes `surfaceAt` pass down to the seabed and read a lake as dry ground (T.3
   review; site.py treats kelp as water).~~ Fixed 10-02: kelp and seagrass are liquid to `surfaceAt` (checked over
   seagrass at -1686,488 on the test world; the test world has no kelp reaching the surface).
-- Post no gather task for a material collect cannot reach (sand under collect's floor, F96), or let a failed soft task
+- (done, triage 10-18) Post no gather task for a material collect cannot reach (sand under collect's floor, F96), or let a failed soft task
   go without at once; a futile collect's two `findBlocks` passes block the event loop ~1-2 s.
-- A build whose needs storage already covers waits for its open gather tasks (F97: 1.3 min): close them.
-- After prepare_site's job, check the plot's columns on the server and redo what is missing (F95's follow-up; also
+- (done, triage 10-18) A build whose needs storage already covers waits for its open gather tasks (F97: 1.3 min): close them.
+- (done, triage 10-18) After prepare_site's job, check the plot's columns on the server and redo what is missing (F95's follow-up; also
   catches placements refused at 2x, F92).
-- More from the T.3 reviews (10-01), not yet seen in a run: (a) `surfaceAt` still floors its scan at bot y - 48, so a
+- ([#61](https://github.com/delphium226/MCAISandbox/issues/61)) More from the T.3 reviews (10-01), not yet seen in a run: (a) `surfaceAt` still floors its scan at bot y - 48, so a
   valley far below the surveying bot reads as yHint - 48 "air" (penalised as built, not taken as flat; passing the
   neighbouring column's height as the hint would fix it); (b) its climb stops at the first plain `air`, so a large
   noise cave inside a hill (plain air, not cave_air) can read as the ground (neighbours differ, so the site reads as
   steep rather than flat; a guard: two airs 16 apart, or sky light); (c) prepare_site now also leaves deep ponds in the
   margin as they are: a builder stepping out of the footprint may land in one (the rescue handles it).
-- `stage_village.py`: options before the coordinates (`V --stage build X Z`) are refused since `--site` made X Z
+- (obsolete, triage 10-18) `stage_village.py`: options before the coordinates (`V --stage build X Z`) are refused since `--site` made X Z
   optional (no caller uses that order). `scripts/bench/atlasbench.mts` creates a bot without `timeScale`.
 - ~~A "drop" test site: the probe at -1656,-152 settled on the low ground, so no staged run has yet met a plot against a
   drop or a mine's main tunnel meeting a hillside on purpose; record a site on the y 95 shelf by hand.~~ Done 10-02:
   "shelf" in `scripts/test_sites.json` (run with `--buildings testhut,testhut,testhall`; Shelf2 passed).
-- Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
-- Check scripts that still call the main world only (no `MCAI_API`): `mine.py`, `atlas.py`, `atlas_ores.py`,
+- ([#62](https://github.com/delphium226/MCAISandbox/issues/62)) Narrow the pre-existing Windows firewall rule for Node.js (any TCP, any address) to the local subnet.
+- ([#63](https://github.com/delphium226/MCAISandbox/issues/63)) Check scripts that still call the main world only (no `MCAI_API`): `mine.py`, `atlas.py`, `atlas_ores.py`,
   `find_site.py` and others (`site.py`, `fell_trees.py`, `walk_speed.py` take it). Add it when one is needed on the
   test world.
-- Atlas site scores (review of 2.3, harmless for ranking): zero sand costs +20 but one block only +8.7; chunk distances
+- (obsolete, triage 10-18) Atlas site scores (review of 2.3, harmless for ranking): zero sand costs +20 but one block only +8.7; chunk distances
   are on the chunk grid (±16 blocks); atlas log counts include logs in builds and high canopy; a redundant `pad` copy.
-- Kelp test spots for later (offline search 10-02; the test world has no kelp reaching the surface, only shallow
+- (obsolete, triage 10-18) Kelp test spots for later (offline search 10-02; the test world has no kelp reaching the surface, only shallow
   seagrass at -1686,488): main world, a treeless island at -434,304 (kelp at -427,62,308 over a seabed at 61;
   `site.py -434 304 13`) and kelp 3 blocks off shore at -293,62,90 (seabed 57).
-- Small tools kept from the eighth session: `scripts/checks/top_map.py` (offline top-ground map; found F95's pits) and
+- (obsolete, triage 10-18) Small tools kept from the eighth session: `scripts/checks/top_map.py` (offline top-ground map; found F95's pits) and
   `scripts/checks/region_logs.py` (logs with their axis, for fallen trees).
-- F102: fellTree's swallowed refill failures; a stray dig at a plot's margin.
-- V2.5's leftovers (10-05): F140 (collect refusing items it can never get), F141 (resin plans), F142's hand rules
+- ([#64](https://github.com/delphium226/MCAISandbox/issues/64)) F102: fellTree's swallowed refill failures; a stray dig at a plot's margin.
+- ([#65](https://github.com/delphium226/MCAISandbox/issues/65)) V2.5's leftovers (10-05): F140 (collect refusing items it can never get), F141 (resin plans), F142's hand rules
   (water regexes, the craft hint, stems in charcoal, partial-shape waterlogged solids, tinted glass in renders);
   `treeAt` crawling plain oak_log frames of a building beside a tree (lesson 30: skip structure cells, as collect's
   `keep` does); red sand for glass with an `any:sand` family (collect and gatherNames would have to learn it); the
