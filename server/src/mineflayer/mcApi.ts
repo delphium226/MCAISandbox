@@ -90,6 +90,15 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const vs = one ? [w.villages.get(one)].filter((v) => !!v) : [...w.villages.villages.values()];
     return sendJson(res, 200, vs.map((v) => ({ village: v!.name, next: v!.growth?.next ?? null, work: v!.growth?.work ?? null, votes: v!.votes ?? [] })));
   }
+  // Phase N's needs (spec_needs_v2): one village's needs with their levels, status and line (?village=), or every village's
+  if (parts[1] === 'needs') {
+    const one = url.searchParams.get('village');
+    if (one) {
+      const view = w.needsView(one);
+      return sendJson(res, view ? 200 : 404, view ?? { error: 'no such village' });
+    }
+    return sendJson(res, 200, [...w.villages.villages.keys()].map((n) => w.needsView(n)).filter((x) => !!x));
+  }
 
   if (parts[1] === 'status') {
     return sendJson(res, 200, { world: 'minecraft', version: w.version, server: `${w.host}:${w.port}`, ticks: w.ticks, worldRules: w.worldRules, grow: GROW.on,

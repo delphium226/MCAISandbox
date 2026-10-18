@@ -1,0 +1,14 @@
+{
+  "about": "N.0 setup (s36): grow B25x2 from mv3_base25 until a house per member (growth done), saved as mv3_grown25: more plots, so more room for initiatives' small works.",
+  "out": "runs/2026-10-18/s36/n0_grown",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": ["agent_log"],
+  "timeout_min": 50,
+  "server_env": {"MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish"},
+  "runs": [
+    {"name": "G25", "village": "B25x2", "checkpoint": "mv3_base25", "server_env": {"MC_GROW": "1"}, "args": "--after 35 --after-until grow", "save": "mv3_grown25"}
+  ]
+}

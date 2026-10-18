@@ -35,7 +35,24 @@ def agent_log_counts(log):
     text = read(p)
     if not text:
         return {}
-    return {k: text.count(k) for k in ("[lag]", "[stuck]", "[stuck-world]", "[repath]", "[dig]")}
+    r = {k: text.count(k) for k in ("[lag]", "[stuck]", "[stuck-world]", "[repath]", "[dig]")}
+    # (initiatives, N.0: started, joins, steps, and how they ended)
+    ini = [l for l in text.splitlines() if "[initiative]" in l]
+    if ini:
+        ends = {s: sum(1 for l in ini if re.search(rf": i\d+ {s} in ", l)) for s in ("built", "failed", "lapsed")}
+        r["initiatives started / joins / steps"] = "%d / %d / %d" % (
+            sum(" starts " in l for l in ini), sum(" joins " in l for l in ini),
+            sum(" gathers " in l or " builds " in l or " prepares a green " in l for l in ini))
+        r["initiatives built / failed / lapsed"] = "%d / %d / %d" % (ends["built"], ends["failed"], ends["lapsed"])
+        r["initiatives could not start"] = sum(" could not start " in l for l in ini)
+    # (N.1's needs: status changes and the last status of each need)
+    need = re.findall(r"\[need\] \S+: (\w+) \S+ -> ([a-z ]+) \(", text)
+    if need:
+        last = {}
+        for k, st in need:
+            last[k] = st
+        r["need changes / last"] = "%d / %s" % (len(need), ", ".join(f"{k} {st}" for k, st in sorted(last.items())))
+    return r
 
 
 def perf_summary(path):
@@ -91,6 +108,7 @@ def report(log):
     busy = re.search(r"^BUSY all: before completion (\S+) busy.*?after (\S+) \(", t, re.M)
     if busy:
         r["busy before / after"] = f"{busy.group(1)} / {busy.group(2)}"
+    r["busy after by 10 min"] = first(r"^BUSY after by 10 min: (.*)$", t)
     r["mine rate"] = first(r"^MINE rate: (.*)$", t)
     r["critical path"] = first(r"^CRITICAL PATH (.*)$", t)
     g = first(r"^GROW layouts (.*)$", t)

@@ -59,6 +59,8 @@ process.env.MCAI_TEMPERAMENT ??= 'off';
 process.env.MC_VOTE = 'off';
 // (X.2's public works: on by default since s34, off here as the votes: the golden is of the chores)
 process.env.MC_PROJECTS = 'off';
+// (N.1's needs off: the golden is of the chores without them)
+process.env.MC_NEEDS = 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

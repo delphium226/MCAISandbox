@@ -140,6 +140,15 @@ function foodView(v: Village) {
   return { food: { points: foodPoints(store), items: foodItems(store), meals: f.meals, made: f.made, eaten: f.eaten, used: f.used ?? {}, hungry: by('hungry'), peckish: by('peckish'), members: f.members } };
 }
 
+/** Phase N's needs for the village card's tab (spec_needs_v2): kind -> level, status, line and minutes above LOW
+ *  (~100 bytes a need; /api/needs has the full state). Null with MC_NEEDS off or no view, and the tab says so. */
+function needsSummary(w: WorldAdapter, village: string) {
+  const nv = w.needsView?.(village);
+  if (!nv || nv.mode === 'off') return null;
+  const kinds = Object.fromEntries(Object.entries(nv.needs).map(([k, n]) => [k, { level: Math.round(n.level * 100) / 100, status: n.status, text: n.text, above: Math.round((n.aboveMs ?? 0) / 6000) / 10 }]));
+  return { mode: nv.mode, kinds };
+}
+
 /**
  * Every agent (or those named in `opts.agents`) and their villages. Each design comes with its elevations as text (D.3:
  * what the architect is shown), unless `opts.designs` is the etag of the designs as they stand: then the villages carry
@@ -163,11 +172,13 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
   const send = opts.designs !== designsEtag;
   const villages = vs.map((v, i) => {
     // (spec_vote1: only the last vote, ~8 kB at 25 ballots; /api/votes has them all)
-    const { designs, votes, ...rest } = v;
+    // (the raw need states are swapped for their summary with each need's line, as needGauges; `needs` is the mayor's add_need)
+    const { designs, votes, needStates: _needStates, ...rest } = v;
     const vote = votes?.length ? votes[votes.length - 1] : null;
     // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
     const choices = w.choiceSummary?.(v.name) ?? null;
-    return send ? { ...rest, ...foodView(v), choices, vote, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote };
+    const needGauges = needsSummary(w, v.name);
+    return send ? { ...rest, ...foodView(v), choices, vote, needGauges, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote, needGauges };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

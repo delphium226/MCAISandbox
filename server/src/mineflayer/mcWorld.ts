@@ -39,6 +39,7 @@ import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, v
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -77,6 +78,8 @@ type ChoiceState = {
    *  material and trip (`n`: the amount, counted as incoming until the chore ends). */
   make?: { item: string; count: number; smelts: boolean; k?: number };
   gather?: { material: Material; n: number };
+  /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
+  initiative?: { id: string; material: Material; n: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -1650,6 +1653,11 @@ export class MineflayerWorld implements WorldAdapter {
         console.error(`[initiative] ${v.name}: check failed:`, e);
       }
       try {
+        if (NEEDS_MODE !== 'off' && v.complete) this.needTick(v);
+      } catch (e) {
+        console.error(`[need] ${v.name}: check failed:`, e);
+      }
+      try {
         this.growTick(v);
       } catch (e) {
         console.error(`[grow] ${v.name}: check failed:`, e);
@@ -2194,7 +2202,7 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
-      (v.initiatives ?? []).map((i) => `${i.id}:${i.state}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`)]);
+      (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`)]);
     const old = this.smallBlockedCache.get(v.name);
     if (old?.sig === sig) return old;
     const pad = (q: Area, n: number): Area => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
@@ -2216,13 +2224,15 @@ export class MineflayerWorld implements WorldAdapter {
       if (door) for (let k = 0; k <= 3; k++) blocked.push(cell(door.x + door.ox * k, door.z + door.oz * k, 1));
     }
     for (const q of res) blocked.push(q);
-    for (const i of v.initiatives ?? []) if (i.state === 'open') {
+    for (const i of v.initiatives ?? []) if (i.state === 'open' && !i.pending) {
       const k = SMALL_WORKS.find((x) => x.kind === i.kind);
       const d = k ? v.designs[i.design] : undefined;
       const w = d?.width ?? 7, dd = d?.depth ?? 7;
       blocked.push(pad({ x1: i.x - Math.floor(w / 2), z1: i.z - Math.floor(dd / 2), x2: i.x - Math.floor(w / 2) + w - 1, z2: i.z - Math.floor(dd / 2) + dd - 1 }, 2));
     }
-    const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
+    // (a green waits for its own initiative's spot before others may use it, s36's review)
+    const waiting = new Set((v.initiatives ?? []).filter((i) => i.state === 'open' && i.pending).map((i) => i.id));
+    const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts && !(q.green && waiting.has(q.green))).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
     const entry = { sig, blocked, plots };
     this.smallBlockedCache.set(v.name, entry);
     return entry;
@@ -2242,12 +2252,19 @@ export class MineflayerWorld implements WorldAdapter {
    * largest missing raw material that gathering can bring (logs, cobblestone from a free mine face, sand), up to
    * INITIATIVE_GATHERERS at once; null when nothing can be taken now.
    */
-  initiativeStep(v: Village, it: Initiative, spare: Counts, busy: Set<string>): InitiativeStep | null {
-    const d = v.designs[it.design];
+  initiativeStep(v: Village, it: Pick<Initiative, 'id' | 'design' | 'pending'>, spare: Counts, busy: Set<string>, design?: Design): InitiativeStep | null {
+    // (no spot yet: its green first, one preparer, s36)
+    if (it.pending) return busy.has(`initiative:${it.id}:prepare`) || v.plots.some((p) => p.green === it.id) ? null : { what: 'prepare' };
+    const d = design ?? v.designs[it.design];
     if (!d) return null;
     if ([...busy].some((k) => k.startsWith(`initiative:${it.id}:build`))) return null;
+    // (built already, before initiativeTick has marked it: no second build onto it, s36)
+    const at = it as Partial<Initiative>;
+    if (at.x !== undefined && at.z !== undefined && v.structures.some((st) => st.kind === d.name && at.x! >= st.x1 && at.x! <= st.x2 && at.z! >= st.z1 && at.z! <= st.z2)) return null;
     const wood = this.catalogWoodOf(v);
-    const gather = this.materials.plan(inWood(designBill(d), wood), spare).gather;
+    // (against what its crew has gathered, not the spare storage: initiatives gather their own, the user's, s36)
+    void spare;
+    const gather = this.materials.plan(inWood(designBill(d), wood), (it as Partial<Initiative>).gathered ?? {}).gather;
     const left = Object.entries(gather).filter(([, q]) => q > 0);
     if (!left.length) return [...busy].some((k) => k.startsWith(`initiative:${it.id}:`)) ? null : { what: 'build' };
     if ([1, 2].slice(0, INITIATIVE_GATHERERS).every((n) => busy.has(`initiative:${it.id}:${n}`))) return null;
@@ -2266,8 +2283,30 @@ export class MineflayerWorld implements WorldAdapter {
   /** One step queued as a chore: a gathering trip into storage, or the build (build_design at its spot). */
   private runInitiativeStep(v: Village, worker: BotAgent, it: Initiative, step: InitiativeStep, opt: ChoiceOption, meta: ChoiceMeta | undefined) {
     const k = SMALL_WORKS.find((x) => x.kind === it.kind);
-    it.steps.push({ agent: worker.name, what: step.what === 'build' ? 'build' : `gather ${step.amount} ${step.material}`, at: Date.now() });
+    // (the step's own key held too: an initiator's first step runs under its initiate key, and a help option for the same
+    // step must not be offered beside it, in this sweep or later; s36)
+    const stepKey = `initiative:${it.id}:${step.what === 'gather' ? 1 : step.what}`;
+    if (!opt.key.startsWith(`initiative:${it.id}:`) && !opt.holds.some((h) => h.startsWith(`initiative:${it.id}:`))) {
+      opt = { ...opt, holds: [...opt.holds, stepKey] };
+      this.sweepCtx?.busy.add(stepKey);
+      this.sweepCtx?.first?.busy.add(stepKey);
+    }
+    it.steps.push({ agent: worker.name, what: step.what === 'gather' ? `gather ${step.amount} ${step.material}` : step.what, at: Date.now() });
     this.villages.save();
+    if (step.what === 'prepare') {
+      const st = worker.enqueue('prepare_green', { initiative: it.id, size: GREEN_SIZE, chore: true });
+      const failed = (why: string) => {
+        if (why === 'cancelled' || st.code) return;
+        it.fails = (it.fails ?? 0) + 1;
+        it.backoff = Date.now() + 10 * 60000;
+        // (three tries: a first "no level ground" may be unloaded chunks, s36's review M2)
+        if (it.fails >= 3) this.endInitiative(v, it, 'failed', `its green could not be prepared (${why.slice(0, 120)})`);
+        this.villages.save();
+      };
+      this.setChore(v, worker, opt.key, [st], `prepare a green for ${it.id} (${k?.words ?? it.kind})`, failed, meta, opt.holds, opt);
+      console.log(`[initiative] ${v.name}: ${worker.name} prepares a green for ${it.id} (${it.by}'s ${k?.words ?? it.kind})`);
+      return;
+    }
     if (step.what === 'build') {
       const st = worker.enqueue('build_design', { design: it.design, x: it.x, z: it.z, chore: true });
       const failed = (why: string) => {
@@ -2289,6 +2328,9 @@ export class MineflayerWorld implements WorldAdapter {
       it.backoff = Date.now() + 5 * 60000;
     };
     this.setChore(v, worker, opt.key, [collect, deposit], `gather ${step.amount} ${step.material} for ${it.id}`, failed, meta, opt.holds, opt);
+    // (judged by its deposit as gathering is: a partial collect whose load landed is a success, s36)
+    const c = this.chores.get(worker.name.toLowerCase());
+    if (c) c.choice.initiative = { id: it.id, material: step.material, n: step.amount };
     console.log(`[initiative] ${v.name}: ${worker.name} gathers ${step.amount} ${step.material} for ${it.id} (${it.by}'s ${k?.words ?? it.kind})`);
   }
 
@@ -2308,13 +2350,137 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     for (const it of v.initiatives ?? []) {
       if (it.state !== 'open') continue;
-      if (v.structures.some((st) => st.kind === it.design && it.x >= st.x1 && it.x <= st.x2 && it.z >= st.z1 && it.z <= st.z2)) {
+      // (a green ready: the spot on it, s36)
+      if (it.pending) {
+        const green = v.plots.find((p) => p.green === it.id);
+        const k = SMALL_WORKS.find((x) => x.kind === it.kind);
+        const d = v.designs[it.design];
+        if (green && k && d) {
+          // (its own green's reservation is not in the way: prepare_green holds it until prepareSite has deposited the
+          // felled logs, after the plot is recorded; N1m's i5 failed on it, s36)
+          const own = `prepare a green for ${it.id}`;
+          const blocked = this.smallBlocked(v).blocked.filter((q) => (q as { purpose?: string }).purpose !== own);
+          const spot = smallWorkSpots({ plots: [{ x1: green.x1, z1: green.z1, x2: green.x2, z2: green.z2, y: green.y }], blocked }, d.width, d.depth, 1)[0];
+          // (and no verdict while its preparer is still at work)
+          if (!spot && this.choreKeys(v).has(`initiative:${it.id}:prepare`)) continue;
+          if (!spot) {
+            this.endInitiative(v, it, 'failed', `no spot for it on its green at ${green.x1},${green.z1}`);
+            continue;
+          }
+          Object.assign(it, { x: spot.x, y: spot.y, z: spot.z });
+          delete it.pending;
+          this.villages.save();
+          console.log(`[initiative] ${v.name}: ${it.id}'s green is ready: its ${k.words} goes at ${spot.x},${spot.y},${spot.z}`);
+        }
+      }
+      if (!it.pending && v.structures.some((st) => st.kind === it.design && it.x >= st.x1 && it.x <= st.x2 && it.z >= st.z1 && it.z <= st.z2)) {
         this.endInitiative(v, it, 'built', 'it stands');
         continue;
       }
       const last = Math.max(it.at, ...it.steps.map((q) => q.at));
+      // (not while its green is being prepared: a slow preparer must not let a second green open, s36's review L2)
+      if (it.pending && now - last > INITIATIVE_LAPSE_MS && this.choreKeys(v).has(`initiative:${it.id}:prepare`)) continue;
       if (now - last > INITIATIVE_LAPSE_MS) this.endInitiative(v, it, 'lapsed', `no step for ${Math.round(INITIATIVE_LAPSE_MS / 60000)} min`);
     }
+  }
+
+  /** N.1: the furniture the village wants, read once a menu for needOf (s36's review L1). */
+  private needDemand(v: Village): Counts {
+    return CHOOSE.families.has('furnish') ? this.decorDemand(v) : {};
+  }
+
+  /** N.1: the need an option answers, directly or by making what answers it (spec_needs_v2 B), or null. */
+  private needOf(v: Village, o: { kind: ChoiceKind; id: string }, demand: Counts): NeedKind | null {
+    if (o.kind === 'light' || o.id === 'make:torch') return 'light';
+    if (o.kind === 'furnish' || (o.kind === 'make' && (demand[o.id.slice(5)] ?? 0) > 0)) return 'furnish';
+    if (appetiteOn(v) && isFoodKind(o.kind, o)) return 'food';
+    return null;
+  }
+
+  /** N.1: what the last sweep's menus showed of each need, for the next needTick: offered to an idle member, taken, or
+   *  none offered with the direct kind's reason. */
+  private needSeen = new Map<string, { offered: Set<NeedKind>; taken: Set<NeedKind>; blocked: Map<NeedKind, string> }>();
+  private needAt = new Map<string, number>();
+  private needReadings = new Map<string, NeedReading[]>();
+
+  /** N.1: a sweep's menu and pick noted for the needs (show and on). */
+  private needNote(v: Village, menu?: ChoiceMenu, ran?: ChoiceOption) {
+    if (NEEDS_MODE === 'off') return;
+    const seen = this.needSeen.get(v.name) ?? { offered: new Set(), taken: new Set(), blocked: new Map() };
+    this.needSeen.set(v.name, seen);
+    // (taken: an option that answers it ran, by either chooser, noted by runOption)
+    const demand = this.needDemand(v);
+    const t = ran && this.needOf(v, ran, demand);
+    if (t) seen.taken.add(t);
+    if (!menu) return;
+    for (const o of menu.options) {
+      const k = this.needOf(v, o, demand);
+      if (k) seen.offered.add(k);
+    }
+    const direct: Array<[NeedKind, ChoiceKind]> = [['light', 'light'], ['furnish', 'furnish'], ['food', 'eat']];
+    for (const [k, kind] of direct) {
+      const why = menu.reasons[kind];
+      // (busy: another member is on it; hungry: this member's menu only; neither blocks the need)
+      if (why && why !== 'busy' && why !== 'hungry' && !seen.blocked.has(k)) seen.blocked.set(k, why);
+    }
+  }
+
+  /** N.1: a village's needs read and stepped, once per NEED_TICK_MS, whether or not anyone is idle (spec_needs_v2 B);
+   *  `[need]` on a status change. Never from choices() or a menu (board_golden, the purity check). */
+  private needTick(v: Village) {
+    const now = Date.now();
+    const last = this.needAt.get(v.name);
+    if (last !== undefined && now - last < NEED_TICK_MS) return;
+    this.needAt.set(v.name, now);
+    const members = this.growMembers(v);
+    const lights = this.lightParts(v).filter((p) => p.kind === 'building');
+    const decor = CHOOSE.families.has('furnish') ? this.decorParts(v) : [];
+    const faces = v.mine ? mineFaces(v, (n) => this.agents.has(n.toLowerCase())) : null;
+    const readings = readNeeds({
+      members: members.length,
+      houses: housesOf(v),
+      ...(lights.length ? { unlit: lights.reduce((s, p) => s + p.unlit, 0), spots: lights.reduce((s, p) => s + p.spots.length, 0), unlitParts: lights.filter((p) => p.unlit > 0).length } : {}),
+      ...(decor.length ? { openDecor: decor.reduce((s, p) => s + p.open.length, 0), decorSpots: decor.reduce((s, p) => s + p.spots.length, 0), openDecorParts: decor.filter((p) => p.open.length).length } : {}),
+      ...(appetiteOn(v) ? { hungry: members.filter((a) => stateOf(v.food!.members[a.name]?.level ?? 20) !== 'fed').length } : {}),
+      ...(v.storageHut ? { chests: v.storage?.chests.length ?? 0, chestSpots: 9 } : {}),
+      ...(faces && faces.faces ? { mineHeld: faces.held, mineFaces: faces.faces } : {}),
+      ...(v.mine && !mineCanGive(v, 'cobblestone') ? { mineBlocked: 'it gives no stone' } : {}),
+    });
+    this.needReadings.set(v.name, readings);
+    const seen = this.needSeen.get(v.name);
+    this.needSeen.delete(v.name);
+    const states = (v.needStates ??= {});
+    let changed = false;
+    for (const r of readings) {
+      const answerable = r.kind === 'light' || r.kind === 'furnish' || r.kind === 'food';
+      const prev = states[r.kind];
+      const next = stepNeed(prev, r, last === undefined ? 0 : now - last, {
+        offered: !!seen?.offered.has(r.kind), taken: !!seen?.taken.has(r.kind),
+        ...(seen && !seen.offered.has(r.kind) && seen.blocked.has(r.kind) ? { blocked: seen.blocked.get(r.kind) } : {}),
+      }, answerable);
+      states[r.kind] = next;
+      if (prev?.status !== next.status) {
+        changed = true;
+        console.log(`[need] ${v.name}: ${r.kind} ${prev?.status ?? 'new'} -> ${next.status} (level ${next.level.toFixed(2)}: ${r.text}${next.why ? `; ${next.why}` : ''})`);
+      }
+    }
+    for (const k of Object.keys(states)) if (!readings.some((r) => r.kind === k)) {
+      delete states[k];
+      changed = true;
+    }
+    if (changed) this.villages.save();
+  }
+
+  /** N.1: a village's needs for the API and panel (null for an unknown village). */
+  needsView(name: string) {
+    // (the registry is keyed by the lower-cased name)
+    const v = this.villages.villages.get(name.toLowerCase());
+    if (!v) return null;
+    const texts = new Map((this.needReadings.get(v.name) ?? []).map((r) => [r.kind, r.text]));
+    return {
+      village: v.name, mode: NEEDS_MODE,
+      needs: Object.fromEntries(Object.entries(v.needStates ?? {}).map(([k, s]) => [k, { ...s, text: texts.get(k as NeedKind) ?? '' }])),
+    };
   }
 
   /** Growth stopped for good (logged once). */
@@ -2608,7 +2774,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -2649,7 +2815,7 @@ export class MineflayerWorld implements WorldAdapter {
     let ok = !bad && done;
     // S.9's gathering is judged by its deposit: a partial collect ("only found 9") whose load landed is a success (the
     // check's M3), and the deposit's message is what choreProductive reads
-    const g = c.choice.kind === 'gather' ? c.choice.gather : undefined;
+    const g = c.choice.gather ?? c.choice.initiative;
     if (g) {
       const dep = c.status[c.status.length - 1];
       const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', g.material) : 0;
@@ -2659,7 +2825,16 @@ export class MineflayerWorld implements WorldAdapter {
       if (dep?.state === 'done' && (n > 0 || !bad)) message = dep.message ?? message;
       // (a load landed: the material is there after all, a first "none found" is forgotten)
       if (n > 0) this.gatherNone.delete(`${c.village}:${g.material}`);
-      if (n > 0 && g.material === 'logs') this.gatherLog.set(c.village, [...(this.gatherLog.get(c.village) ?? []).filter((e) => Date.now() - e.at < 60 * 60000), { at: Date.now(), n }]);
+      if (n > 0 && g.material === 'logs' && c.choice.kind === 'gather') this.gatherLog.set(c.village, [...(this.gatherLog.get(c.village) ?? []).filter((e) => Date.now() - e.at < 60 * 60000), { at: Date.now(), n }]);
+      // (an initiative's trip: what landed is credited to it, by the item its bill plans with; s36)
+      const ini = c.choice.initiative;
+      const vi = ini && n > 0 ? this.villages.villages.get(c.village.toLowerCase()) : undefined;
+      const it = vi?.initiatives?.find((i) => i.id === ini!.id);
+      if (vi && it && ini) {
+        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material;
+        it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + n };
+        this.villages.save();
+      }
     }
     // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
     if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light' || c.choice.kind === 'furnish') holdsDelete(holdKey(c.village, c.agent));
@@ -3611,15 +3786,16 @@ export class MineflayerWorld implements WorldAdapter {
         }
         const mine = it.by === a.name;
         const id = `help:${it.id}`;
-        const key = step.what === 'build' ? `initiative:${it.id}:build` : `initiative:${it.id}:${[1, 2].find((n) => !busy.has(`initiative:${it.id}:${n}`)) ?? 1}`;
+        const key = step.what === 'gather' ? `initiative:${it.id}:${[1, 2].find((n) => !busy.has(`initiative:${it.id}:${n}`)) ?? 1}` : `initiative:${it.id}:${step.what}`;
         const crew = it.crew.filter((n) => n !== a.name);
-        const what = step.what === 'build' ? `build ${mine ? 'your' : `${it.by}'s`} ${kindOf.words}` : `gather ${step.amount} ${step.material} for ${mine ? 'your' : `${it.by}'s`} ${kindOf.words}`;
+        const short = step.what === 'build' ? 'build it' : step.what === 'prepare' ? `prepare a ${GREEN_SIZE}x${GREEN_SIZE} green for it` : `gather ${step.amount} ${step.material}`;
+        const where = it.pending ? 'no spot yet: a green near the village first' : `at ${it.x},${it.z}`;
         add({
-          id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'build' ? [`initiative:${it.id}:`] : [`initiative:${it.id}:build=`])],
-          name: mine ? `Continue your ${kindOf.words}: ${what.replace(/ (your|\S+'s) [a-z ]+$/, '')}` : `Help ${it.by} build a ${kindOf.words}: ${what.replace(/ for .*$|^build .*$/, (m) => (m.startsWith(' for') ? '' : 'build it'))}`,
+          id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'gather' ? [`initiative:${it.id}:build=`] : [`initiative:${it.id}:`])],
+          name: mine ? `Continue your ${kindOf.words}: ${short}` : `Help ${it.by} build a ${kindOf.words}: ${short}`,
           rank: 1050 + r, at: { x: it.x, y: it.y, z: it.z },
-          facts: `${mine ? 'your own project' : `${it.by}'s project`}, started ${ago(now - it.at)}; ${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; at ${it.x},${it.z}${step.what === 'gather' ? `; ${step.material} still to gather for it` : '; its materials are in storage'}`,
-          effect: step.what === 'build' ? `a ${kindOf.words} stands in the village: ${kindOf.forWhat}` : `+${step.amount} ${step.material} toward the ${kindOf.words} (${kindOf.forWhat})`,
+          facts: `${mine ? 'your own project' : `${it.by}'s project`}, started ${ago(now - it.at)}; ${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; ${where}${step.what === 'gather' ? `; ${step.material} still to gather for it` : step.what === 'build' ? '; its materials are gathered' : ''}`,
+          effect: step.what === 'build' ? `a ${kindOf.words} stands in the village: ${kindOf.forWhat}` : step.what === 'prepare' ? `level ground for the ${kindOf.words} and later small works` : `+${step.amount} ${step.material} toward the ${kindOf.words} (${kindOf.forWhat})`,
         }, { kind: 'help', id: it.id, step });
       }
       const mineOpen = open.some((i) => i.by === a.name);
@@ -3631,25 +3807,56 @@ export class MineflayerWorld implements WorldAdapter {
         // member's offer changes once one is started)
         const order = shuffled(SMALL_WORKS, `${a.name}|${v.initiativeN ?? 0}`);
         let r = 0;
+        const roomless: SmallWorkKind[] = [];
         for (const k of order) {
           if (r >= 2) break;
           const spot = this.smallWorkSpot(v, k, wood, a.name);
-          if (!spot) continue;
+          if (!spot) {
+            roomless.push(k);
+            continue;
+          }
           const d = k.make(wood);
+          // (only a work whose first step can be taken now: otherwise it would open, sit and lapse; s36)
+          if (!this.initiativeStep(v, { id: '_new', design: d.name }, facts.spare(), busy, d)) {
+            why.push('nothing to gather for it now');
+            continue;
+          }
           const bill = inWood(designBill(d), wood);
           const raw = this.materials.plan(bill, {}).gather;
-          const takes = Object.entries(raw).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n.replace(/^any:/, '')}`).join(', ');
+          // (logs of any kind counted with the wood's own: "18 birch_log", not "17 birch_log, 1 logs")
+          const sum: Record<string, number> = {};
+          for (const [n, q] of Object.entries(raw)) if (q > 0) {
+            const key = n === 'any:logs' ? `${wood}_log` : n.replace(/^any:/, '');
+            sum[key] = (sum[key] ?? 0) + q;
+          }
+          const takes = Object.entries(sum).map(([n, q]) => `${q} ${n}`).join(', ');
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
             name: `Start building a ${k.words} (your own project)`, rank: 1100 + r, at: spot,
-            facts: `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'} (from storage first); ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            facts: `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
             effect: `your own ${k.words} in the village: ${k.forWhat}`,
           }, { kind: 'initiate', work: k.kind });
           r++;
         }
-        if (!r) why.push('no room');
+        // (no room on the plots for a kind: started on a green of its own, one green prepared at a time and at most
+        // GREENS_MAX a village, s36)
+        const greens = v.plots.filter((p) => p.green).length;
+        const greensMax = Math.max(1, Math.ceil(this.growMembers(v).length / GREENS_PER));
+        if (!r && roomless.length && !open.some((i) => i.pending) && greens < greensMax) {
+          const k = roomless[0];
+          const d = k.make(wood);
+          add({
+            id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
+            name: `Start building a ${k.words} on a new green (your own project)`, rank: 1100 + r,
+            facts: `no room left on the village's plots: first a ${GREEN_SIZE}x${GREEN_SIZE} green is prepared near the village (room for more small works), then a ${d.width}x${d.depth} ${k.words}; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            effect: `your own ${k.words} on a new green: ${k.forWhat}`,
+          }, { kind: 'initiate', work: k.kind, green: true });
+          r++;
+        }
+        if (!r) why.push(greens >= greensMax ? 'no room (greens full)' : open.some((i) => i.pending) ? 'no room (a green is being prepared)' : 'no room');
       }
-      if (!out.some((o) => o.kind === 'help')) reasons.help = why[0] ?? 'no project open';
+      // (help's own reasons only: initiate's "no room" is not why nothing can be helped, s36)
+      if (!out.some((o) => o.kind === 'help')) reasons.help = (open.length ? why.find((w) => w === 'busy' || w === 'backing off') : undefined) ?? 'no project open';
       if (!out.some((o) => o.kind === 'initiate')) reasons.initiate = why.find((w) => w !== 'busy' && w !== 'backing off') ?? 'no room';
     }
 
@@ -3666,6 +3873,22 @@ export class MineflayerWorld implements WorldAdapter {
         return d?.kind === 'help' ? (v.initiatives ?? []).find((i) => i.id === d.id)?.crew.filter((n) => n !== a.name).length ?? 0 : undefined;
       };
       for (const o of out) o.tw = optionWeight(tv, weights, o.kind, crewOf(o) ?? on.get(o.kind) ?? 0);
+    }
+    // N.1 (MC_NEEDS=on): an option that answers a village need at LOW or above says so, and the need weighs on it by its
+    // level and the member's trait for it (needWeight; a neutral trait without temperaments)
+    if (NEEDS_MODE === 'on') {
+      const reads = new Map((this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).map((r) => [r.kind, r]));
+      if (reads.size) {
+        const tv = TEMPERAMENT_MODE !== 'off' ? temperament(a.name) : null;
+        const demand = this.needDemand(v);
+        for (const o of out) {
+          const k = this.needOf(v, o, demand);
+          const r = k && reads.get(k);
+          if (!k || !r) continue;
+          o.need = `village need: ${r.text}`;
+          o.nw = Math.round(needWeight(r.level, tv ? tv[NEED_TRAIT[k]] : 0.5) * 100) / 100;
+        }
+      }
     }
 
     // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
@@ -3754,6 +3977,9 @@ export class MineflayerWorld implements WorldAdapter {
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
+      // (N.1: the needs at LOW or above, most acute first)
+      ...(NEEDS_MODE === 'on' && (this.needReadings.get(v.name) ?? []).some((r) => r.level >= LOW)
+        ? { needs: (this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).sort((x, y) => y.level - x.level).slice(0, 3).map((r) => r.text) } : {}),
     };
   }
 
@@ -3762,6 +3988,7 @@ export class MineflayerWorld implements WorldAdapter {
    * ring), then the skill queued and the chore recorded. Called only inside runPick's try (D9).
    */
   private runOption(v: Village, worker: BotAgent, opt: ChoiceOption, meta: ChoiceMeta) {
+    this.needNote(v, undefined, opt);
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
@@ -3947,20 +4174,29 @@ export class MineflayerWorld implements WorldAdapter {
         // The record first, at a spot found again now (the menu's may be taken), then its first step at once (s35)
         const k = SMALL_WORKS.find((x) => x.kind === d.work);
         const wood = this.catalogWoodOf(v);
-        const spot = k ? this.smallWorkSpot(v, k, wood, worker.name) : null;
+        const found = k ? this.smallWorkSpot(v, k, wood, worker.name) : null;
+        // (no room on the plots: on a green of its own when offered so and none is being prepared, s36)
+        const home = villageHome(v);
+        const pending = !found && !!d.green && !!home && !(v.initiatives ?? []).some((i) => i.state === 'open' && i.pending);
+        const spot = found ?? (pending && home ? { x: home.x, y: v.plots[0]?.y ?? 64, z: home.z } : null);
         if (!k || !spot || (v.initiatives ?? []).some((i) => i.state === 'open' && i.by === worker.name)) {
           console.log(`[initiative] ${v.name}: ${worker.name} could not start a ${d.work} (${!k ? 'unknown kind' : !spot ? 'no room left' : 'its own is open'})`);
           return;
         }
         const design = k.make(wood);
+        // (its first step decided before the record: no initiative opens that nobody can work on, s36)
+        const first = this.initiativeStep(v, { id: '_new', design: design.name, pending }, this.makeSpare(v, worker.name), new Set(), design);
+        if (!first) {
+          console.log(`[initiative] ${v.name}: ${worker.name} could not start a ${d.work} (nothing to gather for it now)`);
+          return;
+        }
         if (!v.designs[design.name]) v.designs[design.name] = design;
-        const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: worker.name, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: Date.now(), state: 'open', crew: [worker.name], steps: [] };
+        const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: worker.name, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: Date.now(), state: 'open', crew: [worker.name], steps: [], ...(pending ? { pending: true } : {}) };
         v.initiatives = [...(v.initiatives ?? []), it];
-        this.villages.note(v, `${worker.name} starts a ${k.words} of its own at ${spot.x},${spot.z} (${it.id})`);
+        this.villages.note(v, `${worker.name} starts a ${k.words} of its own ${pending ? 'on a new green' : `at ${spot.x},${spot.z}`} (${it.id})`);
         this.villages.save();
-        console.log(`[initiative] ${v.name}: ${worker.name} starts ${it.id}, a ${k.words} (${design.name}) at ${spot.x},${spot.y},${spot.z}`);
-        const step = this.initiativeStep(v, it, this.makeSpare(v, worker.name), new Set());
-        if (step) this.runInitiativeStep(v, worker, it, step, opt, meta);
+        console.log(`[initiative] ${v.name}: ${worker.name} starts ${it.id}, a ${k.words} (${design.name}) ${pending ? 'on a new green' : `at ${spot.x},${spot.y},${spot.z}`}`);
+        this.runInitiativeStep(v, worker, it, first, opt, meta);
         return;
       }
       case 'help': {
@@ -4178,7 +4414,8 @@ export class MineflayerWorld implements WorldAdapter {
         const { menu, skips } = this.menu(v, a, ctx.busy, model, facts, ctx.first);
         // (A.3p: with temperament weights on the options, the fixed pick weighs them; without, the first in rank order as
         // before)
-        const pick = !model && menu.options.some((o) => o.tw !== undefined) ? fixedPick(menu) : menu.options[0];
+        const pick = !model && menu.options.some((o) => o.tw !== undefined || o.nw !== undefined) ? fixedPick(menu) : menu.options[0];
+        this.needNote(v, menu);
         // (the old picker wrote these only when it walked the farm starts: a member whose pick is a field or a ripe slot
         // never got there)
         // (A.3p: judged on the first in rank order, as before temperaments, so they never change when skips are written)
@@ -4569,7 +4806,7 @@ type OptionRun =
   | { kind: 'works'; stage: 'furnace'; k: number }
   | { kind: 'light'; part: string; n: number; unlit: number; label: string }
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
-  | { kind: 'initiate'; work: string }
+  | { kind: 'initiate'; work: string; green?: boolean }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'eat'; level: number; item: string; n: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
@@ -4582,7 +4819,11 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000, VILLAGE_GROW_REACH = 96;
 const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
-type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' };
+type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
+/** A green's side (s36): room for two or three small works with their rings. */
+const GREEN_SIZE = 15;
+/** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works. */
+const GREENS_PER = 5;
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
@@ -4595,6 +4836,10 @@ const PROJECT_NONE = 'none', PROJECT_REST_MS = Number(process.env.MC_PROJECT_RES
 /** s35: initiatives open at once in a village (MC_INITIATIVES; 0: none), gatherers on one initiative at once, and how
  *  long one waits with no step taken before it lapses. */
 const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
+/** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */
+const NEEDS_MODE: 'off' | 'show' | 'on' = process.env.MC_NEEDS === 'show' || process.env.MC_NEEDS === 'on' ? process.env.MC_NEEDS : 'off';
+/** How often a village's needs are read. */
+const NEED_TICK_MS = 30000;
 
 /** X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). */
 const QUARTER = Math.max(1, Number(process.env.MC_QUARTER ?? 3));

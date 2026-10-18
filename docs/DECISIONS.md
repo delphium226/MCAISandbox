@@ -545,3 +545,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   (individual chores, voluntary initiatives, voted public works), so the civilisation grows from needs; growth beyond
   ~25-30 agents through a second agent-server process (Paper has headroom), and a population that grows through vanilla
   villagers rather than more bots. Written into PLAN.md as Phase N.
+- 10-18 (s36, the user's) **Batch development before live tests**: several steps are built behind their own flags and
+  verified offline (typecheck, checks on checkpoint records, menu checks, model replay), then tested together in one run
+  series with on/off runs per flag on both test worlds; the next step is developed while a live run goes. Live runs stay
+  for walks, digs, placing and load, and before a step is called done. In CLAUDE.md "Testing agents".
+- 10-18 (s36, the user's) **N.1's need vote waits for N.2/N.3**: N.1 measures needs, shows them, puts need facts and
+  per-member weights on the menus and detects escalation (logged as ignored, blocked or no answer yet); the vote comes with
+  the concrete works that answer needs (a storage room, a furnace room, a street of houses), since today any chore that
+  answers a need is taken at once by idle members (spec_needs_v1's check, M1).
+- 10-18 (s36, the user's) After N.0/N.1: **N.2 housing and N.3 storage and furnace rooms specified and built together**, as
+  one batch tested in one combined series (storage was full in every s36 run: 9 of 9 chest spots). **Initiatives gather
+  their own materials** (the crew gathers the bill; storage stays for the workshop and public works: crews formed only when
+  something was short, ~4 joins a run). **Greens grow with the members**: one per 5 members.

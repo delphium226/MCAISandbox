@@ -1,0 +1,25 @@
+{
+  "about": "Combined s36 series (world 2): N.0's fixes and greens, N.1 needs MC_NEEDS=show; from mv3_grown25, 30 min fast, growth off. Pair: n1_on (world 1) / n1_show (world 2).",
+  "out": "runs/2026-10-18/s36/n1_show",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 50,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_GROW": "0",
+    "MC_NEEDS": "show"
+  },
+  "runs": [
+    {
+      "name": "N1show",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

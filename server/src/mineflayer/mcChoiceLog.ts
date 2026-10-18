@@ -24,6 +24,8 @@ export interface ChoiceLogOption {
   lp?: number;
   /** A.3p: the temperament's weight. */
   tw?: number;
+  /** N.1: a village need's weight on it. */
+  nw?: number;
   /** 1-based position shown to the model. */
   shown?: number;
 }

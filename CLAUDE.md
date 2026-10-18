@@ -156,6 +156,10 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 - **Test up the ladder** (PLAN.md): typecheck, the targeted check, a staged run, a bench if a prompt changed, then one
   model-driven run. Most bugs show in a staged run or a check; read logs for failures, loops and duplicate work, not
   only the outcome.
+- **Batch development before live tests** (the user's, 2026-10-18): build several steps behind their own flags, verify
+  each offline (typecheck, `.mts` checks on a checkpoint's `villages.json`, menu checks, model replay), then test them
+  together in one run series with flag on/off runs on both test worlds. Develop the next step while a live run goes. A
+  live run is still needed for walks, digs, placing and load, and before calling a step done.
 - **Staged runs** (scripted workers, no models): `python scripts/stage_village.py VILLAGE X Z [--stage full|build]`
   (or `--site SITE` on the test world; `--stage build` ~1 min, full ~6-9 min at 2x). After completion: `--mayor --after
   MINUTES`, with `--fixtures`, `--stock item:N,...`, `--choose`. `scripts/stage_runs.py` runs several in a row with a

@@ -1,0 +1,27 @@
+{
+  "about": "s36's model-driven run (world 1, 1x, vanilla digging): members choose by model (gpt-oss cloud), initiatives + greens + needs on, from mv3_grown25, growth off, 30 min after. Do the models start and join initiatives, and why?",
+  "out": "runs/2026-10-18/s36/n1_model",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_GROW": "0",
+    "MC_NEEDS": "on"
+  },
+  "runs": [
+    {
+      "name": "N1m",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30 --choose model"
+    }
+  ]
+}

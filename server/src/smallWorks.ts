@@ -10,7 +10,7 @@ import type { Area, Design } from './village';
 export interface SmallWorkKind {
   /** The kind's key, in the design's name (small_<kind>_<wood>). */
   kind: string;
-  /** How it reads in a sentence ("a well"). */
+  /** How it reads in a sentence, without an article ("well": "Start building a well", "your own well"). */
   words: string;
   /** What it is for ("a meeting place in the village"). */
   forWhat: string;
@@ -143,14 +143,14 @@ function signpost(w: string): Design {
 }
 
 export const SMALL_WORKS: SmallWorkKind[] = [
-  { kind: 'well', words: 'a well', forWhat: 'a meeting place in the village', make: well },
-  { kind: 'bench', words: 'a bench', forWhat: 'somewhere to sit and rest', make: bench },
-  { kind: 'market_stall', words: 'a market stall', forWhat: 'trading goods with neighbours', make: marketStall },
-  { kind: 'woodshed', words: 'a woodshed', forWhat: 'keeping firewood dry', make: woodshed },
-  { kind: 'statue', words: 'a statue', forWhat: 'honouring the village', make: statue },
-  { kind: 'lamp_posts', words: 'a pair of lamp posts', forWhat: 'lighting the way', make: lampPosts },
-  { kind: 'gazebo', words: 'a gazebo', forWhat: 'shade and gatherings', make: gazebo },
-  { kind: 'signpost', words: 'a signpost', forWhat: 'showing the way', make: signpost },
+  { kind: 'well', words: 'well', forWhat: 'a meeting place in the village', make: well },
+  { kind: 'bench', words: 'bench', forWhat: 'somewhere to sit and rest', make: bench },
+  { kind: 'market_stall', words: 'market stall', forWhat: 'trading goods with neighbours', make: marketStall },
+  { kind: 'woodshed', words: 'woodshed', forWhat: 'keeping firewood dry', make: woodshed },
+  { kind: 'statue', words: 'statue', forWhat: 'honouring the village', make: statue },
+  { kind: 'lamp_posts', words: 'pair of lamp posts', forWhat: 'lighting the way', make: lampPosts },
+  { kind: 'gazebo', words: 'gazebo', forWhat: 'shade and gatherings', make: gazebo },
+  { kind: 'signpost', words: 'signpost', forWhat: 'showing the way', make: signpost },
 ];
 
 export interface SpotInput {

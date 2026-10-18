@@ -1126,9 +1126,18 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   ("Start building a well (your own project)") and helped by others ("Help Worker7 build a well: gather 12 cobblestone"),
   run as chores; at most 3 open (MC_INITIATIVES), one a member; spec `runs/2026-10-18/s35/spec_initiatives_v2.md`. Room:
   ~4 at once on the one-plot base, more with every neighbourhood.
+  **s36:** tested live (staged N0on/N1on, a model-driven N1m); fixed (first step checked, step keys held, growTaken keeps
+  off initiatives) and **greens** added (a 15x15 plot prepared as an initiative's first step when the plots are full):
+  33 started and built in 30 min, busy 11-12% against 9%. To do (the user's, 10-18): initiatives gather their own
+  materials; greens one per 5 members; the family on by default. `scripts/checks/menu_probe.mts` probes menus offline.
 - [ ] N.1 **Needs and escalation**: gauges code measures (members without a house, storage nearly full, smelts waiting,
   food per member, tools short, buildings unlit or unfurnished, mine faces busy), shown on the panel; each need offers
   responses in the three tiers by size; a need that grows while nobody takes it up is put to a vote by the Mayor.
+  **s36:** built behind `MC_NEEDS=off|show|on` (spec `runs/2026-10-18/s36/spec_needs_v2.md`): `server/src/needs.ts`
+  (light, furnish, food, housing, storage, mine), needTick every 30 s, `Village.needStates`, need facts and weights on
+  menus, `[need]` lines, `/api/needs`, the panel's Needs tab. **The vote waits for N.2/N.3** (the user's): it comes with
+  the works that answer needs. Storage reached 9 of 9 chest spots in every s36 run: the first need without an answer.
+- **N.2 and N.3 together** (the user's, s36): specified and built as one batch, tested in one combined series.
 - [ ] N.2 **Housing**: each member owns a house (its name on the plate); building its own house is a houseless member's
   first preference (others may help); decorating its own house a chore of its own; growth's code trigger retired, a
   street for a cluster of houses a voluntary or voted work.

@@ -1354,7 +1354,7 @@ async function findSite(a: BotAgent, args: Record<string, unknown>, signal?: Abo
   const all = [...a.world.villages.villages.values()];
   const taken: Area[] = [
     // (its own annex and works plot too: they lie outside the layouts, 10-09, S.9)
-    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? o.plots.filter((q) => q.annex || q.works) : o.plots)]).map(pad),
+    ...all.flatMap((o) => [...o.structures, ...(o.layouts ?? []), ...(o === v ? o.plots.filter((q) => q.annex || q.works || q.green) : o.plots)]).map(pad),
     ...(v ? v.reservations.filter((r) => r.by !== a.name && r.until > now) : []),
   ];
   const logIds = survival ? a.world.registry.blocksArray.filter((b) => TREE_LOG.has(b.name)).map((b) => b.id) : [];
@@ -1902,7 +1902,7 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
         v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
         // (the whole of a plot that was being prepared in parts: it is whole now)
         delete v.plots[i].parts;
-      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}), ...(args.works === true ? { works: true } : {}) });
+      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}), ...(args.works === true ? { works: true } : {}), ...(typeof args.green === 'string' ? { green: args.green } : {}) });
       reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
     }
     // The felled logs reach the storage (C5): the ground holding the storage hut (or a whole plot) sets the storage up with
@@ -3519,6 +3519,54 @@ async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: Abor
   return { why: `wet ${why.wet}, steep ${why.steep}, taken ${why.occupied}, unloaded ${why.unloaded}` };
 }
 
+/**
+ * A green for small works (s36): an S x S square of the village's own survey round its home, on growSite's rules (its
+ * taken ground, slope 2 then 4), prepared as a plot marked with the initiative that asked for it (`initiative`), whose
+ * spot is then found on it. Done already when a plot of that initiative stands.
+ */
+async function prepareGreen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const id = String(args.initiative ?? '');
+  if (!v || !id) throw new Error('prepare_green: needs a village and an initiative');
+  const had = v.plots.find((p) => p.green === id);
+  if (had) return `the green at ${areaText(had)} is ready`;
+  const home = villageHome(v, a.memory);
+  if (!home) throw new Error('prepare_green: the village has no home');
+  // Out of the deep first (lesson 101), then home, as lay_out_houses: the survey reads the ground round home from the
+  // surface (s36's review M2)
+  const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+  if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+  if (Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+    await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  const S = Math.max(9, Math.min(21, Math.floor(Number(args.size) || 15)));
+  const reach = growReach(S), r = reach + Math.ceil(S / 2) + 1;
+  const taken = growTaken(a, v, home, r);
+  const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
+  // (the survey takes the scan turn as growSite's does, E.1)
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true));
+  let c: ReturnType<typeof bestSite> = null;
+  for (const slope of [2, 4]) {
+    for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
+    c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
+    if (c) break;
+  }
+  if (!c) throw new Error(`prepare_green: no level ground for a ${S}x${S} green near the village (wet ${why.wet}, steep ${why.steep}, taken ${why.occupied}, unloaded ${why.unloaded})`);
+  console.log(`[initiative] ${v.name}: ${a.name} prepares a ${S}x${S} green for ${id} at ${c.x},${c.z}`);
+  // (the square and its margin held from the moment it is chosen until the plot is recorded: growth's and every other
+  // survey keep off reservations, and prepareSite's own comes only after its scan and walk; s36's review M1)
+  const x1 = c.x - Math.floor(S / 2), z1 = c.z - Math.floor(S / 2);
+  const held = a.world.villages.reserve(v, { x1: x1 - 2, z1: z1 - 2, x2: x1 + S + 1, z2: z1 + S + 1 }, a.name, `prepare a green for ${id}`);
+  const renew = setInterval(() => a.world.villages.renew(held), 60000);
+  try {
+    return await prepareSite(a, { x: c.x, z: c.z, y: c.y, width: S, depth: S, margin: 2, green: id }, signal);
+  } finally {
+    clearInterval(renew);
+    a.world.villages.release(v, held.id);
+  }
+}
+
 /** lay_out_houses' `options` ("30:4:2,27:3:1,22:4:-1": size, houses, slots; slots -1: no field), in order. */
 function padOptions(raw: unknown, houses: number): PadOption[] {
   const out = String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
@@ -3564,6 +3612,13 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
     ...plants,
     ...(v.growth?.bad ?? []),
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
+    // (an open initiative's small work, padded 2 as smallBlocked pads them: a public work's quarter was laid over a
+    // woodshed's spot in s36's N0on, which failed three builds)
+    ...(v.initiatives ?? []).filter((i) => i.state === 'open' && !i.pending).map((i) => {
+      const d = v.designs[i.design];
+      const w = d?.width ?? 7, dd = d?.depth ?? 7;
+      return pad({ x1: i.x - Math.floor(w / 2), z1: i.z - Math.floor(dd / 2), x2: i.x - Math.floor(w / 2) + w - 1, z2: i.z - Math.floor(dd / 2) + dd - 1 }, 2);
+    }),
   ];
 }
 
@@ -5579,6 +5634,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   start_farm: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), str(x.kind, 'kind'), x.from === 'storage' ? undefined : (num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z'))), run: startFarm },
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
   prepare_annex: { run: prepareAnnex },
+  prepare_green: { run: prepareGreen },
   // (s30's, a chore as well: the next neighbourhood of a village that grows)
   lay_out_houses: { check: (x) => (x.options !== undefined ? void padOptions(x.options, 4) : void num(x.size, 'size')), run: layOutHouses },
   start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },

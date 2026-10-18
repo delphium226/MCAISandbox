@@ -32,6 +32,8 @@ export interface Plot extends Area {
    * first part done, and this lists the parts done so far; deleted once every part is.
    */
   parts?: Area[];
+  /** A green prepared for small works (s36): the id of the initiative that asked for it. A plot to build them on. */
+  green?: string;
 }
 
 /** A part of a layout's plot prepared by one agent (S.6), with its margins [north, south, west, east]: 2 on the plot's edge, 0 inside. */
@@ -217,6 +219,12 @@ export interface Initiative {
   crew: string[];
   steps: Array<{ agent: string; what: string; at: number }>;
   fails?: number; backoff?: number; end?: number; why?: string;
+  /** No spot yet (s36): the plots were full, so its first step prepares a green (Plot.green = its id); x, y, z are the
+   *  village's home until a spot on the green is found. */
+  pending?: boolean;
+  /** What its crew has gathered for it (the user's, s36: initiatives gather their own materials, storage is not drawn
+   *  on), by item: logs as the village wood's log, cobblestone, sand. */
+  gathered?: Record<string, number>;
 }
 
 export interface Task {
@@ -505,6 +513,8 @@ export interface Village {
    */
   initiatives?: Initiative[];
   initiativeN?: number;
+  /** N.1 (MC_NEEDS show/on): each need's state, stepped every 30 s by the world (needs.ts NeedState). */
+  needStates?: Record<string, import('./needs').NeedState>;
   /** The village's votes (spec_vote1), the last 20, written at the tally only (a vote under way is held in memory). */
   votes?: VoteRecord[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */
@@ -1206,8 +1216,9 @@ export class VillageRegistry {
       lines.push(`Growing: neighbourhood ${nb.k}, ${nb.builds.length} houses at ${areaText(nb.plot)} (built ${built} of ${nb.builds.length}); houses ${housesOf(v)} for ${nb.members} members`);
     }
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
-    // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9)
-    const plots = v.plots.filter((p) => !p.annex && !p.works);
+    // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9; nor a green, the
+    // initiatives' small works, s36)
+    const plots = v.plots.filter((p) => !p.annex && !p.works && !p.green);
     // (a plot prepared in parts, S.6: how many are done; lessons 32 and 57)
     const partsOf = (p: Plot) => (v.layouts ?? []).find((l) => l.x1 === p.x1 && l.z1 === p.z1 && l.x2 === p.x2 && l.z2 === p.z2)?.parts?.length;
     if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}${p.parts ? ` (parts ${p.parts.length} of ${partsOf(p) ?? '?'} prepared)` : ''}`));

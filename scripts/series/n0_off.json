@@ -1,0 +1,24 @@
+{
+  "about": "N.0 baseline (s36, world 2): families without initiatives, from mv3_grown25, 30 min after, growth off.",
+  "out": "runs/2026-10-18/s36/n0_off",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 50,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish",
+    "MC_GROW": "0"
+  },
+  "runs": [
+    {
+      "name": "N0off",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

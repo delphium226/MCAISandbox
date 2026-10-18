@@ -1,0 +1,27 @@
+{
+  "about": "N.0 initiatives staged (s36, world 1): families + initiatives, from mv3_grown25, 30 min after, growth off. Baseline n0_off.json on world 2.",
+  "out": "runs/2026-10-18/s36/n0_on",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 50,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_GROW": "0"
+  },
+  "show": [
+    "INITIATIVE"
+  ],
+  "runs": [
+    {
+      "name": "N0on",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

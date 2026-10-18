@@ -202,6 +202,8 @@ export interface WorldAdapter {
   /** A2: the menu this agent would choose from now (pure: no state written), or null if it is not an idle member of a
    *  complete village. */
   choices?(agent: WorldAgent): ChoiceMenu | null;
+  /** N.1: a village's needs (MC_NEEDS show/on), with each need's state and line; null for an unknown village. */
+  needsView?(village: string): { village: string; mode: 'off' | 'show' | 'on'; needs: Record<string, import('./needs').NeedState & { text: string }> } | null;
   /** A2: run one option (checked again against a fresh menu); the chore is queued and logged. Never throws (D9). */
   runChoice?(agent: WorldAgent, id: string, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string };
   /** A2: the panel's compact line and the last full decision (cached fields; never builds a menu, C10). */
@@ -253,6 +255,11 @@ export interface ChoiceOption {
   lp?: number;
   /** Temperament weight 0.16..6.25 (A.3p: the kind's weight times sociability's; absent when MCAI_TEMPERAMENT is off). */
   tw?: number;
+  /** N.1 (MC_NEEDS=on): the village need this option answers, one line ("village need: 31 unlit spots in 6 buildings"). */
+  need?: string;
+  /** N.1: the need's weight on it, 1..2.5 (the need's level and the member's trait); the fixed pick and the trim read it
+   *  beside tw, the prompt's tags and the decline only tw. */
+  nw?: number;
 }
 
 export interface ChoiceContext {
@@ -266,6 +273,8 @@ export interface ChoiceContext {
   others: string;
   /** The agent's last <= 5 chore ends, one line each. */
   outcomes: string[];
+  /** N.1 (MC_NEEDS=on): the village's needs at LOW or above, most acute first (<= 3, "31 unlit spots in 6 buildings"). */
+  needs?: string[];
 }
 
 export interface ChoiceMenu {
