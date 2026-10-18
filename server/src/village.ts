@@ -413,6 +413,9 @@ export interface Village {
   objective: string;
   mayor?: string;
   complete?: boolean;
+  /** How long the village has been running (ms) as of its last save: time with an agent server holding it, so a resume
+   *  from a checkpoint carries on from the checkpoint's age (VillageRegistry.age; none in villages saved before 10-18). */
+  runMs?: number;
   /** Exploring once complete (opportunistic farming, 10-08): the ring points scouted (by index), and when it ended. */
   explore?: { visited: number[]; done?: boolean; last?: string };
   /** Cakes baked at the storage hut (pens v2, 10-09: milk, sugar, an egg and wheat). */
@@ -625,6 +628,8 @@ export class VillageRegistry {
   claimLimit?: (v: Village, t: Task, by?: string, cooled?: number) => boolean;
   /** When each worker last handed a mine task back as busy, by "village|worker" (S.2; a claim of a mine task clears it). */
   private mineCool = new Map<string, number>();
+  /** Since when each village's running time has counted on top of its runMs (from its load or founding). */
+  private runFrom = new WeakMap<Village, number>();
 
   constructor(private file: string) {
     try {
@@ -633,6 +638,7 @@ export class VillageRegistry {
       for (const v of data.villages ?? []) {
         if (v.mine) upgradeMine(v.mine);
         this.villages.set(v.name.toLowerCase(), v);
+        this.runFrom.set(v, Date.now());
       }
     } catch {
       /* no villages yet */
@@ -660,7 +666,20 @@ export class VillageRegistry {
     this.timer = setTimeout(() => void this.writeNow(), Math.max(0, Math.min(now + SAVE_QUIET_MS, this.dirtySince + SAVE_MAX_MS) - now));
   }
 
+  /** How long `v` has been running (ms): its saved runMs plus the time since this server loaded or founded it. */
+  age(v: Village, now = Date.now()): number {
+    let from = this.runFrom.get(v);
+    if (from === undefined) this.runFrom.set(v, (from = now));
+    return (v.runMs ?? 0) + Math.max(0, now - from);
+  }
+
   private serialise(): string {
+    // (each save writes the running time so far, and the count starts again from now)
+    const now = Date.now();
+    for (const v of this.villages.values()) {
+      v.runMs = this.age(v, now);
+      this.runFrom.set(v, now);
+    }
     return JSON.stringify({ nextId: this.nextId, villages: [...this.villages.values()] }, null, 1);
   }
 
@@ -718,11 +737,14 @@ export class VillageRegistry {
     }
   }
 
-  /** Write any change now, synchronously (shutdown, the flush endpoint): also what a write under way was about to write. */
+  /**
+   * Write any change now, synchronously (shutdown, the flush endpoint): also what a write under way was about to write,
+   * and the villages' running time, which advances with no change marked (so it writes whenever a village exists).
+   */
   flushSync() {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (!this.dirtySince && !this.writing) return;
+    if (!this.dirtySince && !this.writing && !this.villages.size) return;
     this.dirtySince = 0;
     const gen = ++this.gen;
     const data = this.serialise();
@@ -752,8 +774,9 @@ export class VillageRegistry {
   ensure(name: string, objective = ''): Village {
     let v = this.get(name);
     if (!v) {
-      v = { name, objective, plots: [], structures: [], designs: {}, tasks: [], reservations: [], log: [] };
+      v = { name, objective, plots: [], structures: [], designs: {}, tasks: [], reservations: [], log: [], runMs: 0 };
       this.villages.set(name.toLowerCase(), v);
+      this.runFrom.set(v, Date.now());
     } else if (objective) v.objective = objective;
     this.save();
     return v;

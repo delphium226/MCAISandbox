@@ -178,6 +178,8 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     // (A2: the village's decisions by source, fallbacks and the chosen positions for the header's chip, ~250 bytes)
     const choices = w.choiceSummary?.(v.name) ?? null;
     const needGauges = needsSummary(w, v.name);
+    // (how long it has been running, ms, as of this answer)
+    rest.runMs = w.villages.age(v);
     return send ? { ...rest, ...foodView(v), choices, vote, needGauges, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote, needGauges };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
