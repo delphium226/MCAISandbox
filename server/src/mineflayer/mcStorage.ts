@@ -11,6 +11,7 @@
  * with a new chest in the next free spot when that one is full or missing. Old villages keep their loose chests.
  */
 import { Vec3 } from 'vec3';
+import minecraftData from 'minecraft-data';
 import type { Village, StorageChest } from '../village';
 import { overlaps, preparedAt, storageText } from '../village';
 import { STORAGE_HUT } from '../huts';
@@ -18,6 +19,8 @@ import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt, SURVIVAL_SKILLS } from './mcSurvival';
 import { JUNK, TOOL } from './mcBlocks';
+import type { Counts } from './mcMaterials';
+import { MAKE_GOODS } from './mcWorkshop';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory, unmoved } from './mcUtil';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
@@ -41,6 +44,20 @@ function matcher(a: BotAgent, raw: string): { test: (name: string) => boolean; l
 
 const total = (items: Record<string, number>) => Object.values(items).reduce((s, q) => s + q, 0);
 
+/**
+ * MC_PARTS=on (s37 S2-S6): leftover building parts get a chest group of their own, misc and parts overflow into the chest
+ * with most room once the hut is down to its last free spot, and spare wooden parts burn first as smelting fuel. Off:
+ * storage as before.
+ */
+export const PARTS_ON = process.env.MC_PARTS === 'on';
+
+/**
+ * Leftover building parts (s37 S2): stairs, slabs, walls, doors, trapdoors, fences and gates, buttons, pressure plates,
+ * signs (hanging ones too) and ladders. Not furniture or stations (barrels, composters, tables, furnaces stay misc: furnishing
+ * draws them), and no wall sign, torch or banner (not items).
+ */
+export const PART_RE = /_(stairs|slab|wall|door|trapdoor|fence|fence_gate|button|pressure_plate|sign)$|^ladder$/;
+
 /** Material groups of a sorted storage: each chest in the storage hut holds one; anything else goes to "misc". */
 const GROUPS: Array<[string, RegExp]> = [
   ['logs', /^(?!mushroom_stem$).*_(log|wood|stem|hyphae)$/],
@@ -49,8 +66,24 @@ const GROUPS: Array<[string, RegExp]> = [
   ['sand', /^(red_)?(sand|sandstone)$/],
   ['glass', /^glass(_pane)?$/],
   ['terracotta', /terracotta$/],
+  ...(PARTS_ON ? [['parts', PART_RE] as [string, RegExp]] : []),
 ];
 export const groupOf = (name: string) => GROUPS.find(([, re]) => re.test(name))?.[0] ?? 'misc';
+
+/** Groups that take a new chest only while two or more hut spots are free (S3: the last spot is kept for a material). */
+const OVERFLOW_GROUPS = new Set(['misc', 'parts']);
+
+/**
+ * Where a misc or parts item goes when its group has no chest with room (S3, MC_PARTS only; pure, for parts_unit.mts):
+ * 'new' while the hut has two or more free spots (counting free chests), else the chest with most free slots of those with
+ * room, a free (empty, ungrouped) one last; null when none has room. `slots` is a chest's slots used.
+ */
+export function overflowChest<C extends { group?: string; items: Record<string, number> }>(chests: C[], freeSpotCount: number, slots: (c: C) => number): C | 'new' | null {
+  const free = (c: C) => !c.group && !total(c.items);
+  if (freeSpotCount + chests.filter(free).length >= 2) return 'new';
+  const room = chests.filter((c) => slots(c) < 27).sort((x, y) => Number(free(x)) - Number(free(y)) || slots(x) - slots(y));
+  return room[0] ?? null;
+}
 
 /** Hut chest spots that hold no chest yet, in the order chests go down. */
 const freeSpots = (v: Village) => (v.storageHut?.spots ?? []).filter((s) => !(v.storage?.chests ?? []).some((c) => c.x === s.x && c.z === s.z));
@@ -132,9 +165,30 @@ function chestItems(w: Window): Record<string, number> {
   return out;
 }
 
-/** Slots a chest's cached contents fill (27 is full). */
+/** What stack sizes are read from: the world's registry, or the game's data by itself (no bot). */
+type StackReg = { itemsByName: Record<string, { stackSize: number } | undefined> };
+let gameReg: StackReg | undefined;
+const defaultReg = (): StackReg => (gameReg ??= minecraftData('26.1') as unknown as StackReg);
+
+/** Slots a chest's cached contents fill at real stack sizes (27 is full); bot-free. */
+export function chestSlots(c: { items: Record<string, number> }, reg: StackReg = defaultReg()): number {
+  return Object.entries(c.items).reduce((s, [n, q]) => s + (q > 0 ? Math.ceil(q / (reg.itemsByName[n]?.stackSize ?? 64)) : 0), 0);
+}
+
 function slotsUsed(a: BotAgent, c: StorageChest): number {
-  return Object.entries(c.items).reduce((s, [n, q]) => s + Math.ceil(q / (a.world.registry.itemsByName[n]?.stackSize ?? 64)), 0);
+  return chestSlots(c, a.world.registry as unknown as StackReg);
+}
+
+/**
+ * The storage gauge's numbers from the record alone (s37 S1, no bot): slots the chests' items fill at real stack sizes, of
+ * 27 a chest spot of the storage hut (built or not; no hut: 27 a chest), the chests and the spots. `reg`: the world's
+ * registry (mcWorld passes its own); the game's data otherwise.
+ */
+export function storageSlots(v: Village, reg?: StackReg): { used: number; cap: number; chests: number; spots: number } {
+  const chests = v.storage?.chests ?? [];
+  const used = chests.reduce((s, c) => s + chestSlots(c, reg), 0);
+  const spots = v.storageHut ? v.storageHut.spots.length : chests.length;
+  return { used, cap: 27 * spots, chests: chests.length, spots };
 }
 
 /** Walk to a registered chest and open it; refreshes its cached contents. */
@@ -418,14 +472,33 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const n = v.storage?.chests.length ?? 0;
   // (no path is not a full storage: a miner told to craft a chest put a table down in its tunnel and walled itself in)
   if (!got && v.storageHut && notes.some((n) => /no path|stuck|timed out|could not reach/.test(n))) throw new Error(`could not reach the storage hut (${notes.join('; ')}): walk back to the village first (move_to near the storage hut at ${v.storageHut.x1 + 3},${v.storageHut.z2 + 2}), then deposit again`);
-  if (!got && v.storageHut) throw new Error(`could not put anything in the storage hut${notes.length ? ` (${notes.join('; ')})` : ''}: craft a chest (8 planks) and deposit again`);
+  const roomLeft = v.storage?.chests.some((c) => slotsUsed(a, c) < 27);
+  // A new chest helps only with a hut spot free that these items' groups may take (S4; misc and parts not the last one, S3)
+  const chestHelps = (names: string[]) => {
+    if (!v.storageHut) return true;
+    const spots = freeSpots(v).length;
+    return spots >= 1 && (!PARTS_ON || names.some((x) => !OVERFLOW_GROUPS.has(groupOf(x))) || spots >= 2);
+  };
+  const hutFull = () => {
+    const spots = v.storageHut!.spots.length, free = freeSpots(v).length;
+    return free ? `the storage hut has no room for these (every chest is full, and its last free chest spot is kept for a material: logs, planks, stone, sand, glass)`
+      : `the storage hut is full (all ${spots} chest spots hold full chests)`;
+  };
+  if (!got && v.storageHut) {
+    const carriedNames = [...want.values()].map((r) => r.name);
+    const why = notes.length ? ` (${notes.join('; ')})` : '';
+    if (chestHelps(carriedNames)) throw new Error(`could not put anything in the storage hut${why}: craft a chest (8 planks) and deposit again`);
+    if (!roomLeft) throw new Error(`${hutFull()}${why}: keep what you carry and use it, or leave storage for later`);
+    throw new Error(`could not put anything in the storage hut${why}; it has room: deposit again`);
+  }
   if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
   // (after a stall the rest is not about room: the note says the bot could not get there)
   const rest = left > 0 && !stalled ? [...want.values()] : [];
-  const roomLeft = v.storage?.chests.some((c) => slotsUsed(a, c) < 27);
+  const restText = rest.map((r) => `${r.count} ${r.name}`).join(', ');
   return `deposited ${got}${notes.length ? ` (${notes.join('; ')})` : ''}` +
-    (rest.length && roomLeft ? `; could not put in ${rest.map((r) => `${r.count} ${r.name}`).join(', ')} though there is room${v.storageHut ? '' : ' (another worker at the chest?)'}: deposit again` : '') +
-    (rest.length && !roomLeft ? `; storage is full, still carrying ${rest.map((r) => `${r.count} ${r.name}`).join(', ')}: craft a chest (8 planks) and deposit again` : '') +
+    (rest.length && roomLeft ? `; could not put in ${restText} though there is room${v.storageHut ? '' : ' (another worker at the chest?)'}: deposit again` : '') +
+    (rest.length && !roomLeft && chestHelps(rest.map((r) => r.name)) ? `; storage is full, still carrying ${restText}: craft a chest (8 planks) and deposit again` : '') +
+    (rest.length && !roomLeft && !chestHelps(rest.map((r) => r.name)) ? `; ${hutFull()}, still carrying ${restText}: keep it and use it, or leave storage for later` : '') +
     `. Storage now holds ${describeStorage(v, 12)}`;
 }
 
@@ -491,7 +564,15 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
       // A free chest only when the group has no chest with room (StageH3: one cobblestone the view lost track of went
       // into the last free chest while the cobblestone chest had 25 slots free)
       const own = chests().some((x) => x.group === g && slotsUsed(a, x) < 27);
-      let c = open.find((x) => x.group === g && slotsUsed(a, x) < 27) ?? (own ? undefined : open.find((x) => !x.group && !total(x.items)));
+      let c = open.find((x) => x.group === g && slotsUsed(a, x) < 27);
+      // (misc and parts, MC_PARTS: a free or new chest only while two spots are free, else the chest with most room, S3)
+      const over = PARTS_ON && !c && !own && OVERFLOW_GROUPS.has(g) ? overflowChest(open, freeSpots(v).length, (x) => slotsUsed(a, x)) : 'new';
+      if (over !== 'new') {
+        if (!over) break;
+        c = over;
+        if (c.group && c.group !== g) notes.push(`${g} went into chest ${chests().indexOf(c) + 1} (${c.group}): the last free chest spot is kept for a material`);
+      }
+      c ??= own ? undefined : open.find((x) => !x.group && !total(x.items));
       if (!c && own) break;
       if (!c) {
         // (none crafted from the carried wood for a builder's left-over parts: its wall planks, S.3's check)
@@ -673,6 +754,64 @@ export function registerChest(a: { name: string }, v: Village, pos: { x: number;
   v.structures.push({ id: reg.id('s'), kind: 'storage', x1: pos.x, z1: pos.z, x2: pos.x, z2: pos.z, y: pos.y, builtBy: a.name });
   reg.note(v, `storage chest at ${pos.x},${pos.y},${pos.z} registered by ${a.name}`);
   return `registered ${pos.x},${pos.y},${pos.z}`;
+}
+
+/** Ticks a wooden part burns for in a furnace, as vanilla's fuel table has them (200 a smelt); crimson and warped ones do not burn. */
+const PART_BURN: Record<string, number> = { stairs: 300, slab: 150, fence: 300, fence_gate: 300, trapdoor: 300, pressure_plate: 300, door: 200, sign: 200, hanging_sign: 800, button: 100 };
+const FUEL_PART = /^(?:oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo_mosaic|bamboo)_(stairs|slab|fence_gate|fence|trapdoor|pressure_plate|door|hanging_sign|sign|button)$/;
+
+/** Smelts one of a wooden part fuels (a slab 0.75, a door 1, stairs 1.5); 0 for anything that is not a burnable part. */
+export function partBurn(name: string): number {
+  if (name === 'ladder') return 1.5;
+  const m = FUEL_PART.exec(name);
+  return m ? PART_BURN[m[1]] / 200 : 0;
+}
+
+/**
+ * Which spare parts to burn for `smelts` (pure, S5): the most plentiful first (by name on ties), each kind no more than
+ * its whole items needed, until the smelts are covered; `smelts` in the result is what the parts taken cover.
+ */
+export function fuelParts(spare: Counts, smelts: number): { take: Counts; smelts: number } {
+  const take: Counts = {};
+  let left = Math.max(0, smelts), covered = 0;
+  for (const [n, q] of Object.entries(spare).filter(([x, k]) => k > 0 && partBurn(x) > 0).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))) {
+    if (left <= 0) break;
+    const per = partBurn(n), k = Math.min(Math.floor(q), Math.ceil(left / per));
+    if (k <= 0) continue;
+    take[n] = k;
+    covered += k * per;
+    left -= k * per;
+  }
+  return { take, smelts: covered };
+}
+
+/**
+ * The wooden parts a smelting job may burn from storage (MC_PARTS, S5), for `smelts`: only what no one counts on, i.e. the
+ * world's partsSpare (parts less the bills of builds not done and of open initiatives), no more than a make may take
+ * (makeSpare: the reserve and other agents' earmarks), less the furniture the open spots want, the workshop goods' stock
+ * targets (ladders), the unlit street lamps' fences and the signs not up yet in the village's wood; never a name in `skip`
+ * (the job's own bill and ingredients). Null when nothing is spare.
+ */
+export function partsForFuel(a: BotAgent, v: Village, smelts: number, skip: Set<string>): { take: Counts; smelts: number } | null {
+  if (!PARTS_ON || smelts <= 0) return null;
+  const spare: Counts = { ...a.world.partsSpare(v) };
+  if (!Object.keys(spare).length) return null;
+  const make = a.world.makeSpare(v, a.name);
+  const kept: Counts = { ...a.world.decorDemand(v) };
+  for (const g of a.world.catalog(v)?.goods ?? MAKE_GOODS) kept[g.item] = (kept[g.item] ?? 0) + g.target;
+  const wood = v.wood ?? 'oak';
+  for (const l of v.layouts ?? []) {
+    if (l.lamps?.length && !l.lit && v.vanillaBiome !== 'desert') kept[`${wood}_fence`] = (kept[`${wood}_fence`] ?? 0) + l.lamps.length;
+    const signs = (l.signs ?? []).filter((s) => !s.up && !s.never).length;
+    if (signs) kept[`${wood}_sign`] = (kept[`${wood}_sign`] ?? 0) + signs;
+  }
+  for (const n of Object.keys(spare)) {
+    const q = skip.has(n) || partBurn(n) <= 0 ? 0 : Math.min(spare[n], make[n] ?? 0) - (kept[n] ?? 0);
+    if (q > 0) spare[n] = q;
+    else delete spare[n];
+  }
+  const pick = fuelParts(spare, smelts);
+  return Object.keys(pick.take).length ? pick : null;
 }
 
 export const STORAGE_SKILLS: Record<string, McSkill> = {

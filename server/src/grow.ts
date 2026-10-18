@@ -13,6 +13,13 @@ import type { Area, Design, Task, Village } from './village';
 /** On unless MC_GROW=0 (Q1: off until the staged runs passed; G3 and G25 did, 10-15); batch and range (D4, D6). */
 export const GROW = { on: process.env.MC_GROW !== '0', batch: Number(process.env.MC_GROW_BATCH) || 4, range: Number(process.env.MC_GROW_RANGE) || 80 };
 
+/**
+ * N.2 housing (s37, MC_HOUSING=on; off by default): each member owns a house, a street of houses is a member's own project
+ * (the chore menu's `grow:street`) or a voted work, and growth's code trigger is retired (growth lays out only on a
+ * request). Growth's machinery stays: GROW.on must stay true. Spec runs/2026-10-18/s37/spec_batch_n2.md H.
+ */
+export const HOUSING = process.env.MC_HOUSING === 'on';
+
 /** A task id's number ("t123" -> 123): ids come from one counter, so a later task has a higher one. */
 export const taskNum = (t: { id: string }) => Number(/\d+/.exec(t.id)?.[0] ?? NaN);
 

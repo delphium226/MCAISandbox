@@ -1,0 +1,28 @@
+{
+  "about": "s37 model-driven run (world 1, 1x): members choose by model (gpt-oss cloud), MC_HOUSING + MC_PARTS + needs on, initiatives family; from mv3_base25 (2 houses for 25), 30 min after. Do members start streets of houses, build their own, decorate them?",
+  "out": "runs/2026-10-18/s37/s37_model",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_HOUSING": "on",
+    "MC_PARTS": "on",
+    "MC_NEEDS": "on"
+  },
+  "runs": [
+    {
+      "name": "Hm",
+      "village": "B25x2",
+      "checkpoint": "mv3_base25",
+      "args": "--after 30 --choose model"
+    }
+  ]
+}

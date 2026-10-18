@@ -31,7 +31,7 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { storageContents } from './mcStorage';
+import { PART_RE, storageContents, storageSlots } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -42,7 +42,7 @@ import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
-import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
+import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -460,6 +460,34 @@ export class MineflayerWorld implements WorldAdapter {
    * logs (S.4). A build that comes up
    * short goes back to open (requeueBuild) and is counted again.
    */
+  /**
+   * Leftover building parts in storage nobody counts on (s37 S5, MC_PARTS): each part (mcStorage PART_RE) less what the
+   * bills of Build tasks not done or failed and of open initiatives name of it (storageReserve lists raw materials only, and
+   * build_design fetches exact-name parts from storage). What fuel may burn.
+   */
+  partsSpare(v: Village): Counts {
+    const store = storageContents(v);
+    const out: Counts = {};
+    for (const [n, q] of Object.entries(store)) if (q > 0 && PART_RE.test(n)) out[n] = q;
+    if (!Object.keys(out).length) return out;
+    const take = (bill: Counts) => {
+      for (const [n, q] of Object.entries(bill)) if (out[n]) out[n] = Math.max(0, out[n] - q);
+    };
+    for (const t of v.tasks) {
+      if (!/^Build /.test(t.title) || t.status === 'done' || t.status === 'failed') continue;
+      const d = v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? ''];
+      // (in the wood it is built in, as buildBill: the parts' report)
+      if (d) take(v.wood ? inWood(designBill(d), v.woodFor?.[t.title.slice(6)] ?? v.wood) : designBill(d));
+    }
+    const wood = v.catalogWood ?? v.wood ?? 'oak';
+    for (const it of v.initiatives ?? []) {
+      const d = it.state === 'open' ? v.designs[it.design] : undefined;
+      if (d) take(inWood(designBill(d), wood));
+    }
+    for (const n of Object.keys(out)) if (!out[n]) delete out[n];
+    return out;
+  }
+
   storageReserve(v: Village): Counts {
     const store = storageContents(v);
     const wood = this.woodOf(v, store);
@@ -1338,6 +1366,8 @@ export class MineflayerWorld implements WorldAdapter {
    */
   mayClaim(agent: WorldAgent, task?: Task): boolean {
     const v = agent.village();
+    // (N.2: another member's house is left to its owner a while, H7)
+    if (HOUSING && v && task && this.ownerFirst(v, agent, task)) return false;
     if (!v || !appetiteOn(v)) return true;
     const s = this.hungerOf(v, agent);
     if (s === 'fed') return true;
@@ -1653,6 +1683,11 @@ export class MineflayerWorld implements WorldAdapter {
         console.error(`[initiative] ${v.name}: check failed:`, e);
       }
       try {
+        if (HOUSING && v.complete) this.homeTick(v);
+      } catch (e) {
+        console.error(`[home] ${v.name}: check failed:`, e);
+      }
+      try {
         if (NEEDS_MODE !== 'off' && v.complete) this.needTick(v);
       } catch (e) {
         console.error(`[need] ${v.name}: check failed:`, e);
@@ -1694,11 +1729,13 @@ export class MineflayerWorld implements WorldAdapter {
   private growDue(v: Village, now: number, wait: boolean): boolean {
     const g = v.growth;
     if (!GROW.on || !v.complete || g?.active || g?.stop || (g?.backoff ?? 0) > now || (this.growError.get(v.name) ?? 0) > now) return false;
+    // (N.2: growth's code trigger retired; a street of houses only when a member or a vote asked for one)
+    if (HOUSING && !g?.request) return false;
     if (wait && now - (this.growSeen.get(v.name) ?? now) < GROW_WAIT_MS) return false;
     if (this.growQueued(v, now)) return false;
     // (and a worker whose brain takes board tasks: the mayor never does, and a layout nobody claims sat 10 minutes until
     // "stuck", three times over, s30's review)
-    return housesOf(v) < this.growMembers(v).length && this.growClaimers(v).length > 0;
+    return (HOUSING ? this.homeless(v).length > 0 : housesOf(v) < this.growMembers(v).length) && this.growClaimers(v).length > 0;
   }
 
   /**
@@ -1871,6 +1908,7 @@ export class MineflayerWorld implements WorldAdapter {
     const run = this.voting.get(v.name);
     if (run && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
     if (v.growth?.active) return this.growEnd(v, now);
+    if (HOUSING) this.homeRequestAge(v, now);
     if (!GROW.on || !this.growDue(v, now, true)) {
       if (GROW.on) {
         const M = this.growMembers(v).length, H = housesOf(v);
@@ -1891,9 +1929,21 @@ export class MineflayerWorld implements WorldAdapter {
     const members = this.growMembers(v);
     // (never a hungry member: it takes food work only, s30's D12)
     const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
-    const agent = members.find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    // (N.2: the member who asked for the street lays it out while it is idle, s37)
+    const asker = HOUSING ? members.find((a) => a.name === v.growth?.request?.by && this.isIdleMember(v, a, now) && fed(a)) : undefined;
+    const agent = asker ?? members.find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
     if (!agent) return;
-    const n = Math.min(GROW.batch, members.length - housesOf(v));
+    this.layOutNext(v, agent, style, now);
+  }
+
+  /** growTick's tail (s37: also a street of houses a member starts, H3): the next neighbourhood's houses and pad, and the
+   *  lay_out_houses chore for `agent`; `meta`/`opt` when a member chose it from its menu. */
+  private layOutNext(v: Village, agent: BotAgent, style: string | null, now: number, meta?: ChoiceMeta, opt?: ChoiceOption) {
+    void now;
+    const members = this.growMembers(v);
+    const n = Math.min(GROW.batch, HOUSING ? this.homeless(v).length : members.length - housesOf(v));
+    if (n < 1) return;
+    const holds = opt?.holds ?? [];
     const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
     // (a style voted in: its houses only, the current one too: as before, a won "current" savanna drew the village's own
     // plains library, Vm; no vote: the picks as before)
@@ -1919,7 +1969,7 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
         return;
       }
-      this.setChore(v, agent, 'grow', [st], `lay out ${ladder[0].n} house${ladder[0].n > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why));
+      this.setChore(v, agent, 'grow', [st], `lay out ${ladder[0].n} house${ladder[0].n > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why), meta, holds, opt);
       console.log(`[grow] ${v.name}: ${agent.name} lays out up to ${ladder[0].n} houses (${pick.join(', ')}) on the first of ${ladder.map((o) => `${o.size}x${o.size}/${o.n}/${o.slots < 0 ? 'no field' : `field+${o.slots}`}`).join(', ')}; houses ${housesOf(v)} for ${members.length} members`);
       return;
     }
@@ -1933,8 +1983,194 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[grow] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
       return;
     }
-    this.setChore(v, agent, 'grow', [st], `lay out ${houses.length} house${houses.length > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why));
+    this.setChore(v, agent, 'grow', [st], `lay out ${houses.length} house${houses.length > 1 ? 's' : ''}`, (why) => this.growFailed(v, agent.name, why), meta, holds, opt);
     console.log(`[grow] ${v.name}: ${agent.name} lays out ${houses.length} houses (${houses.join(', ')}) on ${pad.size}x${pad.size}; houses ${housesOf(v)} for ${members.length} members`);
+  }
+
+  // ---- N.2: owned houses (MC_HOUSING; spec runs/2026-10-18/s37/spec_batch_n2.md H) ---------------------------------------
+
+  /** When each owned Build task was first asked about as claimable (H7's hold), by "village|task id"; in memory. */
+  private homeReady = new Map<string, number>();
+
+  /** The village's members in the order houses are given out (H2): the Mayor, Worker1..24 by number, other names
+   *  alphabetical after. */
+  private homeOrder(v: Village): BotAgent[] {
+    const key = (a: BotAgent): [number, number, string] => {
+      const n = a.name.toLowerCase(), m = /^worker(\d+)$/.exec(n);
+      return n === 'mayor' ? [0, 0, n] : m ? [1, Number(m[1]), n] : [2, 0, n];
+    };
+    return this.growMembers(v).sort((p, q) => {
+      const x = key(p), y = key(q);
+      return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+    });
+  }
+
+  /** A member's home (H1): the dwelling it owns, else the Build task of its house (not failed: being built, or built and
+   *  not yet marked on its structure). */
+  private homeOf(v: Village, name: string): Structure | Task | undefined {
+    return v.structures.find((s) => s.owner === name && isDwelling(s.kind))
+      ?? v.tasks.find((t) => t.owner === name && /^Build /.test(t.title) && t.status !== 'failed');
+  }
+
+  /** The members without a home (H1), in homeOrder. */
+  private homeless(v: Village): BotAgent[] {
+    return this.homeOrder(v).filter((a) => !this.homeOf(v, a.name));
+  }
+
+  /** A Build task's centre (its build_design x= z=). */
+  private static taskXZ(t: Task): { x: number; z: number } | null {
+    const m = /\bx=(-?\d+) z=(-?\d+)/.exec(t.detail);
+    return m ? { x: Number(m[1]), z: Number(m[2]) } : null;
+  }
+
+  /** A house's name sign says whose it is (H2, H5): its text before it goes up, rewritten by RCON once up (text is free,
+   *  as put_up_signs' own rewrite). */
+  private houseSign(v: Village, building: string, at: (s: { cx: number; cz: number }) => boolean, name: string) {
+    for (const l of v.layouts ?? []) for (const s of l.signs ?? []) {
+      if (s.building !== building || !at(s)) continue;
+      const text = [`${name}'s`, 'house'];
+      if (s.text.join('|') === text.join('|')) return;
+      s.text = text;
+      this.villages.save();
+      if (s.up && s.y !== undefined) {
+        const nbt = `{front_text:{messages:[${[0, 1, 2, 3].map((i) => JSON.stringify(text[i] ?? '')).join(',')}]}}`;
+        this.rcon.command(`data merge block ${s.x} ${s.y} ${s.z} ${nbt}`).catch((e: Error) => console.log(`[home] ${v.name}: ${name}'s sign at ${s.x},${s.y},${s.z} not rewritten: ${e.message}`));
+      }
+      return;
+    }
+  }
+
+  /** A request for a street that has waited 15 minutes with no layout posted is dropped (H4). */
+  private homeRequestAge(v: Village, now: number) {
+    const r = v.growth?.request;
+    if (!r || now - r.at < HOME_REQUEST_MS || this.growQueued(v, now)) return;
+    delete v.growth!.request;
+    this.villages.save();
+    console.log(`[home] ${v.name}: ${r.by === 'vote' ? 'the vote\'s' : `${r.by}'s`} street of houses dropped: no layout in ${Math.round(HOME_REQUEST_MS / 60000)} min${v.growth?.stop ? ` (growth stopped: ${v.growth.stop})` : (v.growth?.backoff ?? 0) > now ? ' (growth backing off)' : ''}`);
+  }
+
+  /** A member's street of houses (H3): laid out now by `agent` when growth can (true), else left to growTick (a style
+   *  vote under way, a back-off). */
+  private homeLayout(v: Village, agent: BotAgent, now: number, meta?: ChoiceMeta, opt?: ChoiceOption): boolean {
+    if (!this.growDue(v, now, false)) return false;
+    const style = this.styleFor(v, now);
+    if (style === undefined) return false;
+    this.layOutNext(v, agent, style, now, meta, opt);
+    return this.growQueued(v, now);
+  }
+
+  /**
+   * Every farm tick with MC_HOUSING (H2, H5, H6): a houseless member moves into an unowned standing house; a new
+   * neighbourhood's Build tasks get their owners (the asker first) and their signs the owners' names; a built house is
+   * marked on its structure; a Build task that failed for good frees its owner.
+   */
+  private homeTick(v: Village) {
+    if (!v.complete) return;
+    let changed = false;
+    // Built or failed: the owner's house marked on its structure, or the owner freed
+    for (const t of v.tasks) {
+      if (!t.owner || !/^Build /.test(t.title)) continue;
+      if (t.status === 'failed' && !t.soft) {
+        console.log(`[home] ${v.name}: ${t.owner}'s house (${t.id}) failed: ${t.owner} has no house again`);
+        this.villages.note(v, `${t.owner}'s house (${t.id}) could not be built`);
+        delete t.owner;
+        changed = true;
+        continue;
+      }
+      if (t.status !== 'done') continue;
+      const c = MineflayerWorld.taskXZ(t);
+      const st = c && v.structures.find((s) => isDwelling(s.kind) && c.x >= s.x1 && c.x <= s.x2 && c.z >= s.z1 && c.z <= s.z2);
+      if (st && st.owner === t.owner) continue;
+      if (!st || st.owner) {
+        // (no house of its own at its spot: the owner is not housed by it, the safety review's L5)
+        console.log(`[home] ${v.name}: ${t.owner}'s house (${t.id}) is done but ${st ? `${st.owner} owns the house there` : 'no house stands at its spot'}: ${t.owner} has no house again`);
+        delete t.owner;
+        changed = true;
+        continue;
+      }
+      st.owner = t.owner;
+      changed = true;
+      console.log(`[home] ${v.name}: ${t.owner}'s house stands (${st.kind} ${st.id} at ${Math.round((st.x1 + st.x2) / 2)},${Math.round((st.z1 + st.z2) / 2)})`);
+      this.villages.note(v, `${t.owner}'s house stands at ${Math.round((st.x1 + st.x2) / 2)},${Math.round((st.z1 + st.z2) / 2)}`);
+    }
+    // A new neighbourhood's houses: owners in board order, the asker first, then the houseless in homeOrder
+    const g = v.growth;
+    const act = g?.active;
+    if (act && !act.project) {
+      const builds = act.builds.map((id) => v.tasks.find((t) => t.id === id)).filter((t): t is Task => !!t && t.status !== 'failed');
+      if (builds.length && builds.every((t) => !t.owner) && !act.owned) {
+        const queue = this.homeless(v).map((a) => a.name);
+        const asker = g!.request?.by;
+        if (asker && queue.includes(asker)) queue.splice(queue.indexOf(asker), 1), queue.unshift(asker);
+        const given: string[] = [];
+        for (const t of builds) {
+          const who = queue.shift();
+          if (!who) break;
+          t.owner = who;
+          given.push(`${who} (${t.id})`);
+          const c = MineflayerWorld.taskXZ(t);
+          const design = /build_design "([^"]+)"/.exec(t.detail)?.[1];
+          if (c && design) this.houseSign(v, design, (s) => s.cx === c.x && s.cz === c.z, who);
+        }
+        act.owned = true;
+        if (g!.request) delete g!.request;
+        changed = true;
+        console.log(`[home] ${v.name}: neighbourhood ${act.k}'s houses for ${given.join(', ') || 'nobody (no member without a house)'}`);
+        if (given.length) this.villages.note(v, `neighbourhood ${act.k}'s houses are for ${given.map((x) => x.replace(/ \(.*/, '')).join(', ')}`);
+      }
+    }
+    // Standing houses nobody owns, to the houseless (nearest the village's home first)
+    const free = v.structures.filter((s) => isDwelling(s.kind) && !s.owner && !(act && !act.project && act.plot && s.x1 >= act.plot.x1 && s.x2 <= act.plot.x2 && s.z1 >= act.plot.z1 && s.z2 <= act.plot.z2));
+    if (free.length) {
+      const home = villageHome(v);
+      const d = (s: Structure) => (home ? Math.hypot((s.x1 + s.x2) / 2 - home.x, (s.z1 + s.z2) / 2 - home.z) : 0);
+      free.sort((p, q) => d(p) - d(q));
+      for (const a of this.homeless(v)) {
+        const st = free.shift();
+        if (!st) break;
+        st.owner = a.name;
+        changed = true;
+        const cx = Math.round((st.x1 + st.x2) / 2), cz = Math.round((st.z1 + st.z2) / 2);
+        this.houseSign(v, st.kind, (s) => s.cx >= st.x1 && s.cx <= st.x2 && s.cz >= st.z1 && s.cz <= st.z2, a.name);
+        console.log(`[home] ${v.name}: ${a.name} moves into ${st.kind} (${st.id}) at ${cx},${cz}`);
+        this.villages.note(v, `${a.name} moves into the house at ${cx},${cz}`);
+      }
+    }
+    if (changed) this.villages.save();
+  }
+
+  /** When each owned house's furnish or light option was first held back for its owner, by "village|option id". */
+  private ownDecorSeen = new Map<string, number>();
+
+  /** H8 (after the spec check's M2): another member's house is held for its owner while the owner is in the world, for
+   *  OWN_DECOR_MS from the first time it was held; then anyone may help. */
+  private ownDecorHeld(v: Village, id: string, owner: string, now: number): boolean {
+    const o = this.agents.get(owner.toLowerCase());
+    if (!o?.bot.entity || o.village() !== v) return false;
+    const k = `${v.name}|${id}`;
+    if (!this.ownDecorSeen.has(k)) this.ownDecorSeen.set(k, now);
+    return now - this.ownDecorSeen.get(k)! < OWN_DECOR_MS;
+  }
+
+  /** The owner of a building part's structure when it is a dwelling (H8; read from the record: parts are cached). */
+  private houseOwner(v: Village, st: Structure): string | undefined {
+    const s = v.structures.find((x) => x.id === st.id) ?? st;
+    return s.owner && isDwelling(s.kind) ? s.owner : undefined;
+  }
+
+  /**
+   * H7: a Build task owned by another member is left to its owner for OWNER_FIRST_MS from when it was first asked about
+   * as claimable, while the owner is in the world, takes board tasks and is not hungry (others may help after that).
+   */
+  private ownerFirst(v: Village, agent: WorldAgent, task: Task): boolean {
+    if (!task.owner || task.owner === agent.name || !/^Build /.test(task.title)) return false;
+    const o = this.agents.get(task.owner.toLowerCase());
+    if (!o?.bot.entity || o.village() !== v || o.memory.villageRole === 'mayor' || !o.brain?.claimsTasks?.(o) || this.hungerOf(v, o) === 'hungry') return false;
+    // (only while the owner is free to take it: an owner on a long chore held its house for nothing, the spec check's M3)
+    if (!this.isIdleMember(v, o, Date.now())) return false;
+    const k = `${v.name}|${task.id}`, now = Date.now();
+    if (!this.homeReady.has(k)) this.homeReady.set(k, now);
+    return now - this.homeReady.get(k)! < OWNER_FIRST_MS;
   }
 
   // ---- X.2: public works, voted (spec runs/2026-10-16/s34/spec_x2.md) --------------------------------------------------
@@ -2026,6 +2262,13 @@ export class MineflayerWorld implements WorldAdapter {
         current: false, novel: true, units: q.units, volume: q.pieces.reduce((s, c) => s + c.volume, 0),
       });
     }
+    // (N.2: a street of houses for the members without one, H9)
+    if (HOUSING) {
+      const without = this.homeless(v).length, M = this.growMembers(v).length;
+      // (only when growth could lay it out, and costed as houses: units 0 won every predicted ballot, the review's M2)
+      const n = Math.min(GROW.batch, without);
+      if (without >= 2 && GROW.on && !g.stop && this.growClaimers(v).length) out.push({ id: PROJECT_HOUSES, name: 'A street of houses for members without one', facts: `${without} of ${M} members have no house; up to ${GROW.batch} houses near the village, each with its owner's name on its sign`, current: false, novel: false, units: Math.round(n * HOUSE_UNITS * 0.6), volume: n * 300 });
+    }
     const rested = !!g.work && !g.work.piece;
     if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
     return out;
@@ -2073,7 +2316,14 @@ export class MineflayerWorld implements WorldAdapter {
     // (growth's stop for want of room or after failures holds projects too; one for want of house designs does not)
     if (g?.stop && !/house design/.test(g.stop)) return false;
     if (this.growQueued(v, now)) return false;
-    if (GROW.on && !g?.stop && housesOf(v) < this.growMembers(v).length) return false;
+    if (GROW.on && !HOUSING && !g?.stop && housesOf(v) < this.growMembers(v).length) return false;
+    // (N.2: houses are voluntary now; a street asked for goes first, and while members without a house have started one in
+    // the last HOME_FIRST_MS (from completion on) no work vote cuts in: the spec check's M4, H9)
+    if (HOUSING && g?.request) return false;
+    if (HOUSING && this.homeless(v).length) {
+      const last = Math.max(g?.active?.at ?? 0, g?.past?.[g.past.length - 1]?.end ?? 0, this.growSeen.get(v.name) ?? 0);
+      if (now - last < HOME_FIRST_MS) return false;
+    }
     const last = g?.past?.[g.past.length - 1];
     if (last && now - last.end < 60000) return false;
     return this.growClaimers(v).length > 0;
@@ -2168,6 +2418,13 @@ export class MineflayerWorld implements WorldAdapter {
     const piece = this.projectFor(v, now);
     if (!piece) return;
     const g = (v.growth ??= { past: [] });
+    if (piece === PROJECT_HOUSES) {
+      g.request = { by: 'vote', at: now, ...(g.work?.vote ? { vote: g.work.vote } : {}) };
+      delete g.work;
+      this.villages.save();
+      console.log(`[home] ${v.name}: the village voted for a street of houses (${this.homeless(v).length} members without one)`);
+      return;
+    }
     const q = this.quarterOf(v, piece);
     const w = q?.pieces[0];
     if (!q || !w) {
@@ -2392,6 +2649,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** N.1: the need an option answers, directly or by making what answers it (spec_needs_v2 B), or null. */
   private needOf(v: Village, o: { kind: ChoiceKind; id: string }, demand: Counts): NeedKind | null {
     if (o.kind === 'light' || o.id === 'make:torch') return 'light';
+    if (o.kind === 'grow') return 'housing';
     if (o.kind === 'furnish' || (o.kind === 'make' && (demand[o.id.slice(5)] ?? 0) > 0)) return 'furnish';
     if (appetiteOn(v) && isFoodKind(o.kind, o)) return 'food';
     return null;
@@ -2417,11 +2675,12 @@ export class MineflayerWorld implements WorldAdapter {
       const k = this.needOf(v, o, demand);
       if (k) seen.offered.add(k);
     }
-    const direct: Array<[NeedKind, ChoiceKind]> = [['light', 'light'], ['furnish', 'furnish'], ['food', 'eat']];
+    const direct: Array<[NeedKind, ChoiceKind]> = [['light', 'light'], ['furnish', 'furnish'], ['food', 'eat'], ...(HOUSING ? [['housing', 'grow'] as [NeedKind, ChoiceKind]] : [])];
     for (const [k, kind] of direct) {
       const why = menu.reasons[kind];
       // (busy: another member is on it; hungry: this member's menu only; neither blocks the need)
-      if (why && why !== 'busy' && why !== 'hungry' && !seen.blocked.has(k)) seen.blocked.set(k, why);
+      // (nor a housed member's "has a house", nor a street under way: the review's L3)
+      if (why && !NOT_BLOCKING.has(why) && !seen.blocked.has(k)) seen.blocked.set(k, why);
     }
   }
 
@@ -2438,11 +2697,13 @@ export class MineflayerWorld implements WorldAdapter {
     const faces = v.mine ? mineFaces(v, (n) => this.agents.has(n.toLowerCase())) : null;
     const readings = readNeeds({
       members: members.length,
-      houses: housesOf(v),
+      // (N.2: members housed, a house being built for them included, H10)
+      houses: HOUSING ? members.length - this.homeless(v).length : housesOf(v),
       ...(lights.length ? { unlit: lights.reduce((s, p) => s + p.unlit, 0), spots: lights.reduce((s, p) => s + p.spots.length, 0), unlitParts: lights.filter((p) => p.unlit > 0).length } : {}),
       ...(decor.length ? { openDecor: decor.reduce((s, p) => s + p.open.length, 0), decorSpots: decor.reduce((s, p) => s + p.spots.length, 0), openDecorParts: decor.filter((p) => p.open.length).length } : {}),
       ...(appetiteOn(v) ? { hungry: members.filter((a) => stateOf(v.food!.members[a.name]?.level ?? 20) !== 'fed').length } : {}),
-      ...(v.storageHut ? { chests: v.storage?.chests.length ?? 0, chestSpots: 9 } : {}),
+      // (s37 S1: slots used of the hut's, not chest spots: "9 of 9" had half its slots free)
+      ...(v.storageHut ? (() => { const st = storageSlots(v, this.registry as never); return { slots: st.used, slotCap: st.cap, chests: st.chests, chestSpots: st.spots }; })() : {}),
       ...(faces && faces.faces ? { mineHeld: faces.held, mineFaces: faces.faces } : {}),
       ...(v.mine && !mineCanGive(v, 'cobblestone') ? { mineBlocked: 'it gives no stone' } : {}),
     });
@@ -2452,7 +2713,7 @@ export class MineflayerWorld implements WorldAdapter {
     const states = (v.needStates ??= {});
     let changed = false;
     for (const r of readings) {
-      const answerable = r.kind === 'light' || r.kind === 'furnish' || r.kind === 'food';
+      const answerable = r.kind === 'light' || r.kind === 'furnish' || r.kind === 'food' || (HOUSING && r.kind === 'housing');
       const prev = states[r.kind];
       const next = stepNeed(prev, r, last === undefined ? 0 : now - last, {
         offered: !!seen?.offered.has(r.kind), taken: !!seen?.taken.has(r.kind),
@@ -3552,6 +3813,13 @@ export class MineflayerWorld implements WorldAdapter {
           why.push('nothing unlit');
           continue;
         }
+        // (N.2: another member's house is its own to light; one's own is named so and goes first, H8)
+        const owner = HOUSING && P.structure ? this.houseOwner(v, P.structure) : undefined;
+        const theirs = owner && owner !== a.name ? owner : undefined;
+        if (theirs && this.ownDecorHeld(v, `light:${P.part}`, theirs, now)) {
+          why.push("others' houses");
+          continue;
+        }
         const n = Math.min(P.unlit, LIGHT_TRIP, spare);
         if (n < Math.min(P.unlit, LIGHT_MIN_TRIP)) {
           why.push('torches short');
@@ -3578,12 +3846,12 @@ export class MineflayerWorld implements WorldAdapter {
           effect = `+${n} torches along the ${P.label}: for the look of the tunnels (bots dig in the dark too; no mobs spawn here)`;
         }
         add({
-          id, kind: 'light', key: id, excludes: [`${id}=`], name: `Light the ${P.label}`, rank: Math.min(899, 860 + r), ...(at ? { at } : {}),
-          facts: facts2, effect,
+          id, kind: 'light', key: id, excludes: [`${id}=`], name: theirs ? `Help light ${theirs}'s house (${P.label})` : owner ? `Light your own house (${P.label})` : `Light the ${P.label}`, rank: Math.min(899, 860 + r) - (owner && !theirs ? 5 : 0), ...(at ? { at } : {}),
+          facts: theirs ? `${theirs}'s house; ${facts2}` : owner ? `your own house; ${facts2}` : facts2, effect,
         }, { kind: 'light', part: P.part, n, unlit: P.unlit, label: P.label });
         spare -= n;
       }
-      if (!out.some((o) => o.kind === 'light')) reasons.light = ['torches short', 'backing off', 'busy'].find((w) => why.includes(w)) ?? 'nothing unlit';
+      if (!out.some((o) => o.kind === 'light')) reasons.light = ['torches short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing unlit';
     }
 
     // Making into storage (the workshop, D1): each good below its target with a whole batch from spare storage; crafting
@@ -3739,6 +4007,13 @@ export class MineflayerWorld implements WorldAdapter {
           why.push('backing off');
           continue;
         }
+        // (N.2: another member's house is its own to furnish; one's own is named so and goes first, H8)
+        const owner = HOUSING ? this.houseOwner(v, P.structure) : undefined;
+        const theirs = owner && owner !== a.name ? owner : undefined;
+        if (theirs && this.ownDecorHeld(v, id, theirs, now)) {
+          why.push("others' houses");
+          continue;
+        }
         const items: Counts = {};
         let n = 0;
         for (const q of P.open) {
@@ -3758,13 +4033,32 @@ export class MineflayerWorld implements WorldAdapter {
         const min = Math.max(0.1, Math.round(((0.4 + (2 * d) / 4.3 / 60) / ts) * 10) / 10);
         const door = placedDoor(P.place);
         add({
-          id, kind: 'furnish', key: id, excludes: [`${id}=`], name: `Furnish the ${P.label}`, rank: 1000 + r,
+          id, kind: 'furnish', key: id, excludes: [`${id}=`], name: theirs ? `Help furnish ${theirs}'s house (${P.label})` : owner ? `Furnish your own house (${P.label})` : `Furnish the ${P.label}`, rank: 1000 + r - (owner && !theirs ? 5 : 0),
           ...(door ? { at: { x: door.x, y: P.structure.y + 1, z: door.z } } : {}),
-          facts: `${P.spots.length - P.open.length} of ${P.spots.length} furniture spots done; takes ${countsText(items)} (spare); walks ${d} blocks from the hut and back, ~${min} min; ${record('furnish')}${others('furnish', id)}${lastOf('furnish', id)}`,
+          facts: `${theirs ? `${theirs}'s house; ` : owner ? 'your own house; ' : ''}${P.spots.length - P.open.length} of ${P.spots.length} furniture spots done; takes ${countsText(items)} (spare); walks ${d} blocks from the hut and back, ~${min} min; ${record('furnish')}${others('furnish', id)}${lastOf('furnish', id)}`,
           effect: `+${n} pieces of furniture in the ${P.label} (chairs, tables, workbenches, barrels): for the village's look and its homes`,
         }, { kind: 'furnish', part: P.part, n, items, open: P.open.length, label: P.label });
       }
-      if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy'].find((w) => why.includes(w)) ?? 'nothing to furnish';
+      if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing to furnish';
+    }
+
+    // N.2 (MC_HOUSING): a houseless member's first preference, a street of houses of its own starting (H3)
+    if (HOUSING) {
+      const g = v.growth;
+      const why = !GROW.on ? 'growth off' : this.homeOf(v, a.name) ? 'has a house' : g?.active ? 'a layout is being built' : g?.request ? 'a street is asked for' : this.voting.has(v.name) ? 'a vote is under way'
+        : g?.stop ? 'growth stopped' : (g?.backoff ?? 0) > now || (this.growError.get(v.name) ?? 0) > now ? 'backing off'
+        : excluded(['grow='], busy) || [...this.chores.values()].some((c) => c.village === v.name && c.key === 'grow') ? 'busy'
+        : !this.growClaimers(v).length ? 'no builders' : '';
+      if (why) reasons.grow = why;
+      else {
+        const without = this.homeless(v).length, M = this.growMembers(v).length, more = Math.min(GROW.batch, without) - 1;
+        add({
+          id: 'grow:street', kind: 'grow', key: 'grow', excludes: ['grow='], rank: 1,
+          name: `Start a street of houses: your own${more > 0 ? ` and up to ${more} more for members without one` : ''} (your own project)`,
+          facts: `you have no house; ${without} of ${M} members have none; a small street near the village, built from the task board by the village's workers with you; your name goes on your house's sign`,
+          effect: `a house of your own${more > 0 ? ` and homes for ${more} other${more > 1 ? 's' : ''}` : ''}`,
+        }, { kind: 'grow', houseless: without });
+      }
     }
 
     // Initiatives (s35): each open one's next step for anyone (ranks 1050 + r), then up to two of the member's own to start
@@ -3873,6 +4167,8 @@ export class MineflayerWorld implements WorldAdapter {
         return d?.kind === 'help' ? (v.initiatives ?? []).find((i) => i.id === d.id)?.crew.filter((n) => n !== a.name).length ?? 0 : undefined;
       };
       for (const o of out) o.tw = optionWeight(tv, weights, o.kind, crewOf(o) ?? on.get(o.kind) ?? 0);
+      // (N.2: a house of one's own is a houseless member's first preference whatever its temperament: the scale's top, H3)
+      for (const o of out) if (o.kind === 'grow') o.tw = 2.5;
     }
     // N.1 (MC_NEEDS=on): an option that answers a village need at LOW or above says so, and the need weighs on it by its
     // level and the member's trait for it (needWeight; a neutral trait without temperaments)
@@ -4199,6 +4495,21 @@ export class MineflayerWorld implements WorldAdapter {
         this.runInitiativeStep(v, worker, it, first, opt, meta);
         return;
       }
+      case 'grow': {
+        // N.2: the request first (growTick finishes it if it cannot be laid out now: a style vote under way), H3
+        const g = (v.growth ??= { past: [] });
+        if (g.request || g.active || this.homeOf(v, worker.name)) {
+          console.log(`[home] ${v.name}: ${worker.name} could not start a street of houses (${g.request ? 'one is asked for' : g.active ? 'a layout is being built' : 'it has a house'})`);
+          return;
+        }
+        const now = Date.now();
+        g.request = { by: worker.name, at: now };
+        this.villages.save();
+        console.log(`[home] ${v.name}: ${worker.name} starts a street of houses (${d.houseless} of ${this.growMembers(v).length} members without one)`);
+        this.villages.note(v, `${worker.name} starts a street of houses for itself and others without one`);
+        if (!this.homeLayout(v, worker, now, meta, opt)) console.log(`[home] ${v.name}: ${worker.name}'s street waits (${this.voting.has(v.name) ? 'the style vote' : 'growth not ready'}): growTick lays it out`);
+        return;
+      }
       case 'help': {
         const it = (v.initiatives ?? []).find((i) => i.id === d.id && i.state === 'open');
         if (!it) return;
@@ -4504,7 +4815,15 @@ export class MineflayerWorld implements WorldAdapter {
       let k = tasks.length;
       // (only workers whose brains take board tasks: one that never claims would be held for nothing, s30's review; and only
       // those the appetite lets claim one of them: a peckish member held here never got its meal, the food check's H1)
-      out = out.filter((a) => a.memory.villageRole === 'mayor' || !a.brain?.claimsTasks?.(a) || !tasks.some((t) => this.mayClaim(a, t)) || k-- <= 0);
+      if (!HOUSING) out = out.filter((a) => a.memory.villageRole === 'mayor' || !a.brain?.claimsTasks?.(a) || !tasks.some((t) => this.mayClaim(a, t)) || k-- <= 0);
+      else {
+        // (N.2: the owners of houses that can be claimed now are held first, H7)
+        const owners = new Set(tasks.filter((t) => t.owner && /^Build /.test(t.title)).map((t) => t.owner!));
+        const held = new Set<BotAgent>();
+        for (const a of [...out.filter((x) => owners.has(x.name)), ...out.filter((x) => !owners.has(x.name))])
+          if (a.memory.villageRole !== 'mayor' && a.brain?.claimsTasks?.(a) && tasks.some((t) => this.mayClaim(a, t)) && k-- > 0) held.add(a);
+        out = out.filter((a) => !held.has(a));
+      }
     }
     // (not a hungry mayor: growTick gives the chore to a fed member then, and a mayor held here would never eat)
     if (this.growDue(v, now, !this.growWatched.has(v.name))) out = out.filter((a) => a.memory.villageRole !== 'mayor' || this.hungerOf(v, a) === 'hungry');
@@ -4808,6 +5127,7 @@ type OptionRun =
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
   | { kind: 'initiate'; work: string; green?: boolean }
   | { kind: 'help'; id: string; step: InitiativeStep }
+  | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
@@ -4832,9 +5152,15 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
 /** X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
-const PROJECT_NONE = 'none', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
+/** Menu reasons that do not block a need (needNote): another member is on it, this member only, or it is under way. */
+const NOT_BLOCKING = new Set(['busy', 'hungry', 'has a house', 'a street is asked for', 'a layout is being built', 'a vote is under way']);
+const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
 /** s35: initiatives open at once in a village (MC_INITIATIVES; 0: none), gatherers on one initiative at once, and how
  *  long one waits with no step taken before it lapses. */
+/** N.2 (s37): a street of houses asked for and not laid out within this long is dropped (H4); a member's own house is
+ *  left to it this long once its Build task can be claimed (H7); public works wait this long after the last street while
+ *  members have no house; another member's house is its own to furnish and light this long, then anyone may help (H8). */
+const HOME_REQUEST_MS = 15 * 60000, OWNER_FIRST_MS = 3 * 60000, HOME_FIRST_MS = 10 * 60000, OWN_DECOR_MS = 10 * 60000;
 const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
 /** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */
 const NEEDS_MODE: 'off' | 'show' | 'on' = process.env.MC_NEEDS === 'show' || process.env.MC_NEEDS === 'on' ? process.env.MC_NEEDS : 'off';

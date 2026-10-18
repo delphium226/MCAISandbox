@@ -1130,6 +1130,8 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   off initiatives) and **greens** added (a 15x15 plot prepared as an initiative's first step when the plots are full):
   33 started and built in 30 min, busy 11-12% against 9%. To do (the user's, 10-18): initiatives gather their own
   materials; greens one per 5 members; the family on by default. `scripts/checks/menu_probe.mts` probes menus offline.
+  **s37:** own gathering and greens confirmed live (s37's four staged runs: 19-36 started, 16-33 built, 0-3 failed);
+  **the `initiatives` family is on by default** (choose.ts).
 - [ ] N.1 **Needs and escalation**: gauges code measures (members without a house, storage nearly full, smelts waiting,
   food per member, tools short, buildings unlit or unfurnished, mine faces busy), shown on the panel; each need offers
   responses in the three tiers by size; a need that grows while nobody takes it up is put to a vote by the Mayor.
@@ -1141,6 +1143,12 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
 - [ ] N.2 **Housing**: each member owns a house (its name on the plate); building its own house is a houseless member's
   first preference (others may help); decorating its own house a chore of its own; growth's code trigger retired, a
   street for a cluster of houses a voluntary or voted work.
+  **s37:** built behind `MC_HOUSING=on` with the storage fixes behind `MC_PARTS=on` (spec, check, reviews and results in
+  `runs/2026-10-18/s37/`: `notes.md`): owners on houses and Build tasks, names on the signs, the menu's `grow:street` (a
+  houseless member's first preference) and the work vote's housing option, the owner's 3-minute hold, own-house furnish
+  and light; the storage gauge in slots, a parts chest group, the last spot kept, spare wooden parts burned as fuel.
+  Staged from mv3_base25: members started 6 streets, 23 houses in 16.1 min (code growth 18.4); busy 29% vs 31%.
+  Checks `housing.mts`, `parts_unit.mts`. Next: the model-driven run's reading (notes.md), then both flags on by default.
 - [ ] N.3 **Storage rooms and furnace rooms** as needs-driven works (storage nearly full; smelts queueing), replacing the
   works plot's fixed furnace row; more of either built when the need comes back.
 - [ ] N.4 **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a

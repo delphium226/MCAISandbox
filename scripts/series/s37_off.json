@@ -1,0 +1,30 @@
+{
+  "about": "s37 combined series (world 2, flags off): N.2 housing (MC_HOUSING) + storage fixes (MC_PARTS), initiatives family on; from mv3_base25 (2 houses for 25: streets) then mv3_grown25 (25 houses: owners, own-house decor, full misc chests); 30 min fast each. Pair: s37_on (world 1) / s37_off (world 2).",
+  "out": "runs/2026-10-18/s37/s37_off",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show"
+  },
+  "runs": [
+    {
+      "name": "Hoff",
+      "village": "B25x2",
+      "checkpoint": "mv3_base25",
+      "args": "--after 30"
+    },
+    {
+      "name": "Soff",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

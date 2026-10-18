@@ -1,6 +1,6 @@
 /**
  * A village's needs (N.1, s36): gauges read from plain numbers the world counts (unlit light spots, open decor spots, hungry
- * members, members without a house, chest spots used, mine faces held), each a level 0..1 with a short text, and a small
+ * members, members without a house, storage slots or chest spots used, mine faces held), each a level 0..1 with a short text, and a small
  * state per need kept across sweeps that says whether the need is met, being answered (its amount fell), offered and
  * ignored, blocked, or without any answer yet. Nothing here votes or acts: the world reads the gauges (mcWorld.ts needTick),
  * saves the states on the village and puts the facts and weights on the chore menus. World-free and pure. Spec
@@ -18,6 +18,7 @@ export interface NeedInputs {
   openDecor?: number; decorSpots?: number; openDecorParts?: number;   // furnish (decorParts)
   hungry?: number;                     // food, only when the appetite is on: members peckish or hungry
   chests?: number; chestSpots?: number;                                // storage (show only)
+  slots?: number; slotCap?: number;    // storage in slots (s37 S1): used at real stack sizes, of 27 a chest spot; read first
   mineHeld?: number; mineFaces?: number; mineBlocked?: string;         // mine (show only)
 }
 
@@ -64,7 +65,12 @@ export function readNeeds(i: NeedInputs): NeedReading[] {
     const without = Math.max(0, members - num(i.houses));
     add('housing', share(without, members), without, `${without} of ${plural(members, 'member')} without a house`);
   }
-  if (i.chests !== undefined && i.chestSpots !== undefined) {
+  if (i.slots !== undefined && i.slotCap !== undefined) {
+    // (slots, not chests: a hut with a chest in every spot was "9 of 9" with half its slots free, s36's survey)
+    const slots = num(i.slots), cap = num(i.slotCap);
+    const of = i.chests !== undefined && i.chestSpots !== undefined ? ` (${num(i.chests)} of ${plural(num(i.chestSpots), 'chest')})` : '';
+    add('storage', share(slots, cap), slots, `${slots} of ${cap} storage slots used${of}`);
+  } else if (i.chests !== undefined && i.chestSpots !== undefined) {
     const chests = num(i.chests), spots = num(i.chestSpots);
     add('storage', share(chests, spots), chests, `${chests} of ${plural(spots, 'chest spot')} used`);
   }

@@ -9,7 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import { mineAreas, mineCanGive, mineFor } from './mcMine';
-import { STORAGE_SKILLS, hutY, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, hutY, partBurn, storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
 import { teleportHome } from './mcRescue';
@@ -1746,6 +1746,7 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
     // Into the hut for its furnace (3.5 blocks can be outside its wall)
     await reach(a, furnaceBlock.position.offset(0.5, 0, 0.5), home ? 1.8 : 3.5, signal);
     const furnace = await abortable(bot.openFurnace(furnaceBlock), signal);
+    const burned: Record<string, number> = {};
     try {
       // Fuel: coal first, then planks, logs last (a plank or a log smelts 1.5 items, and a log makes 4 planks: burning
       // logs used a builder's wood four times as fast as planned, and the logs kept for its log parts)
@@ -1756,9 +1757,21 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       // charcoal burned ahead of its planned planks, and the torch craft came up short: S.9's review, lens 1 M1, lens 3 M1).
       // Without it, coal first as before
       const budget = args.coal && typeof args.coal === 'object' && typeof (args.coal as { left?: unknown }).left === 'number' ? (args.coal as { left: number }) : null;
+      // `parts` (code's only: makeHeld's, MC_PARTS, s37 S5): spare wooden parts withdrawn from storage for fuel, by name, shared
+      // by the job's smelts and burned before anything else, each at its own burn value (a slab 0.75 smelts, stairs 1.5);
+      // only these, never parts carried for a build
+      const partsLeft = args.parts && typeof args.parts === 'object' ? (args.parts as Record<string, number>) : null;
       const addFuel = async (left: number) => {
         // The furnace window's own view of the inventory: the bot's lagged (it offered the plank already burning)
         const items = furnace.items();
+        const part = partsLeft ? items.find((it) => (partsLeft[it.name] ?? 0) > 0 && partBurn(it.name) > 0) : undefined;
+        if (part) {
+          const n = Math.min(part.count, partsLeft![part.name], Math.ceil(left / partBurn(part.name)));
+          await furnace.putFuel(part.type, null, n);
+          partsLeft![part.name] -= n;
+          burned[part.name] = (burned[part.name] ?? 0) + n;
+          return true;
+        }
         // (planks or logs of the kind the caller has to spare first: the charcoal for the lamps burned the birch planks
         // fetched for their fences, F169)
         const spare = typeof args.fuel === 'string' ? args.fuel : '';
@@ -1827,6 +1840,8 @@ async function smelt(a: BotAgent, args: Record<string, unknown>, signal: AbortSi
       return `smelted ${got} ${input}${notes.length ? ` (${notes.join('; ')})` : ''}`;
     } finally {
       furnace.close();
+      // (one line a smelt that burned parts, MC_PARTS)
+      if (Object.keys(burned).length) console.log(`[parts] ${a.village()?.name ?? '-'}: ${a.name} burned ${Object.entries(burned).map(([n, q]) => `${q} ${n}`).join(', ')} as fuel`);
     }
   } finally {
     release();

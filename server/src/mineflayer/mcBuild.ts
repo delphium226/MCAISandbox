@@ -27,14 +27,14 @@ import type { LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
-import { STORAGE_SKILLS, holdingStorageTask, refreshStorage, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, holdingStorageTask, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { GROW, GROW_FARMS, housesOf, taskNum, type PadOption } from '../grow';
+import { GROW, GROW_FARMS, HOUSING, housesOf, taskNum, type PadOption } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -533,19 +533,29 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   // carried: F178); what is carried or fetched beyond the plan's ingredients (since D13 the fuel is counted without them,
   // S.9's review, lens 3 L1)
   const ingredientCoal = (plan.fromStock.coal ?? 0) + (plan.fromStock.charcoal ?? 0);
+  // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
+  // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
+  const atHut = !!v?.storageHut && (!!opts.held || (home('crafting_table') && (!plan.fuel.smelts || home('furnace'))));
+  // Spare wooden parts burn first (MC_PARTS, s37 S5): withdrawn with the rest at the hut, and the coal fetched only for the
+  // smelts they do not cover; never a part this job builds with or crafts from. Off (or none spare): as before
+  const partFuel = v && atHut && plan.fuel.smelts > 0 ? partsForFuel(a, v, plan.fuel.smelts, new Set([...Object.keys(bill), ...Object.keys(need), ...Object.keys(plan.fromStock)])) : null;
+  // (the coal still fetched in full: parts carry no earmark, and a parallel make may take them first; the smelts burn the
+  // parts that came before any coal, so what coal is left stays for later smelts: the safety review's M2)
+  const coalNeed = plan.fuel.coal;
+  for (const [n, q] of Object.entries(partFuel?.take ?? {})) fetch[n] = (fetch[n] ?? 0) + q;
   for (const fuel of ['coal', 'charcoal']) {
-    const want = plan.fuel.coal - Math.max(0, (carried.coal ?? 0) + (carried.charcoal ?? 0) + (fetch.coal ?? 0) + (fetch.charcoal ?? 0) - ingredientCoal);
+    const want = coalNeed - Math.max(0, (carried.coal ?? 0) + (carried.charcoal ?? 0) + (fetch.coal ?? 0) + (fetch.charcoal ?? 0) - ingredientCoal);
     const f = Math.min(Math.max(0, want), store[fuel] ?? 0);
     if (f > 0) fetch[fuel] = (fetch[fuel] ?? 0) + f;
   }
   // A furnace or table kept in the storage comes along too (it was counted as there, then smelting found none)
   if (plan.fuel.smelts && !near('furnace') && !carried.furnace && store.furnace) fetch.furnace = 1;
   if (plan.steps.some((st) => st.do === 'craft' && !/_planks$|^any:planks$|^stick$/.test(st.item)) && !near('crafting_table') && !carried.crafting_table && store.crafting_table) fetch.crafting_table = 1;
-  // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
-  // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
-  const atHut = !!v?.storageHut && (!!opts.held || (home('crafting_table') && (!plan.fuel.smelts || home('furnace'))));
+  // (the parts withdrawn for fuel: the smelts burn these, shared like the coal budget, and put back what is left)
+  let partsLeft: Counts | undefined;
   if (v && Object.keys(fetch).length) {
-    await withdrawItems(a, v, fetch, signal);
+    const drawn = await withdrawItems(a, v, fetch, signal);
+    if (partFuel) partsLeft = Object.fromEntries(Object.keys(partFuel.take).map((n) => [n, (drawn.got as Counts)[n] ?? 0]));
     // Craft at the site, where the table and furnace were looked for (not when they are the hut's: the walk there and
     // back to the hut held the furnace, S.3)
     if (!atHut) await back();
@@ -573,31 +583,59 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
     const held = (k: string) => Math.max(0, spare(k)) * 4 + (inv[`${k}_planks`] ?? 0);
     return [...WOODS].sort((u, w) => Number(held(w) > 0) - Number(held(u) > 0) || Number(carried(w) > 0) - Number(carried(u) > 0) || spare(w) - spare(u) || held(w) - held(u) || carried(w) - carried(u))[0];
   };
-  for (const [i, st] of steps.entries()) {
-    checkAbort(signal);
-    try {
-      // (every other craft and smelt told the spare kind too: the craft skill's own plank choice and smelting's fuel took
-      // the logs and planks fetched for later steps, F165, F169)
-      if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes, wood: spareKind(i + 1) }, signal);
-      else {
-        // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
-        // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
-        // (the view synced first: just after a withdrawal it can lack the logs fetched, and the old fallback, oak, failed "no
-        // oak_log in inventory" on a birch log the plan took, F238; failing a view, the log kind the plan took from storage)
-        if (st.input === 'any:logs') await syncInventory(a).catch(() => undefined);
-        const spare = `${spareKind(i + 1)}_log`;
-        const fetchedLog = Object.keys(plan.fromStock).find((n) => /_log$/.test(n));
-        const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? fetchedLog ?? 'oak_log') : st.input ?? '';
-        // (at the furnace held for the job when it is given one, S.9)
-        const f = opts.furnace;
-        await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1), ...(coal ? { coal } : {}), ...(f ? { at: `${f.x},${f.y},${f.z}` } : {}) }, signal);
-      }
-    } catch (e) {
-      if ((e as Error).message === 'cancelled') throw e;
-      throw new Error(`could not ${st.do} ${st.makes} ${st.item.replace(/^any:/, '')} for the building (${(e as Error).message})`);
+  // Parts withdrawn for fuel and not burned go back by name (the server's count; MC_PARTS), after the steps or a failed one;
+  // on a stop they are left in makeLeft for the world to deposit (the safety review's M1)
+  const putBack = async () => {
+    const unburned = Object.entries(partsLeft ?? {}).filter(([, q]) => q > 0).map(([n]) => n);
+    if (!v || !unburned.length) return;
+    const held = await carriedCounts(a, unburned);
+    for (const n of unburned) {
+      const q = Math.min(partsLeft![n], Math.max(0, (held[n] ?? 0) - (need[n] ?? 0)));
+      if (q > 0) await STORAGE_SKILLS.deposit.run(a, { item: n, count: q, keep_wood: true }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled' || unmoved(e)) throw e;
+        console.log(`[parts] ${a.name} could not put ${q} ${n} (fuel not burned) back into storage: ${e.message.slice(0, 120)}`);
+      });
+      partsLeft![n] = 0;
     }
-    made.push(`${st.do === 'smelt' ? 'smelted' : 'crafted'} ${st.makes} ${st.item.replace(/^any:/, '')}`);
+  };
+  try {
+    for (const [i, st] of steps.entries()) {
+      checkAbort(signal);
+      try {
+        // (every other craft and smelt told the spare kind too: the craft skill's own plank choice and smelting's fuel took
+        // the logs and planks fetched for later steps, F165, F169)
+        if (st.do === 'craft') await SURVIVAL_SKILLS.craft.run(a, { item: st.item === 'any:planks' ? `${spareKind(i + 1)}_planks` : st.item, count: st.makes, wood: spareKind(i + 1) }, signal);
+        else {
+          // "Any logs" (charcoal) from the kind with logs to spare, else whichever is carried: the first log carried was the
+          // birch fetched for the lamps' fence planks, smelted, and the planks then failed (Minevale29)
+          // (the view synced first: just after a withdrawal it can lack the logs fetched, and the old fallback, oak, failed "no
+          // oak_log in inventory" on a birch log the plan took, F238; failing a view, the log kind the plan took from storage)
+          if (st.input === 'any:logs') await syncInventory(a).catch(() => undefined);
+          const spare = `${spareKind(i + 1)}_log`;
+          const fetchedLog = Object.keys(plan.fromStock).find((n) => /_log$/.test(n));
+          const input = st.input === 'any:cobblestone' ? 'cobblestone' : st.input === 'any:logs' ? (inventoryCounts(a)[spare] ? spare : a.bot.inventory.items().find((it) => /_log$/.test(it.name))?.name ?? fetchedLog ?? 'oak_log') : st.input ?? '';
+          // (at the furnace held for the job when it is given one, S.9)
+          const f = opts.furnace;
+          await SURVIVAL_SKILLS.smelt.run(a, { item: input, count: st.runs, fuel: spareKind(i + 1), ...(coal ? { coal } : {}), ...(partsLeft ? { parts: partsLeft } : {}), ...(f ? { at: `${f.x},${f.y},${f.z}` } : {}) }, signal);
+        }
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        throw new Error(`could not ${st.do} ${st.makes} ${st.item.replace(/^any:/, '')} for the building (${(e as Error).message})`);
+      }
+      made.push(`${st.do === 'smelt' ? 'smelted' : 'crafted'} ${st.makes} ${st.item.replace(/^any:/, '')}`);
+    }
+  } catch (e) {
+    const left = Object.fromEntries(Object.entries(partsLeft ?? {}).filter(([, q]) => q > 0));
+    if (v && Object.keys(left).length) {
+      if ((e as Error).message === 'cancelled' || unmoved(e)) {
+        const key = holdKey(v.name, a.name), was = makeLeft.get(key) ?? {};
+        for (const [n, q] of Object.entries(left)) was[n] = (was[n] ?? 0) + q;
+        makeLeft.set(key, was);
+      } else await putBack().catch(() => undefined);
+    }
+    throw e;
   }
+  await putBack();
   // What a batch made beyond the job's own blocks (16 panes for 3) goes into storage while still at the hut, by name
   // (deposit all leaves no tool out, but a later "all" may never come: lesson 112)
   if (v && atHut && opts.surplus !== false) {
@@ -3663,7 +3701,8 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     // for the members now, or the square taken by records written meanwhile, tested against the list read afresh)
     // (a public work goes on after growth stopped for want of house designs, as projectDue lets it: the X.2 review's 2)
     if (!v.complete || v.growth?.active || (v.growth?.stop && !(project && /house design/.test(v.growth.stop)))) throw new Error('lay_out_houses: the village changed during the survey');
-    if (!project && housesOf(v) >= a.world.growMembers(v).length) throw new Error('lay_out_houses: the village changed during the survey (enough houses)');
+    // (N.2: with MC_HOUSING the street is for members without a house, whatever the count of houses: growDue checked that)
+    if (!project && !HOUSING && housesOf(v) >= a.world.growMembers(v).length) throw new Error('lay_out_houses: the village changed during the survey (enough houses)');
     const square = { x1: site.x - Math.floor(S / 2), z1: site.z - Math.floor(S / 2), x2: site.x - Math.floor(S / 2) + S - 1, z2: site.z - Math.floor(S / 2) + S - 1 };
     const clash = home && growTaken(a, v, home, growReach(S) + Math.ceil(S / 2) + 1).find((q) => overlaps(square, q));
     if (clash) throw new Error(`lay_out_houses: the village changed during the survey (the square at ${areaText(square)} is taken now)`);

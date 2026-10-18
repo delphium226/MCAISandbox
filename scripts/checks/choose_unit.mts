@@ -473,8 +473,8 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
 // --- S.9: the families' setting, bans per id, the trim and names
 {
-  const want = (process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish').split(',').map((s) => s.trim()).filter(Boolean).sort();
-  eq([...CHOOSE.families].sort(), want, 'CHOOSE.families from MC_CHOICE_FAMILIES (default make,gather,works,light,catalog,furnish)');
+  const want = (process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish,initiatives').split(',').map((s) => s.trim()).filter(Boolean).sort();
+  eq([...CHOOSE.families].sort(), want, 'CHOOSE.families from MC_CHOICE_FAMILIES (default make,gather,works,light,catalog,furnish,initiatives)');
   if (process.env.MC_CHOICE_FAMILIES === undefined) ok(CHOOSE.families.has('light'), 'light is a family by default (B.4)');
   ok(CHOOSE.families instanceof Set, 'families is a set');
   const T = Date.UTC(2026, 9, 14, 12);

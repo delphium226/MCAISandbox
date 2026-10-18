@@ -60,6 +60,8 @@ export interface Structure extends Area {
   y: number;
   kind: string;
   builtBy: string;
+  /** N.2 (MC_HOUSING): the member whose house this is (a dwelling; its name on the house's sign). */
+  owner?: string;
 }
 export interface Reservation extends Area {
   id: string;
@@ -238,6 +240,8 @@ export interface Task {
   /** Tasks that must be done first. */
   after: string[];
   claimedBy?: string;
+  /** N.2 (MC_HOUSING): on a neighbourhood's Build task, whose house it will be (the owner builds it first). */
+  owner?: string;
   /** How many times a claim was given up; a task given up twice is marked failed. */
   tries: number;
   result?: string;
@@ -488,7 +492,9 @@ export interface Village {
     active?: { k: number; layout: number; from: number; at: number; by: string; plot: Area; houses: string[];
       builds: string[]; members: number; before: number; changed: number; sig: string; style?: string;
       /** X.2: a public work (the piece's design name), not a neighbourhood of houses. */
-      project?: string };
+      project?: string;
+      /** N.2 (MC_HOUSING): its Build tasks' owners have been given out (once). */
+      owned?: boolean };
     past: Array<{ k: number; layout: number; at: number; end: number; houses: number; built: number; failed: number;
       members: number; why?: 'built' | 'failed' | 'stuck'; left?: number; style?: string; project?: string }>;
     /** The next neighbourhood's style, decided by a vote (spec_vote1): kept until its layout is posted (the critique's
@@ -503,6 +509,9 @@ export interface Village {
     /** X.2: the largest pad a public work may still ask for, after a "no free NxN site" (N - 1; the land round the village
      *  fills up: X2q2's 26x26 found none after 10 layouts). */
     workRoom?: number;
+    /** N.2 (MC_HOUSING): a street of houses asked for (a member's own project, or a vote won: by 'vote'); growth lays out
+     *  only on one. */
+    request?: { by: string; at: number; vote?: string };
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];

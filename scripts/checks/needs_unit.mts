@@ -1,6 +1,7 @@
 /**
  * The needs' pure parts (server/src/needs.ts, spec runs/2026-10-18/s36/spec_needs_v2.md A) checked offline: readNeeds on
- * hand inputs (no member, every gauge absent, full, empty, the texts within 80 chars, the mine's blocked reason), stepNeed's
+ * hand inputs (no member, every gauge absent, full, empty, the texts within 80 chars, the mine's blocked reason, storage in
+ * slots or in chests), stepNeed's
  * statuses and durations (met, low, answered for 10 minutes after a fall, no answer at HIGH after 10 minutes, blocked,
  * ignored after 6 untaken offers, a take clearing them, dt capped at 60 s, a first reading counting no time) and needWeight's
  * bounds. Deterministic. Exits non-zero on any failure.
@@ -40,7 +41,17 @@ const blocked = by(readNeeds({ members: 3, mineHeld: 0, mineFaces: 6, mineBlocke
 ok(blocked?.text.includes('mine blocked') && blocked.text.includes('no pickaxe') && blocked.text.length <= 80, 'mine blocked: the text says so');
 ok(by(readNeeds({ members: 3, mineHeld: 0, mineFaces: 6, mineBlocked: 'x'.repeat(200) }), 'mine')!.text.length <= 80, 'a long reason clipped to 80');
 ok(readNeeds({ members: 3, unlit: 2 }).length === 0 && readNeeds({ members: 3, mineBlocked: 'x' }).length === 0, 'a half-given gauge is not kept');
-ok(JSON.stringify(readNeeds({ members: 25, unlit: 31, spots: 62 })) === JSON.stringify(readNeeds({ members: 25, unlit: 31, spots: 62 })), 'deterministic');
+// storage in slots (s37 S1): read before the chests, which stay for the text
+const slotted = by(readNeeds({ members: 25, slots: 99, slotCap: 243, chests: 8, chestSpots: 9 }), 'storage');
+ok(slotted?.text === '99 of 243 storage slots used (8 of 9 chests)' && Math.abs(slotted.level - 99 / 243) < 1e-9 && slotted.amount === 99, 'storage in slots: text, level, amount');
+ok(by(readNeeds({ members: 25, slots: 40, slotCap: 54 }), 'storage')?.text === '40 of 54 storage slots used', 'slots without chests: no chest count');
+ok(by(readNeeds({ members: 1, slots: 3, slotCap: 27, chests: 1, chestSpots: 1 }), 'storage')?.text === '3 of 27 storage slots used (1 of 1 chest)', 'one chest: singular');
+ok(by(readNeeds({ members: 3, slots: 0, slotCap: 0, chests: 0, chestSpots: 0 }), 'storage')?.level === 0, 'no slots at all: level 0');
+ok(by(readNeeds({ members: 3, slots: 300, slotCap: 243 }), 'storage')?.level === 1, 'over the cap clamps to 1');
+ok(by(readNeeds({ members: 3, slots: 10, chests: 2, chestSpots: 9 }), 'storage')?.text === '2 of 9 chest spots used', 'slots without a cap: the chests reading');
+ok(by(readNeeds({ members: 3, slots: 99999, slotCap: 99999, chests: 9999, chestSpots: 9999 }), 'storage')!.text.length <= 80, 'slots text within 80');
+ok(readNeeds({ members: 3, slotCap: 27 }).length === 0, 'a cap without slots: no reading');
+ok(JSON.stringify(readNeeds({ members: 25, unlit: 31, spots: 62 })) ===JSON.stringify(readNeeds({ members: 25, unlit: 31, spots: 62 })), 'deterministic');
 
 // stepNeed
 const rd = (level: number, amount: number): NeedReading => ({ kind: 'light', level, amount, text: '' });
