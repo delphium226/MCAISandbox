@@ -210,6 +210,15 @@ export interface Design {
   /** The style code drew it from (buildingGen.ts, phase D.2). */
   style?: BuildingStyle;
 }
+/** A member's initiative (s35): a small work on the village's ground, built by whoever helps. */
+export interface Initiative {
+  id: string; by: string; kind: string; design: string; x: number; y: number; z: number; at: number;
+  state: 'open' | 'built' | 'failed' | 'lapsed';
+  crew: string[];
+  steps: Array<{ agent: string; what: string; at: number }>;
+  fails?: number; backoff?: number; end?: number; why?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -489,6 +498,13 @@ export interface Village {
     fails?: number; tries?: number; backoff?: number; noSite?: Array<{ at: number; by: string }>; bad?: Array<Area & { at: number }>; stop?: string };
   /** Buildings of the objective that did not fit on the site: they wait for a second site and plan_layout. */
   unplaced?: string[];
+  /**
+   * Initiatives (s35, spec runs/2026-10-18/s35/spec_initiatives_v2.md): small works a member starts on its own and others
+   * help with, no vote: the kind, its design and spot, who started it, the crew (everyone who took a step), each step,
+   * and how it ended. `initiativeN` numbers them.
+   */
+  initiatives?: Initiative[];
+  initiativeN?: number;
   /** The village's votes (spec_vote1), the last 20, written at the tally only (a vote under way is held in memory). */
   votes?: VoteRecord[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

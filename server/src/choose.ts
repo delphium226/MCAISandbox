@@ -648,7 +648,7 @@ export class ChoiceStats {
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore' || kind === 'eat') return null;
-    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish';
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help';
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour

@@ -15,12 +15,12 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
-import { mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { mineAreas, mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
-import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, trimMenu } from '../choose';
+import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, fnv1a, shuffled, trimMenu } from '../choose';
 import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
@@ -29,7 +29,7 @@ import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
 import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
-import type { Design, Structure } from '../village';
+import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { storageContents } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
@@ -38,6 +38,7 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
+import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -1644,6 +1645,11 @@ export class MineflayerWorld implements WorldAdapter {
       }
       // (before the sweep, which leaves members to the growth's chore and tasks, s30)
       try {
+        if (v.initiatives?.length) this.initiativeTick(v);
+      } catch (e) {
+        console.error(`[initiative] ${v.name}: check failed:`, e);
+      }
+      try {
         this.growTick(v);
       } catch (e) {
         console.error(`[grow] ${v.name}: check failed:`, e);
@@ -2176,6 +2182,139 @@ export class MineflayerWorld implements WorldAdapter {
     }
     this.setChore(v, agent, 'grow', [st], `lay out the public work ${piece}`, (why) => this.projectFailed(v, piece, why));
     console.log(`[work] ${v.name}: ${agent.name} lays out the public work ${piece}${names.length > 1 ? ` with ${names.slice(1).join(', ')}` : ''} (${q.units} units) on ${q.size}x${q.size}`);
+  }
+
+  // ---- s35: initiatives, small works members start and help with (spec runs/2026-10-18/s35/spec_initiatives_v2.md) --------
+
+  /** Areas a small work keeps off (every village's buildings with a ring, streets, lamps, signs, farms, slots, the side
+   *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from. */
+  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }> }>();
+
+  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }> } {
+    const now = Date.now();
+    const res = v.reservations.filter((q) => q.until > now);
+    const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
+      (v.initiatives ?? []).map((i) => `${i.id}:${i.state}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`)]);
+    const old = this.smallBlockedCache.get(v.name);
+    if (old?.sig === sig) return old;
+    const pad = (q: Area, n: number): Area => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
+    const cell = (x: number, z: number, n = 0): Area => ({ x1: x - n, z1: z - n, x2: x + n, z2: z + n });
+    const blocked: Area[] = [];
+    for (const o of this.villages.villages.values()) for (const st of o.structures) blocked.push(pad(st, 1));
+    for (const l of v.layouts ?? []) {
+      for (const st of l.streets ?? []) blocked.push(st);
+      for (const lp of l.lamps ?? []) blocked.push(cell(lp.x, lp.z, 1));
+      for (const sg of l.signs ?? []) blocked.push(cell(sg.x, sg.z, 1));
+      if (l.farm) blocked.push(pad(l.farm, 1));
+      for (const sl of l.slots ?? []) blocked.push(pad(sl, 1));
+      for (const side of [l.annex, l.works]) if (side && side.x2 >= side.x1) blocked.push(pad(side, 1));
+    }
+    if (v.mine) blocked.push(...mineAreas(v.mine).map((q) => pad(q, 1)));
+    // (three cells out from every building's door: the way in stays clear)
+    for (const P of this.lightParts(v)) {
+      const door = P.kind === 'building' && P.place ? placedDoor(P.place) : null;
+      if (door) for (let k = 0; k <= 3; k++) blocked.push(cell(door.x + door.ox * k, door.z + door.oz * k, 1));
+    }
+    for (const q of res) blocked.push(q);
+    for (const i of v.initiatives ?? []) if (i.state === 'open') {
+      const k = SMALL_WORKS.find((x) => x.kind === i.kind);
+      const d = k ? v.designs[i.design] : undefined;
+      const w = d?.width ?? 7, dd = d?.depth ?? 7;
+      blocked.push(pad({ x1: i.x - Math.floor(w / 2), z1: i.z - Math.floor(dd / 2), x2: i.x - Math.floor(w / 2) + w - 1, z2: i.z - Math.floor(dd / 2) + dd - 1 }, 2));
+    }
+    const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
+    const entry = { sig, blocked, plots };
+    this.smallBlockedCache.set(v.name, entry);
+    return entry;
+  }
+
+  /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
+  private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number } | null {
+    const d = k.make(wood);
+    const { blocked, plots } = this.smallBlocked(v);
+    const spots = smallWorkSpots({ plots, blocked }, d.width, d.depth, 8);
+    if (!spots.length) return null;
+    return spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
+  }
+
+  /**
+   * An open initiative's next step (s35): build once the spare storage covers its bill (one builder), else gather its
+   * largest missing raw material that gathering can bring (logs, cobblestone from a free mine face, sand), up to
+   * INITIATIVE_GATHERERS at once; null when nothing can be taken now.
+   */
+  initiativeStep(v: Village, it: Initiative, spare: Counts, busy: Set<string>): InitiativeStep | null {
+    const d = v.designs[it.design];
+    if (!d) return null;
+    if ([...busy].some((k) => k.startsWith(`initiative:${it.id}:build`))) return null;
+    const wood = this.catalogWoodOf(v);
+    const gather = this.materials.plan(inWood(designBill(d), wood), spare).gather;
+    const left = Object.entries(gather).filter(([, q]) => q > 0);
+    if (!left.length) return [...busy].some((k) => k.startsWith(`initiative:${it.id}:`)) ? null : { what: 'build' };
+    if ([1, 2].slice(0, INITIATIVE_GATHERERS).every((n) => busy.has(`initiative:${it.id}:${n}`))) return null;
+    const mat = (n: string): Material | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone' : null);
+    for (const [n, q] of left.sort((x, y) => y[1] - x[1])) {
+      const m = mat(n);
+      if (!m) continue;
+      if (m === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
+      if (m === 'sand' && v.unavailable?.includes('sand')) continue;
+      const spec = GATHER_KINDS[m];
+      return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block(v.wood ?? v.catalogWood), deposit: spec.deposit(v.wood) };
+    }
+    return null;
+  }
+
+  /** One step queued as a chore: a gathering trip into storage, or the build (build_design at its spot). */
+  private runInitiativeStep(v: Village, worker: BotAgent, it: Initiative, step: InitiativeStep, opt: ChoiceOption, meta: ChoiceMeta | undefined) {
+    const k = SMALL_WORKS.find((x) => x.kind === it.kind);
+    it.steps.push({ agent: worker.name, what: step.what === 'build' ? 'build' : `gather ${step.amount} ${step.material}`, at: Date.now() });
+    this.villages.save();
+    if (step.what === 'build') {
+      const st = worker.enqueue('build_design', { design: it.design, x: it.x, z: it.z, chore: true });
+      const failed = (why: string) => {
+        if (why === 'cancelled' || st.code) return;
+        it.fails = (it.fails ?? 0) + 1;
+        it.backoff = Date.now() + 10 * 60000;
+        if (it.fails >= 3) this.endInitiative(v, it, 'failed', `the build failed 3 times (${why.slice(0, 120)})`);
+        this.villages.save();
+      };
+      this.setChore(v, worker, opt.key, [st], `build ${it.id} (${k?.words ?? it.kind})`, failed, meta, opt.holds, opt);
+      console.log(`[initiative] ${v.name}: ${worker.name} builds ${it.id} (${it.by}'s ${k?.words ?? it.kind}) at ${it.x},${it.z}`);
+      return;
+    }
+    const collect = worker.enqueue('collect', { block: step.block, count: step.amount, chore: true });
+    const deposit = worker.enqueue('deposit', { item: step.deposit, also: GATHER_ALSO, chore: true });
+    const failed = (why: string) => {
+      if (why === 'cancelled' || collect.code || deposit.code) return;
+      if (deposit.state === 'done' && depositedOf(deposit.message ?? '', step.material) > 0) return;
+      it.backoff = Date.now() + 5 * 60000;
+    };
+    this.setChore(v, worker, opt.key, [collect, deposit], `gather ${step.amount} ${step.material} for ${it.id}`, failed, meta, opt.holds, opt);
+    console.log(`[initiative] ${v.name}: ${worker.name} gathers ${step.amount} ${step.material} for ${it.id} (${it.by}'s ${k?.words ?? it.kind})`);
+  }
+
+  /** An initiative ended: the record, a note, a line with its crew. */
+  private endInitiative(v: Village, it: Initiative, state: 'built' | 'failed' | 'lapsed', why: string) {
+    it.state = state;
+    it.end = Date.now();
+    it.why = why;
+    this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
+    this.villages.save();
+    console.log(`[initiative] ${v.name}: ${it.id} ${state} in ${((it.end - it.at) / 60000).toFixed(1)} min (${why}); started by ${it.by}, crew ${it.crew.join(', ')}; ${it.steps.length} steps`);
+  }
+
+  /** Every farm tick: an open initiative whose design stands at its spot is built (judged by the structure, lesson 138);
+   *  one with no step taken for INITIATIVE_LAPSE_MS lapses. */
+  private initiativeTick(v: Village) {
+    const now = Date.now();
+    for (const it of v.initiatives ?? []) {
+      if (it.state !== 'open') continue;
+      if (v.structures.some((st) => st.kind === it.design && it.x >= st.x1 && it.x <= st.x2 && it.z >= st.z1 && it.z <= st.z2)) {
+        this.endInitiative(v, it, 'built', 'it stands');
+        continue;
+      }
+      const last = Math.max(it.at, ...it.steps.map((q) => q.at));
+      if (now - last > INITIATIVE_LAPSE_MS) this.endInitiative(v, it, 'lapsed', `no step for ${Math.round(INITIATIVE_LAPSE_MS / 60000)} min`);
+    }
   }
 
   /** Growth stopped for good (logged once). */
@@ -3453,6 +3592,67 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy'].find((w) => why.includes(w)) ?? 'nothing to furnish';
     }
 
+    // Initiatives (s35): each open one's next step for anyone (ranks 1050 + r), then up to two of the member's own to start
+    // (1100 + r) while fewer than INITIATIVES_MAX are open and it has none of its own open
+    if (family('initiatives') && INITIATIVES_MAX > 0 && v.storageHut) {
+      const open = (v.initiatives ?? []).filter((i) => i.state === 'open');
+      const why: string[] = [];
+      for (const [r, it] of open.entries()) {
+        const kindOf = SMALL_WORKS.find((k) => k.kind === it.kind);
+        if (!kindOf) continue;
+        if ((it.backoff ?? 0) > now) {
+          why.push('backing off');
+          continue;
+        }
+        const step = this.initiativeStep(v, it, facts.spare(), busy);
+        if (!step) {
+          why.push('busy');
+          continue;
+        }
+        const mine = it.by === a.name;
+        const id = `help:${it.id}`;
+        const key = step.what === 'build' ? `initiative:${it.id}:build` : `initiative:${it.id}:${[1, 2].find((n) => !busy.has(`initiative:${it.id}:${n}`)) ?? 1}`;
+        const crew = it.crew.filter((n) => n !== a.name);
+        const what = step.what === 'build' ? `build ${mine ? 'your' : `${it.by}'s`} ${kindOf.words}` : `gather ${step.amount} ${step.material} for ${mine ? 'your' : `${it.by}'s`} ${kindOf.words}`;
+        add({
+          id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'build' ? [`initiative:${it.id}:`] : [`initiative:${it.id}:build=`])],
+          name: mine ? `Continue your ${kindOf.words}: ${what.replace(/ (your|\S+'s) [a-z ]+$/, '')}` : `Help ${it.by} build a ${kindOf.words}: ${what.replace(/ for .*$|^build .*$/, (m) => (m.startsWith(' for') ? '' : 'build it'))}`,
+          rank: 1050 + r, at: { x: it.x, y: it.y, z: it.z },
+          facts: `${mine ? 'your own project' : `${it.by}'s project`}, started ${ago(now - it.at)}; ${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; at ${it.x},${it.z}${step.what === 'gather' ? `; ${step.material} still to gather for it` : '; its materials are in storage'}`,
+          effect: step.what === 'build' ? `a ${kindOf.words} stands in the village: ${kindOf.forWhat}` : `+${step.amount} ${step.material} toward the ${kindOf.words} (${kindOf.forWhat})`,
+        }, { kind: 'help', id: it.id, step });
+      }
+      const mineOpen = open.some((i) => i.by === a.name);
+      if (mineOpen) why.push('own project open');
+      else if (open.length >= INITIATIVES_MAX) why.push('enough projects open');
+      else {
+        const wood = this.catalogWoodOf(v);
+        // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
+        // member's offer changes once one is started)
+        const order = shuffled(SMALL_WORKS, `${a.name}|${v.initiativeN ?? 0}`);
+        let r = 0;
+        for (const k of order) {
+          if (r >= 2) break;
+          const spot = this.smallWorkSpot(v, k, wood, a.name);
+          if (!spot) continue;
+          const d = k.make(wood);
+          const bill = inWood(designBill(d), wood);
+          const raw = this.materials.plan(bill, {}).gather;
+          const takes = Object.entries(raw).filter(([, q]) => q > 0).map(([n, q]) => `${q} ${n.replace(/^any:/, '')}`).join(', ');
+          add({
+            id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
+            name: `Start building a ${k.words} (your own project)`, rank: 1100 + r, at: spot,
+            facts: `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'} (from storage first); ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            effect: `your own ${k.words} in the village: ${k.forWhat}`,
+          }, { kind: 'initiate', work: k.kind });
+          r++;
+        }
+        if (!r) why.push('no room');
+      }
+      if (!out.some((o) => o.kind === 'help')) reasons.help = why[0] ?? 'no project open';
+      if (!out.some((o) => o.kind === 'initiate')) reasons.initiate = why.find((w) => w !== 'busy' && w !== 'backing off') ?? 'no room';
+    }
+
     // A.3p: the temperament's weight on every option (both modes; the fixed pick and the trim read it), from the kind and
     // sociability's pull toward the kinds other members are on now
     if (TEMPERAMENT_MODE !== 'off') {
@@ -3460,7 +3660,12 @@ export class MineflayerWorld implements WorldAdapter {
       const weights = kindWeights(tv);
       const on = new Map<string, number>();
       for (const c of this.chores.values()) if (c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind) on.set(c.choice.kind, (on.get(c.choice.kind) ?? 0) + 1);
-      for (const o of out) o.tw = optionWeight(tv, weights, o.kind, on.get(o.kind) ?? 0);
+      // (a help option pulls a sociable member by its crew: members on its steps come and go, s35's check 10)
+      const crewOf = (o: ChoiceOption) => {
+        const d = OPTION_RUN.get(o);
+        return d?.kind === 'help' ? (v.initiatives ?? []).find((i) => i.id === d.id)?.crew.filter((n) => n !== a.name).length ?? 0 : undefined;
+      };
+      for (const o of out) o.tw = optionWeight(tv, weights, o.kind, crewOf(o) ?? on.get(o.kind) ?? 0);
     }
 
     // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
@@ -3487,7 +3692,7 @@ export class MineflayerWorld implements WorldAdapter {
           guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
           continue;
         }
-        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' ? o.id : undefined)) {
+        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' ? o.id : undefined)) {
           guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
           continue;
         }
@@ -3736,6 +3941,36 @@ export class MineflayerWorld implements WorldAdapter {
         // Its torches earmarked until it withdraws them (D6), set after the chore as a make's inputs
         holdsSet(holdKey(v.name, worker.name), { torch: d.n });
         console.log(`[light] ${v.name}: ${worker.name} lights ${d.part} (${d.label}): ${d.n} of ${d.unlit} unlit, ${spare} torches spare`);
+        return;
+      }
+      case 'initiate': {
+        // The record first, at a spot found again now (the menu's may be taken), then its first step at once (s35)
+        const k = SMALL_WORKS.find((x) => x.kind === d.work);
+        const wood = this.catalogWoodOf(v);
+        const spot = k ? this.smallWorkSpot(v, k, wood, worker.name) : null;
+        if (!k || !spot || (v.initiatives ?? []).some((i) => i.state === 'open' && i.by === worker.name)) {
+          console.log(`[initiative] ${v.name}: ${worker.name} could not start a ${d.work} (${!k ? 'unknown kind' : !spot ? 'no room left' : 'its own is open'})`);
+          return;
+        }
+        const design = k.make(wood);
+        if (!v.designs[design.name]) v.designs[design.name] = design;
+        const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: worker.name, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: Date.now(), state: 'open', crew: [worker.name], steps: [] };
+        v.initiatives = [...(v.initiatives ?? []), it];
+        this.villages.note(v, `${worker.name} starts a ${k.words} of its own at ${spot.x},${spot.z} (${it.id})`);
+        this.villages.save();
+        console.log(`[initiative] ${v.name}: ${worker.name} starts ${it.id}, a ${k.words} (${design.name}) at ${spot.x},${spot.y},${spot.z}`);
+        const step = this.initiativeStep(v, it, this.makeSpare(v, worker.name), new Set());
+        if (step) this.runInitiativeStep(v, worker, it, step, opt, meta);
+        return;
+      }
+      case 'help': {
+        const it = (v.initiatives ?? []).find((i) => i.id === d.id && i.state === 'open');
+        if (!it) return;
+        if (!it.crew.includes(worker.name)) {
+          it.crew.push(worker.name);
+          console.log(`[initiative] ${v.name}: ${worker.name} joins ${it.id} (${it.by}'s ${it.kind}; crew ${it.crew.length})`);
+        }
+        this.runInitiativeStep(v, worker, it, d.step, opt, meta);
         return;
       }
       case 'furnish': {
@@ -4334,6 +4569,8 @@ type OptionRun =
   | { kind: 'works'; stage: 'furnace'; k: number }
   | { kind: 'light'; part: string; n: number; unlit: number; label: string }
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
+  | { kind: 'initiate'; work: string }
+  | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'eat'; level: number; item: string; n: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
@@ -4343,7 +4580,9 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000, VILLAGE_GROW_REACH = 96;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help'];
+/** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
+type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' };
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
@@ -4353,6 +4592,10 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
 const PROJECT_NONE = 'none', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
+/** s35: initiatives open at once in a village (MC_INITIATIVES; 0: none), gatherers on one initiative at once, and how
+ *  long one waits with no step taken before it lapses. */
+const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
+
 /** X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). */
 const QUARTER = Math.max(1, Number(process.env.MC_QUARTER ?? 3));
 /** A non-dwelling piece's kind ("plains_tool_smith_1" -> "tool_smith"): one of a kind on a ballot and in a quarter. */
@@ -4362,7 +4605,7 @@ const workKind = (name: string) => name.replace(/^(plains|desert|savanna|snowy|t
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
 
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', grow: 'laying out houses', eat: 'eating' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 

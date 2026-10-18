@@ -3,6 +3,36 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-17 at the close of the thirty-fourth session; the next session's prompt is
+`runs/2026-10-17/NEXT_PROMPT_s35.md`)
+
+- **Done this session (s34), committed locally, not pushed (ask the user):** `35312b0`/`204da9a` Phase X.1
+  (`server/src/activities.ts`: the activity spec format, its validator and buildCatalog, ~31 goods of the recipe graph in
+  the village's pinned wood; code-designed furniture, `streetPlan.ts` buildingDecor and the `furnish` chore; F237/F238);
+  `8985b32` X.2 part 1, public works voted (a pool of 48 non-dwelling vanilla pieces, "no new work" once in a row) and
+  built through growth's path; `f01136f` part 2a, works as quarters of up to 3 pieces (`MC_QUARTER`), the pathfinder
+  crash F242 guarded (patch + `[crash-guard]`), works fit the room left (F243); the last commit: F244's path reset, runs,
+  this handover. Catalogue, furnishing and public works are on by default (Claude's decisions; the user away).
+- **What the runs say (RUNS.md, s34 rows):** X.1 doubles distinct activities (58/27; 60 in model mode) with a lower failed
+  share, but alone busy time only bursts and falls to 0-1% after minute 20 (F240, lesson 144). Public works make work
+  recur: at 1x the village holds 6-25% busy past minute 20 where it otherwise falls to 0 (X2q1 against X0q1); in model
+  mode at 1x 24% over 30 min (X2qm, $0.051); fast staged runs 8-15%. Room round the village is the next limit (F243).
+- **Open:** F244, repeated stalls in fast quarter runs inside or beside the same public works (butcher shop, armorer);
+  watch one live before changing anything. F234 (most model-mode decisions never reach the model) as before.
+- **Next (Claude's proposal, in order):**
+  1. F244 live (a quarter run on world 1, watch the butcher shop's spot), then growth's reach for works (a second ring of
+     sites once the first is full).
+  2. **Members' proposals** (X.2 part 2b): a proposal call when a work ends (G1 triage), validated against the pool and the
+     activity spec format (live specs authored by members), losers kept for the next ballot, outcomes fed back; a
+     proposalbench first.
+  3. X.3's foundry: first ticket shearing (wool unlocks beds, carpets and banners, a third of vanilla's furnishings, F236).
+- **Stack:** test worlds 1 and 2 up from code snapshots, 0 agents (each agent server keeps its last run's settings; reset_site
+  restarts them); the main world stopped. Checkpoints as before (`mv3_base25` the base).
+- **How to run things now:** RUNBOOK's "Activities (X.1, s34)" note; `MC_PROJECTS` (on), `MC_QUARTER` (3),
+  `MC_PROJECT_REST_MS` (2 min); `[catalog]`, `[furnish]`, `[work]`, `[crash-guard]` lines; series specs
+  `scripts/series/x1_*.json` and `x2_*.json` (`x2_quarters_1x.json` and `x2_baseline_1x.json` for 1x); temperament_report's
+  distinct activities; stage_village's `BUSY after by 10 min`.
+
 (written 2026-10-16 at the close of the thirty-third session; the next session's prompt is
 `runs/2026-10-16/NEXT_PROMPT_s34.md`)
 

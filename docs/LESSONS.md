@@ -569,3 +569,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    pathfinder's code in session 17 and left in the backlog as "not seen in any run"; eleven sessions later public works put
    doors on every path and it took 25 bots down at once. Guard the library's own state in the patch when the edge is
    found, and keep a logged process-level net so one bot's exception cannot end every bot's run (lesson 104).
+146. **Check the stack before any reset_site call, a checkpoint save included** (s35, 10-18): `reset_site.py SITE --save`
+   stops the test world's Paper to copy its files; chained after a status line nobody read, it cut off another run's 25
+   agents. Read `stack.py status` and the agent count first, and act only on a world with 0 agents or one this session
+   started.

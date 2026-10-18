@@ -745,6 +745,12 @@ function renderVillage(v) {
   else if (tab === 'ground') body = list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`);
   else if (tab === 'log') body = list((v.log || []).slice(-25).reverse(), (l) => `<span class="clamp" title="${esc(l)}">${esc(l)}</span>`);
   else if (tab === 'votes') body = votesBody(v.name);
+  // (s35: members' own small works, open first: who started it, who helped, its steps)
+  else if (tab === 'initiatives') {
+    const its = [...(v.initiatives || [])].sort((x, y) => Number(y.state === 'open') - Number(x.state === 'open') || y.at - x.at);
+    body = list(its, (it) => det(`ini:${v.name}:${it.id}`, `<b>${esc(it.by)}'s ${esc(String(it.kind).replace(/_/g, ' '))}</b> <span class="state" style="--c:${it.state === 'built' ? 'var(--done)' : it.state === 'open' ? 'var(--accent)' : 'var(--muted)'}">${esc(it.state)}</span> <span class="sub">${esc(it.id)}, ${ago(it.at)} ago, crew ${esc(it.crew.join(', '))}${it.end ? `, ${Math.round((it.end - it.at) / 6000) / 10} min` : ''}${it.why && it.state !== 'built' ? `: ${esc(it.why)}` : ''}</span>`,
+      `<div class="sub mono">${it.x},${it.y},${it.z} ${esc(it.design)}</div><ul class="list">${(it.steps || []).map((q) => `<li><b>${esc(q.agent)}</b> ${esc(q.what)} <span class="sub">${ago(q.at)} ago</span></li>`).join('') || '<li class="sub">no step yet</li>'}</ul>`));
+  }
   // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
   else if (tab === 'tech') {
     const wk = (v.layouts || [])[0]?.works;
@@ -763,7 +769,7 @@ function renderVillage(v) {
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['log', 'Log']])}
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }

@@ -30,35 +30,31 @@ The logs live beside it (moved out on 2026-10-15 to keep this file short):
 
 ## Next session starts with
 
-(written 2026-10-17 at the close of the thirty-fourth session; the next session's prompt is
-`runs/2026-10-17/NEXT_PROMPT_s35.md`)
+(written 2026-10-18 at the close of the thirty-fifth session; the next session's prompt is
+`runs/2026-10-18/NEXT_PROMPT_s36.md`)
 
-- **Done this session (s34), committed locally, not pushed (ask the user):** `35312b0`/`204da9a` Phase X.1
-  (`server/src/activities.ts`: the activity spec format, its validator and buildCatalog, ~31 goods of the recipe graph in
-  the village's pinned wood; code-designed furniture, `streetPlan.ts` buildingDecor and the `furnish` chore; F237/F238);
-  `8985b32` X.2 part 1, public works voted (a pool of 48 non-dwelling vanilla pieces, "no new work" once in a row) and
-  built through growth's path; `f01136f` part 2a, works as quarters of up to 3 pieces (`MC_QUARTER`), the pathfinder
-  crash F242 guarded (patch + `[crash-guard]`), works fit the room left (F243); the last commit: F244's path reset, runs,
-  this handover. Catalogue, furnishing and public works are on by default (Claude's decisions; the user away).
-- **What the runs say (RUNS.md, s34 rows):** X.1 doubles distinct activities (58/27; 60 in model mode) with a lower failed
-  share, but alone busy time only bursts and falls to 0-1% after minute 20 (F240, lesson 144). Public works make work
-  recur: at 1x the village holds 6-25% busy past minute 20 where it otherwise falls to 0 (X2q1 against X0q1); in model
-  mode at 1x 24% over 30 min (X2qm, $0.051); fast staged runs 8-15%. Room round the village is the next limit (F243).
-- **Open:** F244, repeated stalls in fast quarter runs inside or beside the same public works (butcher shop, armorer);
-  watch one live before changing anything. F234 (most model-mode decisions never reach the model) as before.
-- **Next (Claude's proposal, in order):**
-  1. F244 live (a quarter run on world 1, watch the butcher shop's spot), then growth's reach for works (a second ring of
-     sites once the first is full).
-  2. **Members' proposals** (X.2 part 2b): a proposal call when a work ends (G1 triage), validated against the pool and the
-     activity spec format (live specs authored by members), losers kept for the next ballot, outcomes fed back; a
-     proposalbench first.
-  3. X.3's foundry: first ticket shearing (wool unlocks beds, carpets and banners, a third of vanilla's furnishings, F236).
-- **Stack:** test worlds 1 and 2 up from code snapshots, 0 agents (each agent server keeps its last run's settings; reset_site
-  restarts them); the main world stopped. Checkpoints as before (`mv3_base25` the base).
-- **How to run things now:** RUNBOOK's "Activities (X.1, s34)" note; `MC_PROJECTS` (on), `MC_QUARTER` (3),
-  `MC_PROJECT_REST_MS` (2 min); `[catalog]`, `[furnish]`, `[work]`, `[crash-guard]` lines; series specs
-  `scripts/series/x1_*.json` and `x2_*.json` (`x2_quarters_1x.json` and `x2_baseline_1x.json` for 1x); temperament_report's
-  distinct activities; stage_village's `BUSY after by 10 min`.
+- **Done since s34's close (s35, 10-17/18):** a 25-agent model-driven village from scratch (Watch25: built, grown to 25
+  houses, a style vote by model ballots, the first public-works vote 12-11 for a tool smith's quarter), resumed after the
+  PC restarted; the panel's Votes, Thoughts (each agent's last 40 model calls with its reasoning) and Memory tabs
+  (`0ccc2a4`, `aa4b5a2`); the README cut to 100 lines with the API and the sandbox in docs/ (`d7af51b`); pushed, and `main`
+  fast-forwarded to the branch (the user's word). Then the user's ideas, settled into **Phase N, a needs-driven
+  village** (PLAN.md; DECISIONS.md 10-18): initiatives (members' own small works others join), needs and escalation,
+  owned houses, storage and furnace rooms, villagers as a growing population, a second agent-server process, beds and
+  the day's rhythm; the foundry (X.3) alongside. The last commit: **N.0 initiatives built and committed off by default,
+  not yet tested live** (`server/src/smallWorks.ts`, mcWorld's `initiate`/`help` kinds, the panel's Initiatives tab).
+- **A mistake to learn from (lesson 146):** `reset_site.py minevale3 --save` was run while another run used test world 1
+  (25 agents at fast settings): the save stops Paper, so that run was cut off at 09:19 on 10-18. Check `stack.py status`
+  and the agent count before any reset_site call, `--save` included.
+- **Next (in order; the user wants a multi-agent approach in Claude Code):**
+  1. **N.0 tested**: staged on a test world from a checkpoint with room (`mv3_base25` has room for ~4 small works at once:
+     save a grown village first, e.g. a staged growth run, then test there), families + `initiatives`, 60 min fast,
+     binned busy; then a model-driven run; then on by default.
+  2. **N.1 needs and escalation** (spec, adversarial check, implement, reviews, tests).
+  3. N.2 housing and N.3 storage/furnace rooms, with the foundry (X.3) built alongside (test world 3 to set up).
+- **Stack:** everything stopped (test worlds 1 and 2 saved; the main world stopped). Checkpoints `mv3_base25`,
+  `mv3_base1`, `mv3_cpv1`. Test world 1 holds the end of another run's B25x2 (cut off): reset before use.
+- **How to run things now:** as s34's handover (RUNBOOK "Activities (X.1, s34)"), plus `MC_INITIATIVES` (3) and the
+  `initiatives` family; `scripts/checks/small_works.mts` (in check:offline); `[initiative]` lines.
 
 ## Earlier phases
 
@@ -1102,7 +1098,10 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
   part 2b open: members' proposals and live activity specs, outcomes fed back) (1-2 sessions): the project catalogue (wells, lighthouses, walls, bridges,
   docks, orchards, bee yards, gardens, lit roads...), proposals by members from gauges and temperament, code's validation
   and costing, 2-4 on a ballot through s33's vote machinery, outcomes measured and fed back.
-- [ ] X.3 **The skill foundry** (~2 sessions): tickets for missing actions or recurring failures, `scripts/foundry.py`
+- [ ] X.3 **The skill foundry** (~2 sessions; built alongside Phase N.2-N.3, its first ticket shearing for N.6's beds; it
+  tests on its own test world 3, `MCAI_TEST_WORLD=3`, set up once with `mc/testserver.py init`, so it never competes with
+  the session's tests; auto mode's classifier must be told to allow its worktrees and CLI, scoped to its script): tickets
+  for missing actions or recurring failures, `scripts/foundry.py`
   running one external CLI headless in a worktree, the gates (typecheck, check:offline, its own live check on world 2, a
   staged series without regression, a review agent), a candidate branch for the user to merge. First target: fishing or
   villager trading.
@@ -1111,6 +1110,41 @@ Gemini CLIs) on test world 2; an outer loop turns run metrics into foundry ticke
 - Settled (the user's, s33): the Claude Code CLI (installed, logged in), the user's subscription, the user approves every
   merge. Open: permissions for worktrees and the foundry script (auto mode blocks them); whether gpt-oss may write live
   code (proposed: no, specs only).
+
+## Phase N: a needs-driven village (the user's direction, 10-18, s35)
+
+As much of the village's work as possible moves into three tiers the members decide: **individual** (the chore menu),
+**voluntary** (initiatives: a member starts a small work, others join) and **voted** (public works). Code measures what
+the village needs and says what is feasible; members decide what to do about it; code still does the arithmetic, the
+geometry and the safety (lesson 1). The civilisation should grow from needs, not from code's fixed triggers.
+
+**Order (the user's, 10-18):** N.0, N.1, then N.2-N.3 with the foundry (X.3) built alongside (its own worktree and test
+world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing gives).
+
+- [ ] N.0 **Initiatives** (built s35, committed off by default: the family `initiatives` is not in MC_CHOICE_FAMILIES' default; untested live): small works on the village's ground (`server/src/smallWorks.ts`:
+  well, bench, market stall, woodshed, statue, lamp posts, gazebo, signpost) started by a member from its chore menu
+  ("Start building a well (your own project)") and helped by others ("Help Worker7 build a well: gather 12 cobblestone"),
+  run as chores; at most 3 open (MC_INITIATIVES), one a member; spec `runs/2026-10-18/s35/spec_initiatives_v2.md`. Room:
+  ~4 at once on the one-plot base, more with every neighbourhood.
+- [ ] N.1 **Needs and escalation**: gauges code measures (members without a house, storage nearly full, smelts waiting,
+  food per member, tools short, buildings unlit or unfurnished, mine faces busy), shown on the panel; each need offers
+  responses in the three tiers by size; a need that grows while nobody takes it up is put to a vote by the Mayor.
+- [ ] N.2 **Housing**: each member owns a house (its name on the plate); building its own house is a houseless member's
+  first preference (others may help); decorating its own house a chore of its own; growth's code trigger retired, a
+  street for a cluster of houses a voluntary or voted work.
+- [ ] N.3 **Storage rooms and furnace rooms** as needs-driven works (storage nearly full; smelts queueing), replacing the
+  works plot's fixed furnace row; more of either built when the need comes back.
+- [ ] N.4 **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a
+  bed and a workstation, the village needs food, villagers breed when beds are free; members' ambitions (a bigger house,
+  upgrades, gardens) and turnover (members leave, new ones arrive) as further sources of needs; daughter villages when
+  room runs out.
+- [ ] N.5 **More agents: a second agent-server process** (the user's, 10-18): one process tops out around 30-40 bots (one
+  event loop); Paper has headroom (~5% of its tick budget at 25 bots: likely 100+). Needs villages, the board and storage
+  shared across processes, and model throughput (Ollama Cloud's 3 requests at once) shared or widened. Measure first: 50
+  staged bots over two processes.
+- [ ] N.6 **Beds and the day's rhythm**: shearing (the foundry's first ticket, X.3) for wool, a bed in every owned house;
+  then the day/night cycle back on (work by day, home at dusk, sleep at night; evening meetings and votes), its own
+  decision (it halves working time).
 
 ## Phase 3: humans in the loop (part 2 of the user's goal)
 

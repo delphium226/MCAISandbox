@@ -264,6 +264,11 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     with gpt-oss ballots. Part 2a (`f01136f`): works as quarters of up to 3 pieces; at 1x the village holds 6-25% busy past
     minute 20 where it otherwise falls to 0; the pathfinder crash F242 guarded (lesson 145); F244 (stalls near the same
     works) open. The user away for most of it ("make the decisions yourself").
+50. 2026-10-17/18 (thirty-fifth session, in the same conversation as s34): a 25-agent model-driven village watched by the
+    user (Watch25), the panel's Votes, Thoughts and Memory tabs, the README cut to 100 lines, pushed and `main`
+    fast-forwarded. The user's ideas became Phase N (a needs-driven village: initiatives, needs and escalation, owned
+    houses, storage and furnace rooms, villagers, a second agent-server process, beds); N.0 initiatives built, committed
+    off by default, untested. Lesson 146 (a checkpoint save stopped another run's test world).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

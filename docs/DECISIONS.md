@@ -532,3 +532,16 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   first (forestry, more crops and animals later); catalogue goods keep giving work through consumers in the catalogue
   (furnishing, food, the reserves' gathering), not stock targets alone (lesson 130); members' live spec authoring waits
   for X.2, with proposals (X.1 delivers the format and its validator).
+- 10-18 (s35, the user's idea and choices) Two levels of public works: besides the big works the whole village votes on,
+  **initiatives**: a member starts a small work of its own ("who wants to help me build X?") and others join it, no vote.
+  Anyone may start one: "Start something of your own" is an option on an idle member's chore menu, weighted by its
+  personality like any chore (no threshold in code), with a cap on initiatives open at once and one a member. An
+  initiative **starts at once with its initiator alone**; others join along the way from their menus ("Help Worker7 build
+  a fishing hut"). Who starts and who joins whom is recorded (the social ties).
+- 10-18 (s35, the user's) Initiatives build **small works designed by code on the village's own ground** (wells, benches,
+  market stalls, woodsheds, statues, lamp paths...: 3x3 to 7x7, off streets, doors and farms), not single vanilla buildings
+  on their own pads (17 fit a house's budget, 1 in plains, and room ran out after ~10 layouts, F243).
+- 10-18 (s35, the user's) Direction: move as much of the village's work as possible into the three tiers members decide
+  (individual chores, voluntary initiatives, voted public works), so the civilisation grows from needs; growth beyond
+  ~25-30 agents through a second agent-server process (Paper has headroom), and a population that grows through vanilla
+  villagers rather than more bots. Written into PLAN.md as Phase N.
