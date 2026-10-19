@@ -3,6 +3,30 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-18 at the close of the thirty-sixth session, which ran sessions s37 (N.2) and the foundry beside it)
+
+- **Done since s35's close (s36 and its two sessions, 10-18), all pushed, `main` fast-forwarded:**
+  `71aa99d` N.0 tested and fixed (greens, own gathering, step keys; `scripts/checks/menu_probe.mts`) and N.1 needs behind
+  `MC_NEEDS`; `8c393fd` (s37) N.2 housing behind `MC_HOUSING` and storage fixes behind `MC_PARTS`, the `initiatives`
+  family on by default; `8e3fb4a` the skill foundry (`scripts/foundry.py`, six gates, test world 3 on 25568/8769, the
+  Antigravity CLI `agy` by default); `b3ab0b7` its first ticket merged, `shear_sheep`. Results: `runs/2026-10-18/s36/notes.md`,
+  `runs/2026-10-18/s37/notes.md`, `runs/2026-10-18/foundry/shear/report.md`. Best after-phase run yet: s37's model-driven
+  Hm, busy 45% (members start their own streets and own their houses).
+- **New ways of working (the user's, 10-18):** develop in flagged batches verified offline, then one combined live series
+  (CLAUDE.md "Batch development"); **the todo list is GitHub issues**: #1-#16 for Phases N and X, #17-#65 from the
+  older phases and the backlog (triaged and approved by the user, `docs/plan-archive/triage-2026-10-18.md`).
+- **Next (the user's order, 10-18; see the issues):** a quick-wins batch: workers' human usernames [#11](https://github.com/delphium226/MCAISandbox/issues/11) (pool
+  `server/src/agentNames.ts`, all whitelisted), neighbourhood names [#10](https://github.com/delphium226/MCAISandbox/issues/10), `MC_HOUSING`/`MC_PARTS` on by default
+  [#2](https://github.com/delphium226/MCAISandbox/issues/2); then one mechanism for needs-driven works (rooms [#3](https://github.com/delphium226/MCAISandbox/issues/3), mines [#8](https://github.com/delphium226/MCAISandbox/issues/8), farms [#9](https://github.com/delphium226/MCAISandbox/issues/9)) with
+  the need vote [#1](https://github.com/delphium226/MCAISandbox/issues/1); the foundry's next tickets [#14](https://github.com/delphium226/MCAISandbox/issues/14) (a skill tree is proposed, [#15](https://github.com/delphium226/MCAISandbox/issues/15),
+  `docs/research/foundry-skill-tree.md`; the user said document it, build nothing yet). Bug [#7](https://github.com/delphium226/MCAISandbox/issues/7):
+  `plains_small_house_3` traps bots.
+- **Stack:** main, test 1, test 2 and test 3 (the foundry's) may be up; check `python scripts/stack.py status` and the agent
+  counts before any reset (lesson 146). Checkpoints: `mv3_base25`, `mv3_grown25` (25 houses, s36), `mv3_base1`, `mv3_cpv1`.
+- **Uncommitted at the close:** nothing of this session's; another session's village running time (`runMs`) was committed
+  apart. Two sessions share this checkout at times: stage only your own files and hunks.
+
+
 (written 2026-10-18 at the close of the thirty-fifth session; the next session's prompt is
 `runs/2026-10-18/NEXT_PROMPT_s36.md`)
 

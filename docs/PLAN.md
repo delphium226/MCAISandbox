@@ -34,28 +34,29 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-18 at the close of the thirty-sixth session, which ran sessions s37 (N.2) and the foundry beside it)
+(written 2026-10-19 at the close of the thirty-ninth session (s39); the next session's prompt is
+`runs/2026-10-19/NEXT_PROMPT_s40.md`)
 
-- **Done since s35's close (s36 and its two sessions, 10-18), all pushed, `main` fast-forwarded:**
-  `71aa99d` N.0 tested and fixed (greens, own gathering, step keys; `scripts/checks/menu_probe.mts`) and N.1 needs behind
-  `MC_NEEDS`; `8c393fd` (s37) N.2 housing behind `MC_HOUSING` and storage fixes behind `MC_PARTS`, the `initiatives`
-  family on by default; `8e3fb4a` the skill foundry (`scripts/foundry.py`, six gates, test world 3 on 25568/8769, the
-  Antigravity CLI `agy` by default); `b3ab0b7` its first ticket merged, `shear_sheep`. Results: `runs/2026-10-18/s36/notes.md`,
-  `runs/2026-10-18/s37/notes.md`, `runs/2026-10-18/foundry/shear/report.md`. Best after-phase run yet: s37's model-driven
-  Hm, busy 45% (members start their own streets and own their houses).
-- **New ways of working (the user's, 10-18):** develop in flagged batches verified offline, then one combined live series
-  (CLAUDE.md "Batch development"); **the todo list is GitHub issues**: #1-#16 for Phases N and X, #17-#65 from the
-  older phases and the backlog (triaged and approved by the user, `docs/plan-archive/triage-2026-10-18.md`).
-- **Next (the user's order, 10-18; see the issues):** a quick-wins batch: workers' human usernames [#11](https://github.com/delphium226/MCAISandbox/issues/11) (pool
-  `server/src/agentNames.ts`, all whitelisted), neighbourhood names [#10](https://github.com/delphium226/MCAISandbox/issues/10), `MC_HOUSING`/`MC_PARTS` on by default
-  [#2](https://github.com/delphium226/MCAISandbox/issues/2); then one mechanism for needs-driven works (rooms [#3](https://github.com/delphium226/MCAISandbox/issues/3), mines [#8](https://github.com/delphium226/MCAISandbox/issues/8), farms [#9](https://github.com/delphium226/MCAISandbox/issues/9)) with
-  the need vote [#1](https://github.com/delphium226/MCAISandbox/issues/1); the foundry's next tickets [#14](https://github.com/delphium226/MCAISandbox/issues/14) (a skill tree is proposed, [#15](https://github.com/delphium226/MCAISandbox/issues/15),
-  `docs/research/foundry-skill-tree.md`; the user said document it, build nothing yet). Bug [#7](https://github.com/delphium226/MCAISandbox/issues/7):
-  `plains_small_house_3` traps bots.
-- **Stack:** main, test 1, test 2 and test 3 (the foundry's) may be up; check `python scripts/stack.py status` and the agent
-  counts before any reset (lesson 146). Checkpoints: `mv3_base25`, `mv3_grown25` (25 houses, s36), `mv3_base1`, `mv3_cpv1`.
-- **Uncommitted at the close:** nothing of this session's; another session's village running time (`runMs`) was committed
-  apart. Two sessions share this checkout at times: stage only your own files and hunks.
+- **Done since s36's close, on `tiered-brain-building`:** s38 `9a185ae` (pushed): workers under first names (#11),
+  neighbourhood names (#10), housing and parts on by default (#2), the doorway trap (#7, F250). s39, **committed, not
+  pushed, not merged into main (the user's, 10-19)**: `5b9b44a` needs-driven works, food first, behind
+  `MC_NEED_WORKS` (off by default): a `foodflow` gauge, raised bread and pie targets while short, a **farmstead** (house,
+  wheat field, two slots) on the work vote when no farm slot can be started (`server/src/needWorks.ts`); `ae30d62`
+  utilisation graphs on the panel (#67, `server/src/utilisation.ts`, `/api/utilisation`). Notes:
+  `runs/2026-10-19/s39/measure.md`, `spec_needworks_v2.md` and its check; F251.
+- **The user's direction (10-19):** villages are meant to run for **days or weeks**: judge needs by rates over long
+  windows at real settings, not by 30-minute fast runs; the user prefers assumptions to multi-hour measuring runs.
+  Hunger keeps its one cost (food work only); a penalty is a later decision.
+- **What s39 measured (R60, real rate):** food supply about half of demand (stored bread ~1 h); storage 41-44% of slots
+  and the mine (2 "no stone" tunnel ends an hour) move over days; iron held by one digger at a time and failed stairs,
+  its demand ending after a pickaxe and buckets. Live: Won2 (flag on, appetite 60) voted and built two farmsteads,
+  fields planted; busy 17% vs 20% off (farmsteads won votes the bigger quarters would have).
+- **Next (open questions for the user):** `MC_NEED_WORKS`'s default; whether farmsteads should be weighed against
+  public works so they do not crowd them out; storage and mine works (#3, #8) once their trends show; pushing s39's two
+  commits. Issues: #1, #9, #8, #3, #67 commented with the commits.
+- **Stack at the close:** test worlds 1 and 2 up with 0 agents (Paper and agent servers from s39's snapshots); main and
+  test 3 down. Checkpoints unchanged (`mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`).
+- **Uncommitted at the close:** nothing of this session's.
 
 ## Earlier phases
 
