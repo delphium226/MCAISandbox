@@ -78,7 +78,44 @@ not guessed.
 - Advancement criteria can be met in ways the skill did not cause (an item picked up, given by command in a test); the
   gate should start from a bot that lacks the advancement and items, on test world 3's reset.
 
+## 6. Beyond skills: a dependency tree for activities (2026-10-19)
+
+The user's question after `shear_sheep` was merged: shearing needs a sheep farm and shears, so do we have a dependency
+tree for activities? Half of one.
+
+**What exists: items.** The recipe graph (X.1: `mcMaterials.ts` plans bills and recipe chains, `activities.ts` builds the
+catalogue) knows shears <- 2 iron ingots <- raw iron + fuel <- the mine. "Make shears" is plannable today.
+
+**What is missing: everything that is not an item.** An activity also needs
+- **infrastructure**: a sheep pen, a furnace, a mine face, a green;
+- **living resources**: adult sheep within reach, a ripe crop;
+- **skills**: `shear_sheep` existing at all;
+- **other activities done first**: the pen built before sheep are lured into it.
+
+These live today as hand-written conditions inside each chore in `mcWorld.ts` (pens need the annex, iron needs the
+mine). `ActivitySpec` (`activities.ts`) has no `requires` field. So code can leave an option off a menu, but cannot say
+what is missing, and nothing can plan the chain toward a goal. The result showed with `shear_sheep`: merged, yet no
+member will ever use it (no chore offers it, no shears are made, no pen holds sheep; issue #6).
+
+**The proposal**: `requires` on activity specs, in five kinds: `tools` (shears), `infrastructure` (`pen:sheep`),
+`resources` (adult sheep within 24), `skills` (`shear_sheep`), `activities` (another spec done first); items stay
+computed from the recipe graph, only the other edges are declared. Code checks them (lesson 1: code spells out what it
+can exactly); members choose which path to take.
+
+What it gives:
+1. **Menus that say what is missing** (lesson s2: failure messages are the model's eyes): "Shear sheep: needs a sheep pen
+   (none) and shears (0 in storage)"; a member can start the missing piece as an initiative.
+2. **Needs with paths, not only levels** (N.1): "beds short" expands to wool <- shearing <- a sheep pen + shears; the
+   deferred need vote gets concrete options from the tree.
+3. **The foundry's order**: a missing skill is a node with no implementation; the next ticket is the most valuable node
+   whose other prerequisites are met (sections 1-4 above). The skill tree is this tree's skill edges.
+4. **No more unused skills**: a skill is done only when its node reaches a menu option.
+
+**Start small**: the chains already known: wool and beds (N.6: a sheep pen as a needs-driven farm, shears made in the
+workshop, a "Shear the sheep" chore, beds); enchanting (books need leather: killing passive animals is the user's call);
+fishing (string: a peaceful dead end without cobwebs). Then let it grow with each foundry ticket.
+
 ## Status
 
-Proposal only; nothing built. Related: `docs/research/self-improving-activities.md` (the foundry's design), PLAN.md
+Proposal only; nothing built. The activity dependency tree (section 6) is GitHub issue #66. Related: `docs/research/self-improving-activities.md` (the foundry's design), PLAN.md
 Phase X (X.3, X.4), `runs/2026-10-18/foundry/shear/report.md` (the first ticket).
