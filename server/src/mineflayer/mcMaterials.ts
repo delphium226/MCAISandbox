@@ -342,15 +342,18 @@ export class Materials {
     return best;
   }
 
-  /** What getting these items takes, given what is already in hand. */
-  plan(bill: Counts, have: Counts = {}): MaterialPlan {
+  /**
+   * What getting these items takes, given what is already in hand. `covered`: smelts other fuel burns (spare wooden parts,
+   * MC_PARTS), planned as no planks.
+   */
+  plan(bill: Counts, have: Counts = {}, covered = 0): MaterialPlan {
     const first = this.propagate(bill, have);
     // Fuel: coal and charcoal in hand first, the rest as planks (less what the plan took as ingredients: 16 torches with 2
     // charcoal stocked burned the same 2 again, S.9's check M4)
     const smelts = first.smelts;
     const coalHave = Math.max(0, (have.coal ?? 0) + (have.charcoal ?? 0) - (first.fromStock.coal ?? 0) - (first.fromStock.charcoal ?? 0));
     const coal = Math.min(coalHave, Math.ceil(smelts / 8));
-    const planks = Math.ceil(Math.max(0, smelts - coal * 8) / 1.5);
+    const planks = Math.ceil(Math.max(0, smelts - coal * 8 - covered) / 1.5);
     const result = planks ? this.propagate({ ...bill, 'any:planks': (bill['any:planks'] ?? 0) + planks }, have) : first;
     return { bill, fromStock: result.fromStock, gather: result.gather, steps: result.steps, fuel: { smelts, coal, planks }, problems: result.problems };
   }

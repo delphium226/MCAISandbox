@@ -1200,3 +1200,17 @@ CLAUDE.md when a phase ends.
 - F249 (10-18, s36, N1m, fixed) A fresh green's own reservation (held by prepare_green until prepareSite had deposited the
   felled logs, after the plot was recorded) blocked the whole green, and the initiative failed "no spot for it on its
   green". The green's own reservation is left out, and no verdict is given while its preparer works.
+- F250 (10-19, s38, issue #7, cause found) F248's trap reproduced with Gus on test world 1 (after Son): teleported to each
+  free cell of `plains_small_house_3` at -1621..-1619, 65..67 and sent to the street (z 73) and the storage hut, 7 of 14
+  walks failed, every one "stuck at -1620,64,67" (the cell inside the door), the bot at x -1619.43..-1619.51, path
+  moving, fwd but moved 0. The door (-1620,64,68) is a single oak door facing south, hinge left, open: its open panel is
+  the east 3/16 of the doorway (x -1619.19..-1619), leaving a bot centred on the path node (x -1619.5, half-width 0.3)
+  0.0125 of clearance; a drift of +0.05 east presses it on the panel. Walks starting from the west column (x -1621)
+  came in at an angle and passed. Any 1-wide doorway with an open single door has the same margin (hinge right leaves
+  0.0125 on the other side), so F244's family is this. The bot is not held by the panel itself: the pathfinder's
+  straight-line simulation of the next step hits it, so it lets go of forward and stands until its 3.5 s reset (fwd 4-9
+  of ~433 ticks in the `[stuck]` lines). Fixed in the walk, not the design (botAgent.ts `offDoorPanel`): after 4 ticks of
+  a moving path and no move, a bot in an open door's column within 0.6 of its panel moves across to the middle of the
+  gap the panel leaves (x -1619.45 -> -1619.59, about 0.1 of room each side; a first try that only cleared the panel by
+  0.05 failed 10 of 14). The probe again: 14 of 14 walks out, 0 `[stuck]`, 12 `[door]` lines.
+

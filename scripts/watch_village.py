@@ -28,6 +28,7 @@ import json, os, math, re, subprocess, sys, time, urllib.error, urllib.parse, ur
 # Chat and model text can hold any character; the Windows console encoding cannot
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "checks"))
+from agent_names import worker_names  # noqa: E402
 from autonomy_metrics import BoardStamps, BusyClock, critical_path_lines  # noqa: E402
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
@@ -265,7 +266,7 @@ def find_land(x, z):
     raise SystemExit("no land found")
 
 
-names = ["Mayor"] + [f"Worker{i + 1}" for i in range(workers)]
+names = ["Mayor"] + worker_names(workers)  # (#11: the pool of first names, server/src/agentNames.ts)
 # MCAI_NO_PROBE=1: start the village at X,Z itself, poor land or not (scouting tests, plan step 2.4): the agents get the
 # server's surface spawn on the ring round it
 if os.environ.get("MCAI_NO_PROBE") == "1":

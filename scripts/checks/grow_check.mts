@@ -40,6 +40,8 @@ const sources = argv.length ? argv : ['mc/testserver/villages.json'];
 process.env.MC_GROW = '1';
 // (spec_vote1: the style vote off, so growth picks as before; the vote has its own checks)
 process.env.MC_VOTE = 'off';
+// (N.2's housing retires growth's code trigger: off here, the check is of that trigger; on by default since s38)
+process.env.MC_HOUSING ??= 'off';
 process.env.MC_CHOOSE = 'fixed';
 process.env.MC_CHOICE_INSTANCES = '';
 process.env.MC_CHOICE_FAMILIES = '';

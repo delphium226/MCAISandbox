@@ -522,6 +522,15 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   }
   plan = a.world.materials.plan(bill, other);
   if (Object.keys(plan.gather).length || plan.problems.length) return null;
+  // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
+  // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
+  const atHut = !!v?.storageHut && (!!opts.held || (home('crafting_table') && (!plan.fuel.smelts || home('furnace'))));
+  // Spare wooden parts burn first (MC_PARTS, s37 S5): withdrawn with the rest at the hut, and the coal fetched only for the
+  // smelts they do not cover; never a part this job builds with or crafts from. Off (or none spare): as before
+  const partFuel = v && atHut && plan.fuel.smelts > 0 ? partsForFuel(a, v, plan.fuel.smelts, new Set([...Object.keys(bill), ...Object.keys(need), ...Object.keys(plan.fromStock)])) : null;
+  // (the smelts the parts cover take no planks: planned again without them, so none are fetched or sawn for fuel, the s37
+  // review's M1; the coal stays planned in full, below)
+  if (partFuel && plan.fuel.planks > 0) plan = a.world.materials.plan(bill, other, partFuel.smelts);
   // Ingredients kept in storage come to hand first
   const fetch: Counts = {};
   for (const [n, q] of Object.entries(plan.fromStock)) {
@@ -533,12 +542,6 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   // carried: F178); what is carried or fetched beyond the plan's ingredients (since D13 the fuel is counted without them,
   // S.9's review, lens 3 L1)
   const ingredientCoal = (plan.fromStock.coal ?? 0) + (plan.fromStock.charcoal ?? 0);
-  // The storage hut's table and furnace serve this job: it crafts and smelts there, beside the chests (always when it holds
-  // the hut's furnace: it walked there for the lock, and its surplus panes must reach storage)
-  const atHut = !!v?.storageHut && (!!opts.held || (home('crafting_table') && (!plan.fuel.smelts || home('furnace'))));
-  // Spare wooden parts burn first (MC_PARTS, s37 S5): withdrawn with the rest at the hut, and the coal fetched only for the
-  // smelts they do not cover; never a part this job builds with or crafts from. Off (or none spare): as before
-  const partFuel = v && atHut && plan.fuel.smelts > 0 ? partsForFuel(a, v, plan.fuel.smelts, new Set([...Object.keys(bill), ...Object.keys(need), ...Object.keys(plan.fromStock)])) : null;
   // (the coal still fetched in full: parts carry no earmark, and a parallel make may take them first; the smelts burn the
   // parts that came before any coal, so what coal is left stays for later smelts: the safety review's M2)
   const coalNeed = plan.fuel.coal;

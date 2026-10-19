@@ -42,7 +42,9 @@ IDLE = int(os.environ.get("IDLE", "20"))
 SPAWN_GAP = float(os.environ.get("MCAI_SPAWN_GAP_S", "2.5"))
 VILLAGE = "Probe25"
 OBJECTIVE = "gather 8 logs, make a crafting table and a wooden pickaxe, then gather 6 cobblestone"
-NAMES = ["Mayor"] + [f"Worker{i}" for i in range(1, 25)]
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
+from agent_names import worker_names
+NAMES = ["Mayor"] + worker_names(24)
 # Each name's work, ordered so the first 12 and 18 hold a mix too (12: 4 collect, 3 build, 3 store, 1 find, 1 tiered)
 ROLES = ["collect", "build", "store", "collect", "find", "build", "collect", "store", "tiered", "collect", "build", "store",
          "collect", "build", "collect", "store", "tiered", "collect",

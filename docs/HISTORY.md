@@ -276,6 +276,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     session; pushed and `main` fast-forwarded (the user's word). New ways of working (the user's): flagged batches checked
     offline then one combined live series; the todo list moved to GitHub issues (#1-#16). A pool of 50 human names
     whitelisted for workers' usernames. Lesson 147 (a gauge's unit: chests are not storage).
+52. 2026-10-19 (s38, the quick-wins batch): workers log in under the pool's first names (#11; checkpoints renamed,
+    `scripts/agent_names.py`, `scripts/rename_workers.py`), neighbourhoods get generated names on their house signs,
+    signposts, the summary and the panel (#10, `placeNames.ts`), `MC_HOUSING` and `MC_PARTS` on by default with the street
+    option untagged and no fuel planks planned where parts burn (#2), and the `plains_small_house_3` trap found and fixed
+    in the walk (#7, F250: a bot centred in a doorway had 0.0125 of room beside an open door's panel; it now moves into
+    the gap's middle). Series s38_on/off and the model-driven Hm38 (busy 41%, s37's Hm 45%). Issue #67 filed (utilisation
+    graphs on the panel). Lesson 148 (a plain `git worktree remove` emptied node_modules through a foundry junction).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

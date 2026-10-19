@@ -3,10 +3,11 @@ village is complete, nothing succeeds for STALL minutes, or the time limit. Usag
 Written when a session restart killed watch_village.py mid-run (Accept4).
 """
 import json, sys, time, urllib.request
+from agent_names import worker_names
 
 API = "http://127.0.0.1:8766/api"
 V, OFFSET = sys.argv[1], float(sys.argv[2])
-NAMES, STALL, LIMIT = ["Mayor", "Worker1", "Worker2"], 5, 90
+NAMES, STALL, LIMIT = ["Mayor"] + worker_names(2), 5, 90
 
 
 def call(path):

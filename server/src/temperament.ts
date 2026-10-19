@@ -10,6 +10,7 @@
  *                      identical: every agent the zero vector, the own-pattern reminder shown (E.8's arms);
  *                      off: no weights, tags, persona line or reminder (the goldens run with it).
  */
+import { workerName, workerNumber } from './agentNames';
 import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import type { ChoiceKind } from './world';
 
@@ -63,7 +64,7 @@ const ZERO: Temperament = { curiosity: 0, care: 0, diligence: 0, pride: 0, socia
 const MAYOR: Temperament = { curiosity: -0.4, care: 0, diligence: 0.3, pride: 0.8, sociability: 0.6 };
 const WORKERS = 24;
 
-/** Worker1-24's vectors: a Latin-hypercube draw seeded with 'A.3p' (each trait's 24 values one per stratum of [-1, 1]). */
+/** Workers 1-24's vectors (by pool name since s38, agentNames.ts; WorkerN still read): a Latin-hypercube draw seeded with 'A.3p' (each trait's 24 values one per stratum of [-1, 1]). */
 const WORKER_VECTORS: Temperament[] = (() => {
   const rnd = mulberry32(fnv1a('A.3p'));
   const out: Temperament[] = Array.from({ length: WORKERS }, () => ({ ...ZERO }));
@@ -74,12 +75,11 @@ const WORKER_VECTORS: Temperament[] = (() => {
   return out;
 })();
 
-/** The agent's own vector, whatever the mode: the Mayor's by hand, Worker1-24's drawn, any other name zero. */
+/** The agent's own vector, whatever the mode: the Mayor's by hand, workers 1-24's drawn, any other name zero. */
 export function vectorOf(name: string): Temperament {
   const n = name.trim().toLowerCase();
   if (n === 'mayor') return { ...MAYOR };
-  const m = /^worker(\d+)$/.exec(n);
-  const i = m ? Number(m[1]) : 0;
+  const i = workerNumber(n);
   return i >= 1 && i <= WORKERS ? { ...WORKER_VECTORS[i - 1] } : { ...ZERO };
 }
 
@@ -142,7 +142,7 @@ export function personaOf(name: string, mode: TemperamentMode = TEMPERAMENT_MODE
 
 /** Every named agent's vector, weights and line (the panel, the API, the check and the report). */
 export function temperamentTable(): Array<{ name: string; vector: Temperament; weights: Record<string, number>; persona: string }> {
-  const names = ['Mayor', ...Array.from({ length: WORKERS }, (_, i) => `Worker${i + 1}`)];
+  const names = ['Mayor', ...Array.from({ length: WORKERS }, (_, i) => workerName(i + 1))];
   return names.map((name) => {
     const vector = vectorOf(name);
     return { name, vector, weights: kindWeights(vector), persona: personaLine(vector) };

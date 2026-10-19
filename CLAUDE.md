@@ -17,7 +17,7 @@ a checkbox in PLAN.md.
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 147 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 148 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
@@ -57,7 +57,7 @@ a checkbox in PLAN.md.
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
   build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37), `MC_NEEDS=off|show|on`,
-  `MC_HOUSING=on`, `MC_PARTS=on` (Phase N, all off by default; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
+  `MC_HOUSING=off`, `MC_PARTS=off` (Phase N; needs off by default, housing and parts on since s38; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
   `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.
@@ -106,7 +106,10 @@ a checkbox in PLAN.md.
   `node_modules` there, and the desktop app refused its edits to the main checkout).
 - **Clean up stale worktrees regularly** (the user's, 2026-10-16): the SessionStart hook lists any besides the main
   checkout (`git worktree list`); after checking with the user that nothing in it is wanted (uncommitted files, an
-  unmerged branch), `git worktree remove <path>` and `git branch -D <its branch>`.
+  unmerged branch), `git worktree remove <path>` and `git branch -D <its branch>`. **A foundry worktree
+  (`.foundry/ID`) holds a `node_modules` junction to the repo's: remove it only with `python scripts/foundry.py --cleanup
+  ID --delete-branch`** (plain `git worktree remove` deleted through the junction and emptied the repo's node_modules,
+  s38; `npm ci` restores it).
 - Write prose (README, comments) plainly; match the surrounding comment density. Run logs go in `runs/<date>/`
   (gitignored).
 
@@ -188,7 +191,10 @@ a checkbox in PLAN.md.
   `at_goal.mts`, `pf_share.mts`). The catalogue is in RUNBOOK; write a new check with any new skill that digs or
   places.
 - **Agent names are fixed** (the user finds them by name): **Gus** for single-agent tests (spawned in no village),
-  **Mayor, Worker1, Worker2** for villages (2 workers), Worker3-24 for scale runs. Spawn test agents with
+  **Mayor** and workers under human first names for villages (#11, s38): worker N is the Nth name of the pool in
+  `server/src/agentNames.ts` (**Ada, Ben** for 2 workers, up to Xavier at 24; scripts read it through
+  `scripts/agent_names.py`). Villages saved with the old Worker1-24: `python scripts/rename_workers.py DIR_OR_FILE`
+  (checkpoints mv3_* and test worlds 1-2 are renamed; code still reads WorkerN for temperaments). Spawn test agents with
   `"reset": true` (a name keeps its inventory and position). If SausageOfDoom4 is online, the watch scripts teleport them
   to the Mayor. For one skill: an `idle` agent and `/api/agents/:name/act`.
 - **Count the walk-stall lines in every run**: `[stuck]` (read it before changing a walk, lesson 78), `[repath]`,

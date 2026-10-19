@@ -3,13 +3,15 @@ while work was still going on: StageH4 felled two 2x2 jungle trees for over 5 mi
 workers' finished and failed actions, the build tasks when they change, and the storage chests at the end. Needs the
 agent server; leaves the agents in the world.
 
-Usage: python scripts/checks/follow_workers.py VILLAGE MINUTES [WORKER ...]   (workers default to Worker1 Worker2)
+Usage: python scripts/checks/follow_workers.py VILLAGE MINUTES [WORKER ...]   (workers default to the first two, Ada Ben)
 """
 import json, sys, time, urllib.request
 
 API = 'http://127.0.0.1:8766/api'
 village, minutes = sys.argv[1], float(sys.argv[2])
-workers = sys.argv[3:] or ['Worker1', 'Worker2']
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
+from agent_names import worker_names
+workers = sys.argv[3:] or worker_names(2)
 
 
 def get(path):

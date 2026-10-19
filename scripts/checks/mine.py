@@ -29,7 +29,9 @@ ROUNDS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 COUNT = int(sys.argv[3]) if len(sys.argv) > 3 else 24
 PICKAXE_WAIT = int(os.environ.get("PICKAXE_WAIT", "120"))
 BOTS = max(1, int(os.environ.get("BOTS", "1")))
-NAMES = ["Gus"] if BOTS == 1 else [f"Worker{i + 1}" for i in range(BOTS)]
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
+from agent_names import worker_names
+NAMES = ["Gus"] if BOTS == 1 else worker_names(BOTS)
 GIVE = os.environ.get("GIVE") == "1"
 MINE_LOG = os.environ.get("MINE_LOG")
 ROUND_TIMEOUT = 8 * 60

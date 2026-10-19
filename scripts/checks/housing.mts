@@ -1,7 +1,7 @@
 /**
  * N.2 housing offline (s37, spec runs/2026-10-18/s37/spec_batch_n2.md H), on a checkpoint's village record loaded into a
  * real MineflayerWorld (menu_probe.mts's harness, cut down: the clock frozen, RCON stubbed and recorded, console muted,
- * save() counted, members are fakes Mayor + Worker1-24 whose workers take board tasks). MC_HOUSING=on, growth on, votes
+ * save() counted, members are fakes Mayor + 24 workers (the pool's names) whose workers take board tasks). MC_HOUSING=on, growth on, votes
  * and public works off unless said. Checks: standing houses given to the houseless (H2) with their signs; the street
  * option only on houseless menus (H3) and the fixed sweep taking it (request, lay_out_houses queued on the asker); owners
  * given to a fabricated neighbourhood's Build tasks, the asker first (H5); the owner's hold in mayClaim (H7: refused while
@@ -9,6 +9,7 @@
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/housing.mts [CHECKPOINT_DIR] (default mc/testcheckpoints/mv3_base25)
  */
 import fs from 'node:fs';
+import { workerName } from '../../server/src/agentNames';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -83,7 +84,8 @@ const plot0 = v.plots.find((p: Any) => !p.annex);
 const home = chest0 ? { x: chest0.x, y: chest0.y, z: chest0.z } : { x: Math.floor((plot0.x1 + plot0.x2) / 2), y: plot0.y + 1, z: Math.floor((plot0.z1 + plot0.z2) / 2) };
 const sections = new Array(24).fill(null);
 const getColumn = () => ({ minY: -64, sections, getBlockStateId: () => 0 });
-const NAMES = ['Mayor', ...Array.from({ length: 24 }, (_, i) => `Worker${i + 1}`)];
+// (#11, s38: the pool's first names, as the checkpoints are saved since then)
+const NAMES = ['Mayor', ...Array.from({ length: 24 }, (_, i) => workerName(i + 1))];
 const busy = new Set<string>();
 const queued: Any[] = [];
 let nextId = 1;
@@ -184,7 +186,7 @@ ok(w.homeless(v).length === homeless.length - 4, `H5: houseless now ${w.homeless
 // ---- H7: the owner's hold -------------------------------------------------------------------------------------------------
 const t0 = made[1];
 const owner = byName.get(t0.owner);
-const other = byName.get(w.homeless(v).map((a: Any) => a.name).find((n: string) => n !== 'Mayor') ?? 'Worker24');
+const other = byName.get(w.homeless(v).map((a: Any) => a.name).find((n: string) => n !== 'Mayor') ?? workerName(24));
 ok(w.mayClaim(owner, t0) === true, `H7: the owner ${owner.name} may claim its house`);
 ok(w.mayClaim(other, t0) === false, `H7: ${other.name} is refused while ${owner.name} is idle`);
 busy.add(owner.name);

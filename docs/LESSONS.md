@@ -577,3 +577,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    it counted chests (9 of 9 spots taken), not the room in them (46% of slots used); it nearly justified building storage
    rooms nobody needed. A need gauge measures the thing that runs short (slots, not containers), and a survey of the
    records (lesson 143) comes before a work is built to answer it.
+148. **Remove a worktree with the tool that made it** (s38, 10-19): a foundry worktree's `node_modules` is a junction to
+   the repo's, and a plain `git worktree remove` deleted through it and emptied the main checkout's node_modules (the
+   typecheck failed with "tsc is not recognized"); `foundry.py --cleanup` removes the junction first. `npm ci` restored
+   it in 9 s (patch-package reapplies the patches). Before deleting a folder, look for junctions and symlinks in it.

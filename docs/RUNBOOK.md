@@ -117,9 +117,10 @@ the short version; look here for a check script's arguments, a model detail or w
 ## Phase N and the foundry (s36-s37, 2026-10-18)
 
 - **Flags:** `MC_NEEDS=off|show|on` (N.1 needs: `server/src/needs.ts`, `[need]` lines, `GET /api/needs[?village=]`, the
-  panel's Needs tab; `on` puts need facts and weights on menus); `MC_HOUSING=on` (N.2: owners, name signs, the menu's
-  `grow:street`, own-house furnish/light; `[home]` lines); `MC_PARTS=on` (a `parts` chest group, spare wooden parts
-  burned as fuel). All three off by default. `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
+  panel's Needs tab; `on` puts need facts and weights on menus); `MC_HOUSING=on|off` (N.2: owners, name signs, the menu's
+  `grow:street`, own-house furnish/light; `[home]` lines); `MC_PARTS=on|off` (a `parts` chest group, spare wooden parts
+  burned as fuel). Needs off by default; housing and parts on by default since s38 (`off` in a spec's `server_env` for a
+  flag-off run). `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
   `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
 - **Checks:** `scripts/checks/menu_probe.mts [CHECKPOINT_DIR] [--families ...] [--sweeps N] [--idle all|N] [--stand]
   [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also

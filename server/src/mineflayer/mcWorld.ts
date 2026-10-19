@@ -21,6 +21,7 @@ import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, fnv1a, shuffled, trimMenu } from '../choose';
+import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
@@ -39,6 +40,7 @@ import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, v
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
@@ -1992,12 +1994,12 @@ export class MineflayerWorld implements WorldAdapter {
   /** When each owned Build task was first asked about as claimable (H7's hold), by "village|task id"; in memory. */
   private homeReady = new Map<string, number>();
 
-  /** The village's members in the order houses are given out (H2): the Mayor, Worker1..24 by number, other names
-   *  alphabetical after. */
+  /** The village's members in the order houses are given out (H2): the Mayor, workers by number (agentNames.ts), other
+   *  names alphabetical after. */
   private homeOrder(v: Village): BotAgent[] {
     const key = (a: BotAgent): [number, number, string] => {
-      const n = a.name.toLowerCase(), m = /^worker(\d+)$/.exec(n);
-      return n === 'mayor' ? [0, 0, n] : m ? [1, Number(m[1]), n] : [2, 0, n];
+      const n = a.name.toLowerCase(), w = workerNumber(n);
+      return n === 'mayor' ? [0, 0, n] : w ? [1, w, n] : [2, 0, n];
     };
     return this.growMembers(v).sort((p, q) => {
       const x = key(p), y = key(q);
@@ -2028,7 +2030,8 @@ export class MineflayerWorld implements WorldAdapter {
   private houseSign(v: Village, building: string, at: (s: { cx: number; cz: number }) => boolean, name: string) {
     for (const l of v.layouts ?? []) for (const s of l.signs ?? []) {
       if (s.building !== building || !at(s)) continue;
-      const text = [`${name}'s`, 'house'];
+      // (the neighbourhood's name on the third line kept, #10)
+      const text = [`${name}'s`, 'house', ...s.text.slice(2)];
       if (s.text.join('|') === text.join('|')) return;
       s.text = text;
       this.villages.save();
@@ -2601,11 +2604,26 @@ export class MineflayerWorld implements WorldAdapter {
     console.log(`[initiative] ${v.name}: ${it.id} ${state} in ${((it.end - it.at) / 60000).toFixed(1)} min (${why}); started by ${it.by}, crew ${it.crew.join(', ')}; ${it.steps.length} steps`);
   }
 
+  /** A signpost that stands shows its neighbourhood's name (#10; build_design puts it up blank): once, by RCON, its sign
+   *  in the post's column (the design's centre) found by trying the heights over the spot. */
+  private nameSignpost(v: Village, it: Initiative) {
+    const text = signpostText(v, it.x, it.z);
+    it.text = text;
+    this.villages.save();
+    const nbt = `{front_text:{messages:[${[0, 1, 2, 3].map((i) => JSON.stringify(text[i] ?? '')).join(',')}]},is_waxed:1b}`;
+    void (async () => {
+      for (let y = it.y; y <= it.y + 5; y++)
+        if (/^Modified/i.test(await this.rcon.command(`data merge block ${it.x} ${y} ${it.z} ${nbt}`).catch(() => ''))) return console.log(`[initiative] ${v.name}: ${it.id}'s signpost reads "${text.join(' / ')}"`);
+      console.log(`[initiative] ${v.name}: ${it.id}'s signpost at ${it.x},${it.z}: no sign found to write "${text.join(' / ')}" on`);
+    })();
+  }
+
   /** Every farm tick: an open initiative whose design stands at its spot is built (judged by the structure, lesson 138);
    *  one with no step taken for INITIATIVE_LAPSE_MS lapses. */
   private initiativeTick(v: Village) {
     const now = Date.now();
     for (const it of v.initiatives ?? []) {
+      if (it.state === 'built' && it.kind === 'signpost' && !it.text) this.nameSignpost(v, it);
       if (it.state !== 'open') continue;
       // (a green ready: the spot on it, s36)
       if (it.pending) {

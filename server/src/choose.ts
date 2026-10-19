@@ -138,8 +138,11 @@ const SYSTEM = 'You are a member of a Minecraft village. The village is built; n
 /** A.3p: added when a persona line is shown. */
 const SYSTEM_PERSONA = ' Choose as the person described would.';
 
-/** A.3p's tag on an option line, from its temperament weight. */
-const tag = (o: ChoiceOption) => (o.tw === undefined ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '');
+/**
+ * A.3p's tag on an option line, from its temperament weight. None on `grow` (N.2's street): its weight is forced to the
+ * scale's top for every houseless member, not the member's temperament.
+ */
+const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);

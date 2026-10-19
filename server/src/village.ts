@@ -11,6 +11,7 @@ import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
 import type { Side } from './farmSlots';
 import { growing, housesOf } from './grow';
+import { neighbourhoodNames } from './placeNames';
 import { appetiteOn, stateOf, type Appetite } from './appetite';
 
 export interface Area {
@@ -227,6 +228,8 @@ export interface Initiative {
   /** What its crew has gathered for it (the user's, s36: initiatives gather their own materials, storage is not drawn
    *  on), by item: logs as the village wood's log, cobblestone, sand. */
   gathered?: Record<string, number>;
+  /** A signpost's text (#10), set once it stands (build_design puts it up blank). */
+  text?: string[];
 }
 
 export interface Task {
@@ -477,6 +480,8 @@ export interface Village {
     works?: SidePlot & { furnaces?: Array<WorksFurnace | null> };
     /** A neighbourhood laid out as the village grows (s30): its index among the growth layouts, from 1. */
     grow?: number;
+    /** A neighbourhood's name (#10, placeNames.ts): on its houses' signs, the panel and the summary. */
+    name?: string;
     /** Why a neighbourhood laid out with a field has none (s30's food step: the biome, the grass, no room, too far). */
     farmWhy?: string }>;
   /**
@@ -1243,10 +1248,15 @@ export class VillageRegistry {
   summary(v: Village, forAgent?: string, compact = false, near?: { x: number; z: number }): string {
     const lines = [`Village ${v.name}${v.objective ? `, objective: ${v.objective}` : ''}${v.complete ? ' (declared complete)' : ''}`];
     const nb = growing(v) ? v.growth!.active! : undefined;
+    // (#10: the neighbourhoods' names, the one on the board and those standing)
+    const hoods = neighbourhoodNames(v);
     if (nb) {
       const built = nb.builds.filter((id) => this.task(v, id)?.status === 'done').length;
-      lines.push(`Growing: neighbourhood ${nb.k}, ${nb.builds.length} houses at ${areaText(nb.plot)} (built ${built} of ${nb.builds.length}); houses ${housesOf(v)} for ${nb.members} members`);
+      const name = hoods.get(nb.layout);
+      lines.push(`Growing: neighbourhood ${nb.k}${name ? ` (${name})` : ''}, ${nb.builds.length} houses at ${areaText(nb.plot)} (built ${built} of ${nb.builds.length}); houses ${housesOf(v)} for ${nb.members} members`);
     }
+    const standing = [...hoods].filter(([n]) => n !== nb?.layout);
+    if (standing.length && !compact) lines.push(`Neighbourhoods: ${standing.map(([n, name]) => `${name} (${v.layouts![n - 1].buildings.length} houses)`).join(', ')}`);
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9; nor a green, the
     // initiatives' small works, s36)

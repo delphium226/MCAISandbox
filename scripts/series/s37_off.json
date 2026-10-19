@@ -11,7 +11,9 @@
   "timeout_min": 60,
   "server_env": {
     "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
-    "MC_NEEDS": "show"
+    "MC_NEEDS": "show",
+    "MC_HOUSING": "off",
+    "MC_PARTS": "off"
   },
   "runs": [
     {

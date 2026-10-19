@@ -32,8 +32,13 @@ def git_lines():
     for t in trees:
         when = git("-C", t, "log", "-1", "--format=%cs %h") or "?"
         dirty = len([l for l in git("-C", t, "status", "--porcelain").splitlines() if l.strip()])
+        # (a foundry worktree's node_modules is a junction to the repo's: git worktree remove deletes through it, s38)
+        foundry = "/.foundry/" in t.replace("\\", "/")
+        how = (f"python scripts/foundry.py --cleanup {t.replace(chr(92), '/').rsplit('/', 1)[-1]} --delete-branch "
+               "(never git worktree remove: it empties the repo's node_modules through the junction)") if foundry else \
+            "git worktree remove it (rmdir any node_modules junction in it first) and delete its branch"
         out.append(f"git: stale worktree {t} (last commit {when}{f', {dirty} uncommitted' if dirty else ''}): "
-                   f"ask the user, then git worktree remove it and delete its branch")
+                   f"ask the user, then {how}")
     return out
 
 

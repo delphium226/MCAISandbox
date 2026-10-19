@@ -10,6 +10,7 @@
  */
 import { TRAITS, activeKinds, WEIGHT_MAX, kindWeights, optionWeight, personaLine, temperament, temperamentTable, vectorOf } from '../../server/src/temperament';
 import { fixedPick, trimMenu } from '../../server/src/choose';
+import { workerNumber } from '../../server/src/agentNames';
 import type { ChoiceKind, ChoiceMenu, ChoiceOption } from '../../server/src/world';
 
 const table = temperamentTable();
@@ -28,7 +29,7 @@ function ok(cond: unknown, what: string) {
 }
 
 // The Latin-hypercube draw: each trait's 24 worker values one per stratum
-const workers = table.filter((r) => /^Worker\d+$/.test(r.name));
+const workers = table.filter((r) => workerNumber(r.name) > 0);
 ok(workers.length === 24, '24 workers');
 for (const t of TRAITS) {
   // (the i-th smallest value within the i-th stratum, give or take the 2-decimal rounding)

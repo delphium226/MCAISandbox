@@ -19,6 +19,9 @@ if (!/^(dump|check)$/.test(mode ?? '') || !golden) {
 const sources = files.length ? files : ['mc/server/villages.json', 'mc/testserver/villages.json'];
 const NOW = Date.parse('2026-10-11T12:00:00Z');
 Date.now = () => NOW;
+// (N.2's housing and the parts chests: on by default since s38, off here: the golden is of the board without them)
+process.env.MC_HOUSING ??= 'off';
+process.env.MC_PARTS ??= 'off';
 
 const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
 type Board = Record<string, { claimable: string[]; tasks: Array<[string, string, string]>; woodFor: unknown; log: string[] }>;

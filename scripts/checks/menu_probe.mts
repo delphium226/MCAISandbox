@@ -3,7 +3,7 @@
  * (lesson 140: see a new chore family work on its real path before a live run). First target: s35's initiatives
  * (`initiate`, `help`). The record is loaded into a real MineflayerWorld on a scratch copy (choice_golden.mts's harness,
  * cut down): the clock frozen at the checkpoint's time, RCON stubbed, console muted, save() counted, never written; the
- * members are fakes (Mayor, Worker1-24) whose enqueue records the call and that are idle while none of their actions is
+ * members are fakes (Mayor and 24 workers, the pool's names) whose enqueue records the call and that are idle while none of their actions is
  * queued or running, sharing a bot.world of air.
  * Part 1: every member's menu (choices()) as one line: the kinds in rank order with counts, the fixed pick, the reasons for
  * absent kinds. Part 2: N sweeps (farmCheckAt = 0, farmChores(); every queued action done, a deposit's load credited to
@@ -17,6 +17,7 @@
  * (default mc/testcheckpoints/mv3_base25; a dir's villages.json and, when present, atlas.json)
  */
 import fs from 'node:fs';
+import { workerName } from '../../server/src/agentNames';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -141,7 +142,8 @@ const sections = new Array(24).fill(null);
 const getColumn = () => ({ minY: -64, sections, getBlockStateId: () => 0 });
 const statuses: Any[] = [];
 let nextId = 1;
-const NAMES = ['Mayor', ...Array.from({ length: 24 }, (_, i) => `Worker${i + 1}`)];
+// (#11, s38: the pool's first names, as the checkpoints are saved since then)
+const NAMES = ['Mayor', ...Array.from({ length: 24 }, (_, i) => workerName(i + 1))];
 const nIdle = IDLE === 'all' ? NAMES.length : Math.max(0, Math.min(NAMES.length, Number(IDLE)));
 const agents: Any[] = [];
 for (const [n, name] of NAMES.entries()) {

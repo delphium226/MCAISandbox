@@ -1657,9 +1657,13 @@ function villageLife(v) {
     const built = a ? a.builds.filter((id) => v.tasks.some((t) => t.id === id && t.status === 'done')).length : 0;
     // (X.2: a public work on the board, and the works done, apart from the neighbourhoods)
     const hoods = past.filter((p) => !p.project), works = past.filter((p) => p.project && p.why === 'built');
-    items.push(['Growing', a ? (a.project ? `public work ${a.project}: ${built}/${a.builds.length} built` : `neighbourhood ${a.k}: ${built}/${a.builds.length} houses`)
+    const names = v.hoodNames || {};
+    items.push(['Growing', a ? (a.project ? `public work ${a.project}: ${built}/${a.builds.length} built` : `neighbourhood ${a.k}${names[a.layout] ? ` (${names[a.layout]})` : ''}: ${built}/${a.builds.length} houses`)
       : `${plural(hoods.length, 'neighbourhood')}, ${plural(hoods.reduce((s, p) => s + p.built, 0), 'house')} built${works.length ? `; ${plural(works.length, 'public work')}` : ''}`,
       gr.stop ? `stopped: ${gr.stop}` : a ? `for ${plural(a.members, 'member')}` : '']);
+    // (#10: the neighbourhoods by name, with their houses built)
+    const named = hoods.filter((p) => names[p.layout]);
+    if (named.length) items.push(['Neighbourhoods', named.map((p) => `${names[p.layout]} (${p.built})`).join(', '), 'houses built in each']);
   }
   // (spec_vote1: the last vote, its options ranked by ballots with a bar each, the winner marked)
   let vote = '';

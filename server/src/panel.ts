@@ -28,6 +28,7 @@ import { readJson, sendJson } from './api';
 import { OLLAMA_ROUTES, gate, recentCalls } from './modelCall';
 import { usage, isCloudModel } from './modelUsage';
 import { elevations } from './designs';
+import { neighbourhoodNames } from './placeNames';
 import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
 import { TEMPERAMENT_MODE, kindWeights, personaOf, temperament } from './temperament';
@@ -180,7 +181,9 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     const needGauges = needsSummary(w, v.name);
     // (how long it has been running, ms, as of this answer)
     rest.runMs = w.villages.age(v);
-    return send ? { ...rest, ...foodView(v), choices, vote, needGauges, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote, needGauges };
+    // (#10: each neighbourhood's name by layout number, an old village's worked out as it will be stored)
+    const hoodNames = Object.fromEntries(neighbourhoodNames(v));
+    return send ? { ...rest, ...foodView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote, needGauges, hoodNames };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

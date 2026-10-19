@@ -53,6 +53,8 @@ process.env.MC_GROW = '1';
 process.env.MC_GROW_FARMS = '1';
 // (spec_vote1: the style vote off, so growth picks as before)
 process.env.MC_VOTE = 'off';
+// (N.2's housing retires growth's code trigger: off here, as before s38)
+process.env.MC_HOUSING ??= 'off';
 process.env.MC_APPETITE = '18';
 process.env.MC_APPETITE_IDLE = '0.25';
 process.env.MC_CHOOSE = 'fixed';

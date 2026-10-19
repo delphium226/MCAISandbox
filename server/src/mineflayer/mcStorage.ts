@@ -45,11 +45,11 @@ function matcher(a: BotAgent, raw: string): { test: (name: string) => boolean; l
 const total = (items: Record<string, number>) => Object.values(items).reduce((s, q) => s + q, 0);
 
 /**
- * MC_PARTS=on (s37 S2-S6): leftover building parts get a chest group of their own, misc and parts overflow into the chest
- * with most room once the hut is down to its last free spot, and spare wooden parts burn first as smelting fuel. Off:
- * storage as before.
+ * MC_PARTS (s37 S2-S6; on by default since s38): leftover building parts get a chest group of their own, misc and parts
+ * overflow into the chest with most room once the hut is down to its last free spot, and spare wooden parts burn first as
+ * smelting fuel. MC_PARTS=off: storage as before.
  */
-export const PARTS_ON = process.env.MC_PARTS === 'on';
+export const PARTS_ON = process.env.MC_PARTS !== 'off';
 
 /**
  * Leftover building parts (s37 S2): stairs, slabs, walls, doors, trapdoors, fences and gates, buttons, pressure plates,

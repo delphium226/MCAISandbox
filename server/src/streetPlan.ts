@@ -370,6 +370,8 @@ const SIGN_LABELS: Array<[RegExp, string]> = [
 /** Glyph advances of the game's font that are not 6 px (read from the client jar's ascii.png); a sign line shows 90 px. */
 const GLYPH: Record<string, number> = { ' ': 4, "'": 2, '.': 2, I: 4, f: 5, i: 2, k: 5, l: 3, t: 4 };
 const textWidth = (s: string) => [...s].reduce((w, c) => w + (GLYPH[c] ?? 6), 0);
+/** A sign line's width in the game's font, px (a sign shows 90). */
+export const signLineWidth = textWidth;
 
 /**
  * A building's sign text: the huts by their use, vanilla pieces by their kind ("House", "Library"), any other design by

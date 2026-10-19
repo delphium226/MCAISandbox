@@ -1,0 +1,26 @@
+{
+  "about": "s38 model-driven run (world 1, 1x): the quick-wins batch with its defaults (workers under the pool's names #11, neighbourhood names #10, housing and parts on by default and the street option untagged #2, the door nudge #7); members choose by model (gpt-oss cloud), needs on, initiatives family; from mv3_base25, 30 min after. Compare with s37's Hm (busy 45%).",
+  "out": "runs/2026-10-19/s38/s38_model",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "on"
+  },
+  "runs": [
+    {
+      "name": "Hm38",
+      "village": "B25x2",
+      "checkpoint": "mv3_base25",
+      "args": "--after 30 --choose model"
+    }
+  ]
+}

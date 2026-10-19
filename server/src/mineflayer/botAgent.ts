@@ -81,6 +81,9 @@ export interface WalkTally {
    */
   band: [number, number] | null;
   levelAt: number;
+  /** Where the bot stood the tick before, and the ticks since it last moved with forward held (the door nudge, F250). */
+  prev?: { x: number; z: number };
+  still?: number;
 }
 
 interface Running {
@@ -430,6 +433,17 @@ export class BotAgent implements WorldAgent {
       t.x0 = Math.min(t.x0, p.x); t.x1 = Math.max(t.x1, p.x);
       t.y0 = Math.min(t.y0, p.y); t.y1 = Math.max(t.y1, p.y);
       t.z0 = Math.min(t.z0, p.z); t.z1 = Math.max(t.z1, p.z);
+      // Pressed on an open door's panel (F250, issue #7): a 1-wide doorway with an open door leaves a bot centred on the
+      // path node 0.0125 of room, and a drift of a few hundredths puts the panel in its way: the pathfinder's straight-line
+      // simulation fails, it lets go of forward and stands there until its 3.5 s reset, again and again. After 4 ticks of
+      // a moving path and no move, a panel in its way pushes it off sideways (at most 0.15)
+      const moved = t.prev ? Math.abs(p.x - t.prev.x) + Math.abs(p.z - t.prev.z) : 1;
+      t.prev = { x: p.x, z: p.z };
+      t.still = bot.pathfinder.isMoving() && moved < 0.01 ? (t.still ?? 0) + 1 : 0;
+      if (t.still >= 4) {
+        t.still = 0;
+        this.offDoorPanel();
+      }
       if (e.onGround) {
         t.ground++;
         // (+0.1: farmland and path blocks stand 15/16 high)
@@ -441,6 +455,37 @@ export class BotAgent implements WorldAgent {
         }
       }
     });
+  }
+
+  /**
+   * Put the bot in the middle of an open door's free gap (F250): the door cells round its feet and head, each panel's box
+   * from the block's collision shape; a bot in the door's column (across the panel's thin axis) and within 0.6 of it
+   * (along the other) moves across to the middle of what the panel leaves of the doorway, about 0.1 of room each side,
+   * when that is a move of 0.02 to 0.3 (a nudge, not a teleport). Returns whether it moved.
+   */
+  private offDoorPanel(): boolean {
+    const bot = this.bot;
+    const p = bot.entity.position, W = 0.3;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = 0; dy <= 1; dy++) {
+      const b = bot.blockAt(new Vec3(Math.floor(p.x) + dx, Math.floor(p.y + 0.1) + dy, Math.floor(p.z) + dz));
+      if (!b || !/_door$/.test(b.name)) continue;
+      const props = b.getProperties() as Record<string, unknown>;
+      if (!(props.open === true || props.open === 'true')) continue;
+      for (const s of (b.shapes ?? []) as number[][]) {
+        const alongX = s[3] - s[0] < s[5] - s[2];
+        // (the thin axis: the cell's start, the panel's span in the cell; the long axis: the panel's span in the world)
+        const [a, cell, a0, a1] = alongX ? [p.x, b.position.x, s[0], s[3]] : [p.z, b.position.z, s[2], s[5]];
+        const [l, l0, l1] = alongX ? [p.z, b.position.z + s[2], b.position.z + s[5]] : [p.x, b.position.x + s[0], b.position.x + s[3]];
+        if (a < cell || a >= cell + 1 || l + W + 0.6 <= l0 || l - W - 0.6 >= l1) continue;
+        // (the gap: from the cell's far side to the panel)
+        const to = cell + (a0 > 0.5 ? a0 / 2 : (a1 + 1) / 2);
+        if (Math.abs(to - a) < 0.02 || Math.abs(to - a) > 0.3) continue;
+        if (alongX) p.x = to; else p.z = to;
+        console.log(`[door] ${this.name} moved into the open door's gap at ${b.position.x},${b.position.y},${b.position.z}: ${alongX ? 'x' : 'z'} ${a.toFixed(2)} -> ${to.toFixed(2)}`);
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Record a pathfinder event in the ring; a repeat of the last one (same key) only counts. */

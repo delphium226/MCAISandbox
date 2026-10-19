@@ -6,6 +6,8 @@ import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
 import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, villageHome, type Area, type FarmSlot, type Layout, type PlotPart, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
+import { isDwelling } from './grow';
+import { nameForNew } from './placeNames';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -668,6 +670,10 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const signs = economy && w.skills.some((t) => t.name === 'put_up_signs')
       ? placeSigns(grids, lamps, lay.plot).filter((s): s is SignSpot => !!s)
       : [];
+    // A neighbourhood of houses gets its name (#10, placeNames.ts), on the third line of each house's sign (the owner's
+    // name, N.2, rewrites the first two)
+    const hoodName = nb && placed.length && placed.every(isDwelling) ? nameForNew(v, (v.growth?.past.length ?? 0) + 1, wood ?? v.wood) : undefined;
+    if (hoodName) for (const s of signs) s.text = [s.text[0], s.text[1] ?? '', hoodName];
     for (const s of signs) {
       const b = buildOf.get(`${s.cx},${s.cz}`);
       if (!b) continue;
@@ -692,9 +698,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const left = nb ? [] : [...(v.unplaced?.length ? v.unplaced : names)];
     if (!nb) for (const n of placed) left.splice(left.indexOf(n), 1);
     v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
-      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(farmWhy ? { farmWhy } : {}) }];
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(hoodName ? { name: hoodName } : {}), ...(farmWhy ? { farmWhy } : {}) }];
     if (!nb) v.unplaced = left;
-    reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ' as a new neighbourhood' : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
+    reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ` as a new neighbourhood${hoodName ? `, ${hoodName}` : ''}` : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
     const them = left.length > 1 ? 'them' : 'it';
     const rest = left.length

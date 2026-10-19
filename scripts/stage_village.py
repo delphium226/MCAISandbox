@@ -23,13 +23,13 @@ Usage: python scripts/stage_village.py VILLAGE X Z [options]
                                 only prepare the plot and build (tests building from storage, crafting included).
                                 With a storage hut (new villages), the chests go into the hut's chest spots once the
                                 plot is prepared, one per material group, and the hut is built around them; when every
-                                building stands, Worker1 deposits mixed items and the chests are checked for sorting
+                                building stands, the first worker deposits mixed items and the chests are checked for sorting
   --no-deposit-check            skip that check
   --brain tasks|tiered          tasks (default): scripted workers that run each task's skill calls, no model;
                                 tiered: model-driven workers (MCAI_EXEC_MODEL, default ollama:gpt-oss:120b-cloud,
                                 and --planner; MCAI_REASONING, e.g. exec=medium, overrides the reasoning levels)
   --planner MODEL               the tiered workers' planner (default ollama:gpt-oss:120b-cloud)
-  --workers N                   default 2 (Worker1, Worker2)
+  --workers N                   default 2 (Ada, Ben: the first names of server/src/agentNames.ts's pool)
   --mayor                       also a tiered Mayor (V2.3m), its layout posted by it and its plan empty: it gathers while
                                 it waits (soft gather tasks run as written, no model calls expected; --planner is its
                                 planner, MCAI_EXEC_MODEL its executor; only a local model there needs the agent server
@@ -94,6 +94,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
+from agent_names import worker_names  # noqa: E402
 from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines, tail_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
@@ -892,7 +893,7 @@ if args.fixtures:
     summon_chickens()
 
 # ---- workers
-names = [f"Worker{i + 1}" for i in range(args.workers)]
+names = worker_names(args.workers)  # (#11: the pool of first names, server/src/agentNames.ts)
 exec_model = os.environ.get("MCAI_EXEC_MODEL", "ollama:gpt-oss:120b-cloud")
 reasoning = {"reasoning": os.environ["MCAI_REASONING"]} if os.environ.get("MCAI_REASONING") else {}
 # (A.2: every spawn alike, since one village runs one mode; without --choose nothing is sent and MC_CHOOSE decides)
