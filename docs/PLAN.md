@@ -1181,6 +1181,9 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   and light; the storage gauge in slots, a parts chest group, the last spot kept, spare wooden parts burned as fuel.
   Staged from mv3_base25: members started 6 streets, 23 houses in 16.1 min (code growth 18.4); busy 29% vs 31%.
   Checks `housing.mts`, `parts_unit.mts`. Next: the model-driven run's reading (notes.md), then both flags on by default.
+- N.1b **Needs-driven works, food first** (s39, [#1](https://github.com/delphium226/MCAISandbox/issues/1), [#9](https://github.com/delphium226/MCAISandbox/issues/9)): behind `MC_NEED_WORKS` (off): the
+  `foodflow` gauge, raised food targets while short, a farmstead on the work vote (`runs/2026-10-19/s39/`: `measure.md`,
+  `spec_needworks_v2.md`). Next: a long real-rate run to see storage and mine trends (#3, #8) and the flag's default.
 - N.3 **Storage rooms and furnace rooms** ([#3](https://github.com/delphium226/MCAISandbox/issues/3), on hold) as needs-driven works (storage nearly full; smelts queueing), replacing the
   works plot's fixed furnace row; more of either built when the need comes back.
 - N.4 ([#4](https://github.com/delphium226/MCAISandbox/issues/4)) **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a

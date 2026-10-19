@@ -42,6 +42,7 @@ import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
+import { NEED_WORKS, addFlow, farmsteadDue, foodTarget, foodflowReading, madePoints, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -960,7 +961,8 @@ export class MineflayerWorld implements WorldAdapter {
    *  demand) + 8); every other good, and torches with the family off, the table's. */
   makeTarget(v: Village, g: MakeGood): number {
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
-    if (g.food) return !appetiteOn(v) ? 0 : g.item === 'bread' ? 2 * this.growMembers(v).length : Math.ceil(this.growMembers(v).length / 2);
+    // (s39 tier 1, MC_NEED_WORKS: three and one a member while the food flow is short)
+    if (g.food) return !appetiteOn(v) ? 0 : foodTarget(g.item === 'bread' ? 'bread' : 'pumpkin_pie', this.growMembers(v).length, NEED_WORKS && !!v.foodFlow?.short);
     if (g.item !== 'torch' || !CHOOSE.families.has('light')) return g.target;
     return Math.max(g.target, Math.min(TORCH_DEMAND_CAP, this.torchDemand(v)) + TORCH_RESERVE);
   }
@@ -1457,18 +1459,34 @@ export class MineflayerWorld implements WorldAdapter {
         console.log(`[food] ${v.name}: the appetite starts (${APPETITE.rate} a busy game-hour, ${APPETITE.rate * APPETITE.idle} idle; members start at ${APPETITE.start})`);
       }
       const store = storageContents(v);
+      // (s39, MC_NEED_WORKS: what the members drain, counted as rate x minutes, never from levels, which stop at 0)
+      let drained = 0;
       for (const a of this.growMembers(v)) {
         let e = v.food.members[a.name];
         if (!e) e = v.food.members[a.name] = { level: APPETITE.start, at: now, meals: 0, hungryMs: 0 };
         const was = stateOf(e.level);
         const running = a.current?.status.type ?? a.queue[0]?.type;
-        e.level = drain(e.level, minutes, !a.idle() && running !== 'eat_meal');
+        const busy = !a.idle() && running !== 'eat_meal';
+        drained += (minutes * (busy ? APPETITE.rate : APPETITE.rate * APPETITE.idle)) / 60;
+        e.level = drain(e.level, minutes, busy);
         e.at = now;
         const s = stateOf(e.level);
         if (s === 'hungry') e.hungryMs = (e.hungryMs ?? 0) + wallMs;
         if (s !== was) {
           changed = true;
           console.log(`[food] ${a.name} ${s} (${e.level.toFixed(1)} of 20; storage ${foodText(store)})`);
+        }
+      }
+      if (NEED_WORKS) {
+        // (made: the rise of the ledger's finished food, in points; the first reading only sets where it stands)
+        const seen = madePoints(v.food.made);
+        const made = v.foodFlow?.madeSeen === undefined ? 0 : Math.max(0, seen - v.foodFlow.madeSeen);
+        const flow = { ...addFlow(v.foodFlow, minutes, drained, made), madeSeen: seen };
+        const reading = foodflowReading(flow, storedPoints(store));
+        v.foodFlow = stepShort(flow, reading, minutes);
+        if (!!v.foodFlow.short !== !!flow.short) {
+          changed = true;
+          console.log(`[needwork] ${v.name}: food ${v.foodFlow.short ? 'short' : 'no longer short'} (${reading?.text ?? 'no reading'}): bread and pie targets ${v.foodFlow.short ? 'raised' : 'back'}`);
         }
       }
     }
@@ -2272,6 +2290,9 @@ export class MineflayerWorld implements WorldAdapter {
       const n = Math.min(GROW.batch, without);
       if (without >= 2 && GROW.on && !g.stop && this.growClaimers(v).length) out.push({ id: PROJECT_HOUSES, name: 'A street of houses for members without one', facts: `${without} of ${M} members have no house; up to ${GROW.batch} houses near the village, each with its owner's name on its sign`, current: false, novel: false, units: Math.round(n * HOUSE_UNITS * 0.6), volume: n * 300 });
     }
+    // (s39 tier 3, MC_NEED_WORKS: a farmstead while the food flow stays short and no farm slot is left to start)
+    const fs = this.farmsteadPlan(v);
+    if (fs) out.push({ id: PROJECT_FARMSTEAD, name: 'A farmstead: a wheat field and two farm slots', facts: `${fs.why}; one small house with a 5x7 wheat field and two farm slots near the storage hut`.slice(0, 200), current: false, novel: false, units: fs.units, volume: 300 });
     const rested = !!g.work && !g.work.piece;
     if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
     return out;
@@ -2428,6 +2449,7 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[home] ${v.name}: the village voted for a street of houses (${this.homeless(v).length} members without one)`);
       return;
     }
+    if (piece === PROJECT_FARMSTEAD) return this.layOutFarmstead(v, now);
     const q = this.quarterOf(v, piece);
     const w = q?.pieces[0];
     if (!q || !w) {
@@ -2450,6 +2472,81 @@ export class MineflayerWorld implements WorldAdapter {
     }
     this.setChore(v, agent, 'grow', [st], `lay out the public work ${piece}`, (why) => this.projectFailed(v, piece, why));
     console.log(`[work] ${v.name}: ${agent.name} lays out the public work ${piece}${names.length > 1 ? ` with ${names.slice(1).join(', ')}` : ''} (${q.units} units) on ${q.size}x${q.size}`);
+  }
+
+  /**
+   * s39 tier 3 (MC_NEED_WORKS; spec_needworks_v2 B3): what a farmstead would be now, or null with the reason logged once
+   * a change: the food flow short for the hold, no farm slot left to start (the slots answer first), none under way, the
+   * cooldown since the last; its house the first small house growth would pick, on the pad padFor sizes for a field and
+   * two slots.
+   */
+  private farmsteadPlan(v: Village): { house: string; size: number; units: number; why: string } | null {
+    if (!NEED_WORKS || !appetiteOn(v)) return null;
+    const layouts = v.layouts ?? [];
+    const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
+    // (with neighbourhood farms off a slot takes only a kind no other slot farms: once all are farmed, none is startable)
+    const startable = GROW_FARMS || farmed.size < SLOT_ORDER.length;
+    // (and only while the menus can start one: "nothing seen to farm" left a free slot that held the farmstead back, s39's Won)
+    const why = this.startSeen.get(v.name);
+    const menuCan = !why || /^(busy|free slots taken)$/.test(why);
+    const free = startable && menuCan ? layouts.flatMap((l) => l.slots ?? []).filter((q) => !q.annex && !q.kind && (q.tries ?? 0) < 3).length : 0;
+    const underWay = v.growth?.active?.project === PROJECT_FARMSTEAD || this.voting.get(v.name)?.options.some((o) => o.id === PROJECT_FARMSTEAD) === true;
+    const due = farmsteadDue(v.foodFlow, free, underWay);
+    const log = (why: string) => {
+      if (this.farmsteadLogged.get(v.name) !== why) console.log(`[needwork] ${v.name}: no farmstead offered (${why})`);
+      this.farmsteadLogged.set(v.name, why);
+    };
+    if (!due.due) {
+      if (v.foodFlow?.short) log(due.why);
+      return null;
+    }
+    const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
+    const pick = pickHouses(v, 1, lib, (d) => this.materialTasks(d, d.name).units ?? 0);
+    const pad = pick.length ? padFor([v.designs[pick[0]]].filter(Boolean), 2) : null;
+    if (!pad) {
+      log('no small house design');
+      return null;
+    }
+    this.farmsteadLogged.set(v.name, '');
+    const r = foodflowReading(v.foodFlow, storedPoints(storageContents(v)));
+    return { house: pick[0], size: pad.size, units: Math.round(HOUSE_UNITS * 0.6), why: r?.text ?? 'food short' };
+  }
+
+  private farmsteadLogged = new Map<string, string>();
+  /** The last menu's word on starting a farm slot, by village: '' when one was offered, else the reason none was. */
+  private startSeen = new Map<string, string>();
+
+  /** A farmstead from vote to layout: the neighbourhood path with one house, a field and two slots (public work's rules). */
+  private layOutFarmstead(v: Village, now: number) {
+    const g = (v.growth ??= { past: [] });
+    const fs = this.farmsteadPlan(v);
+    if (!fs) {
+      delete g.work;
+      this.villages.save();
+      return;
+    }
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    if (!agent) return;
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('lay_out_houses', { chore: true, houses: fs.house, options: `${fs.size}:1:2`, project: PROJECT_FARMSTEAD });
+    } catch (e) {
+      console.log(`[needwork] ${v.name}: lay_out_houses not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    // (a failure backs off as a public work's, but a farmstead is never refused for good: the land's fault, not the work's)
+    this.setChore(v, agent, 'grow', [st], 'lay out a farmstead', (why) => {
+      if (why === 'cancelled') return;
+      delete g.work;
+      g.projectFails = (g.projectFails ?? 0) + 1;
+      g.projectBackoff = Date.now() + 5 * 60000 * g.projectFails;
+      this.villages.save();
+      console.log(`[needwork] ${v.name}: the farmstead could not be laid out (${why.slice(0, 160)}); projects rest ${5 * g.projectFails} min`);
+    });
+    if (v.foodFlow) v.foodFlow.sinceFarmstead = 0;
+    this.villages.save();
+    console.log(`[needwork] ${v.name}: ${agent.name} lays out a farmstead (${fs.house}, field + 2 slots) on ${fs.size}x${fs.size}: ${fs.why}`);
   }
 
   // ---- s35: initiatives, small works members start and help with (spec runs/2026-10-18/s35/spec_initiatives_v2.md) --------
@@ -2693,6 +2790,8 @@ export class MineflayerWorld implements WorldAdapter {
       const k = this.needOf(v, o, demand);
       if (k) seen.offered.add(k);
     }
+    // (s39: whether a free farm slot could be started, as the menu says: a slot no kind can be found for answers nothing)
+    if (NEED_WORKS) this.startSeen.set(v.name, menu.options.some((o) => o.kind === 'start') ? '' : menu.reasons.start ?? '');
     const direct: Array<[NeedKind, ChoiceKind]> = [['light', 'light'], ['furnish', 'furnish'], ['food', 'eat'], ...(HOUSING ? [['housing', 'grow'] as [NeedKind, ChoiceKind]] : [])];
     for (const [k, kind] of direct) {
       const why = menu.reasons[kind];
@@ -2725,13 +2824,18 @@ export class MineflayerWorld implements WorldAdapter {
       ...(faces && faces.faces ? { mineHeld: faces.held, mineFaces: faces.faces } : {}),
       ...(v.mine && !mineCanGive(v, 'cobblestone') ? { mineBlocked: 'it gives no stone' } : {}),
     });
+    // (s39, MC_NEED_WORKS: the food flow, its level the net drain's share; answered by targets, slots and a farmstead)
+    if (NEED_WORKS && appetiteOn(v)) {
+      const fr = foodflowReading(v.foodFlow, storedPoints(storageContents(v)));
+      if (fr) readings.push({ kind: 'foodflow', level: fr.level, amount: Math.round(fr.level * 100), text: fr.text.slice(0, 80) });
+    }
     this.needReadings.set(v.name, readings);
     const seen = this.needSeen.get(v.name);
     this.needSeen.delete(v.name);
     const states = (v.needStates ??= {});
     let changed = false;
     for (const r of readings) {
-      const answerable = r.kind === 'light' || r.kind === 'furnish' || r.kind === 'food' || (HOUSING && r.kind === 'housing');
+      const answerable = r.kind === 'light' || r.kind === 'furnish' || r.kind === 'food' || r.kind === 'foodflow' || (HOUSING && r.kind === 'housing');
       const prev = states[r.kind];
       const next = stepNeed(prev, r, last === undefined ? 0 : now - last, {
         offered: !!seen?.offered.has(r.kind), taken: !!seen?.taken.has(r.kind),
@@ -5172,6 +5276,7 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
 /** Menu reasons that do not block a need (needNote): another member is on it, this member only, or it is under way. */
 const NOT_BLOCKING = new Set(['busy', 'hungry', 'has a house', 'a street is asked for', 'a layout is being built', 'a vote is under way']);
+const PROJECT_FARMSTEAD = 'farmstead';
 const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
 /** s35: initiatives open at once in a village (MC_INITIATIVES; 0: none), gatherers on one initiative at once, and how
  *  long one waits with no step taken before it lapses. */

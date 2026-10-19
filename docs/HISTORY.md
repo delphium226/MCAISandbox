@@ -283,6 +283,12 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     in the walk (#7, F250: a bot centred in a doorway had 0.0125 of room beside an open door's panel; it now moves into
     the gap's middle). Series s38_on/off and the model-driven Hm38 (busy 41%, s37's Hm 45%). Issue #67 filed (utilisation
     graphs on the panel). Lesson 148 (a plain `git worktree remove` emptied node_modules through a foundry junction).
+53. 2026-10-19 (s39, needs-driven works, food first): measured what runs short (`runs/2026-10-19/s39/measure.md`, F251):
+    at real rates food (supply ~half of demand), not storage, furnaces or iron in hours; the user's direction that
+    villages run for days or weeks, so gauges are rates over long windows. Built behind `MC_NEED_WORKS` (off): a
+    `foodflow` gauge, higher bread and pie targets while short, and a farmstead (house, wheat field, two slots) on the work
+    vote when no farm slot can be started (`needWorks.ts`, `needworks_unit.mts`). Live: Won2 voted and built two
+    farmsteads; busy 17% vs 20% off. Storage and mine works (#3, #8) left for a long run to show their trends.
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

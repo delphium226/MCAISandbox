@@ -7,7 +7,7 @@
  * runs/2026-10-18/s36/spec_needs_v2.md A.
  */
 
-export type NeedKind = 'light' | 'furnish' | 'food' | 'housing' | 'storage' | 'mine';
+export type NeedKind = 'light' | 'furnish' | 'food' | 'housing' | 'storage' | 'mine' | 'foodflow';
 
 /** Plain numbers from the world; a field left undefined means that gauge is not kept. */
 export interface NeedInputs {
@@ -122,5 +122,5 @@ export function needWeight(level: number, trait: number): number {
 
 /** The temperament trait that weighs each need (food care, light diligence, furnish pride; the rest have no answer yet). */
 export const NEED_TRAIT: Record<NeedKind, 'care' | 'diligence' | 'pride'> = {
-  light: 'diligence', furnish: 'pride', food: 'care', housing: 'care', storage: 'diligence', mine: 'diligence',
+  light: 'diligence', furnish: 'pride', food: 'care', housing: 'care', storage: 'diligence', mine: 'diligence', foodflow: 'care',
 };

@@ -532,6 +532,8 @@ export interface Village {
   initiativeN?: number;
   /** N.1 (MC_NEEDS show/on): each need's state, stepped every 30 s by the world (needs.ts NeedState). */
   needStates?: Record<string, import('./needs').NeedState>;
+  /** s39 (MC_NEED_WORKS): food points drained and made per game hour, and the shortness (needWorks.ts). */
+  foodFlow?: import('./needWorks').FoodFlow;
   /** The village's votes (spec_vote1), the last 20, written at the tally only (a vote under way is held in memory). */
   votes?: VoteRecord[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

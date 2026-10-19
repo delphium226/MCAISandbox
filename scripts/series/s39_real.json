@@ -1,0 +1,27 @@
+{
+  "about": "s39 real-rate measure: acceptance speed (scale 1, vanilla crop ticks and digging), appetite on, needs shown, scripted workers, from mv3_grown25, 60 min. Per real hour: food made vs eaten, iron gained vs wanted, storage fill.",
+  "out": "runs/2026-10-19/s39/s39_real",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 90,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "18"
+  },
+  "runs": [
+    {
+      "name": "R60",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 60"
+    }
+  ],
+  "fast": false,
+  "time_scale": 0
+}

@@ -1,0 +1,25 @@
+{
+  "about": "s39 measure-first: appetite on (MC_APPETITE=18), needs shown, from mv3_grown25; 30 min fast. Does food per member fall with today's farms? Where does iron digging go?",
+  "out": "runs/2026-10-19/s39/s39_food1",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "18"
+  },
+  "runs": [
+    {
+      "name": "Fg",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

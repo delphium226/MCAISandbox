@@ -122,6 +122,14 @@ the short version; look here for a check script's arguments, a model detail or w
   burned as fuel). Needs off by default; housing and parts on by default since s38 (`off` in a spec's `server_env` for a
   flag-off run). `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
   `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
+
+- **`MC_NEED_WORKS=on|off`** (s39, off by default; `server/src/needWorks.ts`, spec `runs/2026-10-19/s39/spec_needworks_v2.md`):
+  needs-driven works, food first. A `foodflow` gauge (food points drained vs made per game hour over 2 game-hours,
+  stored food counting wheat and pie inputs; short at 25% behind and < 3 hours left, clear at < 15% or > 6 hours) on
+  the Needs tab; while short, bread and pie targets rise (3 and 1 a member); after `MC_NEED_HOLD_MIN` (30) game-minutes
+  short with no farm slot the menus can start, the work vote offers a **farmstead** (one small house, a 5x7 wheat field,
+  two farm slots; `lay_out_houses ... project=farmstead`), at most one under way and `MC_NEED_COOLDOWN_MIN` (90) after
+  the last. `[needwork]` lines. Needs the appetite and `MC_NEEDS` show or on. Check: `needworks_unit.mts`.
 - **Checks:** `scripts/checks/menu_probe.mts [CHECKPOINT_DIR] [--families ...] [--sweeps N] [--idle all|N] [--stand]
   [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also
   prints the needs), `needs_unit.mts`, `housing.mts`, `parts_unit.mts` (all in check:offline). `run_report.py` adds

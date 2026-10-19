@@ -1,0 +1,28 @@
+{
+  "about": "s39 needs-driven works (food first), MC_NEED_WORKS=on: appetite 60 so the food flow goes short at fast settings, hold 2 / cooldown 10 game-min; from mv3_grown25, 30 min fast. Pair s39_on (world 1) / s39_off (world 2).",
+  "out": "runs/2026-10-19/s39/s39_on",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_COOLDOWN_MIN": "10",
+    "MC_NEED_WORKS": "on"
+  },
+  "runs": [
+    {
+      "name": "Won",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

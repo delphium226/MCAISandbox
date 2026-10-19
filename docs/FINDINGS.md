@@ -1214,3 +1214,13 @@ CLAUDE.md when a phase ends.
   gap the panel leaves (x -1619.45 -> -1619.59, about 0.1 of room each side; a first try that only cleared the panel by
   0.05 failed 10 of 14). The probe again: 14 of 14 walks out, 0 `[stuck]`, 12 `[door]` lines.
 
+- F251 (10-19, s39, issues #1 #9 #8 #3) Needs measured at real rates before building their works (R60, scale 1, vanilla
+  crops, appetite 18): the 25-member village drains ~180-210 food points an hour (112 with everyone idle) and makes
+  ~40-95 (55 of R60's 95 were bread baked from stored wheat); the stored bread covers about an hour. 30-minute fast runs
+  (2x, random ticks 30) hid this: supply ran several times ahead. Storage (41-44% of slots) and the mine (0-2 faces held,
+  2 "no stone" tunnel ends an hour) move over days. Iron: one digger at a time on the iron level, and stairs that never
+  get down on some ground (Hon: 5 trips, 0 iron); demand ends after an iron pickaxe and 1-3 buckets. Built: food first,
+  behind `MC_NEED_WORKS` (spec v2 after an adversarial check that found pies ignored, a field-only layout impossible on
+  the growth path, a second annex broken). Live: the first gate counted a free farm slot the menus could not start
+  ("nothing seen to farm") and held the farmstead back; gated on the menu's own reason, Won2 voted and built two
+  farmsteads, fields planted. Raising the bread and pie targets alone made nothing more (bread is held by wheat grown).
