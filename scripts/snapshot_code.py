@@ -44,7 +44,8 @@ def snapshot():
     dest = OUT / h.hexdigest()[:12]
     if (dest / "CODE.txt").exists():
         return dest
-    tmp = dest.with_name(dest.name + ".tmp")
+    # (a temporary folder of this process's own: two series started at once copied into one and one rename failed, s40)
+    tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     for p in paths:
         q = tmp / p.relative_to(src)
@@ -57,7 +58,12 @@ def snapshot():
     head = git("rev-parse", "--short", "HEAD") if own else "?"
     (tmp / "CODE.txt").write_text(f"commit {head}\nuncommitted {len(dirty)}\n" + "".join(f"  {l}\n" for l in dirty)
                                   + (f"from {src}\n" if src != ROOT else ""), encoding="utf-8")
-    tmp.rename(dest)
+    try:
+        tmp.rename(dest)
+    except OSError:
+        if not (dest / "CODE.txt").exists():
+            raise
+        shutil.rmtree(tmp, ignore_errors=True)
     return dest
 
 

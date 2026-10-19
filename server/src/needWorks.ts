@@ -1,15 +1,15 @@
 /**
  * Needs-driven works (s39, #1 #9; spec runs/2026-10-19/s39/spec_needworks_v2.md): the food flow, food points drained and
  * made per game hour over a rolling window, and what answers it in tiers by size (higher make targets, the free farm
- * slots, a farmstead on the work vote). World-free and pure: the world adds the flows (mcWorld.ts appetiteTick), reads
+ * slots, a farmstead laid out beside the work vote). World-free and pure: the world adds the flows (mcWorld.ts appetiteTick), reads
  * the gauge in needTick and wires the answers. Behind MC_NEED_WORKS.
  */
 import { FOOD_POINTS, foodPoints } from './appetite';
 
 type Counts = Record<string, number>;
 
-/** MC_NEED_WORKS: on (1, true) or off (the default until the batch holds). */
-export const NEED_WORKS = /^(on|1|true)$/i.test(process.env.MC_NEED_WORKS ?? 'off');
+/** MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). */
+export const NEED_WORKS = !/^(off|0|false)$/i.test(process.env.MC_NEED_WORKS ?? 'on');
 /** Game minutes the flow must stay short before the farmstead is offered (MC_NEED_HOLD_MIN shortens it for tests). */
 export const HOLD_MIN = Math.max(0, Number(process.env.MC_NEED_HOLD_MIN ?? 30) || 0);
 /** Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). */

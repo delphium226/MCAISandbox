@@ -3732,7 +3732,9 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
     const style = typeof args.style === 'string' && args.style ? args.style : undefined;
     g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: Date.now(), by: a.name, plot, houses: [...lay.buildings], builds, members, before: H, changed: Date.now(), sig: '', ...(style ? { style } : {}), ...(project ? { project } : {}) };
     // (a public work spends the work vote's decision, a neighbourhood the style vote's)
-    if (project) delete g.work;
+    // (a farmstead, laid out beside the vote, spends none: deleting the vote's rest opened another "no new work" vote after
+    // each, s40's Fon)
+    if (project && project !== 'farmstead') delete g.work;
     else delete g.next;
     delete g.tries;
     delete g.noSite;

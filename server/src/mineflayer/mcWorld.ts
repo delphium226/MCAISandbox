@@ -2307,9 +2307,8 @@ export class MineflayerWorld implements WorldAdapter {
       const n = Math.min(GROW.batch, without);
       if (without >= 2 && GROW.on && !g.stop && this.growClaimers(v).length) out.push({ id: PROJECT_HOUSES, name: 'A street of houses for members without one', facts: `${without} of ${M} members have no house; up to ${GROW.batch} houses near the village, each with its owner's name on its sign`, current: false, novel: false, units: Math.round(n * HOUSE_UNITS * 0.6), volume: n * 300 });
     }
-    // (s39 tier 3, MC_NEED_WORKS: a farmstead while the food flow stays short and no farm slot is left to start)
-    const fs = this.farmsteadPlan(v);
-    if (fs) out.push({ id: PROJECT_FARMSTEAD, name: 'A farmstead: a wheat field and two farm slots', facts: `${fs.why}; one small house with a 5x7 wheat field and two farm slots near the storage hut`.slice(0, 200), current: false, novel: false, units: fs.units, volume: 300 });
+    // (s39's farmstead is no option here since s40: it is laid out beside the vote, projectTick, so it wins no vote a
+    // public work would have)
     const rested = !!g.work && !g.work.piece;
     if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
     return out;
@@ -2456,6 +2455,9 @@ export class MineflayerWorld implements WorldAdapter {
   /** A public work from vote to layout (spec_x2 5): the piece's design into the village's, its pad, the layout chore. */
   private projectTick(v: Village, now: number) {
     if (!this.projectDue(v, now)) return;
+    // (s40, MC_NEED_WORKS: a farmstead due is laid out beside the vote, before the next one opens; one voted or under way
+    // goes first. In s39 it was a vote option and won votes the larger quarters would have, Won2's busy 17% vs 20%)
+    if (!this.voting.get(v.name) && !v.growth?.work?.piece && this.farmsteadPlan(v)) return this.layOutFarmstead(v, now);
     const piece = this.projectFor(v, now);
     if (!piece) return;
     const g = (v.growth ??= { past: [] });
@@ -2533,15 +2535,12 @@ export class MineflayerWorld implements WorldAdapter {
   /** The last menu's word on starting a farm slot, by village: '' when one was offered, else the reason none was. */
   private startSeen = new Map<string, string>();
 
-  /** A farmstead from vote to layout: the neighbourhood path with one house, a field and two slots (public work's rules). */
+  /** A farmstead to layout (beside the vote since s40): the neighbourhood path with one house, a field and two slots (public work's rules). */
   private layOutFarmstead(v: Village, now: number) {
     const g = (v.growth ??= { past: [] });
     const fs = this.farmsteadPlan(v);
-    if (!fs) {
-      delete g.work;
-      this.villages.save();
-      return;
-    }
+    // (the vote's record, g.work, is the vote's own: a farmstead beside it leaves it be, s40)
+    if (!fs) return;
     const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
     const agent = this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
     if (!agent) return;
@@ -2555,7 +2554,6 @@ export class MineflayerWorld implements WorldAdapter {
     // (a failure backs off as a public work's, but a farmstead is never refused for good: the land's fault, not the work's)
     this.setChore(v, agent, 'grow', [st], 'lay out a farmstead', (why) => {
       if (why === 'cancelled') return;
-      delete g.work;
       g.projectFails = (g.projectFails ?? 0) + 1;
       g.projectBackoff = Date.now() + 5 * 60000 * g.projectFails;
       this.villages.save();

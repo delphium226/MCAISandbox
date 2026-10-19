@@ -123,12 +123,13 @@ the short version; look here for a check script's arguments, a model detail or w
   flag-off run). `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
   `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
 
-- **`MC_NEED_WORKS=on|off`** (s39, off by default; `server/src/needWorks.ts`, spec `runs/2026-10-19/s39/spec_needworks_v2.md`):
+- **`MC_NEED_WORKS=on|off`** (s39, on by default since s40; `server/src/needWorks.ts`, spec `runs/2026-10-19/s39/spec_needworks_v2.md`):
   needs-driven works, food first. A `foodflow` gauge (food points drained vs made per game hour over 2 game-hours,
   stored food counting wheat and pie inputs; short at 25% behind and < 3 hours left, clear at < 15% or > 6 hours) on
   the Needs tab; while short, bread and pie targets rise (3 and 1 a member); after `MC_NEED_HOLD_MIN` (30) game-minutes
-  short with no farm slot the menus can start, the work vote offers a **farmstead** (one small house, a 5x7 wheat field,
-  two farm slots; `lay_out_houses ... project=farmstead`), at most one under way and `MC_NEED_COOLDOWN_MIN` (90) after
+  short with no farm slot the menus can start, the Mayor (or an idle member) lays out a **farmstead** beside the work
+  vote (s40; in s39 it was a vote option): one small house, a 5x7 wheat field, two farm slots (`lay_out_houses ...
+  project=farmstead`), before the next vote opens, never over one voted; at most one under way and `MC_NEED_COOLDOWN_MIN` (90) after
   the last. `[needwork]` lines. Needs the appetite and `MC_NEEDS` show or on. Check: `needworks_unit.mts`.
 - **Utilisation graphs** (#67, s39): the agent server samples who is busy every 5 s (an action running, as
   `autonomy_metrics.py`'s BusyClock counts it) into 1-minute bins, a day kept an agent in memory

@@ -57,7 +57,8 @@ a checkbox in PLAN.md.
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
   build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37), `MC_NEEDS=off|show|on`,
-  `MC_HOUSING=off`, `MC_PARTS=off` (Phase N; needs off by default, housing and parts on since s38; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
+  `MC_HOUSING=off`, `MC_PARTS=off`, `MC_NEED_WORKS=off` (Phase N; needs off by default, housing and parts on since s38,
+  need works since s40; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
   `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.

@@ -1224,3 +1224,13 @@ CLAUDE.md when a phase ends.
   the growth path, a second annex broken). Live: the first gate counted a free farm slot the menus could not start
   ("nothing seen to farm") and held the farmstead back; gated on the menu's own reason, Won2 voted and built two
   farmsteads, fields planted. Raising the bread and pie targets alone made nothing more (bread is held by wheat grown).
+
+- F252 (10-19, s40, issues #1 #9) Farmsteads beside the vote, not on it: as a vote option (s39's Won2) a farmstead won
+  votes the quarters would have (busy 17% vs 20%). Laid out by the Mayor or an idle member when due, before the next
+  vote opens and never over one voted, it still cost a vote cycle at first (Fon: 3 public works vs Foff's 6): the layout
+  deleted `g.work`, the vote's rest record, so the next vote offered "no new public work" again and won it. Kept for a
+  farmstead, Fon2 built 4 public works and 2 farmsteads, food went short and back, busy 21% vs 19% off. The third
+  farmstead found no free 19x19 site within 80 blocks (it backs off as a public work: 5 min a failure, projects stop
+  after 3; a farmstead failure counting against public works is a leftover). `MC_NEED_WORKS` is on by default since.
+  Also: two series started at once raced in `snapshot_code.py` (one temp folder, one rename refused): a temp folder a
+  process now.
