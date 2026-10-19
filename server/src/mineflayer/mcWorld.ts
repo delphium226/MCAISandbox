@@ -42,6 +42,7 @@ import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
+import { UtilClock, type UtilView } from '../utilisation';
 import { NEED_WORKS, addFlow, farmsteadDue, foodTarget, foodflowReading, madePoints, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
@@ -1404,6 +1405,21 @@ export class MineflayerWorld implements WorldAdapter {
     return f.members;
   }
 
+  /** #67: who is busy, every 5 s, as the runs' BusyClock counts it (an action running), for the panel's graphs. */
+  private util = new UtilClock();
+  private utilAt = 0;
+  private utilTick() {
+    const now = Date.now();
+    if (now - this.utilAt < 5000) return;
+    this.utilAt = now;
+    this.util.sample(now, [...this.agents.values()].map((a) => ({ name: a.name, busy: !!a.current?.status })));
+  }
+
+  /** #67: busy shares over time (overall and per agent), the last `points` points of `binMin` minutes. */
+  utilisation(binMin: number, points: number): UtilView {
+    return this.util.view(Date.now(), binMin, points);
+  }
+
   /** When the appetite last drained (wall ms; 0: not yet), the reference bot's world age then, and the last periodic save. */
   private appetiteAt = 0;
   private ageRef: { name: string; age: number } | null = null;
@@ -1609,6 +1625,7 @@ export class MineflayerWorld implements WorldAdapter {
     } catch (e) {
       console.error('[food] appetite check failed:', e);
     }
+    this.utilTick();
     try {
       this.endChoices();
     } catch (e) {

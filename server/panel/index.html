@@ -127,6 +127,15 @@
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
   /* Simple mode: the village at a glance */
   body.simple .detailed-only { display: none !important; }
+  /* #67: utilisation graphs */
+  .util-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+  .util-head .chip.on { border-color: var(--accent); color: var(--accent); }
+  .util-chart { display: block; width: 100%; height: 80px; background: var(--panel-2); border-radius: 4px; }
+  .util-spark { display: block; width: 240px; max-width: 100%; height: 24px; background: var(--panel-2); border-radius: 3px; }
+  .util-area { fill: color-mix(in srgb, var(--accent) 35%, transparent); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .util-grid { stroke: var(--line); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+  .util-axis { display: flex; justify-content: space-between; }
+  .util-line { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
   body:not(.simple) .simple-only { display: none !important; }
   .progress { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 12px; }
   .progress i { display: block; height: 100%; background: var(--good); }
@@ -478,6 +487,7 @@ function renderAgent(a) {
       <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
       ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
       ${choiceLine(a)}
+      ${utilLine(a.name)}
       ${a.persona ? `<div class="sub clamp" title="its temperament (A.3p), shown in its chore menus">${esc(a.persona)}</div>` : ''}
     </div>
     ${appetiteBar(a)}
@@ -1737,6 +1747,7 @@ function simpleVillage(v, agents) {
           : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
           ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(words(n))}</span>`).join('')}</div></div>` : ''}
         </div>
+        ${utilCard(agents.map((a) => a.name))}
         ${villageLife(v)}
         ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
       </div>
@@ -1877,6 +1888,72 @@ function keepDesigns(d) {
     v.designs = designCache.get(v.name) || {};
   }
 }
+// ---- #67: utilisation, the busy share over time as the runs' "busy %" counts it (an action running), from /api/utilisation ----
+const UTIL_SPANS = [[1, 'last hour'], [6, '6 hours'], [24, '24 hours']];
+let util = null;
+let utilBin = Number(store.get('panel.utilBin', 1)) || 1;
+async function refreshUtil() {
+  if (paused) return;
+  try { util = await api(`/api/utilisation?bin=${utilBin}&points=60`); } catch { util = null; }
+}
+/** Per point, the mean of the rows' shares that are not null (members seen alike: the village's busy share). */
+function utilMean(rows) {
+  if (!rows.length) return [];
+  return rows[0].map((_, i) => {
+    const xs = rows.map((r) => r[i]).filter((x) => x != null);
+    return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+  });
+}
+/** The share over the series' seen points (null when none). */
+function utilAvg(series) {
+  const xs = series.filter((x) => x != null);
+  return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+}
+/** An area chart of shares 0..1, gaps where nothing was seen. */
+function utilSvg(series, w, h, cls) {
+  const n = series.length;
+  if (!n) return '';
+  const x = (i) => (n === 1 ? w / 2 : (i * w) / (n - 1)), y = (v) => h - v * h;
+  let d = '', run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const pts = run.map(([i, v]) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    d += `M${x(run[0][0]).toFixed(1)},${h} L${pts.join(' L')} L${x(run[run.length - 1][0]).toFixed(1)},${h} Z `;
+    run = [];
+  };
+  series.forEach((v, i) => (v == null ? flush() : run.push([i, Math.max(0, Math.min(1, v))])));
+  flush();
+  return `<svg class="${cls}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="busy share over time">
+    <line x1="0" x2="${w}" y1="${h / 2}" y2="${h / 2}" class="util-grid"/><path d="${d}" class="util-area"/></svg>`;
+}
+const pctText = (v) => (v == null ? 'n/a' : `${Math.round(100 * v)}%`);
+/** The simple view's card: the village's members busy over time, with the span chips. */
+function utilCard(names) {
+  if (!util) return '';
+  const rows = names.map((n) => util.agents[n]).filter(Boolean);
+  if (!rows.length) return '';
+  const series = utilMean(rows);
+  const span = UTIL_SPANS.find(([b]) => b === util.binMin)?.[1] || `${util.binMin * 60} min`;
+  const chips = UTIL_SPANS.map(([b, label]) => `<button class="chip${b === utilBin ? ' on' : ''}" data-utilbin="${b}">${label}</button>`).join('');
+  return `<div class="card"><div class="label">How busy the members are</div>
+    <div class="util-head"><b>${pctText(utilAvg(series))}</b> <span class="sub">busy over the ${esc(span)} (an action running; ${util.binMin} min a point)</span><span class="spacer"></span>${chips}</div>
+    ${utilSvg(series, 600, 80, 'util-chart')}
+    <div class="util-axis sub"><span>${new Date(util.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>now</span></div></div>`;
+}
+/** The detailed view's line in an agent's card: its busy share over time. */
+function utilLine(name) {
+  const row = util?.agents?.[name];
+  if (!row) return '';
+  return `<div class="util-line"><span class="sub">busy ${pctText(utilAvg(row))} over ${util.binMin * 60 >= 120 ? `${util.binMin} h` : 'the last hour'}</span>${utilSvg(row, 240, 24, 'util-spark')}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-utilbin]');
+  if (!b) return;
+  utilBin = Number(b.dataset.utilbin) || 1;
+  store.set('panel.utilBin', utilBin);
+  refreshUtil().then(() => lastData && render(lastData));
+});
+
 async function refresh() {
   if (paused) return;
   try {
@@ -1941,6 +2018,8 @@ refreshHeader();
 refresh();
 setInterval(refresh, 2000);
 setInterval(refreshHeader, 5000);
+refreshUtil();
+setInterval(refreshUtil, 30000); // #67: the busy history changes by the minute
 refreshMaps();
 setInterval(refreshMaps, 2000);
 setTimeout(refreshWorldAtlas, 1500);

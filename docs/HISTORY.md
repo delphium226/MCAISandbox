@@ -289,6 +289,8 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     `foodflow` gauge, higher bread and pie targets while short, and a farmstead (house, wheat field, two slots) on the work
     vote when no farm slot can be started (`needWorks.ts`, `needworks_unit.mts`). Live: Won2 voted and built two
     farmsteads; busy 17% vs 20% off. Storage and mine works (#3, #8) left for a long run to show their trends.
+    Then #67: utilisation graphs on the panel (`utilisation.ts`, `/api/utilisation`; the village's busy share in the
+    simple view, each agent's in the detailed view), agreeing with BusyClock (21% vs 20%).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

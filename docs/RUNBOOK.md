@@ -130,6 +130,11 @@ the short version; look here for a check script's arguments, a model detail or w
   short with no farm slot the menus can start, the work vote offers a **farmstead** (one small house, a 5x7 wheat field,
   two farm slots; `lay_out_houses ... project=farmstead`), at most one under way and `MC_NEED_COOLDOWN_MIN` (90) after
   the last. `[needwork]` lines. Needs the appetite and `MC_NEEDS` show or on. Check: `needworks_unit.mts`.
+- **Utilisation graphs** (#67, s39): the agent server samples who is busy every 5 s (an action running, as
+  `autonomy_metrics.py`'s BusyClock counts it) into 1-minute bins, a day kept an agent in memory
+  (`server/src/utilisation.ts`); `GET /api/utilisation?bin=MIN&points=N` gives the overall and per-agent shares. The
+  panel's simple view has a "How busy the members are" card per village (last hour, 6 or 24 hours), the detailed view a
+  line in each agent's card. Check: `utilisation_unit.mts`.
 - **Checks:** `scripts/checks/menu_probe.mts [CHECKPOINT_DIR] [--families ...] [--sweeps N] [--idle all|N] [--stand]
   [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also
   prints the needs), `needs_unit.mts`, `housing.mts`, `parts_unit.mts` (all in check:offline). `run_report.py` adds

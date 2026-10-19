@@ -252,6 +252,12 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     res.end(body);
     return true;
   }
+  // #67: busy shares over time for the panel's graphs (?bin= minutes a point, ?points=)
+  if (url.pathname === '/api/utilisation') {
+    if (!w.utilisation) return sendJson(res, 404, { error: 'this world keeps no utilisation' }), true;
+    const bin = Number(url.searchParams.get('bin') ?? 1), points = Number(url.searchParams.get('points') ?? 60);
+    return sendJson(res, 200, w.utilisation(bin, points)), true;
+  }
   // The full last calls of one agent, for the panel's "what the executor / planner saw" tabs
   const calls = /^\/api\/agents\/([^/]+)\/calls$/.exec(url.pathname);
   if (calls) {

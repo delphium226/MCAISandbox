@@ -204,6 +204,8 @@ export interface WorldAdapter {
   choices?(agent: WorldAgent): ChoiceMenu | null;
   /** N.1: a village's needs (MC_NEEDS show/on), with each need's state and line; null for an unknown village. */
   needsView?(village: string): { village: string; mode: 'off' | 'show' | 'on'; needs: Record<string, import('./needs').NeedState & { text: string }> } | null;
+  /** #67: busy shares over time, overall and per agent (utilisation.ts), the last `points` points of `binMin` minutes. */
+  utilisation?(binMin: number, points: number): import('./utilisation').UtilView;
   /** A2: run one option (checked again against a fresh menu); the chore is queued and logged. Never throws (D9). */
   runChoice?(agent: WorldAgent, id: string, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string };
   /** A2: the panel's compact line and the last full decision (cached fields; never builds a menu, C10). */

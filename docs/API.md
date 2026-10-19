@@ -9,6 +9,7 @@ example. The control panel's own routes (`/api/agents/:name/thoughts`, `/mind`, 
 |---|---|---|
 | POST | `/api/agents` `{name, role?, brain?, position?, memory?, gamemode?, reset?}` | Spawn an agent (`memory` sets its initial memory; `gamemode` is `survival` or `creative`; in Minecraft, `reset` clears its saved inventory and position) |
 | GET | `/api/agents` | List agents |
+| GET | `/api/utilisation?bin=1&points=60` | Busy shares over time (#67): `{binMin, start, overall[], agents{name: []}, total}`, each point busy / seen time in `bin` minutes, null where unseen |
 | GET | `/api/agents/:name/observe?radius=16` | Observation: position, health, food, inventory, visible blocks (counts and nearest), nearby entities, current action, recent events |
 | POST | `/api/agents/:name/act` `{action, ...args, replace?}` (or an array) | Queue skills |
 | POST | `/api/agents/:name/stop` | Cancel the current and queued actions |
