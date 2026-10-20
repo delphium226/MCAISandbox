@@ -1,0 +1,47 @@
+{
+  "id": "trade",
+  "title": "Trading with the merchant: a trade skill by command, with lib:sell and lib:buy (spec_shop_v2)",
+  "brief": "Add a foundry skill `trade` to the real-Minecraft world (Mineflayer), so a village member trades with the village's merchant: it sells the village's goods for emeralds, or buys with emeralds what a peaceful world cannot give (string, bone, gunpowder, fishing rods...). The merchant already exists in code (read server/src/merchant.ts: OFFERS, MerchantOffer, BUYS, SELLS; and in server/src/mineflayer/mcWorld.ts only these methods: merchantTick, sellKeep, merchantPick, emeraldKeep, merchantTraded, and `merchant?:` in server/src/village.ts): the world summons a villager named Merchant in the village's first market stall (tags mcai_merchant and villageTag(village)), keeps `v.merchant` = {stall, x, y, z, uses, restockAt, ledger}, restocks it, and picks what to trade (merchantPick). An offer with dir 'buys' is one the merchant buys (the member gives `n` of `item` and gets `emeralds` emeralds); 'sells' is one it sells (the member gives `emeralds` emeralds and gets `n` of `item`). Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (McSkill: check + run), tool (ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, pick, holds)); list it in foundry/list.ts (one import, one entry, after fish); edit no other table. THE SKILL `trade`, arguments: item (the offer's item id), dir ('sell': the member sells item to the merchant; 'buy': the member buys item), times (how many times the offer, 1..8, default 1), x, y, z (optional: the merchant's cell, given by the adapter; default v.merchant's). Steps: the member's village (a.village()) and its merchant record (none: fail 'no merchant in this village: a market stall must stand first'); the offer = OFFERS index whose item is `item` and whose dir is 'buys' for dir 'sell' and 'sells' for dir 'buy' (none: fail naming what the merchant buys and sells); stock left = offer.stock - (v.merchant.uses[index] ?? 0) (fewer than times: fail 'the merchant has only N left of that offer until its restock at HH:MM' from v.merchant.restockAt); walk within 3 blocks of the merchant's cell with the project's walk helpers (mcUtil reach/walk, which keep the pathfinder off village work, lesson 30); confirm the merchant stands there by RCON (`execute if entity @e[type=minecraft:villager,tag=mcai_merchant,tag=<villageTag>,x=..,y=..,z=..,distance=..4]`; absent: fail 'the merchant is not at its stall (it comes back within a minute)'). THE TRADE IS BY COMMAND, charged to the member's inventory on the server as builds are (never Mineflayer's villager window: window clicks are unreliable on this server version, lesson 4): the input is `item` x n*times for a sale, emerald x emeralds*times for a purchase; count it on the server first (a.world.rcon.count(name, item)); fewer than needed: fail with what it has and what it needs ('has 12 birch_log, the trade takes 32: withdraw more from storage'); take it with a.world.rcon.take(name, item, need, before) (it returns how many it took: if fewer than need, give those back with rcon.give and fail); give the output with a.world.rcon.give(name, outputItem, outputCount); then call `await a.world.merchantTraded(v, index, times, a.name)` (it records uses, the ledger and the offers on the entity); then syncInventory (mcUtil). Result message: 'traded with the merchant: sold 32 birch_log for 2 emerald (stock left 6)' or 'bought 2 string for 1 emerald (...)'. Failure messages say what is short and what to do next (lesson 127). The skill must accept anything it is passed (missing args, a merchant record missing fields, RCON answers lost: lesson 104), and never place or dig a block. THE ACTIVITY ADAPTER: place(ctx) = the village's merchant cell {x, y, z} (no record: {why: 'no merchant'}); holds(v) = ['merchant'] (one member at the stall at a time); pick(ctx) (ctx.spec is the library spec's id): for 'lib:sell', `ctx.agent.world.merchantPick(ctx.village, 'buys', ctx.spare, () => 0)` and on success return {args: {item, dir: 'sell', times}, needs: {[item]: n*times}, gives: ['emerald'], facts: 'sells N item for E emeralds; the merchant buys it while storage holds more than it keeps'}; for 'lib:buy', the keep of each sold item is LIBRARY_KEEP (library.ts) except fishing_rod 2: `merchantPick(ctx.village, 'sells', ctx.spare, keepOf)` and on success {args: {item, dir: 'buy', times}, needs: {emerald: emeralds*times}, gives: [item], facts: 'buys N item for E emeralds; storage holds S of the K kept'}; a {why} passes through; never throws (catch and return {why: 'nothing to trade'}). THE LIBRARY SPECS (read server/src/library.ts): server/library/sell.json {\"id\": \"lib:sell\", \"name\": \"Sell goods to the merchant\", \"skill\": \"trade\", \"gives\": [{\"item\": \"emerald\", \"consumer\": \"trade\"}], \"effect\": (at most 160 characters: the village's surplus becomes emeralds that buy what the land cannot give)} and server/library/buy.json {\"id\": \"lib:buy\", \"name\": \"Buy from the merchant\", \"skill\": \"trade\", \"gives\": [each item of SELLS, with \"consumer\": \"build\" for string, bone, gunpowder, slime_ball, ink_sac, spider_eye, ender_pearl and none for fishing_rod], \"effect\": (string, bones, gunpowder and fishing rods a peaceful world cannot give)}. THE LIVE CHECK scripts/checks/trade.py (Python 3, standard library only, in the style of scripts/checks/fish.py and shear.py; never default to the main world: if MCAI_API is not set, exit 2). The foundry restores checkpoint mv3_sto1end (village B25x2, complete, with market stalls) and starts the agent server with MC_MERCHANT=on and MC_MERCHANT_RESTOCK=2 before it runs the check. The check: read the village from GET /api/village/B25x2 (its initiatives: the first built market_stall gives the merchant's cell x, y+1, z-1); remove any agent Gus; spawn Gus beside the stall (brain idle, gamemode survival, reset true, memory {\"village\": \"B25x2\", \"villageRole\": \"worker\"}) so the village's tick runs, and right away queue `wait 1` so it is not idle; wait up to 3 minutes for the merchant (RCON `execute if entity @e[type=minecraft:villager,tag=mcai_merchant]` passes; print where); record the blocks of a box around the stall (radius 6, ground-2 to ground+4, 'execute if block' or /api/block); give Gus 32 birch_log by RCON; act `trade item birch_log dir sell times 2` (replace true) and wait for action_done/action_failed (3 minutes); verify on the server: Gus has 0 birch_log and 2 emerald more than before; then act `trade item string dir buy times 1`: Gus has 2 string and 1 emerald fewer; then `trade item string dir buy times 5` with 1 emerald must fail with a message saying what it has and needs; verify exactly one merchant entity exists (count from 'execute if entity' 'count: N'), no 'broke' or 'placed' event from Gus and no box cell changed. Clean up (remove Gus) in a finally. Print one line per verification and end with exactly 'TRADE OK' or 'TRADE FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), the rest of mcWorld.ts, the pathfinder's sources.",
+  "read": [
+    "CLAUDE.md",
+    "server/src/merchant.ts",
+    "server/src/mineflayer/foundry/types.ts",
+    "server/src/mineflayer/foundry/list.ts",
+    "server/src/mineflayer/foundry/fish.ts (a foundry skill in the house style: guards, walks, server counts, the adapter)",
+    "server/src/library.ts",
+    "server/src/mineflayer/rcon.ts: only count, take, give",
+    "server/src/mineflayer/mcWorld.ts: only merchantTick, sellKeep, merchantPick, emeraldKeep, merchantTraded (search for them)",
+    "server/src/village.ts: only the `merchant?:` field of Village",
+    "server/src/mineflayer/mcUtil.ts: only walk, reach, sleep, checkAbort, at, num, str, syncInventory",
+    "scripts/checks/fish.py (the style of a live check)",
+    "mc/rcon.py",
+    "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events) and GET /api/village/:name"
+  ],
+  "lessons": [4, 13, 29, 30, 31, 44, 79, 80, 104, 105, 127, 145],
+  "deliver": [
+    "server/src/mineflayer/foundry/trade.ts",
+    "server/src/mineflayer/foundry/list.ts",
+    "server/library/sell.json",
+    "server/library/buy.json",
+    "scripts/checks/trade.py"
+  ],
+  "may_touch": [],
+  "check": {
+    "file": "scripts/checks/trade.py",
+    "args": [],
+    "timeout_min": 12,
+    "pass": "^TRADE OK",
+    "checkpoint": "mv3_sto1end",
+    "env": { "MC_MERCHANT": "on", "MC_MERCHANT_RESTOCK": "2" }
+  },
+  "series": "scripts/foundry/series_base.json",
+  "caps": {
+    "minutes": 45,
+    "turns": 500,
+    "rounds": 3
+  },
+  "model": {
+    "agy": "gemini-4-argon-high",
+    "claude": "claude-opus-5-5"
+  }
+}

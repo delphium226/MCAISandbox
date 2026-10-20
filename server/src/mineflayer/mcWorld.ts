@@ -14,6 +14,7 @@ import { MC_SKILLS } from './mcSkills';
 import { FOUNDRY_SKILLS } from './foundry/list';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
+import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, offersCommands, stallCell, summonCommand, villageTag, type MerchantOffer } from '../merchant';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
@@ -1738,6 +1739,11 @@ export class MineflayerWorld implements WorldAdapter {
         console.error(`[initiative] ${v.name}: check failed:`, e);
       }
       try {
+        if (MERCHANT_ON && v.complete) this.merchantTick(v);
+      } catch (e) {
+        console.error(`[merchant] ${v.name}: check failed:`, e);
+      }
+      try {
         if (HOUSING && v.complete) this.homeTick(v);
       } catch (e) {
         console.error(`[home] ${v.name}: check failed:`, e);
@@ -2888,6 +2894,137 @@ export class MineflayerWorld implements WorldAdapter {
       this.villages.save();
       console.log(`[initiative] ${v.name}: ${it.id} takes ${Object.entries(took).map(([n, q]) => `${q} ${n}`).join(', ')} from storage's surplus`);
     }
+  }
+
+  /** s41: when each village's merchant was last checked, and the checks under way (one RCON round at a time). */
+  private merchantAt = new Map<string, number>();
+  private merchantBusy = new Set<string>();
+
+  /**
+   * The merchant (MC_MERCHANT, spec_shop_v2): once a minute, the village's first built market stall gets a merchant (its
+   * record, then the entity); the entity is summoned only while its chunk is loaded (a check that cannot see it would
+   * summon a second), every one beyond the nearest is removed, and the offers are restocked on their clock.
+   */
+  private merchantTick(v: Village) {
+    const now = Date.now();
+    if ((this.merchantAt.get(v.name) ?? 0) > now || this.merchantBusy.has(v.name)) return;
+    this.merchantAt.set(v.name, now + 60000);
+    if (!v.merchant) {
+      const stall = (v.initiatives ?? []).filter((i) => i.kind === 'market_stall' && i.state === 'built').sort((a, b) => a.at - b.at)[0];
+      if (!stall) return;
+      const c = stallCell(stall);
+      v.merchant = { stall: stall.id, ...c, uses: [], restockAt: now + this.restockMs(), ledger: {} };
+      this.villages.save();
+      console.log(`[merchant] ${v.name}: a merchant comes to ${stall.by}'s market stall (${stall.id}) at ${c.x},${c.y},${c.z}`);
+      this.villages.note(v, `A merchant comes to the market stall at ${c.x},${c.z}: it buys the village's goods and sells what the land cannot give, for emeralds`);
+    }
+    const m = v.merchant;
+    this.merchantBusy.add(v.name);
+    void (async () => {
+      try {
+        const loaded = await this.rcon.command(`execute if loaded ${m.x} ${m.y} ${m.z}`);
+        if (!/passed/i.test(loaded)) return;
+        const sel = `@e[type=minecraft:villager,tag=${MERCHANT_TAG},tag=${villageTag(v.name)}]`;
+        const seen = await this.rcon.command(`execute if entity ${sel}`);
+        const n = Number(/count: (\d+)/.exec(seen)?.[1] ?? (/passed/i.test(seen) ? 1 : 0));
+        if (n === 0) {
+          const r = await this.rcon.command(summonCommand(v.name, m.x, m.y, m.z));
+          if (!/summoned/i.test(r)) throw new Error(`the summon failed: ${r.slice(0, 120)}`);
+          for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
+          console.log(`[merchant] ${v.name}: summoned at ${m.x},${m.y},${m.z}`);
+        } else if (n > 1) {
+          await this.rcon.command(`execute positioned ${m.x} ${m.y} ${m.z} run kill ${sel.replace(']', `,sort=furthest,limit=${n - 1}]`)}`);
+          console.log(`[merchant] ${v.name}: ${n - 1} extra merchant${n > 2 ? 's' : ''} removed`);
+        }
+        if (Date.now() >= m.restockAt) {
+          m.uses = [];
+          m.restockAt = Date.now() + this.restockMs();
+          for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
+          this.villages.save();
+          console.log(`[merchant] ${v.name}: restocked (next in ${Math.round(this.restockMs() / 60000)} min)`);
+        }
+      } catch (e) {
+        console.error(`[merchant] ${v.name}: RCON failed:`, (e as Error).message);
+      } finally {
+        this.merchantBusy.delete(v.name);
+      }
+    })();
+  }
+
+  private restockMs(): number {
+    return (MERCHANT_RESTOCK_MIN * 60000) / timeScale();
+  }
+
+  /**
+   * What storage keeps of a good before the merchant may have it (the check's F3): the workshop's target and a batch, the
+   * food target (no food at all while the food flow is short), wheat for bread (3 a missing bread) and its own keep, logs
+   * the logs' keep and 64 for initiatives' bills; anything else 16.
+   */
+  sellKeep(v: Village, item: string, store: Counts = storageContents(v)): number {
+    const goods = this.goodsFor(v);
+    const g = goods.find((x) => x.item === item);
+    if (g?.food) return v.foodFlow?.short ? Infinity : this.makeTarget(v, g) + g.batch;
+    if (g) return this.makeTarget(v, g) + g.batch;
+    if (item === 'wheat') {
+      const bread = goods.find((x) => x.item === 'bread');
+      const missing = bread ? Math.max(0, this.makeTarget(v, bread) - (store.bread ?? 0)) : 0;
+      return v.foodFlow?.short ? Infinity : this.foodKeep(v, 'wheat', store) + 3 * missing;
+    }
+    if (/_log$/.test(item)) return this.logsKeep(v) + 64;
+    return 16;
+  }
+
+  /**
+   * The merchant's offer a member would take now (spec_shop_v2's lib:sell and lib:buy, picked in code): selling, the good
+   * storage holds most above its sellKeep (in whole lots, at most `maxTimes`) among those the merchant still buys; buying,
+   * the sold item furthest below its keep (`keepOf`) that storage's spare emeralds pay for. With the offer's index in OFFERS
+   * and the times; or why there is none.
+   */
+  merchantPick(v: Village, dir: 'buys' | 'sells', spare: Counts, keepOf: (item: string) => number, maxTimes = 4): { offer: MerchantOffer; index: number; times: number } | { why: string } {
+    const m = v.merchant;
+    if (!MERCHANT_ON || !m) return { why: 'no merchant' };
+    const store = storageContents(v);
+    let best: { offer: MerchantOffer; index: number; times: number; score: number } | null = null;
+    for (const [i, o] of OFFERS.entries()) {
+      if (o.dir !== dir) continue;
+      const left = o.stock - (m.uses[i] ?? 0);
+      if (left <= 0) continue;
+      if (dir === 'buys') {
+        const over = (spare[o.item] ?? 0) - this.sellKeep(v, o.item, store);
+        const times = Math.min(left, maxTimes, Math.floor(over / o.n));
+        if (times >= 1 && (!best || over > best.score)) best = { offer: o, index: i, times, score: over };
+      } else {
+        const short = keepOf(o.item) - (store[o.item] ?? 0);
+        const times = Math.min(left, maxTimes, Math.ceil(short / o.n), Math.floor((spare.emerald ?? 0) / o.emeralds));
+        if (short > 0 && times >= 1 && (!best || short > best.score)) best = { offer: o, index: i, times, score: short };
+      }
+    }
+    if (!best) return { why: dir === 'buys' ? 'nothing above its keep the merchant buys' : (spare.emerald ?? 0) ? 'nothing wanted' : 'no emeralds' };
+    // (selling stops once storage holds what buying would spend: emeralds nobody spends are a surplus too, lesson 149)
+    if (dir === 'buys' && (store.emerald ?? 0) >= this.emeraldKeep(v, keepOf, store)) return { why: 'enough emeralds' };
+    return { offer: best.offer, index: best.index, times: best.times };
+  }
+
+  /** The emeralds storage keeps for buying: what the sold items below their keep would cost, at least 4 (spec_shop_v2). */
+  emeraldKeep(v: Village, keepOf: (item: string) => number, store: Counts = storageContents(v)): number {
+    let e = 0;
+    for (const o of OFFERS) if (o.dir === 'sells') e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
+    return Math.max(4, e);
+  }
+
+  /** A trade done (the trade skill's call, after it charged both sides on the server): the offer's uses on the record and
+   *  the entity, the ledger, a line. */
+  async merchantTraded(v: Village, index: number, times: number, member: string): Promise<void> {
+    const m = v.merchant, o = OFFERS[index];
+    if (!m || !o) return;
+    m.uses[index] = (m.uses[index] ?? 0) + times;
+    const l = (m.ledger[o.item] ??= { bought: 0, sold: 0 });
+    if (o.dir === 'buys') l.bought += o.n * times;
+    else l.sold += o.n * times;
+    this.villages.save();
+    console.log(`[merchant] ${v.name}: ${member} ${o.dir === 'buys' ? `sells ${o.n * times} ${o.item} for ${o.emeralds * times} emerald` : `buys ${o.n * times} ${o.item} for ${o.emeralds * times} emerald`}${o.emeralds * times === 1 ? '' : 's'}`);
+    const sel = `@e[type=minecraft:villager,tag=${MERCHANT_TAG},tag=${villageTag(v.name)},limit=1]`;
+    await this.rcon.command(`data modify entity ${sel} Offers.Recipes[${index}].uses set value ${Math.min(o.stock, m.uses[index])}`).catch(() => '');
   }
 
   private initiativeTick(v: Village) {
@@ -4381,14 +4518,31 @@ export class MineflayerWorld implements WorldAdapter {
           why.push('busy');
           continue;
         }
-        if (Object.entries(sp.needs ?? {}).some(([n, q]) => (spare[n] ?? 0) < q)) {
-          why.push('needs short');
-          continue;
-        }
+        // (a spec that picks in code, the merchant's: its needs and gives from the pick, no keep of its own; spec_shop_v2)
         const keep = this.libraryKeep(v, sp);
         const stock = sp.gives.reduce((s, g) => s + (store[g.item] ?? 0), 0);
-        if (stock >= keep) {
+        let needs: Counts = sp.needs ?? {}, gives = sp.gives.map((g) => g.item), pickArgs: Record<string, unknown> = {}, pickFacts = '';
+        if (f.activity.pick) {
+          let p: ReturnType<NonNullable<typeof f.activity.pick>>;
+          try {
+            p = f.activity.pick({ village: v, agent: a, hut, spare, spec: sp.id });
+          } catch {
+            p = { why: 'nothing to trade' };
+          }
+          if ('why' in p) {
+            why.push(p.why);
+            continue;
+          }
+          needs = p.needs;
+          gives = p.gives ?? gives;
+          pickArgs = p.args;
+          pickFacts = p.facts ?? '';
+        } else if (stock >= keep) {
           why.push('at keep');
+          continue;
+        }
+        if (Object.entries(needs).some(([n, q]) => (spare[n] ?? 0) < q)) {
+          why.push('needs short');
           continue;
         }
         let place: Record<string, unknown>;
@@ -4411,17 +4565,17 @@ export class MineflayerWorld implements WorldAdapter {
           why.push('busy');
           continue;
         }
-        const count = sp.count ? Math.max(1, Math.min(sp.count.max, keep - stock)) : 0;
-        const args = { ...(sp.args ?? {}), ...place, ...(sp.count ? { [sp.count.arg]: count } : {}) };
-        const gives = sp.gives.map((g) => `${g.item}${g.consumer ? ` (${g.consumer})` : ''}`).join(', ');
+        const count = sp.count && !f.activity.pick ? Math.max(1, Math.min(sp.count.max, keep - stock)) : 0;
+        const args = { ...(sp.args ?? {}), ...place, ...pickArgs, ...(count ? { [sp.count!.arg]: count } : {}) };
+        const giveWords = sp.gives.filter((g) => gives.includes(g.item)).map((g) => `${g.item}${g.consumer ? ` (${g.consumer})` : ''}`).join(', ') || gives.join(', ');
         add({
           id: key, kind: 'activity', key, holds, excludes: [`${key}=`, ...holds.map((h) => `${h}=`)], name: sp.name, rank: 870 + Math.min(r, 9),
           ...(typeof place.x === 'number' && typeof place.z === 'number' ? { at: { x: place.x, y: typeof place.y === 'number' ? place.y : hut?.y ?? 64, z: place.z } } : {}),
-          facts: `gives ${gives}; ${stock} of the ${keep} kept are in storage${sp.needs ? `; takes ${countsText(sp.needs)} from storage and puts the tools back` : ''}; ${record('activity')}${others('activity', key)}${lastOf('activity', key)}`,
-          effect: `${sp.count ? `up to ${count} ` : ''}${sp.gives.map((g) => g.item.replace(/_/g, ' ')).join(' or ')}: ${sp.effect}`,
-        }, { kind: 'activity', spec: sp, args, count, stock, keep });
+          facts: `${pickFacts ? `${pickFacts}; ` : `gives ${giveWords}; ${stock} of the ${keep} kept are in storage`}${Object.keys(needs).length ? `; takes ${countsText(needs)} from storage${Object.keys(needs).some((n) => TOOL.has(n)) ? ' and puts the tools back' : ''}` : ''}; ${record('activity')}${others('activity', key)}${lastOf('activity', key)}`,
+          effect: `${count ? `up to ${count} ` : ''}${gives.map((g) => g.replace(/_/g, ' ')).join(' or ')}: ${sp.effect}`,
+        }, { kind: 'activity', spec: sp, args, count, stock, keep, needs, gives });
       }
-      if (!out.some((o) => o.kind === 'activity')) reasons.activity = ['needs short', 'no place', 'busy', 'at keep'].find((w) => why.includes(w)) ?? 'none loaded';
+      if (!out.some((o) => o.kind === 'activity')) reasons.activity = ['needs short', 'no place', 'busy', 'at keep'].find((w) => why.includes(w)) ?? why[0] ?? 'none loaded';
     }
 
     // N.2 (MC_HOUSING): a houseless member's first preference, a street of houses of its own starting (H3)
@@ -4921,14 +5075,17 @@ export class MineflayerWorld implements WorldAdapter {
         // tools, the check's F7; a failed skill still runs the deposits, as gathering's collect then deposit)
         const sp = d.spec;
         const st: ActionStatus[] = [];
-        const needs = Object.entries(sp.needs ?? {});
+        const needs = Object.entries(d.needs);
         for (const [n, q] of needs) st.push(worker.enqueue('withdraw', { item: n, count: q, chore: true }));
         st.push(worker.enqueue(sp.skill, { ...d.args, chore: true }));
-        const items = sp.gives.map((g) => g.item);
+        const items = d.gives;
         const also = [...items.slice(1), ...(sp.also ?? [])];
         const depAt = st.length;
         st.push(worker.enqueue('deposit', { item: items[0], ...(also.length ? { also: also.join(',') } : {}), chore: true }));
         for (const [n] of needs) if (TOOL.has(n)) st.push(worker.enqueue('deposit', { item: n, chore: true }));
+        // (and what the skill did not use of the other needs: a trade cut short leaves goods in hand, the shop check's F2)
+        const back = needs.map(([n]) => n).filter((n) => !TOOL.has(n) && !items.includes(n));
+        if (back.length) st.push(worker.enqueue('deposit', { item: back[0], ...(back.length > 1 ? { also: back.slice(1).join(',') } : {}), ifAny: true, chore: true }));
         this.setChore(v, worker, opt.key, st, sp.name.toLowerCase(), undefined, meta, opt.holds, opt);
         const c = this.chores.get(worker.name.toLowerCase());
         if (c) c.choice.activity = { id: sp.id, items, depAt };
@@ -5538,7 +5695,7 @@ type OptionRun =
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number }
-  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number };
+  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
 /** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks

@@ -396,6 +396,8 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // put in by name with the material (a miner kept the coal and raw iron it dug, lesson 112; S.9's review, lens 4 L3)
   const also = new Set(typeof args.also === 'string' ? args.also.split(',').map((s) => s.trim()).filter(Boolean) : []);
   const m = also.size ? { test: (n: string) => m0.test(n) || also.has(n), label: m0.label } : m0;
+  // (`ifAny`, code's only: a put-back that is fine with nothing to put back, s41's activities)
+  if (args.ifAny === true && !a.bot.inventory.items().some((it) => m.test(it.name))) return `deposited 0 (nothing to put back)`;
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
   const carried = () => {
     const out = new Map<number, { name: string; count: number }>();

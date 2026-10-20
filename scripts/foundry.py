@@ -642,12 +642,12 @@ def agent_log_of(reset_text):
     return p if p.is_absolute() else ROOT / p
 
 
-def reset_world(code_from, logfile, checkpoint=None):
+def reset_world(code_from, logfile, checkpoint=None, env=None):
     cmd = [PY, "scripts/reset_site.py", "minevale3"] + (["--checkpoint", checkpoint] if checkpoint else [])
     # (the snapshot the reset must start: snapshot_code.py names it by a hash of code_from's files)
     want = subprocess.run([PY, "scripts/snapshot_code.py"], cwd=ROOT, env=world_env(MCAI_CODE_FROM=code_from),
                           capture_output=True, text=True).stdout.strip()
-    code, text = run(cmd, ROOT, world_env(MCAI_CODE_FROM=code_from), logfile, 600)
+    code, text = run(cmd, ROOT, world_env(MCAI_CODE_FROM=code_from, **(env or {})), logfile, 600)
     snap = re.search(r"code snapshot (\S+)", text)
     if code != 0 or not snap:
         return None, f"reset_site failed (exit {code})", tail(text)
@@ -657,7 +657,10 @@ def reset_world(code_from, logfile, checkpoint=None):
 
 
 def gate_live(t, wt, out):
-    agentlog, why, detail = reset_world(wt, out / "live_reset.txt")
+    # (a ticket's check may start from a checkpoint, and the agent server with its own settings: the trade check's village
+    # with a market stall and MC_MERCHANT=on, s41)
+    chk0 = t["check"]
+    agentlog, why, detail = reset_world(wt, out / "live_reset.txt", chk0.get("checkpoint"), chk0.get("env"))
     if not agentlog:
         return False, why, detail
     chk = t["check"]

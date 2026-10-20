@@ -10,13 +10,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type minecraftData from 'minecraft-data';
 import { UNOBTAINABLE } from './mineflayer/mcMaterials';
+import { obtainableHere } from './merchant';
 
 type Registry = ReturnType<typeof minecraftData>;
 
 /** Who uses what an activity gives: members' meals (food), the houses' furniture (furnish), designs' bills (build),
- *  lighting (light), the furnaces (fuel). */
-export type Consumer = 'food' | 'furnish' | 'build' | 'light' | 'fuel';
-export const CONSUMERS: Consumer[] = ['food', 'furnish', 'build', 'light', 'fuel'];
+ *  lighting (light), the furnaces (fuel), the merchant's trades (trade: emeralds, s41). */
+export type Consumer = 'food' | 'furnish' | 'build' | 'light' | 'fuel' | 'trade';
+export const CONSUMERS: Consumer[] = ['food', 'furnish', 'build', 'light', 'fuel', 'trade'];
 
 export interface LibrarySpec {
   /** 'lib:fish'. */
@@ -67,7 +68,8 @@ function check(s: LibrarySpec, ctx: { registry: Registry; skills: Set<string>; i
   if (typeof s.skill !== 'string' || !ctx.skills.has(s.skill)) errs.push(`skill "${s.skill}" is not a foundry skill with an activity`);
   const item = (n: unknown, what: string) => {
     if (typeof n !== 'string' || !reg.itemsByName[n]) errs.push(`${what} ${String(n)} does not exist`);
-    else if (UNOBTAINABLE[n]) errs.push(`${what} ${n}: ${UNOBTAINABLE[n]}`);
+    // (what a peaceful world lacks is obtainable while the merchant sells it, the shop check's F1)
+    else if (!obtainableHere(n, UNOBTAINABLE)) errs.push(`${what} ${n}: ${UNOBTAINABLE[n]}`);
   };
   for (const [k, v] of Object.entries(s.args ?? {})) {
     if (!ARG.test(k)) errs.push(`argument ${k} is not a name`);
@@ -82,7 +84,7 @@ function check(s: LibrarySpec, ctx: { registry: Registry; skills: Set<string>; i
     item(n, 'need');
     if (!Number.isInteger(q) || q < 1 || q > 64) errs.push(`need ${n}: ${q} is not a whole number in 1..64`);
   }
-  if (!Array.isArray(s.gives) || !s.gives.length) errs.push('gives nothing');
+  if (!Array.isArray(s.gives) || !s.gives.length) errs.push('gives nothing (a spec that picks in code names what it may give)');
   for (const g of Array.isArray(s.gives) ? s.gives : []) {
     item(g?.item, 'give');
     if (g?.consumer !== undefined && !CONSUMERS.includes(g.consumer)) errs.push(`consumer "${g.consumer}" is unknown`);
