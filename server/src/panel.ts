@@ -32,6 +32,7 @@ import { neighbourhoodNames } from './placeNames';
 import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
 import { TEMPERAMENT_MODE, kindWeights, personaOf, temperament } from './temperament';
+import { MERCHANT_ON, OFFERS } from './merchant';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -141,6 +142,22 @@ function foodView(v: Village) {
   return { food: { points: foodPoints(store), items: foodItems(store), meals: f.meals, made: f.made, eaten: f.eaten, used: f.used ?? {}, hungry: by('hungry'), peckish: by('peckish'), members: f.members } };
 }
 
+/** s41's merchant for the Market card and the Trade tab: where it stands, the restock, every offer with its uses and stock
+ *  (OFFERS' order), what members traded and the emeralds in storage (~2 kB). Null while it has not come (or MC_MERCHANT is
+ *  off: `on` says which). */
+function marketView(v: Village) {
+  const m = v.merchant;
+  let emeralds = 0;
+  for (const c of v.storage?.chests ?? []) emeralds += c.items.emerald ?? 0;
+  if (!m) return { market: MERCHANT_ON ? { on: true, here: false, emeralds } : null };
+  return {
+    market: {
+      on: MERCHANT_ON, here: true, stall: m.stall, x: m.x, y: m.y, z: m.z, restockAt: m.restockAt, emeralds, ledger: m.ledger,
+      offers: OFFERS.map((o, i) => ({ item: o.item, n: o.n, emeralds: o.emeralds, dir: o.dir, stock: o.stock, uses: Math.min(o.stock, m.uses[i] ?? 0) })),
+    },
+  };
+}
+
 /** Phase N's needs for the village card's tab (spec_needs_v2): kind -> level, status, line and minutes above LOW
  *  (~100 bytes a need; /api/needs has the full state). Null with MC_NEEDS off or no view, and the tab says so. */
 function needsSummary(w: WorldAdapter, village: string) {
@@ -183,7 +200,7 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     rest.runMs = w.villages.age(v);
     // (#10: each neighbourhood's name by layout number, an old village's worked out as it will be stored)
     const hoodNames = Object.fromEntries(neighbourhoodNames(v));
-    return send ? { ...rest, ...foodView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), choices, vote, needGauges, hoodNames };
+    return send ? { ...rest, ...foodView(v), ...marketView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), choices, vote, needGauges, hoodNames };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

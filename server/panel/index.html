@@ -789,6 +789,22 @@ function renderVillage(v) {
     body = list(its, (it) => det(`ini:${v.name}:${it.id}`, `<b>${esc(it.by)}'s ${esc(String(it.kind).replace(/_/g, ' '))}</b> <span class="state" style="--c:${it.state === 'built' ? 'var(--done)' : it.state === 'open' ? 'var(--accent)' : 'var(--muted)'}">${esc(it.state)}</span> <span class="sub">${esc(it.id)}, ${ago(it.at)} ago, crew ${esc(it.crew.join(', '))}${it.end ? `, ${Math.round((it.end - it.at) / 6000) / 10} min` : ''}${it.why && it.state !== 'built' ? `: ${esc(it.why)}` : ''}</span>`,
       `<div class="sub mono">${it.pending ? 'its green being prepared' : `${it.x},${it.y},${it.z}`} ${esc(it.design)}</div><ul class="list">${(it.steps || []).map((q) => `<li><b>${esc(q.agent)}</b> ${esc(q.what)} <span class="sub">${ago(q.at)} ago</span></li>`).join('') || '<li class="sub">no step yet</li>'}</ul>`));
   }
+  // (s41: the merchant's offers with their stock left, and the ledger)
+  else if (tab === 'trade') {
+    const m = v.market;
+    if (!m) body = '<div class="empty">The merchant is off (MC_MERCHANT=off)</div>';
+    else if (!m.here) body = `<div class="empty">No merchant yet: it comes to the first market stall built. Storage holds ${plural(m.emeralds, 'emerald')}.</div>`;
+    else {
+      const { sold, bought } = ledgerTotals(m);
+      body = `<div class="sub">merchant at <span class="mono">${m.x},${m.y},${m.z}</span> in stall ${esc(m.stall)}; ${esc(restockText(m))}; storage ${plural(m.emeralds, 'emerald')}</div>
+        <table><thead><tr><th>Offer</th><th>Price</th><th>Left</th><th>Traded</th></tr></thead><tbody>${(m.offers || []).map((o) => {
+          const l = (m.ledger || {})[o.item];
+          const n = l ? (o.dir === 'buys' ? l.bought : l.sold) : 0;
+          return `<tr><td>${o.dir === 'buys' ? 'buys' : 'sells'} <b>${esc(words(o.item))}</b></td><td class="mono">${esc(offerWords(o))}</td><td>${stockBar(o)}</td><td class="mono">${n || ''}</td></tr>`;
+        }).join('')}</tbody></table>
+        <div class="sub">sold to it: ${sold.length ? sold.map(([n, l]) => `${l.bought} ${esc(words(n))}`).join(', ') : 'nothing'}; bought from it: ${bought.length ? bought.map(([n, l]) => `${l.sold} ${esc(words(n))}`).join(', ') : 'nothing'}</div>`;
+    }
+  }
   // (Phase N: each need's level with marks at LOW 0.25 and HIGH 0.6, its status and line, highest first)
   else if (tab === 'needs') {
     const ns = Object.entries(v.needGauges?.kinds || {}).sort((x, y) => y[1].level - x[1].level);
@@ -813,13 +829,13 @@ function renderVillage(v) {
     <div class="card-head"><span class="name">${esc(v.name)}</span>
       <span class="sub">${esc(v.objective || '')}</span><span class="spacer"></span>
       ${v.complete ? '<span class="state" style="--c:var(--done)">complete</span>' : ''}</div>
-    <div class="stats left">${stat(`${builds.filter((t) => t.status === 'done').length}/${builds.length}`, 'buildings')}${stat(count('open'), 'open')}${stat(count('claimed'), 'claimed')}${stat(count('done'), 'done')}${stat(count('failed'), 'failed', count('failed') ? ' bad' : '')}${stat(chests.length, 'chests')}${v.runMs != null ? `<div class="stat" title="How long the village has been running (time with an agent server holding it)"><b>${span(v.runMs)}</b><span>age</span></div>` : ''}</div>
+    <div class="stats left">${stat(`${builds.filter((t) => t.status === 'done').length}/${builds.length}`, 'buildings')}${stat(count('open'), 'open')}${stat(count('claimed'), 'claimed')}${stat(count('done'), 'done')}${stat(count('failed'), 'failed', count('failed') ? ' bad' : '')}${stat(chests.length, 'chests')}${v.market ? stat(v.market.emeralds, 'emeralds') : ''}${v.runMs != null ? `<div class="stat" title="How long the village has been running (time with an agent server holding it)"><b>${span(v.runMs)}</b><span>age</span></div>` : ''}</div>
     ${v.choices ? `<div>${choicesChip(v)}</div>` : ''}
     ${(() => { const fd = villageFood(v); return fd ? `<div class="sub" title="the village appetite: food in storage in points, meals eaten, members at 6 of 20 or below">food ${esc(foodText(fd))}; ${esc(foodSub(fd))}</div>` : ''; })()}
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], ['log', 'Log']])}
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }
@@ -1613,8 +1629,38 @@ function buildingStates(v) {
 const STOCK = [
   ['Building', [['logs', (n) => /_log$/.test(n)], ['planks', (n) => /_planks$/.test(n)], ['cobblestone', (n) => n === 'cobblestone'], ['sand', (n) => n === 'sand'], ['glass', (n) => /^glass(_pane)?$/.test(n)]]],
   ['Food and farm', [['wheat', (n) => n === 'wheat'], ['seeds', (n) => /_seeds$/.test(n)], ['bread', (n) => n === 'bread'], ['eggs', (n) => /egg$/.test(n)], ['milk', (n) => n === 'milk_bucket'], ['cake', (n) => n === 'cake'], ['pumpkin pie', (n) => n === 'pumpkin_pie'], ['carrots', (n) => n === 'carrot'], ['potatoes', (n) => /^(baked_)?potato$/.test(n)], ['sugar cane', (n) => n === 'sugar_cane'], ['pumpkins', (n) => n === 'pumpkin'], ['melon', (n) => /^melon(_slice)?$/.test(n)]]],
+  ['Fish and trade', [['emeralds', (n) => n === 'emerald'], ['raw fish', (n) => /^(cod|salmon|pufferfish|tropical_fish)$/.test(n)], ['cooked fish', (n) => /^cooked_(cod|salmon)$/.test(n)], ['fishing rods', (n) => n === 'fishing_rod'], ['string', (n) => n === 'string'], ['bones', (n) => n === 'bone'], ['gunpowder', (n) => n === 'gunpowder']]],
   ['Tools and metal', [['raw iron', (n) => n === 'raw_iron'], ['iron ingots', (n) => n === 'iron_ingot'], ['coal', (n) => /^(coal|charcoal)$/.test(n)], ['buckets', (n) => n === 'bucket'], ['iron tools', (n) => /^iron_(pickaxe|axe|shovel|hoe|sword)$/.test(n)]]],
 ];
+/** s41's merchant: an offer in words ("16 birch logs for 1 emerald"), its stock left as a small bar, and the ledger. */
+const offerWords = (o) => (o.dir === 'buys' ? `${o.n} ${words(o.item)} → ${plural(o.emeralds, 'emerald')}` : `${plural(o.emeralds, 'emerald')} → ${o.n} ${words(o.item)}`);
+const stockBar = (o) => {
+  const left = Math.max(0, o.stock - (o.uses || 0)), pct = o.stock ? Math.round((left / o.stock) * 100) : 0;
+  return `<span style="white-space:nowrap"><span title="${left} of ${o.stock} left until the restock" style="position:relative;display:inline-block;width:46px;height:7px;vertical-align:middle;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden"><span style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:${left ? 'var(--accent)' : 'var(--muted)'}"></span></span> <span class="sub">${left}/${o.stock}</span></span>`;
+};
+const restockText = (m) => (m.restockAt ? (m.restockAt > Date.now() ? `restocks in ${span(m.restockAt - Date.now())}` : 'restocking') : '');
+function ledgerTotals(m) {
+  const e = Object.entries(m.ledger || {});
+  const sold = e.filter(([, l]) => l.bought > 0).sort((x, y) => y[1].bought - x[1].bought), bought = e.filter(([, l]) => l.sold > 0).sort((x, y) => y[1].sold - x[1].sold);
+  return { sold, bought };
+}
+/** The simple view's Market card: the merchant (or why there is none), emeralds, what it buys and sells, what was traded. */
+function marketCard(v) {
+  const m = v.market;
+  if (!m) return '';
+  if (!m.here) return `<div class="card"><div class="label">Market</div><div class="empty">No merchant yet: one comes once a market stall stands (members build them as their own projects). Storage holds ${plural(m.emeralds, 'emerald')}.</div></div>`;
+  const buys = (m.offers || []).filter((o) => o.dir === 'buys'), sells = (m.offers || []).filter((o) => o.dir === 'sells');
+  const { sold, bought } = ledgerTotals(m);
+  const row = (o) => `<li><span>${esc(offerWords(o))}</span> ${stockBar(o)}</li>`;
+  return `<div class="card"><div class="label">Market</div>
+      <div class="sub">The merchant stands in the market stall at <span class="mono">${m.x},${m.z}</span>; ${esc(restockText(m))}. Storage holds <b>${plural(m.emeralds, 'emerald')}</b>.</div>
+      <div class="vgrid" style="margin-top:6px"><div class="col"><div class="sub">It buys</div><ul class="list">${buys.map(row).join('')}</ul></div>
+        <div class="col"><div class="sub">It sells</div><ul class="list">${sells.map(row).join('')}</ul></div></div>
+      <div class="section"><div class="label">Traded so far</div>${sold.length || bought.length
+        ? `<div class="mats">${sold.map(([n, l]) => `<span title="sold to the merchant"><b>${l.bought}</b> ${esc(words(n))} sold</span>`).join('')}${bought.map(([n, l]) => `<span title="bought from the merchant"><b>${l.sold}</b> ${esc(words(n))} bought</span>`).join('')}</div>`
+        : '<div class="empty">nothing yet</div>'}</div>
+    </div>`;
+}
 /** What the village does after its buildings: the field, farms, pens, the iron age, lamps and signs. */
 function villageLife(v) {
   const items = [], streets = [];
@@ -1749,6 +1795,7 @@ function simpleVillage(v, agents) {
         </div>
         ${utilCard(agents.map((a) => a.name))}
         ${villageLife(v)}
+        ${marketCard(v)}
         ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
       </div>
       <div class="col">
