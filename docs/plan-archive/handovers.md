@@ -3,6 +3,29 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-20 during the fortieth session (s40); updated at its close)
+
+- **Done in s40, on `tiered-brain-building`, not merged into main:** s39's three commits pushed (10-19, the user's).
+  `3d13ddd` (not pushed): farmsteads laid out beside the work vote, not on it, and `MC_NEED_WORKS` **on by default**
+  (the user's, 10-19; F252); `snapshot_code.py`'s race between two series. `c060267` (not pushed): **field works**, a
+  5x7 wheat field on its own 9x9 pad (`lay_out_field`) when the food flow stays short and no farm slot is left; planted
+  by its own chore, not board tasks (after completion only growth's workers claim those); farmsteads behind
+  `MC_NEED_FARMSTEAD` (off). Spec `runs/2026-10-20/s40/spec_fields_v1.md` and its check (F254). Uncommitted, under
+  test: **the re-ask** (a model pick another member took meanwhile is asked once more on a fresh menu, PLAN E.4's rule;
+  `reaskOf` on choice records, a `reask` drop for the first).
+- **Night40 (10-19, the user's overnight model run, F253):** ended at 92 min by the PC's shutdown. Three limits for a
+  village meant to run for days: land (no 19x19 site left within 80 blocks; 34 free 9x9 squares, hence field works),
+  work (busy ~14%, menus with 24 idle and nothing feasible), and model choices lost to contention (103 of 149 taken by
+  another member first, hence the re-ask). Runs: Fon/Fon2/Foff (farmsteads beside the vote), Fld1 (4 fields, 14
+  harvests, food made 655 vs eaten 450), Rsk1 (the re-ask, model-driven, 30 min).
+- **The user's direction:** villages run for days or weeks; judge needs by rates over long windows, prefer assumptions to
+  multi-hour measuring runs (10-19); no long real-rate run for now (10-20).
+- **Next:** settle the re-ask from Rsk1 (kept picks up, taken down, few extra calls) and commit; then **idle members**:
+  storage and mine works (#3, #8) as needs-driven works, their gauges first as trends (slots used per hour, faces left,
+  "no stone" tunnel ends per hour), following the food mechanism (gauge -> tiered answers -> cooldown). Leftovers: a
+  farmstead failure still counts against public works; a field and a neighbourhood can survey at the same moment.
+- **Stack:** test world 1 up (Rsk1's servers from a snapshot); test 2, test 3 and main down. Checkpoints unchanged.
+
 (written 2026-10-19 at the close of the thirty-ninth session (s39); the next session's prompt is
 `runs/2026-10-19/NEXT_PROMPT_s40.md`)
 

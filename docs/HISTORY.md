@@ -291,6 +291,13 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     farmsteads; busy 17% vs 20% off. Storage and mine works (#3, #8) left for a long run to show their trends.
     Then #67: utilisation graphs on the panel (`utilisation.ts`, `/api/utilisation`; the village's busy share in the
     simple view, each agent's in the detailed view), agreeing with BusyClock (21% vs 20%).
+54. 2026-10-19/20 (s40, settling needs-driven works, then land, the mine and storage): farmsteads beside the vote and
+    `MC_NEED_WORKS` on by default (F252); the user's overnight model run Night40 (92 min, ended by the PC's shutdown)
+    found three limits (F253): no land for farmsteads, answered by field works on 9x9 pads (F254); model choices lost
+    to contention, answered by one re-ask (kept 64% vs 32%, F255); the mine near a cap that counted the whole mine,
+    answered by a cap per level and a mine trend gauge (F256). Storage: initiatives take storage's surplus first, six
+    barrels in the hut, a tidy-up chore (F257); busy fell 18% -> 13% with the surplus fix (the user kept it). Six
+    commits, not pushed. Next: the work supply.
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

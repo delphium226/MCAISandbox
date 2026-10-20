@@ -581,3 +581,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    the repo's, and a plain `git worktree remove` deleted through it and emptied the main checkout's node_modules (the
    typecheck failed with "tsc is not recognized"); `foundry.py --cleanup` removes the junction first. `npm ci` restored
    it in 9 s (patch-package reapplies the patches). Before deleting a folder, look for junctions and symlinks in it.
+149. **Removing waste can remove the work** (s40, F257): initiatives taking storage's surplus instead of gathering cut
+   storage growth by 40% and busy from 18% to 13%, because those gathering trips were much of what idle members did.
+   Count busy before and after any efficiency fix in the after phase, and say so when a fix trades work for waste.
+150. **After completion, only growth's workers claim board tasks** (s40, the field spec's check): `isGrowTask` goes by a
+   task's number since the active neighbourhood's first, not by its poster, so a task posted outside growth stays open
+   or is closed by a neighbourhood's end. Work after completion runs as a chore (the field planted by its own chore),
+   and a spec that posts board tasks then must name who claims them.

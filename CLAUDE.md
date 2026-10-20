@@ -17,7 +17,7 @@ a checkbox in PLAN.md.
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 148 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 150 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
