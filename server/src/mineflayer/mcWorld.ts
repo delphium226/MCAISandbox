@@ -2716,7 +2716,8 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
-      (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`)]);
+      (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`),
+      v.tasks.filter((t) => t.status !== 'done' && /^Build /.test(t.title)).length]);
     const old = this.smallBlockedCache.get(v.name);
     if (old?.sig === sig) return old;
     const pad = (q: Area, n: number): Area => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
@@ -2738,6 +2739,13 @@ export class MineflayerWorld implements WorldAdapter {
       if (door) for (let k = 0; k <= 3; k++) blocked.push(cell(door.x + door.ox * k, door.z + door.oz * k, 1));
     }
     for (const q of res) blocked.push(q);
+    // (a building laid out and not built yet, by its Build task's footprint: an initiative took a public work's spot before
+    // its builder reserved it, and both builds failed, s43's Rch4)
+    for (const t of v.tasks) {
+      if (t.status === 'done' || !/^Build /.test(t.title)) continue;
+      const f = /footprint x (-?\d+)\.\.(-?\d+), z (-?\d+)\.\.(-?\d+)/.exec(t.detail);
+      if (f) blocked.push(pad({ x1: Number(f[1]), x2: Number(f[2]), z1: Number(f[3]), z2: Number(f[4]) }, 1));
+    }
     for (const i of v.initiatives ?? []) if (i.state === 'open' && !i.pending) {
       const k = SMALL_WORKS.find((x) => x.kind === i.kind);
       const d = k ? v.designs[i.design] : undefined;

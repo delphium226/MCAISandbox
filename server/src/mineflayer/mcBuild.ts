@@ -81,7 +81,21 @@ const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [
 interface Surface { y: number; block: string; liquid: boolean; trees: number }
 
 function blockName(a: BotAgent, x: number, y: number, z: number): string | null {
-  return a.bot.blockAt(new Vec3(x, y, z))?.name ?? null;
+  const own = a.bot.blockAt(new Vec3(x, y, z))?.name;
+  if (own !== undefined) return own;
+  // (beyond the bot's own chunks, a fellow member's view: s43, lamps and checks 170 blocks from the hut read as missing)
+  const b = a.bot.world.getColumn(x >> 4, z >> 4) ? undefined : peerWith(a, x, z);
+  return b?.bot.blockAt(new Vec3(x, y, z))?.name ?? null;
+}
+
+/** A fellow member of the village that has loaded the column at x, z (s43: with a wider village range, work far from the
+ *  bot's own 8 chunks read as missing ground); undefined when none has. */
+function peerWith(a: BotAgent, x: number, z: number): BotAgent | undefined {
+  const vname = a.village()?.name;
+  if (!vname) return undefined;
+  for (const b of a.world.agents.values())
+    if (b !== a && b.bot?.entity && b.village()?.name === vname && b.bot.world.getColumn(x >> 4, z >> 4)) return b;
+  return undefined;
 }
 
 /**
