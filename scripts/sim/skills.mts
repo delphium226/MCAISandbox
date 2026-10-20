@@ -597,8 +597,47 @@ function prepareSite(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `plot ready: ${W}x${D} centred at x=${cx} z=${cz}, level ground at y=${y} (simulated); placed 0 blocks, cleared 0; kept ${list(kept)} from the felled trees` };
 }
 
+/** light_streets: a layout's lamps, a fence post and a torch each from storage (any wood's fence), the layout lit. */
+function lightStreets(args: Any, c: Ctx): Outcome {
+  const v = c.v, k = Number(args.layout), lay = v.layouts?.[k - 1];
+  if (!lay?.lamps?.length) return { ok: false, message: `light_streets: layout ${k} has no street lamps` };
+  const n = lay.lamps.length;
+  const torches = take(v, 'torch', n);
+  for (const [f, q] of Object.entries(storageContents(v))) if (/_fence$/.test(f) && q > 0) take(v, f, Math.min(q, n));
+  lay.lit = torches === n;
+  return { ok: true, message: `lit ${torches} street lamp${torches === 1 ? '' : 's'} (simulated)` };
+}
+
+/** put_up_signs: a layout's name signs (the one at x, z, or all), a sign each from storage; up when one was there. */
+function putUpSigns(args: Any, c: Ctx): Outcome {
+  const v = c.v, k = Number(args.layout), lay = v.layouts?.[k - 1];
+  const signs = (lay?.signs ?? []).filter((g: Any) => !g.up && !g.never && (args.x === undefined || (g.x === Number(args.x) && g.z === Number(args.z))));
+  let up = 0;
+  for (const g of signs) {
+    const kind = Object.entries(storageContents(v)).find(([n, q]) => /_sign$/.test(n) && q > 0)?.[0];
+    if (!kind) break;
+    take(v, kind, 1);
+    g.up = true;
+    up++;
+  }
+  if (lay?.signs?.length) lay.signed = lay.signs.every((g: Any) => g.up);
+  return { ok: true, message: `put up ${up} sign${up === 1 ? '' : 's'} (simulated)` };
+}
+
+/** make_into_storage: the parts the village makes once (glass panes, glass, torches), from storage by the planner. */
+function makeIntoStorage(args: Any, c: Ctx): Outcome {
+  const v = c.v, item = String(args.item);
+  const want = Math.max(0, (c.w.partsWanted?.(v, item)?.want ?? 0) - (storageContents(v)[item] ?? 0));
+  if (!want) return { ok: true, message: `make_into_storage: the storage holds the ${item} wanted already` };
+  const p = c.w.materials.plan({ [item]: want }, storageContents(v));
+  if (Object.values(p.gather ?? {}).some((q) => (q as number) > 0)) return { ok: false, message: `make_into_storage: ${want} ${item} cannot be made from the village storage yet` };
+  for (const [n, q] of Object.entries(p.fromStock ?? {})) if (n !== item) take(v, n, q as number);
+  put(v, item, want);
+  return { ok: true, message: `made ${want} ${item} into the village storage (simulated)` };
+}
+
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
-  lay_out_houses: layOutHouses, prepare_site: prepareSite,
+  lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

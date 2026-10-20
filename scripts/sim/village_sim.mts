@@ -407,12 +407,6 @@ function finish(a: SimAgent) {
   const s = a.current!.status;
   const model = S.MODELS[s.type];
   actionsRun.set(s.type, (actionsRun.get(s.type) ?? 0) + 1);
-  if (process.env.SIM_DEBUG && !s.args?.chore && s.type === 'collect') {
-    const t = v.tasks.find((q: Any) => q.id === a.brain?.held);
-    const logs = Object.entries(storageContents(v)).filter(([n]) => /_log$/.test(n)).reduce((x, [, q]) => x + (q as number), 0);
-    const open = v.tasks.filter((q: Any) => q.status !== 'done' && /^collect block=logs count=(\d+)/.test(q.detail)).reduce((x: number, q: Any) => x + Number(/count=(\d+)/.exec(q.detail)![1]), 0);
-    errors.push(`${stamp()} DEBUG ${a.name} ${t?.id} "${t?.title}" soft ${t?.soft} after ${JSON.stringify((t?.after ?? []).map((id: string) => `${id}:${v.tasks.find((q: Any) => q.id === id)?.status}`))}; logs in storage ${logs}, open log gathers ${open}`);
-  }
   // (a board task's action, not a chore's: the task brain's)
   if (!s.args?.chore) boardRun.set(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`, (boardRun.get(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`) ?? 0) + 1);
   let out: { ok: boolean; message: string; code?: string };
