@@ -3,6 +3,30 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-19 at the close of the thirty-ninth session (s39); the next session's prompt is
+`runs/2026-10-19/NEXT_PROMPT_s40.md`)
+
+- **Done since s36's close, on `tiered-brain-building`:** s38 `9a185ae` (pushed): workers under first names (#11),
+  neighbourhood names (#10), housing and parts on by default (#2), the doorway trap (#7, F250). s39, **committed, not
+  pushed, not merged into main (the user's, 10-19)**: `5b9b44a` needs-driven works, food first, behind
+  `MC_NEED_WORKS` (off by default): a `foodflow` gauge, raised bread and pie targets while short, a **farmstead** (house,
+  wheat field, two slots) on the work vote when no farm slot can be started (`server/src/needWorks.ts`); `ae30d62`
+  utilisation graphs on the panel (#67, `server/src/utilisation.ts`, `/api/utilisation`). Notes:
+  `runs/2026-10-19/s39/measure.md`, `spec_needworks_v2.md` and its check; F251.
+- **The user's direction (10-19):** villages are meant to run for **days or weeks**: judge needs by rates over long
+  windows at real settings, not by 30-minute fast runs; the user prefers assumptions to multi-hour measuring runs.
+  Hunger keeps its one cost (food work only); a penalty is a later decision.
+- **What s39 measured (R60, real rate):** food supply about half of demand (stored bread ~1 h); storage 41-44% of slots
+  and the mine (2 "no stone" tunnel ends an hour) move over days; iron held by one digger at a time and failed stairs,
+  its demand ending after a pickaxe and buckets. Live: Won2 (flag on, appetite 60) voted and built two farmsteads,
+  fields planted; busy 17% vs 20% off (farmsteads won votes the bigger quarters would have).
+- **Next (open questions for the user):** `MC_NEED_WORKS`'s default; whether farmsteads should be weighed against
+  public works so they do not crowd them out; storage and mine works (#3, #8) once their trends show; pushing s39's two
+  commits. Issues: #1, #9, #8, #3, #67 commented with the commits.
+- **Stack at the close:** test worlds 1 and 2 up with 0 agents (Paper and agent servers from s39's snapshots); main and
+  test 3 down. Checkpoints unchanged (`mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`).
+- **Uncommitted at the close:** nothing of this session's.
+
 (written 2026-10-18 at the close of the thirty-sixth session, which ran sessions s37 (N.2) and the foundry beside it)
 
 - **Done since s35's close (s36 and its two sessions, 10-18), all pushed, `main` fast-forwarded:**

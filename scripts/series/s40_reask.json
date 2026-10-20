@@ -1,0 +1,27 @@
+{
+  "about": "s40 the re-ask (a model pick taken meanwhile asked once more, F253): as Night40 (world 1, 1x, --choose model, needs on, appetite 18, need works on, mv3_grown25), 30 min after. Compare taken / re-ask counts with Night40's first 30 min.",
+  "out": "runs/2026-10-20/s40/s40_reask",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "on",
+    "MC_APPETITE": "18"
+  },
+  "runs": [
+    {
+      "name": "Rsk1",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30 --choose model"
+    }
+  ]
+}

@@ -1252,3 +1252,18 @@ CLAUDE.md when a phase ends.
   prepared clashes with growTaken (re-check before preparing, not after), the field's corners kept within 96 of the
   storage hut before preparing (no orphan plots), `hutLevel` for field records, its own gate outside `projectDue`.
   Fld1 (staged fast, appetite 60): 4 fields, 14 harvests, food made 655 vs eaten 450 points, short -> no longer short.
+
+- F255 (10-20, s40, issues #28) One re-ask for a model pick another member took meanwhile (PLAN E.4's rule) doubles the
+  model decisions that stand: Rsk1 (as Night40, 30 min) kept 65 of 102 (64%) against Night40's first 30 minutes 23 of 73
+  (32%), for about 1.5x the call rows (278 vs 186) and ~2x the cost (~$0.07 a half hour, still ~$0.14 an hour at 25
+  members). Herding persists: 27 of ~50 re-asks were taken again (several members re-asked at once see the same fresh
+  menu). The rest of E.4's rule (in-flight picks shown, options spread across members) would cut it further.
+- F256 (10-20, s40, issues #8 #3) The adversarial check of spec_storage_mine_v1 found the mine near its end, not days
+  away: `MAX_CELLS` (1080) caps the whole mine, not a level (mcMine.ts:25, 529, 535), and Night40's B25x2 had dug 989
+  with all 12 main tunnels used (~182 cells an hour: spent ~30 min after the shutdown); levels 2-3 can never open under
+  the cap. Storage's +39 slots in 92 min were mostly not a trend: 14 slots of surplus logs from initiatives (which
+  gather their own: 916 logs felled, storage birch_log +709), ~16 of fragmentation (the full misc chests spilling into
+  others: packed by kind 83 -> 106), 9 of new kinds. Also: gather and make chores already stop at their targets, so a
+  "hold the overflow" tier holds nothing; the mine gauge vanishes once the mine can give no stone (mineFaces zeros);
+  six free cells in the storage hut could take barrels (+162 slots) with no second hut. The user (10-20): initiatives
+  take storage's surplus above the keep first.

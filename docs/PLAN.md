@@ -34,29 +34,28 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-19 at the close of the thirty-ninth session (s39); the next session's prompt is
-`runs/2026-10-19/NEXT_PROMPT_s40.md`)
+(written 2026-10-20 during the fortieth session (s40); updated at its close)
 
-- **Done since s36's close, on `tiered-brain-building`:** s38 `9a185ae` (pushed): workers under first names (#11),
-  neighbourhood names (#10), housing and parts on by default (#2), the doorway trap (#7, F250). s39, **committed, not
-  pushed, not merged into main (the user's, 10-19)**: `5b9b44a` needs-driven works, food first, behind
-  `MC_NEED_WORKS` (off by default): a `foodflow` gauge, raised bread and pie targets while short, a **farmstead** (house,
-  wheat field, two slots) on the work vote when no farm slot can be started (`server/src/needWorks.ts`); `ae30d62`
-  utilisation graphs on the panel (#67, `server/src/utilisation.ts`, `/api/utilisation`). Notes:
-  `runs/2026-10-19/s39/measure.md`, `spec_needworks_v2.md` and its check; F251.
-- **The user's direction (10-19):** villages are meant to run for **days or weeks**: judge needs by rates over long
-  windows at real settings, not by 30-minute fast runs; the user prefers assumptions to multi-hour measuring runs.
-  Hunger keeps its one cost (food work only); a penalty is a later decision.
-- **What s39 measured (R60, real rate):** food supply about half of demand (stored bread ~1 h); storage 41-44% of slots
-  and the mine (2 "no stone" tunnel ends an hour) move over days; iron held by one digger at a time and failed stairs,
-  its demand ending after a pickaxe and buckets. Live: Won2 (flag on, appetite 60) voted and built two farmsteads,
-  fields planted; busy 17% vs 20% off (farmsteads won votes the bigger quarters would have).
-- **Next (open questions for the user):** `MC_NEED_WORKS`'s default; whether farmsteads should be weighed against
-  public works so they do not crowd them out; storage and mine works (#3, #8) once their trends show; pushing s39's two
-  commits. Issues: #1, #9, #8, #3, #67 commented with the commits.
-- **Stack at the close:** test worlds 1 and 2 up with 0 agents (Paper and agent servers from s39's snapshots); main and
-  test 3 down. Checkpoints unchanged (`mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`).
-- **Uncommitted at the close:** nothing of this session's.
+- **Done in s40, on `tiered-brain-building`, not merged into main:** s39's three commits pushed (10-19, the user's).
+  `3d13ddd` (not pushed): farmsteads laid out beside the work vote, not on it, and `MC_NEED_WORKS` **on by default**
+  (the user's, 10-19; F252); `snapshot_code.py`'s race between two series. `c060267` (not pushed): **field works**, a
+  5x7 wheat field on its own 9x9 pad (`lay_out_field`) when the food flow stays short and no farm slot is left; planted
+  by its own chore, not board tasks (after completion only growth's workers claim those); farmsteads behind
+  `MC_NEED_FARMSTEAD` (off). Spec `runs/2026-10-20/s40/spec_fields_v1.md` and its check (F254). Uncommitted, under
+  test: **the re-ask** (a model pick another member took meanwhile is asked once more on a fresh menu, PLAN E.4's rule;
+  `reaskOf` on choice records, a `reask` drop for the first).
+- **Night40 (10-19, the user's overnight model run, F253):** ended at 92 min by the PC's shutdown. Three limits for a
+  village meant to run for days: land (no 19x19 site left within 80 blocks; 34 free 9x9 squares, hence field works),
+  work (busy ~14%, menus with 24 idle and nothing feasible), and model choices lost to contention (103 of 149 taken by
+  another member first, hence the re-ask). Runs: Fon/Fon2/Foff (farmsteads beside the vote), Fld1 (4 fields, 14
+  harvests, food made 655 vs eaten 450), Rsk1 (the re-ask, model-driven, 30 min).
+- **The user's direction:** villages run for days or weeks; judge needs by rates over long windows, prefer assumptions to
+  multi-hour measuring runs (10-19); no long real-rate run for now (10-20).
+- **Next:** settle the re-ask from Rsk1 (kept picks up, taken down, few extra calls) and commit; then **idle members**:
+  storage and mine works (#3, #8) as needs-driven works, their gauges first as trends (slots used per hour, faces left,
+  "no stone" tunnel ends per hour), following the food mechanism (gauge -> tiered answers -> cooldown). Leftovers: a
+  farmstead failure still counts against public works; a field and a neighbourhood can survey at the same moment.
+- **Stack:** test world 1 up (Rsk1's servers from a snapshot); test 2, test 3 and main down. Checkpoints unchanged.
 
 ## Earlier phases
 
@@ -1184,7 +1183,8 @@ world), its first ticket shearing, then N.4-N.6 (N.6 needs the wool shearing giv
   Checks `housing.mts`, `parts_unit.mts`. Next: the model-driven run's reading (notes.md), then both flags on by default.
 - N.1b **Needs-driven works, food first** (s39, [#1](https://github.com/delphium226/MCAISandbox/issues/1), [#9](https://github.com/delphium226/MCAISandbox/issues/9)): behind `MC_NEED_WORKS` (off): the
   `foodflow` gauge, raised food targets while short, a farmstead on the work vote (`runs/2026-10-19/s39/`: `measure.md`,
-  `spec_needworks_v2.md`). Next: a long real-rate run to see storage and mine trends (#3, #8) and the flag's default.
+  `spec_needworks_v2.md`). s40: on by default; field works on 9x9 pads (`lay_out_field`) in place of farmsteads, which
+  are behind `MC_NEED_FARMSTEAD` (F252-F254). Next: storage and mine works (#3, #8) once their gauges are trends.
 - N.3 **Storage rooms and furnace rooms** ([#3](https://github.com/delphium226/MCAISandbox/issues/3), on hold) as needs-driven works (storage nearly full; smelts queueing), replacing the
   works plot's fixed furnace row; more of either built when the need comes back.
 - N.4 ([#4](https://github.com/delphium226/MCAISandbox/issues/4)) **A growing population without more bots**: vanilla villagers as residents (Paper runs their AI): each needs a

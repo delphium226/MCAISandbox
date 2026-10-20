@@ -3258,6 +3258,7 @@ export class MineflayerWorld implements WorldAdapter {
       ...(position ? { position } : {}), ...(shown ? { shownCount: shown.length } : {}),
       ...(!shown && meta?.shown?.length ? { shownIds: meta.shown } : {}),
       ...(meta?.modelChose ? { modelChose: meta.modelChose, modelReason: meta.modelReason ?? '' } : {}),
+      ...(meta?.reaskOf ? { reaskOf: meta.reaskOf } : {}),
       ...(meta?.decisionId && meta.shown?.length ? { seed: `${meta.decisionId}|${worker.name}` } : {}),
       ...(meta?.model ? { model: meta.model } : {}), ...(meta?.latencyMs !== undefined ? { latencyMs: meta.latencyMs } : {}),
       ...(meta?.waitMs !== undefined ? { waitMs: meta.waitMs } : {}), ...(meta?.queueWaitMs !== undefined ? { queueWaitMs: meta.queueWaitMs } : {}),
@@ -3451,7 +3452,7 @@ export class MineflayerWorld implements WorldAdapter {
    * a fallback) the fresh menu's fixed pick. Inside a sweep the menu is the sweep's (its busy keys); after a reply, an
    * expiry or an API call it holds what heldKeys' async mode holds. Never throws.
    */
-  private runPick(agent: WorldAgent, id: string | null, meta: ChoiceMeta): { ok: true; key: string } | { ok: false; why: string } {
+  private runPick(agent: WorldAgent, id: string | null, meta: ChoiceMeta, reask?: (fresh: ChoiceMenu) => boolean): { ok: true; key: string } | { ok: false; why: string } {
     try {
       const a = this.agents.get(agent.name.toLowerCase());
       const v = a?.village();
@@ -3474,6 +3475,9 @@ export class MineflayerWorld implements WorldAdapter {
       // (checked against the guarded options before the trim: one the trim would cut now is still feasible, spec 6)
       let opt = id ? fresh.feasible.find((o) => o.id === id) : undefined;
       let m = meta;
+      // (s40, F253: a pick taken meanwhile is asked once more on the fresh menu, the plan's E.4 rule; Night40 lost 103 of
+      // 149 model decisions to the fixed pick, several members shown one single-holder option at once)
+      if (id && !opt && reask && fresh.menu.options.length > 1 && reask(fresh.menu)) return drop('reask');
       if (id && !opt) m = { ...meta, source: 'fallback', why: 'taken', reason: 'fixed order', ...(meta.source === 'model' ? { modelChose: id, modelReason: meta.reason } : {}) };
       opt ??= fixedPick(fresh.menu);
       if (!opt) return drop('empty');
@@ -5086,9 +5090,9 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Steps 5-9: the decision queued, the call made, the reply run (or the fixed pick over a fresh menu). Every continuation is
    *  caught (D9): a throw logs `[choice-error]` and releases the agent. */
-  private submitDecision(v: Village, a: BotAgent, menu: ChoiceMenu, call: { decisionId: string; spec: ModelSpec }) {
+  private submitDecision(v: Village, a: BotAgent, menu: ChoiceMenu, call: { decisionId: string; spec: ModelSpec }, reaskOf?: string) {
     const id = a.name.toLowerCase();
-    const p: PendingChoice = { id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu };
+    const p: PendingChoice = { id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu, ...(reaskOf ? { reaskOf } : {}) };
     this.pending.set(id, p);
     this.chooser.submit(a.name, async (queueWaitMs) => {
       try {
@@ -5102,7 +5106,7 @@ export class MineflayerWorld implements WorldAdapter {
         const meta: ChoiceMeta = {
           source: r.id ? 'model' : 'fallback', ...(r.id ? {} : { why: r.why ?? 'error' }), reason: r.id ? r.reason || '(no reason)' : 'fixed order',
           decisionId: p.decisionId, shown: r.shown, model: label(call.spec), latencyMs: r.latencyMs, waitMs: r.waitMs, queueWaitMs,
-          promptTokens: r.promptTokens, outputTokens: r.outputTokens, menu, prompt: r.prompt,
+          promptTokens: r.promptTokens, outputTokens: r.outputTokens, menu, prompt: r.prompt, ...(p.reaskOf ? { reaskOf: p.reaskOf } : {}),
         };
         if (this.agents.get(id) !== a) {
           this.logDrop(p.decisionId, a.name, v.name, this.agents.has(id) ? 'replaced' : 'gone', queueWaitMs, meta, r.id);
@@ -5118,7 +5122,13 @@ export class MineflayerWorld implements WorldAdapter {
           // (the latest model decision chose nothing: no kind to repeat within the gap, the fixed pick goes as 'rate')
           this.lastModelKind.delete(id);
         }
-        this.runPick(a, r.id, meta);
+        // (one re-ask, never a re-ask's re-ask, and only while the budget allows a call)
+        const reask = p.reaskOf ? undefined : (fresh: ChoiceMenu) => {
+          if ((isCloudModel(call.spec.model) && !usage.allows('decisions')) || usage.blocked(call.spec.model, a.name)) return false;
+          this.submitDecision(v, a, fresh, { decisionId: choiceId(v.name), spec: call.spec }, p.decisionId);
+          return true;
+        };
+        this.runPick(a, r.id, meta, reask);
       } catch (e) {
         this.choiceError(p, e);
       }
@@ -5321,6 +5331,8 @@ interface PendingChoice {
   state: 'queued' | 'running';
   menu: ChoiceMenu;
   queueWaitMs?: number;
+  /** A re-ask (s40): the first decision's id; its own pick, if taken too, runs the fixed pick. */
+  reaskOf?: string;
 }
 
 /** What running an option takes, beside the option's data (kept off the option, which stays plain data). */

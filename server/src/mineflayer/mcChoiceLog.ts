@@ -55,6 +55,8 @@ export interface ChoiceRecord {
   /** A model's pick no longer feasible when the reply came ('taken'): the id it chose and its reason. */
   modelChose?: string;
   modelReason?: string;
+  /** A re-ask (s40): the first decision's id, whose pick was taken meanwhile (its record is a 'reask' drop). */
+  reaskOf?: string;
   /** `${decisionId}|${agent}`: the shuffle's seed. */
   seed?: string;
   model?: string;
@@ -97,7 +99,7 @@ export interface ChoiceDrop {
   agent: string;
   village: string;
   t: number;
-  why: 'gone' | 'replaced' | 'no body' | 'busy' | 'task' | 'not complete' | 'empty' | 'error';
+  why: 'gone' | 'replaced' | 'no body' | 'busy' | 'task' | 'not complete' | 'empty' | 'error' | 'reask';
   queueWaitMs?: number;
   /** A decision dropped after its call (the tokens were billed): the call's numbers, and the model's pick and reason when
    *  its reply chose one. */

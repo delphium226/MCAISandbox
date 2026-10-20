@@ -318,6 +318,8 @@ export interface ChoiceMeta {
   /** A model's pick that was no longer feasible when its reply came ('taken'): the id it chose and its reason. */
   modelChose?: string;
   modelReason?: string;
+  /** A re-ask (s40, F253): the first decision's id, whose model pick another member had taken meanwhile. */
+  reaskOf?: string;
   /** The exact user prompt (kept for the panel's drill-down only, not logged). */
   prompt?: string;
 }
