@@ -10,6 +10,9 @@ of every session, work step by step, and record as you go (PLAN.md's "How to use
 **The todo list is GitHub issues** (the user's, 2026-10-18): `gh issue list` (labels `phase-N`, `phase-X`, `bug`,
 `idea`, `on-hold`); close or comment on an issue with the commit that settles it, and file new work as an issue, not as
 a checkbox in PLAN.md.
+**Ongoing work is private** (the user's, 2026-10-20): branches are pushed to the private repo
+`delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`; `gh` defaults to it) and the
+issues live there (moved with their numbers); the public `origin` stays as it was until the user says to publish.
 
 ## Where things are
 
@@ -82,6 +85,8 @@ a checkbox in PLAN.md.
 - Work on the feature branch `tiered-brain-building`; commit only when asked or clearly agreed, and ask before pushing.
   Commit messages end with the `Co-Authored-By` line the harness specifies. Commit `package-lock.json` with dependency
   changes.
+  Foundry candidates that pass every gate merge into the branch without asking (`foundry.py --merge`, or
+  `--apply-merge ID` for a queued one; the user's, 10-20); never into main.
 - Source files use CRLF line endings and `core.autocrlf=true`. `shared/src/physics.ts` has **mixed** endings (the fence
   block is LF): preserve them. When editing with Python on Windows, `open(p, encoding='utf-8').read()` then
   `open(p, 'w', encoding='utf-8').write()` keeps CRLF; never write with `newline=''`. Check `git diff --stat` against
