@@ -3,6 +3,8 @@
  * no other table (mcSkills.ts and the world add these to MC_SKILLS and the tools).
  */
 import type { FoundrySkill } from './types';
+import { FOUNDRY as fish } from './fish';
 
 export const FOUNDRY_SKILLS: FoundrySkill[] = [
+  fish,
 ];

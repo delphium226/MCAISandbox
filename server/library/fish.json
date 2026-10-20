@@ -1,0 +1,40 @@
+{
+  "id": "lib:fish",
+  "name": "Go fishing",
+  "skill": "fish",
+  "count": {
+    "arg": "count",
+    "max": 8
+  },
+  "needs": {
+    "fishing_rod": 1
+  },
+  "gives": [
+    {
+      "item": "cod",
+      "consumer": "food"
+    },
+    {
+      "item": "salmon",
+      "consumer": "food"
+    }
+  ],
+  "also": [
+    "pufferfish",
+    "tropical_fish",
+    "leather",
+    "bowl",
+    "stick",
+    "ink_sac",
+    "lily_pad",
+    "book",
+    "enchanted_book",
+    "name_tag",
+    "nautilus_shell",
+    "saddle",
+    "tripwire_hook",
+    "leather_boots",
+    "bow"
+  ],
+  "effect": "raw cod and salmon are cooked in the workshop into meals that feed the village's members"
+}
