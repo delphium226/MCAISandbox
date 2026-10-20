@@ -4,7 +4,7 @@ the code can be worked on while a test runs (the user's rule, relaxed on 2026-10
 Usage: python scripts/snapshot_code.py        prints the snapshot's folder (made if new)
 From Python: snapshot() returns it. reset_site.py starts the test agent server from one by default.
 
-What is copied: server/src, server/panel, shared/src, package.json and tsconfig.json, laid out as in the repo, so relative
+What is copied: server/src, server/panel, server/library, shared/src, package.json and tsconfig.json, laid out as in the repo, so relative
 imports (server -> shared) and the panel page resolve inside the copy, and Node finds node_modules by walking up to the
 repo. Code that needs the repo itself (mc/server, runs/, the Minecraft jar) reads MCAI_ROOT, which the starter sets to the
 repo. A snapshot is named by a hash of its files, so an unchanged tree reuses the last one; CODE.txt records the commit and
@@ -15,7 +15,8 @@ foundry, scripts/foundry.py: a worktree, or a base commit's files from git archi
 import hashlib, os, pathlib, shutil, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DIRS = ("server/src", "server/panel", "shared/src")
+# (server/library: the activity specs, s41: without it a snapshot loaded none and no activity reached a menu)
+DIRS = ("server/src", "server/panel", "server/library", "shared/src")
 FILES = ("package.json", "tsconfig.json")
 OUT = ROOT / "runs" / "code"
 

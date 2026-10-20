@@ -1,0 +1,28 @@
+{
+  "about": "s41 model run 2: as Erl1 (fishing and the merchant on, model choices, 1x, world 2, mv3_sto1end, 3 rods) with the library in the snapshot (Erl1 loaded none) and the trade skill merged (lib:sell, lib:buy).",
+  "out": "runs/2026-10-20/s41/s41_early2",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives,activities",
+    "MC_NEEDS": "on",
+    "MC_APPETITE": "18",
+    "MC_MERCHANT": "on"
+  },
+  "runs": [
+    {
+      "name": "Erl2",
+      "village": "B25x2",
+      "checkpoint": "mv3_sto1end",
+      "args": "--after 30 --choose model --stock fishing_rod:3"
+    }
+  ]
+}

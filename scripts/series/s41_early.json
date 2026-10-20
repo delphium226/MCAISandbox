@@ -1,0 +1,28 @@
+{
+  "about": "s41 early model run: fishing (lib:fish) and the merchant on, before the trade skill: as Rsk1 (1x, --choose model, needs on, appetite 18) on world 2 from mv3_sto1end (Sto1's end, 3 market stalls), 3 fishing rods stocked, 30 min after. Do members choose fishing; is the catch cooked and eaten; does the merchant stay one and restock.",
+  "out": "runs/2026-10-20/s41/s41_early",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives,activities",
+    "MC_NEEDS": "on",
+    "MC_APPETITE": "18",
+    "MC_MERCHANT": "on"
+  },
+  "runs": [
+    {
+      "name": "Erl1",
+      "village": "B25x2",
+      "checkpoint": "mv3_sto1end",
+      "args": "--after 30 --choose model --stock fishing_rod:3"
+    }
+  ]
+}

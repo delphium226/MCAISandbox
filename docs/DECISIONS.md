@@ -585,4 +585,14 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   personal wants from code, offers on a board; unmet wants (no skill makes the good) become the foundry's wanted list,
   ranked by what members offer. A bank with currency and loans is a later variant to compare. Order: the activity runner
   and the fishing ticket first, then the barter ladder.
+- 10-20 (s41, the user's) **What drives foundry tickets: the adjacent possible, needs with no answer, members'
+  endorsement**: code lists the items one new action away (from the recipe graph and game data, ranked by what each
+  unlocks) and the needs no existing work answers; members endorse among them (the vote machinery, temperament); a
+  candidate becomes a ticket only when its demand persists (won twice, or a need unanswered for an hour). Barter's unmet
+  wants (#71) join later; free proposals (#13) are a supplement. Parallel foundry runs (#72) wait until tickets come in
+  numbers.
+- 10-20 (s41, the user's) **A sales levy once members hold their own goods** (#68): a member selling to the merchant
+  keeps the proceeds less a levy (VAT-like, taken by code at the sale) paid to the village's shared storage, the
+  treasury; a fixed default first (~20-25%), later voted (#33). Member-to-member barter untaxed at first (a levy in kind
+  is awkward; watch for barter to dodge it). Until #68, emeralds are the village's, in shared storage.
 

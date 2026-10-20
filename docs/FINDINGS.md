@@ -1289,3 +1289,14 @@ CLAUDE.md when a phase ends.
   stopped by "enough projects open" (3) and "no room". Raising targets alone would only fill storage (lesson 149). The
   user's choice: members' proposals feeding foundry tickets (routes b and c) now, the initiatives cap left as it is.
 
+- F259 (10-20, s41, issues #20 #12 #74) **Fishing and the merchant raise busy; fish are a real flow, the merchant's
+  purchases are not.** Stg1 (Sto1's staged settings + activities + merchant, 3 rods; mv3_grown25, 30 min) busy 20% vs
+  Sto1 13% (147 vs 91 agent-min: fishing 18, initiatives 46 vs 34 as selling logs drained the surplus initiatives take
+  first, make 33 vs 23); Erl2 (model choices, 1x, mv3_sto1end) 13% vs Erl1 7% (Erl1 loaded no activity: snapshots left
+  out server/library, fixed: lesson 140 again, the foundry's live checks called the skills directly). Fish: 76 caught in
+  12 trips (Erl2 55 in 9), 26 cooked each; none eaten in 30 min (meals prefer bread; Stg1 ate 85 bread meals, food -120
+  points). Trade: 430 logs sold (27 emeralds; Erl2 400 for 25), every emerald spent on string, bone, gunpowder, spider
+  eyes, slime balls, ink and an ender pearl that nothing uses (lib:buy picks the item furthest below a keep of 8): busy
+  bought partly with logs turned into junk (lesson 149). gpt-oss chose selling, buying and fishing unprompted ($0.04 the
+  half hour). Next: buy only items with a consumer; the simulator (#74) to test such rules first.
+
