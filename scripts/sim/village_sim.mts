@@ -374,6 +374,25 @@ if (CALIB && fs.existsSync(CALIB)) {
     else if (/^deposited/.test(msg) && ['gather', 'help', 'initiate'].includes(s.kind)) addSample('collect', Math.max(0.05, m - 0.1));
   }
   calibFrom = `${path.basename(CALIB)} (${rows.length} rows, ${perStep} chores with per-step times)`;
+  // The board's builds (big public works) are not in the choice log: the stage log beside it times them, each from its
+  // builder's previous action end (an upper bound): "AFTER 4.7m Dev action_done | build_design finished: ... placed 222 blocks"
+  const stage = CALIB.replace(/\.choices\.jsonl$/, '.log');
+  if (stage !== CALIB && fs.existsSync(stage)) {
+    const last = new Map<string, number>();
+    let n = 0;
+    for (const line of fs.readFileSync(stage, 'utf8').split('\n')) {
+      const m = /^AFTER +([\d.]+)m (\w+) +action_(?:done|failed)/.exec(line);
+      if (!m) continue;
+      const t = Number(m[1]);
+      const b = /build_design finished: \w+ recorded in village [^;]*; placed (\d+) blocks/.exec(line);
+      if (b && Number(b[1]) > 100 && last.has(m[2])) {
+        buildPairs.push([Number(b[1]), t - last.get(m[2])!]);
+        n++;
+      }
+      last.set(m[2], t);
+    }
+    calibFrom += `; ${n} big builds from ${path.basename(stage)}`;
+  }
 }
 // (least squares; the residuals are drawn back, so builds keep their spread)
 if (buildPairs.length >= 5) {
