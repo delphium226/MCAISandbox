@@ -11,6 +11,9 @@ import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, C
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
+import { FOUNDRY_SKILLS } from './foundry/list';
+import { TOOL } from './mcBlocks';
+import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
@@ -90,6 +93,8 @@ type ChoiceState = {
   light?: { part: string; n: number };
   /** X.1: a furnish chore's part and its spots. */
   furnish?: { part: string; n: number };
+  /** s41: a library activity's spec, the items it gives and its deposit step's place in the chore's statuses. */
+  activity?: { id: string; items: string[]; depAt: number };
 };
 
 /**
@@ -151,7 +156,7 @@ export class MineflayerWorld implements WorldAdapter {
   readonly kind = 'minecraft' as const;
   readonly villages: VillageRegistry;
   /** The skills implemented so far (mcSkills.ts), with the shared tool definitions. */
-  readonly skills: ToolDef[] = TOOLS.filter((t) => t.name in MC_SKILLS);
+  readonly skills: ToolDef[] = [...TOOLS, ...FOUNDRY_SKILLS.map((f) => f.tool)].filter((t) => t.name in MC_SKILLS);
   /** Skills only code-posted tasks name (S.3), kept out of the models' tools (a longer prompt each, lesson 32). */
   readonly taskSkills = ['make_into_storage', 'place_station'];
   /** What a handed-back task's holder may carry for it (F228): a village part's batch, or a gather task's material. */
@@ -164,6 +169,8 @@ export class MineflayerWorld implements WorldAdapter {
   readonly registry: ReturnType<typeof minecraftData>;
   /** Bills of materials and recipe chains (mcMaterials.ts). */
   readonly materials: Materials;
+  /** s41: the activity library's valid specs and the files dropped (library.ts). */
+  readonly library: { specs: LibrarySpec[]; dropped: Array<{ file: string; why: string }> };
   agents = new Map<string, BotAgent>();
   ticks = 0;
   /** Peaceful and no-damage settings (mcRules.ts), applied when the agent server starts. */
@@ -178,6 +185,9 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
     this.villages.onClaim = (v, t) => this.claimed(v, t);
     this.villages.claimLimit = (v, t, _by, cooled) => this.mineClaim(v, t, cooled);
+    // (s41: the activity library, server/library/*.json, for the foundry skills with an activity adapter)
+    this.library = loadLibrary(this.registry, new Set(FOUNDRY_SKILLS.filter((f) => f.activity).map((f) => f.name)));
+    if (this.library.specs.length || this.library.dropped.length) console.log(`[activity] library: ${this.library.specs.map((s) => s.id).join(', ') || 'no specs'}${this.library.dropped.length ? `; dropped ${this.library.dropped.map((d) => `${d.file} (${d.why})`).join('; ')}` : ''}`);
     this.atlas = new Atlas(this.registry, path.join(dataDir, 'atlas.json'), (cx, cz) => {
       for (const a of this.agents.values()) {
         const column = (a.bot.world as unknown as { getColumn(x: number, z: number): unknown }).getColumn(cx, cz);
@@ -966,6 +976,14 @@ export class MineflayerWorld implements WorldAdapter {
     if (g.food) return !appetiteOn(v) ? 0 : foodTarget(g.item === 'bread' ? 'bread' : 'pumpkin_pie', this.growMembers(v).length, NEED_WORKS && !!v.foodFlow?.short);
     if (g.item !== 'torch' || !CHOOSE.families.has('light')) return g.target;
     return Math.max(g.target, Math.min(TORCH_DEMAND_CAP, this.torchDemand(v)) + TORCH_RESERVE);
+  }
+
+  /** s41: a library activity's keep (its gives together): the spec's own, else two a member for food while the village
+   *  keeps an appetite, else LIBRARY_KEEP (F258: no surplus nobody uses, lesson 149). */
+  libraryKeep(v: Village, sp: LibrarySpec): number {
+    if (sp.keep) return sp.keep;
+    if (sp.gives.some((g) => g.consumer === 'food') && appetiteOn(v)) return Math.max(LIBRARY_KEEP, 2 * this.growMembers(v).length);
+    return LIBRARY_KEEP;
   }
 
   /** The village's makes and gathering trips under way (S.9), but `except`'s own (its make plans with itself left out). */
@@ -3384,6 +3402,16 @@ export class MineflayerWorld implements WorldAdapter {
         this.villages.save();
       }
     }
+    // s41: a library activity by its gives' deposit, as gathering (the check's F3: the first step is a withdraw)
+    const act = c.choice.activity;
+    if (act) {
+      const dep = c.status[act.depAt];
+      const n = dep?.state === 'done' ? depositedItems(dep.message ?? '', act.items) : 0;
+      ok = n > 0;
+      if (n > 0) message = dep.message ?? message;
+      else if (!bad && done) message = c.status[act.depAt - 1]?.message ?? message;
+      console.log(`[activity] ${c.village}: ${c.agent} ends ${act.id}: ${n} ${act.items.join('/')} deposited${n ? '' : ` (${message.slice(0, 120)})`}`);
+    }
     // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
     if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light' || c.choice.kind === 'furnish') holdsDelete(holdKey(c.village, c.agent));
     // (and a meal's: eat_meal's finally deletes its own, s30)
@@ -4333,6 +4361,69 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing to furnish';
     }
 
+    // s41: the library's activities (a foundry skill run from a server/library spec): one option a spec whose needs are
+    // spare in storage, whose place the skill's adapter finds and whose gives are below their keep; one holder a spec and
+    // a shared thing (the adapter's holds); ranks 870-879, a free band between lighting's and furnishing's
+    if (family('activities')) {
+      const why: string[] = [];
+      if (!this.library.specs.length) why.push('none loaded');
+      const spare = this.library.specs.length ? facts.spare() : {};
+      const chest = v.storage?.chests?.[0];
+      const hut = v.storageHut && chest ? { x: Math.floor((v.storageHut.x1 + v.storageHut.x2) / 2), y: chest.y, z: Math.floor((v.storageHut.z1 + v.storageHut.z2) / 2) } : null;
+      for (const [r, sp] of this.library.specs.entries()) {
+        const f = FOUNDRY_SKILLS.find((x) => x.name === sp.skill);
+        if (!f?.activity) {
+          why.push('none loaded');
+          continue;
+        }
+        const key = `activity:${sp.id}`;
+        if (excluded([`${key}=`], busy)) {
+          why.push('busy');
+          continue;
+        }
+        if (Object.entries(sp.needs ?? {}).some(([n, q]) => (spare[n] ?? 0) < q)) {
+          why.push('needs short');
+          continue;
+        }
+        const keep = this.libraryKeep(v, sp);
+        const stock = sp.gives.reduce((s, g) => s + (store[g.item] ?? 0), 0);
+        if (stock >= keep) {
+          why.push('at keep');
+          continue;
+        }
+        let place: Record<string, unknown>;
+        try {
+          place = f.activity.place({ village: v, agent: a, hut });
+        } catch {
+          place = { why: 'no place' };
+        }
+        if (typeof place.why === 'string') {
+          why.push('no place');
+          continue;
+        }
+        let holds: string[] = [];
+        try {
+          holds = f.activity.holds?.(v) ?? [];
+        } catch {
+          holds = [];
+        }
+        if (excluded(holds.map((h) => `${h}=`), busy)) {
+          why.push('busy');
+          continue;
+        }
+        const count = sp.count ? Math.max(1, Math.min(sp.count.max, keep - stock)) : 0;
+        const args = { ...(sp.args ?? {}), ...place, ...(sp.count ? { [sp.count.arg]: count } : {}) };
+        const gives = sp.gives.map((g) => `${g.item}${g.consumer ? ` (${g.consumer})` : ''}`).join(', ');
+        add({
+          id: key, kind: 'activity', key, holds, excludes: [`${key}=`, ...holds.map((h) => `${h}=`)], name: sp.name, rank: 870 + Math.min(r, 9),
+          ...(typeof place.x === 'number' && typeof place.z === 'number' ? { at: { x: place.x, y: typeof place.y === 'number' ? place.y : hut?.y ?? 64, z: place.z } } : {}),
+          facts: `gives ${gives}; ${stock} of the ${keep} kept are in storage${sp.needs ? `; takes ${countsText(sp.needs)} from storage and puts the tools back` : ''}; ${record('activity')}${others('activity', key)}${lastOf('activity', key)}`,
+          effect: `${sp.count ? `up to ${count} ` : ''}${sp.gives.map((g) => g.item.replace(/_/g, ' ')).join(' or ')}: ${sp.effect}`,
+        }, { kind: 'activity', spec: sp, args, count, stock, keep });
+      }
+      if (!out.some((o) => o.kind === 'activity')) reasons.activity = ['needs short', 'no place', 'busy', 'at keep'].find((w) => why.includes(w)) ?? 'none loaded';
+    }
+
     // N.2 (MC_HOUSING): a houseless member's first preference, a street of houses of its own starting (H3)
     if (HOUSING) {
       const g = v.growth;
@@ -4502,7 +4593,7 @@ export class MineflayerWorld implements WorldAdapter {
           guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
           continue;
         }
-        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' ? o.id : undefined)) {
+        if (this.choiceStats.agentCooling(v.name, a.name, o.kind, now, o.kind === 'make' || o.kind === 'gather' || o.kind === 'light' || o.kind === 'furnish' || o.kind === 'initiate' || o.kind === 'help' || o.kind === 'activity' ? o.id : undefined)) {
           guarded.push({ id: o.id, why: 'you failed this kind in the last 5 minutes' });
           continue;
         }
@@ -4823,6 +4914,25 @@ export class MineflayerWorld implements WorldAdapter {
         // Its furniture earmarked until it withdraws it (D6), set after the chore as a make's inputs
         holdsSet(holdKey(v.name, worker.name), d.items);
         console.log(`[furnish] ${v.name}: ${worker.name} furnishes ${d.part} (${d.label}): ${d.n} of ${d.open} open spots, takes ${countsList(d.items)}`);
+        return;
+      }
+      case 'activity': {
+        // (s41: the needs withdrawn, the skill, its gives deposited by name, then the tools put back by name: "all" keeps
+        // tools, the check's F7; a failed skill still runs the deposits, as gathering's collect then deposit)
+        const sp = d.spec;
+        const st: ActionStatus[] = [];
+        const needs = Object.entries(sp.needs ?? {});
+        for (const [n, q] of needs) st.push(worker.enqueue('withdraw', { item: n, count: q, chore: true }));
+        st.push(worker.enqueue(sp.skill, { ...d.args, chore: true }));
+        const items = sp.gives.map((g) => g.item);
+        const also = [...items.slice(1), ...(sp.also ?? [])];
+        const depAt = st.length;
+        st.push(worker.enqueue('deposit', { item: items[0], ...(also.length ? { also: also.join(',') } : {}), chore: true }));
+        for (const [n] of needs) if (TOOL.has(n)) st.push(worker.enqueue('deposit', { item: n, chore: true }));
+        this.setChore(v, worker, opt.key, st, sp.name.toLowerCase(), undefined, meta, opt.holds, opt);
+        const c = this.chores.get(worker.name.toLowerCase());
+        if (c) c.choice.activity = { id: sp.id, items, depAt };
+        console.log(`[activity] ${v.name}: ${worker.name} starts ${sp.id} (${sp.skill} ${JSON.stringify(d.args)}; ${d.stock} of ${d.keep} kept)`);
         return;
       }
     }
@@ -5427,7 +5537,8 @@ type OptionRun =
   | { kind: 'initiate'; work: string; green?: boolean }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'grow'; houseless: number }
-  | { kind: 'eat'; level: number; item: string; n: number };
+  | { kind: 'eat'; level: number; item: string; n: number }
+  | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
 /** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks
@@ -5436,7 +5547,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000, VILLAGE_GROW_REACH = 96;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
@@ -5480,7 +5591,7 @@ const workKind = (name: string) => name.replace(/^(plains|desert|savanna|snowy|t
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
 
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating', tidy: 'tidying the storage' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating', tidy: 'tidying the storage', activity: 'the new crafts' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 
@@ -5490,6 +5601,14 @@ const countsList = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map
 
 /** What a deposit's message says went in of a gathering's material ("deposited 4 oak_log, 8 birch_log (...). Storage now
  *  holds ...": only the head, not the storage's own list). */
+/** How many of `items` a deposit's message says went in (s41's activities). */
+function depositedItems(message: string, items: string[]): number {
+  const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
+  let n = 0;
+  for (const x of head.matchAll(/(\d+) ([a-z_]+)/g)) if (items.includes(x[2])) n += Number(x[1]);
+  return n;
+}
+
 function depositedOf(message: string, m: Material): number {
   const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
   const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : 'cobblestone';

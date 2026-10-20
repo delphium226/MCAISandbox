@@ -8,7 +8,6 @@ import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
 import { validateDesign } from '../designs';
 import type { BuildingStyle } from '../buildingGen';
-import { TOOLS } from '../skills';
 import { handlePanel, overviewStats } from '../panel';
 import { describePlan, designBill, inWood, type Counts } from './mcMaterials';
 import { registerChest } from './mcStorage';
@@ -132,7 +131,7 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     return sendJson(res, 200, { status: w.atlas.status(), centre, radius, chunks: centre ? w.atlas.near(centre.x, centre.z, radius) : [],
       animals: centre ? [...w.atlas.animals.values()].filter((s) => Math.hypot(s.x - centre!.x, s.z - centre!.z) <= radius) : [] });
   }
-  if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(TOOLS.filter((t) => w.skills.includes(t)).map((t) => [t.name, t.description])));
+  if (parts[1] === 'skills') return sendJson(res, 200, Object.fromEntries(w.skills.map((t) => [t.name, t.description])));
 
   // Write villages.json now (E.0: saves are debounced; a kill, as taskkill /F on Windows, runs no exit handler)
   if (parts[1] === 'villages' && parts[2] === 'flush' && req.method === 'POST') {

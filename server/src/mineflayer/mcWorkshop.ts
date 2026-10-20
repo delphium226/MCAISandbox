@@ -48,6 +48,9 @@ export const MAKE_GOODS: MakeGood[] = [
 export const FOOD_GOODS: MakeGood[] = [
   { item: 'bread', target: 0, batch: 4, unit: 1, words: 'bread', forWhat: 'food for members: a bread is 5 of the 20 a member eats; at 6 they stop other work', food: true, allow: ['wheat'] },
   { item: 'pumpkin_pie', target: 0, batch: 2, unit: 1, words: 'pumpkin pies', forWhat: 'food for members: a pie is 8 of the 20 a member eats; at 6 they stop other work', food: true, allow: ['pumpkin', 'sugar', 'sugar_cane', 'egg'] },
+  // (s41: the fishing activity's catch, smoked or cooked in a furnace; targets as the pie's, one for two members)
+  { item: 'cooked_cod', target: 0, batch: 8, unit: 1, words: 'cooked cod', forWhat: 'food for members: a cooked cod is 5 of the 20 a member eats, from the fishing catch', food: true },
+  { item: 'cooked_salmon', target: 0, batch: 8, unit: 1, words: 'cooked salmon', forWhat: 'food for members: a cooked salmon is 6 of the 20 a member eats, from the fishing catch', food: true },
 ];
 
 /**

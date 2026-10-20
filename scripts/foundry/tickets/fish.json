@@ -1,0 +1,43 @@
+{
+  "id": "fish",
+  "title": "Fishing: a fish skill with an activity adapter (cod and salmon for members' meals, #20)",
+  "brief": "Add a foundry skill `fish` to the real-Minecraft world (Mineflayer), so an agent with a fishing rod catches fish at open water, and so the village's `activity` chore kind can run it from a library spec. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef with name, a one-sentence description a model can act on, input_schema), activity (place + holds)); list it in foundry/list.ts (one import, one entry); edit no other table (mcSkills.ts and the world add foundry skills to MC_SKILLS and the tools themselves). THE SKILL `fish`, arguments: count (fish wanted, default 4, 1..16), x, y, z (optional: a water cell to fish at, given by the activity adapter), radius (optional, default 32, at most 64: how far to look for water when x, z are not given). It needs a fishing_rod in the inventory (fail with: 'no fishing rod: withdraw one from storage, or craft one from 3 sticks and 2 string (string comes from cobwebs)'). Without x, z: find the nearest water block within radius whose cell above is air and that is open to the sky, using the project's nearestBlocks helper (mcUtil.ts; never bot.findBlocks: one event loop serves every bot, lessons 16 and 49), skipping cells on any village's ground (onVillageGround in mcUtil.ts, lesson 30). Then walk (mcUtil walk with a GoalNear or reach, which keep the pathfinder off village work and protected ground) to a standable dry cell 1-3 blocks from that water (standableY), never into the water; look at the water cell; equip the rod; cast and wait with Mineflayer's bot.fish() (it resolves when something is caught and reeled in; the catch flies to the bot and is picked up) in a loop until `count` fish are caught, a whole call takes 4 minutes of wall time at most (divide by the game's tick-rate scale if the agent server exposes it: see how other skills use timeScale() from mcRules.ts), or the rod breaks; a single cast that has not bitten after 60 s is reeled in (bot.activateItem) and cast again; on the abort signal, reel in (bot.activateItem) before throwing. Fish are cod, salmon, pufferfish and tropical_fish; other catches (junk and treasure: string, bones, leather, bowls, sticks, ink sacs, lily pads, books...) are kept in the inventory and reported. Count the catch on the server, not from Mineflayer's inventory view (CLAUDE.md: 'clear <name> <item> 0', the rcon.count helper as mcAnimals.ts's serverWool uses), before and after. Never place or dig a block (check walk's options and the protection rules), never enter the water. Result message: 'caught N fish (C cod, S salmon, P pufferfish, T tropical fish) and M other items (list) at x,y,z in K casts' and why it stopped. Failure messages say what is short and what to do next (no rod; no open water within radius: explore or try from another place; the rod broke: craft another; nothing bit in 4 minutes). The skill must accept anything Mineflayer can pass it (a bobber entity missing, the water gone, bot.fish rejecting with 'Fishing cancelled' when a second cast starts: lesson 104). THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member, so cheap and never throwing): from the shared atlas (ctx.agent.world.atlas, mcAtlas.ts: near(x, z, radius) gives chunk summaries with `s`, a 16-letter-per-row string of 4x4-block cells where '~' means water, and `h`, their mean surface y), find the water cell nearest the storage hut (ctx.hut; none: {why: 'no storage hut'}) within 64 blocks that has a dry neighbour cell (a letter that is not '~', '^' or ' '), whose centre is not on any village's ground (onVillageGround); return {x, y, z} (the cell's centre, y the cell's mean height rounded down); cache the answer per village name for 2 minutes; none found: {why: 'no open water within 64 blocks of the storage hut'}. activity.holds: none (the spec's own key holds it to one fisher at a time). THE LIBRARY SPEC server/library/fish.json (read server/src/library.ts: LibrarySpec and validateLibrarySpec): {\"id\": \"lib:fish\", \"name\": \"Go fishing\", \"skill\": \"fish\", \"count\": {\"arg\": \"count\", \"max\": 8}, \"needs\": {\"fishing_rod\": 1}, \"gives\": [{\"item\": \"cod\", \"consumer\": \"food\"}, {\"item\": \"salmon\", \"consumer\": \"food\"}], \"also\": [the junk and treasure item ids above that exist in the registry, and pufferfish, tropical_fish], \"effect\": a short sentence (at most 160 characters) saying the catch is cooked in the workshop and feeds members}. (Cooked cod and salmon are already food goods and food points: the consumer exists.) THE LIVE CHECK scripts/checks/fish.py (Python 3, standard library only, in the style of scripts/checks/shear.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2): find open water near the test site's centre (-1563, -36 on minevale3; there is water within 130 blocks: probe with RCON 'execute if block X Y Z minecraft:water' on a coarse grid at y 62-63, or read the ground with /api/block, stopping at the first water cell that has a dry, standable cell beside it and air above; print where), remove any agent Gus, spawn Gus on the dry cell beside it (brain idle, gamemode survival, reset true), give Gus a fishing_rod by RCON, record the blocks of a box around Gus (radius 6, from 2 below the ground to 3 above, read with 'execute if block' or /api/block), run `fish count 2 radius 16` through /api/agents/Gus/act, wait for action_done or action_failed (up to 6 minutes), then verify: at least 1 fish (cod, salmon, pufferfish or tropical_fish) on the server for Gus (clear Gus minecraft:cod 0 and the others); no 'broke' or 'placed' event from Gus during the skill and no cell of the box changed; then clear Gus's fishing rods by RCON and a second call `fish count 1` must fail with a message containing 'no fishing rod'. Clean up (remove Gus) in a finally. Print one line per verification and end with exactly 'FISH OK' on success or 'FISH FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), the pathfinder's sources.",
+  "read": [
+    "CLAUDE.md",
+    "server/src/mineflayer/foundry/types.ts",
+    "server/src/mineflayer/foundry/list.ts",
+    "server/src/library.ts",
+    "server/src/mineflayer/mcAnimals.ts (a skill in the same style: entity guards, server counts, walks)",
+    "server/src/mineflayer/mcSkills.ts: only the McSkill interface",
+    "server/src/mineflayer/mcUtil.ts: only walk, reach, standableY, nearestBlocks, onVillageGround, sleep, checkAbort, countItem, itemId, at, num, syncInventory",
+    "server/src/mineflayer/mcAtlas.ts: only ChunkSummary (h, s), CELL_LETTERS and near()",
+    "server/src/mineflayer/mcRules.ts: only timeScale",
+    "scripts/checks/shear.py (the style of a live check)",
+    "mc/rcon.py",
+    "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block)"
+  ],
+  "lessons": [4, 13, 16, 29, 30, 31, 35, 40, 44, 49, 79, 80, 102, 104, 105, 127, 145],
+  "deliver": [
+    "server/src/mineflayer/foundry/fish.ts",
+    "server/src/mineflayer/foundry/list.ts",
+    "server/library/fish.json",
+    "scripts/checks/fish.py"
+  ],
+  "may_touch": [],
+  "check": {
+    "file": "scripts/checks/fish.py",
+    "args": [],
+    "timeout_min": 12,
+    "pass": "^FISH OK"
+  },
+  "series": "scripts/foundry/series_base.json",
+  "caps": {
+    "minutes": 45,
+    "turns": 500,
+    "rounds": 3
+  },
+  "model": {
+    "agy": "gemini-4-argon-high",
+    "claude": "claude-opus-5-5"
+  }
+}

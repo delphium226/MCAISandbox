@@ -25,10 +25,10 @@ export type Temperament = Record<Trait, number>;
 /** The weight of the most-liked kind (the least-liked gets its inverse, 0.4). */
 export const WEIGHT_MAX = 2.5;
 /** The kinds a temperament weights (eat is always 1). */
-export const KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help'];
+export const KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity'];
 /** Kinds behind a family that weigh only while it is on (X.1: a village that never offers furnishing must not move every
  *  other kind's centred weight, nor tell a member it most enjoys furnishing; the critique's 10). */
-const FAMILY_KINDS: Partial<Record<ChoiceKind, string>> = { furnish: 'furnish', initiate: 'initiatives', help: 'initiatives' };
+const FAMILY_KINDS: Partial<Record<ChoiceKind, string>> = { furnish: 'furnish', initiate: 'initiatives', help: 'initiatives', activity: 'activities' };
 /** The kinds weighed now: KINDS less those whose family is off. */
 export const activeKinds = (): ChoiceKind[] => KINDS.filter((k) => !FAMILY_KINDS[k] || CHOOSE.families.has(FAMILY_KINDS[k]!));
 const KIND_TRAITS: Trait[] = ['curiosity', 'care', 'diligence', 'pride'];
@@ -50,6 +50,7 @@ const LOAD: Record<string, Partial<Record<Trait, number>>> = {
   furnish: { pride: 0.8, care: 0.2 },
   initiate: { pride: 0.5, curiosity: 0.3, diligence: 0.2 },
   help: { diligence: 0.5, care: 0.3, pride: 0.2 },
+  activity: { curiosity: 0.5, diligence: 0.5 },
 };
 /** A kind in the persona line's words (farm and slot are both harvesting). */
 export const KIND_PHRASE: Record<string, string> = {
@@ -57,6 +58,7 @@ export const KIND_PHRASE: Record<string, string> = {
   penwork: 'tending the pens', cake: 'baking', iron: 'digging for iron', explore: 'exploring', works: 'setting up the works',
   make: 'making goods', gather: 'gathering materials', light: 'lighting the village', furnish: 'furnishing the houses',
   initiate: 'starting projects of your own', help: "helping with others' projects",
+  activity: "trying the village's new crafts",
 };
 
 const ZERO: Temperament = { curiosity: 0, care: 0, diligence: 0, pride: 0, sociability: 0 };

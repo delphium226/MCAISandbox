@@ -37,6 +37,8 @@ export const APPETITE = {
 export const FOOD_POINTS: Record<string, number> = {
   bread: 5, pumpkin_pie: 8, melon_slice: 2, carrot: 3, baked_potato: 5, potato: 1, apple: 4, cookie: 2, beetroot: 1,
   mushroom_stew: 6, beetroot_soup: 6, rabbit_stew: 10, sweet_berries: 2, glow_berries: 2, golden_carrot: 6, cake: 14,
+  // (s41: the fishing activity's catch, smoked; raw fish are never eaten)
+  cooked_cod: 5, cooked_salmon: 6,
 };
 
 /** Planting stock a meal never takes (D9: the slots' carrots, potatoes and beetroots, 8 of each kept). */
@@ -104,7 +106,7 @@ export function chooseMeal(level: number, store: Counts): { item: string; n: num
 /** Food work (D8): what a hungry member may still take. The fields, slots, starts, pens, pen work, the cake, eating, and
  *  the workshop's food goods (make: bread and pies only). */
 export function isFoodKind(kind: ChoiceKind, opt?: { id: string }): boolean {
-  if (kind === 'make') return /^make:(bread|pumpkin_pie)$/.test(opt?.id ?? '');
+  if (kind === 'make') return /^make:(bread|pumpkin_pie|cooked_cod|cooked_salmon)$/.test(opt?.id ?? '');
   return kind === 'eat' || kind === 'farm' || kind === 'slot' || kind === 'start' || kind === 'pen' || kind === 'penwork' || kind === 'cake';
 }
 

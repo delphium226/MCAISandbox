@@ -33,11 +33,12 @@ export const SMELT_FALLBACK: Record<string, string> = {
 };
 
 /** Found in the world as they are (gathering beats their recipes, e.g. coal from a coal block; wheat from the fields: its
- *  only recipe is from hay_block, whose recipe is from wheat, and that cycle made bread plan as gathered, s30's check M1). */
-const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat']);
+ *  only recipe is from hay_block, whose recipe is from wheat, and that cycle made bread plan as gathered, s30's check M1;
+ *  cod and salmon from the fishing activity, s41). */
+const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat', 'cod', 'salmon']);
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
-const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2 };
+const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3 };
 // (a stripped log has no recipe, but no village finds one: it takes an axe on a log, a step no chore does; at 1 it tied
 // with "any logs" and a smoker planned from 4 stripped warped stems, F237)
 const gatherCost = (name: string) => GATHER_COST[name] ?? (/^stripped_/.test(name) ? 2 : 1);

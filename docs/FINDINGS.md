@@ -1279,3 +1279,13 @@ CLAUDE.md when a phase ends.
   gathering trips were a large share of the work idle members had, and much of it only made surplus (Night40's 916 logs
   felled). Kept on (the user's, 10-20): the lost busy time should come back as more kinds of work, not as logs nobody
   uses. Night40's storage had 42 slots of strays (items in another group's chest).
+
+- F258 (10-20, s41, issues #13 #14) **The work supply runs out for want of sinks, not inputs** (`scripts/checks/make_gap.mts`
+  on mv3_grown25 and Sto1's end record; Sto1's choice log in 10-minute bins). 40-44 of the 44-46 workshop goods sit at
+  their fixed targets (1-16 each) and none is short of an input gathering could bring; `make: inputs short` on every
+  empty menu is the reason's order (any good below stock outranks "all at stock"), not a gap, and `gather: nothing
+  wanted` follows from it. Goods leave storage only through initiatives and lighting (birch_fence: target 6, 105 made).
+  Busy by bin: 15%, 14%, 7%, 0% (minutes 0-10 ... 30-40); initiatives (start and help) were 50 of the 90 busy minutes,
+  stopped by "enough projects open" (3) and "no room". Raising targets alone would only fill storage (lesson 149). The
+  user's choice: members' proposals feeding foundry tickets (routes b and c) now, the initiatives cap left as it is.
+

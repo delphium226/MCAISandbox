@@ -541,7 +541,7 @@ export function choreProductive(kind: ChoiceKind | undefined, skill: string, ok:
   if (!ok) return false;
   if (kind === 'explore') return (known ?? 0) >= 0.1;
   if (kind === 'start' || kind === 'annex' || kind === 'pen' || kind === 'cake' || kind === 'works') return true;
-  if (kind === 'gather') return /^deposited [1-9]/.test(message);
+  if (kind === 'gather' || kind === 'activity') return /^deposited [1-9]/.test(message);
   const parse = YIELD[skill];
   if (parse) {
     const n = parse(message);
@@ -654,7 +654,7 @@ export class ChoiceStats {
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore' || kind === 'eat') return null;
-    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help';
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity';
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour

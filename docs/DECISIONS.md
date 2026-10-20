@@ -575,3 +575,14 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   the pool. The Mayor stays Mayor and Gus stays Gus.
 - 10-18 (s36, the user's) **The foundry (X.3) starts now, in its own session, and defaults to the Antigravity CLI**
   (`foundry.py --cli agy` the default; `--cli claude` the alternative), on its own test world 3.
+- 10-20 (s41, the user's) **Foundry candidates merge without the user's approval** (replacing s33's "the user approves
+  every merge"): a candidate that passes every gate (scope, typecheck, check:offline, review, live, series) is merged
+  by the session into `tiered-brain-building`, never into main; pushing still waits for the user's yes. Also s41's
+  order: the make/gather gap and open-ended demand first (route a), then members' proposals feeding foundry tickets
+  (routes b and c combined: a proposal doable with existing skills goes on menus, one needing a new action becomes a
+  ticket).
+- 10-20 (s41, the user's) **A barter economy between members, for starters, linked to the foundry** (#12): personal stock,
+  personal wants from code, offers on a board; unmet wants (no skill makes the good) become the foundry's wanted list,
+  ranked by what members offer. A bank with currency and loans is a later variant to compare. Order: the activity runner
+  and the fishing ticket first, then the barter ladder.
+
