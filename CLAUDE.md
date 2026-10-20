@@ -20,7 +20,7 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
 - `docs/RUNBOOK.md`: the full running, testing and benchmarking notes: every check script and its arguments, staged-run
   flags, model and Ollama details, the Mineflayer adapter's files and skills, where land was good in the main world.
   Look there before writing a new check or a new way to run something.
-- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 151 so far). "Lesson N"
+- `docs/LESSONS.md`: what earlier sessions learned (11 sandbox lessons, then the adapter's list, 152 so far). "Lesson N"
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
@@ -59,7 +59,7 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   runs), for staged after-phase tests `MC_RANDOM_TICK=30` (crops ripen ~7x faster: first harvest at +2.4 min, not ~+17)
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
   build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
-  `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37), `MC_NEEDS=off|show|on`,
+  `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37, `activities` since s42), `MC_MERCHANT=off` (on since s42), `MC_MERCHANT_ORDERS=on` (off), `MC_NEEDS=off|show|on`,
   `MC_HOUSING=off`, `MC_PARTS=off`, `MC_NEED_WORKS=off` (Phase N; needs off by default, housing and parts on since s38,
   need works since s40; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
   `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
@@ -191,6 +191,9 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   `python scripts/run_report.py DIR/NAME [...]` puts runs side by side (completion, failures, busy, mine, growth, food,
   cost, the agent log's warning counts): read it before reading a log. `--after-until grow` ends a growth test once the
   growth is done (`idle:N` rarely holds: workshop and light chores keep members busy).
+- **The village simulator** (s42, #74): `scripts/sim/village_sim.mts --series SPEC.json --calib REF.choices.jsonl
+  [--minutes N]` runs the real decision code on a modelled world (30 minutes in ~10 s; RUNBOOK); `sim_report.mts` puts it
+  beside real runs. Validated against the spread of staged runs at 2x (F260): judge ideas with it, then confirm live.
 - **Checks** (`scripts/checks/`, about 50): run the one for the area you changed (`site.py` for find_site and
   prepare_site, `mine.py` for the mine, `fell_trees.py` for felling, `scale_probe25.py` at 25 bots, the golden checks
   `board_golden.mts` and `choice_golden.mts` before a refactor...). Offline ones read the region files or replay data (`region_blocks.py`, `top_map.py`,

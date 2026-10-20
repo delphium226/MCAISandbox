@@ -167,8 +167,11 @@ the short version; look here for a check script's arguments, a model detail or w
   10-minute bin, outcomes, choice-none reasons per bin). The models are in `scripts/sim/skills.mts` (deposit, withdraw,
   collect, the harvests with a crop store of state ids grown by random ticks, eggs, eat_meal, make, put_up_torches,
   furnish, build_design, prepare_green, fish with rod wear, trade); other skills finish with no effect and are counted.
-  Off in v0: growth, housing, public works (`grow`: their site clearing gave Stg1 ~500 logs), needs works, the mine, starts
-  and pens. Same seed, same run. In check:offline (20 minutes).
+  The run's own growth, public works, housing, needs works and votes (predicted) run, the members carrying the real
+  TaskBrain (`lay_out_houses` posts the real `postLayout` on a free square; `prepare_site` records the plot and its felled
+  logs; builds take the reference's minutes per block); `--v0` switches them off. Not modelled: the mine and iron, starts
+  and pens, explore, `put_up_signs`, `light_streets`, `make_into_storage`, `tidy_storage` (done with no effect, counted).
+  Crops: `SIM_CROP_G` (0.25). Same seed, same run. In check:offline (20 minutes). Fidelity: F260.
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes
