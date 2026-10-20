@@ -2994,6 +2994,8 @@ export class MineflayerWorld implements WorldAdapter {
         const times = Math.min(left, maxTimes, Math.floor(over / o.n));
         if (times >= 1 && (!best || over > best.score)) best = { offer: o, index: i, times, score: over };
       } else {
+        // (only what something in the village uses: F259's run bought slime balls and ender pearls for nothing)
+        if (!this.merchantUses(v).has(o.item)) continue;
         const short = keepOf(o.item) - (store[o.item] ?? 0);
         const times = Math.min(left, maxTimes, Math.ceil(short / o.n), Math.floor((spare.emerald ?? 0) / o.emeralds));
         if (short > 0 && times >= 1 && (!best || short > best.score)) best = { offer: o, index: i, times, score: short };
@@ -3005,11 +3007,28 @@ export class MineflayerWorld implements WorldAdapter {
     return { offer: best.offer, index: best.index, times: best.times };
   }
 
-  /** The emeralds storage keeps for buying: what the sold items below their keep would cost, at least 4 (spec_shop_v2). */
+  /** The emeralds storage keeps for buying: what the used sold items below their keep would cost, at least 4 (spec_shop_v2). */
   emeraldKeep(v: Village, keepOf: (item: string) => number, store: Counts = storageContents(v)): number {
     let e = 0;
-    for (const o of OFFERS) if (o.dir === 'sells') e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
+    const uses = this.merchantUses(v);
+    for (const o of OFFERS) if (o.dir === 'sells' && uses.has(o.item)) e += Math.ceil(Math.max(0, keepOf(o.item) - (store[o.item] ?? 0)) / o.n) * o.emeralds;
     return Math.max(4, e);
+  }
+
+  /**
+   * The merchant's goods something in the village uses now (F259: lib:buy spent every emerald on string, bones, gunpowder,
+   * slime balls and an ender pearl nothing used): the library activities' needs (fishing's rod) and the houses' open
+   * furniture. Bills of builds and the workshop's goods take only easy materials, so they add none today.
+   */
+  merchantUses(v: Village): Set<string> {
+    const out = new Set<string>();
+    for (const sp of this.library.specs) for (const n of Object.keys(sp.needs ?? {})) out.add(n);
+    try {
+      if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
+    } catch {
+      // (furniture spots unreadable: none)
+    }
+    return out;
   }
 
   /** A trade done (the trade skill's call, after it charged both sides on the server): the offer's uses on the record and

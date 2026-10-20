@@ -4,32 +4,25 @@
   "skill": "trade",
   "gives": [
     {
-      "item": "string",
-      "consumer": "build"
+      "item": "string"
     },
     {
-      "item": "bone",
-      "consumer": "build"
+      "item": "bone"
     },
     {
-      "item": "gunpowder",
-      "consumer": "build"
+      "item": "gunpowder"
     },
     {
-      "item": "spider_eye",
-      "consumer": "build"
+      "item": "spider_eye"
     },
     {
-      "item": "slime_ball",
-      "consumer": "build"
+      "item": "slime_ball"
     },
     {
-      "item": "ink_sac",
-      "consumer": "build"
+      "item": "ink_sac"
     },
     {
-      "item": "ender_pearl",
-      "consumer": "build"
+      "item": "ender_pearl"
     },
     {
       "item": "fishing_rod"
