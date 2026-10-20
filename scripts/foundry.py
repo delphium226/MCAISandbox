@@ -1,6 +1,10 @@
 """The skill foundry (plan step X.3): an external coding CLI writes a missing action from a ticket, in its own git worktree,
-and the foundry's gates check it; the result is a candidate branch foundry/<id> for the user to merge (the user approves
-every merge: this script never merges, pushes or deletes a branch). Spec: runs/2026-10-18/foundry/spec_x3.md.
+and the foundry's gates check it; the result is a candidate branch foundry/<id>. With --merge (the user's decision, 10-20,
+s41: gated candidates merge without asking) a candidate that passed every gate is merged into tiered-brain-building:
+the branch's current tip merged into the candidate inside its worktree, typecheck and check:offline again there, then a
+fast-forward of the main checkout, only when it is on tiered-brain-building with no uncommitted tracked change and no agent
+server runs from its working tree; otherwise the branch is queued in runs/foundry/pending_merges.txt for --apply-merge.
+Never main, never a push. Spec: runs/2026-10-18/foundry/spec_x3.md; the merge: runs/2026-10-20/s41/spec_proposals_v2.md C.
 
 Usage: python scripts/foundry.py TICKET.json [--cli agy|claude] [--model M] [--gates-only] [--skip-baseline]
        python scripts/foundry.py --probe ID          (agy's workspace boundary in an existing worktree)
@@ -11,7 +15,9 @@ Usage: python scripts/foundry.py TICKET.json [--cli agy|claude] [--model M] [--g
   --gates-only    run the gates on the worktree as it stands (no CLI round first; repair rounds still use the CLI)
   --skip-baseline compare the series with the cached baseline only (fail the series gate if there is none)
   --written-by T  with --gates-only: who wrote the change, for the commit message and the report
-  --cleanup ID    remove the worktree .foundry/ID (and the branch foundry/ID only with --delete-branch, when the user says)
+  --cleanup ID    remove the worktree .foundry/ID (and the branch foundry/ID only with --delete-branch)
+  --merge         merge a candidate that passed every gate (see above), then clean up its worktree and branch
+  --apply-merge ID  the same for a candidate already committed on foundry/ID (a queued one, or a run without --merge)
 
 Steps: preflight (test world 3 only, 0 agents on it: lesson 146), the worktree .foundry/<id> on branch foundry/<id> from
 HEAD (inside the repo, ignored through .git/info/exclude; node_modules is a junction to the repo's), the baseline series
@@ -838,8 +844,8 @@ def write_report(t, wt, out, cli, base, gates, sha, started, outcome, written_by
                  [f"- [{f.get('severity')}] {f.get('file', '')}:{f.get('line', '')} {f.get('text', '')}" for f in v.get("findings", [])]
     lines += ["", "## Diff", "", "```", stat, "```", ""]
     if sha:
-        lines += ["## To merge (the user's call)", "", "```", "git merge --no-ff foundry/" + t["id"], "```",
-                  f"then `python scripts/foundry.py --cleanup {t['id']}` (and `--delete-branch` once merged)."]
+        lines += ["## Merging", "", f"With --merge the foundry merged it or queued it (the outcome above says which); "
+                  f"a queued or unmerged candidate: `python scripts/foundry.py --apply-merge {t['id']}`."]
     lines += ["", f"Files: {out.relative_to(ROOT)} (cli-round*.jsonl, message*.md, scope.txt, typecheck.txt, check_offline.txt, "
               "review.*, live_*.txt, series-*/)"]
     (out / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -874,6 +880,83 @@ def probe(tid):
     outside.unlink(missing_ok=True)
 
 
+def working_tree_servers():
+    """Agent servers running from the main checkout's own files (not a code snapshot under runs/code): command lines of
+    node processes naming server/src/mineflayer/index.ts outside runs/code."""
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { $_.CommandLine }"],
+                           capture_output=True, text=True, timeout=60)
+    except Exception as e:
+        return [f"(could not list processes: {e})"]
+    out = []
+    for line in r.stdout.splitlines():
+        l = line.replace("\\", "/")
+        if "server/src/mineflayer/index.ts" in l and "runs/code" not in l and ".foundry/" not in l:
+            out.append(line.strip()[:200])
+    return out
+
+
+def queue_merge(tid, why):
+    q = ROOT / "runs" / "foundry" / "pending_merges.txt"
+    q.parent.mkdir(parents=True, exist_ok=True)
+    with q.open("a", encoding="utf-8") as f:
+        f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M} foundry/{tid}: {why}\n")
+    log(f"merge of foundry/{tid} queued ({why}): runs/foundry/pending_merges.txt; apply with --apply-merge {tid}")
+    return f"queued: {why}"
+
+
+def merge_candidate(t, wt, out, base_failed, clean=True):
+    """The gated merge (spec_proposals_v2 C): returns what happened, in words; `clean`: remove the worktree and branch
+    after a merge (a full run removes them after its report, which reads the worktree)."""
+    tid = t["id"]
+    branch = f"foundry/{tid}"
+    if git("rev-parse", "--abbrev-ref", "HEAD", cwd=wt) != branch:
+        return queue_merge(tid, f"the worktree is not on {branch}")
+    before = git("rev-parse", "HEAD", cwd=wt)
+    code = subprocess.run(["git", "merge", "--no-edit", "tiered-brain-building"], cwd=wt, capture_output=True, text=True)
+    if code.returncode:
+        subprocess.run(["git", "merge", "--abort"], cwd=wt, capture_output=True)
+        return queue_merge(tid, f"tiered-brain-building does not merge into it cleanly: {(code.stdout + code.stderr).strip()[:160]}")
+    if git("rev-parse", "HEAD", cwd=wt) != before:
+        for name, fn in (("typecheck", gate_typecheck), ("check:offline", lambda t, wt, out: gate_offline(t, wt, out, base_failed))):
+            ok, summary, _ = fn(t, wt, out)
+            log(f"merged tree, {name}: {'ok' if ok else 'FAILED'}: {summary}")
+            if not ok:
+                git("reset", "-q", "--hard", before, cwd=wt)
+                return queue_merge(tid, f"{name} fails once merged with tiered-brain-building: {summary}")
+    if git("rev-parse", "--abbrev-ref", "HEAD") != "tiered-brain-building":
+        return queue_merge(tid, "the main checkout is not on tiered-brain-building")
+    dirty = [l for l in git("status", "--porcelain").splitlines() if l and not l.startswith("??")]
+    if dirty:
+        return queue_merge(tid, f"the main checkout has {len(dirty)} uncommitted tracked changes ({', '.join(l[3:] for l in dirty[:4])})")
+    servers = working_tree_servers()
+    if servers:
+        return queue_merge(tid, f"an agent server runs from the working tree ({servers[0][:80]})")
+    code = subprocess.run(["git", "merge", "--ff-only", branch], cwd=ROOT, capture_output=True, text=True)
+    if code.returncode:
+        return queue_merge(tid, f"the fast-forward failed: {(code.stdout + code.stderr).strip()[:160]}")
+    sha = git("rev-parse", "--short", "HEAD")
+    log(f"merged {branch} into tiered-brain-building (fast-forward to {sha}; not pushed)")
+    if clean:
+        cleanup(tid, True)
+    return f"merged into tiered-brain-building at {sha}"
+
+
+def apply_merge(tid):
+    """--apply-merge: the gated merge for a committed candidate, with the base's offline failures of its newest run."""
+    t = load_ticket(str(ROOT / "scripts" / "foundry" / "tickets" / f"{tid}.json"))
+    wt = FOUNDRY / tid
+    if not wt.exists():
+        raise SystemExit(f"no worktree {wt}")
+    runs = sorted(ROOT.glob(f"runs/*/foundry/{tid}/offline_base.json"))
+    base_failed = set(json.loads(runs[-1].read_text(encoding="utf-8"))) if runs else set()
+    out = runs[-1].parent if runs else ROOT / "runs" / TODAY / "foundry" / tid
+    with Lock(FOUNDRY / "foundry.lock"):
+        what = merge_candidate(t, wt, out, base_failed)
+    print(f"FOUNDRY MERGE {tid}: {what}")
+
+
 def cleanup(tid, delete_branch):
     wt = FOUNDRY / tid
     if wt.exists():
@@ -899,12 +982,16 @@ def main():
     ap.add_argument("--probe")
     ap.add_argument("--cleanup")
     ap.add_argument("--delete-branch", action="store_true")
+    ap.add_argument("--merge", action="store_true")
+    ap.add_argument("--apply-merge")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if a.cleanup:
         return cleanup(a.cleanup, a.delete_branch)
     if a.probe:
         return probe(a.probe)
+    if a.apply_merge:
+        return apply_merge(a.apply_merge)
     if not a.ticket:
         raise SystemExit(__doc__)
     t = load_ticket(a.ticket)
@@ -993,7 +1080,9 @@ def main():
                     f"look: main_checkout_changes.txt)")
             if outcome == "passed every gate":
                 sha = commit(t, wt, cli, gates, a.written_by)
-                log(f"committed {sha} on foundry/{t['id']} (not merged, not pushed: the user's call)")
+                log(f"committed {sha} on foundry/{t['id']} (not pushed)")
+                if a.merge:
+                    outcome += f"; {merge_candidate(t, wt, out, base_failed, clean=False)}"
         finally:
             if a.cli == "agy" or reviewer == "agy":
                 agy_rules(False)
@@ -1001,6 +1090,8 @@ def main():
                 log("waiting for the baseline series to end")
                 bthread.join()
             write_report(t, wt, out, cli, base, gates, sha, started, outcome, a.written_by)
+    if "; merged into" in outcome:
+        cleanup(t["id"], True)
     print(f"FOUNDRY DONE {t['id']}: {outcome}")
 
 
