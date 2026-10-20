@@ -1237,6 +1237,22 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
   const n = 2 * r + 1, x0 = cx - r, z0 = cz - r, yHint = Math.floor(a.bot.entity.position.y);
   taken = taken.filter((q) => q.x2 >= x0 && q.x1 <= x0 + n - 1 && q.z2 >= z0 && q.z1 <= z0 + n - 1);
   const y = new Int16Array(n * n), kind = new Uint8Array(n * n), trees = new Uint16Array(n * n), built = new Uint8Array(n * n);
+  // A column the surveyor has not loaded, read through a fellow member that has (s43: a bot holds 8 chunks round itself,
+  // so a wider village range came back "unloaded" past ~128 blocks of the surveyor)
+  const vname = a.village()?.name;
+  const peers = vname ? [...a.world.agents.values()].filter((b) => b !== a && b.bot?.entity && b.village()?.name === vname) : [];
+  // (each chunk's peer looked for once: most columns past the members' chunks are loaded by no one, the review)
+  const peerOf = new Map<number, BotAgent | null>();
+  const viaPeer = (x: number, z: number): Surface | null => {
+    if (!peers.length) return null;
+    const key = (x >> 4) * 65536 + (z >> 4);
+    let b = peerOf.get(key);
+    if (b === undefined) {
+      b = peers.find((q) => q.bot.world.getColumn(x >> 4, z >> 4)) ?? null;
+      peerOf.set(key, b);
+    }
+    return b ? surfaceAt(b, x, z, yHint) : null;
+  };
   let t = Date.now();
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
@@ -1245,7 +1261,7 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
         kind[k] = 3;
         continue;
       }
-      const c = surfaceAt(a, x, z, yHint);
+      const c = surfaceAt(a, x, z, yHint) ?? viaPeer(x, z);
       if (!c) {
         kind[k] = 1;
         continue;
@@ -3704,7 +3720,7 @@ const optionText = (o: PadOption) => `${o.size}x${o.size}, ${o.n} house${o.n > 1
 
 /** How far from home a neighbourhood's centre may be: GROW.range, less what keeps an S x S pad's corners within the
  *  village's range (80 for 23; a 29 pad at 80 reached 99.8, s30's review). */
-const growReach = (S: number) => Math.min(GROW.range, VILLAGE_RANGE - Math.ceil(Math.max(Math.floor(S / 2), S - 1 - Math.floor(S / 2)) * Math.SQRT2));
+export const growReach = (S: number) => Math.min(GROW.range, VILLAGE_RANGE - Math.ceil(Math.max(Math.floor(S / 2), S - 1 - Math.floor(S / 2)) * Math.SQRT2));
 
 /** The ground growSite keeps off (its doc), read now: built again after the survey to test the square chosen (the village's
  *  records may have changed meanwhile, s30's review). */

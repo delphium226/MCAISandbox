@@ -1,0 +1,28 @@
+{
+  "about": "s43: Rch1's wider range plus a green per 3 members (MC_GREENS_PER=3; the default stays 5, the user's s36 rule): does initiative room lift busy past the collapse? Prediction: runs/2026-10-21/s43/rch2_prediction.txt",
+  "out": "runs/2026-10-21/s43/s43_rch2",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 130,
+  "server_env": {
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5",
+    "MC_VILLAGE_RANGE": "144",
+    "MC_GREENS_PER": "3"
+  },
+  "runs": [
+    {
+      "name": "Rch2",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 90 --stock fishing_rod:3"
+    }
+  ]
+}

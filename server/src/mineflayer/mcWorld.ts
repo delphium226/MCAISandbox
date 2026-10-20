@@ -3304,7 +3304,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (/^lay_out_houses: no free \d+x\d+ site/.test(why)) {
       const first = g.noSite?.[0];
       g.noSite = [...(g.noSite ?? []), { at: now, by }].slice(-5);
-      if (first && now - first.at >= 5 * 60000) return this.growStop(v, `no site within ${VILLAGE_GROW_REACH} blocks`);
+      if (first && now - first.at >= 5 * 60000) return this.growStop(v, `no site within ${GROW.range} blocks`);
       wait = 5;
     } else {
       g.tries = (g.tries ?? 0) + 1;
@@ -5797,7 +5797,7 @@ const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
 /** The first growth waits this long after the village is first seen complete (s30, D2); a neighbourhood whose open tasks
  *  nobody holds or can claim for GROW_STUCK_MS is ended as stuck (D13); a site within the village's range (D6). */
-const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000, VILLAGE_GROW_REACH = 96;
+const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
@@ -5806,8 +5806,9 @@ const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'pe
 type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
 const GREEN_SIZE = 15;
-/** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works. */
-const GREENS_PER = 5;
+/** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
+ *  for experiments, s43). */
+const GREENS_PER = Number(process.env.MC_GREENS_PER) || 5;
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */

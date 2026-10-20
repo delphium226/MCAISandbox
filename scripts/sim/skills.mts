@@ -7,7 +7,7 @@
  * Unknown skills are done with no effect and counted (the report's fidelity gaps).
  */
 import { noteFood, chooseMeal, storeForMeals, releaseMeal, FOOD_POINTS, APPETITE } from '../../server/src/appetite';
-import { wheatKeep } from '../../server/src/mineflayer/mcBuild';
+import { growReach, wheatKeep } from '../../server/src/mineflayer/mcBuild';
 import { SLOT_KINDS, penPlan } from '../../server/src/farmSlots';
 import { holdsDelete, holdKey, makeHolds } from '../../server/src/mineflayer/mcWorkshop';
 import { OFFERS } from '../../server/src/merchant';
@@ -370,6 +370,32 @@ function eatMeal(_args: Any, c: Ctx): Outcome {
   }
 }
 
+/**
+ * The works furnaces' fuel (s43: the sim made charcoal 2.5x as often as Lng1 late in the run). The real smelt adds fuel only
+ * when the fuel slot is empty, and a charcoal burns for 8 smelts whether or not anything is smelting: a smelt started while
+ * the last charcoal still burns uses that burn and leaves its own charcoal in the slot for the next; one that finds a
+ * charcoal already in the slot puts its own back. Two furnaces, each
+ * burning until `lit` (ms of the sim's clock) with `slot` charcoal waiting; the charcoal handed back is returned.
+ */
+const furnaces = new Map<string, Array<{ lit: number; slot: number }>>();
+function furnaceFuel(village: string, count: number, now: number): number {
+  const fs = furnaces.get(village) ?? [{ lit: 0, slot: 0 }, { lit: 0, slot: 0 }];
+  furnaces.set(village, fs);
+  const smelt = 10000 / Number(process.env.MC_TIME_SCALE || 1);
+  const f = fs.reduce((p, q) => (q.slot > p.slot || (q.slot === p.slot && q.lit > p.lit) ? q : p));
+  const back = f.slot > 0 ? 1 : 0;
+  if (!back) f.slot = 1;
+  let left = count - Math.max(0, Math.floor((f.lit - now) / smelt)), t = Math.max(now, f.lit);
+  while (left > 0) {
+    // (more than the slot holds: the smelt's loop adds fuel again; that charcoal is the batch's own, counted as taken)
+    if (f.slot > 0) f.slot--;
+    t += 8 * smelt;
+    left -= 8;
+  }
+  f.lit = Math.max(f.lit, t);
+  return back;
+}
+
 function make(args: Any, c: Ctx): Outcome {
   const v = c.v, w = c.w, item = String(args.item);
   const hk = holdKey(v.name, c.name);
@@ -381,8 +407,9 @@ function make(args: Any, c: Ctx): Outcome {
   const inputs: Counts = mine ?? {};
   for (const [n, q] of Object.entries(inputs))
     if ((storageContents(v)[n] ?? 0) < q) return { ok: false, message: `make: another agent took the ${n} (got ${storageContents(v)[n] ?? 0} of ${q}); what was withdrawn went back`, code: 'taken' };
-  for (const [n, q] of Object.entries(inputs)) take(v, n, q);
   const count = Number(args.count);
+  const back = item !== 'charcoal' && inputs.charcoal ? furnaceFuel(v.name, count, c.now) : 0;
+  for (const [n, q] of Object.entries(inputs)) take(v, n, n === 'charcoal' ? q - Math.min(q, back) : q);
   if (good.food) noteFood(v, 'made', { [item]: count });
   put(v, item, count);
   return { ok: true, message: `made ${count} ${item} (simulated); put into storage: ${count} ${item}` };
@@ -454,8 +481,16 @@ function buildDesign(args: Any, c: Ctx): Outcome {
   const old = v.structures.find((s: Any) => s.kind === d.name && x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
   if (old) return { ok: true, message: `a ${d.name} built by ${old.builtBy} already stands at ${areaText(old)}, so this is already done` };
   // The bill from storage (what the plan takes from stock; any:logs and the like as the planner resolves them)
-  const wood = c.w.catalogWoodOf(v);
-  const p = c.w.materials.plan(inWood(designBill(d), wood), storageContents(v));
+  // (the wood as the skill chooses it: the building's own kind (its Build task's label in woodFor), else the village's, and
+  // when that does not cover the bill, another kind that does, the most stocked first; s43: the sim built every public work
+  // in birch, ran birch dry and failed them, while the real ones took the felled oak)
+  const store = storageContents(v);
+  const task = v.tasks.find((t: Any) => t.status === 'claimed' && t.claimedBy === c.name && /^Build /.test(t.title) && String(t.detail).startsWith(`build_design "${d.name}"`));
+  const prefer = (task && v.woodFor?.[task.title.slice(6)]) || v.wood || c.w.catalogWoodOf(v);
+  const kinds = [...new Set([prefer, ...Object.keys(store).filter((n) => n.endsWith('_log') && !n.startsWith('stripped_')).map((n) => n.slice(0, -4))
+    .sort((p, q) => (store[`${q}_log`] ?? 0) * 4 + (store[`${q}_planks`] ?? 0) - (store[`${p}_log`] ?? 0) * 4 - (store[`${p}_planks`] ?? 0))])].filter(Boolean);
+  const plans = kinds.map((k) => c.w.materials.plan(inWood(designBill(d), k), store));
+  const p = plans.find((q: Any) => !Object.values(q.gather ?? {}).some((n) => (n as number) > 0)) ?? plans[0];
   const short = Object.entries(p.gather ?? {}).filter(([, q]) => (q as number) > 0);
   if (short.length) return { ok: false, message: `ran out of ${short[0][0]} after placing 0 blocks; still needed: ${short.map(([n, q]) => `${q} ${n}`).join(', ')}. Get them, then run the same build again: it continues where it stopped` };
   const used: Counts = {};
@@ -546,14 +581,14 @@ export interface Land { home: [number, number]; x0: number; z0: number; n: numbe
 /**
  * A free S x S square for a layout or a green: growSite's survey on the checkpoint's land when the sim has it (F262: the
  * real works stopped at "no free 20x20 site within 80 blocks (wet, steep, taken)"): the centre within the growth's reach of
- * home (growReach), the square and a 2-block margin dry and no steeper than 2 blocks, else 4, clear of every plot, layout
+ * home (growReach), the square dry and no steeper than 2 blocks, else 4 (bestSite's window), clear of every plot, layout
  * and structure by 4; the nearest to home. Without land: a ring search by geometry alone (v0), and the reasons counted.
  */
 function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: number } | { why: string } {
   const home = villageHome(v) ?? { x: v.plots[0].x1, z: v.plots[0].z1 };
   const taken = [...v.plots, ...(v.layouts ?? []), ...v.structures].map((q: Any) => ({ x1: q.x1 - 4, z1: q.z1 - 4, x2: q.x2 + 4, z2: q.z2 + 4 }));
   const half = Math.floor(S / 2);
-  const reach = Math.min(80, 96 - Math.ceil(Math.max(half, S - 1 - half) * Math.SQRT2));
+  const reach = growReach(S);
   if (!land) {
     for (let r = S; r < 200; r += 4)
       for (let k = 0; k < 16; k++) {
@@ -582,8 +617,10 @@ function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: 
           continue;
         }
         let lo = Infinity, hi = -Infinity, bad: 'wet' | 'unloaded' | null = null;
-        for (let zz = sq.z1 - 2; zz <= sq.z2 + 2 && !bad; zz++)
-          for (let xx = sq.x1 - 2; xx <= sq.x2 + 2; xx++) {
+        // (the square alone, as bestSite's window: s43, a 2-block margin here ran the sim out of room 20 minutes before Rch1,
+        // whose sites had 5-8 blocks of range and water in that margin)
+        for (let zz = sq.z1; zz <= sq.z2 && !bad; zz++)
+          for (let xx = sq.x1; xx <= sq.x2; xx++) {
             const c = at(xx, zz);
             if (!c || c.y < -900) {
               bad = 'unloaded';

@@ -579,10 +579,11 @@ export interface Village {
   mine?: Mine;
 }
 
-/** How far a village's mayor and its site searches may go from home. */
-export const VILLAGE_RANGE = 96;
+/** How far a village's mayor and its site searches may go from home (MC_VILLAGE_RANGE widens it, s43: the land within 96
+ * ran out at ~40 minutes, F262). */
+export const VILLAGE_RANGE = Number(process.env.MC_VILLAGE_RANGE) || 96;
 /** How far a farm slot's start (a chore once the village stands) may walk for its first plants, and exploring may go. */
-export const FARM_TRIP_RANGE = 160;
+export const FARM_TRIP_RANGE = Math.max(160, VILLAGE_RANGE);
 /**
  * How far a new village may look before its first layout (step 2.4): its first site search and its scouts. Within 96
  * the spawn's own view (~128 blocks) already showed everything, so scouting there added nothing.

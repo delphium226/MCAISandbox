@@ -246,6 +246,8 @@ class SimAgent {
   memory: Record<string, unknown>;
   bot: Any;
   world = w;
+  /** Its last action left it out at the village's edge (AWAY): the next one's minutes are drawn from such samples. */
+  away = false;
   constructor(readonly name: string) {
     this.role = name === 'Mayor' ? 'mayor' : 'worker';
     this.memory = { village: v.name, villageRole: this.role };
@@ -311,12 +313,25 @@ for (const a of agents) {
 // ---- durations: a reference run's chores ---------------------------------------------------------------------------------
 
 /** Minutes by skill key ("make:charcoal", "collect", "eat_meal"...), from the reference's choice log. */
-const samples = new Map<string, Array<{ m: number; ok: boolean; message: string }>>();
-const addSample = (k: string, m: number, ok = true, message = '') => {
+const samples = new Map<string, Array<{ m: number; ok: boolean; message: string; n?: number; away?: boolean }>>();
+/** Whether the member's last action left it out at the village's edge (a build, a site, a house it lit or furnished) or by
+ *  storage and the works (s43: Lng1's late eats and harvests took half Stg2's mean: idle members stood by storage). */
+const AWAY = new Set(['build_design', 'prepare_site', 'prepare_green', 'put_up_torches', 'furnish', 'light_streets', 'put_up_signs', 'collect', 'explore']);
+let refAway = false;
+const addSample = (k: string, m: number, ok = true, message = '', n?: number) => {
   if (!(m > 0)) return;
   if (!samples.has(k)) samples.set(k, []);
-  samples.get(k)!.push({ m, ok, message });
+  samples.get(k)!.push({ m, ok, message, ...(n ? { n } : {}), away: refAway });
 };
+/** A make's batch ("make 4 charcoal") and a fishing trip's catch ("caught 1 fish ... and 0 other", "deposited 2 salmon,
+ *  4 cod. Storage..."): the sizes a duration grows with (s43: Lng1's late top-ups of 1-2 took half the reference's mean). */
+const batchOf = (what: string) => Number(/^make (\d+) /.exec(what)?.[1]) || undefined;
+function catchOf(msg: string): number | undefined {
+  const c = /caught (\d+) fish .* and (\d+) other/.exec(msg);
+  if (c) return Number(c[1]) + Number(c[2]) || undefined;
+  const d = /^deposited (.*?)\. Storage/.exec(msg);
+  return d ? [...d[1].matchAll(/(\d+) [a-z_]+/g)].reduce((t, q) => t + Number(q[1]), 0) || undefined : undefined;
+}
 /** What a reference green's clearing kept, by item (prepare_green's "kept 7 birch_log, 47 oak_log from the felled"). */
 const greenKept: Counts[] = [];
 /** Builds' minutes against blocks placed: a fixed part (the walk, the site) and a part a block, fitted below. */
@@ -350,13 +365,26 @@ if (CALIB && fs.existsSync(CALIB)) {
   const rows = fs.readFileSync(CALIB, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const starts = new Map(rows.filter((r) => r.type === 'choice').map((r) => [r.id, r]));
   let perStep = 0;
-  for (const e of rows.filter((r) => r.type === 'choice-end')) {
-    const s = starts.get(e.id);
-    if (!s || e.cut) continue;
-    if (Array.isArray(e.steps) && e.steps.some((q: Any) => q.ms)) {
+  const lastAway = new Map<string, boolean>();
+  const ends = rows.filter((r) => r.type === 'choice-end' && starts.has(r.id)).sort((p, q) => starts.get(p.id)!.t - starts.get(q.id)!.t);
+  for (const e of ends) {
+    const s = starts.get(e.id)!;
+    refAway = lastAway.get(s.agent) ?? false;
+    // (where this chore leaves the member: its last step, else its kind; a build's end message)
+    const steps = Array.isArray(e.steps) ? e.steps : [];
+    const before = refAway;
+    lastAway.set(s.agent, steps.length ? AWAY.has(steps[steps.length - 1].type) : ['light', 'furnish'].includes(s.kind) || /recorded in village|already stands/.test(String(e.message ?? '')));
+    if (e.cut) continue;
+    if (steps.some((q: Any) => q.ms)) {
       perStep++;
       if (e.steps.length === 1 && e.steps[0].type === 'build_design' && e.steps[0].ms) buildRate(String(e.message ?? ''), e.steps[0].ms / 60000);
-      for (const q of e.steps) if (q.ms) addSample(q.type === 'make' ? `make:${String(s.key).replace(/^make:/, '')}` : q.type, q.ms / 60000, q.state === 'done', q.state === 'done' ? '' : String(e.message ?? ''));
+      // (each step from where the step before it left the member, as the sim's members draw theirs)
+      refAway = before;
+      for (const q of e.steps) {
+        if (q.ms) addSample(q.type === 'make' ? `make:${String(s.key).replace(/^make:/, '')}` : q.type, q.ms / 60000, q.state === 'done', q.state === 'done' ? '' : String(e.message ?? ''),
+          q.type === 'make' ? batchOf(String(s.what ?? '')) : q.type === 'fish' ? catchOf(String(e.message ?? '')) : undefined);
+        refAway = AWAY.has(q.type);
+      }
       keptOf(String(e.message ?? ''));
       tripOf(String(s.what ?? ''), String(e.message ?? ''));
       continue;
@@ -364,7 +392,7 @@ if (CALIB && fs.existsSync(CALIB)) {
     const m = e.minutes, msg = String(e.message ?? '');
     keptOf(msg);
     tripOf(String(s.what ?? ''), msg);
-    if (s.kind === 'make') addSample(`make:${String(s.key).replace(/^make:/, '')}`, m, !!e.ok, e.ok ? '' : msg);
+    if (s.kind === 'make') addSample(`make:${String(s.key).replace(/^make:/, '')}`, m, !!e.ok, e.ok ? '' : msg, batchOf(String(s.what ?? '')));
     else if (SINGLE[s.kind]) addSample(SINGLE[s.kind], m, !!e.ok, e.ok ? '' : msg);
     else if (/^plot ready/.test(msg)) addSample('prepare_green', m);
     else if (s.kind === 'penwork') addSample(/egg/.test(msg) ? 'collect_eggs' : /milk/.test(msg) ? 'milk_cows' : 'breed_pen', m);
@@ -373,7 +401,7 @@ if (CALIB && fs.existsSync(CALIB)) {
       buildRate(msg, m);
     }
     else if (s.kind === 'activity' && /emerald|traded/.test(msg)) addSample('trade', Math.max(0.03, m - 0.15));
-    else if (s.kind === 'activity') addSample('fish', Math.max(0.1, m - 0.25));
+    else if (s.kind === 'activity') addSample('fish', Math.max(0.1, m - 0.25), true, '', catchOf(msg));
     else if (/^deposited/.test(msg) && ['gather', 'help', 'initiate'].includes(s.kind)) addSample('collect', Math.max(0.05, m - 0.1));
   }
   calibFrom = `${path.basename(CALIB)} (${rows.length} rows, ${perStep} chores with per-step times)`;
@@ -424,7 +452,21 @@ const BUILTIN: Record<string, number> = {
 /** A drawn sample for an action: its minutes, and a reference failure it is to repeat (the skills whose failures come
  *  from physics the models leave out: a make's craft that found an input missing, a harvest that met another worker). */
 const FAILS_FROM_REFERENCE = new Set(['make', 'harvest_slot', 'harvest_farm', 'put_up_torches', 'furnish']);
-function sampleFor(s: Any): { m: number; fail?: string } {
+const sizeFits = new Map<string, { a: number; b: number; resid: number[] } | null>();
+function sizeFit(key: string): { a: number; b: number; resid: number[] } | null {
+  if (sizeFits.has(key)) return sizeFits.get(key)!;
+  const xs = (samples.get(key) ?? []).filter((x) => x.ok && x.n);
+  let out: { a: number; b: number; resid: number[] } | null = null;
+  if (new Set(xs.map((x) => x.n)).size >= 2) {
+    const n = xs.length, mx = xs.reduce((t, x) => t + x.n!, 0) / n, my = xs.reduce((t, x) => t + x.m, 0) / n;
+    const sxx = xs.reduce((t, x) => t + (x.n! - mx) ** 2, 0), sxy = xs.reduce((t, x) => t + (x.n! - mx) * (x.m - my), 0);
+    const b = Math.max(0, sxy / sxx), a = Math.max(0.02, my - b * mx);
+    out = { a, b, resid: xs.map((x) => x.m - (a + b * x.n!)) };
+  }
+  sizeFits.set(key, out);
+  return out;
+}
+function sampleFor(s: Any, away = false): { m: number; fail?: string } {
   // (a build by its blocks: the design's bill at a reference rate per block)
   const d = s.type === 'build_design' && buildFit ? v.designs?.[String(s.args?.design)] : undefined;
   if (d && buildFit) {
@@ -432,7 +474,20 @@ function sampleFor(s: Any): { m: number; fail?: string } {
     return { m: Math.max(0.05, buildFit.a + buildFit.b * blocks + buildFit.resid[Math.floor(rng() * buildFit.resid.length)]) };
   }
   const key = s.type === 'make' ? `make:${s.args.item}` : s.type;
-  const xs = samples.get(key) ?? (s.type === 'make' ? [...samples.entries()].filter(([k]) => k.startsWith('make:')).flatMap(([, x]) => x) : undefined);
+  // (a make's batch and a trip's catch by size: the reference's line through its sizes, its residuals drawn back)
+  const size = s.type === 'make' ? Number(s.args?.count) : s.type === 'fish' ? Math.min(8, Number(s.args?.count ?? 8)) : NaN;
+  // (a trip's time is its casts: the reference's trips all caught ~8, so its minutes a catch, not a line)
+  const trips = s.type === 'fish' && size > 0 ? (samples.get(key) ?? []).filter((x) => x.ok && x.n) : [];
+  if (trips.length) {
+    const x = trips[Math.floor(rng() * trips.length)];
+    return { m: Math.max(0.05, (x.m / x.n!) * size) };
+  }
+  const fit = size > 0 ? sizeFit(key) : null;
+  if (fit) return { m: Math.max(0.03, fit.a + fit.b * size + fit.resid[Math.floor(rng() * fit.resid.length)]) };
+  const all = samples.get(key) ?? (s.type === 'make' ? [...samples.entries()].filter(([k]) => k.startsWith('make:')).flatMap(([, x]) => x) : undefined);
+  // (from where the member stands, when the reference has enough of those)
+  const here = all?.filter((x) => !!x.away === away);
+  const xs = here && here.length >= 5 ? here : all;
   if (xs?.length) {
     const x = xs[Math.floor(rng() * xs.length)];
     return { m: x.m, ...(!x.ok && x.message && FAILS_FROM_REFERENCE.has(s.type) && x.message !== 'cancelled' ? { fail: x.message } : {}) };
@@ -448,13 +503,14 @@ function start(a: SimAgent) {
   s.state = 'running';
   s.startedAt = clock;
   s.startedTick = w.ticks;
-  const x = sampleFor(s);
+  const x = sampleFor(s, a.away);
   if (x.fail) s._fail = x.fail;
   a.current = { status: s, endAt: clock + Math.max(500, Math.round(x.m * 60000)) };
 }
 function finish(a: SimAgent) {
   const s = a.current!.status;
   const model = S.MODELS[s.type];
+  a.away = AWAY.has(s.type);
   actionsRun.set(s.type, (actionsRun.get(s.type) ?? 0) + 1);
   // (a board task's action, not a chore's: the task brain's)
   if (!s.args?.chore) boardRun.set(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`, (boardRun.get(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`) ?? 0) + 1);
@@ -473,6 +529,8 @@ function finish(a: SimAgent) {
       out = { ok: false, message: `${s.type} failed in the simulator` };
     }
   Object.assign(s, { state: out.ok ? 'done' : 'failed', message: out.message, endedAt: clock, ...(out.code ? { code: out.code } : {}) });
+  // (the public works' layouts and sites, as the stage log's lines: where the room runs out)
+  if (s.type === 'lay_out_houses' || s.type === 'prepare_site') keep.push({ t: clock, s: `[works] ${a.name} ${s.type} ${out.ok ? 'finished' : 'failed'}: ${out.message.slice(0, 200)}` });
   a.history.push(s);
   if (a.history.length > 100) a.history.shift();
   a.current = null;
@@ -512,6 +570,11 @@ while (clock < END) {
   if (dt > 0) {
     crops.grow(dt);
     eggs.lay(v, dt);
+    // (the logs in storage each minute, as the stage log's STOCK lines: builds fail when they run short)
+    if (Math.floor((clock - T0) / 60000) > Math.floor((clock - T0 - dt * 1000) / 60000)) {
+      const st = storageContents(v);
+      keep.push({ t: clock, s: `[stock] ${Object.entries(st).filter(([n]) => /_log$|cobblestone|sand|glass/.test(n)).map(([n, q]) => `${n} ${q}`).join(', ')}` });
+    }
   }
   if (clock >= END) break;
   if (first && first.current && first.current.endAt <= clock) {
