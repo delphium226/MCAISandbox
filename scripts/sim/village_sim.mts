@@ -204,6 +204,8 @@ for (const kv of stockArg.split(',').filter(Boolean)) {
   S.put(v, item, Number(q));
 }
 const store0 = storageContents(v);
+/** The last task number of the record (the sim's own tasks come after it). */
+const T0_TASK = Math.max(0, ...v.tasks.map((t: Any) => Number(/\d+/.exec(t.id)?.[0] ?? 0)));
 
 // ---- the modelled world: crops, eggs, the members ----------------------------------------------------------------------
 
@@ -224,6 +226,8 @@ const plot0 = v.plots.find((p: Any) => !p.annex);
 const home = chest0 ? { x: chest0.x, y: chest0.y, z: chest0.z } : { x: Math.floor((plot0.x1 + plot0.x2) / 2), y: plot0.y + 1, z: Math.floor((plot0.z1 + plot0.z2) / 2) };
 
 let nextId = 1;
+/** The board's state when it was last refreshed before a brain (SimAgent.tick). */
+let boardSig = -1;
 const unknown = new Map<string, number>();
 let fromRef = 0;
 const boardRun = new Map<string, number>();
@@ -263,6 +267,17 @@ class SimAgent {
     return s;
   }
   tick() {
+    // (the board refreshed before each brain looks: real 50 ms ticks interleave the board's refresh with the brains', so a
+    // gather a finished prepare's felled logs cover is closed before anyone claims it; at 5 s every brain looked first)
+    if (this.brain) {
+      // (only when a task changed state since the last: refreshBoard reads the whole board)
+      let sig = v.tasks.length;
+      for (const t of v.tasks) if (t.status !== 'open') sig += t.status === 'done' ? 1e6 : 1e3;
+      if (sig !== boardSig) {
+        boardSig = sig;
+        reg.refreshBoard(v);
+      }
+    }
     this.brain?.tick?.(this);
   }
   pushEvent(type: string, text: string, data?: Any) {
@@ -528,6 +543,7 @@ const report = {
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
+if (process.env.SIM_TASKS) fs.writeFileSync(path.join(OUT, 'sim.tasks.txt'), v.tasks.filter((t: Any) => Number(/\d+/.exec(t.id)?.[0]) > T0_TASK).map((t: Any) => `${t.id} [${t.status}] ${t.title} after ${t.after.join(',')}${t.result ? ': ' + String(t.result).slice(0, 90) : ''}`).join('\n') + '\n');
 fs.writeFileSync(path.join(OUT, 'sim.events.log'), keep.map((k) => `+${((k.t - T0) / 60000).toFixed(2)}m ${k.s}`).join('\n') + '\n');
 if (LOG) fs.writeFileSync(path.join(OUT, 'sim.log'), logLines.join('\n') + '\n');
 if (errors.length) fs.writeFileSync(path.join(OUT, 'sim.errors.log'), errors.join('\n') + '\n');
