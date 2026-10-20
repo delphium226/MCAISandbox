@@ -2300,6 +2300,13 @@ export class MineflayerWorld implements WorldAdapter {
     const near = home ? this.growMembers(v).find((a) => a.bot.entity && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) <= 32) : undefined;
     const cands = this.publicWorks().filter((w) => !built.has(w.design.name) && !bad.has(w.design.name))
       .sort((p, q) => Number(q.biome === own) - Number(p.biome === own) || p.units - q.units || p.design.name.localeCompare(q.design.name));
+    // (MC_WORKS_REPEAT, #75: once fewer than three unbuilt pieces qualify, built ones again, the fewest copies first; the
+    // pool ran out at ~112 minutes in the sim at range 192)
+    if (WORKS_REPEAT) {
+      const copies = (n: string) => v.structures.filter((st) => st.kind === n).length;
+      cands.push(...this.publicWorks().filter((w) => built.has(w.design.name) && !bad.has(w.design.name))
+        .sort((p, q) => copies(p.design.name) - copies(q.design.name) || Number(q.biome === own) - Number(p.biome === own) || p.units - q.units || p.design.name.localeCompare(q.design.name)));
+    }
     const out: VoteOption[] = [];
     const kinds = new Set<string>();
     for (const w of cands) {
@@ -5817,6 +5824,8 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
 /** X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
+/** #75: public works may repeat a piece once the unbuilt ones run out (off by default, s43). */
+const WORKS_REPEAT = /^(on|1|true)$/i.test(process.env.MC_WORKS_REPEAT ?? 'off');
 /** Menu reasons that do not block a need (needNote): another member is on it, this member only, or it is under way. */
 const NOT_BLOCKING = new Set(['busy', 'hungry', 'has a house', 'a street is asked for', 'a layout is being built', 'a vote is under way']);
 const PROJECT_FARMSTEAD = 'farmstead';
