@@ -80,6 +80,8 @@ export interface StorageChest {
   items: Record<string, number>;
   /** The material group it holds, in a sorted storage (the storage hut): logs, planks, cobblestone, ..., misc. */
   group?: string;
+  /** A barrel in one of the hut's barrel spots (s40), not a chest. */
+  barrel?: boolean;
 }
 /**
  * The village mine (plan step V.5): stairs from inside the mining hut down to stone, then a main tunnel with branches at
@@ -232,6 +234,8 @@ export interface Initiative {
   /** What its crew has gathered for it (the user's, s36: initiatives gather their own materials, storage is not drawn
    *  on), by item: logs as the village wood's log, cobblestone, sand. */
   gathered?: Record<string, number>;
+  /** What of `gathered` it took from storage's surplus instead (s40, MC_INITIATIVE_STORE; the user's, 10-20). */
+  fromStore?: Record<string, number>;
   /** A signpost's text (#10), set once it stands (build_design puts it up blank). */
   text?: string[];
 }

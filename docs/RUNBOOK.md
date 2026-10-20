@@ -123,6 +123,12 @@ the short version; look here for a check script's arguments, a model detail or w
   flag-off run). `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
   `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
 
+- **Storage** (s40, F256-F257): initiatives take what storage holds above its keeps first and gather only the rest
+  (`MC_INITIATIVE_STORE=on|off`, on; `[initiative] ... takes ... from storage's surplus`; credited to the initiative's
+  `gathered`, counted in `fromStore`); six **barrels** in the storage hut's side cells between the chests, taken after
+  the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
+  `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
+  idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
 - **The mine's cap is a level's** (s40, F256): 1080 tunnel cells a level, counted from the mine's `dug` when its stairs
   reached the level (`dugAt` on `m.down`); a full level sends the stairs down (3 levels, ~3240 cells). `MC_MINE_LEVEL_CELLS`
   lowers the cap for staged tests (Min1: 760 from mv3_grown25's 710). With `MC_NEEDS` show or on, the `mineflow` gauge

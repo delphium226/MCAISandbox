@@ -14,7 +14,7 @@ import { Vec3 } from 'vec3';
 import minecraftData from 'minecraft-data';
 import type { Village, StorageChest } from '../village';
 import { overlaps, preparedAt, storageText } from '../village';
-import { STORAGE_HUT } from '../huts';
+import { STORAGE_HUT, STORAGE_HUT_BARREL_SPOTS } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { placeAt, SURVIVAL_SKILLS } from './mcSurvival';
@@ -85,8 +85,19 @@ export function overflowChest<C extends { group?: string; items: Record<string, 
   return room[0] ?? null;
 }
 
-/** Hut chest spots that hold no chest yet, in the order chests go down. */
-const freeSpots = (v: Village) => (v.storageHut?.spots ?? []).filter((s) => !(v.storage?.chests ?? []).some((c) => c.x === s.x && c.z === s.z));
+/** MC_STORAGE_BARRELS=off: the hut's nine chest spots only (s40: barrels in the six cells between them, on by default). */
+const BARRELS_ON = !/^(off|0|false)$/i.test(process.env.MC_STORAGE_BARRELS ?? 'on');
+
+/** The hut's barrel spots (s40), in world cells: offsets from its corner, as the chest spots are. */
+const barrelSpots = (v: Village): Array<{ x: number; z: number; barrel: true }> =>
+  BARRELS_ON && v.storageHut ? STORAGE_HUT_BARREL_SPOTS.map(([dx, dz]) => ({ x: v.storageHut!.x1 + dx, z: v.storageHut!.z1 + dz, barrel: true as const })) : [];
+
+/** Hut spots that hold no chest or barrel yet, in the order they go down: the chest spots, then the barrel spots;
+ *  `chestsOnly` the chest spots alone (a carried chest goes in no barrel spot). */
+const freeSpots = (v: Village, chestsOnly = false): Array<{ x: number; z: number; barrel?: true }> => {
+  const taken = (s: { x: number; z: number }) => (v.storage?.chests ?? []).some((c) => c.x === s.x && c.z === s.z);
+  return [...(v.storageHut?.spots ?? []), ...(chestsOnly ? [] : barrelSpots(v))].filter((s) => !taken(s));
+};
 
 /**
  * Chest spots an agent is on its way to fill, by village and x,z (S.1): two depositors walked to one spot, and the second
@@ -187,7 +198,7 @@ function slotsUsed(a: BotAgent, c: StorageChest): number {
 export function storageSlots(v: Village, reg?: StackReg): { used: number; cap: number; chests: number; spots: number } {
   const chests = v.storage?.chests ?? [];
   const used = chests.reduce((s, c) => s + chestSlots(c, reg), 0);
-  const spots = v.storageHut ? v.storageHut.spots.length : chests.length;
+  const spots = v.storageHut ? v.storageHut.spots.length + barrelSpots(v).length : chests.length;
   return { used, cap: 27 * spots, chests: chests.length, spots };
 }
 
@@ -226,7 +237,7 @@ async function openChest(a: BotAgent, v: Village, c: StorageChest, signal: Abort
   }
   const block = a.bot.blockAt(pos);
   if (!block) throw new Error(`the storage chest at ${at(pos)} is not loaded; move closer`);
-  if (block.name !== 'chest') {
+  if (block.name !== (c.barrel ? 'barrel' : 'chest')) {
     // Gone (broken by someone): forget it, keeping what the record said it held in the message
     v.storage!.chests = v.storage!.chests.filter((x) => x !== c);
     v.structures = v.structures.filter((s) => !(s.kind === 'storage' && s.x1 === c.x && s.z1 === c.z && s.y === c.y));
@@ -256,7 +267,7 @@ async function openChest(a: BotAgent, v: Village, c: StorageChest, signal: Abort
  * Whether a spot can take a chest: air with air above, solid ground, clear of plots, buildings and others' ground (a
  * storage hut's chest spots are on the plot and inside the hut: only the blocks count there).
  */
-function chestSpotOk(a: BotAgent, v: Village, pos: Vec3, inHut = false): boolean {
+function chestSpotOk(a: BotAgent, v: Village, pos: Vec3, inHut = false, barrel = false): boolean {
   const bot = a.bot;
   const here = bot.blockAt(pos), above = bot.blockAt(pos.offset(0, 1, 0)), ground = bot.blockAt(pos.offset(0, -1, 0));
   if (!here || !above || !ground) return false;
@@ -266,8 +277,8 @@ function chestSpotOk(a: BotAgent, v: Village, pos: Vec3, inHut = false): boolean
   const cell = { x1: pos.x, z1: pos.z, x2: pos.x, z2: pos.z };
   if (!inHut && v.plots.some((p) => overlaps(cell, p, 1))) return false;
   if (!inHut && a.world.villages.conflict(v, { x1: pos.x - 1, z1: pos.z - 1, x2: pos.x + 1, z2: pos.z + 1 }, a.name)) return false;
-  // Not beside another chest (they would join into a double chest)
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (bot.blockAt(pos.offset(dx, 0, dz))?.name === 'chest') return false;
+  // Not beside another chest (they would join into a double chest); a barrel joins nothing (s40)
+  if (!barrel) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (bot.blockAt(pos.offset(dx, 0, dz))?.name === 'chest') return false;
   const feet = bot.entity.position.floored();
   return !(feet.x === pos.x && feet.z === pos.z);
 }
@@ -276,15 +287,15 @@ function chestSpotOk(a: BotAgent, v: Village, pos: Vec3, inHut = false): boolean
  * Where the next chest goes: the storage hut's next free spot (`prefer`, the one claimed, first); else in a row beside the
  * last one, or near the agent. Never a spot another agent has claimed.
  */
-function nextChestSpot(a: BotAgent, v: Village, prefer?: { x: number; z: number }): Vec3 | null {
+function nextChestSpot(a: BotAgent, v: Village, prefer?: { x: number; z: number }, barrel = false): Vec3 | null {
   if (v.storageHut) {
     const y = hutY(v);
     if (y === null) return null;
     // At the hut's level only: a chest a block higher or lower would be in the floor or roof the build sets
-    const free = freeSpots(v).filter((s) => !claimedBy(a, v, s));
+    const free = freeSpots(v, !barrel).filter((s) => !claimedBy(a, v, s) && !!s.barrel === barrel);
     for (const s of prefer ? [...free.filter((s) => s.x === prefer.x && s.z === prefer.z), ...free] : free) {
       const p = new Vec3(s.x, y, s.z);
-      if (chestSpotOk(a, v, p, true)) return p;
+      if (chestSpotOk(a, v, p, true, barrel)) return p;
     }
     return null;
   }
@@ -303,21 +314,22 @@ function nextChestSpot(a: BotAgent, v: Village, prefer?: { x: number; z: number 
 }
 
 /** Put a carried chest down as village storage and register it (`prefer`: a hut spot claimed for it already). */
-async function placeChest(a: BotAgent, v: Village, signal: AbortSignal, prefer?: { x: number; z: number }): Promise<StorageChest> {
+async function placeChest(a: BotAgent, v: Village, signal: AbortSignal, prefer?: { x: number; z: number }, barrel = false): Promise<StorageChest> {
   try {
-    return await placeClaimed(a, v, signal, prefer);
+    return await placeClaimed(a, v, signal, prefer, barrel);
   } finally {
     releaseSpots(a, v);
   }
 }
 
-async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer?: { x: number; z: number }): Promise<StorageChest> {
+async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer?: { x: number; z: number }, barrel = false): Promise<StorageChest> {
   const first = !v.storage?.chests.length;
   let claimed: { x: number; z: number } | undefined;
+  const what = barrel ? 'barrel' : 'chest';
   if (v.storageHut) {
-    const y = hutY(v), free = freeSpots(v);
+    const y = hutY(v), free = freeSpots(v, !barrel).filter((s) => !!s.barrel === barrel);
     if (y === null) throw new Error("the storage hut's ground is not prepared yet: the village plot is prepared first, then deposit again");
-    if (!free.length) throw new Error('the storage hut is full (all 9 chest spots taken)');
+    if (!free.length) throw new Error(`the storage hut is full (all ${(v.storageHut.spots.length + barrelSpots(v).length)} chest and barrel spots taken)`);
     // The first free spot no one else is on the way to, claimed before the walk (S.1)
     const s = (prefer && free.find((x) => x.x === prefer.x && x.z === prefer.z && !claimedBy(a, v, x))) ?? free.find((x) => !claimedBy(a, v, x));
     for (const x of free) {
@@ -341,7 +353,7 @@ async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer
     const last = v.storage!.chests[v.storage!.chests.length - 1];
     await reach(a, new Vec3(last.x + 0.5, last.y, last.z + 0.5), 3, signal);
   }
-  const spot = nextChestSpot(a, v, claimed);
+  const spot = nextChestSpot(a, v, claimed, barrel);
   if (!spot) throw new Error(v.storageHut
     ? `no free chest spot in the storage hut can take a chest (spots ${freeSpots(v).map((s) => `${s.x},${s.z}`).join('; ')}: something stands there, or the ground is missing)`
     : first
@@ -349,15 +361,16 @@ async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer
     : 'no free spot beside the storage chests for another one; clear the ground next to them');
   // (another spot than the one walked to, or a loose chest's: claimed as well, before the placing)
   claimSpot(a, v, spot);
-  await placeAt(a, 'chest', spot, signal);
+  await placeAt(a, what, spot, signal);
   // The bot is often not sent its own placement (lesson 29): ask the server before calling it a failure
-  if (a.bot.blockAt(spot)?.name !== 'chest' && !/passed/i.test(await a.world.rcon.command(`execute if block ${spot.x} ${spot.y} ${spot.z} minecraft:chest`).catch(() => '')))
-    throw new Error(`the chest did not appear at ${at(spot)}`);
-  const c: StorageChest = { x: spot.x, y: spot.y, z: spot.z, items: {} };
+  if (a.bot.blockAt(spot)?.name !== what && !/passed/i.test(await a.world.rcon.command(`execute if block ${spot.x} ${spot.y} ${spot.z} minecraft:${what}`).catch(() => '')))
+    throw new Error(`the ${what} did not appear at ${at(spot)}`);
+  const c: StorageChest = { x: spot.x, y: spot.y, z: spot.z, items: {}, ...(barrel ? { barrel: true } : {}) };
   v.storage ??= { chests: [], updated: Date.now() };
   v.storage.chests.push(c);
   v.structures.push({ id: a.world.villages.id('s'), kind: 'storage', x1: spot.x, z1: spot.z, x2: spot.x, z2: spot.z, y: spot.y, builtBy: a.name });
-  a.world.villages.note(v, `${a.name} put ${first ? 'the storage chest' : 'another storage chest'} at ${at(spot)}${v.storageHut ? ' (in the storage hut)' : ''}`);
+  a.world.villages.note(v, `${a.name} put ${first ? 'the storage chest' : barrel ? 'a storage barrel' : 'another storage chest'} at ${at(spot)}${v.storageHut ? ' (in the storage hut)' : ''}`);
+  if (barrel) console.log(`[storage] ${a.name} put a storage barrel at ${at(spot)} (${(v.storage?.chests.length ?? 0) + 1} containers)`);
   // That was the storage task (whatever steps were left of it); not while code sets the storage up and finishes the task
   // itself once everything is in (S.1)
   if (first && !holdStorageTask.has(v.name))
@@ -377,7 +390,7 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
   // the agent gathering it (Minevale19: dirt gathered for a vanilla house stayed in the gatherer's hands), while a miner
   // keeps its dirt (the review: with the village's needs as the rule, every miner emptied its scaffolding into storage)
   const needed = (n: string) => v.tasks.some((t) => t.status === 'claimed' && t.claimedBy === a.name && new RegExp(`collect block=${n}\\b`).test(t.detail));
-  const m0 = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.has(n) && (!JUNK.has(n) || needed(n)) && n !== 'chest', label: 'anything but tools and junk' } : matcher(a, raw);
+  const m0 = /^(all|everything|\*)$/i.test(raw.trim()) ? { test: (n: string) => !TOOL.has(n) && (!JUNK.has(n) || needed(n)) && n !== 'chest' && n !== 'barrel', label: 'anything but tools and junk' } : matcher(a, raw);
   if (!m0) throw new Error(`unknown item ${raw}; use an item id (oak_log, cobblestone), "logs", "planks" or "all"`);
   // `also` (code's only: the workshop's gathering trips, "coal,raw_iron"): items picked up by the way that storage wants,
   // put in by name with the material (a miner kept the coal and raw iron it dug, lesson 112; S.9's review, lens 4 L3)
@@ -480,9 +493,9 @@ async function deposit(a: BotAgent, args: Record<string, unknown>, signal: Abort
     return spots >= 1 && (!PARTS_ON || names.some((x) => !OVERFLOW_GROUPS.has(groupOf(x))) || spots >= 2);
   };
   const hutFull = () => {
-    const spots = v.storageHut!.spots.length, free = freeSpots(v).length;
+    const spots = v.storageHut!.spots.length + barrelSpots(v).length, free = freeSpots(v).length;
     return free ? `the storage hut has no room for these (every chest is full, and its last free chest spot is kept for a material: logs, planks, stone, sand, glass)`
-      : `the storage hut is full (all ${spots} chest spots hold full chests)`;
+      : `the storage hut is full (all ${spots} chest and barrel spots hold full ones)`;
   };
   if (!got && v.storageHut) {
     const carriedNames = [...want.values()].map((r) => r.name);
@@ -521,7 +534,7 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
   // four chests was tried, and the deposit failed with "no chest in inventory")
   let placed = 0;
   const carriedChests = countItem(a, chestId);
-  while (placed < carriedChests && freeSpots(v).length && (hutY(v) !== null || !chests().length)) {
+  while (placed < carriedChests && freeSpots(v, true).length && (hutY(v) !== null || !chests().length)) {
     try {
       await placeChest(a, v, signal);
     } catch (e) {
@@ -638,6 +651,11 @@ async function newChest(a: BotAgent, v: Village, signal: AbortSignal, notes: str
   if (!spot) return null;
   claimSpot(a, v, spot);
   try {
+    // (a barrel spot once every chest spot holds a chest, s40)
+    if (spot.barrel) {
+      if (!(await ensureBarrel(a, v, signal, notes))) return null;
+      return await placeChest(a, v, signal, spot, true);
+    }
     if (!(await ensureChest(a, v, signal, notes))) return null;
     return await placeChest(a, v, signal, spot);
   } catch (e) {
@@ -647,6 +665,21 @@ async function newChest(a: BotAgent, v: Village, signal: AbortSignal, notes: str
   } finally {
     releaseSpots(a, v);
   }
+}
+
+/** Have a barrel to put down (s40): carried, or crafted (6 planks and 2 slabs: 3 logs taken from the storage at most). */
+async function ensureBarrel(a: BotAgent, v: Village, signal: AbortSignal, notes: string[]): Promise<boolean> {
+  const barrelId = itemId(a, 'barrel');
+  if (!barrelId) return false;
+  if (countItem(a, barrelId)) return true;
+  const logs = KINDS[1][1];
+  if (!a.bot.inventory.items().some((it) => logs.test(it.name))) await take(a, v, [{ test: (n) => logs.test(n), left: 3 }], signal);
+  await SURVIVAL_SKILLS.craft.run(a, { item: 'barrel', count: 1 }, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+    notes.push(`no barrel could be made: ${e.message.slice(0, 120)}`);
+  });
+  if (countItem(a, barrelId)) notes.push('crafted a barrel for it');
+  return countItem(a, barrelId) > 0;
 }
 
 /** Have a chest to put down: carried, or crafted from carried wood, or from 3 logs taken from the storage. */
@@ -706,6 +739,63 @@ async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string)
     a.world.villages.save();
   }
   return { got, invFull };
+}
+
+/**
+ * The storage hut's strays (s40, F256), from the record: slots filled by items standing in a chest of another group (the
+ * full misc chests spilled into the sand, planks and glass ones: Night40's 138 slots were 106 packed by kind), and the
+ * spots still free for a new chest or barrel.
+ */
+export function storageStrays(v: Village, reg?: StackReg): { slots: number; free: number } {
+  let slots = 0;
+  for (const c of v.storage?.chests ?? []) {
+    if (!c.group) continue;
+    const stray = Object.fromEntries(Object.entries(c.items).filter(([n, q]) => q > 0 && groupOf(n) !== c.group));
+    if (Object.keys(stray).length) slots += chestSlots({ items: stray }, reg);
+  }
+  return { slots, free: v.storageHut ? freeSpots(v).length : 0 };
+}
+
+/**
+ * tidy_storage (s40, a chore code queues, never a model's tool): the strays taken out, a load at most, and deposited
+ * again sorted, so each goes to its own group's chest (stacks merge) or a new chest or barrel in a free spot.
+ */
+async function tidyStorage(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v?.storageHut || !v.storage?.chests.length) throw new Error('tidy_storage: the village has no storage hut with chests');
+  const before = storageSlots(v).used;
+  const got: Record<string, number> = {};
+  for (const c of [...v.storage.chests]) {
+    if (!c.group || !Object.entries(c.items).some(([n, q]) => q > 0 && groupOf(n) !== c.group)) continue;
+    checkAbort(signal);
+    const w = await openChest(a, v, c, signal);
+    let full = false;
+    try {
+      for (const it of w.containerItems()) {
+        if (groupOf(it.name) === c.group) continue;
+        const n = Math.min(it.count, room(a, w, w.inventoryStart, w.slots.length, it.type));
+        if (n <= 0) { full = true; break; }
+        await abortable(w.withdraw(it.type, null, n), signal);
+        got[it.name] = (got[it.name] ?? 0) + n;
+      }
+      c.items = chestItems(w);
+    } finally {
+      w.close();
+    }
+    await syncInventory(a);
+    if (full) break;
+  }
+  v.storage.updated = Date.now();
+  a.world.villages.save();
+  const names = Object.keys(got);
+  if (!names.length) return 'the storage is tidy: nothing stood in another group\'s chest';
+  const moved: Record<string, number> = {}, notes: string[] = [];
+  const left = await depositSorted(a, v, (n) => names.includes(n), total(got), moved, notes, signal);
+  a.world.villages.save();
+  const after = storageSlots(v).used;
+  const what = Object.entries(got).map(([n, q]) => `${q} ${n}`).join(', ');
+  console.log(`[storage] ${a.name} tidied the storage: ${what.slice(0, 160)} (slots ${before} -> ${after}${left ? `, ${left} still carried` : ''})`);
+  return `tidied the storage: moved ${what.slice(0, 200)} to their own chests; slots used ${before} -> ${after}${left ? `; ${left} still carried${notes.length ? ` (${notes.slice(-2).join('; ')})` : ''}` : ''}`;
 }
 
 /** Open every storage chest to re-read what it holds (someone may have filled or emptied it outside the record). */
@@ -817,4 +907,5 @@ export function partsForFuel(a: BotAgent, v: Village, smelts: number, skip: Set<
 export const STORAGE_SKILLS: Record<string, McSkill> = {
   deposit: { check: (x) => x.count !== undefined && void num(x.count, 'count'), run: deposit },
   withdraw: { check: (x) => { str(x.item, 'item'); if (x.count !== undefined) num(x.count, 'count'); }, run: withdraw },
+  tidy_storage: { run: tidyStorage },
 };

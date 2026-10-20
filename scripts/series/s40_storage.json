@@ -1,0 +1,27 @@
+{
+  "about": "s40 the storage half: initiatives take storage's surplus first (MC_INITIATIVE_STORE), the tidy-up chore, the barrel row (MC_STORAGE_BARRELS); from mv3_grown25 (99 slots, 30 of strays), 30 min fast, world 1, needs show. Count: takes ... from storage's surplus, tidied, storage barrel; storage slots and birch logs against Fld1.",
+  "out": "runs/2026-10-20/s40/s40_storage",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5"
+  },
+  "runs": [
+    {
+      "name": "Sto1",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

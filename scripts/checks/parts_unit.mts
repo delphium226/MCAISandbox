@@ -58,7 +58,9 @@ const v = {
   storage: { chests: [{ x: 0, y: 64, z: 0, items: { oak_log: 128 } }, { x: 1, y: 64, z: 0, items: { wheat_seeds: 185 } }], updated: 0 },
 } as unknown as Parameters<typeof storageSlots>[0];
 const s = storageSlots(v);
-ok(s.used === 2 + 3 && s.cap === 243 && s.chests === 2 && s.spots === 9, 'a hut: 27 a spot, slots from the record');
+// (s40: and the six barrel spots, MC_STORAGE_BARRELS on by default: 15 spots, 405 slots)
+const barrels = !/^(off|0|false)$/i.test(process.env.MC_STORAGE_BARRELS ?? 'on');
+ok(s.used === 2 + 3 && s.cap === 27 * (barrels ? 15 : 9) && s.chests === 2 && s.spots === (barrels ? 15 : 9), 'a hut: 27 a spot, slots from the record');
 const loose = storageSlots({ storage: v.storage } as unknown as Parameters<typeof storageSlots>[0]);
 ok(loose.cap === 54 && loose.spots === 2 && loose.used === 5, 'no hut: 27 a chest');
 ok(storageSlots({} as unknown as Parameters<typeof storageSlots>[0]).cap === 0, 'no storage: nothing');

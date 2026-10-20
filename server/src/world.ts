@@ -226,7 +226,7 @@ export interface WorldAdapter {
  *  laying out the next neighbourhood. 'eat' (s30's appetite): a meal from the village storage, on a peckish member's menu.
  *  'furnish' (X.1): furniture from storage into a building (the furnish family). 'initiate' and 'help' (s35): a member's
  *  own small work started, and a step of one taken (the initiatives family). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat';
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {

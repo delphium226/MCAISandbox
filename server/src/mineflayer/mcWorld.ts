@@ -32,7 +32,7 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, storageContents, storageSlots } from './mcStorage';
+import { PART_RE, storageContents, storageSlots, storageStrays } from './mcStorage';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -1944,8 +1944,9 @@ export class MineflayerWorld implements WorldAdapter {
     // the other topic's path, which never closed it (the X.2 review's H1)
     const run = this.voting.get(v.name);
     if (run && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
-    // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate)
+    // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate; the storage's tidy-up)
     if (NEED_WORKS) this.fieldTick(v, now);
+    if (NEED_WORKS) this.tidyTick(v, now);
     if (v.growth?.active) return this.growEnd(v, now);
     if (HOUSING) this.homeRequestAge(v, now);
     if (!GROW.on || !this.growDue(v, now, true)) {
@@ -2603,6 +2604,33 @@ export class MineflayerWorld implements WorldAdapter {
     console.log(`[needwork] ${v.name}: ${agent.name} lays out a wheat field (field ${fields + 1}): ${r?.text ?? 'food short'}`);
   }
 
+  /**
+   * s40 (F256): the storage hut tidied by an idle fed member when strays fill TIDY_SLOTS slots or more and two spots are
+   * free for the sorted deposit to open new chests or barrels in (with one, misc keeps it for a material and the strays
+   * would go back where they were); at most every TIDY_MS.
+   */
+  private tidyTick(v: Village, now: number) {
+    if (!v.complete || !v.storageHut || (this.tidyAt.get(v.name) ?? 0) > now) return;
+    if ([...this.chores.values()].some((c) => c.village === v.name && c.key === 'tidy')) return;
+    const s = storageStrays(v, this.registry as never);
+    if (s.slots < TIDY_SLOTS || s.free < 2) return;
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.idleMembers(v, now).find(fed);
+    if (!agent) return;
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('tidy_storage', { chore: true });
+    } catch (e) {
+      console.log(`[storage] ${v.name}: tidy_storage not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.tidyAt.set(v.name, now + TIDY_MS);
+    this.setChore(v, agent, 'tidy', [st], 'tidy the storage');
+    console.log(`[storage] ${v.name}: ${agent.name} tidies the storage (${s.slots} slots of strays, ${s.free} spots free)`);
+  }
+
+  private tidyAt = new Map<string, number>();
+
   private fieldBackoff = new Map<string, number>();
   private fieldFails = new Map<string, number>();
   private fieldCount = new Map<string, number>();
@@ -2809,8 +2837,44 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Every farm tick: an open initiative whose design stands at its spot is built (judged by the structure, lesson 138);
    *  one with no step taken for INITIATIVE_LAPSE_MS lapses. */
+  /**
+   * s40 (the user's, 10-20; F256): an open initiative takes what storage holds above its keeps first and gathers only the
+   * rest (s36 had every initiative gather its own: Night40's 42 felled 916 logs and storage's birch logs rose by 709).
+   * What it takes is credited to its `gathered`, which its build withdraws as any other, so the next initiative sees that
+   * much less; the goods other open initiatives have gathered and not built with yet stay theirs.
+   */
+  private claimStoredSurplus(v: Village) {
+    if (!INITIATIVE_STORE) return;
+    const open = (v.initiatives ?? []).filter((i) => i.state === 'open' && !i.pending);
+    if (!open.length) return;
+    const spare = this.makeSpare(v, '');
+    for (const i of open) for (const [n, q] of Object.entries(i.gathered ?? {})) spare[n] = (spare[n] ?? 0) - q;
+    const wood = this.catalogWoodOf(v);
+    for (const it of open) {
+      const d = v.designs[it.design];
+      if (!d) continue;
+      const gather = this.materials.plan(inWood(designBill(d), wood), it.gathered ?? {}).gather;
+      const took: Record<string, number> = {};
+      for (const [n, q] of Object.entries(gather)) {
+        // (the items a trip credits: logs as the catalog wood's, cobblestone, sand; runInitiativeStep's own names)
+        const item = n === 'any:logs' ? `${wood}_log` : n.replace(/^any:/, '');
+        if (!/_log$|^cobblestone$|^(red_)?sand$/.test(item)) continue;
+        const t = Math.min(Math.ceil(q), Math.floor(spare[item] ?? 0));
+        if (t <= 0) continue;
+        it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + t };
+        it.fromStore = { ...(it.fromStore ?? {}), [item]: (it.fromStore?.[item] ?? 0) + t };
+        spare[item] -= t;
+        took[item] = (took[item] ?? 0) + t;
+      }
+      if (!Object.keys(took).length) continue;
+      this.villages.save();
+      console.log(`[initiative] ${v.name}: ${it.id} takes ${Object.entries(took).map(([n, q]) => `${q} ${n}`).join(', ')} from storage's surplus`);
+    }
+  }
+
   private initiativeTick(v: Village) {
     const now = Date.now();
+    this.claimStoredSurplus(v);
     for (const it of v.initiatives ?? []) {
       if (it.state === 'built' && it.kind === 'signpost' && !it.text) this.nameSignpost(v, it);
       if (it.state !== 'open') continue;
@@ -5398,6 +5462,10 @@ const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number
  *  members have no house; another member's house is its own to furnish and light this long, then anyone may help (H8). */
 const HOME_REQUEST_MS = 15 * 60000, OWNER_FIRST_MS = 3 * 60000, HOME_FIRST_MS = 10 * 60000, OWN_DECOR_MS = 10 * 60000;
 const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
+/** MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). */
+const INITIATIVE_STORE = !/^(off|0|false)$/i.test(process.env.MC_INITIATIVE_STORE ?? 'on');
+/** The storage's tidy-up (s40): strays filling this many slots, at most every TIDY_MS. */
+const TIDY_SLOTS = 6, TIDY_MS = 10 * 60000;
 /** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */
 const NEEDS_MODE: 'off' | 'show' | 'on' = process.env.MC_NEEDS === 'show' || process.env.MC_NEEDS === 'on' ? process.env.MC_NEEDS : 'off';
 /** How often a village's needs are read. */
@@ -5412,7 +5480,7 @@ const workKind = (name: string) => name.replace(/^(plains|desert|savanna|snowy|t
 const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
 
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
-  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating' };
+  works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating', tidy: 'tidying the storage' };
 /** The furnaces counted with the hut's (a works furnace is the village's second, third or fourth). */
 const ORDINALS = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth'];
 

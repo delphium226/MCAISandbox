@@ -1272,3 +1272,10 @@ CLAUDE.md when a phase ends.
   gauge (cells left, dug per game hour, hours left); a blocked mine read full. Night40's mine would read 2251 cells left
   (91 at its level, two levels below). Min1 (cap lowered to 760): level 1 filled, the stairs went down, 142 cells dug on
   level 2.
+
+- F257 (10-20, s40, issue #3) The storage half: initiatives taking storage's surplus first, six barrels in the hut, a
+  tidy-up. Sto1 against Fld1 (30 min staged, mv3_grown25): logs into storage +237 vs +411, all items +749 vs +1225, the
+  storage 27% of 405 slots vs 45% of 243; initiatives built 25 vs 28. **Busy fell from 18% to 13%**: initiatives' own
+  gathering trips were a large share of the work idle members had, and much of it only made surplus (Night40's 916 logs
+  felled). Kept on (the user's, 10-20): the lost busy time should come back as more kinds of work, not as logs nobody
+  uses. Night40's storage had 42 slots of strays (items in another group's chest).

@@ -24,6 +24,13 @@ const LAYERS = [
 /** Chest spots in hut cells (x west to east, z north to south), in the order chests are put down: from the door inward. */
 export const STORAGE_HUT_SPOTS: Array<[number, number]> = [[1, 7], [5, 7], [1, 5], [5, 5], [1, 3], [5, 3], [1, 1], [5, 1], [3, 1]];
 
+/**
+ * Barrel spots in hut cells (s40, F256): the six cells along the side walls between the chest spots, from the door
+ * inward. Barrels never join (a chest beside a chest makes a double chest), so they stand beside chests; taken after
+ * the free chest spots (MC_STORAGE_BARRELS). +162 slots: 405 in all.
+ */
+export const STORAGE_HUT_BARREL_SPOTS: Array<[number, number]> = [[1, 6], [5, 6], [1, 4], [5, 4], [1, 2], [5, 2]];
+
 /** The crafting table and furnace in hut cells. */
 export const STORAGE_HUT_STATIONS = { crafting_table: [2, 4], furnace: [4, 4] } as const;
 
