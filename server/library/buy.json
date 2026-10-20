@@ -1,0 +1,39 @@
+{
+  "id": "lib:buy",
+  "name": "Buy from the merchant",
+  "skill": "trade",
+  "gives": [
+    {
+      "item": "string",
+      "consumer": "build"
+    },
+    {
+      "item": "bone",
+      "consumer": "build"
+    },
+    {
+      "item": "gunpowder",
+      "consumer": "build"
+    },
+    {
+      "item": "spider_eye",
+      "consumer": "build"
+    },
+    {
+      "item": "slime_ball",
+      "consumer": "build"
+    },
+    {
+      "item": "ink_sac",
+      "consumer": "build"
+    },
+    {
+      "item": "ender_pearl",
+      "consumer": "build"
+    },
+    {
+      "item": "fishing_rod"
+    }
+  ],
+  "effect": "string, bones, gunpowder and fishing rods a peaceful world cannot give"
+}

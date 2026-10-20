@@ -4,7 +4,9 @@
  */
 import type { FoundrySkill } from './types';
 import { FOUNDRY as fish } from './fish';
+import { FOUNDRY as trade } from './trade';
 
 export const FOUNDRY_SKILLS: FoundrySkill[] = [
   fish,
+  trade,
 ];

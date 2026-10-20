@@ -1,0 +1,12 @@
+{
+  "id": "lib:sell",
+  "name": "Sell goods to the merchant",
+  "skill": "trade",
+  "gives": [
+    {
+      "item": "emerald",
+      "consumer": "trade"
+    }
+  ],
+  "effect": "the village's surplus becomes emeralds that buy what the land cannot give"
+}
