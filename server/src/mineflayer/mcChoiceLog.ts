@@ -78,6 +78,8 @@ export interface ChoiceEnd {
   minutes: number;
   /** When the end was seen (ms since the epoch): an end after the run's own end belongs to no run's ledger. */
   tEnd: number;
+  /** s41: each step's skill, ms run (null: never started) and state, for the simulator's calibration (#74). */
+  steps?: Array<{ type: string; ms: number | null; state: string }>;
   /** Cut short rather than failed: its agent removed or stopped (every action then fails as "cancelled", lesson 67). */
   cut: boolean;
   /**

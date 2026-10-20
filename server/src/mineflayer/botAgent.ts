@@ -519,6 +519,7 @@ export class BotAgent implements WorldAgent {
       this.current.abort.abort();
       this.current.status.state = 'failed';
       this.current.status.message = 'cancelled';
+      this.current.status.endedAt = Date.now();
       this.history.push(this.current.status);
       this.current = null;
     }
@@ -547,6 +548,7 @@ export class BotAgent implements WorldAgent {
     this.current = run;
     status.state = 'running';
     status.startedTick = this.world.ticks;
+    status.startedAt = Date.now();
     MC_SKILLS[status.type]
       .run(this, status.args, run.abort.signal)
       .then(
@@ -608,6 +610,7 @@ export class BotAgent implements WorldAgent {
     if (this.current !== run) return; // cancelled
     const st = run.status;
     run.abort.abort();
+    st.endedAt = Date.now();
     if ('done' in r) {
       st.state = 'done';
       if (r.done) st.message = r.done;

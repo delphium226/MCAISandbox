@@ -3597,6 +3597,7 @@ export class MineflayerWorld implements WorldAdapter {
       id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
       yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
       ...(code ? { code } : {}), productive,
+      steps: c.status.map((q) => ({ type: q.type, ms: q.startedAt && q.endedAt ? q.endedAt - q.startedAt : null, state: q.state })),
     });
     try {
       this.noteEnd(c, ok, cut, !!code, productive, message, known);

@@ -31,6 +31,9 @@ export interface ActionStatus {
   /** A failure's contention code (another agent's work in the way, village.ts ContentionCode; A.2's chore ends). */
   code?: string;
   startedTick?: number;
+  /** When it started and ended (ms since the epoch; s41: per-step timing in the choice log, the simulator's calibration). */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface Observation {
