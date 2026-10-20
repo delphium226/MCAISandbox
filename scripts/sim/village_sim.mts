@@ -91,10 +91,11 @@ checkpoint ??= 'mc/testcheckpoints/mv3_grown25';
 fs.mkdirSync(OUT, { recursive: true });
 const CHOICE_LOG = path.resolve(OUT, 'sim.choices.jsonl');
 fs.rmSync(CHOICE_LOG, { force: true });
-Object.assign(process.env, env, {
-  MC_CHOOSE: 'fixed', MC_MODEL_RECORD: '0', MC_VOTE: 'off', MC_GROW: '0', MC_PROJECTS: 'off', MC_HOUSING: 'off', MC_NEED_WORKS: 'off',
-  MCAI_CHOICE_LOG: CHOICE_LOG,
-});
+// (s42: the run's own growth, public works, housing, needs works and votes (predicted: code) unless --v0, which switches
+// them off as v0 first ran; the members' brains take board tasks as a staged run's scripted workers do)
+const V0 = flag('--v0');
+Object.assign(process.env, env, { MC_CHOOSE: 'fixed', MC_MODEL_RECORD: '0', MCAI_CHOICE_LOG: CHOICE_LOG },
+  V0 ? { MC_VOTE: 'off', MC_GROW: '0', MC_PROJECTS: 'off', MC_HOUSING: 'off', MC_NEED_WORKS: 'off' } : { MC_VOTE: process.env.MC_VOTE === 'model' ? 'predicted' : (process.env.MC_VOTE ?? 'predicted') });
 process.env.MCAI_TEMPERAMENT ??= 'on';
 
 const villagesFile = path.join(checkpoint, 'villages.json');
@@ -137,6 +138,7 @@ console.error = (...a: unknown[]) => {
 const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
 const { Vec3 } = await import('vec3');
 const S = await import('./skills.mts');
+const { TaskBrain } = await import('../../server/src/taskBrain');
 const { storageContents } = await import('../../server/src/mineflayer/mcStorage');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
@@ -220,7 +222,7 @@ class SimAgent {
   current: { status: Any; endAt: number } | null = null;
   history: Any[] = [];
   events: Any[] = [];
-  brain = null;
+  brain: Any = null;
   role: string;
   memory: Record<string, unknown>;
   bot: Any;
@@ -247,8 +249,19 @@ class SimAgent {
     this.queue.push(s);
     return s;
   }
-  tick() {}
-  pushEvent() {}
+  tick() {
+    this.brain?.tick?.(this);
+  }
+  pushEvent(type: string, text: string, data?: Any) {
+    try {
+      this.brain?.onEvent?.(this, { type, text, data, t: clock });
+    } catch (e) {
+      errors.push(`${stamp()} ${this.name}'s brain threw on ${type}: ${(e as Error).message}`);
+    }
+  }
+  observe() {
+    return { inventory: { ...carries.get(this.name) } };
+  }
   stop() {
     for (const q of [...(this.current ? [this.current.status] : []), ...this.queue]) Object.assign(q, { state: 'failed', message: 'cancelled', endedAt: clock });
     this.current = null;
@@ -261,6 +274,7 @@ const agents = NAMES.map((n) => new SimAgent(n));
 for (const a of agents) {
   w.agents.set(a.name.toLowerCase(), a);
   carries.set(a.name, {});
+  if (!V0) a.brain = new TaskBrain();
 }
 
 // ---- durations: a reference run's chores ---------------------------------------------------------------------------------
@@ -372,6 +386,9 @@ function finish(a: SimAgent) {
   a.history.push(s);
   if (a.history.length > 100) a.history.shift();
   a.current = null;
+  // (as BotAgent.finish: the brain hears its own action's end)
+  if (out.ok) a.pushEvent('action_done', `${s.type} finished: ${out.message}`, { action: s.id, type: s.type, args: s.args });
+  else a.pushEvent('action_failed', `${s.type} failed: ${out.message}`, { action: s.id, type: s.type, args: s.args, message: out.message, ...(out.code ? { code: out.code } : {}) });
 }
 const flush = () => new Promise((r) => setImmediate(r));
 
@@ -456,7 +473,11 @@ const report = {
   picksBins: binMs.map((_, i) => byKind(picks.filter((p) => Math.floor((p.t - T0) / 600000) === i))),
   actions: Object.fromEntries(actionsRun), notModelled: Object.fromEntries(unknown),
   initiatives: { started: itsNew.length, built: itsNew.filter((i) => i.state === 'built').length, lapsed: itsNew.filter((i) => i.state === 'lapsed').length, failed: itsNew.filter((i) => i.state === 'failed').length, open: itsNew.filter((i) => i.state === 'open').length, kinds: byKind(itsNew) },
-  merchant: v.merchant ? { ledger: v.merchant.ledger, emeralds: store1.emerald ?? 0 } : null,
+  merchant: v.merchant ? {
+    ledger: v.merchant.ledger, emeralds: store1.emerald ?? 0, xp: v.merchant.xp ?? 0,
+    orders: (v.merchant.orders ?? []).reduce((c: Counts, o: Any) => ({ ...c, [o.state]: (c[o.state] ?? 0) + 1 }), {}),
+    filled: (v.merchant.orders ?? []).filter((o: Any) => o.state === 'filled').map((o: Any) => `${o.n} ${o.item} ${o.emeralds}e`),
+  } : null,
   food: v.food ? { made: v.food.made, eaten: v.food.eaten, meals: v.food.meals } : null,
   flows,
   choiceNone: keep.filter((k) => k.s.startsWith('[choice-none]')).map((k) => `+${((k.t - T0) / 60000).toFixed(1)}m ${k.s.replace(/^\[choice-none\] \S+ /, '')}`),
@@ -476,7 +497,8 @@ say(`  picks: ${kv(report.picks)}`);
 for (const [i, b] of report.picksBins.entries()) say(`    ${i * 10}-${i * 10 + 10} min: ${kv(b) || 'none'}`);
 say(`  actions: ${kv(report.actions)}${unknown.size ? `; NOT MODELLED: ${kv(report.notModelled)}` : ''}`);
 say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
-say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage` : 'none'}`);
+say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
+if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
 say(`  storage flows: ${kv(flows)}`);
 say(`  choice-none: ${report.choiceNone.length} lines${report.choiceNone.length ? `; first ${report.choiceNone[0].slice(0, 200)}` : ''}`);

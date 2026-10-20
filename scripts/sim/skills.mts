@@ -13,6 +13,9 @@ import { holdsDelete, holdKey, makeHolds } from '../../server/src/mineflayer/mcW
 import { OFFERS } from '../../server/src/merchant';
 import { designBill, inWood } from '../../server/src/mineflayer/mcMaterials';
 import { storageContents } from '../../server/src/mineflayer/mcStorage';
+import { postLayout } from '../../server/src/layout';
+import { overlaps, villageHome } from '../../server/src/village';
+import { housesOf, taskNum } from '../../server/src/grow';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -502,6 +505,15 @@ function trade(args: Any, c: Ctx): Outcome {
   if (!v.merchant) return { ok: false, message: 'no merchant in this village: a market stall must stand first' };
   const dir = args.dir === 'sell' ? 'buys' : 'sells';
   const index = OFFERS.findIndex((o) => o.item === item && o.dir === dir);
+  // (s42: an open order, as the trade skill fills it)
+  const order = index < 0 && dir === 'buys' ? c.w.merchantOrder?.(v, item) : undefined;
+  if (order) {
+    if ((c.carry[item] ?? 0) < order.n) return { ok: false, message: `has ${c.carry[item] ?? 0} ${item}, the trade takes ${order.n}: withdraw more from storage` };
+    add(c.carry, item, -order.n);
+    add(c.carry, 'emerald', order.emeralds);
+    c.w.merchantFilled(v, order.id, c.name);
+    return { ok: true, message: `traded with the merchant: sold ${order.n} ${item} for ${order.emeralds} emerald (stock left 0)` };
+  }
   const o = OFFERS[index];
   if (!o) return { ok: false, message: `the merchant does not ${args.dir} ${item}` };
   const left = o.stock - (v.merchant.uses[index] ?? 0);
@@ -514,7 +526,79 @@ function trade(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `traded with the merchant: ${dir === 'buys' ? 'sold' : 'bought'} ${o.n * times} ${item} for ${o.emeralds * times} emerald (stock left ${left - times})` };
 }
 
+/** A free S x S square near home (a ring search, 4 blocks clear of every plot, layout and structure): growSite's survey
+ *  without the land, which v0 does not model. */
+function freeSquare(v: Any, S: number): { x: number; y: number; z: number } | null {
+  const home = villageHome(v) ?? { x: v.plots[0].x1, z: v.plots[0].z1 };
+  const taken = [...v.plots, ...(v.layouts ?? []), ...v.structures].map((q: Any) => ({ x1: q.x1 - 4, z1: q.z1 - 4, x2: q.x2 + 4, z2: q.z2 + 4 }));
+  for (let r = S; r < 200; r += 4)
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * 2 * Math.PI;
+      const x = Math.round(home.x + r * Math.cos(a)), z = Math.round(home.z + r * Math.sin(a));
+      const sq = { x1: x - Math.floor(S / 2), z1: z - Math.floor(S / 2), x2: x - Math.floor(S / 2) + S - 1, z2: z - Math.floor(S / 2) + S - 1 };
+      if (!taken.some((q: Any) => overlaps(sq, q))) return { x, y: v.plots[0]?.y ?? 64, z };
+    }
+  return null;
+}
+
+/** lay_out_houses: the real skill's record (postLayout, growth.active) on a free square instead of a surveyed site. */
+function layOutHouses(args: Any, c: Ctx): Outcome {
+  const v = c.v, w = c.w;
+  const project = typeof args.project === 'string' && args.project ? args.project : undefined;
+  if (v.growth?.active) return { ok: false, message: `lay_out_houses: neighbourhood ${v.growth.active.k} is still being built` };
+  const houses = String(args.houses ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  const S = Math.max(9, Math.min(40, Math.floor(Number(args.size ?? 21))));
+  const site = freeSquare(v, S);
+  if (!site) return { ok: false, message: `lay_out_houses: no free ${S}x${S} site near the village (simulated)` };
+  const before = new Set(v.tasks.map((t: Any) => t.id));
+  const out = postLayout(w, v, c.name, { x: site.x, y: site.y, z: site.z, size: S }, houses, true, undefined, { poster: 'grow', neighbourhood: true });
+  if (!out.startsWith('Laid out')) return { ok: false, message: out };
+  const made = v.tasks.filter((t: Any) => !before.has(t.id));
+  const n = v.layouts.length, lay = v.layouts[n - 1];
+  const g = (v.growth ??= { past: [] });
+  const k = lay.grow ?? g.past.length + 1;
+  const plot = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 };
+  const builds = made.filter((t: Any) => /^Build /.test(t.title)).map((t: Any) => t.id);
+  g.active = { k, layout: n, from: Math.min(...made.map(taskNum)), at: c.now, by: c.name, plot, houses: [...lay.buildings], builds, members: w.growMembers(v).length, before: housesOf(v), changed: c.now, sig: '', ...(project ? { project } : {}) };
+  if (project && project !== 'farmstead') delete g.work;
+  else delete g.next;
+  delete g.tries;
+  delete g.noSite;
+  return { ok: true, message: project ? `laid out the public work ${project} on ${S}x${S} at ${areaText(plot)}, ${made.length} tasks posted` : `laid out neighbourhood ${k}: ${builds.length} houses on ${S}x${S} at ${areaText(plot)}, ${made.length} tasks posted` };
+}
+
+/** prepare_site: the real skill's plot record (a layout's part, or a whole plot), and the felled logs into storage (a
+ *  reference green's, scaled by area). */
+function prepareSite(args: Any, c: Ctx): Outcome {
+  const v = c.v;
+  const layN = args.layout !== undefined ? Number(args.layout) : undefined, partK = args.part !== undefined ? Number(args.part) : undefined;
+  const ofLay = layN !== undefined ? v.layouts?.[layN - 1] : undefined;
+  const part = partK !== undefined ? ofLay?.parts?.[partK - 1] : undefined;
+  if (partK !== undefined && !part) return { ok: false, message: `prepare_site: layout ${layN} has no part ${partK}` };
+  const W = part ? part.x2 - part.x1 + 1 : Number(args.width ?? 9), D = part ? part.z2 - part.z1 + 1 : Number(args.depth ?? 9);
+  const cx = part ? part.x1 + Math.floor(W / 2) : Number(args.x), cz = part ? part.z1 + Math.floor(D / 2) : Number(args.z);
+  const x0 = cx - Math.floor(W / 2), z0 = cz - Math.floor(D / 2), x1 = x0 + W - 1, z1 = z0 + D - 1;
+  const lay = ofLay ?? v.layouts?.find((l: Any) => l.x1 <= x0 && l.x2 >= x1 && l.z1 <= z0 && l.z2 >= z1);
+  const y = lay?.y ?? v.plots[0]?.y ?? 64;
+  const plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
+  if (part && lay?.parts) {
+    let rec = v.plots.find((q: Any) => q.x1 === lay.x1 && q.z1 === lay.z1 && q.x2 === lay.x2 && q.z2 === lay.z2);
+    if (!rec) v.plots.push((rec = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2, y, id: `simp${v.plots.length + 1}`, preparedBy: c.name, parts: [] }));
+    if (rec.parts && !rec.parts.some((q: Any) => q.x1 === x0 && q.z1 === z0)) rec.parts.push({ x1: x0, z1: z0, x2: x1, z2: z1 });
+  } else {
+    const i = v.plots.findIndex((q: Any) => q.x1 === x0 && q.z1 === z0 && q.x2 === x1 && q.z2 === z1);
+    if (i >= 0) v.plots[i] = { ...v.plots[i], ...plot, preparedBy: c.name };
+    else v.plots.push({ ...plot, id: `simp${v.plots.length + 1}`, preparedBy: c.name });
+  }
+  const ref = c.greenKept?.length ? c.greenKept[Math.floor(c.rng() * c.greenKept.length)] : { [`${v.catalogWood ?? v.wood ?? 'oak'}_log`]: 50 };
+  const f = (W * D) / 225, kept: Counts = {};
+  for (const [n, q] of Object.entries(ref)) kept[n] = Math.round(q * f);
+  for (const [n, q] of Object.entries(kept)) put(v, n, q);
+  return { ok: true, message: `plot ready: ${W}x${D} centred at x=${cx} z=${cz}, level ground at y=${y} (simulated); placed 0 blocks, cleared 0; kept ${list(kept)} from the felled trees` };
+}
+
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
+  lay_out_houses: layOutHouses, prepare_site: prepareSite,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };
