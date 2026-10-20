@@ -213,6 +213,8 @@ export interface Ctx {
   now: number;
   /** What the reference's greens kept of their felled trees (prepare_green's yield). */
   greenKept?: Counts[];
+  /** The checkpoint's land (land.json), when the sim has it. */
+  land?: Land;
   /** The reference's gathering loads, asked and deposited, by material. */
   tripLoads?: Record<string, Array<{ asked: number; got: number }>>;
 }
@@ -462,13 +464,17 @@ function buildDesign(args: Any, c: Ctx): Outcome {
 
 function prepareGreen(args: Any, c: Ctx): Outcome {
   const v = c.v, S = Number(args.size ?? 15);
+  // (on the land when the sim has it, as prepare_green's own search; else east of everything, v0)
+  const site = c.land ? freeSquare(v, S, c.land) : null;
+  if (site && 'why' in site) return { ok: false, message: `prepare_green: ${site.why}` };
   const east = Math.max(...v.plots.map((p: Any) => p.x2), ...(v.layouts ?? []).map((l: Any) => l.x2 ?? -1e9)) + 8;
-  const y = v.plots[0]?.y ?? 64, z0 = v.plots[0]?.z1 ?? 0;
-  v.plots.push({ id: `simp${v.plots.length + 1}`, x1: east, z1: z0, x2: east + S - 1, z2: z0 + S - 1, y, preparedBy: c.name, green: String(args.initiative) });
+  const x1 = site ? site.x - Math.floor(S / 2) : east, z1 = site ? site.z - Math.floor(S / 2) : v.plots[0]?.z1 ?? 0;
+  const y = site ? site.y : v.plots[0]?.y ?? 64;
+  v.plots.push({ id: `simp${v.plots.length + 1}`, x1, z1, x2: x1 + S - 1, z2: z1 + S - 1, y, preparedBy: c.name, green: String(args.initiative) });
   // (the felled trees' logs go into storage: a reference green's, else 50 of the village's wood)
   const kept = c.greenKept?.length ? c.greenKept[Math.floor(c.rng() * c.greenKept.length)] : { [`${v.catalogWood ?? v.wood ?? 'oak'}_log`]: 50 };
   for (const [n, q] of Object.entries(kept)) put(v, n, q);
-  return { ok: true, message: `plot ready: ${S}x${S} at x ${east}..${east + S - 1} (simulated); placed 0 blocks, cleared 0; kept ${list(kept)} from the felled trees` };
+  return { ok: true, message: `plot ready: ${S}x${S} at x ${x1}..${x1 + S - 1} (simulated); placed 0 blocks, cleared 0; kept ${list(kept)} from the felled trees` };
 }
 
 /** A fishing rod's wear: 64 uses, one a catch (rods are pooled in storage: the wear follows whichever is taken, v0). */
@@ -530,19 +536,76 @@ function trade(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `traded with the merchant: ${dir === 'buys' ? 'sold' : 'bought'} ${o.n * times} ${item} for ${o.emeralds * times} emerald (stock left ${left - times})` };
 }
 
-/** A free S x S square near home (a ring search, 4 blocks clear of every plot, layout and structure): growSite's survey
- *  without the land, which v0 does not model. */
-function freeSquare(v: Any, S: number): { x: number; y: number; z: number } | null {
+/** The checkpoint's land (scripts/sim/land.py's land.json): each column's top ground y and whether water tops it. */
+export interface Land { home: [number, number]; x0: number; z0: number; n: number; y: number[]; wet: number[] }
+
+/**
+ * A free S x S square for a layout or a green: growSite's survey on the checkpoint's land when the sim has it (F262: the
+ * real works stopped at "no free 20x20 site within 80 blocks (wet, steep, taken)"): the centre within the growth's reach of
+ * home (growReach), the square and a 2-block margin dry and no steeper than 2 blocks, else 4, clear of every plot, layout
+ * and structure by 4; the nearest to home. Without land: a ring search by geometry alone (v0), and the reasons counted.
+ */
+function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: number } | { why: string } {
   const home = villageHome(v) ?? { x: v.plots[0].x1, z: v.plots[0].z1 };
   const taken = [...v.plots, ...(v.layouts ?? []), ...v.structures].map((q: Any) => ({ x1: q.x1 - 4, z1: q.z1 - 4, x2: q.x2 + 4, z2: q.z2 + 4 }));
-  for (let r = S; r < 200; r += 4)
-    for (let k = 0; k < 16; k++) {
-      const a = (k / 16) * 2 * Math.PI;
-      const x = Math.round(home.x + r * Math.cos(a)), z = Math.round(home.z + r * Math.sin(a));
-      const sq = { x1: x - Math.floor(S / 2), z1: z - Math.floor(S / 2), x2: x - Math.floor(S / 2) + S - 1, z2: z - Math.floor(S / 2) + S - 1 };
-      if (!taken.some((q: Any) => overlaps(sq, q))) return { x, y: v.plots[0]?.y ?? 64, z };
-    }
-  return null;
+  const half = Math.floor(S / 2);
+  const reach = Math.min(80, 96 - Math.ceil(Math.max(half, S - 1 - half) * Math.SQRT2));
+  if (!land) {
+    for (let r = S; r < 200; r += 4)
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * 2 * Math.PI;
+        const x = Math.round(home.x + r * Math.cos(a)), z = Math.round(home.z + r * Math.sin(a));
+        const sq = { x1: x - half, z1: z - half, x2: x - half + S - 1, z2: z - half + S - 1 };
+        if (!taken.some((q: Any) => overlaps(sq, q))) return { x, y: v.plots[0]?.y ?? 64, z };
+      }
+    return { why: 'no free square' };
+  }
+  const at = (x: number, z: number) => {
+    const i = x - land.x0, j = z - land.z0;
+    return i < 0 || j < 0 || i >= land.n || j >= land.n ? null : { y: land.y[j * land.n + i], wet: land.wet[j * land.n + i] };
+  };
+  const why = { wet: 0, steep: 0, taken: 0, unloaded: 0 };
+  for (const slope of [2, 4]) {
+    let best: { x: number; y: number; z: number; d: number } | null = null;
+    for (let dz = -reach; dz <= reach; dz += 2)
+      for (let dx = -reach; dx <= reach; dx += 2) {
+        const d = Math.hypot(dx, dz);
+        if (d > reach || (best && d >= best.d)) continue;
+        const x = Math.round(home.x + dx), z = Math.round(home.z + dz);
+        const sq = { x1: x - half, z1: z - half, x2: x - half + S - 1, z2: z - half + S - 1 };
+        if (taken.some((q: Any) => overlaps(sq, q))) {
+          why.taken++;
+          continue;
+        }
+        let lo = Infinity, hi = -Infinity, bad: 'wet' | 'unloaded' | null = null;
+        for (let zz = sq.z1 - 2; zz <= sq.z2 + 2 && !bad; zz++)
+          for (let xx = sq.x1 - 2; xx <= sq.x2 + 2; xx++) {
+            const c = at(xx, zz);
+            if (!c || c.y < -900) {
+              bad = 'unloaded';
+              break;
+            }
+            if (c.wet) {
+              bad = 'wet';
+              break;
+            }
+            lo = Math.min(lo, c.y);
+            hi = Math.max(hi, c.y);
+          }
+        if (bad) {
+          why[bad]++;
+          continue;
+        }
+        if (hi - lo > slope) {
+          why.steep++;
+          continue;
+        }
+        const ys = [...Array(S * S)].map((_, k) => at(sq.x1 + (k % S), sq.z1 + Math.floor(k / S))!.y).sort((p, q) => p - q);
+        best = { x, y: ys[Math.floor(ys.length / 2)], z, d };
+      }
+    if (best) return { x: best.x, y: best.y, z: best.z };
+  }
+  return { why: `no free ${S}x${S} site within ${reach} blocks of the village (wet ${why.wet}, steep ${why.steep}, taken ${why.taken}, unloaded ${why.unloaded})` };
 }
 
 /** lay_out_houses: the real skill's record (postLayout, growth.active) on a free square instead of a surveyed site. */
@@ -552,8 +615,8 @@ function layOutHouses(args: Any, c: Ctx): Outcome {
   if (v.growth?.active) return { ok: false, message: `lay_out_houses: neighbourhood ${v.growth.active.k} is still being built` };
   const houses = String(args.houses ?? '').split(',').map((h) => h.trim()).filter(Boolean);
   const S = Math.max(9, Math.min(40, Math.floor(Number(args.size ?? 21))));
-  const site = freeSquare(v, S);
-  if (!site) return { ok: false, message: `lay_out_houses: no free ${S}x${S} site near the village (simulated)` };
+  const site = freeSquare(v, S, c.land);
+  if ('why' in site) return { ok: false, message: `lay_out_houses: ${site.why}` };
   const before = new Set(v.tasks.map((t: Any) => t.id));
   const out = postLayout(w, v, c.name, { x: site.x, y: site.y, z: site.z, size: S }, houses, true, undefined, { poster: 'grow', neighbourhood: true });
   if (!out.startsWith('Laid out')) return { ok: false, message: out };

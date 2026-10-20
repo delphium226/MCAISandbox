@@ -100,6 +100,9 @@ process.env.MCAI_TEMPERAMENT ??= 'on';
 
 const villagesFile = path.join(checkpoint, 'villages.json');
 const atlasFile = path.join(checkpoint, 'atlas.json');
+/** The checkpoint's land (scripts/sim/land.py): where layouts and greens fit; without it they are placed by geometry. */
+const landFile = path.join(checkpoint, 'land.json');
+const land = fs.existsSync(landFile) ? JSON.parse(fs.readFileSync(landFile, 'utf8')) : undefined;
 const cpFile = path.join(checkpoint, 'checkpoint.json');
 if (!fs.existsSync(villagesFile)) {
   console.log(`no ${villagesFile}`);
@@ -452,7 +455,7 @@ function finish(a: SimAgent) {
     out = { ok: true, message: `${s.type} done (not modelled)` };
   } else
     try {
-      out = model(s.args, { w, v, name: a.name, carry: carries.get(a.name)!, crops, eggs, rng, now: clock, greenKept, tripLoads });
+      out = model(s.args, { w, v, name: a.name, carry: carries.get(a.name)!, crops, eggs, rng, now: clock, greenKept, tripLoads, land });
     } catch (e) {
       errors.push(`${stamp()} model ${s.type} threw: ${String((e as Error)?.stack ?? e).split('\n').slice(0, 3).join(' | ')}`);
       out = { ok: false, message: `${s.type} failed in the simulator` };
@@ -574,6 +577,7 @@ fs.rmSync(SCRATCH, { recursive: true, force: true });
 
 const kv = (c: Counts) => Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
 say(`village_sim: ${checkpoint} (${v.name}), ${agents.length} members, ${minutes} min at ${scale}x, random ticks ${randomTick}, seed ${SEED}; ${report.realSeconds} s real (${ticks} ticks, ${actionEnds} action ends)`);
+say(`  land: ${land ? `${landFile} (${land.n}x${land.n})` : 'none (python scripts/sim/land.py CHECKPOINT): layouts and greens placed by geometry'}`);
 say(`  families ${report.families}; merchant ${report.merchantOn}${BUY_ALL ? ' (buys anything: --buy-all)' : ''}${EXTRA_BUYS.length ? ` (also buys ${EXTRA_BUYS.join(', ')})` : ''}; durations from ${calibFrom}`);
 say(`  busy ${report.busy}% (bins ${report.busyBins.join(' / ')})`);
 say(`  picks: ${kv(report.picks)}`);
