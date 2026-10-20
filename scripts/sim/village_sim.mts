@@ -170,6 +170,13 @@ const rcon = {
 };
 const w = new MineflayerWorld('127.0.0.1', 0, '26.1', rcon as never, SCRATCH) as Any;
 const reg = w.villages as Any;
+// (a checkpoint's villages.json carries no nextId: the test world's file does, and reset_site merges into it. From 1, new
+// tasks took the record's old ids, and a gather's "after the prepare" named a task long done)
+{
+  let max = 0;
+  for (const m of fs.readFileSync(villagesFile, 'utf8').matchAll(/"id": "[a-z]+(\d+)"/g)) max = Math.max(max, Number(m[1]));
+  if ((reg.nextId ?? 0) <= max) reg.nextId = max + 1;
+}
 let saves = 0;
 reg.save = () => {
   saves++;
@@ -219,6 +226,7 @@ const home = chest0 ? { x: chest0.x, y: chest0.y, z: chest0.z } : { x: Math.floo
 let nextId = 1;
 const unknown = new Map<string, number>();
 let fromRef = 0;
+const boardRun = new Map<string, number>();
 const actionsRun = new Map<string, number>();
 const carries = new Map<string, Counts>();
 class SimAgent {
@@ -293,12 +301,13 @@ const addSample = (k: string, m: number, ok = true, message = '') => {
 };
 /** What a reference green's clearing kept, by item (prepare_green's "kept 7 birch_log, 47 oak_log from the felled"). */
 const greenKept: Counts[] = [];
-/** Builds' minutes per block placed (a big public work's house takes longer than a bench). */
-const perBlock: number[] = [];
+/** Builds' minutes against blocks placed: a fixed part (the walk, the site) and a part a block, fitted below. */
+const buildPairs: Array<[number, number]> = [];
 function buildRate(msg: string, m: number) {
   const n = /recorded in village [^;]*; placed (\d+) blocks/.exec(msg)?.[1];
-  if (n && Number(n) > 0) perBlock.push(m / Number(n));
+  if (n && Number(n) > 0) buildPairs.push([Number(n), m]);
 }
+let buildFit: { a: number; b: number; resid: number[] } | null = null;
 /** Gathering trips' loads as asked and as deposited, by material (whole trees: "gather 4 logs" deposits 5-19). */
 const tripLoads: Record<string, Array<{ asked: number; got: number }>> = {};
 function tripOf(what: string, msg: string) {
@@ -312,11 +321,12 @@ function tripOf(what: string, msg: string) {
 const SINGLE: Record<string, string> = { eat: 'eat_meal', slot: 'harvest_slot', farm: 'harvest_farm', light: 'put_up_torches', furnish: 'furnish' };
 let calibFrom = 'built-in medians';
 function keptOf(msg: string) {
-  const k = /kept ([^;]*?) from the felled/.exec(msg)?.[1];
+  // (the log cuts messages at 200 characters: the counts after "kept", whatever follows them)
+  const k = /kept ((?:\d+ [a-z_]+(?:, |$| ))+)/.exec(msg)?.[1];
   if (!/^plot ready/.test(msg)) return;
   const c: Counts = {};
   for (const [, q, n] of (k ?? '').matchAll(/(\d+) ([a-z_]+)/g)) c[n] = (c[n] ?? 0) + Number(q);
-  greenKept.push(c);
+  if (Object.keys(c).length) greenKept.push(c);
 }
 if (CALIB && fs.existsSync(CALIB)) {
   const rows = fs.readFileSync(CALIB, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -350,6 +360,14 @@ if (CALIB && fs.existsSync(CALIB)) {
   }
   calibFrom = `${path.basename(CALIB)} (${rows.length} rows, ${perStep} chores with per-step times)`;
 }
+// (least squares; the residuals are drawn back, so builds keep their spread)
+if (buildPairs.length >= 5) {
+  const n = buildPairs.length, mx = buildPairs.reduce((t, [x]) => t + x, 0) / n, my = buildPairs.reduce((t, [, y]) => t + y, 0) / n;
+  const sxx = buildPairs.reduce((t, [x]) => t + (x - mx) ** 2, 0), sxy = buildPairs.reduce((t, [x, y]) => t + (x - mx) * (y - my), 0);
+  const b = sxx > 0 ? Math.max(0, sxy / sxx) : 0, a = Math.max(0.05, my - b * mx);
+  buildFit = { a, b, resid: buildPairs.map(([x, y]) => y - (a + b * x)) };
+  calibFrom += `; builds ${a.toFixed(2)} + ${(b * 100).toFixed(2)}/100 blocks min (${n} builds)`;
+}
 const BUILTIN: Record<string, number> = {
   deposit: 0.08, withdraw: 0.05, collect: 0.55, eat_meal: 0.04, harvest_slot: 0.06, harvest_farm: 0.09, put_up_torches: 0.12, furnish: 0.22,
   collect_eggs: 0.13, milk_cows: 0.13, breed_pen: 0.13, build_design: 0.5, prepare_green: 1.5, fish: 1.8, trade: 0.1, make: 0.12, tidy_storage: 0.12,
@@ -359,10 +377,10 @@ const BUILTIN: Record<string, number> = {
 const FAILS_FROM_REFERENCE = new Set(['make', 'harvest_slot', 'harvest_farm', 'put_up_torches', 'furnish']);
 function sampleFor(s: Any): { m: number; fail?: string } {
   // (a build by its blocks: the design's bill at a reference rate per block)
-  const d = s.type === 'build_design' && perBlock.length ? v.designs?.[String(s.args?.design)] : undefined;
-  if (d) {
+  const d = s.type === 'build_design' && buildFit ? v.designs?.[String(s.args?.design)] : undefined;
+  if (d && buildFit) {
     const blocks = Object.values(designBill(d) as Counts).reduce((t, q) => t + q, 0);
-    return { m: Math.max(0.05, blocks * perBlock[Math.floor(rng() * perBlock.length)]) };
+    return { m: Math.max(0.05, buildFit.a + buildFit.b * blocks + buildFit.resid[Math.floor(rng() * buildFit.resid.length)]) };
   }
   const key = s.type === 'make' ? `make:${s.args.item}` : s.type;
   const xs = samples.get(key) ?? (s.type === 'make' ? [...samples.entries()].filter(([k]) => k.startsWith('make:')).flatMap(([, x]) => x) : undefined);
@@ -389,6 +407,14 @@ function finish(a: SimAgent) {
   const s = a.current!.status;
   const model = S.MODELS[s.type];
   actionsRun.set(s.type, (actionsRun.get(s.type) ?? 0) + 1);
+  if (process.env.SIM_DEBUG && !s.args?.chore && s.type === 'collect') {
+    const t = v.tasks.find((q: Any) => q.id === a.brain?.held);
+    const logs = Object.entries(storageContents(v)).filter(([n]) => /_log$/.test(n)).reduce((x, [, q]) => x + (q as number), 0);
+    const open = v.tasks.filter((q: Any) => q.status !== 'done' && /^collect block=logs count=(\d+)/.test(q.detail)).reduce((x: number, q: Any) => x + Number(/count=(\d+)/.exec(q.detail)![1]), 0);
+    errors.push(`${stamp()} DEBUG ${a.name} ${t?.id} "${t?.title}" soft ${t?.soft} after ${JSON.stringify((t?.after ?? []).map((id: string) => `${id}:${v.tasks.find((q: Any) => q.id === id)?.status}`))}; logs in storage ${logs}, open log gathers ${open}`);
+  }
+  // (a board task's action, not a chore's: the task brain's)
+  if (!s.args?.chore) boardRun.set(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`, (boardRun.get(`${s.type}${s.args?.block ? ` ${s.args.block}` : s.args?.item ? ` ${s.args.item}` : ''}`) ?? 0) + 1);
   let out: { ok: boolean; message: string; code?: string };
   if (s._fail) {
     out = { ok: false, message: s._fail, ...(/another agent|other members|being taken/.test(s._fail) ? { code: 'taken' } : {}) };
@@ -417,6 +443,8 @@ const END = T0 + minutes * 60000;
 let lastTick = T0 - STEP;
 let ticks = 0, actionEnds = 0;
 const busyMs = new Map<string, number>();
+/** Busy minutes by action type (as stage_village's "busy by activity" line). */
+const typeMs = new Map<string, number>();
 const binMs = Array.from({ length: Math.ceil(minutes / 10) }, () => 0);
 const realStart = realNow();
 while (clock < END) {
@@ -428,6 +456,7 @@ while (clock < END) {
   for (const a of agents)
     if (a.current) {
       busyMs.set(a.name, (busyMs.get(a.name) ?? 0) + (t - clock));
+      typeMs.set(a.current.status.type, (typeMs.get(a.current.status.type) ?? 0) + (t - clock));
       let from = clock;
       while (from < t) {
         const b = Math.floor((from - T0) / 600000), to = Math.min(t, T0 + (b + 1) * 600000);
@@ -492,7 +521,7 @@ const report = {
   busyBins: binMs.map((ms, i) => Math.round((1000 * ms) / (agents.length * Math.min(10, minutes - i * 10) * 60000)) / 10),
   picks: byKind(picks),
   picksBins: binMs.map((_, i) => byKind(picks.filter((p) => Math.floor((p.t - T0) / 600000) === i))),
-  actions: Object.fromEntries(actionsRun), notModelled: Object.fromEntries(unknown),
+  actions: Object.fromEntries(actionsRun), boardActions: Object.fromEntries(boardRun), busyByAction: Object.fromEntries([...typeMs].map(([k, ms]) => [k, Math.round(ms / 6000) / 10])), notModelled: Object.fromEntries(unknown),
   initiatives: { started: itsNew.length, built: itsNew.filter((i) => i.state === 'built').length, lapsed: itsNew.filter((i) => i.state === 'lapsed').length, failed: itsNew.filter((i) => i.state === 'failed').length, open: itsNew.filter((i) => i.state === 'open').length, kinds: byKind(itsNew) },
   merchant: v.merchant ? {
     ledger: v.merchant.ledger, emeralds: store1.emerald ?? 0, xp: v.merchant.xp ?? 0,
@@ -516,6 +545,8 @@ say(`  families ${report.families}; merchant ${report.merchantOn}${BUY_ALL ? ' (
 say(`  busy ${report.busy}% (bins ${report.busyBins.join(' / ')})`);
 say(`  picks: ${kv(report.picks)}`);
 for (const [i, b] of report.picksBins.entries()) say(`    ${i * 10}-${i * 10 + 10} min: ${kv(b) || 'none'}`);
+say(`  busy by activity (agent-min): ${kv(report.busyByAction)}`);
+say(`  board tasks' actions: ${kv(report.boardActions) || 'none'}`);
 say(`  actions: ${kv(report.actions)}${unknown.size ? `; NOT MODELLED: ${kv(report.notModelled)}` : ''}`);
 say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
 say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
