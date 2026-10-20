@@ -427,4 +427,5 @@ mode reads well (2026-09-29).
     **the activities family and the merchant on by default** (Stg3); the simulator built (`scripts/sim/`), validated on
     Stg1/Stg2, then extended with the public works and the real TaskBrain once v0's long-run results proved artefacts
     of what it left out (F260, F261, lesson 152); merchant orders and levels behind `MC_MERCHANT_ORDERS` (#73, off); a
-    pumpkin offer tried and taken out. Commits a3ba225, 40ef240, 1935156.
+    pumpkin offer tried and taken out. Lng1 (90 min) ran out of room at ~40 min; the sim matched it only on the
+    checkpoint's land (F262, lesson 153). Commits a3ba225 to 85475ae.

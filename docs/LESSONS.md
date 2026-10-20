@@ -600,3 +600,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    and new buildings were the missing inflow and demand. List what the model switches off, find which gap explains the
    misses (a cheap test: add the suspected input and see whether the misses move; 600 logs moved nothing), and write a
    prediction before the next long real run.
+153. **A simulator of a village must carry its land** (s42, F262): the 30-minute match hid it, and five predictions of a
+   90-minute run missed its collapse at minute 40 by placing layouts by geometry; the real limit was dry, level ground
+   within reach. Read the land from the checkpoint's regions (it took a second) before trusting any run longer than
+   the first layouts.

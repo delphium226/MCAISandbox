@@ -377,6 +377,18 @@ if (CALIB && fs.existsSync(CALIB)) {
     else if (/^deposited/.test(msg) && ['gather', 'help', 'initiate'].includes(s.kind)) addSample('collect', Math.max(0.05, m - 0.1));
   }
   calibFrom = `${path.basename(CALIB)} (${rows.length} rows, ${perStep} chores with per-step times)`;
+  // Eggs laid as the reference collected them, a hen a second (the hens: the checkpoint's chicken pens)
+  {
+    let laid = 0;
+    for (const e of rows) if (e.type === 'choice-end') laid += Number(/^collected (\d+) egg/.exec(String(e.message ?? ''))?.[1] ?? 0);
+    const ts = rows.filter((r) => r.type === 'choice').map((r) => r.t);
+    const secs = ts.length ? (Math.max(...ts) - Math.min(...ts)) / 1000 : 0;
+    const hens = eggs.pens(v).reduce((t, q) => t + (q.slot.pen.animals ?? 0), 0);
+    if (laid && secs > 600 && hens) {
+      eggs.perHen = laid / (hens * secs);
+      calibFrom += `; eggs ${(eggs.perHen * 60).toFixed(3)} a hen a minute`;
+    }
+  }
   // The board's builds (big public works) are not in the choice log: the stage log beside it times them, each from its
   // builder's previous action end (an upper bound): "AFTER 4.7m Dev action_done | build_design finished: ... placed 222 blocks"
   const stage = CALIB.replace(/\.choices\.jsonl$/, '.log');

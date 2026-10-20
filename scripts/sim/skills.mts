@@ -169,10 +169,14 @@ export class CropStore {
 // ---- eggs ---------------------------------------------------------------------------------------------------------------
 
 /** Eggs laid in the chicken pens as item entities in the shared view (facts.eggs looks for items in a pen's inner area):
- *  a chicken lays every 5-10 game minutes. */
+ *  a chicken lays every 5-10 game minutes (`perHen`, eggs a hen a wall second; the harness sets it from the reference's
+ *  collections when it has them: Lng1 collected 50 in 90 min from 6 hens, a third of the nominal rate). */
 export class Eggs {
   n = 0;
-  constructor(private entities: Record<string, Any>, private rng: () => number, private scale: number) {}
+  perHen: number;
+  constructor(private entities: Record<string, Any>, private rng: () => number, scale: number) {
+    this.perHen = scale / 450;
+  }
   pens(v: Any): Array<{ slot: Any; j: number; plot: Any }> {
     const lay0 = v.layouts?.[0];
     const plot = v.plots.find((p: Any) => p.annex);
@@ -181,7 +185,7 @@ export class Eggs {
   lay(v: Any, dt: number) {
     for (const { slot, j, plot } of this.pens(v)) {
       const hens = slot.pen.animals ?? 0;
-      const rate = (hens * this.scale) / 450;
+      const rate = hens * this.perHen;
       if (this.rng() >= 1 - Math.exp(-rate * dt)) continue;
       const P = penPlan(slot, slot.face ?? 'n');
       const x = P.inner.x1 + this.rng() * (P.inner.x2 - P.inner.x1 + 1), z = P.inner.z1 + this.rng() * (P.inner.z2 - P.inner.z1 + 1);

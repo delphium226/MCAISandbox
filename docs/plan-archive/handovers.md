@@ -3,6 +3,39 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-20 at the close of the forty-first session (s41); the next session's prompt is
+`runs/2026-10-20/NEXT_PROMPT_s42.md`)
+
+- **Where the work lives now** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
+  branch's upstream; `gh` defaults to it; issues 1-71 moved with their numbers, new ones from #72). The public `origin`
+  stays at `cf48061` until the user publishes.
+- **Done in s41** (DECISIONS 10-20 for every choice; specs, checks and notes in `runs/2026-10-20/s41/`):
+  - F258: menus empty for want of **sinks**, not inputs (`scripts/checks/make_gap.mts`).
+  - The **activity runner** (`a823f7c`): foundry skills one file each in `server/src/mineflayer/foundry/`, library specs
+    in `server/library/*.json` (`library.ts`), the `activity` menu kind behind the `activities` family (**off by
+    default**), `pick()` for specs that choose their run in code. Fish as food (cooked cod/salmon).
+  - **The foundry merges without the user** (`c52a49c`): `foundry.py --merge` / `--apply-merge ID` (merge the branch
+    into the candidate, re-gate, fast-forward a clean checkout, else queue); a ticket's live check may name a checkpoint
+    and settings. **Fishing** (`1fe735a`) and **trade** (`fb81e1b`) were built by agy and merged by the foundry itself.
+  - **The merchant** (`c8438db`, `MC_MERCHANT`, off): a NoAI villager in the first market stall, 17 offers ("N for M
+    emeralds", `merchant.ts`), restocks, `merchantPick`, buying only what something uses (`0a377e6`, F259); offers set
+    one recipe a command (RCON's ~1446-byte request limit). The panel's **Market card and Trade tab** (`d414462`).
+  - Snapshots carry `server/library` (`8697763`; lesson 151). **Per-step chore timing** in the choice log (`edc2e90`).
+- **Runs** (RUNS.md s41): Stg1 staged busy **20% vs Sto1 13%**; Erl2 model 13%; fish a real food flow (76 caught, 26
+  cooked, not yet eaten: bread first); the merchant's purchases were junk until `0a377e6` (F259).
+- **Next (NEXT_PROMPT_s42):** the **village simulator** v0 (#74): `spec_sim_v1.md` and its check `check_sim_v1.md` (13
+  findings: a 5 s clock, fakes with `current`/`queue`, a fake crop store, effect models that write the skills' records
+  and messages, growth off in v0, validation on Stg1 by picks, reasons and storage). Then on it: merchant orders and
+  levels and innovation demand (#73), the barter ladder (#68-#71, a sales levy once members own goods).
+- **Parked:** parallel foundry tickets (#72, until tickets come in numbers).
+- **Leftovers:** the `activities` family and `MC_MERCHANT` stay off by default until a run with the purchase fix; fish
+  are not eaten while bread lasts; s40's leftovers (a farmstead failure counts against public works; a field and a
+  neighbourhood can survey at once; half the re-asks taken again).
+- **Stack at the close:** everything down (main and test worlds 1-3); start what a test needs with
+  `python scripts/stack.py up` or `reset_site.py`. Checkpoints: `mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`, and new **`mv3_sto1end`**
+  (Sto1's end: 3 market stalls; the merchant comes at once).
+- **Uncommitted at the close:** nothing of this session's.
+
 (written 2026-10-20 at the close of the fortieth session (s40); the next session's prompt is
 `runs/2026-10-20/NEXT_PROMPT_s41.md`)
 

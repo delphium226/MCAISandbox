@@ -1320,3 +1320,14 @@ CLAUDE.md when a phase ends.
   the log sales never run dry: the pumpkin offer was tried (Stg3: no pumpkin sold in 30 min, logs first) and taken out.
   Merchant orders (MC_MERCHANT_ORDERS, off): 38 filled in 10 v0 hours, makes +16%, busy +0.2 points: cheap goods are
   quick crafts, and orders 4x the size did not help (7.6%).
+- F262 (10-20, s42, issue #74) **A 90-minute village runs out of room at ~40 minutes; the simulator predicts it only on
+  the real land.** Lng1 (Stg3's defaults, mv3_grown25, 90 min fast): busy 19.6 / 20.4 / 19.1 / 14.1 per 10-minute bin,
+  then 4.7, 1.5, 2.1, 2.4, 2.6 (9.6% overall); from minute 40 every idle menu said "initiate: no room", "help: no project
+  open", "make: inputs short", "gather: nothing wanted": the public works stopped at "no free 20x20 site within 80 blocks
+  of the village (wet 446, steep 213, taken 19422)" (then 18x18: "no public work buildable here"), and without new plots
+  no new initiatives. The sim's five predictions, written before the run, all missed the collapse (busy 16.9-19.9%,
+  initiatives 61-109 vs 44): they placed layouts and greens by geometry alone. With the checkpoint's land
+  (`scripts/sim/land.py`: top ground and water from the saved regions; sites as growSite picks them): busy 11.5%
+  overall, make 283 vs 269, help 76 vs 83, initiatives 41 vs 44, public works 8 vs 9, furnish 8 vs 8; its room runs out
+  ~10 minutes early, and its floor after the collapse is ~6-7% vs 2% (cooked cod and charcoal made twice as often, egg
+  collecting 1.6x). The village's long-run limit today is land within reach, not materials or models.

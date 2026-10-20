@@ -171,7 +171,10 @@ the short version; look here for a check script's arguments, a model detail or w
   TaskBrain (`lay_out_houses` posts the real `postLayout` on a free square; `prepare_site` records the plot and its felled
   logs; builds take the reference's minutes per block); `--v0` switches them off. Not modelled: the mine and iron, starts
   and pens, explore, `put_up_signs`, `light_streets`, `make_into_storage`, `tidy_storage` (done with no effect, counted).
-  Crops: `SIM_CROP_G` (0.25). Same seed, same run. In check:offline (20 minutes). Fidelity: F260.
+  Crops: `SIM_CROP_G` (0.25); eggs and big builds from the reference (and its stage log). **The land**: `python
+  scripts/sim/land.py CHECKPOINT` writes CHECKPOINT/land.json (a second); with it layouts and greens are sited as growSite
+  does, without it by geometry (no long run is right without it, F262). Same seed, same run. In check:offline (20
+  minutes). Fidelity: F260, F262.
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes
