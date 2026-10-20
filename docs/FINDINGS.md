@@ -1300,3 +1300,23 @@ CLAUDE.md when a phase ends.
   bought partly with logs turned into junk (lesson 149). gpt-oss chose selling, buying and fishing unprompted ($0.04 the
   half hour). Next: buy only items with a consumer; the simulator (#74) to test such rules first.
 
+
+- F260 (10-20, s42, issue #74) **The village simulator matches staged runs once it runs the public works; without them
+  its long-run results were artefacts.** `scripts/sim/village_sim.mts` (the real decision code, modelled skills, a 5 s
+  clock; 30 simulated minutes in ~10 s, 10 hours in ~2 min). v0 (works, growth, housing off) against Stg1/Stg2: meals,
+  harvests, pens, fishing and sales inside the two runs' spread, but make -15%, light -40%, initiatives -20% and the last
+  10-minute bin half as busy (9% vs 15%). Not logs (600 logs added changed only what was sold): the public works' plots
+  (room for initiatives, new buildings to light and furnish) and their felled logs (~500 in Stg1). With the real TaskBrain
+  in the fakes, lay_out_houses posting the real postLayout's tasks on a free square and prepare_site's felled logs:
+  busy 19.7 / 19 / 20 per bin (Stg2 19.2 / 19.6 / 15.9), make 188 (168-181), light 44 (44-51), initiatives 39 (33-37),
+  builds 37 (31-37). Left: meals +20% and cod eaten (real members ate only bread), furnishing 17 (6-11), four board skills
+  unmodelled (put_up_signs, light_streets, make_into_storage, tidy_storage). Real runs differ widely from each other
+  (Stg1 vs Stg2: activity 27 vs 16, emeralds 27 vs 8): compare against the spread, not one run.
+- F261 (10-20, s42, issues #20 #73 #74) **The merchant's purchase fix works live; the sim's merchant economy results were
+  v0's.** Stg2 and Stg3 bought only a fishing rod (no junk), sold 128 logs each, stopped at the emerald keep. In v0's 10
+  simulated hours fishing stopped after ~4.5 h with the fix (no logs above their keep left to sell, so no emeralds for new
+  rods; ~1.8 h with the old rule, its emeralds spent on junk) and pumpkins (4,900) and seeds piled up with no sink; a
+  pumpkin offer kept fishing all 10 h. With the works modelled, logs pile up instead (+2,700 in 90 simulated minutes), so
+  the log sales never run dry: the pumpkin offer was tried (Stg3: no pumpkin sold in 30 min, logs first) and taken out.
+  Merchant orders (MC_MERCHANT_ORDERS, off): 38 filled in 10 v0 hours, makes +16%, busy +0.2 points: cheap goods are
+  quick crafts, and orders 4x the size did not help (7.6%).

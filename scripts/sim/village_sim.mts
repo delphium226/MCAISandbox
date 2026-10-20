@@ -139,7 +139,9 @@ const { MineflayerWorld } = await import('../../server/src/mineflayer/mcWorld');
 const { Vec3 } = await import('vec3');
 const S = await import('./skills.mts');
 const { TaskBrain } = await import('../../server/src/taskBrain');
+const { CHOOSE } = (await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any;
 const { storageContents } = await import('../../server/src/mineflayer/mcStorage');
+const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
 
@@ -199,7 +201,9 @@ const store0 = storageContents(v);
 // ---- the modelled world: crops, eggs, the members ----------------------------------------------------------------------
 
 const rng = S.rngOf(SEED);
-const crops = new S.CropStore(w.registry, S.rngOf(SEED + 1), (randomTick * 20 * scale) / 4096);
+/** A crop's growth chance per random tick (SIM_CROP_G, 0.25: Stg2's 13 wheat harvests in 30 min; 1/6 gave 9). */
+const CROP_G = Number(process.env.SIM_CROP_G ?? 0.25);
+const crops = new S.CropStore(w.registry, S.rngOf(SEED + 1), (randomTick * 20 * scale) / 4096, CROP_G);
 crops.seed(v);
 const entities: Record<string, Any> = {};
 const eggs = new S.Eggs(entities, S.rngOf(SEED + 2), scale);
@@ -233,7 +237,8 @@ class SimAgent {
     this.bot = {
       entity: { position: new Vec3(home.x + 0.5, home.y, home.z + 0.5) },
       entities,
-      inventory: { items: () => [] },
+      // (what the member carries, as items: the board's gathering counts it, and the chores' yields)
+      inventory: { items: () => Object.entries(carries.get(name) ?? {}).filter(([, q]) => q > 0).map(([n, q]) => ({ name: n, count: q })) },
       world: { getColumn: column },
       game: { minY: -64 },
     };
@@ -288,6 +293,12 @@ const addSample = (k: string, m: number, ok = true, message = '') => {
 };
 /** What a reference green's clearing kept, by item (prepare_green's "kept 7 birch_log, 47 oak_log from the felled"). */
 const greenKept: Counts[] = [];
+/** Builds' minutes per block placed (a big public work's house takes longer than a bench). */
+const perBlock: number[] = [];
+function buildRate(msg: string, m: number) {
+  const n = /recorded in village [^;]*; placed (\d+) blocks/.exec(msg)?.[1];
+  if (n && Number(n) > 0) perBlock.push(m / Number(n));
+}
 /** Gathering trips' loads as asked and as deposited, by material (whole trees: "gather 4 logs" deposits 5-19). */
 const tripLoads: Record<string, Array<{ asked: number; got: number }>> = {};
 function tripOf(what: string, msg: string) {
@@ -316,6 +327,7 @@ if (CALIB && fs.existsSync(CALIB)) {
     if (!s || e.cut) continue;
     if (Array.isArray(e.steps) && e.steps.some((q: Any) => q.ms)) {
       perStep++;
+      if (e.steps.length === 1 && e.steps[0].type === 'build_design' && e.steps[0].ms) buildRate(String(e.message ?? ''), e.steps[0].ms / 60000);
       for (const q of e.steps) if (q.ms) addSample(q.type === 'make' ? `make:${String(s.key).replace(/^make:/, '')}` : q.type, q.ms / 60000, q.state === 'done', q.state === 'done' ? '' : String(e.message ?? ''));
       keptOf(String(e.message ?? ''));
       tripOf(String(s.what ?? ''), String(e.message ?? ''));
@@ -328,7 +340,10 @@ if (CALIB && fs.existsSync(CALIB)) {
     else if (SINGLE[s.kind]) addSample(SINGLE[s.kind], m, !!e.ok, e.ok ? '' : msg);
     else if (/^plot ready/.test(msg)) addSample('prepare_green', m);
     else if (s.kind === 'penwork') addSample(/egg/.test(msg) ? 'collect_eggs' : /milk/.test(msg) ? 'milk_cows' : 'breed_pen', m);
-    else if (/recorded in village|already stands/.test(msg)) addSample('build_design', m);
+    else if (/recorded in village|already stands/.test(msg)) {
+      addSample('build_design', m);
+      buildRate(msg, m);
+    }
     else if (s.kind === 'activity' && /emerald|traded/.test(msg)) addSample('trade', Math.max(0.03, m - 0.15));
     else if (s.kind === 'activity') addSample('fish', Math.max(0.1, m - 0.25));
     else if (/^deposited/.test(msg) && ['gather', 'help', 'initiate'].includes(s.kind)) addSample('collect', Math.max(0.05, m - 0.1));
@@ -343,6 +358,12 @@ const BUILTIN: Record<string, number> = {
  *  from physics the models leave out: a make's craft that found an input missing, a harvest that met another worker). */
 const FAILS_FROM_REFERENCE = new Set(['make', 'harvest_slot', 'harvest_farm', 'put_up_torches', 'furnish']);
 function sampleFor(s: Any): { m: number; fail?: string } {
+  // (a build by its blocks: the design's bill at a reference rate per block)
+  const d = s.type === 'build_design' && perBlock.length ? v.designs?.[String(s.args?.design)] : undefined;
+  if (d) {
+    const blocks = Object.values(designBill(d) as Counts).reduce((t, q) => t + q, 0);
+    return { m: Math.max(0.05, blocks * perBlock[Math.floor(rng() * perBlock.length)]) };
+  }
   const key = s.type === 'make' ? `make:${s.args.item}` : s.type;
   const xs = samples.get(key) ?? (s.type === 'make' ? [...samples.entries()].filter(([k]) => k.startsWith('make:')).flatMap(([, x]) => x) : undefined);
   if (xs?.length) {
@@ -465,7 +486,7 @@ const its = (v.initiatives ?? []) as Any[];
 const itsNew = its.filter((i) => i.at >= T0);
 const report = {
   checkpoint, village: v.name, members: agents.length, minutes, scale, randomTick, seed: SEED, step: STEP / 1000,
-  families: process.env.MC_CHOICE_FAMILIES, buyAll: BUY_ALL, extraBuys: EXTRA_BUYS, merchantOn: process.env.MC_MERCHANT ?? 'on', calib: calibFrom,
+  families: [...CHOOSE.families].join(','), buyAll: BUY_ALL, extraBuys: EXTRA_BUYS, merchantOn: process.env.MC_MERCHANT ?? 'on', calib: calibFrom,
   realSeconds: Math.round(realMs / 100) / 10, ticks, actionEnds,
   busy: Math.round((1000 * [...busyMs.values()].reduce((s, x) => s + x, 0)) / (agents.length * minutes * 60000)) / 10,
   busyBins: binMs.map((ms, i) => Math.round((1000 * ms) / (agents.length * Math.min(10, minutes - i * 10) * 60000)) / 10),

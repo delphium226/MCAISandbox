@@ -594,3 +594,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    check through the agent server that runs it: count the effect in the first run's log (`[activity] library:`) before
    reading results (lesson 140).
 
+152. **Validate a simulator on what it leaves out before trusting its long runs** (s42, F260, F261): v0 matched a
+   30-minute staged run on most chore kinds, and its two headline 10-hour results (busy sliding to 8%, fishing dying
+   after 4.5 hours for want of anything to sell) were both artefacts of the public works it left out, whose felled logs
+   and new buildings were the missing inflow and demand. List what the model switches off, find which gap explains the
+   misses (a cheap test: add the suspected input and see whether the misses move; 600 logs moved nothing), and write a
+   prediction before the next long real run.

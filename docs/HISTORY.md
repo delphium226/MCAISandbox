@@ -423,3 +423,8 @@ them, or test on the test world (`mc/testserver`, restored per site; Minevale36'
 scouting tests left Scout4 at -19,-88 and Scout5 at -378,-804 there, outside every recorded site). The atlas
 (`mc/server/atlas.json`) holds ~6,700 chunks, with exposed ores, shown on the panel's world map. The user confirmed the panel's simple
 mode reads well (2026-09-29).
+56. 2026-10-20 (s42, the village simulator #74): Stg2 calibrated it (per-step timing) and confirmed the purchase fix live;
+    **the activities family and the merchant on by default** (Stg3); the simulator built (`scripts/sim/`), validated on
+    Stg1/Stg2, then extended with the public works and the real TaskBrain once v0's long-run results proved artefacts
+    of what it left out (F260, F261, lesson 152); merchant orders and levels behind `MC_MERCHANT_ORDERS` (#73, off); a
+    pumpkin offer tried and taken out. Commits a3ba225, 40ef240, 1935156.

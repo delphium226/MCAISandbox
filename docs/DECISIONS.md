@@ -596,3 +596,13 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   treasury; a fixed default first (~20-25%), later voted (#33). Member-to-member barter untaxed at first (a levy in kind
   is awkward; watch for barter to dodge it). Until #68, emeralds are the village's, in shared storage.
 
+- 10-20 (s42) **The `activities` family and `MC_MERCHANT` on by default** (the user's question at the session's start:
+  after a run with the purchase fix): Stg2 bought only what the village uses, and Stg3 ran on the defaults alone (busy
+  21%, no errors, the library loaded).
+- 10-20 (s42, the user let the session decide) **The simulator is validated before it is used**: after v0's first
+  experiments (the buy rule, a pumpkin offer, merchant orders) rested on 10-hour projections it could not support, the
+  session went back to fidelity: the public works and the task brain in the sim, a prediction written before a 90-minute
+  real run (Lng1), validation against the spread of several runs. The pumpkin offer was taken out (Stg3 sold none);
+  merchant orders stay in the code, off by default, untuned, until the sim holds over long runs.
+- 10-20 (s42) **The simulator runs the run's own growth, works, housing and votes** (votes predicted: code, never a model)
+  with the members' TaskBrain; `--v0` switches them off as v0 ran. It is in check:offline (20 minutes).
