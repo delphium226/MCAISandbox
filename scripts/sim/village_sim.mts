@@ -540,6 +540,10 @@ const report = {
   food: v.food ? { made: v.food.made, eaten: v.food.eaten, meals: v.food.meals } : null,
   flows,
   choiceNone: keep.filter((k) => k.s.startsWith('[choice-none]')).map((k) => `+${((k.t - T0) / 60000).toFixed(1)}m ${k.s.replace(/^\[choice-none\] \S+ /, '')}`),
+  lightParts: (() => {
+    const ps = w.lightParts(v) as Any[];
+    return { parts: ps.length, newBuildings: ps.filter((q) => String(q.part).startsWith('sim')).length, structuresNew: v.structures.filter((q: Any) => String(q.id).startsWith('sim')).length, spots: ps.reduce((t, q) => t + q.spots.length, 0), unlit: ps.reduce((t, q) => t + q.unlit, 0) };
+  })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
@@ -564,6 +568,7 @@ if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
 say(`  storage flows: ${kv(flows)}`);
 say(`  choice-none: ${report.choiceNone.length} lines${report.choiceNone.length ? `; first ${report.choiceNone[0].slice(0, 200)}` : ''}`);
+say(`  light parts: ${JSON.stringify(report.lightParts)}`);
 say(`  failures repeated from the reference: ${fromRef}`);
 say(`  errors ${errors.length}${errors.length ? ` (first: ${errors[0].slice(0, 300)})` : ''}; saves ${saves}`);
 say(`  out: ${OUT}`);

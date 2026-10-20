@@ -439,8 +439,12 @@ function buildDesign(args: Any, c: Ctx): Outcome {
   const v = c.v, d = v.designs?.[String(args.design)];
   if (!d) return { ok: false, message: `no design called "${args.design}"` };
   const x = Number(args.x), z = Number(args.z);
-  const x1 = x - Math.floor(d.width / 2), z1 = z - Math.floor(d.depth / 2);
-  const st = { x1, z1, x2: x1 + d.width - 1, z2: z1 + d.depth - 1 };
+  // (quarter turns as the skill's: a turned building's footprint swaps width and depth, and the light parts find its
+  // placement by that footprint)
+  const rot = ((Math.round(Number(args.rotate ?? 0) / 90) % 4) + 4) % 4;
+  const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+  const x1 = x - Math.floor(W / 2), z1 = z - Math.floor(D / 2);
+  const st = { x1, z1, x2: x1 + W - 1, z2: z1 + D - 1 };
   const old = v.structures.find((s: Any) => s.kind === d.name && x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
   if (old) return { ok: true, message: `a ${d.name} built by ${old.builtBy} already stands at ${areaText(old)}, so this is already done` };
   // The bill from storage (what the plan takes from stock; any:logs and the like as the planner resolves them)
