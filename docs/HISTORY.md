@@ -298,6 +298,16 @@ Branch `tiered-brain-building`, pushed to origin, not merged (`main` is unchange
     answered by a cap per level and a mine trend gauge (F256). Storage: initiatives take storage's surplus first, six
     barrels in the hut, a tidy-up chore (F257); busy fell 18% -> 13% with the surplus fix (the user kept it). Six
     commits, not pushed. Next: the work supply.
+55. 2026-10-20 (s41, the work supply: new kinds of work from the foundry, the merchant): measured why menus empty (F258:
+    no sinks, not short inputs); the user chose members' proposals feeding the foundry, with **gated foundry merges
+    without the user**, then a **barter economy** linked to the foundry (#12, #68-#71), a **merchant** for what peaceful
+    lacks, a **sales levy** once members own goods, **innovation demand** from the adjacent possible, unanswered needs
+    and the merchant (#73), and a **village simulator** (#74). Built: the activity runner (foundry skills in their own
+    folder, library specs, the `activity` menu kind), `foundry.py --merge/--apply-merge`, the merchant (summon, restock,
+    prices, picks; RCON's request limit found live), the panel's Market card and Trade tab, per-step chore timing. The
+    foundry built **fishing** and **trade** (agy, one round each) and merged both itself. Stg1 busy 20% vs Sto1 13%, Erl2
+    13% (F259); the merchant's purchases fixed to used goods. Work moved to the private repo `MCAISandbox-dev` (issues
+    1-71 kept their numbers). Next: the simulator v0 (NEXT_PROMPT_s42).
 Backlog and open problems: `docs/PLAN.md` (phases, backlog and findings log). The items listed here before
 (re-posting mayor, logs short, slow-failing collect) were fixed on 2026-09-28.
 

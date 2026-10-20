@@ -34,34 +34,37 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-20 at the close of the fortieth session (s40); the next session's prompt is
-`runs/2026-10-20/NEXT_PROMPT_s41.md`)
+(written 2026-10-20 at the close of the forty-first session (s41); the next session's prompt is
+`runs/2026-10-20/NEXT_PROMPT_s42.md`)
 
-- **Done in s40, on `tiered-brain-building`, not pushed, not merged into main** (s39's three were pushed 10-19):
-  `3d13ddd` farmsteads beside the work vote and `MC_NEED_WORKS` on by default (F252); `c060267` **field works** (a 5x7
-  wheat field on its own 9x9 pad, `lay_out_field`, planted by its own chore; farmsteads behind `MC_NEED_FARMSTEAD`, off;
-  F254); `1b4f24a` **the re-ask** (a model pick another member took meanwhile asked once more: model decisions kept 64%
-  vs 32%, F255) and the mid-session handover; `21c5e23` **the mine's cap per level** (it capped the whole mine: Night40's
-  first level at 989 of 1080, levels 2-3 never opened) and the `mineflow` gauge, the blocked mine gauge (F256);
-  `e35053d` **storage**: initiatives take storage's surplus first (`MC_INITIATIVE_STORE`), six barrels in the hut (405
-  slots, `MC_STORAGE_BARRELS`), the `tidy_storage` chore (F257); and this close. Specs and checks:
-  `runs/2026-10-20/s40/` (`spec_fields_v1.md`, `spec_storage_mine_v1.md`).
-- **Night40** (10-19, the user's overnight model run, ended at 92 min by the PC's shutdown; F253) found three limits for a
-  village meant to run for days: land (no 19x19 site left), the mine near its cap, model choices lost to contention.
-  All three are answered; storage and food too. Runs: RUNS.md s40 rows (Fon/Fon2/Foff, Fld1, Rsk1, Min1, Sto1).
-- **The open problem: work.** Busy is 13-21% in staged after-phase runs (Sto1 13%: taking storage's surplus removed
-  initiative gathering that only made logs nobody used, F257; the user kept it on, 10-20) and ~14% over Night40; menus
-  often hold 24 idle members with nothing feasible. Emergence (Phase E) needs members with things to do.
-- **Next (the user's choice at the start of s41, NEXT_PROMPT_s41.md):** the work supply. Measure first what idle menus
-  lack (`[choice-none]` reasons, Night40 and Sto1), then the cheapest new kinds of work: foundry tickets for Phase S
-  activities (#14: fishing #20, the smelting works #19, the library #21), members' proposals (#13), and the rest of E.4's
-  herding rule (#28: in-flight picks shown, options spread across members).
-- **The user's direction:** villages run for days or weeks; judge needs by rates over long windows, prefer assumptions
-  to multi-hour measuring runs (10-19); no long real-rate run for now (10-20).
-- **Leftovers:** a farmstead failure counts against public works; a field and a neighbourhood can survey at the same
-  moment; ~half the re-asks are taken again (F255).
-- **Stack at the close:** test world 1 up with 0 agents (Paper and agent server from s40's last snapshot); test 2, test 3
-  and main down. Checkpoints unchanged (`mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`).
+- **Where the work lives now** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
+  branch's upstream; `gh` defaults to it; issues 1-71 moved with their numbers, new ones from #72). The public `origin`
+  stays at `cf48061` until the user publishes.
+- **Done in s41** (DECISIONS 10-20 for every choice; specs, checks and notes in `runs/2026-10-20/s41/`):
+  - F258: menus empty for want of **sinks**, not inputs (`scripts/checks/make_gap.mts`).
+  - The **activity runner** (`a823f7c`): foundry skills one file each in `server/src/mineflayer/foundry/`, library specs
+    in `server/library/*.json` (`library.ts`), the `activity` menu kind behind the `activities` family (**off by
+    default**), `pick()` for specs that choose their run in code. Fish as food (cooked cod/salmon).
+  - **The foundry merges without the user** (`c52a49c`): `foundry.py --merge` / `--apply-merge ID` (merge the branch
+    into the candidate, re-gate, fast-forward a clean checkout, else queue); a ticket's live check may name a checkpoint
+    and settings. **Fishing** (`1fe735a`) and **trade** (`fb81e1b`) were built by agy and merged by the foundry itself.
+  - **The merchant** (`c8438db`, `MC_MERCHANT`, off): a NoAI villager in the first market stall, 17 offers ("N for M
+    emeralds", `merchant.ts`), restocks, `merchantPick`, buying only what something uses (`0a377e6`, F259); offers set
+    one recipe a command (RCON's ~1446-byte request limit). The panel's **Market card and Trade tab** (`d414462`).
+  - Snapshots carry `server/library` (`8697763`; lesson 151). **Per-step chore timing** in the choice log (`edc2e90`).
+- **Runs** (RUNS.md s41): Stg1 staged busy **20% vs Sto1 13%**; Erl2 model 13%; fish a real food flow (76 caught, 26
+  cooked, not yet eaten: bread first); the merchant's purchases were junk until `0a377e6` (F259).
+- **Next (NEXT_PROMPT_s42):** the **village simulator** v0 (#74): `spec_sim_v1.md` and its check `check_sim_v1.md` (13
+  findings: a 5 s clock, fakes with `current`/`queue`, a fake crop store, effect models that write the skills' records
+  and messages, growth off in v0, validation on Stg1 by picks, reasons and storage). Then on it: merchant orders and
+  levels and innovation demand (#73), the barter ladder (#68-#71, a sales levy once members own goods).
+- **Parked:** parallel foundry tickets (#72, until tickets come in numbers).
+- **Leftovers:** the `activities` family and `MC_MERCHANT` stay off by default until a run with the purchase fix; fish
+  are not eaten while bread lasts; s40's leftovers (a farmstead failure counts against public works; a field and a
+  neighbourhood can survey at once; half the re-asks taken again).
+- **Stack at the close:** everything down (main and test worlds 1-3); start what a test needs with
+  `python scripts/stack.py up` or `reset_site.py`. Checkpoints: `mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`, and new **`mv3_sto1end`**
+  (Sto1's end: 3 market stalls; the merchant comes at once).
 - **Uncommitted at the close:** nothing of this session's.
 
 ## Earlier phases

@@ -3,6 +3,36 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-20 at the close of the fortieth session (s40); the next session's prompt is
+`runs/2026-10-20/NEXT_PROMPT_s41.md`)
+
+- **Done in s40, on `tiered-brain-building`, not pushed, not merged into main** (s39's three were pushed 10-19):
+  `3d13ddd` farmsteads beside the work vote and `MC_NEED_WORKS` on by default (F252); `c060267` **field works** (a 5x7
+  wheat field on its own 9x9 pad, `lay_out_field`, planted by its own chore; farmsteads behind `MC_NEED_FARMSTEAD`, off;
+  F254); `1b4f24a` **the re-ask** (a model pick another member took meanwhile asked once more: model decisions kept 64%
+  vs 32%, F255) and the mid-session handover; `21c5e23` **the mine's cap per level** (it capped the whole mine: Night40's
+  first level at 989 of 1080, levels 2-3 never opened) and the `mineflow` gauge, the blocked mine gauge (F256);
+  `e35053d` **storage**: initiatives take storage's surplus first (`MC_INITIATIVE_STORE`), six barrels in the hut (405
+  slots, `MC_STORAGE_BARRELS`), the `tidy_storage` chore (F257); and this close. Specs and checks:
+  `runs/2026-10-20/s40/` (`spec_fields_v1.md`, `spec_storage_mine_v1.md`).
+- **Night40** (10-19, the user's overnight model run, ended at 92 min by the PC's shutdown; F253) found three limits for a
+  village meant to run for days: land (no 19x19 site left), the mine near its cap, model choices lost to contention.
+  All three are answered; storage and food too. Runs: RUNS.md s40 rows (Fon/Fon2/Foff, Fld1, Rsk1, Min1, Sto1).
+- **The open problem: work.** Busy is 13-21% in staged after-phase runs (Sto1 13%: taking storage's surplus removed
+  initiative gathering that only made logs nobody used, F257; the user kept it on, 10-20) and ~14% over Night40; menus
+  often hold 24 idle members with nothing feasible. Emergence (Phase E) needs members with things to do.
+- **Next (the user's choice at the start of s41, NEXT_PROMPT_s41.md):** the work supply. Measure first what idle menus
+  lack (`[choice-none]` reasons, Night40 and Sto1), then the cheapest new kinds of work: foundry tickets for Phase S
+  activities (#14: fishing #20, the smelting works #19, the library #21), members' proposals (#13), and the rest of E.4's
+  herding rule (#28: in-flight picks shown, options spread across members).
+- **The user's direction:** villages run for days or weeks; judge needs by rates over long windows, prefer assumptions
+  to multi-hour measuring runs (10-19); no long real-rate run for now (10-20).
+- **Leftovers:** a farmstead failure counts against public works; a field and a neighbourhood can survey at the same
+  moment; ~half the re-asks are taken again (F255).
+- **Stack at the close:** test world 1 up with 0 agents (Paper and agent server from s40's last snapshot); test 2, test 3
+  and main down. Checkpoints unchanged (`mv3_base25`, `mv3_grown25`, `mv3_base1`, `mv3_cpv1`).
+- **Uncommitted at the close:** nothing of this session's.
+
 (written 2026-10-20 during the fortieth session (s40); updated at its close)
 
 - **Done in s40, on `tiered-brain-building`, not merged into main:** s39's three commits pushed (10-19, the user's).

@@ -588,3 +588,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    task's number since the active neighbourhood's first, not by its poster, so a task posted outside growth stays open
    or is closed by a neighbourhood's end. Work after completion runs as a chore (the field planted by its own chore),
    and a spec that posts board tasks then must name who claims them.
+151. **A skill's live check does not test the path that runs it** (s41, F259): fishing and trade passed their foundry live
+   checks, which called the skills directly, while every real run loaded no activity at all (code snapshots copied
+   server/src, server/panel and shared/src, not the new server/library). A new data folder or loader needs its own
+   check through the agent server that runs it: count the effect in the first run's log (`[activity] library:`) before
+   reading results (lesson 140).
+
