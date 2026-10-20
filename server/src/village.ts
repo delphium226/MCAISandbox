@@ -111,7 +111,9 @@ export interface Mine {
    * step above it (x, z; that level is y) and runs on in `dir`, one block down per step; `level` once it is dug, or why
    * it stopped short (no level is tried after that).
    */
-  down?: Array<{ x: number; z: number; y: number; steps: number; level?: number; stopped?: string }>;
+  down?: Array<{ x: number; z: number; y: number; steps: number; level?: number; stopped?: string;
+    /** The mine's `dug` when these stairs reached their level (s40: each level's cells count from here toward its cap). */
+    dugAt?: number }>;
   /** The iron level (the iron age, 10-08): its own stairs, tunnels and record, never the cobblestone mine's. */
   iron?: IronLevel;
   /** The iron tools made from the village's iron (kept here: the first can be made from stored iron before any trip has
@@ -538,6 +540,8 @@ export interface Village {
   needStates?: Record<string, import('./needs').NeedState>;
   /** s39 (MC_NEED_WORKS): food points drained and made per game hour, and the shortness (needWorks.ts). */
   foodFlow?: import('./needWorks').FoodFlow;
+  /** s40: the mine trend, tunnel cells dug per game hour (needWorks.ts MineFlow). */
+  mineFlow?: import('./needWorks').MineFlow;
   /** The village's votes (spec_vote1), the last 20, written at the tally only (a vote under way is held in memory). */
   votes?: VoteRecord[];
   /** Items the mayor wants kept in stock besides the buildings' materials (add_need). */

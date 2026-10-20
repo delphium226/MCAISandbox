@@ -142,3 +142,32 @@ export function fieldDue(f: FoodFlow | undefined, freeSlots: number, underWay: b
   if (f.sinceField !== undefined && f.sinceField < FIELD_COOLDOWN_MIN) return { due: false, why: `the last field ${Math.round(f.sinceField)} of ${FIELD_COOLDOWN_MIN} min ago` };
   return { due: true, why: '' };
 }
+
+/** s40 (F256): the mine trend, kept on the village: the food flow's buckets with `drained` the tunnel cells dug, and the
+ *  mine's own count when last read (dug is counted as its rise). */
+export interface MineFlow {
+  buckets: FoodFlow['buckets'];
+  dugSeen?: number;
+}
+
+/** Hours of mine at which the gauge reads 0 (and 1 at none left). */
+export const MINE_HORIZON_H = 12;
+
+/** The mine flow after `gameMin` game minutes in which `dug` cells were dug. */
+export function addMineFlow(f: MineFlow | undefined, gameMin: number, dug: number): MineFlow {
+  return { ...(f ?? {}), buckets: addFlow({ buckets: f?.buckets ?? [] }, gameMin, dug, 0).buckets };
+}
+
+/**
+ * The mine gauge: hours of mine left at the window's rate (cells left from mcMine's mineCellsLeft); level 0 at
+ * MINE_HORIZON_H hours or more, 1 when spent; null before its stairs reach stone, or before MIN_WINDOW while it still gives.
+ */
+export function mineflowReading(f: MineFlow | undefined, cellsLeft: number | null): { level: number; hours: number; text: string } | null {
+  if (cellsLeft === null) return null;
+  if (cellsLeft <= 0) return { level: 1, hours: 0, text: 'mine spent: no tunnel cell left to dig' };
+  const r = flowRates({ buckets: f?.buckets ?? [] });
+  if (r.min < MIN_WINDOW) return null;
+  const hours = r.drained > 0 ? Math.min(99, cellsLeft / r.drained) : 99;
+  const level = Math.max(0, Math.min(1, 1 - hours / MINE_HORIZON_H));
+  return { level, hours, text: `mine: ${cellsLeft} cells left, ${Math.round(r.drained)} dug an hour; ${r.drained > 0 ? `${hours.toFixed(1)} hours left` : 'none dug lately'}` };
+}

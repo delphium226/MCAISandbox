@@ -1,0 +1,28 @@
+{
+  "about": "s40 the mine's cap per level (F256): MC_MINE_LEVEL_CELLS=760 so mv3_grown25's first level (710 dug) fills within minutes; path check: level full -> stairs down -> level 2 tunnels dug; the mineflow gauge on the Needs tab. 20 min fast, world 1.",
+  "out": "runs/2026-10-20/s40/s40_mine",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5",
+    "MC_MINE_LEVEL_CELLS": "760"
+  },
+  "runs": [
+    {
+      "name": "Min1",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 20"
+    }
+  ]
+}

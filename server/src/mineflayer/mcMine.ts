@@ -21,8 +21,9 @@ const UNLOADED = 'not loaded';
 
 /** Main tunnel columns between branches, each branch's length (village.ts, for the record), and the cells of one stretch (main, left, right). */
 const MAIN_STEP = MINE_STEP, BRANCH = MINE_BRANCH, PER = MAIN_STEP + 2 * BRANCH;
-/** Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most. */
-const MAX_LEGS = 12, MAX_CELLS = 40 * PER;
+/** Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most
+ *  per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). */
+const MAX_LEGS = 12, MAX_CELLS = Math.max(1, Number(process.env.MC_MINE_LEVEL_CELLS) || 40 * PER);
 /** Levels at most, and steps down from one to the next at least (three solid layers between their tunnels) and at most. */
 const MAX_LEVELS = 3, DOWN_STEPS = 6, DOWN_MAX = 10;
 
@@ -508,6 +509,8 @@ async function digDown(a: BotAgent, v: Village, m: Mine, signal: AbortSignal, un
     reg.save();
     if (k >= DOWN_STEPS && inStone && STONE.has(under.name)) {
       d.level = floor + 1;
+      // (where the new level's cells start counting toward its cap, s40)
+      d.dugAt = m.dug;
       m.legs!.push({ x, z, y: d.level, dir: [dx, dz], dug: 0, main: 0, br: {}, ended: [] });
       reg.note(v, `${a.name} dug the mine's stairs ${k} steps on down to a new level at y=${d.level}`);
       reg.save();
@@ -526,13 +529,34 @@ function stopDown(v: Village, m: Mine, d: { stopped?: string }, why: string): st
 /** Whether a village's mine can give this (cobblestone, from stone), once its stairs reached stone and while it goes on. */
 export function mineCanGive(v: Village | undefined, item: string): boolean {
   const m = v?.mine;
-  return !!m && m.level !== undefined && !m.stopped && /^(cobblestone|stone)$/.test(item) && m.dug < MAX_CELLS;
+  return !!m && m.level !== undefined && !m.stopped && /^(cobblestone|stone)$/.test(item) && (levelDug(m) < MAX_CELLS || canGoDown(m));
 }
 
-/** Whether the stairs may go on down to a next level, once no tunnel at the deepest level can go on. */
+/** Tunnel cells dug at the deepest level (s40: the cap is a level's): the mine's count since its stairs reached that level
+ *  (`dugAt` on the stairs down; 0 for the first level and for stairs recorded before it). Not the tunnels' own counts,
+ *  which take in cells passed undug (mv3_grown25: 1377 against 710 dug). */
+function levelDug(m: Mine): number {
+  const reached = (m.down ?? []).filter((d) => d.level !== undefined);
+  return Math.max(0, m.dug - (reached[reached.length - 1]?.dugAt ?? 0));
+}
+
+/** Whether the stairs may go on down to a next level, once no tunnel at the deepest level can go on (its cells all dug
+ *  included, s40). */
 function canGoDown(m: Mine): boolean {
   const downs = m.down ?? [];
-  return m.dug < MAX_CELLS && !downs.some((d) => d.stopped) && (downs.some((d) => d.level === undefined) || downs.length < MAX_LEVELS - 1);
+  return !downs.some((d) => d.stopped) && (downs.some((d) => d.level === undefined) || downs.length < MAX_LEVELS - 1);
+}
+
+/**
+ * Tunnel cells the mine can still give (s40, the mine trend): what the deepest level has left under its cap and a full
+ * level for each one the stairs may still reach; 0 once stopped, null before its stairs reached stone.
+ */
+export function mineCellsLeft(m: Mine | undefined): number | null {
+  if (!m || m.level === undefined) return null;
+  if (m.stopped) return 0;
+  const downs = m.down ?? [];
+  const below = downs.some((d) => d.stopped) ? 0 : Math.max(0, MAX_LEVELS - 1 - downs.filter((d) => d.level !== undefined).length);
+  return Math.max(0, MAX_CELLS - levelDug(m)) + below * MAX_CELLS;
 }
 
 /**
@@ -561,6 +585,8 @@ export function mineFaces(v: Village, alive: (name: string) => boolean) {
     for (const side of [1, 2] as const) if (!((l.turned ?? 0) & side) && turnFrom(l, side, bottomTurn(l, i))) sides++;
   }
   out.turns = Math.max(0, Math.min(MAX_LEGS - legs.length, sides));
+  // (a level dug to its cap gives no face but the stairs down, s40)
+  if (levelDug(m) >= MAX_CELLS) going = out.tunnels = out.branches = out.turns = 0;
   out.down = going + out.branches + out.turns === 0 && canGoDown(m) ? 1 : 0;
   const down = downHolders.get(v.name);
   out.held = bots.size + (down && alive(down) && !bots.has(down) ? 1 : 0);
@@ -828,7 +854,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
     if (Date.now() - t0 > 6 * 60000) { why = 'the time was up'; break; }
     if (skipped >= 200) { why = 'too many cells passed without digging'; break; }
     checkAbort(signal);
-    const next = m.dug < MAX_CELLS ? nextLeg(a, v, m) : null;
+    const next = levelDug(m) < MAX_CELLS ? nextLeg(a, v, m) : null;
     const downBy = downHolders.get(v.name);
     // Other bots hold every face there is, or dig the stairs down: wait for one (up to a minute a trip: a face frees
     // whenever a holder's trip ends, and a worker still waiting after that is better back on the board, S.2)
@@ -872,7 +898,7 @@ async function mineTrip(a: BotAgent, v: Village, want: number, have: () => numbe
     }
     if (!next) {
       const end = short(m.legs![m.legs!.length - 1].end ?? '');
-      m.stopped = short(`${m.dug >= MAX_CELLS ? `the mine reached its size limit (${m.dug} tunnel cells)`
+      m.stopped = short(`${levelDug(m) >= MAX_CELLS ? `the mine reached its size limit (${m.dug} tunnel cells)`
         : m.legs!.length >= MAX_LEGS ? `${m.legs!.length} main tunnels dug, the last ended at ${end}` : `every tunnel ended; the last met ${end}`}${down ? `; the stairs down stopped: ${down}` : ''}`);
       reg.note(v, `the mine has no tunnel left to dig: ${m.stopped}`);
       reg.save();
@@ -1488,8 +1514,9 @@ export function mineLights(m: Mine): MineLightSpot[] {
 export function mineFacesGoing(m: Mine): Array<{ x: number; y: number; z: number }> {
   const out: Array<{ x: number; y: number; z: number }> = [];
   if (m.level === undefined) return out;
-  if (!m.stopped && m.dug < MAX_CELLS)
-    for (const l of m.legs ?? []) {
+  // (the deepest level's: a level above, full at its cap, is dug no more, s40)
+  if (!m.stopped && m.legs?.length && levelDug(m) < MAX_CELLS)
+    for (const l of deepest(m)) {
       if (!l.end) { const c = cellAt(l, 'main', mainOf(l) + 1); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
       for (const b of openBranches(l)) { const c = cellAt(l, b, brOf(l, b) + 1); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
     }
@@ -1516,7 +1543,7 @@ export function mineGrowing(m: Mine, part: string): boolean {
   if (down) { const d = m.down?.[Number(down[1])]; return !!d && d.level === undefined && !d.stopped; }
   const leg = /^mine:(\d+)$/.exec(part);
   const l = leg ? m.legs?.[Number(leg[1])] : undefined;
-  if (!l || m.level === undefined || m.stopped || m.dug >= MAX_CELLS) return false;
+  if (!l || m.level === undefined || m.stopped || levelDug(m) >= MAX_CELLS || l.y !== Math.min(...m.legs!.map((q) => q.y))) return false;
   return !l.end || openBranches(l).length > 0;
 }
 

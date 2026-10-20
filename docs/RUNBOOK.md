@@ -123,6 +123,11 @@ the short version; look here for a check script's arguments, a model detail or w
   flag-off run). `MC_INITIATIVES` (3 open at once); the `initiatives` family is in
   `MC_CHOICE_FAMILIES`'s default since s37. Greens: one per 5 members, prepared by the skill `prepare_green`.
 
+- **The mine's cap is a level's** (s40, F256): 1080 tunnel cells a level, counted from the mine's `dug` when its stairs
+  reached the level (`dugAt` on `m.down`); a full level sends the stairs down (3 levels, ~3240 cells). `MC_MINE_LEVEL_CELLS`
+  lowers the cap for staged tests (Min1: 760 from mv3_grown25's 710). With `MC_NEEDS` show or on, the `mineflow` gauge
+  reads cells left, cells dug per game hour and hours of mine left (needWorks.ts, a gauge only); a mine that gives no
+  stone reads the `mine` gauge full. Check: `mine_flow_unit.mts`.
 - **`MC_NEED_WORKS=on|off`** (s39, on by default since s40; `server/src/needWorks.ts`, spec `runs/2026-10-19/s39/spec_needworks_v2.md`):
   needs-driven works, food first. A `foodflow` gauge (food points drained vs made per game hour over 2 game-hours,
   stored food counting wheat and pie inputs; short at 25% behind and < 3 hours left, clear at < 15% or > 6 hours) on

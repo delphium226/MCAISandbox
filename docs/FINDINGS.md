@@ -1267,3 +1267,8 @@ CLAUDE.md when a phase ends.
   "hold the overflow" tier holds nothing; the mine gauge vanishes once the mine can give no stone (mineFaces zeros);
   six free cells in the storage hut could take barrels (+162 slots) with no second hut. The user (10-20): initiatives
   take storage's surplus above the keep first.
+  Built (s40): the cap per level, counted by real digs from where the stairs reached the level (the tunnels' own counts
+  take in cells passed undug: mv3_grown25's 1377 against 710 dug), a full level sending the stairs down; the `mineflow`
+  gauge (cells left, dug per game hour, hours left); a blocked mine read full. Night40's mine would read 2251 cells left
+  (91 at its level, two levels below). Min1 (cap lowered to 760): level 1 filled, the stairs went down, 142 cells dug on
+  level 2.

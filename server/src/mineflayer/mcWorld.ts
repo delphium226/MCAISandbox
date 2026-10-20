@@ -15,7 +15,7 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
-import { mineAreas, mineCanGive, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
@@ -43,7 +43,7 @@ import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { UtilClock, type UtilView } from '../utilisation';
-import { FARMSTEAD_ON, NEED_WORKS, addFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, stepShort, storedPoints } from '../needWorks';
+import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -2920,6 +2920,14 @@ export class MineflayerWorld implements WorldAdapter {
     if (NEED_WORKS && appetiteOn(v)) {
       const fr = foodflowReading(v.foodFlow, storedPoints(storageContents(v)));
       if (fr) readings.push({ kind: 'foodflow', level: fr.level, amount: Math.round(fr.level * 100), text: fr.text.slice(0, 80) });
+    }
+    // (s40, F256: the mine trend, cells dug per game hour and hours of mine left; a gauge, nothing answers it yet)
+    if (v.mine) {
+      const wallMs = last === undefined ? 0 : Math.min(2 * NEED_TICK_MS, now - last);
+      const dug = v.mineFlow?.dugSeen === undefined ? 0 : Math.max(0, v.mine.dug - v.mineFlow.dugSeen);
+      v.mineFlow = { ...addMineFlow(v.mineFlow, this.gameMinutes(wallMs), dug), dugSeen: v.mine.dug };
+      const mr = mineflowReading(v.mineFlow, mineCellsLeft(v.mine));
+      if (mr) readings.push({ kind: 'mineflow', level: mr.level, amount: Math.round(mr.hours * 10) / 10, text: mr.text.slice(0, 80) });
     }
     this.needReadings.set(v.name, readings);
     const seen = this.needSeen.get(v.name);

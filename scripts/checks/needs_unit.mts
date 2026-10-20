@@ -40,7 +40,9 @@ ok(by(readNeeds({ members: 1, unlit: 1, spots: 4 }), 'light')?.text === '1 unlit
 const blocked = by(readNeeds({ members: 3, mineHeld: 0, mineFaces: 6, mineBlocked: 'no pickaxe in storage' }), 'mine');
 ok(blocked?.text.includes('mine blocked') && blocked.text.includes('no pickaxe') && blocked.text.length <= 80, 'mine blocked: the text says so');
 ok(by(readNeeds({ members: 3, mineHeld: 0, mineFaces: 6, mineBlocked: 'x'.repeat(200) }), 'mine')!.text.length <= 80, 'a long reason clipped to 80');
-ok(readNeeds({ members: 3, unlit: 2 }).length === 0 && readNeeds({ members: 3, mineBlocked: 'x' }).length === 0, 'a half-given gauge is not kept');
+ok(readNeeds({ members: 3, unlit: 2 }).length === 0, 'a half-given gauge is not kept');
+// (s40, F256: a mine that gives no stone has no faces; it reads full now instead of going unread)
+ok(by(readNeeds({ members: 3, mineBlocked: 'it gives no stone' }), 'mine')?.level === 1, 'a blocked mine without faces reads full');
 // storage in slots (s37 S1): read before the chests, which stay for the text
 const slotted = by(readNeeds({ members: 25, slots: 99, slotCap: 243, chests: 8, chestSpots: 9 }), 'storage');
 ok(slotted?.text === '99 of 243 storage slots used (8 of 9 chests)' && Math.abs(slotted.level - 99 / 243) < 1e-9 && slotted.amount === 99, 'storage in slots: text, level, amount');
