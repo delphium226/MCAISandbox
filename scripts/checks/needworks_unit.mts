@@ -7,7 +7,8 @@
  * Deterministic. Exits non-zero on any failure.
  * Usage: MC_NEED_HOLD_MIN=30 node node_modules/tsx/dist/cli.mjs scripts/checks/needworks_unit.mts
  */
-import { BUCKETS, BUCKET_MIN, COOLDOWN_MIN, HOLD_MIN, addFlow, farmsteadDue, flowRates, foodTarget, foodflowReading, madePoints, stepShort, storedPoints, type FoodFlow } from '../../server/src/needWorks';
+import { placeFarm } from '../../server/src/streetPlan';
+import { BUCKETS, BUCKET_MIN, COOLDOWN_MIN, FIELD_COOLDOWN_MIN, HOLD_MIN, addFlow, farmsteadDue, fieldDue, flowRates, foodTarget, foodflowReading, madePoints, stepShort, storedPoints, type FoodFlow } from '../../server/src/needWorks';
 
 let failures = 0, checks = 0;
 function ok(cond: unknown, what: string) {
@@ -87,6 +88,25 @@ ok(farmsteadDue(shortFor(HOLD_MIN), 0, false).due, 'gate: due');
 // The cooldown counts game minutes as the flow goes
 const c = addFlow({ buckets: [], sinceFarmstead: 0 }, 25, 0, 0);
 ok(c.sinceFarmstead === 25, 'cooldown advances with the flow');
+
+// s40: the field work's gate (the farmstead's rules, its own cooldown) and its cooldown on the flow
+ok(!fieldDue(undefined, 0, false).due, 'field: no flow');
+ok(!fieldDue({ buckets: [], short: false }, 0, false).due, 'field: not short');
+ok(HOLD_MIN === 0 || !fieldDue(shortFor(HOLD_MIN - 1), 0, false).due, 'field: before the hold');
+ok(!fieldDue(shortFor(HOLD_MIN), 2, false).due, 'field: free slots first');
+ok(!fieldDue(shortFor(HOLD_MIN), 0, true).due, 'field: one under way');
+ok(!fieldDue(shortFor(HOLD_MIN, { sinceField: FIELD_COOLDOWN_MIN - 1 }), 0, false).due, 'field: the cooldown');
+ok(fieldDue(shortFor(HOLD_MIN, { sinceField: FIELD_COOLDOWN_MIN }), 0, false).due, 'field: after the cooldown');
+ok(fieldDue(shortFor(HOLD_MIN, { sinceFarmstead: 0 }), 0, false).due, 'field: a farmstead\'s cooldown does not hold it');
+const cf = addFlow({ buckets: [], sinceField: 5 }, 10, 0, 0);
+ok(cf.sinceField === 15 && cf.sinceFarmstead === undefined, 'field cooldown advances with the flow');
+
+// s40: a field on a bare 9x9 pad (lay_out_field's placeFarm: no buildings, no streets)
+const pad = { x1: 0, z1: 0, x2: 8, z2: 8 };
+const farm = placeFarm([], pad, { near: { x: 4, z: 4 } });
+ok(!!farm && farm.x2 - farm.x1 + 1 === 5 && farm.z2 - farm.z1 + 1 === 7, `field: 5x7 on a 9x9 pad (${JSON.stringify(farm && [farm.x1, farm.z1, farm.x2, farm.z2])})`);
+ok(!!farm && farm.sow.length === 16 && farm.x1 > pad.x1 && farm.x2 < pad.x2 && farm.z1 > pad.z1 && farm.z2 < pad.z2, 'field: 16 sow cells, inside the pad\'s edge');
+ok(!placeFarm([], { x1: 0, z1: 0, x2: 6, z2: 6 }), 'field: none on a 7x7 pad');
 
 process.stdout.write(`needworks_unit: ${checks - failures}/${checks} passed\n`);
 if (failures) process.exit(1);

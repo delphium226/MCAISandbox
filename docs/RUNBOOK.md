@@ -127,10 +127,14 @@ the short version; look here for a check script's arguments, a model detail or w
   needs-driven works, food first. A `foodflow` gauge (food points drained vs made per game hour over 2 game-hours,
   stored food counting wheat and pie inputs; short at 25% behind and < 3 hours left, clear at < 15% or > 6 hours) on
   the Needs tab; while short, bread and pie targets rise (3 and 1 a member); after `MC_NEED_HOLD_MIN` (30) game-minutes
-  short with no farm slot the menus can start, the Mayor (or an idle member) lays out a **farmstead** beside the work
-  vote (s40; in s39 it was a vote option): one small house, a 5x7 wheat field, two farm slots (`lay_out_houses ...
-  project=farmstead`), before the next vote opens, never over one voted; at most one under way and `MC_NEED_COOLDOWN_MIN` (90) after
-  the last. `[needwork]` lines. Needs the appetite and `MC_NEEDS` show or on. Check: `needworks_unit.mts`.
+  short with no farm slot the menus can start, the Mayor (or an idle fed member) lays out a **field work** (s40, the chore
+  `lay_out_field`, spec `runs/2026-10-20/s40/spec_fields_v1.md`): a 5x7 wheat field on its own 9x9 pad within reach of
+  home and the storage hut, recorded as a layout with only a field (`field: true`) and planted by the same chore (no
+  board tasks); beside growth and the vote, with its own back-off (20 min after "no site", 5 a failure otherwise), one
+  at a time, `MC_NEED_FIELD_COOLDOWN_MIN` (45) after the last; a field left unsown is planted again first. Harvests come
+  from the menus (`farm:<k>`, "Harvest wheat field N"). The **farmstead** (one small house, a field, two slots, beside
+  the vote; s39-s40) only with `MC_NEED_FARMSTEAD=on`: where no 9x9 pad is left no 19x19 one is (Night40).
+  `[needwork]` lines. Needs the appetite and `MC_NEEDS` show or on. Check: `needworks_unit.mts`.
 - **Utilisation graphs** (#67, s39): the agent server samples who is busy every 5 s (an action running, as
   `autonomy_metrics.py`'s BusyClock counts it) into 1-minute bins, a day kept an agent in memory
   (`server/src/utilisation.ts`); `GET /api/utilisation?bin=MIN&points=N` gives the overall and per-agent shares. The

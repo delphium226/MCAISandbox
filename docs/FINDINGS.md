@@ -1234,3 +1234,21 @@ CLAUDE.md when a phase ends.
   after 3; a farmstead failure counting against public works is a leftover). `MC_NEED_WORKS` is on by default since.
   Also: two series started at once raced in `snapshot_code.py` (one temp folder, one rename refused): a temp folder a
   process now.
+
+- F253 (10-20, s40, issues #9 #1) The first long real-rate model run (Night40: mv3_grown25, 1x, `--choose model`,
+  appetite 18, need works on; 92 min, ended by the PC's shutdown). Three limits for a village meant to run for days:
+  (1) **land**: food went short (made 84-119 of 180-186 points an hour) and the farmstead found no free 19x19 site within
+  80 blocks (taken 19032 cells, wet 780, steep 269), after nine public works and the grown neighbourhoods; the need's only
+  big answer had nowhere to go. (2) **work**: busy ~14%, 136 menus with 24 idle and nothing feasible. (3) **model
+  choices lost to contention**: of 149 model decisions, 103 came back to an option another member had taken meanwhile
+  (latency median 0.7 s: several members shown one single-holder option at once, `make:birch_fence` 12, `penwork:3:eggs`
+  11, `make:torch` 10) and ran the fixed pick instead; 127 more were the 90 s gap (`rate`, by design).
+
+- F254 (10-20, s40, issues #9 #1) Field works on small pads answer the food flow where farmsteads cannot (spec
+  `runs/2026-10-20/s40/spec_fields_v1.md`, after F253's land count: 34 free 9x9 squares within 80 blocks of Night40's
+  home, 1 at 19x19). The spec's adversarial check found the blocker: after completion only growth's workers claim board
+  tasks (`isGrowTask` goes by task number, not poster), so a field's seeds and planting tasks would have stayed open, or
+  been closed by a neighbourhood's end; the field is planted by its own chore instead. Also from the check: the plot just
+  prepared clashes with growTaken (re-check before preparing, not after), the field's corners kept within 96 of the
+  storage hut before preparing (no orphan plots), `hutLevel` for field records, its own gate outside `projectDue`.
+  Fld1 (staged fast, appetite 60): 4 fields, 14 harvests, food made 655 vs eaten 450 points, short -> no longer short.

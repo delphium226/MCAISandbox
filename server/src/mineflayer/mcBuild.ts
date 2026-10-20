@@ -21,7 +21,7 @@ import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK,
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
 import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import { doorOutward, outsideCells, turnState } from '../designs';
-import { holdsSign, holdsStandingTorch, holdsTorch, placedDoor, type SignSpot } from '../streetPlan';
+import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import type { LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
@@ -34,7 +34,7 @@ import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { GROW, GROW_FARMS, HOUSING, housesOf, taskNum, type PadOption } from '../grow';
+import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, taskNum, type PadOption } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -1943,7 +1943,7 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
         v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
         // (the whole of a plot that was being prepared in parts: it is whole now)
         delete v.plots[i].parts;
-      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}), ...(args.works === true ? { works: true } : {}), ...(typeof args.green === 'string' ? { green: args.green } : {}) });
+      } else v.plots.push({ ...plot, id: reg.id('plot'), preparedBy: a.name, ...(args.annex === true ? { annex: true } : {}), ...(args.works === true ? { works: true } : {}), ...(typeof args.green === 'string' ? { green: args.green } : {}), ...(args.field === true ? { field: true } : {}) });
       reg.note(v, `${a.name} prepared a plot at ${areaText(plot)}`);
     }
     // The felled logs reach the storage (C5): the ground holding the storage hut (or a whole plot) sets the storage up with
@@ -2733,7 +2733,8 @@ export function seedsForFields(v: Village): number {
  *  whose own plot may lie blocks above or below it (s30's food step, lens 2 L2); else `y`. */
 function hutLevel(v: Village, k: number, y: number): number {
   const h = v.storageHut;
-  if (!h || !v.layouts?.[k - 1]?.grow) return y;
+  // (and a field work's, s40: its pad's level is its own too, the field spec's check 4)
+  if (!h || !(v.layouts?.[k - 1]?.grow || v.layouts?.[k - 1]?.field)) return y;
   return v.plots.find((p) => h.x1 >= p.x1 && h.x2 <= p.x2 && h.z1 >= p.z1 && h.z2 <= p.z2)?.y ?? y;
 }
 
@@ -3605,6 +3606,85 @@ async function prepareGreen(a: BotAgent, args: Record<string, unknown>, signal: 
   } finally {
     clearInterval(renew);
     a.world.villages.release(v, held.id);
+  }
+}
+
+/** A field work's pad (s40): a 5x7 field and placeFarm's one cell in from the edge need 7x9; 9 a side either way round. */
+const FIELD_PAD = 9;
+/** How far a field may lie from the storage hut, its corners (layout.ts's FIELD_REACH: the tiller stands by the hut). */
+const FIELD_HUT_REACH = 96;
+
+/**
+ * A field work (s40, MC_NEED_WORKS; runs/2026-10-20/s40/spec_fields_v1.md and its check): one 5x7 wheat field on its own
+ * 9x9 pad, where a farmstead's 19x19 no longer fits (Night40, F253: 34 free 9x9 squares within 80 blocks, 1 at 19). The
+ * village's survey as growSite's (growTaken, slope 2 then 4), its centres near enough to home and to the storage hut for
+ * the field's corners to stay within FIELD_HUT_REACH of the hut; the square held while it is prepared; then a layout
+ * record holding only the field (`field: true`: no buildings, streets, lamps, signs or grow number) and its planting by
+ * this same chore. No board tasks: after completion only growth's workers claim them (the check's 1). A planting that
+ * fails leaves the field laid out; the world plants it again later.
+ */
+async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('lay_out_field: not in a village');
+  if (!v.complete) throw new Error('lay_out_field: the village is not complete yet');
+  if (growBusy.has(v.name)) throw new Error('lay_out_field: a neighbourhood is being laid out');
+  // Out of the deep first (lesson 101), then home, as prepare_green
+  const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+  if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+  const home = villageHome(v, a.memory);
+  if (!home) throw new Error('lay_out_field: the village has no home');
+  if (Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+    await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  const S = FIELD_PAD;
+  const hut = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : home;
+  // (a centre within this of home keeps every corner within FIELD_HUT_REACH of the hut: the hut's distance from home and
+  // the pad's half-diagonal taken off, the check's 3: refused after preparing, the plot was left an orphan)
+  const reach = Math.min(growReach(S), Math.floor(FIELD_HUT_REACH - Math.hypot(hut.x - home.x, hut.z - home.z) - Math.ceil((S / 2) * Math.SQRT2)));
+  if (reach < 8) throw new Error(`lay_out_field: no free ${S}x${S} site within ${Math.max(0, reach)} blocks of the village (the storage hut is far from home)`);
+  const r = reach + Math.ceil(S / 2) + 1;
+  const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
+  // (the survey takes the scan turn as growSite's does, E.1)
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, growTaken(a, v, home, r), signal, true));
+  let c: ReturnType<typeof bestSite> = null;
+  for (const slope of [2, 4]) {
+    for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
+    c = bestSite(g, S, slope, home.x, home.z, reach, home, null, why, reach);
+    if (c) break;
+  }
+  if (!c) throw new Error(`lay_out_field: no free ${S}x${S} site within ${reach} blocks of the village (wet ${why.wet}, steep ${why.steep}, taken ${why.occupied}, unloaded ${why.unloaded})`);
+  const square = { x1: c.x - Math.floor(S / 2), z1: c.z - Math.floor(S / 2), x2: c.x - Math.floor(S / 2) + S - 1, z2: c.z - Math.floor(S / 2) + S - 1 };
+  const biome = v.vanillaBiome ?? biomeAt(a, c.x, c.y + 1, c.z);
+  if (NO_FIELD_BIOME.test(biome)) throw new Error(`lay_out_field: no field in the ${biome} biome`);
+  const farm = placeFarm([], square, { near: hut });
+  if (!farm) throw new Error(`lay_out_field: no 5x7 field fits the ${S}x${S} pad at ${areaText(square)}`);
+  // (no await from the read to the hold: the village's records may have changed during the survey, D7)
+  const clash = growTaken(a, v, home, r).find((q) => overlaps(square, q));
+  if (clash) throw new Error(`lay_out_field: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
+  console.log(`[needwork] ${v.name}: ${a.name} prepares a ${S}x${S} field pad at ${areaText(square)}`);
+  const held = a.world.villages.reserve(v, { x1: square.x1 - 2, z1: square.z1 - 2, x2: square.x2 + 2, z2: square.z2 + 2 }, a.name, 'lay out a wheat field');
+  const renew = setInterval(() => a.world.villages.renew(held), 60000);
+  try {
+    await prepareSite(a, { x: c.x, z: c.z, y: c.y, width: S, depth: S, margin: 2, field: true }, signal);
+  } finally {
+    clearInterval(renew);
+    a.world.villages.release(v, held.id);
+  }
+  if (!preparedAt(v, farm)) throw new Error(`lay_out_field: the pad at ${areaText(square)} was not prepared`);
+  const layouts = (v.layouts ??= []);
+  layouts.push({ ...square, buildings: [], field: true, farm });
+  const k = layouts.length;
+  a.world.villages.note(v, `${a.name} laid out a wheat field (layout ${k}) at ${areaText(farm)}`);
+  a.world.villages.save();
+  console.log(`[needwork] ${v.name}: layout ${k} (a field) laid out by ${a.name} at ${areaText(farm)}`);
+  try {
+    const sown = await tendFarm(a, { layout: k }, signal);
+    return `laid out a wheat field (layout ${k}) at ${areaText(farm)}; ${sown}`;
+  } catch (e) {
+    if ((e as Error).message === 'cancelled') throw e;
+    console.log(`[needwork] ${v.name}: field ${k} laid out, not planted yet: ${(e as Error).message.slice(0, 160)}`);
+    return `laid out a wheat field (layout ${k}) at ${areaText(farm)}; not planted yet: ${(e as Error).message.slice(0, 200)}`;
   }
 }
 
@@ -5679,6 +5759,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   harvest_slot: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot')), run: harvestSlot },
   prepare_annex: { run: prepareAnnex },
   prepare_green: { run: prepareGreen },
+  lay_out_field: { run: layOutField },
   // (s30's, a chore as well: the next neighbourhood of a village that grows)
   lay_out_houses: { check: (x) => (x.options !== undefined ? void padOptions(x.options, 4) : void num(x.size, 'size')), run: layOutHouses },
   start_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), num(x.x, 'x'), num(x.y, 'y'), num(x.z, 'z')), run: startPen },

@@ -35,6 +35,8 @@ export interface Plot extends Area {
   parts?: Area[];
   /** A green prepared for small works (s36): the id of the initiative that asked for it. A plot to build them on. */
   green?: string;
+  /** A field work's pad (s40, lay_out_field): holds one wheat field, nothing to build on. */
+  field?: boolean;
 }
 
 /** A part of a layout's plot prepared by one agent (S.6), with its margins [north, south, west, east]: 2 on the plot's edge, 0 inside. */
@@ -480,6 +482,8 @@ export interface Village {
     works?: SidePlot & { furnaces?: Array<WorksFurnace | null> };
     /** A neighbourhood laid out as the village grows (s30): its index among the growth layouts, from 1. */
     grow?: number;
+    /** A field work (s40, lay_out_field): a pad holding only `farm`, no buildings, streets, lamps or signs. */
+    field?: boolean;
     /** A neighbourhood's name (#10, placeNames.ts): on its houses' signs, the panel and the summary. */
     name?: string;
     /** Why a neighbourhood laid out with a field has none (s30's food step: the biome, the grass, no room, too far). */

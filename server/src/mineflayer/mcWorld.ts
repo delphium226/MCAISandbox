@@ -43,7 +43,7 @@ import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { UtilClock, type UtilView } from '../utilisation';
-import { NEED_WORKS, addFlow, farmsteadDue, foodTarget, foodflowReading, madePoints, stepShort, storedPoints } from '../needWorks';
+import { FARMSTEAD_ON, NEED_WORKS, addFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -1944,6 +1944,8 @@ export class MineflayerWorld implements WorldAdapter {
     // the other topic's path, which never closed it (the X.2 review's H1)
     const run = this.voting.get(v.name);
     if (run && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
+    // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate)
+    if (NEED_WORKS) this.fieldTick(v, now);
     if (v.growth?.active) return this.growEnd(v, now);
     if (HOUSING) this.homeRequestAge(v, now);
     if (!GROW.on || !this.growDue(v, now, true)) {
@@ -2457,7 +2459,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (!this.projectDue(v, now)) return;
     // (s40, MC_NEED_WORKS: a farmstead due is laid out beside the vote, before the next one opens; one voted or under way
     // goes first. In s39 it was a vote option and won votes the larger quarters would have, Won2's busy 17% vs 20%)
-    if (!this.voting.get(v.name) && !v.growth?.work?.piece && this.farmsteadPlan(v)) return this.layOutFarmstead(v, now);
+    // (s40: behind MC_NEED_FARMSTEAD since the field works, which fit where it cannot)
+    if (FARMSTEAD_ON && !this.voting.get(v.name) && !v.growth?.work?.piece && this.farmsteadPlan(v)) return this.layOutFarmstead(v, now);
     const piece = this.projectFor(v, now);
     if (!piece) return;
     const g = (v.growth ??= { past: [] });
@@ -2501,14 +2504,7 @@ export class MineflayerWorld implements WorldAdapter {
    */
   private farmsteadPlan(v: Village): { house: string; size: number; units: number; why: string } | null {
     if (!NEED_WORKS || !appetiteOn(v)) return null;
-    const layouts = v.layouts ?? [];
-    const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
-    // (with neighbourhood farms off a slot takes only a kind no other slot farms: once all are farmed, none is startable)
-    const startable = GROW_FARMS || farmed.size < SLOT_ORDER.length;
-    // (and only while the menus can start one: "nothing seen to farm" left a free slot that held the farmstead back, s39's Won)
-    const why = this.startSeen.get(v.name);
-    const menuCan = !why || /^(busy|free slots taken)$/.test(why);
-    const free = startable && menuCan ? layouts.flatMap((l) => l.slots ?? []).filter((q) => !q.annex && !q.kind && (q.tries ?? 0) < 3).length : 0;
+    const free = this.freeFarmSlots(v);
     const underWay = v.growth?.active?.project === PROJECT_FARMSTEAD || this.voting.get(v.name)?.options.some((o) => o.id === PROJECT_FARMSTEAD) === true;
     const due = farmsteadDue(v.foodFlow, free, underWay);
     const log = (why: string) => {
@@ -2530,6 +2526,87 @@ export class MineflayerWorld implements WorldAdapter {
     const r = foodflowReading(v.foodFlow, storedPoints(storageContents(v)));
     return { house: pick[0], size: pad.size, units: Math.round(HOUSE_UNITS * 0.6), why: r?.text ?? 'food short' };
   }
+
+  /** Farm slots the menus could start now (the slots answer first): with neighbourhood farms off a slot takes only a kind
+   *  no other slot farms, so none once all are farmed; none while the menus said "nothing seen to farm" (s39's Won). */
+  private freeFarmSlots(v: Village): number {
+    const layouts = v.layouts ?? [];
+    const farmed = new Set(layouts.flatMap((l) => (l.slots ?? []).map((q) => q.kind)).filter(Boolean));
+    const startable = GROW_FARMS || farmed.size < SLOT_ORDER.length;
+    const why = this.startSeen.get(v.name);
+    const menuCan = !why || /^(busy|free slots taken)$/.test(why);
+    return startable && menuCan ? layouts.flatMap((l) => l.slots ?? []).filter((q) => !q.annex && !q.kind && (q.tries ?? 0) < 3).length : 0;
+  }
+
+  /**
+   * s40 (MC_NEED_WORKS; runs/2026-10-20/s40/spec_fields_v1.md and its check): the food flow's answer once no farm slot is
+   * left, a wheat field on its own 9x9 pad (lay_out_field), by an idle fed member (the Mayor first), beside growth and the
+   * vote: its own gate and back-off (projectDue's held it during every neighbourhood and after public works' failures, the
+   * check's 6), never while a growth chore is queued. A field laid out but not sown (seeds short) is planted first.
+   */
+  private fieldTick(v: Village, now: number) {
+    if (!appetiteOn(v) || !v.complete || (this.fieldBackoff.get(v.name) ?? 0) > now) return;
+    if ([...this.chores.values()].some((c) => c.village === v.name && (c.key === 'grow:field' || c.key === 'grow'))) return;
+    const layouts = v.layouts ?? [];
+    const fields = layouts.filter((l) => l.field).length;
+    if (this.fieldCount.get(v.name) !== fields) {
+      this.fieldCount.set(v.name, fields);
+      this.fieldFails.delete(v.name);
+    }
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const pick = () => this.growMembers(v).find((a) => a.memory.villageRole === 'mayor' && this.isIdleMember(v, a, now) && fed(a)) ?? this.idleMembers(v, now).find(fed);
+    const failed = (what: string) => (why: string) => {
+      if (why === 'cancelled') return;
+      const n = (this.fieldFails.get(v.name) ?? 0) + 1;
+      this.fieldFails.set(v.name, n);
+      // ("no site": the land is full, looked for again in 20 minutes; any other failure 5 minutes a failure in a row, to 30)
+      const min = /no free \d+x\d+ site/.test(why) ? 20 : Math.min(30, 5 * n);
+      this.fieldBackoff.set(v.name, Date.now() + min * 60000);
+      console.log(`[needwork] ${v.name}: ${what} failed (${why.slice(0, 160)}); fields rest ${min} min`);
+    };
+    // (a field not sown yet: planted again, as its own chore)
+    const k = layouts.findIndex((l) => l.field && l.farm && !l.farm.planted && preparedAt(v, l.farm)) + 1;
+    if (k > 0) {
+      const agent = pick();
+      if (!agent) return;
+      let st: ActionStatus;
+      try {
+        st = agent.enqueue('tend_farm', { chore: true, layout: k });
+      } catch (e) {
+        console.log(`[needwork] ${v.name}: tend_farm not queued for ${agent.name}: ${(e as Error).message}`);
+        return;
+      }
+      this.setChore(v, agent, 'grow:field', [st], 'plant a wheat field', failed(`planting the field of layout ${k}`));
+      console.log(`[needwork] ${v.name}: ${agent.name} plants the field of layout ${k}`);
+      return;
+    }
+    const due = fieldDue(v.foodFlow, this.freeFarmSlots(v), false);
+    if (!due.due) {
+      if (v.foodFlow?.short && this.fieldLogged.get(v.name) !== due.why) console.log(`[needwork] ${v.name}: no field laid out (${due.why})`);
+      this.fieldLogged.set(v.name, due.why);
+      return;
+    }
+    const agent = pick();
+    if (!agent) return;
+    let st: ActionStatus;
+    try {
+      st = agent.enqueue('lay_out_field', { chore: true });
+    } catch (e) {
+      console.log(`[needwork] ${v.name}: lay_out_field not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.fieldLogged.set(v.name, '');
+    this.setChore(v, agent, 'grow:field', [st], 'lay out a wheat field', failed('the field'));
+    if (v.foodFlow) v.foodFlow.sinceField = 0;
+    this.villages.save();
+    const r = foodflowReading(v.foodFlow, storedPoints(storageContents(v)));
+    console.log(`[needwork] ${v.name}: ${agent.name} lays out a wheat field (field ${fields + 1}): ${r?.text ?? 'food short'}`);
+  }
+
+  private fieldBackoff = new Map<string, number>();
+  private fieldFails = new Map<string, number>();
+  private fieldCount = new Map<string, number>();
+  private fieldLogged = new Map<string, string>();
 
   private farmsteadLogged = new Map<string, string>();
   /** The last menu's word on starting a farm slot, by village: '' when one was offered, else the reason none was. */
@@ -3631,7 +3708,8 @@ export class MineflayerWorld implements WorldAdapter {
         reasons.farm ??= 'busy';
         continue;
       }
-      const name = lay.grow ? `Harvest the wheat field of neighbourhood ${lay.grow}` : `Harvest the wheat field${multi && k > 1 ? ' of the second plot' : ''}`;
+      // (a field work's by its number among the fields: several on one menu, the field spec's check 9)
+      const name = lay.grow ? `Harvest the wheat field of neighbourhood ${lay.grow}` : lay.field ? `Harvest wheat field ${layouts.slice(0, k).filter((l) => l.field).length}` : `Harvest the wheat field${multi && k > 1 ? ' of the second plot' : ''}`;
       add({
         id: `farm:${k}`, kind: 'farm', key: `farm:${k}`, excludes, name, rank: 10 + k, at: { x: Math.floor((lay.farm.x1 + lay.farm.x2) / 2), z: Math.floor((lay.farm.z1 + lay.farm.z2) / 2) },
         facts: `${f.ripe} of ${f.grown} ripe; ${dist((lay.farm.x1 + lay.farm.x2) / 2, (lay.farm.z1 + lay.farm.z2) / 2)}; storage: ${store.wheat ?? 0} wheat, ${store.wheat_seeds ?? 0} seeds, ${store.bread ?? 0} bread; ${record('farm')}${others('farm')}${lastOf('farm')}`,

@@ -1,0 +1,27 @@
+{
+  "about": "s40 field works (lay_out_field, 9x9 pads), MC_NEED_WORKS on (default): appetite 60, hold 2, field cooldown 5 game-min; from mv3_grown25, 30 min fast, world 1. Path check: field due -> chore -> pad prepared -> layout -> planted -> harvested.",
+  "out": "runs/2026-10-20/s40/s40_field",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_CHOICE_FAMILIES": "make,gather,works,light,catalog,furnish,initiatives",
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5"
+  },
+  "runs": [
+    {
+      "name": "Fld1",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30"
+    }
+  ]
+}

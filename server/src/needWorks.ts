@@ -14,6 +14,11 @@ export const NEED_WORKS = !/^(off|0|false)$/i.test(process.env.MC_NEED_WORKS ?? 
 export const HOLD_MIN = Math.max(0, Number(process.env.MC_NEED_HOLD_MIN ?? 30) || 0);
 /** Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). */
 export const COOLDOWN_MIN = Math.max(HOLD_MIN, Number(process.env.MC_NEED_COOLDOWN_MIN ?? 90) || 0);
+/** Game minutes after a field work is laid out before another (s40: a crop cycle to its first harvest is ~40). */
+export const FIELD_COOLDOWN_MIN = Math.max(HOLD_MIN, Number(process.env.MC_NEED_FIELD_COOLDOWN_MIN ?? 45) || 0);
+/** MC_NEED_FARMSTEAD=on: the farmstead (s39) beside the field (s40); off by default: where no 9x9 field pad is left, no
+ *  19x19 farmstead pad is either (Night40, the field spec's check 5). */
+export const FARMSTEAD_ON = /^(on|1|true)$/i.test(process.env.MC_NEED_FARMSTEAD ?? 'off');
 
 /** The window: BUCKETS buckets of BUCKET_MIN game minutes. */
 export const BUCKET_MIN = 10, BUCKETS = 12;
@@ -32,6 +37,8 @@ export interface FoodFlow {
   shortMin?: number;
   /** Game minutes since the last farmstead was laid out (absent: none yet). */
   sinceFarmstead?: number;
+  /** Game minutes since the last field work was laid out (absent: none yet; s40). */
+  sinceField?: number;
 }
 
 const fin = (n: number) => (Number.isFinite(n) ? n : 0);
@@ -57,6 +64,7 @@ export function addFlow(f: FoodFlow | undefined, gameMin: number, drained: numbe
     if (total === 0) break;
   } while (left > 1e-9);
   if (out.sinceFarmstead !== undefined) out.sinceFarmstead += Math.max(0, fin(gameMin));
+  if (out.sinceField !== undefined) out.sinceField += Math.max(0, fin(gameMin));
   return out;
 }
 
@@ -119,5 +127,18 @@ export function farmsteadDue(f: FoodFlow | undefined, freeSlots: number, underWa
   if (freeSlots > 0) return { due: false, why: `${freeSlots} free farm slot${freeSlots === 1 ? '' : 's'} first` };
   if (underWay) return { due: false, why: 'a farmstead under way' };
   if (f.sinceFarmstead !== undefined && f.sinceFarmstead < COOLDOWN_MIN) return { due: false, why: `the last farmstead ${Math.round(f.sinceFarmstead)} of ${COOLDOWN_MIN} min ago` };
+  return { due: true, why: '' };
+}
+
+/**
+ * s40 (spec runs/2026-10-20/s40/spec_fields_v1.md): whether a field work is due, the farmstead's rules on a small pad: short
+ * for HOLD_MIN, no free farm slot left to start, none under way, FIELD_COOLDOWN_MIN since the last field. The reason when not.
+ */
+export function fieldDue(f: FoodFlow | undefined, freeSlots: number, underWay: boolean): { due: boolean; why: string } {
+  if (!f?.short) return { due: false, why: 'food not short' };
+  if ((f.shortMin ?? 0) < HOLD_MIN) return { due: false, why: `short for ${Math.round(f.shortMin ?? 0)} of ${HOLD_MIN} min` };
+  if (freeSlots > 0) return { due: false, why: `${freeSlots} free farm slot${freeSlots === 1 ? '' : 's'} first` };
+  if (underWay) return { due: false, why: 'a field under way' };
+  if (f.sinceField !== undefined && f.sinceField < FIELD_COOLDOWN_MIN) return { due: false, why: `the last field ${Math.round(f.sinceField)} of ${FIELD_COOLDOWN_MIN} min ago` };
   return { due: true, why: '' };
 }
