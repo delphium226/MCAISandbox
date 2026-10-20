@@ -155,6 +155,20 @@ the short version; look here for a check script's arguments, a model detail or w
   [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also
   prints the needs), `needs_unit.mts`, `housing.mts`, `parts_unit.mts` (all in check:offline). `run_report.py` adds
   "busy after by 10 min", initiatives (started / joins / steps, built / failed / lapsed) and need changes.
+- **The village simulator** (s42, #74; spec `runs/2026-10-20/s41/spec_sim_v1.md` and its check): the real decision code
+  on a checkpoint's record against a modelled world on a virtual clock, 10 simulated hours in ~2 minutes.
+  `node node_modules/tsx/dist/cli.mjs scripts/sim/village_sim.mts --series SPEC.json [--run NAME] --calib
+  REF.choices.jsonl [--minutes N] [--seed N] [--out DIR]` takes a run_series spec's checkpoint, settings, stock and fast
+  defaults; `--checkpoint`, `--scale`, `--random-tick`, `--env K=V,...`, `--stock` set them by hand. Durations, the
+  reference's make failures, gathering loads (whole trees) and a green's felled logs are drawn from `--calib`'s choice
+  log (per-step times when it has them). Experiments: `--buy-all` (the merchant's buy rule before `0a377e6`),
+  `--merchant-buys item:n[:stock],...`. It writes `sim.choices.jsonl` (a real run's format), `sim.report.json` and
+  `sim.events.log`; `scripts/sim/sim_report.mts NAME=CHOICES[,LOG] ...` puts runs side by side (busy and picks by kind per
+  10-minute bin, outcomes, choice-none reasons per bin). The models are in `scripts/sim/skills.mts` (deposit, withdraw,
+  collect, the harvests with a crop store of state ids grown by random ticks, eggs, eat_meal, make, put_up_torches,
+  furnish, build_design, prepare_green, fish with rod wear, trade); other skills finish with no effect and are counted.
+  Off in v0: growth, housing, public works (`grow`: their site clearing gave Stg1 ~500 logs), needs works, the mine, starts
+  and pens. Same seed, same run. In check:offline (20 minutes).
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes
