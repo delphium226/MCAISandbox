@@ -604,3 +604,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    90-minute run missed its collapse at minute 40 by placing layouts by geometry; the real limit was dry, level ground
    within reach. Read the land from the checkpoint's regions (it took a second) before trusting any run longer than
    the first layouts.
+154. **Score the real run's own choices with the simulator's rule** (s43, F263): the sim ran out of room 20-30 minutes
+   early and its works failed; putting each site Rch1 chose through the sim's site test showed a margin the real
+   bestSite never had, and the stock lines beside the real STOCK lines showed builds in the wrong wood. A sim's rule
+   written from a doc comment or a summary drifts from the code path; replay the real decisions through it.

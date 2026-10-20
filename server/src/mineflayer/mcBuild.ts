@@ -2278,6 +2278,13 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
     if (y !== undefined && a.bot.blockAt(new Vec3(x, y, z))?.name === n) stationAt.set(n, { x, y, z });
   }
   const leave = { cells: new Set([...cells, ...[...stationAt.values()].map((s) => `${s.x},1,${s.z}`)]), chests: new Set([...chests, ...[...stationAt.values()].map((s) => `${s.x},${s.z}`)]) };
+  // A site the builder has not loaded (s43: with a wider village range sites lie ~140 blocks out, and builders by storage
+  // failed "the site is not loaded" while an initiative waited 20 minutes): walk within sight of it first
+  if (pending[key] === undefined && [[area.x1, area.z1], [area.x2, area.z2], [area.x1, area.z2], [area.x2, area.z1]].some(([x, z]) => !a.bot.world.getColumn(x >> 4, z >> 4))) {
+    await walk(a, new goals.GoalNearXZ(cx, cz, 64), `the site at ${cx},${cz}`, signal, 30000 + 600 * Math.round(Math.hypot(cx - p.x, cz - p.z))).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+  }
   const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`, leave);
   // A chest the design leaves must be on a "_" cell at its own level: with the floor worked out a block higher (a bump
   // elsewhere in the footprint), the floor layer would be set on top of the chests and empty them

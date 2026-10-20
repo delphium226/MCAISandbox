@@ -1,0 +1,27 @@
+{
+  "about": "s43: range 192 (growth reach 176): the survey's peer reads, materials within the range, walks at the far edge. Prediction: runs/2026-10-21/s43/rch3_prediction.txt",
+  "out": "runs/2026-10-21/s43/s43_rch3",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 130,
+  "server_env": {
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5",
+    "MC_VILLAGE_RANGE": "192"
+  },
+  "runs": [
+    {
+      "name": "Rch3",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 90 --stock fishing_rod:3"
+    }
+  ]
+}

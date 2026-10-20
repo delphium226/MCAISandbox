@@ -1331,3 +1331,20 @@ CLAUDE.md when a phase ends.
   overall, make 283 vs 269, help 76 vs 83, initiatives 41 vs 44, public works 8 vs 9, furnish 8 vs 8; its room runs out
   ~10 minutes early, and its floor after the collapse is ~6-7% vs 2% (cooked cod and charcoal made twice as often, egg
   collecting 1.6x). The village's long-run limit today is land within reach, not materials or models.
+- F263 (10-21, s43, issue #74) **A wider village range keeps a 90-minute village busy; the simulator now matches both
+  long runs.** Rch1 (Lng1's settings, MC_VILLAGE_RANGE=144, growth reach 128): chore busy 17% steady to minute 90
+  (bins 18-20% after a dip to 11-12% at minutes 20-40) vs Lng1's 9.6% collapse at minute 40; 15 public works (Lng1 5),
+  88 initiatives (44), builds 83 (44); [stuck] 8 vs 5, loop p99 44 ms: the longer walks cost little. Rch2 (Rch1 plus a
+  green per 3 members, test world 2 alongside): the same, 17%, 89 initiatives; the green cap does not bind once the
+  reach is wider (its prediction, +2 points from the uncorrected sim, missed). The sim's long-run misses had four causes,
+  each found by scoring the real run's own choices with the sim's rule: (1) sites judged with a 2-block margin the real
+  bestSite does not have (Rch1's sites had 5-8 blocks of range and water there): the sim ran out of room 20-30 minutes
+  early; (2) every build converted to the village's wood (birch) where the real skill chooses the kind that covers the
+  building, the felled oak first for the plains pieces: birch ran dry and public works failed, holding the next work 17-30
+  minutes; (3) make and fishing times drawn whatever the batch (late top-ups of 1-2 take half a full batch); (4) durations
+  drawn from members spread at builds, while idle members stand by storage (eat 0.03 vs 0.06 min); and the furnace's fuel
+  carried between smelts (the sim made charcoal 2.5x as often). Corrected: Lng1 9.7% vs 9.6% (collapse at 40), Rch1 17 /
+  16% vs 17%, works 15 vs 15, make 524 vs 512, help 177 vs 168, initiatives 94 vs 88. Left: light 53 vs 101 (public works'
+  parts), cooked cod eaten +30%, the dip at 20-40 minutes. Four-hour sims: range 96 runs out at ~40 min, 144 at ~90,
+  192 at ~120, where the public-work pool (each design built once; 26 built) runs out before the land: a wider reach
+  postpones the limit, it does not remove it. Merchant orders (sim, reach 128, 3 seeds): 15.7% vs 15.1%, noise.

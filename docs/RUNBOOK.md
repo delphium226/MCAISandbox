@@ -173,8 +173,15 @@ the short version; look here for a check script's arguments, a model detail or w
   and pens, explore, `put_up_signs`, `light_streets`, `make_into_storage`, `tidy_storage` (done with no effect, counted).
   Crops: `SIM_CROP_G` (0.25); eggs and big builds from the reference (and its stage log). **The land**: `python
   scripts/sim/land.py CHECKPOINT` writes CHECKPOINT/land.json (a second); with it layouts and greens are sited as growSite
-  does, without it by geometry (no long run is right without it, F262). Same seed, same run. In check:offline (20
-  minutes). Fidelity: F260, F262.
+  does, without it by geometry (no long run is right without it, F262); give land.py a radius past the range tried
+  (`land.py CP 200` for MC_VILLAGE_RANGE up to 192). s43's corrections (F263): sites on the square alone, builds in the
+  wood that covers them, make and fishing times by batch, durations by whether the member's last action left it out at
+  the edge (AWAY), the furnace's fuel carried over; `sim.events.log` adds `[works]`, `[work]`, `[grow]`, `[vote]` and a
+  `[stock]` line a minute (logs, cobblestone, sand, glass) to set beside the stage log's STOCK lines. Same seed, same run.
+  In check:offline (20 minutes). Fidelity: F260, F262, F263 (Lng1 9.7 vs 9.6%, Rch1 17/16 vs 17%).
+- **The village range** (s43): `MC_VILLAGE_RANGE` (96) moves the village's range; growth's reach is 16 inside it unless
+  `MC_GROW_RANGE`; materials for public works are looked for within it; the site survey reads columns the surveyor has
+  not loaded through a fellow member (view distance 8: ~128 blocks round a bot). `MC_GREENS_PER` (5) for experiments.
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes

@@ -5,7 +5,7 @@
  */
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
-import { FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
+import { VILLAGE_RANGE, FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
 import { MINING_HUT, STORAGE_HUT } from '../huts';
 import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, ChoiceOption, ChoiceStatus, ChoiceSummary, ToolDef, WorldAdapter, WorldAgent } from '../world';
 import { TOOLS } from '../skills';
@@ -1858,7 +1858,7 @@ export class MineflayerWorld implements WorldAdapter {
       const want: Record<string, number> = {};
       for (const h of hs) for (const [k, q] of Object.entries(h.gather)) if (!/(_log|^logs|^cobblestone|^sand|^dirt)$/.test(k)) want[k] = (want[k] ?? 0) + (q / hs.length) * GROW.batch;
       if (Object.keys(want).length) {
-        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, 96) : null;
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, VILLAGE_RANGE) : null;
         if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) {
           console.log(`[vote] ${v.name}: ${STYLE_LOOK[b].name} left off the ballot (${Object.entries(want).map(([k, q]) => `${Math.ceil(q)} ${k}`).join(', ')} wanted near home; ${found ? `found ${Object.entries(want).map(([k]) => found[k] ?? 0).join(', ')}` : 'no member near home to look'})`);
           continue;
@@ -2309,7 +2309,7 @@ export class MineflayerWorld implements WorldAdapter {
       const want: Counts = {};
       for (const [k, q] of Object.entries(w.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) want[k] = q;
       if (Object.keys(want).length) {
-        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, 96) : null;
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, VILLAGE_RANGE) : null;
         if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) continue;
       }
       // (with the quarter it leads: its companions' uncommon materials checked the same way, X.2 part 2a)
@@ -2318,7 +2318,7 @@ export class MineflayerWorld implements WorldAdapter {
       const others: Counts = {};
       for (const c of q.pieces.slice(1)) for (const [k, n] of Object.entries(c.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) others[k] = (others[k] ?? 0) + n;
       if (Object.keys(others).length) {
-        const found = near && home ? this.materialsNear(near.name, others, home.x, y, home.z, 96) : null;
+        const found = near && home ? this.materialsNear(near.name, others, home.x, y, home.z, VILLAGE_RANGE) : null;
         if (!found || Object.entries(others).some(([k, n]) => (found[k] ?? 0) < Math.ceil(n))) continue;
       }
       kinds.add(kind);
