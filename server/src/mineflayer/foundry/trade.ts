@@ -81,7 +81,7 @@ export const FOUNDRY: FoundrySkill = {
         throw new Error("dir must be 'sell' or 'buy'");
       }
       const timesRaw = q.times !== undefined ? num(q.times, 'times') : 1;
-      const times = Math.max(1, Math.min(8, Math.floor(timesRaw)));
+      let times = Math.max(1, Math.min(8, Math.floor(timesRaw)));
 
       const v = typeof a?.village === 'function' ? a.village() : undefined;
       const m = v?.merchant;
@@ -100,16 +100,19 @@ export const FOUNDRY: FoundrySkill = {
 
       const offerDir = dir === 'sell' ? 'buys' : 'sells';
       const index = OFFERS.findIndex((o) => o.item === item && o.dir === offerDir);
-      if (index < 0) {
-        const buysList = BUYS.map((o) => `${o.n} ${o.item} for ${o.emeralds} emerald`).join(', ');
+      // (s42, #73: an open order of the merchant's for the item, filled once, when no standing offer buys it)
+      const order = index < 0 && dir === 'sell' && typeof a.world?.merchantOrder === 'function' ? a.world.merchantOrder(v, item) : undefined;
+      if (index < 0 && !order) {
+        const buysList = OFFERS.filter((o) => o.dir === 'buys').map((o) => `${o.n} ${o.item} for ${o.emeralds} emerald`).join(', ');
         const sellsList = SELLS.map((o) => `${o.n} ${o.item} for ${o.emeralds} emerald`).join(', ');
         throw new Error(
           `the merchant does not ${dir} ${item}: it buys ${buysList}; it sells ${sellsList}. Withdraw or bring one of those items to trade`,
         );
       }
-      const offer = OFFERS[index];
+      const offer = order ? { item: order.item, n: order.n, emeralds: order.emeralds, stock: 1, dir: 'buys' as const } : OFFERS[index];
+      if (order) times = 1;
 
-      const used = typeof m.uses[index] === 'number' && Number.isFinite(m.uses[index]) ? m.uses[index] : 0;
+      const used = order ? 0 : typeof m.uses[index] === 'number' && Number.isFinite(m.uses[index]) ? m.uses[index] : 0;
       const stockLeft = offer.stock - used;
       if (stockLeft < times) {
         throw new Error(
@@ -131,6 +134,10 @@ export const FOUNDRY: FoundrySkill = {
       if (!/passed/i.test(String(seen ?? ''))) {
         throw new Error('the merchant is not at its stall (it comes back within a minute)');
       }
+      // (an order may have expired at a restock during the walk: nothing is paid for it then, the review's 1)
+      if (order && a.world.merchantOrder?.(v, item)?.id !== order.id) {
+        throw new Error(`the merchant's order for ${item} expired before the trade; it posts new orders at each restock`);
+      }
 
       const inputItem = dir === 'sell' ? offer.item : 'emerald';
       const need = dir === 'sell' ? offer.n * times : offer.emeralds * times;
@@ -151,12 +158,13 @@ export const FOUNDRY: FoundrySkill = {
       }
 
       await rcon.give(a.name, outputItem, outputCount);
-      if (typeof a.world?.merchantTraded === 'function') {
+      if (order && typeof a.world?.merchantFilled === 'function') a.world.merchantFilled(v, order.id, a.name);
+      else if (typeof a.world?.merchantTraded === 'function') {
         await a.world.merchantTraded(v, index, times, a.name);
       }
       await syncInventory(a);
 
-      const usedAfter = typeof m.uses?.[index] === 'number' && Number.isFinite(m.uses[index]) ? m.uses[index] : used + times;
+      const usedAfter = order ? 1 : typeof m.uses?.[index] === 'number' && Number.isFinite(m.uses[index]) ? m.uses[index] : used + times;
       const leftAfter = Math.max(0, offer.stock - usedAfter);
       if (dir === 'sell') {
         return `traded with the merchant: sold ${offer.n * times} ${offer.item} for ${offer.emeralds * times} emerald (stock left ${leftAfter})`;
@@ -220,7 +228,7 @@ export const FOUNDRY: FoundrySkill = {
             args: { item: o.item, dir: 'sell', times: p.times },
             needs: { [o.item]: n },
             gives: ['emerald'],
-            facts: `sells ${n} ${o.item} for ${e} emeralds; the merchant buys it while storage holds more than it keeps`,
+            facts: (p as { order?: string }).order ? `fills the merchant's order: ${n} ${o.item} for ${e} emeralds` : `sells ${n} ${o.item} for ${e} emeralds; the merchant buys it while storage holds more than it keeps`,
           };
         }
         if (ctx.spec === 'lib:buy') {

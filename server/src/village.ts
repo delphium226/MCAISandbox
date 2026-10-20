@@ -542,7 +542,12 @@ export interface Village {
   initiativeN?: number;
   /** s41 (MC_MERCHANT): the village's merchant: the market stall it stands in (an initiative's id) and its cell, the
    *  offers' uses since the last restock (merchant.ts OFFERS' order), the next restock, and what members traded by item. */
-  merchant?: { stall: string; x: number; y: number; z: number; uses: number[]; restockAt: number; ledger: Record<string, { bought: number; sold: number }> };
+  merchant?: {
+    stall: string; x: number; y: number; z: number; uses: number[]; restockAt: number; ledger: Record<string, { bought: number; sold: number }>;
+    /** s42 (MC_MERCHANT_ORDERS, #73): its orders (the last 40), their count, the emeralds traded (its level's XP), and the
+     *  restock its orders were last posted for. */
+    orders?: import('./merchant').MerchantOrder[]; orderN?: number; xp?: number; ordersFor?: number;
+  };
   /** N.1 (MC_NEEDS show/on): each need's state, stepped every 30 s by the world (needs.ts NeedState). */
   needStates?: Record<string, import('./needs').NeedState>;
   /** s39 (MC_NEED_WORKS): food points drained and made per game hour, and the shortness (needWorks.ts). */

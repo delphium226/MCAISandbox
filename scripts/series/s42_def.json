@@ -1,0 +1,26 @@
+{
+  "about": "s42: Stg1's settings on the new defaults alone (activities and the merchant on by default, no flags here: lesson 151's path) with the merchant buying pumpkins (PRODUCE). Compare purchases, pumpkin sales and busy with Stg2.",
+  "out": "runs/2026-10-20/s42/s42_def",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 60,
+  "server_env": {
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5"
+  },
+  "runs": [
+    {
+      "name": "Stg3",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 30 --stock fishing_rod:3"
+    }
+  ]
+}

@@ -29,8 +29,8 @@ for (const o of [...OFFERS]) {
 for (const o of SELLS) ok(!!UNOBTAINABLE[o.item] || o.item === 'ink_sac' || o.item === 'fishing_rod', `${o.item} is something a peaceful world lacks (UNOBTAINABLE), rare inland, or made of it (a rod: string)`);
 for (const o of BUYS) ok(!UNOBTAINABLE[o.item], `${o.item} (bought) is obtainable here`);
 ok(new Set(OFFERS.map((o) => `${o.dir}:${o.item}`)).size === OFFERS.length, 'no offer twice');
-// (with the merchant off, sold items stay unobtainable; MC_MERCHANT is read at load: this run's value)
-ok(obtainableHere('string', UNOBTAINABLE) === ((process.env.MC_MERCHANT ?? 'off') === 'on'), 'string obtainable only while the merchant trades');
+// (with the merchant off, sold items stay unobtainable; MC_MERCHANT is read at load: this run's value, on by default since s42)
+ok(obtainableHere('string', UNOBTAINABLE) === ((process.env.MC_MERCHANT ?? 'on') === 'on'), 'string obtainable only while the merchant trades');
 ok(obtainableHere('oak_log', UNOBTAINABLE), 'oak_log obtainable');
 
 const nbt = offersNbt([2, 99]);

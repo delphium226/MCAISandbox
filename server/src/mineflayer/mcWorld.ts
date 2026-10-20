@@ -14,7 +14,7 @@ import { MC_SKILLS } from './mcSkills';
 import { FOUNDRY_SKILLS } from './foundry/list';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
-import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, offersCommands, stallCell, summonCommand, villageTag, type MerchantOffer } from '../merchant';
+import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORDER_EXPIRE_RESTOCKS, ORDER_RAW_CAP, ORDER_SIZE, levelOf, offersCommands, orderPay, ordersOpen, stablePick, stallCell, summonCommand, villageTag, type MerchantOffer, type MerchantOrder } from '../merchant';
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
@@ -972,6 +972,12 @@ export class MineflayerWorld implements WorldAdapter {
   /** A good's target in storage (D7): torches follow lighting's demand while the light family is on, max(32, min(64,
    *  demand) + 8); every other good, and torches with the family off, the table's. */
   makeTarget(v: Village, g: MakeGood): number {
+    // (s42: and the merchant's open orders for it, on top)
+    const ordered = ORDERS_ON ? (v.merchant?.orders ?? []).filter((o) => o.state === 'open' && o.item === g.item).reduce((s, o) => s + o.n, 0) : 0;
+    return ordered + this.baseTarget(v, g);
+  }
+
+  private baseTarget(v: Village, g: MakeGood): number {
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
     // (s39 tier 1, MC_NEED_WORKS: three and one a member while the food flow is short)
     if (g.food) return !appetiteOn(v) ? 0 : foodTarget(g.item === 'bread' ? 'bread' : 'pumpkin_pie', this.growMembers(v).length, NEED_WORKS && !!v.foodFlow?.short);
@@ -2919,6 +2925,12 @@ export class MineflayerWorld implements WorldAdapter {
       this.villages.note(v, `A merchant comes to the market stall at ${c.x},${c.z}: it buys the village's goods and sells what the land cannot give, for emeralds`);
     }
     const m = v.merchant;
+    // (s42, #73: orders once for each restock, the first when the merchant comes; restockAt moves at the restock below)
+    if (ORDERS_ON && m.ordersFor !== m.restockAt) {
+      const aged = m.ordersFor !== undefined;
+      m.ordersFor = m.restockAt;
+      this.merchantOrders(v, now, aged);
+    }
     this.merchantBusy.add(v.name);
     void (async () => {
       try {
@@ -2951,6 +2963,66 @@ export class MineflayerWorld implements WorldAdapter {
     })();
   }
 
+  /**
+   * s42 (#73): the merchant's orders at a restock: open ones a restock older, expired after ORDER_EXPIRE_RESTOCKS (logged, a
+   * candidate for the foundry later); then new ones up to its level's number, for goods the workshop makes and the
+   * merchant does not buy already, whose batch takes at most the level's raw materials, paid by orderPay. A stable pick by
+   * the order's number: a run repeats.
+   */
+  private merchantOrders(v: Village, now: number, aged: boolean) {
+    const m = v.merchant!;
+    const orders = (m.orders ??= []);
+    for (const o of orders)
+      if (o.state === 'open' && aged && ++o.restocks >= ORDER_EXPIRE_RESTOCKS) {
+        o.state = 'expired';
+        o.end = now;
+        console.log(`[merchant] ${v.name}: order ${o.id} (${o.n} ${o.item} for ${o.emeralds} emeralds) expired unfilled after ${o.restocks} restocks`);
+      }
+    const level = levelOf(m.xp ?? 0);
+    const open = orders.filter((o) => o.state === 'open');
+    const bought = new Set(OFFERS.filter((o) => o.dir === 'buys').map((o) => o.item));
+    const cands = this.goodsFor(v).filter((g) => !g.food && !bought.has(g.item) && !open.some((o) => o.item === g.item))
+      .map((g) => ({ g, n: g.batch * ORDER_SIZE, raw: this.orderRaw(g.item, g.batch * ORDER_SIZE) })).filter((c) => c.raw > 0 && c.raw <= ORDER_RAW_CAP[level] * ORDER_SIZE);
+    for (let k = open.length; k < ordersOpen(level) && cands.length; k++) {
+      const c = stablePick(cands, `${v.name}|${(m.orderN ?? 0) + 1}`)!;
+      cands.splice(cands.indexOf(c), 1);
+      const o: MerchantOrder = { id: `o${(m.orderN = (m.orderN ?? 0) + 1)}`, item: c.g.item, n: c.n, emeralds: orderPay(c.raw), raw: c.raw, at: now, restocks: 0, state: 'open' };
+      orders.push(o);
+      console.log(`[merchant] ${v.name}: order ${o.id}: ${o.n} ${o.item} for ${o.emeralds} emeralds (${o.raw} raw materials; level ${level}, ${m.xp ?? 0} emeralds traded)`);
+      this.villages.note(v, `The merchant orders ${o.n} ${o.item.replace(/_/g, ' ')} for ${o.emeralds} emeralds`);
+    }
+    if (orders.length > 40) m.orders = [...orders.filter((o) => o.state === 'open'), ...orders.filter((o) => o.state !== 'open').slice(-30)];
+    this.villages.save();
+  }
+
+  /** The raw materials n of a good take (the planner's gather from nothing), 0 when it cannot be planned. */
+  private orderRaw(item: string, n: number): number {
+    try {
+      const p = this.materials.plan({ [item]: n }, {});
+      return p.problems.length ? 0 : Object.values(p.gather).reduce((s, q) => s + q, 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  /** s42: the open order for an item, if any (the trade skill fills it). */
+  merchantOrder(v: Village, item: string): MerchantOrder | undefined {
+    return ORDERS_ON ? v.merchant?.orders?.find((o) => o.state === 'open' && o.item === item) : undefined;
+  }
+
+  /** s42: an order filled (the trade skill's call, after it charged both sides): the record, the ledger, the level's XP. */
+  merchantFilled(v: Village, id: string, member: string) {
+    const m = v.merchant, o = m?.orders?.find((x) => x.id === id);
+    if (!m || !o || o.state !== 'open') return;
+    Object.assign(o, { state: 'filled', by: member, end: Date.now() });
+    const l = (m.ledger[o.item] ??= { bought: 0, sold: 0 });
+    l.bought += o.n;
+    const was = levelOf(m.xp ?? 0);
+    m.xp = (m.xp ?? 0) + o.emeralds;
+    this.villages.save();
+    console.log(`[merchant] ${v.name}: ${member} fills order ${o.id}: ${o.n} ${o.item} for ${o.emeralds} emeralds${levelOf(m.xp) > was ? `; the merchant reaches level ${levelOf(m.xp)}` : ''}`);
+  }
+
   private restockMs(): number {
     return (MERCHANT_RESTOCK_MIN * 60000) / timeScale();
   }
@@ -2980,9 +3052,12 @@ export class MineflayerWorld implements WorldAdapter {
    * the sold item furthest below its keep (`keepOf`) that storage's spare emeralds pay for. With the offer's index in OFFERS
    * and the times; or why there is none.
    */
-  merchantPick(v: Village, dir: 'buys' | 'sells', spare: Counts, keepOf: (item: string) => number, maxTimes = 4): { offer: MerchantOffer; index: number; times: number } | { why: string } {
+  merchantPick(v: Village, dir: 'buys' | 'sells', spare: Counts, keepOf: (item: string) => number, maxTimes = 4): { offer: MerchantOffer; index: number; times: number; order?: string } | { why: string } {
     const m = v.merchant;
     if (!MERCHANT_ON || !m) return { why: 'no merchant' };
+    // (s42: an open order storage can fill comes first; index -1, the trade skill finds it by item)
+    if (dir === 'buys' && ORDERS_ON)
+      for (const o of m.orders ?? []) if (o.state === 'open' && (spare[o.item] ?? 0) >= o.n) return { offer: { item: o.item, n: o.n, emeralds: o.emeralds, stock: 1, dir: 'buys' }, index: -1, times: 1, order: o.id };
     const store = storageContents(v);
     let best: { offer: MerchantOffer; index: number; times: number; score: number } | null = null;
     for (const [i, o] of OFFERS.entries()) {
@@ -3037,6 +3112,8 @@ export class MineflayerWorld implements WorldAdapter {
     const m = v.merchant, o = OFFERS[index];
     if (!m || !o) return;
     m.uses[index] = (m.uses[index] ?? 0) + times;
+    // (s42: the emeralds traded are the merchant's XP, its level for orders)
+    m.xp = (m.xp ?? 0) + o.emeralds * times;
     const l = (m.ledger[o.item] ??= { bought: 0, sold: 0 });
     if (o.dir === 'buys') l.bought += o.n * times;
     else l.sold += o.n * times;
