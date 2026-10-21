@@ -24,6 +24,7 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   means the adapter's list. **Grep it for the area you are about to change** (pathfinder, storage, mine, chores...).
 - `docs/FINDINGS.md` (F1...), `docs/RUNS.md`, `docs/DECISIONS.md`: the logs. `docs/HISTORY.md`: what each session did and
   committed. `docs/plan-archive/`: finished phases and earlier handovers.
+- `docs/JOURNEY.md`: a short, readable story of the project; refresh it now and then (the user's, 10-21).
 - `README.md` (a short overview), `docs/ARCHITECTURE.md` (how the system fits together, with diagrams), `docs/API.md`
   (the REST API), `docs/SANDBOX.md` (the browser sandbox).
 
