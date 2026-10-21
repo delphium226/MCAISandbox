@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import type minecraftData from 'minecraft-data';
 import { UNOBTAINABLE } from './mineflayer/mcMaterials';
 import { obtainableHere } from './merchant';
+import { INNOVATE, registerResearch, type Research } from './tech';
 
 type Registry = ReturnType<typeof minecraftData>;
 
@@ -40,6 +41,12 @@ export interface LibrarySpec {
   keep?: number;
   /** What it is for, at most 160 characters (lesson 127). */
   effect: string;
+  /**
+   * G6: locked until researched (tech.ts adds an innovation entry from it; foundry/list.ts offers the activity only once a
+   * village has unlocked it, and never with MC_INNOVATE off). `goods`: the workshop goods the research also opens (at
+   * least one: the menu's "research toward ..." and the unlock line name them); `capability`: the wanted list's id.
+   */
+  research?: Research;
 }
 
 /** The keep of a spec whose gives no consumer uses (F258, lesson 149: no surplus nobody uses). */
@@ -91,20 +98,56 @@ function check(s: LibrarySpec, ctx: { registry: Registry; skills: Set<string>; i
   }
   for (const n of s.also ?? []) item(n, 'also');
   if (s.keep !== undefined && (!Number.isInteger(s.keep) || s.keep < 1 || s.keep > 256)) errs.push('keep must be a whole number in 1..256');
+  if (s.research !== undefined) {
+    const r = s.research;
+    if (!r || typeof r !== 'object') errs.push('research is not an object');
+    else {
+      if (typeof r.name !== 'string' || !r.name.length || r.name.length > 40) errs.push('research.name must be 1-40 characters');
+      const counts = (c: unknown, what: string, need: boolean) => {
+        if (c === undefined && !need) return;
+        if (!c || typeof c !== 'object') return errs.push(`research.${what} is not a table of counts`);
+        for (const [n, q] of Object.entries(c as Record<string, unknown>)) {
+          item(n, `research.${what}`);
+          if (!Number.isInteger(q) || (q as number) < 1 || (q as number) > 64) errs.push(`research.${what} ${n}: ${String(q)} is not a whole number in 1..64`);
+        }
+      };
+      counts(r.requires, 'requires', true);
+      counts(r.attempt, 'attempt', true);
+      counts(r.success, 'success', false);
+      if (typeof r.minutes !== 'number' || r.minutes < 0.5 || r.minutes > 10) errs.push('research.minutes must be 0.5..10');
+      if (typeof r.chance !== 'number' || r.chance <= 0 || r.chance > 0.9) errs.push('research.chance must be in (0, 0.9]');
+      if (typeof r.complexity !== 'number' || r.complexity < 1 || r.complexity > 20) errs.push('research.complexity must be 1..20');
+      if (r.after !== undefined && (!Array.isArray(r.after) || r.after.some((x) => typeof x !== 'string'))) errs.push('research.after must be entry ids');
+      if (r.tools !== undefined && (!Array.isArray(r.tools) || r.tools.some((x) => typeof x !== 'string' || !reg.itemsByName[x]))) errs.push('research.tools must be items');
+      if (r.capability !== undefined && (typeof r.capability !== 'string' || !ARG.test(r.capability))) errs.push('research.capability is not a name');
+      if (!Array.isArray(r.goods) || !r.goods.length) errs.push('research.goods: at least one workshop good (the menus name the research by them)');
+      for (const g of Array.isArray(r.goods) ? r.goods : []) {
+        item(g?.item, 'research good');
+        if (typeof g?.words !== 'string' || !g.words.length || g.words.length > 40) errs.push(`research good ${String(g?.item)}: words must be 1-40 characters`);
+        if (typeof g?.forWhat !== 'string' || !g.forWhat.length || g.forWhat.length > 120) errs.push(`research good ${String(g?.item)}: forWhat must be 1-120 characters`);
+        for (const k of ['target', 'batch', 'unit'] as const) if (!Number.isInteger(g?.[k]) || g[k] < 1 || g[k] > 64) errs.push(`research good ${String(g?.item)}: ${k} must be a whole number in 1..64`);
+        for (const n of g?.allow ?? []) item(n, 'research good allow');
+      }
+    }
+  }
   return errs;
 }
 
 /** The library's folder (server/library), from this file's place. */
 export const LIBRARY_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../library');
 
-/** Every valid spec in `dir` (sorted by file name), and the files dropped with their errors. */
-export function loadLibrary(registry: Registry, skills: Set<string>, dir = LIBRARY_DIR): { specs: LibrarySpec[]; dropped: Array<{ file: string; why: string }> } {
-  const specs: LibrarySpec[] = [], dropped: Array<{ file: string; why: string }> = [];
+/**
+ * Every valid spec in `dir` (sorted by file name), and the files dropped with their errors. A valid spec with a `research`
+ * block (G6) registers its innovation entry while MC_INNOVATE is on (tech.ts) and is kept out of the specs while it is
+ * off (`locked`: the village has no innovation to unlock it with, and menus stay as they were).
+ */
+export function loadLibrary(registry: Registry, skills: Set<string>, dir = LIBRARY_DIR): { specs: LibrarySpec[]; dropped: Array<{ file: string; why: string }>; locked: string[] } {
+  const specs: LibrarySpec[] = [], dropped: Array<{ file: string; why: string }> = [], locked: string[] = [];
   let files: string[] = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
   } catch {
-    return { specs, dropped };
+    return { specs, dropped, locked };
   }
   const ids = new Set<string>();
   for (const f of files) {
@@ -116,10 +159,20 @@ export function loadLibrary(registry: Registry, skills: Set<string>, dir = LIBRA
         continue;
       }
       ids.add(s.id);
+      if (s.research) {
+        if (!INNOVATE) {
+          locked.push(s.id);
+          continue;
+        }
+        if (!registerResearch(s)) {
+          dropped.push({ file: f, why: `research entry ${s.id.slice(4)} is taken by a built-in entry` });
+          continue;
+        }
+      }
       specs.push(s);
     } catch (e) {
       dropped.push({ file: f, why: (e as Error).message });
     }
   }
-  return { specs, dropped };
+  return { specs, dropped, locked };
 }

@@ -2,8 +2,9 @@
 and the foundry's gates check it; the result is a candidate branch foundry/<id>. With --merge (the user's decision, 10-20,
 s41: gated candidates merge without asking) a candidate that passed every gate is merged into tiered-brain-building:
 the branch's current tip merged into the candidate inside its worktree, typecheck and check:offline again there, then a
-fast-forward of the main checkout, only when it is on tiered-brain-building with no uncommitted tracked change and no agent
-server runs from its working tree; otherwise the branch is queued in runs/foundry/pending_merges.txt for --apply-merge.
+fast-forward of the main checkout, only when it is on tiered-brain-building with no uncommitted change in a file the
+candidate changes (the checkout is shared with other sessions' work, the user's, 10-21, G6) and no agent server runs from
+its working tree, then a typecheck of the main checkout, logged in runs/foundry/merges.log; otherwise the branch is queued in runs/foundry/pending_merges.txt for --apply-merge.
 Never main, never a push. Spec: runs/2026-10-18/foundry/spec_x3.md; the merge: runs/2026-10-20/s41/spec_proposals_v2.md C.
 
 Usage: python scripts/foundry.py TICKET.json [--cli agy|claude] [--model M] [--gates-only] [--skip-baseline]
@@ -667,7 +668,14 @@ def gate_live(t, wt, out):
     code, text = run([PY, wt / chk["file"], *chk.get("args", [])], ROOT, world_env(), out / "live_check.txt",
                      int(chk.get("timeout_min", 10) * 60))
     passed = code == 0 and re.search(chk["pass"], text, re.M)
-    crashes = agentlog.read_text(encoding="utf-8", errors="replace").count("[crash-guard]") if agentlog.exists() else 0
+    alog = agentlog.read_text(encoding="utf-8", errors="replace") if agentlog.exists() else ""
+    crashes = alog.count("[crash-guard]")
+    # (G6, lesson 151: a ticket may name a line the agent server's own log must hold, the library loading its spec: the
+    # check calls the skill directly, which does not test the path that runs it)
+    if passed and chk.get("log_pass") and not re.search(chk["log_pass"], alog, re.M):
+        passed = False
+        text += f"\nthe agent server log has no line matching {chk['log_pass']!r}"
+
     shutil.copy2(agentlog, out / "live_agentserver.log") if agentlog.exists() else None
     left = []
     try:
@@ -930,9 +938,14 @@ def merge_candidate(t, wt, out, base_failed, clean=True):
                 return queue_merge(tid, f"{name} fails once merged with tiered-brain-building: {summary}")
     if git("rev-parse", "--abbrev-ref", "HEAD") != "tiered-brain-building":
         return queue_merge(tid, "the main checkout is not on tiered-brain-building")
-    dirty = [l for l in git("status", "--porcelain").splitlines() if l and not l.startswith("??")]
-    if dirty:
-        return queue_merge(tid, f"the main checkout has {len(dirty)} uncommitted tracked changes ({', '.join(l[3:] for l in dirty[:4])})")
+    # (G6, the user's, 10-21: other sessions' uncommitted work elsewhere in the shared checkout does not block the merge;
+    # only a change, tracked or not, to a file the candidate itself changes against HEAD, which the fast-forward would
+    # overwrite or mix with; git refuses those too)
+    theirs = set(git("diff", "--name-only", "HEAD", branch).splitlines())
+    dirty = [l[3:].strip('"') for l in git("status", "--porcelain", "--untracked-files=all").splitlines() if l]
+    clash = sorted(f for f in dirty if f.replace("\\", "/") in theirs)
+    if clash:
+        return queue_merge(tid, f"the main checkout has uncommitted changes in the candidate's files ({', '.join(clash[:4])})")
     servers = working_tree_servers()
     if servers:
         return queue_merge(tid, f"an agent server runs from the working tree ({servers[0][:80]})")
@@ -941,6 +954,17 @@ def merge_candidate(t, wt, out, base_failed, clean=True):
         return queue_merge(tid, f"the fast-forward failed: {(code.stdout + code.stderr).strip()[:160]}")
     sha = git("rev-parse", "--short", "HEAD")
     log(f"merged {branch} into tiered-brain-building (fast-forward to {sha}; not pushed)")
+    # (the merged tree with the other sessions' uncommitted work beside it, typechecked once: a failure is logged for them,
+    # not undone here; never a reset in the shared checkout)
+    tc = subprocess.run(["node", str(ROOT / "node_modules" / "typescript" / "bin" / "tsc"), "--noEmit", "-p", "tsconfig.json"], cwd=ROOT,
+                        capture_output=True, text=True)
+    merges = ROOT / "runs" / "foundry" / "merges.log"
+    merges.parent.mkdir(parents=True, exist_ok=True)
+    with merges.open("a", encoding="utf-8") as f:
+        f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M} {branch} -> tiered-brain-building {sha}: {len(theirs)} files; "
+                f"main checkout typecheck {'clean' if tc.returncode == 0 else 'FAILED: ' + (tc.stdout + tc.stderr).strip()[:300]}; "
+                f"{len(dirty)} uncommitted paths of other work left as they were\n")
+    log(f"main checkout typecheck after the merge: {'clean' if tc.returncode == 0 else 'FAILED (logged in runs/foundry/merges.log)'}")
     if clean:
         cleanup(tid, True)
     return f"merged into tiered-brain-building at {sha}"

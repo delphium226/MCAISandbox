@@ -29,7 +29,10 @@ export const INNOVATE = /^(on|1|true)$/i.test(process.env.MC_INNOVATE ?? 'off');
 export interface LibraryEntry { id: string; name: string; goods: MakeGood[]; requires: Counts; attempt: Counts; success?: Counts; minutes: number; chance: number; uses: string[];
   after?: string[]; tools?: string[];
   /** What members may make of it from their own stock once it is unlocked (own makes, MC_OWN). */
-  own?: Array<{ item: string; inputs: Counts; smelt: boolean }> }
+  own?: Array<{ item: string; inputs: Counts; smelt: boolean }>;
+  /** G6: an entry from a library spec's `research` block (a foundry activity, locked until researched): the spec's id, its
+   *  skill, the wanted list's capability it answers, what it gives, and its complexity (a skill's chain is no recipe). */
+  activity?: string; skill?: string; capability?: string; gives?: string[]; complexity?: number }
 
 /**
  * The entries: goods the recipe data can make from what villages hold, each a new sink or a new good. Shears open jack
@@ -67,6 +70,40 @@ export const LIBRARY: LibraryEntry[] = [
     ],
   },
 ];
+
+/** A library spec's `research` block (library.ts validates it): the entry it adds, locked until researched (G6). */
+export interface Research { name: string; requires: Counts; attempt: Counts; success?: Counts; minutes: number; chance: number; complexity: number;
+  after?: string[]; tools?: string[]; goods: MakeGood[]; capability?: string }
+
+/**
+ * G6: a library spec with a `research` block becomes an entry (a foundry activity merged locked, spec
+ * runs/2026-10-21/g6-loop/spec.md 3), its id the spec's less "lib:": registered by loadLibrary (library.ts) for each valid
+ * spec while MC_INNOVATE is on, so the validator is the one source of truth. A built-in entry's id wins; idempotent.
+ */
+export function registerResearch(s: { id: string; skill: string; gives: Array<{ item: string }>; research?: Research }): LibraryEntry | null {
+  const r = s.research;
+  if (!r) return null;
+  const id = s.id.slice(4);
+  const had = LIBRARY.find((x) => x.id === id);
+  if (had) return had.activity === s.id ? had : null;
+  const e: LibraryEntry = {
+    id, name: r.name, goods: r.goods, requires: r.requires, attempt: r.attempt, ...(r.success ? { success: r.success } : {}), minutes: r.minutes, chance: r.chance, uses: [],
+    ...(r.after?.length ? { after: r.after } : {}), ...(r.tools?.length ? { tools: r.tools } : {}),
+    activity: s.id, skill: s.skill, ...(r.capability ? { capability: r.capability } : {}), gives: s.gives.map((g) => g.item), complexity: r.complexity,
+  };
+  LIBRARY.push(e);
+  LOCKED_SKILLS.set(s.skill, e);
+  return e;
+}
+
+/** The locked foundry activities: the entry each skill's activity waits on, by skill name (foundry/lock.ts gates them). */
+export const LOCKED_SKILLS = new Map<string, LibraryEntry>();
+
+/**
+ * The wanted list's top capabilities by village (wanted.ts, written by the API's writer with MC_WANTED on): a locked entry
+ * answering one of them counts as demanded (the user's, 10-21). Kept here so tech.ts imports nothing of wanted.ts.
+ */
+export const WANTED_TOP = new Map<string, string[]>();
 
 /** Inputs that take finding (iron, clay, leather, wool, string): +2 complexity each. */
 export const HARD = /^(raw_iron|iron_ingot|clay_ball|leather|string|[a-z_]+_wool)$/;
@@ -127,6 +164,7 @@ const complexities = new Map<string, number>();
 export function complexity(e: LibraryEntry, plan: (bill: Counts) => MaterialPlan): number {
   const c = complexities.get(e.id);
   if (c !== undefined) return c;
+  if (e.complexity !== undefined) return e.complexity;
   const carved = e.goods.filter((g) => g.carve);
   const p = plan(Object.fromEntries(e.goods.filter((g) => !g.carve).map((g) => [g.item, 1])));
   const steps = p.steps.filter((s) => !BASIC.test(s.item) && !carved.some((g) => g.item === s.item)).length + carved.length;
@@ -267,7 +305,8 @@ export function candidates(v: Village, store: Counts, wants: Counts, held: Count
     const why: string[] = [];
     let rank = 1;
     // (wants for what it makes; gluts of what it uses: wanting wheat is no reason for hay bales, which take it)
-    for (const g of e.goods.map((x) => x.item)) {
+    // (a foundry activity's gives count as its goods; G6)
+    for (const g of [...new Set([...e.goods.map((x) => x.item), ...(e.gives ?? [])])]) {
       if (wants[g]) {
         rank += wants[g];
         why.push(`${g.replace(/_/g, ' ')} wanted ${wants[g]} time${wants[g] === 1 ? '' : 's'}`);
@@ -279,6 +318,11 @@ export function candidates(v: Village, store: Counts, wants: Counts, held: Count
         rank += idle / 64;
         why.push(`${idle} ${u.replace(/_/g, ' ')} lying idle`);
       }
+    }
+    // (G6, MC_WANTED: the capability it answers is among the village's most wanted)
+    if (e.capability && (WANTED_TOP.get(v.name) ?? []).includes(e.capability)) {
+      rank += 3;
+      why.push(`${e.capability.replace(/_/g, ' ')} is among the village's most wanted capabilities`);
     }
     const pledged = (t.pledges[e.id] ?? []).length;
     if (pledged) {

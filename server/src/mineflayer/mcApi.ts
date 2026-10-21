@@ -2,7 +2,9 @@
  * The agent REST API for real Minecraft, with the sandbox's routes and JSON shapes (README "Agent API"), so the same
  * controllers and test scripts (scripts/watch_*.py) work against either world.
  */
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import path from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
@@ -16,6 +18,10 @@ import { villageHome } from '../village';
 import { GROW, GROW_FARMS } from '../grow';
 import { APPETITE } from '../appetite';
 import { TEMPERAMENT_MODE, temperamentTable } from '../temperament';
+import { WANTED_TOP } from '../tech';
+import type { Village } from '../village';
+import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from '../wanted';
+import { MC_SKILLS } from './mcSkills';
 import type { MineflayerWorld } from './mcWorld';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
@@ -64,7 +70,54 @@ function perf(w: MineflayerWorld) {
   };
 }
 
+/** G6's wanted list for a village (wanted.ts): the world's registry, recipe plan, skills and the library's activities. */
+function wantedOf(w: MineflayerWorld, v: Village) {
+  return wantedList(v, {
+    items: w.registry.itemsArray.map((it) => it.name), plan: (b) => w.materials.plan(b), skills: new Set(Object.keys(MC_SKILLS)),
+    activitySkills: new Set(w.library.specs.map((s) => s.skill)), now: Date.now(),
+  });
+}
+
+/**
+ * MC_WANTED's writer (G6): every 5 minutes each complete village's wanted list into wanted.json beside villages.json, with
+ * each capability's time in the top 3 (#73's persistence), and the top 3 handed to innovation (tech.ts WANTED_TOP). Started
+ * by the first API request (the API holds the world); a failure is logged and the next round tries again.
+ */
+let wantedTimer: NodeJS.Timeout | null = null;
+const wantedHistory: Record<string, WantedHistory> = {};
+function startWanted(w: MineflayerWorld) {
+  if (wantedTimer || !WANTED_ON) return;
+  // (the registry's file: villages.json in the world's data folder)
+  const file = path.join(path.dirname((w.villages as unknown as { file: string }).file), 'wanted.json');
+  try {
+    Object.assign(wantedHistory, (JSON.parse(fs.readFileSync(file, 'utf8')) as { history?: Record<string, WantedHistory> }).history ?? {});
+  } catch {
+    // (none yet)
+  }
+  const round = () => {
+    try {
+      const now = Date.now(), villages: Record<string, unknown> = {};
+      for (const v of w.villages.villages.values()) {
+        if (!v.complete) continue;
+        const list = wantedOf(w, v);
+        wantedHistory[v.name] = recordTop(wantedHistory[v.name], list, now);
+        WANTED_TOP.set(v.name, topWanted(list));
+        villages[v.name] = list;
+        console.log(`[wanted] ${v.name}: ${list.slice(0, 3).map((x) => `${x.id} ${x.rank}${x.demand ? ` (demand ${x.demand})` : ''}`).join(', ')}`);
+      }
+      fs.writeFileSync(`${file}.tmp`, JSON.stringify({ at: now, villages, history: wantedHistory }, null, 1));
+      fs.renameSync(`${file}.tmp`, file);
+    } catch (e) {
+      console.log(`[wanted] the writer failed: ${(e as Error).message.slice(0, 160)}`);
+    }
+  };
+  wantedTimer = setInterval(round, 5 * 60000);
+  wantedTimer.unref();
+  setTimeout(round, 1000).unref();
+}
+
 export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  startWanted(w);
   if (await handlePanel(w, req, res, url)) return;
   const parts = url.pathname.split('/').filter(Boolean); // ['api', 'agents', name, ...]
   if (parts[0] !== 'api') return sendJson(res, 404, { error: 'Not found' });
@@ -88,6 +141,14 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const one = url.searchParams.get('village');
     const vs = one ? [w.villages.get(one)].filter((v) => !!v) : [...w.villages.villages.values()];
     return sendJson(res, 200, vs.map((v) => ({ village: v!.name, next: v!.growth?.next ?? null, work: v!.growth?.work ?? null, votes: v!.votes ?? [] })));
+  }
+  // G6: the wanted list (wanted.ts): every capability the village lacks, ranked by what it unlocks and the village's demand
+  // (?village=; default every complete village)
+  if (parts[1] === 'wanted') {
+    const one = url.searchParams.get('village');
+    const vs = one ? [w.villages.get(one)].filter((v): v is Village => !!v) : [...w.villages.villages.values()].filter((v) => v.complete);
+    if (one && !vs.length) return sendJson(res, 404, { error: 'no such village' });
+    return sendJson(res, 200, vs.map((v) => ({ village: v.name, at: Date.now(), list: wantedOf(w, v), history: wantedHistory[v.name] ?? null })));
   }
   // Phase N's needs (spec_needs_v2): one village's needs with their levels, status and line (?village=), or every village's
   if (parts[1] === 'needs') {
