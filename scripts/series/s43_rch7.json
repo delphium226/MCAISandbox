@@ -1,0 +1,28 @@
+{
+  "about": "s43: range 192 + works repeat, 150 min, all s43 fixes (rescue, water ring), world 2. Prediction: runs/2026-10-21/s43/rch67_prediction.txt",
+  "out": "runs/2026-10-21/s43/s43_rch7",
+  "world": 2,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 200,
+  "server_env": {
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5",
+    "MC_VILLAGE_RANGE": "192",
+    "MC_WORKS_REPEAT": "on"
+  },
+  "runs": [
+    {
+      "name": "Rch7",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 150 --stock fishing_rod:3"
+    }
+  ]
+}
