@@ -1348,3 +1348,14 @@ CLAUDE.md when a phase ends.
   parts), cooked cod eaten +30%, the dip at 20-40 minutes. Four-hour sims: range 96 runs out at ~40 min, 144 at ~90,
   192 at ~120, where the public-work pool (each design built once; 26 built) runs out before the land: a wider reach
   postpones the limit, it does not remove it. Merchant orders (sim, reach 128, 3 seeds): 15.7% vs 15.1%, noise.
+- F264 (10-21, s43, issues #68-#70) **Personal stock, barter, claims, sales and own farms in the simulator: trade and diet
+  hold up at real-rate growth, busy does not.** Built behind flags (all off: MC_OWN, MC_BARTER, MC_SPECIAL=claim,
+  MC_OWN_SALES, MC_OWN_FARM), tested only in the sim (the user's choice). At the fast staged settings (random ticks 30)
+  each step looked better than it is: own stock +2-3 points of busy; barter traded pumpkins only (every chest the same, the
+  pumpkin's price at its floor); habit and price weights did nothing; claims made holdings differ but thinned the market
+  (3 of 25 members held a plot); sales made emeralds a medium of exchange; own farms took trades from 4-8 to 34-39 a run.
+  Rerun at real-rate growth (random ticks 3, 180 min, 2 seeds): busy 14.0-14.3% with the economy vs 13.3-13.5% without,
+  both collapsing to ~6% after ~90 min (land and works run out, F263); as stocked (wheat and pumpkins only) 29-31 trades,
+  most offers lapsing, 665 pumpkins idle in chests; with 40 cane and 40 carrots stocked 201-288 trades, a third paid in
+  emeralds, 160-180 pies and 230-270 carrots eaten, top good 54-61% of a chest. Members eat ~450 bread a run vs ~75.
+  The economy gives members reasons to trade and a varied diet; it does not fill idle time (its chores are short).
