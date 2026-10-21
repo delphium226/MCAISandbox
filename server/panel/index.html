@@ -489,6 +489,7 @@ function renderAgent(a) {
       ${choiceLine(a)}
       ${utilLine(a.name)}
       ${a.persona ? `<div class="sub clamp" title="its temperament (A.3p), shown in its chore menus">${esc(a.persona)}</div>` : ''}
+      ${wealthLine(a)}
     </div>
     ${appetiteBar(a)}
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}
@@ -749,6 +750,73 @@ const stationsText = (v) => {
 /** A need's status as the Needs tab colours it (Phase N): met grey, low plain, answered green, the escalations warm. */
 const NEED_COLOURS = { met: 'var(--muted)', low: 'var(--text)', answered: 'var(--good)', ignored: 'var(--warn)', blocked: 'var(--bad)', 'no answer': 'var(--info)' };
 const TASK_FILTERS = [['now', 'Now', (t) => t.status === 'claimed' || t.status === 'failed'], ['open', 'Open', (t) => t.status === 'open'], ['done', 'Done', (t) => t.status === 'done'], ['failed', 'Failed', (t) => t.status === 'failed'], ['all', 'All', () => true]];
+// ---- s43-s44's economy: members' wealth, the barter board, inventions and life goals (the agent server's economyView) ----
+/** A member's economy record by name, over every village shown (for the agent cards' wealth chip). */
+function econOf(name) {
+  for (const v of (lastData && lastData.villages) || []) {
+    const m = v.economy && v.economy.members.find((x) => x.name === name);
+    if (m) return m;
+  }
+  return null;
+}
+const GOAL_COLOURS = { wealth: '#d9a520', invention: '#39c5d6', mastery: '#8f7ad8', standing: '#4cc27f', home: '#e0853a', beauty: '#e14fd8' };
+const goalChip = (g) => (g ? `<span class="state" style="--c:${GOAL_COLOURS[g] || 'var(--text)'}" title="life goal">${esc(g)}</span>` : '');
+const wealthBar = (x, max) => `<span style="display:inline-block;width:80px;height:8px;vertical-align:middle;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden"><span style="display:block;height:100%;width:${max > 0 ? Math.round((100 * x) / max) : 0}%;background:#d9a520"></span></span>`;
+/** The agent card's wealth line: chest worth, emeralds, owed, its goal. */
+function wealthLine(a) {
+  const m = econOf(a.name);
+  if (!m) return '';
+  return `<div class="sub" title="its own chest valued at the board's prices; emeralds; goods owed to it in storage; its life goal and progress">💰 worth <b>${m.worth}</b> · ${plural(m.emeralds, 'emerald')}${m.owed ? ` · ${m.owed} owed` : ''}${m.traded ? ` · ${plural(m.traded, 'trade')}` : ''}${m.credit ? ` · ${plural(m.credit, 'invention')}` : ''} ${goalChip(m.goal)}${m.goalText ? ` <span class="clamp1">${esc(m.goalText)}</span>` : ''}</div>`;
+}
+/** The members' wealth table, richest first (`limit`: the simple view's top rows, in a compact table). */
+function wealthTable(e, limit) {
+  const ms = limit ? e.members.slice(0, limit) : e.members;
+  const max = Math.max(0, ...e.members.map((m) => m.worth));
+  if (limit) return `<table><thead><tr><th>#</th><th>Member</th><th>Worth</th><th>Emeralds</th>${e.flags.goals ? '<th>Goal</th>' : ''}</tr></thead><tbody>${ms.map((m, i) => `<tr title="${esc(`holds ${m.top.map(([n, q]) => `${q} ${words(n)}`).join(', ')}${m.goalText ? `; ${m.goalText}` : ''}`)}">
+    <td class="mono">${i + 1}</td><td><b>${esc(m.name)}</b></td><td class="mono" style="white-space:nowrap">${wealthBar(m.worth, max)} ${m.worth}</td><td class="mono">${m.emeralds || ''}</td>${e.flags.goals ? `<td>${goalChip(m.goal)}</td>` : ''}</tr>`).join('')}</tbody></table>${e.members.length > limit ? `<div class="sub">${e.members.length - limit} more in the detailed view's Economy tab</div>` : ''}`;
+  const inno = !!e.flags.innovate;
+  return `<table><thead><tr><th>#</th><th>Member</th><th>Worth</th><th>Emeralds</th><th>Holds</th><th>Owed</th><th>Trades</th>${inno ? '<th>Inventions</th><th>Royalties</th>' : ''}${e.flags.goals ? '<th>Goal</th>' : ''}</tr></thead><tbody>${ms.map((m, i) => `<tr>
+    <td class="mono">${i + 1}</td><td><b>${esc(m.name)}</b>${m.chest ? '' : ' <span class="sub">(no chest)</span>'}</td>
+    <td class="mono" style="white-space:nowrap">${wealthBar(m.worth, max)} ${m.worth}</td><td class="mono">${m.emeralds || ''}</td>
+    <td class="sub">${m.top.map(([n, q]) => `${q} ${esc(words(n))}`).join(', ')}</td><td class="mono">${m.owed || ''}</td><td class="mono">${m.traded || ''}${m.sold ? ` <span class="sub">(${m.sold} sold)</span>` : ''}</td>
+    ${inno ? `<td class="mono">${m.credit || ''}${m.points ? ` <span class="sub">(${m.points} pts)</span>` : ''}</td><td class="sub">${esc((m.royalties || []).join(', '))}</td>` : ''}
+    ${e.flags.goals ? `<td>${goalChip(m.goal)} <span class="sub clamp1" title="${esc(m.goalText || '')}">${esc(m.goalText || '')}</span></td>` : ''}</tr>`).join('')}</tbody></table>`;
+}
+/** The flags line: which parts of the economy are on. */
+const econFlags = (f) => [f.own && `own stock (share ${Math.round(f.share * 100)}%)`, f.barter && 'barter', f.special && f.special !== 'off' && `specialists: ${f.special}`, f.sales && `sales (levy ${Math.round(f.levy * 100)}%)`, f.ownFarm && 'own farms', f.innovate && `innovation (royalty ${Math.round(f.royalty * 100)}%)`, f.goals && 'life goals'].filter(Boolean).join(' · ');
+/** The Economy tab's body. */
+function economyBody(v) {
+  const e = v.economy;
+  if (!e) return '<div class="empty">The economy is off (MC_OWN, MC_BARTER, MC_INNOVATE, MC_GOALS all off)</div>';
+  const t = e.totals;
+  const stat = (n, label, title = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span></div>`;
+  const b = e.board, inv = e.innovation;
+  const sec = (label, html) => `<div class="section"><div class="label">${label}</div>${html}</div>`;
+  return `<div class="sub">${esc(econFlags(e.flags))}</div>
+    <div class="stats left">${stat(t.worth, 'total worth', "members' own chests at the board's prices")}${stat(t.emeralds, 'emeralds held')}${stat(t.owed, 'goods owed')}${stat(t.gini, 'inequality', 'Gini coefficient of chest worth: 0 all equal, 1 one member holds everything')}${b ? stat(`${b.taken}/${b.posted}`, 'offers taken') : ''}${inv ? stat(inv.unlocked.length, 'inventions') : ''}</div>
+    ${sec(`Members' wealth <span class="cnt">${e.members.length}</span>`, e.members.length ? wealthTable(e) : '<div class="empty">no member has a house of its own yet</div>')}
+    ${b ? sec('Barter board', `<div class="sub">${b.posted} posted, ${b.taken} taken, ${b.lapsed} lapsed; traded ${Object.entries(b.traded || {}).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, q]) => `${esc(words(k))} ${q}`).join(', ') || 'nothing yet'}</div>
+      ${b.prices.length ? `<div class="sub">prices off par: ${b.prices.map((p) => `${esc(words(p.item))} ×${p.factor} (${p.price})`).join(', ')}</div>` : ''}
+      ${b.open.length ? `<div class="label">Open offers</div><ul class="list">${b.open.map((o) => `<li><b>${esc(o.by)}</b> offers ${esc(o.text)} <span class="sub">${ago(Date.now() - o.age)} ago</span></li>`).join('')}</ul>` : '<div class="sub">no open offers</div>'}
+      ${b.recent.length ? `<div class="label">Recent trades</div><ul class="list">${b.recent.map((o) => `<li><b>${esc(o.takenBy || '?')}</b> took ${esc(o.by)}'s ${esc(o.text)} <span class="sub">${ago(o.at)} ago</span></li>`).join('')}</ul>` : ''}`) : ''}
+    ${inv ? sec('Inventions', `${inv.unlocked.length ? `<ul class="list">${inv.unlocked.map((u) => `<li><b>${esc(u.name)}</b> <span class="state" style="--c:var(--done)">unlocked</span> <span class="sub">inventor ${esc(u.inventor || '?')}, ${plural(u.researchers, 'researcher')}, ${ago(u.at)} ago</span></li>`).join('')}</ul>` : '<div class="sub">nothing unlocked yet</div>'}
+      ${inv.research.length ? `<div class="label">Research under way</div><ul class="list">${inv.research.map((r) => `<li><b>${esc(r.name)}</b> ${r.need ? `${wealthBar(r.points, r.need)} ` : ''}<span class="mono">${r.points}${r.need ? `/${r.need}` : ''} pts</span> <span class="sub">${esc(r.researchers.join(', '))}${r.pledges.length ? `; pledges ${esc(r.pledges.join(', '))}` : ''}</span></li>`).join('')}</ul>` : ''}
+      ${inv.locked.length ? `<div class="sub">not started: ${inv.locked.map((l) => `${esc(l.name)}${l.after.length || l.tools.length ? ` (after ${esc([...l.after, ...l.tools].join(', '))})` : ''}`).join(', ')}</div>` : ''}`) : ''}
+    ${e.goals ? sec('Life goals', `<div class="mats">${e.goals.map((g) => `<span>${goalChip(g.goal)} <b>${g.n}</b></span>`).join('')}</div>`) : ''}`;
+}
+/** The simple view's economy card: totals, the ten richest, inventions and the board in a line each. */
+function economyCard(v) {
+  const e = v.economy;
+  if (!e) return '';
+  const t = e.totals, inv = e.innovation, b = e.board;
+  return `<div class="card"><div class="label">Economy</div>
+    <div class="sub">total worth <b>${t.worth}</b> · ${plural(t.emeralds, 'emerald')} · inequality ${t.gini}${b ? ` · ${b.taken} of ${b.posted} offers taken` : ''}</div>
+    ${e.members.length ? wealthTable(e, 10) : ''}
+    ${inv ? `<div class="sub">inventions: ${inv.unlocked.map((u) => `${esc(u.name)} (${esc(u.inventor || '?')})`).join(', ') || 'none yet'}${inv.research.length ? `; researching ${inv.research.map((r) => `${esc(r.name)} ${r.points}${r.need ? `/${r.need}` : ''}`).join(', ')}` : ''}</div>` : ''}
+    ${e.goals ? `<div class="mats">${e.goals.map((g) => `<span>${goalChip(g.goal)} <b>${g.n}</b></span>`).join('')}</div>` : ''}
+  </div>`;
+}
+
 function renderVillage(v) {
   const key = `village:${v.name}`;
   const tab = tabOpen(key);
@@ -817,6 +885,8 @@ function renderVillage(v) {
         + `${n.above > 0 ? ` <span class="sub">above LOW for ${n.above} min</span>` : ''}<div class="sub clamp" title="${esc(n.text)}">${esc(n.text)}</div>`;
     });
   }
+  // (s43-s44: the economy: members' wealth, the board, inventions, life goals)
+  else if (tab === 'economy') body = economyBody(v);
   // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
   else if (tab === 'tech') {
     const wk = (v.layouts || [])[0]?.works;
@@ -835,7 +905,7 @@ function renderVillage(v) {
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], ['log', 'Log']])}
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], v.economy && ['economy', `Economy <span class="cnt">${v.economy.members.length}</span>`], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }
@@ -1588,7 +1658,7 @@ function simpleAgents(agents, scope) {
     const color = STATE_COLORS[state] || 'var(--idle)';
     const sub = a.task && a.currentAction ? a.task.title : '';
     return `<li>
-      <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b>${compact ? appetiteBar(a, true) : ''}<span class="sub">${esc(a.villageRole || a.role)}</span>${compact ? '' : appetiteBar(a)}</div>
+      <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b>${compact ? appetiteBar(a, true) : ''}<span class="sub">${esc(a.villageRole || a.role)}</span>${(() => { const m = econOf(a.name); return m ? `<span class="sub" title="worth of its own chest at the board's prices${m.goal ? `; life goal ${esc(m.goal)}` : ''}">💰${m.worth}</span>${goalChip(m.goal)}` : ''; })()}${compact ? '' : appetiteBar(a)}</div>
       <div class="who-doing"${compact && sub ? ` title="${esc(sub)}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
       <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since && !compact ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
   };
@@ -1796,6 +1866,7 @@ function simpleVillage(v, agents) {
         ${utilCard(agents.map((a) => a.name))}
         ${villageLife(v)}
         ${marketCard(v)}
+        ${economyCard(v)}
         ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
       </div>
       <div class="col">

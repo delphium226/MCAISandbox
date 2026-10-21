@@ -268,6 +268,9 @@ export interface ChoiceOption {
   nw?: number;
   /** #69 (MC_OWN): the member's own wants this option answers, as a weight 1 + 0.3 a want; the fixed pick reads it. */
   ww?: number;
+  /** #79 (MC_GOALS=on): the member's life goal's weight on an option that serves it, 1.6..2 (goals.ts); the fixed pick (no
+   *  rank decay on it), the trim and the decline read it. */
+  gw?: number;
 }
 
 export interface ChoiceContext {
@@ -285,6 +288,8 @@ export interface ChoiceContext {
   needs?: string[];
   /** #69 (MC_OWN): the member's own open wants, one line ("Your wants: food (none of your own); your house (3 ...)"). */
   wants?: string;
+  /** #79 (MC_GOALS=on): "Your life goal: beauty (3 works of yours stand, ...)." */
+  goal?: string;
 }
 
 export interface ChoiceMenu {

@@ -33,6 +33,10 @@ import type { Design, Village } from './village';
 import { APPETITE, foodItems, foodPoints, stateOf } from './appetite';
 import { TEMPERAMENT_MODE, kindWeights, personaOf, temperament } from './temperament';
 import { MERCHANT_ON, OFFERS } from './merchant';
+import { BARTER, boardOf, offerText, price } from './barter';
+import { OWN, LEVY, OWN_FARM, OWN_SALES_ON, SPECIAL } from './own';
+import { INNOVATE, LIBRARY, ROYALTY, pointsIn, techOf } from './tech';
+import { GOALS_ON, goalsOf, progress } from './goals';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -158,6 +162,67 @@ function marketView(v: Village) {
   };
 }
 
+/**
+ * s43-s44's economy for the village card's Economy tab and the agents' wealth chips (~3-6 kB at 25 members): the flags;
+ * each member's wealth (its own chest at the board's prices, emeralds, owed goods, royalty holdings, trades, research
+ * credit, its life goal and progress), richest first; the barter board (counts, open offers, prices, what was traded);
+ * the inventions (unlocked with inventor and minute, research under way, open pledges); the goals' spread. Null when none
+ * of the economy's flags is on.
+ */
+export function economyView(v: Village) {
+  if (!OWN.on && !BARTER.on && !INNOVATE && !GOALS_ON) return { economy: null };
+  const b = boardOf(v);
+  const t = INNOVATE ? techOf(v) : null;
+  const g = GOALS_ON ? goalsOf(v) : undefined;
+  const round = (x: number) => Math.round(x * 10) / 10;
+  const names = new Set([...Object.keys(v.homes ?? {}), ...Object.keys(g?.of ?? {})]);
+  const members = [...names].map((name) => {
+    const h = v.homes?.[name];
+    const items = h?.chest?.items ?? {};
+    const worth = Object.entries(items).reduce((s, [k, q]) => s + price(b, k) * q, 0);
+    const top = Object.entries(items).filter(([, q]) => q > 0).sort((x, y) => price(b, y[0]) * y[1] - price(b, x[0]) * x[1]).slice(0, 4);
+    const owed = Object.values(h?.owed ?? {}).reduce((s, q) => s + q, 0);
+    const traded = b.offers.filter((o) => o.state === 'taken' && (o.by === name || o.takenBy === name)).length;
+    const royalties = t ? Object.entries(t.owners).filter(([, o]) => (o[name] ?? 0) > 0).map(([id, o]) => `${id} ${Math.round((100 * o[name]) / Object.values(o).reduce((s, q) => s + q, 0))}%`) : [];
+    const goal = g?.of[name];
+    return {
+      name, chest: !!h?.chest, worth: round(worth), emeralds: items.emerald ?? 0, items: Object.values(items).reduce((s, q) => s + q, 0), top, owed, traded,
+      sold: Object.values(h?.sold ?? {}).reduce((s, q) => s + q, 0), made: Object.values(h?.made ?? {}).reduce((s, q) => s + q, 0),
+      ...(t ? { credit: (t.credit[name] ?? []).length, points: Math.round(Object.values(t.points).reduce((s, p) => s + (p[name] ?? 0), 0) / 10), royalties } : {}),
+      ...(goal ? { goal, goalText: progress(v, name, goal).text } : {}),
+      ...(v.claims ? { claims: Object.values(v.claims).filter((c) => c.by === name).length } : {}),
+    };
+  }).sort((x, y) => y.worth - x.worth || x.name.localeCompare(y.name));
+  const worths = members.filter((m) => m.chest).map((m) => m.worth).sort((x, y) => x - y);
+  const total = worths.reduce((s, q) => s + q, 0);
+  // (the Gini coefficient of chest worth: 0 all equal, 1 one member holds it all)
+  const gini = worths.length > 1 && total > 0 ? worths.reduce((s, q, i) => s + (2 * (i + 1) - worths.length - 1) * q, 0) / (worths.length * total) : 0;
+  const now = Date.now();
+  const factors = Object.entries(b.factor).filter(([, f]) => Math.abs(f - 1) > 0.01).sort((x, y) => y[1] - x[1]);
+  return {
+    economy: {
+      flags: { own: OWN.on, share: OWN.share, levy: LEVY, barter: BARTER.on, special: Object.entries(SPECIAL).filter(([, on]) => on).map(([k]) => k).join(', '), sales: OWN_SALES_ON, ownFarm: OWN_FARM, innovate: INNOVATE, royalty: ROYALTY, goals: GOALS_ON },
+      members, totals: { worth: round(total), emeralds: members.reduce((s, m) => s + m.emeralds, 0), owed: members.reduce((s, m) => s + m.owed, 0), gini: Math.round(gini * 100) / 100, chests: worths.length },
+      board: BARTER.on ? {
+        posted: b.posted, taken: b.taken, lapsed: b.lapsed, traded: b.traded,
+        open: b.offers.filter((o) => o.state === 'open').slice(-12).map((o) => ({ by: o.by, text: offerText(o), age: now - o.at })),
+        recent: b.offers.filter((o) => o.state === 'taken').slice(-8).reverse().map((o) => ({ by: o.by, takenBy: o.takenBy, text: offerText(o), at: o.endAt ?? o.at })),
+        prices: factors.map(([k, f]) => ({ item: k, factor: f, price: round(price(b, k)) })),
+      } : null,
+      innovation: t ? {
+        unlocked: t.unlocked.map((id) => ({ id, name: LIBRARY.find((e) => e.id === id)?.name ?? id, inventor: t.inventor[id], at: t.at[id], researchers: Object.keys(t.points[id] ?? {}).length })),
+        research: LIBRARY.filter((e) => !t.unlocked.includes(e.id) && (t.need[e.id] !== undefined || pointsIn(v, e.id) > 0)).map((e) => ({
+          id: e.id, name: e.name, points: Math.round(pointsIn(v, e.id) / 10), need: t.need[e.id] !== undefined ? Math.round(t.need[e.id] / 10) : null,
+          researchers: Object.entries(t.points[e.id] ?? {}).sort((x, y) => y[1] - x[1]).map(([m, q]) => `${m} ${Math.round(q / 10)}`),
+          pledges: (t.pledges[e.id] ?? []).map((p) => `${p.n} ${p.item} by ${p.by}`),
+        })),
+        locked: LIBRARY.filter((e) => !t.unlocked.includes(e.id) && t.need[e.id] === undefined && !pointsIn(v, e.id)).map((e) => ({ id: e.id, name: e.name, after: e.after ?? [], tools: e.tools ?? [] })),
+      } : null,
+      goals: g ? Object.entries(Object.values(g.of).reduce((s: Record<string, number>, x) => ((s[x] = (s[x] ?? 0) + 1), s), {})).map(([goal, n]) => ({ goal, n })) : null,
+    },
+  };
+}
+
 /** Phase N's needs for the village card's tab (spec_needs_v2): kind -> level, status, line and minutes above LOW
  *  (~100 bytes a need; /api/needs has the full state). Null with MC_NEEDS off or no view, and the tab says so. */
 function needsSummary(w: WorldAdapter, village: string) {
@@ -200,7 +265,7 @@ export function overview(w: WorldAdapter, opts: { agents?: Set<string>; designs?
     rest.runMs = w.villages.age(v);
     // (#10: each neighbourhood's name by layout number, an old village's worked out as it will be stored)
     const hoodNames = Object.fromEntries(neighbourhoodNames(v));
-    return send ? { ...rest, ...foodView(v), ...marketView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), choices, vote, needGauges, hoodNames };
+    return send ? { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames, designs: Object.fromEntries(keyed[i].map(([k, d, key]) => [k, { ...d, elevations: cachedElevations(d, key) }])) } : { ...rest, ...foodView(v), ...marketView(v), ...economyView(v), choices, vote, needGauges, hoodNames };
   });
   return { world: { kind: w.kind, ticks: w.ticks, time: Date.now() }, agents: agents.map(agentOverview), villages, designsEtag, usage: usage.summary() };
 }

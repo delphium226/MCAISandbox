@@ -1,0 +1,226 @@
+/**
+ * Life goals (#79; spec runs/2026-10-21/s44/spec_life_goals.md with its check's revisions; the user's choices 10-21): a goal
+ * per member drawn from its temperament once the village is complete and fixed for life: wealth, invention, mastery,
+ * standing, home, beauty (art, creativity, the look of the village: the user's addition). Code measures progress (shown on
+ * the menu and in the model prompt) and weights the options that serve the goal (gw, beside tw, nw and ww; exempt from the
+ * fixed pick's rank decay; the weights' product capped). World-free: the world (mcWorld.ts) keeps the counters at chore
+ * ends and applies the weights; the simulator runs it.
+ */
+import { price, boardOf } from './barter';
+import { fnv1a } from './choose';
+import { OWN } from './own';
+import { SMALL_WORKS } from './smallWorks';
+import { INNOVATE, techOf } from './tech';
+import type { Temperament } from './temperament';
+import type { ChoiceOption } from './world';
+import type { Village } from './village';
+
+type Counts = Record<string, number>;
+
+/** On with MC_GOALS=on. */
+export const GOALS_ON = /^(on|1|true)$/i.test(process.env.MC_GOALS ?? 'off');
+
+export const GOALS = ['wealth', 'invention', 'mastery', 'standing', 'home', 'beauty'] as const;
+export type Goal = (typeof GOALS)[number];
+
+/** Each goal's affinity over the traits (spec 1). */
+const AFFINITY: Record<Goal, Partial<Temperament>> = {
+  wealth: { care: -0.4, sociability: -0.3, diligence: 0.3 },
+  invention: { curiosity: 1 },
+  mastery: { diligence: 0.7, curiosity: -0.3 },
+  standing: { sociability: 0.6, care: 0.4 },
+  home: { care: 0.5, curiosity: -0.3, sociability: -0.2 },
+  beauty: { pride: 1 },
+};
+
+/** The goal's weight (the user's: 1.6, as "you enjoy this"), times up to 1.25 for a member behind on it. */
+export const GOAL_WEIGHT = 1.6;
+
+/** The small works that count toward beauty, and the rest toward standing (the check's 6: every initiative is a small work). */
+export const BEAUTY_WORKS = new Set(['statue', 'gazebo', 'lamp_posts', 'bench']);
+export const STANDING_WORKS = new Set(SMALL_WORKS.map((k) => k.kind).filter((k) => !BEAUTY_WORKS.has(k)));
+/** Goods made for the look of the village. */
+export const DECOR_GOODS = new Set(['lantern', 'jack_o_lantern']);
+
+/** A member's counters, kept at its chore ends. */
+export interface GoalStats { done: Counts; lights: number; furnished: number; furnishedOwn: number; helps: number }
+/** The record: each member's goal, the members the draw was over. */
+export interface Goals { of: Record<string, Goal>; drawnFor: number; at: number; stats: Record<string, GoalStats> }
+
+export function goalsOf(v: Village): Goals | undefined {
+  return (v as Village & { goals?: Goals }).goals;
+}
+
+const score = (g: Goal, t: Temperament) => Object.entries(AFFINITY[g]).reduce((s, [k, w]) => s + (w ?? 0) * (t[k as keyof Temperament] ?? 0), 0);
+/** Ties by a hash of name and goal (zero vectors past the 24 drawn: the check's 4). */
+const tie = (name: string, g: Goal) => fnv1a(`${name}|${g}`) / 2 ** 32 / 1000;
+
+/** The goals in play: wealth only with own stock (MC_OWN; the check's 12), invention only with innovation (MC_INNOVATE);
+ *  MC_GOALS_ONLY narrows them (experiments). */
+export function goalsInPlay(): Goal[] {
+  const only = (process.env.MC_GOALS_ONLY ?? '').split(/[,;+]/).filter(Boolean);
+  return GOALS.filter((g) => (g !== 'wealth' || OWN.on) && (g !== 'invention' || INNOVATE) && (!only.length || only.includes(g)));
+}
+
+/**
+ * The draw (pure, deterministic): each goal its best free member first (every goal present), then the best remaining
+ * (member, goal) pairs, each goal capped at ceil(n / goals) + 1.
+ */
+export function drawGoals(members: Array<{ name: string; t: Temperament }>, goals: Goal[] = goalsInPlay()): Record<string, Goal> {
+  const out: Record<string, Goal> = {};
+  if (!goals.length) return out;
+  const cap = Math.ceil(members.length / goals.length) + 1;
+  const count = new Map<Goal, number>();
+  const pairs = members.flatMap((m) => goals.map((g) => ({ m: m.name, g, s: score(g, m.t) + tie(m.name, g) }))).sort((a, b) => b.s - a.s || (a.m < b.m ? -1 : 1));
+  for (const g of goals) {
+    const p = pairs.find((x) => x.g === g && !out[x.m]);
+    if (!p) continue;
+    out[p.m] = g;
+    count.set(g, 1);
+  }
+  for (const p of pairs) {
+    if (out[p.m] || (count.get(p.g) ?? 0) >= cap) continue;
+    out[p.m] = p.g;
+    count.set(p.g, (count.get(p.g) ?? 0) + 1);
+  }
+  return out;
+}
+
+/** A late arrival's goal: its best among the goals with room under the cap, else its best. */
+export function lateGoal(name: string, t: Temperament, of: Record<string, Goal>, goals: Goal[] = goalsInPlay()): Goal {
+  const n = Object.keys(of).length + 1, cap = Math.ceil(n / goals.length) + 1;
+  const held = (g: Goal) => Object.values(of).filter((x) => x === g).length;
+  const ranked = [...goals].sort((a, b) => score(b, t) + tie(name, b) - (score(a, t) + tie(name, a)));
+  return ranked.find((g) => held(g) < cap) ?? ranked[0];
+}
+
+/**
+ * The village's goals, drawn on first use over `members` (the world calls it once the village is complete), a member
+ * missing from the record given one by the late rule. A record drawn for members none of whom are present (a checkpoint of
+ * another run) is drawn again, and so is one drawn over fewer members than are here before any counter was kept (a resume:
+ * the first menu came while the rest were still spawning).
+ */
+export function ensureGoals(v: Village, members: Array<{ name: string; t: Temperament }>, now: number): Goals {
+  const x = v as Village & { goals?: Goals };
+  if (x.goals && (!members.some((m) => x.goals!.of[m.name]) || (members.length > x.goals.drawnFor && !Object.keys(x.goals.stats).length))) delete x.goals;
+  if (!x.goals) x.goals = { of: drawGoals(members), drawnFor: members.length, at: now, stats: {} };
+  for (const m of members) if (!x.goals.of[m.name]) x.goals.of[m.name] = lateGoal(m.name, m.t, x.goals.of);
+  return x.goals;
+}
+
+export function statsOf(v: Village, name: string): GoalStats {
+  const g = goalsOf(v)!;
+  return (g.stats[name] ??= { done: {}, lights: 0, furnished: 0, furnishedOwn: 0, helps: 0 });
+}
+
+/** The craft a chore end counts toward (mastery): a make's good, an activity, harvesting. */
+export const craftOf = (kind: string, option: string): string | undefined =>
+  kind === 'make' || kind === 'activity' ? option : kind === 'slot' || kind === 'farm' ? 'harvest' : undefined;
+
+/** A chore's end into the member's counters (an ended chore that did its work): its craft, lights, furnishings, help. */
+export function noteEnd(v: Village, name: string, kind: string, option: string, optName: string, message: string): void {
+  if (!goalsOf(v)) return;
+  const s = statsOf(v, name);
+  const craft = craftOf(kind, option);
+  if (craft) s.done[craft] = (s.done[craft] ?? 0) + 1;
+  if (kind === 'light') s.lights += Number(/\blit (\d+)/.exec(message)?.[1] ?? 0);
+  if (kind === 'furnish') {
+    const n = Number(/\bfurnished (\d+)/.exec(message)?.[1] ?? 0);
+    s.furnished += n;
+    if (/your own house/.test(optName)) s.furnishedOwn += n;
+  }
+  // (help on others' projects only: "Continue your ..." is the member's own)
+  if (kind === 'help' && /^Help /.test(optName)) s.helps++;
+}
+
+/** Mastery's craft: the member's most-done craft once it has done it 5 times. */
+export function topCraft(s: GoalStats | undefined): string | undefined {
+  const best = Object.entries(s?.done ?? {}).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] >= 5 ? best[0] : undefined;
+}
+
+const words = (s: string) => s.replace(/^(make|activity):/, '').replace(/_/g, ' ');
+
+/** A member's progress toward its goal: a number (for the score) and the menu's line. */
+export function progress(v: Village, name: string, goal: Goal): { value: number; text: string } {
+  const g = goalsOf(v);
+  const s = g?.stats[name];
+  switch (goal) {
+    case 'wealth': {
+      const own = v.homes?.[name]?.chest?.items ?? {};
+      const b = boardOf(v);
+      const worth = Math.round(Object.entries(own).reduce((t, [k, q]) => t + price(b, k) * q, 0));
+      return { value: worth, text: `${own.emerald ?? 0} emeralds; your own chest worth ${worth}` };
+    }
+    case 'invention': {
+      const t = techOf(v);
+      const credit = (t.credit[name] ?? []).length;
+      const pts = Math.round(Object.values(t.points).reduce((x, p) => x + (p[name] ?? 0), 0) / 10);
+      return { value: credit * 20 + pts, text: `${credit} invention${credit === 1 ? '' : 's'} credited to you; ${pts} research points given` };
+    }
+    case 'mastery': {
+      const c = topCraft(s);
+      if (!c) return { value: 0, text: 'no craft of your own yet (do one 5 times)' };
+      const mine = s!.done[c], all = Object.values(g!.stats).reduce((t, q) => t + (q.done[c] ?? 0), 0);
+      const share = all ? mine / all : 0;
+      return { value: share * Math.min(1, mine / 20), text: `you did ${Math.round(share * 100)}% of the village's ${words(c)} (${mine} times)` };
+    }
+    case 'standing': {
+      const built = (v.initiatives ?? []).filter((i) => i.by === name && i.state === 'built' && STANDING_WORKS.has(i.kind)).length;
+      const helps = s?.helps ?? 0;
+      return { value: helps + 3 * built, text: `${helps} help${helps === 1 ? '' : 's'} on others' projects; ${built} public work${built === 1 ? '' : 's'} of yours stand` };
+    }
+    case 'home': {
+      const own = v.homes?.[name];
+      const farm = (v.layouts ?? []).some((l) => l.owner === name);
+      const n = s?.furnishedOwn ?? 0;
+      return { value: n + (own?.chest ? 3 : 0) + (farm ? 5 : 0), text: `your house: ${n} spots furnished${OWN.on ? `, ${own?.chest ? 'a chest of your own' : 'no chest of your own'}, ${farm ? 'a farm of your own' : 'no farm of your own'}` : ''}` };
+    }
+    case 'beauty': {
+      const built = (v.initiatives ?? []).filter((i) => i.by === name && i.state === 'built' && BEAUTY_WORKS.has(i.kind)).length;
+      const lights = s?.lights ?? 0, furn = s?.furnished ?? 0;
+      return { value: 10 * built + lights / 4 + furn / 2, text: `${built} work${built === 1 ? '' : 's'} of yours stand; ${lights} lights you put up; ${furn} spots you furnished` };
+    }
+  }
+}
+
+/** The member's score at its goal, 0..1 against the best member at the same goal (0 when the best has none). */
+export function goalScore(v: Village, name: string): number {
+  const g = goalsOf(v);
+  const goal = g?.of[name];
+  if (!g || !goal) return 0;
+  const mine = progress(v, name, goal).value;
+  const best = Math.max(0, ...Object.entries(g.of).filter(([, x]) => x === goal).map(([m]) => progress(v, m, goal).value));
+  return best > 0 ? mine / best : 0;
+}
+
+/** What the world knows of an option for the goals: its run data's kind-specific facts. */
+export interface OptionFacts { work?: string; helpKind?: string; mine?: boolean; good?: string; own?: string }
+
+/** Whether an option serves a goal (spec 3, with the check's 6, 7 and 11). `craft`: the member's mastery craft. */
+export function serves(goal: Goal, o: ChoiceOption, f: OptionFacts, craft?: string): boolean {
+  switch (goal) {
+    case 'wealth':
+      return (o.kind === 'own' && f.own !== 'pledge') || o.kind === 'slot' || o.kind === 'penwork';
+    case 'invention':
+      return o.kind === 'innovate' || (o.kind === 'own' && f.own === 'pledge') || o.kind === 'activity';
+    case 'mastery':
+      return !!craft && craftOf(o.kind, o.id) === craft;
+    case 'standing':
+      return (o.kind === 'help' && !f.mine) || (o.kind === 'initiate' && !!f.work && STANDING_WORKS.has(f.work));
+    case 'home':
+      return (o.kind === 'furnish' && /your own house/.test(o.name)) || (o.kind === 'own' && (f.own === 'chest' || f.own === 'farm'));
+    case 'beauty':
+      return o.kind === 'light' || o.kind === 'furnish' || (o.kind === 'initiate' && !!f.work && BEAUTY_WORKS.has(f.work))
+        || (o.kind === 'help' && !!f.helpKind && BEAUTY_WORKS.has(f.helpKind)) || (o.kind === 'make' && !!f.good && DECOR_GOODS.has(f.good));
+  }
+}
+
+/** The goal's weight for a member at `score`: 1.6 x (1 + 0.25 x (1 - score)), to 2 decimals. */
+export const goalWeight = (score: number) => Math.round(GOAL_WEIGHT * (1 + 0.25 * (1 - Math.max(0, Math.min(1, score)))) * 100) / 100;
+
+/** The goal's line for the menu and the prompt ("Your life goal: beauty (3 works of yours stand, ...)."). */
+export function goalLine(v: Village, name: string): string {
+  const goal = goalsOf(v)?.of[name];
+  return goal ? `Your life goal: ${goal} (${progress(v, name, goal).text}).` : '';
+}

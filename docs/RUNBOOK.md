@@ -185,7 +185,12 @@ the short version; look here for a check script's arguments, a model detail or w
   nothing), `MC_OWN_SALES=on` (members sell to the merchant, `MC_OWN_LEVY` 0.25 to storage), `MC_OWN_FARM=on` (own wheat,
   pumpkin, cane or carrot farms by the house), `MC_INNOVATE=on` (tech.ts: experiments unlock library entries;
   `MC_TECH_UNLOCKED=hay+lantern` starts with some; s44's research points, prerequisites and royalties: `MC_TECH_MADE=iron_pickaxe`
-  counts tools as made for the tree (the sim has no iron), `MC_TECH_ROYALTY` 0.1; `scripts/checks/tech_unit.mts`). The sim's report adds own, spread, claims, barter, innovation lines;
+  counts tools as made for the tree (the sim has no iron), `MC_TECH_ROYALTY` 0.1; `scripts/checks/tech_unit.mts`). `MC_GOALS=on` (s44, goals.ts: life goals, `[goal]` lines;
+  `MC_GOALS_ONLY=beauty,...` narrows the draw; `scripts/checks/goals_unit.mts`; the sim's report adds a line a goal: picks
+  on it against other members' and progress). The panel shows all of it: the village card's Economy tab and the simple
+  view's Economy card (members' wealth, the board, inventions, goals), a wealth line on each agent card;
+  `runs/2026-10-21/s44/panel_harness.mts VILLAGES.json [PORT]` serves the page against a sim run's record (the sim now keeps
+  its `villages.json` in its out folder). The sim's report adds own, spread, claims, barter, innovation lines;
   `--workers N` (to 49) runs 50 members; `--random-tick 3` is real-rate growth (judge features there, lesson 157).
 - **The village range** (s43): `MC_VILLAGE_RANGE` (144 since s43; 96 before) moves the village's range; growth's reach is 16 inside it unless
   `MC_GROW_RANGE`; materials for public works are looked for within it; the site survey reads columns the surveyor has

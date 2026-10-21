@@ -1392,3 +1392,18 @@ CLAUDE.md when a phase ends.
   the member's storage flow paid a third of what was due (the flow nets a put against the member's earlier takes of the
   item, a pie eaten); counted from the make's own "put into storage" line. Logs: runs/2026-10-21/s44/sim (v1_s*, v2_s*,
   r3_s*), predictions v2_prediction.txt.
+- F267 (10-21, s44, issue #79) **Life goals in the simulator: beauty, standing and invention make distinct roles;
+  wealth, home and mastery do not yet.** MC_GOALS (off; server/src/goals.ts): a goal per member drawn once the village is
+  complete from its temperament (capped, every goal present: 25 members 3-6 a goal), progress measured by code and shown
+  on the menu and prompt, gw 1.6-2 on the options that serve it (exempt from the fixed pick's rank decay, the weights'
+  product capped at 6.25; the user's). Sim (180 min, real-rate growth, 3 seeds, economy and innovation v2 on; off arm
+  r3_s*): goal members' share of picks on their goal's options against other members': beauty 24-41% vs 6-7% (lift
+  4.1-6.2), standing 26-41% vs 4-7% (3.7-9.7), invention 10-15% vs 2-3% (4.2-6.4), each group far ahead on its own measure
+  (beauty 73-90 vs 4-5: 6-8 small works each; standing 21-29 helps each); wealth 0.4-1.3x (own-stock chores are common to
+  everyone; prediction 0.8-1.3 held in 2 of 3), home 0.7x (its options, own-house furnishing and an own chest, are rare:
+  prediction 1.3-2 missed), mastery not measured (a craft needs 5 makes of one good; progress ~0.1). Busy 15.7 / 14.7 /
+  16.9% vs 14.8 / 16.8 / 15.7 (goals move work between members, they add none: prediction +0-2 met at 0); late bins
+  unchanged. Shears and jack o'lanterns still never unlocked (prediction 2 of 3 missed): invention members see untouched
+  entries, but raw iron and research go to lanterns first. Fixed after the diff review: a draw over a half-spawned village
+  on resume (redrawn while no counter is kept), invention offered with innovation off, a member's own project counted as
+  help for standing. Logs: runs/2026-10-21/s44/sim/g2_s*, prediction goals_prediction.txt.

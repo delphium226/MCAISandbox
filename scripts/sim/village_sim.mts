@@ -685,6 +685,44 @@ const report = {
       claims: Object.fromEntries(Object.entries(v.claims ?? {}).map(([k, q]: [string, Any]) => [k, q.by])),
       ...(b ? { board: { posted: b.posted, taken: b.taken, lapsed: b.lapsed, open: b.offers.filter((o: Any) => o.state === 'open').length, traded: b.traded, factor: b.factor } } : {}) };
   })(),
+  // (#79's life goals: per goal its members, their picks on options serving it against the other members' (the role
+  // lift; mastery by its own craft, not compared), and its progress, goal members' mean against the others')
+  goals: await (async () => {
+    const g = (v as Any).goals;
+    if (!g) return undefined;
+    const G = await import('../../server/src/goals');
+    const goalOf: Record<string, string> = g.of;
+    const facts = (o: Any) => {
+      const [k, a] = String(o.id).split(':');
+      if (k === 'help') return { helpKind: (v.initiatives ?? []).find((i: Any) => i.id === a)?.kind, mine: /^Continue your /.test(o.name ?? '') };
+      return k === 'initiate' ? { work: a } : k === 'make' ? { good: a } : k === 'own' ? { own: a } : {};
+    };
+    const out: Record<string, Any> = {};
+    for (const goal of G.GOALS) {
+      const mine = Object.keys(goalOf).filter((m) => goalOf[m] === goal);
+      if (!mine.length) continue;
+      let gp = 0, gs = 0, op = 0, os = 0;
+      // (the Mayor counted apart: rev. 3)
+      for (const r of rows.filter((x: Any) => x.type === 'choice' && x.chosen && x.kind !== 'eat' && x.agent !== 'Mayor')) {
+        const o = (r.options ?? []).find((q: Any) => q.id === r.chosen);
+        if (!o || goal === 'mastery') continue;
+        const hit = G.serves(goal, o, facts(o));
+        if (goalOf[r.agent] === goal) {
+          gp++;
+          if (hit) gs++;
+        } else {
+          op++;
+          if (hit) os++;
+        }
+      }
+      const prog = (ms: string[]) => ms.length ? Math.round((ms.reduce((t, m) => t + G.progress(v, m, goal as Any).value, 0) / ms.length) * 100) / 100 : 0;
+      const others = Object.keys(goalOf).filter((m) => goalOf[m] !== goal);
+      out[goal] = { members: mine, share: gp ? Math.round((gs / gp) * 1000) / 10 : 0, othersShare: op ? Math.round((os / op) * 1000) / 10 : 0,
+        lift: op && os && gp ? Math.round((gs / gp / (os / op)) * 100) / 100 : null, progress: prog(mine), othersProgress: prog(others),
+        lines: mine.slice(0, 3).map((m) => `${m}: ${G.progress(v, m, goal as Any).text}`) };
+    }
+    return out;
+  })(),
   // (s43's innovation: unlocks with minute and inventor, attempts, pledges open, the new goods made)
   innovation: (() => {
     const t = (v as Any).innovation;
@@ -711,6 +749,9 @@ if (process.env.SIM_TASKS) fs.writeFileSync(path.join(OUT, 'sim.tasks.txt'), v.t
 fs.writeFileSync(path.join(OUT, 'sim.events.log'), keep.map((k) => `+${((k.t - T0) / 60000).toFixed(2)}m ${k.s}`).join('\n') + '\n');
 if (LOG) fs.writeFileSync(path.join(OUT, 'sim.log'), logLines.join('\n') + '\n');
 if (errors.length) fs.writeFileSync(path.join(OUT, 'sim.errors.log'), errors.join('\n') + '\n');
+// (the record as the run left it, for offline checks and the panel's harness)
+w.villages.flushSync?.();
+fs.copyFileSync(path.join(SCRATCH, 'villages.json'), path.join(OUT, 'villages.json'));
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 
 const kv = (c: Counts) => Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
@@ -729,6 +770,7 @@ if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders
 say(`  spread: top good ${report.own.spread?.topGood} of a chest's value, top chore kind ${report.own.spread?.topKind} of a member's chores, ${report.own.spread?.goods} goods held`);
 if (Object.keys(report.own.claims ?? {}).length) say(`  claims: ${Object.entries(report.own.claims).map(([k, b]) => `${k} ${b}`).join(', ')}`);
 if (report.innovation) say(`  innovation: ${report.innovation.unlocked.join(', ') || 'nothing unlocked'}; ${report.innovation.attempts} attempts; ${report.innovation.pledgesOpen} pledges open; makes of new goods ${kv(report.innovation.madeChoices)}`);
+if (report.goals) for (const [goal, r] of Object.entries(report.goals as Record<string, Any>)) say(`  goal ${goal} (${r.members.length}): picks on it ${r.share}% vs others' ${r.othersShare}% (lift ${r.lift ?? '-'}); progress ${r.progress} vs others' ${r.othersProgress}; ${r.lines.join(' | ').slice(0, 260)}`);
 if (report.innovation) say(`  research: ${Object.entries(report.innovation.research).map(([id, r]) => `${id} ${r}`).join('; ') || 'none'}; credit ${kv(report.innovation.credit)}`);
 if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);

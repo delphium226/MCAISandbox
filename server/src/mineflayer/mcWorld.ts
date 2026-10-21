@@ -24,9 +24,10 @@ import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurna
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
-import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, fnv1a, shuffled, trimMenu } from '../choose';
+import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, choose, choreProductive, fixedPick, fnv1a, shuffled, trimMenu, weighted } from '../choose';
 import { workerNumber } from '../agentNames';
-import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament } from '../temperament';
+import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
+import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
@@ -3671,7 +3672,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -3793,6 +3794,8 @@ export class MineflayerWorld implements WorldAdapter {
       const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
+    // (#79: the chore's end into its member's goal counters: its craft, lights, furnishings, help)
+    if (GOALS_ON && v && ok) goalNoteEnd(v, c.agent, c.choice.kind ?? '', c.choice.option ?? '', c.choice.name ?? '', message);
     // (s44, the user's: the inventors' royalty on a make of an invention's goods, owed to its researchers and pledgers)
     // (what the make's own steps put into storage, "put into storage: N item": the flow nets puts against the member's
     // earlier takes of the item, a pie eaten from storage, and paid a third of what was made)
@@ -4274,7 +4277,7 @@ export class MineflayerWorld implements WorldAdapter {
       const tv = TEMPERAMENT_MODE !== 'off' ? temperament(a.name) : null;
       // (s44, the user's: entries started or wanted on everyone's menu, the untouched rest for curious members only)
       const plan = (b: Counts) => this.materials.plan(b);
-      for (const c of candidates(v, store, wants, held, now, v.mine?.ironMade ?? []).filter((x) => x.demand || x.started || (tv?.curiosity ?? 0) >= 0.5).slice(0, 2)) {
+      for (const c of candidates(v, store, wants, held, now, v.mine?.ironMade ?? []).filter((x) => x.demand || x.started || (tv?.curiosity ?? 0) >= 0.5 || (GOALS_ON && goalsOf(v)?.of[a.name] === 'invention')).slice(0, 2)) {
         const key = `innovate:${c.e.id}`;
         if (busy.has(key)) continue;
         const chance = chanceFor(c.e, t.tries[`${c.e.id}|${a.name}`] ?? 0);
@@ -5197,6 +5200,17 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     // Model mode's guards (D5): bans, the agent's own cooldown, learning progress, then the trim
+    // #79 (MC_GOALS=on): the member's life goal weighs on the options that serve it (not meals, not a houseless member's
+    // house), more while it is behind the best member at the same goal
+    if (GOALS_ON && v.complete) {
+      const g = this.goalsFor(v);
+      const goal = g.of[a.name];
+      if (goal) {
+        const gw = goalWeight(goalScore(v, a.name));
+        const craft = goal === 'mastery' ? topCraft(g.stats[a.name]) : undefined;
+        for (const o of out) if (o.kind !== 'eat' && o.kind !== 'grow' && serves(goal, o, this.goalFacts(v, o), craft)) o.gw = gw;
+      }
+    }
     const guarded: Array<{ id: string; why: string }> = guards ? starved.map((o) => ({ id: o.id, why: 'hungry' })) : [];
     let options = out;
     // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
@@ -5223,6 +5237,29 @@ export class MineflayerWorld implements WorldAdapter {
     }
     for (const o of options) if (reasons[o.kind]) delete reasons[o.kind];
     return { options, feasible, effects: { skips }, reasons, guarded };
+  }
+
+  /** #79: the village's life goals, drawn over its members (their temperament vectors, whatever the mode) on first use. */
+  goalsFor(v: Village): Goals {
+    const members = [...this.agents.values()].filter((b) => b.village() === v).map((b) => ({ name: b.name, t: vectorOf(b.name) }));
+    const before = goalsOf(v)?.drawnFor;
+    const g = ensureGoals(v, members, Date.now());
+    if (before === undefined) console.log(`[goal] ${v.name}: goals drawn over ${members.length} members: ${Object.entries(g.of).map(([m, x]) => `${m} ${x}`).join(', ')}`);
+    return g;
+  }
+
+  /** #79: what an option's run data says for the goals (the work an initiative builds, a make's good, an own option's what). */
+  private goalFacts(v: Village, o: ChoiceOption): OptionFacts {
+    const d = OPTION_RUN.get(o);
+    if (!d) return {};
+    if (d.kind === 'initiate') return { work: d.work };
+    if (d.kind === 'help') {
+      const it = (v.initiatives ?? []).find((i) => i.id === d.id);
+      return { helpKind: it?.kind, mine: /^Continue your /.test(o.name) };
+    }
+    if (d.kind === 'make') return { good: d.good.item };
+    if (d.kind === 'own') return { own: d.what };
+    return {};
   }
 
   /** A.3p's own-pattern line from the agent's last 10 ends ('' when temperaments are off or none yet). */
@@ -5286,6 +5323,8 @@ export class MineflayerWorld implements WorldAdapter {
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
       // (#69: the member's own wants, one line)
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
+      // (#79: the member's life goal and its progress, one line)
+      ...(GOALS_ON && v.complete ? (() => { this.goalsFor(v); const line = goalLine(v, a.name); return line ? { goal: line.slice(0, 200) } : {}; })() : {}),
       // (N.1: the needs at LOW or above, most acute first)
       ...(NEEDS_MODE === 'on' && (this.needReadings.get(v.name) ?? []).some((r) => r.level >= LOW)
         ? { needs: (this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).sort((x, y) => y.level - x.level).slice(0, 3).map((r) => r.text) } : {}),
@@ -5809,7 +5848,7 @@ export class MineflayerWorld implements WorldAdapter {
         const { menu, skips } = this.menu(v, a, ctx.busy, model, facts, ctx.first);
         // (A.3p: with temperament weights on the options, the fixed pick weighs them; without, the first in rank order as
         // before)
-        const pick = !model && menu.options.some((o) => o.tw !== undefined || o.nw !== undefined) ? fixedPick(menu) : menu.options[0];
+        const pick = !model && menu.options.some(weighted) ? fixedPick(menu) : menu.options[0];
         this.needNote(v, menu);
         // (the old picker wrote these only when it walked the farm starts: a member whose pick is a field or a ripe slot
         // never got there)
@@ -5844,7 +5883,8 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (!model) {
           // (A.3p: a disliked pick is left for a member who likes it, until it has waited DECLINE_MS; then anyone takes it)
-          if (pick.tw !== undefined && pick.tw < DISLIKED) {
+          // (#79: a goal's weight lifts a disliked kind out of the decline)
+          if (pick.tw !== undefined && pick.tw * (pick.gw ?? 1) < DISLIKED) {
             const dk = `${v.name}|${pick.id}`;
             const since = this.declined.get(dk);
             if (since === undefined) {

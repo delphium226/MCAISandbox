@@ -642,3 +642,9 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   coal). **Inventors' royalties:** 10% (MC_TECH_ROYALTY) of every batch of an entry's final goods, split by all points at
   the unlock, attempts' and pledges' (pledges capped at half the need, so funders hold at most half), owed as own stock's
   shares and carried home. Next: life goals (#79), whose invention goal is what should carry research past demand (F266).
+- 10-21 (s44, the user's) **Life goals: gw 1.6 (to 2 when behind), exempt from the rank decay, product capped at 6.25;
+  a capped draw with every goal present, fixed for life** (drawn at completion, not at spawn: agents spawn one at a time).
+  Kept beside the spec's rev. 10: innovate options carry both curiosity's ww and gw (the cap bounds them; without gw the
+  invention goal had no pull). **The panel's economy views** (the user's request): an Economy tab on the village card
+  (members' wealth richest first, the board, inventions, goals), an Economy card in the simple view (the ten richest), a
+  wealth line on each agent card.

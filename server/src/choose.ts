@@ -55,7 +55,8 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   const perKind = new Map<string, number>();
   const kept: ChoiceOption[] = [];
   // (N.1: within a kind, a need's weight first, then rank; without needs the rank order as before)
-  for (const o of [...options].sort((a, b) => (b.nw ?? 1) - (a.nw ?? 1) || byRank(a, b))) {
+  // (#79: and a life goal's)
+  for (const o of [...options].sort((a, b) => (b.nw ?? 1) * (b.gw ?? 1) - (a.nw ?? 1) * (a.gw ?? 1) || byRank(a, b))) {
     const n = perKind.get(o.kind) ?? 0;
     if (n >= PER_KIND_MAX) continue;
     perKind.set(o.kind, n + 1);
@@ -64,10 +65,11 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   if (kept.length <= MENU_MAX) return kept;
   // (a missing lp or tw counts as the neutral weight, 1; A.3p: a kind its agent dislikes, tw below DISLIKED, gets no
   // reserved place and competes for the rest of the room)
-  const w = (o: ChoiceOption) => (o.lp ?? 1) * (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1);
+  const w = (o: ChoiceOption) => (o.lp ?? 1) * weights(o);
   const order = [...kept].sort((a, b) => w(b) - w(a) || a.rank - b.rank);
   const seen = new Set<string>();
-  const firsts = order.filter((o) => (o.tw ?? 1) >= DISLIKED && !seen.has(o.kind) && seen.add(o.kind));
+  // (#79: a goal's option keeps its place though its kind is disliked)
+  const firsts = order.filter((o) => (o.tw ?? 1) * (o.gw ?? 1) >= DISLIKED && !seen.has(o.kind) && seen.add(o.kind));
   const best = [...firsts, ...order.filter((o) => !firsts.includes(o))].slice(0, MENU_MAX);
   return best.sort(byRank);
 }
@@ -105,6 +107,16 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
   return out;
 }
 
+/** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
+export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined;
+/** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
+export const WEIGHT_CAP = 6.25;
+/** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
+export const weights = (o: ChoiceOption) => {
+  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1);
+  return o.gw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
+};
+
 /** A.3p: how much each later kind (in rank order) counts against a temperament's weight in the fixed pick. */
 export const KIND_DECAY = 0.85;
 /** A.3p: a kind below this weight gets no reserved place in the trim. */
@@ -120,12 +132,13 @@ const ENJOYED = 1.6, DULL = 0.63;
 export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   let best: ChoiceOption | undefined;
   for (const o of menu.options) if (!best || o.rank < best.rank) best = o;
-  if (!best || best.kind === 'eat' || !menu.options.some((o) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined)) return best;
+  if (!best || best.kind === 'eat' || !menu.options.some(weighted)) return best;
   const place = new Map<string, number>();
   for (const o of [...menu.options].sort(byRank)) if (!place.has(o.kind)) place.set(o.kind, place.size);
   // (N.1: a need's weight beside the temperament's)
   // (#69: the member's own wants beside both)
-  const score = (o: ChoiceOption) => (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * KIND_DECAY ** (place.get(o.kind) ?? 0);
+  // (#79, the user's: a life goal's options exempt from the decay)
+  const score = (o: ChoiceOption) => weights(o) * KIND_DECAY ** (o.gw !== undefined ? 0 : place.get(o.kind) ?? 0);
   for (const o of menu.options) {
     const d = score(o) - score(best);
     if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < best.rank)) best = o;
@@ -143,7 +156,8 @@ const SYSTEM_PERSONA = ' Choose as the person described would.';
  * A.3p's tag on an option line, from its temperament weight. None on `grow` (N.2's street): its weight is forced to the
  * scale's top for every houseless member, not the member's temperament.
  */
-const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '');
+const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
+  + (o.gw !== undefined ? ' [toward your goal]' : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -158,6 +172,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
+  if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
   lines.push(`Your last chores: ${ctx.outcomes?.length ? ctx.outcomes.join(' | ') : 'none yet'}`);
   lines.push('Options (in no particular order):');
   for (const o of shown) {
