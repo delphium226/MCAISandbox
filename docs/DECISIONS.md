@@ -648,3 +648,13 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   invention goal had no pull). **The panel's economy views** (the user's request): an Economy tab on the village card
   (members' wealth richest first, the board, inventions, goals), an Economy card in the simple view (the ten richest), a
   wealth line on each agent card.
+- 10-21 (scorecard session, #80) **The scorecard's definitions** (the session's, within the brief): busy is an action
+  running (the sim's busy bins and run_report.py's BUSY line), chore busy (the choice log) beside it and used for the
+  verdict when a live run lacks the BUSY line; needs met is the mean of the welfare gauges' shares met (food, housing,
+  light, furnish; storage and mine are capacity, left out); a level's hour is its mean, a counter's its sum; the collapse
+  minute is where the 30-minute mean falls under half of hour 2's for good, the decline where it falls under hour 2's mean
+  for good; no verdict under 3 hours. The sim samples `server/src/scorecard.ts` every 10 minutes (reading only); the panel
+  samples it a minute from the agent server's first request. A live run's missing measures are named, not filled in.
+  **Open, for the planning session:** the pass mark against hour 2 passes today's default (F268: the collapse falls in
+  hour 2); against hour 1, the peak hour or a floor (busy 10%?) it would fail. The scorecard prints the hour-1 ratio,
+  not judged.

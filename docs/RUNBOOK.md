@@ -179,6 +179,23 @@ the short version; look here for a check script's arguments, a model detail or w
   the edge (AWAY), the furnace's fuel carried over; `sim.events.log` adds `[works]`, `[work]`, `[grow]`, `[vote]` and a
   `[stock]` line a minute (logs, cobblestone, sand, glass) to set beside the stage log's STOCK lines. Same seed, same run.
   In check:offline (20 minutes). Fidelity: F260, F262, F263 (Lng1 9.7 vs 9.6%, Rch1 17/16 vs 17%).
+- **The thriving scorecard** (#80, M1 of `docs/STRATEGY.md`): `python scripts/scorecard.py RUN [RUN ...] [--json OUT]`
+  prints it for a simulator output folder or a live run (`DIR/NAME` as run_series.py writes it), in 10-minute and 1-hour
+  bins: busy (an action running: the sim's busy bins, live the stage log's "BUSY after by 10 min" line, so it agrees with
+  run_report.py), chore busy (the choice log, sim_report.mts's count; run_report.py prints it too), members and houses,
+  needs met (food, housing, light, furnish as shares met), goods per member and kinds (storage; with own chests where
+  sampled), inventions and recipes made, works, public works and road cells added, barter and merchant trades; each
+  measure's trend (last hour against hour 2) and the pass mark: **FAIL** when the last hour's busy or needs met is under
+  half of hour 2's, with the minute the 30-minute mean falls under that half for good; no verdict under 3 hours.
+  Several runs end with one line each (seeds side by side). The simulator writes `sim.score.jsonl` for it (a sample of
+  `server/src/scorecard.ts` every 10 simulated minutes; reading only, the choice log is byte-identical with or without
+  it). A live run has no samples unless `NAME.score.jsonl` exists: it then takes needs from the `[need]` lines (MC_NEEDS
+  show or on, levels only at status changes), goods from the STOCK lines, works from builds' ends, and says what it
+  lacks (own chests, recipes, roads; busy when a run stopped before its BUSY line, the verdict then uses chore busy).
+  The panel: `GET /api/scorecard` (a sample a minute from the agent server's first request, with busy from the
+  utilisation clock), a Scorecard card in the simple view and a Scorecard tab in the detailed view; offline check
+  `runs/2026-10-21/scorecard/panel_harness.mts SIMDIR`. **The baseline** (default and economy flags, 6 hours,
+  `--random-tick 3`, 3 seeds): `runs/2026-10-21/scorecard/baseline.sh`; results in F268.
 - **The economy (s43, all off by default, sim-tested; one live pair Eco1/Eco2):** `MC_OWN=on` (a chest in each owned
   house, a `MC_OWN_SHARE` 0.25 share of farm, slot, pen-work, fishing and gathering yields, carry home, own meals, own makes;
   own.ts), `MC_BARTER=on` (offers on a board, barter.ts), `MC_SPECIAL=claim` (claimed plots; `habit`, `price` weights did

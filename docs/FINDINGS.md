@@ -1407,3 +1407,20 @@ CLAUDE.md when a phase ends.
   entries, but raw iron and research go to lanterns first. Fixed after the diff review: a draw over a half-spawned village
   on resume (redrawn while no counter is kept), invention offered with innovation off, a member's own project counted as
   help for standing. Logs: runs/2026-10-21/s44/sim/g2_s*, prediction goals_prediction.txt.
+- F268 (10-21, scorecard session, issue #80) **The thriving scorecard's baseline: the village collapses at minute 80-100
+  in every run, but the pass mark as written passes today's default, because hour 2 already holds half the collapse.**
+  `scripts/scorecard.py` on 6-hour sims (mv3_grown25, Rch1's settings, `--random-tick 3`, seeds 1-3; prediction
+  `runs/2026-10-21/scorecard/prediction.txt`). Default: busy 22.0 / 12.2 / 6.3 / 6.3 / 6.1 / 6.4% by hour (seeds 2-3 within
+  0.4), below hour 2's mean for good from minute 80 in all three, a floor of ~6% from minute 100 to 360; last hour 0.52-0.54x
+  hour 2, so **PASS 3 of 3** by the rule (0.27-0.29x hour 1). The economy's flags on (MC_OWN, MC_BARTER, MC_SPECIAL=claim,
+  MC_OWN_SALES, MC_OWN_FARM, MC_INNOVATE, MC_GOALS): 25-26 / 13-15 / ~6 / ~6 / ~6 / 5.4-6.6%, **FAIL 3 of 3** (0.42-0.46x
+  hour 2) only because barter raises hour 2; the late floor is the default's. Prediction FAIL 3 of 3 for both with the
+  collapse at 100-120: the shape and minute held, the verdict missed for the default. Needs met 0.95-0.98 throughout
+  (housing and light 1.0, food 0.84-0.96): nothing collapses but labour. Works and public works stop at minute ~100
+  (74 + 32 then 0); road cells flat at 3,127 from hour 3. Goods per member in storage rise 1.12x hour 2 (default) to 2.3-2.5x
+  (flags on: own crops pile up, kinds flat at 73-74): stock grows with nothing to spend it on. Inventions: hay only, at 17-33
+  min (no raw iron stocked: no lanterns, as F266). Barter 30-60 trades a run, most in hours 2-3, ~0-5 an hour after (s44's
+  197 in 3 hours had sugar cane, carrots and raw iron stocked); merchant 4-7 trades an hour (default), ~0-1 (flags on).
+  The scorecard's live side reproduces RUNS' figures (Eco1 chore busy 19.9% over 90 min, Lng1 F262's bins exactly). The sim
+  export changes no decision (choice log and villages.json byte-identical, same seed). Logs: runs/2026-10-21/scorecard/
+  (baseline.txt, baseline.json, sim/).

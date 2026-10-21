@@ -13,7 +13,8 @@
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/sim/village_sim.mts [--series SPEC.json --run NAME] [--checkpoint DIR]
  *   [--minutes N] [--scale S] [--random-tick R] [--env K=V,...] [--stock item:N,...] [--calib REF.choices.jsonl]
  *   [--step SEC] [--seed N] [--out DIR] [--log]
- * Writes OUT/sim.choices.jsonl (the choice log, as a real run's) and OUT/sim.report.json; prints the report.
+ * Writes OUT/sim.choices.jsonl (the choice log, as a real run's), OUT/sim.report.json and OUT/sim.score.jsonl (#80: the
+ * scorecard's samples every 10 minutes, scripts/scorecard.py); prints the report.
  * Compare with a real run: scripts/sim/sim_report.mts REF.choices.jsonl OUT/sim.choices.jsonl.
  */
 import fs from 'node:fs';
@@ -131,7 +132,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter|claim|innovate)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|need|light|work|grow|vote|own|barter|claim|innovate)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -151,6 +152,7 @@ const { baseValue } = await import('../../server/src/barter');
 const { LIBRARY: LIB } = await import('../../server/src/tech');
 const LIB_ITEMS = new Set(LIB.flatMap((e) => e.goods.map((g) => g.item)));
 const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
+const { scoreSample } = await import('../../server/src/scorecard');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
 
@@ -564,6 +566,11 @@ const busyMs = new Map<string, number>();
 /** Busy minutes by action type (as stage_village's "busy by activity" line). */
 const typeMs = new Map<string, number>();
 const binMs = Array.from({ length: Math.ceil(minutes / 10) }, () => 0);
+/** #80: the scorecard's samples, at the start and every 10 simulated minutes (reading only: no decision sees them). */
+const scores: Any[] = [];
+const scoreWorld = { members: (x: Any) => w.growMembers(x).length, lightParts: (x: Any) => w.lightParts(x), decorParts: (x: Any) => (CHOOSE.families.has('furnish') ? w.decorParts(x) : []) };
+const score = () => scores.push({ minute: Math.round((clock - T0) / 60000), ...scoreSample(scoreWorld, v, clock) });
+score();
 const realStart = realNow();
 while (clock < END) {
   const nextTick = lastTick + STEP;
@@ -584,6 +591,7 @@ while (clock < END) {
     }
   const dt = (t - clock) / 1000;
   clock = t;
+  if (Math.floor((clock - T0) / 600000) > scores[scores.length - 1].minute / 10) score();
   if (dt > 0) {
     crops.grow(dt);
     eggs.lay(v, dt);
@@ -617,6 +625,7 @@ while (clock < END) {
   for (const a of agents) start(a);
 }
 const realMs = realNow() - realStart;
+if (scores[scores.length - 1].minute < minutes) score();
 
 // ---- the report ----------------------------------------------------------------------------------------------------------
 
@@ -746,6 +755,7 @@ const report = {
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
 if (process.env.SIM_TASKS) fs.writeFileSync(path.join(OUT, 'sim.tasks.txt'), v.tasks.filter((t: Any) => Number(/\d+/.exec(t.id)?.[0]) > T0_TASK).map((t: Any) => `${t.id} [${t.status}] ${t.title} after ${t.after.join(',')}${t.result ? ': ' + String(t.result).slice(0, 90) : ''}`).join('\n') + '\n');
+fs.writeFileSync(path.join(OUT, 'sim.score.jsonl'), scores.map((x) => JSON.stringify(x)).join('\n') + '\n');
 fs.writeFileSync(path.join(OUT, 'sim.events.log'), keep.map((k) => `+${((k.t - T0) / 60000).toFixed(2)}m ${k.s}`).join('\n') + '\n');
 if (LOG) fs.writeFileSync(path.join(OUT, 'sim.log'), logLines.join('\n') + '\n');
 if (errors.length) fs.writeFileSync(path.join(OUT, 'sim.errors.log'), errors.join('\n') + '\n');

@@ -887,6 +887,8 @@ function renderVillage(v) {
   }
   // (s43-s44: the economy: members' wealth, the board, inventions, life goals)
   else if (tab === 'economy') body = economyBody(v);
+  // (#80: the thriving scorecard by hour and its pass mark)
+  else if (tab === 'score') body = scorecardBody(v);
   // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
   else if (tab === 'tech') {
     const wk = (v.layouts || [])[0]?.works;
@@ -905,7 +907,7 @@ function renderVillage(v) {
     ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
     ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
       ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], v.economy && ['economy', `Economy <span class="cnt">${v.economy.members.length}</span>`], ['log', 'Log']])}
+      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], v.economy && ['economy', `Economy <span class="cnt">${v.economy.members.length}</span>`], scorecard?.[v.name] && ['score', `Scorecard <span class="cnt">${esc(scorecard[v.name].verdict.verdict === 'NO VERDICT' ? '-' : scorecard[v.name].verdict.verdict)}</span>`], ['log', 'Log']])}
     ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
   </div>`;
 }
@@ -1864,6 +1866,7 @@ function simpleVillage(v, agents) {
           ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(words(n))}</span>`).join('')}</div></div>` : ''}
         </div>
         ${utilCard(agents.map((a) => a.name))}
+        ${scorecardCard(v)}
         ${villageLife(v)}
         ${marketCard(v)}
         ${economyCard(v)}
@@ -2071,6 +2074,66 @@ document.addEventListener('click', (e) => {
   store.set('panel.utilBin', utilBin);
   refreshUtil().then(() => lastData && render(lastData));
 });
+// ---- #80: the thriving scorecard (scripts/scorecard.py's measures and pass mark), from /api/scorecard ----
+let scorecard = null;
+async function refreshScorecard() {
+  if (paused) return;
+  try { scorecard = await api('/api/scorecard'); } catch { scorecard = null; }
+}
+/** The measures shown: label, the point's field, a counter (added per bin) or a level, how a value reads. */
+const SCORE_ROWS = [
+  ['busy %', 'busy', false, (x) => `${x}`], ['needs met', 'needsMet', false, (x) => x.toFixed(2)], ['houses', 'houses', false, (x) => `${x}`],
+  ['goods / member', 'goodsPerMember', false, (x) => `${Math.round(x)}`], ['kinds in storage', 'kinds', false, (x) => `${Math.round(x)}`],
+  ['works built', 'works', true, (x) => `${x}`], ['public works', 'publicWorks', true, (x) => `${x}`], ['barter trades', 'trades', true, (x) => `${x}`], ['merchant emeralds', 'emeralds', true, (x) => `${x}`],
+  ['inventions', 'techniques', true, (x) => `${x}`], ['road cells', 'roads', false, (x) => `${x}`],
+];
+/** Last hour against hour 2, as scripts/scorecard.py words it. */
+function scoreTrend(hours, f) {
+  if (hours.length < 3) return '';
+  const h2 = hours[1][f], last = hours[hours.length - 1][f];
+  if (h2 == null || last == null) return '';
+  if (h2 === 0) return last === 0 ? 'none' : 'rising';
+  const r = last / h2;
+  return `${r < 0.5 ? 'collapsed' : r < 0.9 ? 'falling' : r > 1.1 ? 'rising' : 'flat'} ${r.toFixed(2)}x`;
+}
+const SCORE_COLOURS = { PASS: 'var(--good)', FAIL: 'var(--bad)', 'NO VERDICT': 'var(--waiting)' };
+function scoreVerdict(sc) {
+  const v = sc.verdict;
+  return `<span class="state" style="--c:${SCORE_COLOURS[v.verdict]}" title="${esc(v.why.join('; '))}">${esc(v.verdict)}</span>${v.collapse != null ? ` <span class="sub">collapse from minute ${v.collapse}</span>` : ''}`;
+}
+/** A row's sparkline over the 10-minute points, scaled to its largest value. */
+function scoreSpark(sc, f) {
+  const xs = sc.points.map((p) => p[f]);
+  const max = Math.max(1e-9, ...xs.filter((x) => x != null).map(Math.abs));
+  return utilSvg(xs.map((x) => (x == null ? null : x / max)), 160, 20, 'util-spark');
+}
+/** The simple view's card: each measure's sparkline, the last hour's value and its trend, and the pass mark. */
+function scorecardCard(v) {
+  const sc = scorecard?.[v.name];
+  if (!sc) return '';
+  const lastH = sc.hours[sc.hours.length - 1];
+  const rows = SCORE_ROWS.filter(([, f]) => sc.points.some((p) => p[f] != null)).map(([label, f, counter, show]) => {
+    const x = lastH ? lastH[f] : sc.points[sc.points.length - 1][f];
+    return `<tr><td>${esc(label)}${counter ? ' <span class="sub">/ h</span>' : ''}</td><td>${scoreSpark(sc, f)}</td><td class="mono">${x == null ? '-' : esc(show(x))}</td><td class="sub" style="white-space:nowrap">${esc(scoreTrend(sc.hours, f))}</td></tr>`;
+  }).join('');
+  return `<div class="card"><div class="label">Scorecard</div>
+    <div class="util-head">${scoreVerdict(sc)} <span class="sub">${sc.points.length * 10} min sampled since ${new Date(sc.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; last hour against hour 2</span></div>
+    <table><tbody>${rows}</tbody></table></div>`;
+}
+/** The detailed view's Scorecard tab: every measure by hour, each need, and the pass mark's lines. */
+function scorecardBody(v) {
+  const sc = scorecard?.[v.name];
+  if (!sc) return '<div class="empty">No scorecard yet: samples start with the panel\'s first request once the village is complete</div>';
+  const hs = sc.hours;
+  const kinds = [...new Set(sc.points.flatMap((p) => Object.keys(p.needs || {})))];
+  const row = (label, vals) => `<tr><td>${esc(label)}</td>${vals.map((x) => `<td class="mono">${x}</td>`).join('')}</tr>`;
+  return `<div class="util-head">${scoreVerdict(sc)}</div>${sc.verdict.why.map((w) => `<div class="sub">${esc(w)}</div>`).join('')}
+    <table><thead><tr><th></th>${hs.map((h) => `<th>${h.minute / 60}-${h.minute / 60 + 1} h</th>`).join('')}<th>trend</th></tr></thead><tbody>
+    ${SCORE_ROWS.map(([label, f, counter, show]) => `<tr><td>${esc(label)}${counter ? ' <span class="sub">added</span>' : ''}</td>${hs.map((h) => `<td class="mono">${h[f] == null ? '-' : esc(show(h[f]))}</td>`).join('')}<td class="sub">${esc(scoreTrend(hs, f))}</td></tr>`).join('')}
+    ${kinds.map((k) => row(`  ${k} met`, hs.map((h) => (h.needs?.[k] == null ? '-' : h.needs[k].toFixed(2))))).join('')}
+    </tbody></table>
+    <div class="sub">busy: an action running (the utilisation clock); needs met: food, housing, light and furnish as shares met; busy, needs met, goods and kinds are hour means, houses, roads and each need the hour's last point, the rest added in the hour. scripts/scorecard.py prints the same for a run's logs.</div>`;
+}
 
 async function refresh() {
   if (paused) return;
@@ -2138,6 +2201,8 @@ setInterval(refresh, 2000);
 setInterval(refreshHeader, 5000);
 refreshUtil();
 setInterval(refreshUtil, 30000); // #67: the busy history changes by the minute
+refreshScorecard();
+setInterval(refreshScorecard, 60000); // #80: a sample a minute
 refreshMaps();
 setInterval(refreshMaps, 2000);
 setTimeout(refreshWorldAtlas, 1500);

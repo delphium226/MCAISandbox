@@ -18,6 +18,8 @@
  *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B), the spend
  *                       ledger's month and programme, and the call gate's waits (`gate`)
  *   POST /api/usage/budget  {tokensPerHour: number|null, windowMs?}: set the hourly cloud token budget (tests)
+ *   GET /api/scorecard  #80's thriving scorecard per complete village: 10-minute points, hours and the pass mark, from a
+ *                       sample a minute this process keeps from its first request (a day of them) and the busy history
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,6 +39,7 @@ import { BARTER, boardOf, offerText, price } from './barter';
 import { OWN, LEVY, OWN_FARM, OWN_SALES_ON, SPECIAL } from './own';
 import { INNOVATE, LIBRARY, ROYALTY, pointsIn, techOf } from './tech';
 import { GOALS_ON, goalsOf, progress } from './goals';
+import { ScoreClock, scorecardView, type ScoreWorld } from './scorecard';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -311,7 +314,56 @@ async function loadedModels() {
 }
 
 /** Serve the panel routes; returns false for anything else. */
+/** #80: the scorecard's samples, one a minute of each complete village, from the first request this process serves. */
+const scores = new ScoreClock();
+let scoresFor: WorldAdapter | null = null;
+/** The world's readings the sample takes (mcWorld's members and parts; a world without them gives what it has). */
+function scoreWorldOf(w: WorldAdapter): ScoreWorld {
+  const x = w as unknown as { lightParts?: ScoreWorld['lightParts']; decorParts?: ScoreWorld['decorParts'] };
+  return {
+    members: (v) => w.agentList().filter((a) => a.village() === v).length,
+    ...(x.lightParts ? { lightParts: (v) => x.lightParts!.call(w, v) } : {}),
+    ...(x.decorParts ? { decorParts: (v) => x.decorParts!.call(w, v) } : {}),
+  };
+}
+function scoreTick(w: WorldAdapter) {
+  try {
+    scores.sample(scoreWorldOf(w), [...w.villages.villages.values()].filter((v) => v.complete));
+  } catch (e) {
+    console.error('[scorecard] sample failed:', e);
+  }
+}
+function startScores(w: WorldAdapter) {
+  if (scoresFor) return;
+  scoresFor = w;
+  scoreTick(w);
+  setInterval(() => scoreTick(w), 60_000).unref();
+}
+
+/** #80: each complete village's scorecard view, its busy from the utilisation clock (its members' mean a 10-minute point). */
+export function scorecards(w: WorldAdapter) {
+  const out: Record<string, ReturnType<typeof scorecardView>> = {};
+  const now = Date.now();
+  for (const v of w.villages.villages.values()) {
+    const xs = scores.of(v.name);
+    if (!xs.length) continue;
+    const start = xs[0].t;
+    const points = Math.max(1, Math.ceil((now - start) / 600_000) + 1);
+    const util = w.utilisation?.(10, points);
+    const names = w.agentList().filter((a) => a.village() === v).map((a) => a.name);
+    const busy = Array.from({ length: Math.max(1, Math.ceil((xs[xs.length - 1].t - start) / 600_000)) }, (_, k) => {
+      if (!util) return null;
+      const p = Math.floor((start + k * 600_000 - util.start) / 600_000);
+      const vals = names.map((n) => util.agents[n]?.[p]).filter((q): q is number => typeof q === 'number');
+      return vals.length ? vals.reduce((s, q) => s + q, 0) / vals.length : null;
+    });
+    out[v.name] = scorecardView(xs, busy);
+  }
+  return out;
+}
+
 export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  startScores(w);
   if (req.method === 'POST' && url.pathname === '/api/usage/budget') {
     const b = await readJson(req).catch(() => null); // bad JSON is answered below as a bad value
     const n = b?.tokensPerHour === null ? null : Number(b?.tokensPerHour);
@@ -340,6 +392,7 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     const bin = Number(url.searchParams.get('bin') ?? 1), points = Number(url.searchParams.get('points') ?? 60);
     return sendJson(res, 200, w.utilisation(bin, points)), true;
   }
+  if (url.pathname === '/api/scorecard') return sendJson(res, 200, scorecards(w)), true;
   // The full last calls of one agent, for the panel's "what the executor / planner saw" tabs
   const calls = /^\/api\/agents\/([^/]+)\/calls$/.exec(url.pathname);
   if (calls) {

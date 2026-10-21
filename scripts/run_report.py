@@ -6,10 +6,13 @@ Usage: python scripts/run_report.py LOG [LOG ...]
 Each LOG is a stage_village.py log. The agent server's log of the same run is found through reset_NAME.log beside it
 (run_series.py and stage_runs.py write one) for the [lag], [stuck], [stuck-world], [repath] and [dig] counts.
 Rows: how the run started and stopped, completion and total minutes, failed actions before and after completion, busy
-shares, the mine's rate, growth, food, tokens and cost, the agent server's warning lines, and the load figures run_series.py
+shares (and chore busy by 10 minutes from NAME.choices.jsonl, as scripts/scorecard.py counts it), the mine's rate, growth, food, tokens and cost, the agent server's warning lines, and the load figures run_series.py
 sampled (NAME.perf.jsonl: event loop, tick, Paper's mspt, RCON, memory). A row no run has is left out.
 """
 import json, os, re, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scorecard import chore_busy_bins, jsonl  # noqa: E402  (the scorecard's chore busy, #80: one code for both)
 
 # Widest cell; a longer value is cut (MCAI_REPORT_WIDTH to change)
 W = int(os.environ.get("MCAI_REPORT_WIDTH", "44"))
@@ -109,6 +112,12 @@ def report(log):
     if busy:
         r["busy before / after"] = f"{busy.group(1)} / {busy.group(2)}"
     r["busy after by 10 min"] = first(r"^BUSY after by 10 min: (.*)$", t)
+    rows = jsonl(log[:-len(".log")] + ".choices.jsonl")
+    starts = [x for x in rows if x.get("type") == "choice"]
+    if starts:
+        span = (max(x["t"] for x in starts) - min(x["t"] for x in starts)) / 60000
+        bins = chore_busy_bins(rows, len({x.get("agent") for x in starts}), span)
+        r["chore busy by 10 min"] = ", ".join(f"{10 * k}-{10 * k + 10} {b:g}%" for k, b in enumerate(bins))
     r["mine rate"] = first(r"^MINE rate: (.*)$", t)
     r["critical path"] = first(r"^CRITICAL PATH (.*)$", t)
     g = first(r"^GROW layouts (.*)$", t)
