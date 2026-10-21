@@ -1476,6 +1476,22 @@ CLAUDE.md when a phase ends.
   build_design; `scripts/checks/refit_cells.mts` read every changed cell back over RCON (43 + 16 right, 0 wrong) and the
   buildings not refitted unchanged. Where it stops: two tiers a building; the pool grows only with buildings, so after land
   runs out it ends (minute ~290 alone, past 360 with repeats). Logs: runs/2026-10-21/works-grow/ (probe/, sim/, report.md).
+- F271 (10-21, live-scorecard session, issue #80) **Live, with model choices, the village declines from minute 80 as the
+  sim does, but softly: hour 2 holds at 0.68x hour 1 and passes; the panel's scorecard works, but its busy runs one bin
+  late and is lost once the agents leave.** LSc1: test world 2, mv3_grown25, 120 min at 1x, `--choose model` (gpt-oss
+  cloud), F268's settings with the economy, innovation and goals flags on (prediction `prediction.txt`: FAIL, hour 1
+  18-26%). Busy by 10 min 39 35 36 41 32 32 | 34 32 21 26 14 20; by hour **35.8 / 24.5%** (sim flags-on arm 25 / 14%,
+  0.42-0.46x), chore busy 30.5 / 20.5% (Eco1 with fixed choices: 19.9% over 90 min). The 30-minute mean first falls under
+  half at minute 100. Needs met 0.97 both hours (food 0.93 / 0.88, the rest at 1). Goods per member in storage 68 -> 89
+  (1.3x), kinds 72 -> 77. Works 52 then 39, public works 39 then 31. **Barter: 0 offers in 2 hours** (25 own chests, but
+  only 4 own farms, 8 refused near the hut, nothing stocked to trade; Eco2's 45 had cane and carrots stocked). Merchant 5
+  trades in hour 2. Inventions: hay bales (minute ~40) and armour stands (~95). Load fine (0 [lag], 7 [stuck]). 1,467
+  calls, 1.24M tokens, ~$0.25. The panel (`/api/scorecard`) sampled every minute and its works, inventions, goods and
+  needs agree with `scorecard.py`. But (1) its busy points are the utilisation clock's bins aligned to the current minute,
+  not to the scorecard's start, so they run ~one bin late and drift between reads (bin 0 read 26 against 39); and
+  (2) busy is read from the agents present, so once the run's agents were removed every bin's busy and the verdict went
+  (the last sample also showed goods per member 2,416 with 0 members). Issues drafted, not filed (the classifier blocked
+  `gh issue create`). Logs: runs/2026-10-21/live-scorecard/ (report.md, scorecard.txt, panel_scorecard_final.json).
 - F272 (10-21, g1-memory session, #26) **With G1's memory on, members' later choices use what they remember, and an
   agent-server restart keeps every journal.** G1a: test world 1, mv3_grown25, 120 min at 1x, `--choose model`, LSc1's
   settings plus MC_MEMORY=on MC_CLOCK=on (20-minute days, the night's reflection). 924 model decisions in the ledger, 475

@@ -51,19 +51,22 @@ each phase's goal and design, and links to its issues; it no longer carries chec
   - **The M2 spec** (`runs/2026-10-21/m2-spec/`, F269): villagers, beds and the day measured on Paper 26.1; parked with
     population growth (#4, #83).
   - **Works that grow** (`4dea716`, #75, F270): refits behind `MC_WORKS_GROW` (off); late busy doubles in the simulator.
-  - **A live model-driven run on test world 2** (`runs/2026-10-21/live-scorecard/`): 33-38% busy through minute 70
-    against the simulator's ~22%; its report is pending.
+  - **A live model-driven run, LSc1** (test world 2, 2 hours, F271): busy 36% then 25% (0.68x, a pass) against the
+    simulator's 0.42-0.46x; panel bugs #87, #88.
+  - **G1 memory and the clock** (`deea7ea`, `1bd83b8`, #26 closed, F272-F273, lesson 158): behind `MC_MEMORY` and
+    `MC_CLOCK` (off); all journals survive a restart; in a 2-hour run members' choices use earlier memories (19% of
+    reasons cite them, intentions followed 70% vs 30% chance). Open: #86 (memory quality); whether the flags go on by
+    default (the user's).
   - s44's HISTORY.md entry is not written yet.
-- **Current milestone: G1, memory and the clock** (#26): agent state, a persistent journal, the village clock, on the G2
-  memory design (`docs/research/memory/`). Then G2 social life, G3 rules and votes, G4 culture; G5 (agents' proposals)
-  and G6 (the self-improving loop) can run beside them where files do not overlap.
+- **Current milestone: G2, social life and specialisation** (#27-#29, #17, #79, #32), on G1's memory. Then G3 rules and
+  votes, G4 culture; G5 (agents' proposals) and G6 (the self-improving loop) can run beside them where files do not overlap.
 - **Parked** (the user's, 10-21): population growth, upkeep, the rest of the old M2, the second settlement, humans in
   the loop, a second agent-server process; see STRATEGY.md "Support and parked".
 - **Leftovers** (s43's, unchanged): the sim's light parts (53 vs 101) and new members' appetites at 50; hay bales
   rarely made; own farms refused for houses far from the hut (FIELD_HUT_REACH); the own-farm refusal text says "of the
   village" for "of your house"; the menu offers an own farm while a public work is being laid out; #77's cause; [stuck]
   at range 192.
-- **Stack:** test world 2 runs the live model-driven run; everything else down.
+- **Stack:** everything down.
 
 ## Earlier phases
 

@@ -6,7 +6,7 @@ file and PLAN.md's handover after each report. Work sessions read this file and 
 PLAN.md keeps the handover and each phase's design; GitHub issues keep the todo list, each issue under one of the
 milestones below.
 
-*Last updated 2026-10-21 (the planning session; re-centred on the user's five goals).*
+*Last updated 2026-10-21 (the planning session; G1 done).*
 
 ## The goals
 
@@ -32,7 +32,7 @@ again 10-21).
 | 1. 25 agents, many activities | Largely there: 25 members run together; X1m did 60 distinct activities in 20 minutes. |
 | 2. Sid-style emergence | Mostly unbuilt (Phase E, #26-#34). Life goals already make distinct roles (F267, behind `MC_GOALS`). |
 | 3. Agents' proposals | Not built. Pieces: members' proposals for votes (#13), innovation demand (#73, #71). |
-| 4. Long-horizon memory | Not built (#26). Research and bench v1 in `docs/research/memory/`. |
+| 4. Long-horizon memory | **G1 done** (`deea7ea`, F272): journals, intentions and a village clock behind `MC_MEMORY`/`MC_CLOCK` (off); members' later choices use what they remember. Quality left: #86. |
 | 5. Self-improving activities | The foundry (four tickets merged) and the innovation library exist; nothing in a running village yet makes a ticket (#73, #16). |
 
 Built on the way and kept behind flags: the economy (s43), innovation v2 and life goals (s44), works that grow as refits
@@ -43,8 +43,9 @@ Built on the way and kept behind flags: the economy (s43), innovation v2 and lif
 `python scripts/scorecard.py RUN` (#80) scores any simulated or live run: busy, needs met, goods, works, trades, by
 hour. Every work session that changes members' behaviour runs it before and after, and reports a regression (a village
 that breaks, stalls or goes idle sooner) rather than a score to beat. Its pass mark (no hour after the first with busy
-below half of hour 1's) stays on the report as information. The simulator's collapse at minute 80-90 (F268) may be
-partly the simulator's: a live model-driven run held 33-38% busy through minute 70 (`runs/2026-10-21/live-scorecard/`).
+below half of hour 1's) stays on the report as information. The simulator's collapse at minute 80-90 (F268) is harsher
+than live: a 2-hour model-driven run (LSc1, F271) fell from 36% to 25% busy (0.68x, a pass) where the simulator gives
+0.42-0.46x. Judge long-run effects live, not in the simulator alone.
 
 **Each goal is judged by its behaviour appearing at 25 agents**, in a model-driven run: memories used in later
 decisions, roles that persist and differ, rules members follow, customs that spread, proposals members make and see
@@ -55,7 +56,7 @@ answered, new activities members take up.
 Each is a GitHub milestone. The method is the project's own: spec, adversarial check, build behind a flag (off), the
 offline checks, a staged run, then a model-driven run at 25 (lesson 124).
 
-1. **G1 Memory and the clock** (goals 4 and 2; #26). Agent state, a persistent journal, the village clock and
+1. **G1 Memory and the clock** (goals 4 and 2; #26, done 10-21: `deea7ea`, `1bd83b8`, F272-F273; open: #86). Agent state, a persistent journal, the village clock and
    `respawn_agents.py` (PLAN.md Phase E, E.2), on the G2 design (`docs/research/memory/`). Done when an agent-server
    restart keeps every journal; the panel shows each member's intent; and in a 2-hour model-driven run members' choices
    use what they remember from earlier hours (a memory bench on the real prompts, and the run's decision log).
@@ -127,3 +128,4 @@ number rather than a goal.
 - 2026-10-21: **re-centred on the user's five goals** (the user's, after works that grow, F270, and upkeep parked): the
   moves M1-M5 replaced by goal milestones G1-G6, memory and the clock first; the scorecard became a health check, not
   the target; the rest of M2 and M3 parked.
+- 2026-10-21: G1 done (memory and the clock, F272); the simulator's late collapse is harsher than live (LSc1, F271).
