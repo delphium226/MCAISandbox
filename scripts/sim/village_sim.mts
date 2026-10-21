@@ -694,7 +694,15 @@ const report = {
       const item = String(r.kind === 'make' ? r.key : r.chosen).replace(/^(own:)?make:/, '');
       if (LIB_ITEMS.has(item)) made[item] = (made[item] ?? 0) + 1;
     }
-    return { unlocked: t.unlocked.map((id: string) => `${id} @${Math.round((t.at[id] - T0) / 60000)}m by ${t.inventor[id]}`), attempts: Object.entries(t.tries).filter(([k]) => !k.endsWith('|*')).reduce((s, [, q]) => s + (q as number), 0) + t.unlocked.length, pledgesOpen: Object.values(t.pledges).reduce((s: number, q: Any) => s + q.length, 0), madeChoices: made };
+    // (s44's research points: each entry's points of its need, its researchers, attempts by entry)
+    const attempts: Counts = {};
+    for (const [k, q] of Object.entries(t.attempts ?? {})) attempts[k.split('|')[0]] = (attempts[k.split('|')[0]] ?? 0) + (q as number);
+    const research = Object.fromEntries(Object.entries(t.need ?? {}).map(([id, need]) => {
+      const pts = t.points?.[id] ?? {};
+      const sum = Object.values(pts).reduce((s: number, q: Any) => s + q, 0) + (t.pledgePts?.[id] ?? 0);
+      return [id, `${Math.round(sum / 10)}/${Math.round((need as number) / 10)} pts, ${attempts[id] ?? 0} attempts, ${Object.keys(pts).length} researchers${t.pledgePts?.[id] ? `, pledges ${Math.round(t.pledgePts[id] / 10)} pts` : ''}`];
+    }));
+    return { unlocked: t.unlocked.map((id: string) => `${id} @${Math.round((t.at[id] - T0) / 60000)}m by ${t.inventor[id]}`), attempts: Object.values(attempts).reduce((s, q) => s + q, 0), research, credit: Object.fromEntries(Object.entries(t.credit ?? {}).map(([m, q]: Any) => [m, q.length])), pledgesOpen: Object.values(t.pledges).reduce((s: number, q: Any) => s + q.length, 0), madeChoices: made };
   })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
@@ -721,6 +729,7 @@ if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders
 say(`  spread: top good ${report.own.spread?.topGood} of a chest's value, top chore kind ${report.own.spread?.topKind} of a member's chores, ${report.own.spread?.goods} goods held`);
 if (Object.keys(report.own.claims ?? {}).length) say(`  claims: ${Object.entries(report.own.claims).map(([k, b]) => `${k} ${b}`).join(', ')}`);
 if (report.innovation) say(`  innovation: ${report.innovation.unlocked.join(', ') || 'nothing unlocked'}; ${report.innovation.attempts} attempts; ${report.innovation.pledgesOpen} pledges open; makes of new goods ${kv(report.innovation.madeChoices)}`);
+if (report.innovation) say(`  research: ${Object.entries(report.innovation.research).map(([id, r]) => `${id} ${r}`).join('; ') || 'none'}; credit ${kv(report.innovation.credit)}`);
 if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);

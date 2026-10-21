@@ -634,3 +634,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   to (credit and pledges split by contribution), with prerequisites (a tech tree); and **life goals**: a goal per member
   from its temperament (wealth, invention, mastery, standing, home, and **beauty: art, creativity, the look of the
   village**, the user's addition), progress measured by code, shown on menus and weighting options.
+- 10-21 (s44, the user's) **Innovation v2: research points from complexity; demand speeds research.** Points needed =
+  10 x complexity (code, from the recipe data); wants, gluts and pledges raise each attempt's points (to 2x) and rank the
+  entry up, instead of the brief's +benefit/10 (necessity should speed invention, and benefit was under 10% of the cost).
+  Entries started or wanted on everyone's menu, untouched ones for curious members only; iron taken only on a good roll.
+  Library: shears (after iron tools) -> jack o'lanterns (a carve step by command); campfire stays out (the planner picks
+  coal). **Inventors' royalties:** 10% (MC_TECH_ROYALTY) of every batch of an entry's final goods, split by all points at
+  the unlock, attempts' and pledges' (pledges capped at half the need, so funders hold at most half), owed as own stock's
+  shares and carried home. Next: life goals (#79), whose invention goal is what should carry research past demand (F266).

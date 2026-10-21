@@ -37,7 +37,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
-import { INNOVATE, LIBRARY, candidates, chanceFor, techGoods, techOf, techOwnRecipes } from '../tech';
+import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
 import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
@@ -744,6 +744,12 @@ export class MineflayerWorld implements WorldAdapter {
       spare = { ...base };
       delete spare[good.item];
     } else spare = this.makeSpare(v, agent, good.item, store, good.allow);
+    // (s44: a carved pumpkin is a pumpkin and the shears' cut, shears in storage)
+    if (good.carve) {
+      const n = Math.min(good.batch, Math.ceil(want / good.unit) * good.unit, store.pumpkin ?? 0, spare.pumpkin ?? 0);
+      if (!(store.shears > 0)) return { why: 'inputs short' };
+      return n > 0 ? { count: n, bill: { [good.item]: n }, inputs: { pumpkin: n }, smelts: false } : { why: 'inputs short' };
+    }
     // A good of one wood kind (X.1) plans from that kind's logs and planks only (the critique's 2)
     if (good.wood) for (const n of Object.keys(spare)) if (/_(log|planks)$/.test(n) && !n.startsWith(`${good.wood}_`)) delete spare[n];
     const plans = new Map<string, MaterialPlan>();
@@ -3787,6 +3793,18 @@ export class MineflayerWorld implements WorldAdapter {
       const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
+    // (s44, the user's: the inventors' royalty on a make of an invention's goods, owed to its researchers and pledgers)
+    // (what the make's own steps put into storage, "put into storage: N item": the flow nets puts against the member's
+    // earlier takes of the item, a pie eaten from storage, and paid a third of what was made)
+    if (INNOVATE && OWN.on && v && c.choice.kind === 'make') {
+      const made: Counts = {};
+      for (const q of c.status) {
+        const m = q.type === 'make' && q.state === 'done' ? /put into storage: (\d+) ([a-z0-9_]+)/.exec(q.message ?? '') : null;
+        if (m) made[m[2]] = (made[m[2]] ?? 0) + Number(m[1]);
+      }
+      const paid = payRoyalties(v, made, (m) => !!this.homeOf(v, m));
+      for (const [m, got] of Object.entries(paid)) console.log(`[innovate] ${v.name}: ${m} earns a royalty of ${Object.entries(got).map(([n, q]) => `${q} ${n}`).join(', ')} on ${c.agent}'s make`);
+    }
     logChoiceEnd({
       id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
       yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
@@ -4254,31 +4272,37 @@ export class MineflayerWorld implements WorldAdapter {
       for (const h of Object.values(v.homes ?? {})) for (const [k, q] of Object.entries(h.chest?.items ?? {})) held[k] = (held[k] ?? 0) + q;
       const t = techOf(v);
       const tv = TEMPERAMENT_MODE !== 'off' ? temperament(a.name) : null;
-      for (const c of candidates(v, store, wants, held, now).filter((x) => x.demand || (tv?.curiosity ?? 0) >= 0.5).slice(0, 2)) {
+      // (s44, the user's: entries started or wanted on everyone's menu, the untouched rest for curious members only)
+      const plan = (b: Counts) => this.materials.plan(b);
+      for (const c of candidates(v, store, wants, held, now, v.mine?.ironMade ?? []).filter((x) => x.demand || x.started || (tv?.curiosity ?? 0) >= 0.5).slice(0, 2)) {
         const key = `innovate:${c.e.id}`;
         if (busy.has(key)) continue;
         const chance = chanceFor(c.e, t.tries[`${c.e.id}|${a.name}`] ?? 0);
+        const need = needOf(v, c.e, plan), done = pointsIn(v, c.e.id), mine = t.points[c.e.id]?.[a.name] ?? 0;
+        const others = Object.entries(t.points[c.e.id] ?? {}).filter(([m, q]) => m !== a.name && q > 0).sort((x, y) => y[1] - x[1]).slice(0, 2);
+        const earlier = t.attempts[`${c.e.id}|${a.name}`] ?? 0, cur = tv?.curiosity ?? 0;
         const h = v.storageHut;
         add({
           id: key, kind: 'innovate', key, excludes: [`${key}=`], name: `Experiment with ${c.e.name}`, rank: 955,
           ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
-          facts: `${c.why.join('; ') || 'one step from what the village has'}; an attempt takes ${Object.entries(c.e.attempt).map(([k, q]) => `${q} ${words(k)}`).join(', ')} from storage and ~${c.e.minutes} min; your chance ${Math.round(chance * 100)}%`,
-          effect: `the village learns to make ${c.e.goods.map((g) => g.words).join(' and ')}`,
+          facts: `research ${ptsText(done)} of ${ptsText(need)} points${done ? ` (you ${ptsText(mine)}${others.map(([m, q]) => `, ${m} ${ptsText(q)}`).join('')})` : ''}; ${c.why.join('; ') || 'one step from what the village has'}; an attempt takes ${Object.entries(c.e.attempt).map(([k, q]) => `${q} ${words(k)}`).join(', ')} from storage${c.e.success ? ` (and ${Object.entries(c.e.success).map(([k, q]) => `${q} ${words(k)}`).join(', ')} if it goes well)` : ''} and ~${c.e.minutes} min; your chance ${Math.round(chance * 100)}%: +${ptsText(attemptPoints(true, cur, earlier, c.boost))} points if it goes well, +${ptsText(attemptPoints(false, cur, earlier, c.boost))} if not`,
+          effect: `research toward ${c.e.goods.map((g) => g.words).join(' and ')} (${ptsText(need)} points to unlock)${OWN.on ? `; once unlocked its researchers and pledgers share ${Math.round(ROYALTY * 100)}% of every batch made, by points` : ''}`,
           ...(tv ? { ww: Math.round(2.5 ** tv.curiosity * 100) / 100 } : {}),
-        }, { kind: 'innovate', entry: c.e.id, chance });
+        }, { kind: 'innovate', entry: c.e.id, chance, boost: c.boost });
         // (a pledge from a member whose offers asked in vain for the candidate's goods, one a member and entry)
         const own = v.homes?.[a.name];
         // (or one sitting on a glut the candidate would use: its pumpkins worth something once pies are made)
         const asked = b.offers.some((o) => o.by === a.name && o.state === 'lapsed' && c.e.goods.some((g) => g.item === o.want))
           || c.e.uses.some((u) => (own?.chest?.items[u] ?? 0) >= 32);
-        if (OWN.on && own?.chest && asked && !(t.pledges[c.e.id] ?? []).some((q) => q.by === a.name)) {
+        // (none once its pledges are full: half the need, s44)
+        if (OWN.on && own?.chest && asked && !(t.pledges[c.e.id] ?? []).some((q) => q.by === a.name) && (t.pledgePts[c.e.id] ?? 0) < Math.floor(needOf(v, c.e, plan) / 2)) {
           const em = own.chest.items.emerald ?? 0;
           const sp = surplus(available(b, a.name, own));
           const pay = em >= 1 ? { item: 'emerald', n: 1 } : Object.entries(sp).sort((x, y) => y[1] - x[1]).map(([k, q]) => ({ item: k, n: Math.min(q, 4) }))[0];
           if (pay) add({
             id: `own:pledge:${c.e.id}`, kind: 'own', key: `own:${a.name.toLowerCase()}`, excludes: [`own:${a.name.toLowerCase()}=`], name: `Pledge ${pay.n} ${words(pay.item)} toward ${c.e.name}`, rank: 944,
             ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
-            facts: `${c.e.goods.map((g) => g.words).join(' or ')} would answer what you asked for or use what you hold too much of; whoever first makes the village able to gets the pledges (${(t.pledges[c.e.id] ?? []).length} so far)`,
+            facts: `${c.e.goods.map((g) => g.words).join(' or ')} would answer what you asked for or use what you hold too much of; a pledge adds research points (${ptsText(pointsIn(v, c.e.id))} of ${ptsText(needOf(v, c.e, plan))} so far) and goes to its researchers when it is unlocked (${(t.pledges[c.e.id] ?? []).length} pledges so far); your points also earn you a share of the ${Math.round(ROYALTY * 100)}% royalty on every batch made after`,
             effect: `-${pay.n} ${words(pay.item)} from your own chest, held on the board for the inventor`,
           }, { kind: 'own', what: 'pledge', entry: c.e.id, item: pay.item, n: pay.n });
         }
@@ -5278,7 +5302,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
       case 'innovate':
-        this.setChore(v, worker, opt.key, [worker.enqueue('experiment', { entry: d.entry, chore: true })], `experiment with ${d.entry}`, undefined, meta, opt.holds, opt);
+        this.setChore(v, worker, opt.key, [worker.enqueue('experiment', { entry: d.entry, boost: d.boost, chore: true })], `experiment with ${d.entry}`, undefined, meta, opt.holds, opt);
         console.log(`[innovate] ${v.name}: ${worker.name} experiments with ${d.entry} (chance ${Math.round(d.chance * 100)}%)`);
         return;
       case 'own':
@@ -6205,7 +6229,7 @@ type OptionRun =
   | { kind: 'own'; what: 'buy'; item: string }
   | { kind: 'own'; what: 'farm'; crop: string }
   | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
-  | { kind: 'innovate'; entry: string; chance: number }
+  | { kind: 'innovate'; entry: string; chance: number; boost: number }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 

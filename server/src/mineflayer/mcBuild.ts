@@ -20,6 +20,8 @@ import { teleportHome } from './mcRescue';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
 import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
+import type { MakeGood } from './mcWorkshop';
+import { TEMPERAMENT_MODE, temperament } from '../temperament';
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
@@ -38,7 +40,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNu
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
-import { LIBRARY, settleAttempt, techOf, techOwnRecipes } from '../tech';
+import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4827,9 +4829,11 @@ async function merchantOwn(a: BotAgent, args: Record<string, unknown>, signal: A
 }
 
 /**
- * experiment (a chore code queues, s43's innovation): at the works, an attempt at a library entry: its materials taken
- * from the commons (withdrawn and taken by command), its time, then code's roll against the member's chance; a success
- * unlocks the entry's goods for the village and pays its pledges into the inventor's own chest.
+ * experiment (a chore code queues, s43's innovation; s44's research points): at the works, an attempt at a library entry:
+ * its materials taken from the commons (withdrawn and taken by command), its time, then code's roll against the member's
+ * chance; a good roll also takes the entry's success materials (iron; short of them it counts as a bad roll). The attempt
+ * adds research points; at the entry's need it unlocks the goods for the village and pays the pledges into the
+ * researchers' own chests by share.
  */
 async function experiment(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -4840,42 +4844,77 @@ async function experiment(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const hut = v.storageHut;
   const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'an experiment', task: 'experiment' };
   await standBy(a, job, signal);
-  for (const [k, q] of Object.entries(e.attempt)) {
-    await withdrawItems(a, v, { [k]: q }, signal);
-    const have = await serverCount(a, k);
-    if (have < q) throw new ContentionError(`experiment: another agent took the ${k} the attempt needs`, 'taken', `stock:${k}`);
-    await a.world.rcon.take(a.name, k, q, have);
-  }
+  const takeAll = async (c: Counts) => {
+    for (const [k, q] of Object.entries(c)) {
+      await withdrawItems(a, v, { [k]: q }, signal);
+      const have = await serverCount(a, k);
+      if (have < q) throw new ContentionError(`experiment: another agent took the ${k} the attempt needs`, 'taken', `stock:${k}`);
+      await a.world.rcon.take(a.name, k, q, have);
+    }
+  };
+  await takeAll(e.attempt);
   await sleep((e.minutes * 60000) / timeScale(), signal);
-  const r = settleAttempt(v, e, a.name, Math.random(), Date.now());
-  if (r.ok) {
-    const own = v.homes?.[a.name]?.chest;
-    if (own) for (const [k, q] of Object.entries(r.pledges)) own.items[k] = (own.items[k] ?? 0) + q;
-    if (own) await writeOwnChest(a, own);
+  const t = techOf(v);
+  let roll = Math.random();
+  const taken: Counts = { ...e.attempt };
+  if (roll < chanceFor(e, t.tries[`${e.id}|${a.name}`] ?? 0) && e.success && !t.unlocked.includes(e.id)) {
+    try {
+      await takeAll(e.success);
+      for (const [k, q] of Object.entries(e.success)) taken[k] = (taken[k] ?? 0) + q;
+    } catch (err) {
+      if ((err as Error).message === 'cancelled') throw err;
+      console.log(`[innovate] ${v.name}: ${a.name}'s good try at ${e.name} found no ${Object.keys(e.success).join(', ')} in storage: counted as a bad one`);
+      roll = 1;
+    }
+  }
+  const curiosity = TEMPERAMENT_MODE !== 'off' ? temperament(a.name).curiosity : 0;
+  const r = settleAttempt(v, e, a.name, roll, Date.now(), curiosity, Number(args.boost) || 1, (b) => a.world.materials.plan(b), (m) => !!v.homes?.[m]?.chest);
+  if (r.already) {
+    // (the attempt's materials back into storage: given by command and deposited)
+    for (const [k, q] of Object.entries(taken)) {
+      await a.world.rcon.give(a.name, k, q).catch(() => undefined);
+      await STORAGE_SKILLS.deposit.run(a, { item: k, count: q, keep_wood: true }, signal).catch((err: Error) => console.log(`[innovate] ${a.name} could not put ${q} ${k} back: ${err.message.slice(0, 100)}`));
+    }
+    console.log(`[innovate] ${v.name}: ${a.name}'s experiment with ${e.name} came too late: a fellow member unlocked it meanwhile; its materials went back`);
+    return `the village already makes ${e.name} (unlocked while you worked)`;
+  }
+  // (shares go only to members with an own chest, settleAttempt's `canHold`; each chest written on its own)
+  for (const [m, c] of Object.entries(r.shares)) {
+    const own = v.homes?.[m]?.chest;
+    if (!own) continue;
+    for (const [k, q] of Object.entries(c)) own.items[k] = (own.items[k] ?? 0) + q;
+    await writeOwnChest(a, own).catch((err: Error) => console.log(`[innovate] ${v.name}: ${m}'s own chest not written: ${err.message.slice(0, 100)}`));
   }
   a.world.villages.save();
-  console.log(`[innovate] ${v.name}: ${a.name}'s experiment with ${e.name} ${r.ok ? `succeeded (chance ${Math.round(r.chance * 100)}%): the village can make ${e.goods.map((g) => g.item).join(', ')}${Object.keys(r.pledges).length ? `; pledges ${Object.entries(r.pledges).map(([k, q]) => `${q} ${k}`).join(', ')} to ${a.name}` : ''}` : `failed (chance ${Math.round(r.chance * 100)}%)`}`);
-  return r.ok ? `the experiment worked: the village can make ${e.goods.map((g) => g.words).join(' and ')} now` : `the experiment with ${e.name} failed this time (chance ${Math.round(r.chance * 100)}%; the next try is likelier)`;
+  const pts = `${ptsText(r.total)} of ${ptsText(r.need)} points`;
+  console.log(`[innovate] ${v.name}: ${a.name}'s experiment with ${e.name} ${r.ok ? 'went well' : 'went badly'} (chance ${Math.round(r.chance * 100)}%): +${ptsText(r.gained)}, ${pts}${r.unlocked ? `; unlocked: the village can make ${e.goods.map((g) => g.item).join(', ')}; inventor ${r.inventor}; researchers ${Object.keys(t.points[e.id] ?? {}).join(', ')}${Object.keys(r.shares).length ? `; pledges ${Object.entries(r.shares).map(([m, c]) => `${countsList(c)} to ${m}`).join(', ')}` : ''}` : ''}`);
+  if (r.unlocked) return `the research is done (${pts}): the village can make ${e.goods.map((g) => g.words).join(' and ')} now${r.inventor === a.name ? ', and you are its inventor' : `; ${r.inventor} did the most`}`;
+  return `the experiment with ${e.name} went ${r.ok ? 'well' : 'badly'} (chance ${Math.round(r.chance * 100)}%): +${ptsText(r.gained)} research points, ${pts}`;
 }
 
-/** pledge (a chore code queues, s43): own goods held on the board toward a library entry, for whoever first unlocks it. */
+/** pledge (a chore code queues, s43; s44: it adds research points): own goods held on the board toward a library entry,
+ *  for the members who research it, by share. */
 async function pledge(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('pledge: not in a village');
   const own = v.homes?.[a.name]?.chest;
   const item = String(args.item), n = Math.max(1, Number(args.count) || 1);
+  const e = LIBRARY.find((x) => x.id === args.entry);
+  if (!e) throw new Error(`pledge: no library entry ${String(args.entry)}`);
   if (!own || (own.items[item] ?? 0) < n) throw new Error(`pledge: your own chest no longer holds ${n} ${item}`);
+  if (techOf(v).unlocked.includes(e.id)) return `the village already makes ${e.name}: nothing to pledge toward`;
   const hut = v.storageHut;
   const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the notice board', task: 'pledge' };
   await standBy(a, job, signal);
+  if ((own.items[item] ?? 0) < n) throw new Error(`pledge: your own chest no longer holds ${n} ${item}`);
+  const pts = addPledge(v, e, a.name, item, n, (b) => a.world.materials.plan(b));
+  if (pts === null) return `the village already makes ${e.name}, or its pledges are full: nothing to pledge toward`;
   own.items[item] -= n;
   if (!own.items[item]) delete own.items[item];
-  const t = techOf(v);
-  (t.pledges[String(args.entry)] ??= []).push({ by: a.name, item, n });
   a.world.villages.save();
   await writeOwnChest(a, own);
-  console.log(`[innovate] ${v.name}: ${a.name} pledged ${n} ${item} toward ${String(args.entry)}`);
-  return `pledged ${n} ${item} toward ${String(args.entry)}: whoever unlocks it first gets it`;
+  console.log(`[innovate] ${v.name}: ${a.name} pledged ${n} ${item} toward ${e.id} (+${ptsText(pts)} points, ${ptsText(pointsIn(v, e.id))} of ${ptsText(needOf(v, e, (b) => a.world.materials.plan(b)))})`);
+  return `pledged ${n} ${item} toward ${e.name} (+${ptsText(pts)} research points): its researchers get it when it is unlocked`;
 }
 
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
@@ -5098,6 +5137,39 @@ const countsList = (c: Counts) => Object.entries(c).filter(([, q]) => q > 0).map
  * 0 the hut's) for the whole job. Every count that decides is the server's (lessons 4, 13). Its earmark ends at the
  * withdrawal and in the finally (lesson 67); what a stop leaves in hand is in makeLeft for the world to deposit.
  */
+/** A carve good made (s44: pumpkins into carved pumpkins, no recipe in the data): withdrawn (the earmark released then, as
+ *  makeGoods'), taken and given by command, deposited; what is still carried after a stop is makeLeft's, for the world to
+ *  put back (4.10). The shears stay in storage (their wear not counted). */
+async function carveGoods(a: BotAgent, v: Village, good: MakeGood, count: number, release: () => void, signal: AbortSignal): Promise<string> {
+  const key = holdKey(v.name, a.name), t0 = Date.now(), before = storageContents(v)[good.item] ?? 0;
+  let leftRec: Counts | undefined;
+  const left = (c: Counts) => {
+    if (makeLeft.has(key) && makeLeft.get(key) !== leftRec) return;
+    if (Object.values(c).some((q) => q > 0)) makeLeft.set(key, (leftRec = c));
+    else makeLeft.delete(key);
+  };
+  let got = 0, took = 0;
+  try {
+    if (!((storageContents(v).shears ?? 0) > 0)) throw new Error(`make: no shears in storage to carve ${good.words} with`);
+    got = ((await withdrawItems(a, v, { pumpkin: count }, signal)).got as Counts).pumpkin ?? 0;
+    release();
+    left({ pumpkin: got });
+    const have = await serverCount(a, 'pumpkin');
+    const n = Math.min(count, got, have);
+    if (n <= 0) throw new ContentionError('make: another agent took the pumpkins', 'taken', 'stock:pumpkin');
+    took = await a.world.rcon.take(a.name, 'pumpkin', n, have);
+    if (took > 0) await a.world.rcon.give(a.name, good.item, took);
+    left({ pumpkin: got - took, [good.item]: took });
+    await STORAGE_SKILLS.deposit.run(a, { item: good.item, count: took, keep_wood: true }, signal);
+    if (got > took) await STORAGE_SKILLS.deposit.run(a, { item: 'pumpkin', count: got - took, keep_wood: true }, signal);
+    left({});
+    console.log(`[make] ${a.name} ${v.name} item=${good.item} made=${took} batch=${count} furnace=- planned=pumpkin:${count} took=pumpkin:${got} back=${got > took ? `pumpkin:${got - took}` : 'none'} left=none storage=${before}->${storageContents(v)[good.item] ?? 0} sec=${((Date.now() - t0) / 1000).toFixed(0)}`);
+    return `made ${took} ${good.item} (carved); put into storage: ${took} ${good.item}`;
+  } finally {
+    release();
+  }
+}
+
 async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('make: not in a village');
@@ -5119,6 +5191,8 @@ async function makeGoods(a: BotAgent, args: Record<string, unknown>, signal: Abo
   const h = v.storageHut;
   if (!v.complete || !h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace'))
     throw refuse("make: the workshop runs once the village is complete, with the storage hut's crafting table and furnace standing");
+  // (s44's innovation: a carve good, pumpkins withdrawn and carved by command with the shears in storage)
+  if (good.carve) return carveGoods(a, v, good, Math.max(1, Math.floor(num(args.count, 'count'))), () => holdsRelease(key, mine), signal);
   const k = args.furnace !== undefined ? Math.floor(num(args.furnace, 'furnace')) : undefined;
   const wk = v.layouts?.[0]?.works;
   // A works furnace the server no longer has: its record cleared, so its placement is offered again (the check's M7)

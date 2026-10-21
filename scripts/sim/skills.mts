@@ -19,7 +19,8 @@ import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
 import { boardOf, settle } from '../../server/src/barter';
-import { LIBRARY, settleAttempt, techOf, techOwnRecipes } from '../../server/src/tech';
+import { LIBRARY, addPledge, chanceFor, ptsText, settleAttempt, techOf, techOwnRecipes } from '../../server/src/tech';
+import { TEMPERAMENT_MODE, temperament } from '../../server/src/temperament';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -525,21 +526,35 @@ function experiment(args: Any, c: Ctx): Outcome {
   if (techOf(v).unlocked.includes(e.id)) return { ok: true, message: `the village already makes ${e.name}` };
   for (const [k, q] of Object.entries(e.attempt)) if ((storageContents(v)[k] ?? 0) < q) return { ok: false, message: `experiment: another agent took the ${k}`, code: 'taken' };
   for (const [k, q] of Object.entries(e.attempt)) take(v, k, q);
-  const r = settleAttempt(v, e, c.name, c.rng(), c.now);
-  if (r.ok) {
-    const own = v.homes?.[c.name]?.chest;
-    for (const [k, q] of Object.entries(r.pledges)) if (own) own.items[k] = (own.items[k] ?? 0) + q;
+  const t = techOf(v);
+  let roll = c.rng();
+  // (a good roll takes the success materials, iron; short of them it counts as a bad one, as the real skill)
+  if (roll < chanceFor(e, t.tries[`${e.id}|${c.name}`] ?? 0) && e.success) {
+    if (Object.entries(e.success).every(([k, q]) => (storageContents(v)[k] ?? 0) >= q)) for (const [k, q] of Object.entries(e.success)) take(v, k, q);
+    else roll = 1;
   }
-  return { ok: true, message: r.ok ? `the experiment worked: the village can make ${e.name} now (simulated)` : `the experiment with ${e.name} failed this time (chance ${Math.round(r.chance * 100)}%) (simulated)` };
+  const curiosity = TEMPERAMENT_MODE !== 'off' ? temperament(c.name).curiosity : 0;
+  const r = settleAttempt(v, e, c.name, roll, c.now, curiosity, Number(args.boost) || 1, (b) => c.w.materials.plan(b), (m) => !!v.homes?.[m]?.chest);
+  if (r.already) for (const [k, q] of Object.entries(e.attempt)) put(v, k, q);
+  if (r.already) return { ok: true, message: `the village already makes ${e.name} (unlocked while you worked) (simulated)` };
+  for (const [m, got] of Object.entries(r.shares)) {
+    const own = v.homes?.[m]?.chest;
+    if (own) for (const [k, q] of Object.entries(got)) own.items[k] = (own.items[k] ?? 0) + q;
+  }
+  const pts = `${ptsText(r.total)} of ${ptsText(r.need)} points`;
+  return { ok: true, message: r.unlocked ? `the research is done (${pts}): the village can make ${e.name} now (simulated)` : `the experiment with ${e.name} went ${r.ok ? 'well' : 'badly'} (chance ${Math.round(r.chance * 100)}%): +${ptsText(r.gained)} research points, ${pts} (simulated)` };
 }
 
 function pledge(args: Any, c: Ctx): Outcome {
   const own = c.v.homes?.[c.name]?.chest, item = String(args.item), n = Math.max(1, Number(args.count) || 1);
+  const e = LIBRARY.find((x) => x.id === args.entry);
+  if (!e) return { ok: false, message: `pledge: no library entry ${args.entry}` };
   if (!own || (own.items[item] ?? 0) < n) return { ok: false, message: `pledge: your own chest no longer holds ${n} ${item}` };
+  const pts = addPledge(c.v, e, c.name, item, n, (b) => c.w.materials.plan(b));
+  if (pts === null) return { ok: true, message: `the village already makes ${e.name}, or its pledges are full: nothing to pledge toward (simulated)` };
   own.items[item] -= n;
   if (!own.items[item]) delete own.items[item];
-  (techOf(c.v).pledges[String(args.entry)] ??= []).push({ by: c.name, item, n });
-  return { ok: true, message: `pledged ${n} ${item} toward ${args.entry} (simulated)` };
+  return { ok: true, message: `pledged ${n} ${item} toward ${e.name} (+${ptsText(pts)} research points) (simulated)` };
 }
 
 function eatMeal(_args: Any, c: Ctx): Outcome {

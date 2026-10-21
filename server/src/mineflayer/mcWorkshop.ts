@@ -21,7 +21,10 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   food?: true; allow?: string[];
   /** X.1's catalogue: a good of one wood kind (birch doors), planned only from that kind's logs and planks (a plan from
    *  "any logs" took oak logs for birch planks and the craft failed, the critique's 2). */
-  wood?: string }
+  wood?: string;
+  /** s44's innovation: a pumpkin carved with shears (no recipe in the data): its inputs the pumpkins, shears in storage;
+   *  the make carves by command. */
+  carve?: true }
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */
 export const MAKE_GOODS: MakeGood[] = [

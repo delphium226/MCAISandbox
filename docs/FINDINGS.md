@@ -1377,3 +1377,18 @@ CLAUDE.md when a phase ends.
   in 7d84c87). Logs: runs/2026-10-21/s43/s43_eco1, s43_eco2.
   Sim at 50 members (--workers 49): busy 11.5% vs 20.4% at 25 (90 min); 14.3% with the economy; new members' appetites
   look missing (meals 340 vs 312 at 25): check before trusting food numbers at 50.
+- F266 (10-21, s44, issue #78) **Innovation v2 in the simulator: research points end the lottery; the tree stops where
+  demand stops, and royalties are small.** MC_INNOVATE (off): an entry unlocks when members' experiments (8 points a good
+  roll, 2 a bad one; more for curious members, repeat researchers and wanted entries, up to 2x) reach 10 x its complexity
+  (recipe steps beyond planks, sticks, charcoal and torches, raw inputs, a furnace, hard inputs: hay 15, pies 35,
+  jack o'lanterns 25, armour stands and shears 55, lanterns 65); pledges add capped points; credit and pledges by share;
+  shears after iron tools, jack o'lanterns after shears; a 10% royalty on the final goods to researchers and pledgers by
+  points (the user's). Sim (real-rate growth, 180 min, 3 seeds, economy on, raw iron 24 stocked and iron tools set made):
+  hay at 5-20 min, pies 11-17, lanterns 38-51 (v1: 2-6 min), 19-24 attempts a run (v1 3-13), lanterns by 5-10 researchers,
+  credit over 9-13 members; busy 14.8 / 16.8 / 15.7% vs v1's 15.0 / 15.3 / 15.9 (noise). Shears and jack o'lanterns never
+  unlocked: with no want they are offered to curious members only, who have other chores (prediction: shears in 1-2 of 3
+  runs, missed). Royalties 7-11 pies a run to 2-3 members (hay bales never made, 4-5 lantern batches). v1's experiments
+  were rare (60 of 5,062 menus) because an attempt's materials were seldom all in the commons. A first royalty count from
+  the member's storage flow paid a third of what was due (the flow nets a put against the member's earlier takes of the
+  item, a pie eaten); counted from the make's own "put into storage" line. Logs: runs/2026-10-21/s44/sim (v1_s*, v2_s*,
+  r3_s*), predictions v2_prediction.txt.
