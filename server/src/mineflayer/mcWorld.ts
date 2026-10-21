@@ -38,7 +38,7 @@ import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { OWN, OWN_RECIPES, SHARED, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { OWN, OWN_RECIPES, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -5012,6 +5012,24 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
 
+    // s43 (MC_SPECIAL): specialists. Habit: the kinds the member has done lately weigh more; price: the goods a chore brings
+    // in weigh by the board's price factors (dear goods draw members, cheap ones push them off)
+    if (SPECIAL.habit || SPECIAL.price) {
+      const counts = SPECIAL.habit ? this.choiceStats.kindCounts(v.name, a.name, 12) : [];
+      const total = counts.reduce((t, c) => t + c.n, 0);
+      const factor = SPECIAL.price ? boardOf(v).factor : {};
+      for (const o of out) {
+        if (o.kind === 'eat') continue;
+        let w = 1;
+        if (total) w *= 1 + 0.6 * ((counts.find((c) => c.kind === o.kind)?.n ?? 0) / total);
+        if (SPECIAL.price) {
+          const goods = this.optionGoods(o).filter((g) => factor[g] !== undefined);
+          if (goods.length) w *= Math.min(1.6, Math.max(0.6, goods.reduce((t, g) => t + factor[g], 0) / goods.length));
+        }
+        if (w !== 1) o.ww = Math.round((o.ww ?? 1) * w * 1000) / 1000;
+      }
+    }
+
     // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
     // takes food work only (D8), the rest guarded in model mode, left out in fixed mode, with why
     const starved: ChoiceOption[] = [];
@@ -5053,6 +5071,19 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** A.3p's own-pattern line from the agent's last 10 ends ('' when temperaments are off or none yet). */
+  /** The goods an option brings in (s43's price weight): the field's wheat, a slot's crop, a pen's eggs, a catch, a make's product. */
+  private optionGoods(o: ChoiceOption): string[] {
+    const d = OPTION_RUN.get(o);
+    if (!d) return [];
+    if (d.kind === 'farm') return ['wheat'];
+    if (d.kind === 'slot') return [d.slotKind === 'sugar_cane' ? 'sugar_cane' : d.slotKind];
+    if (d.kind === 'penwork') return d.what === 'eggs' ? ['egg'] : [];
+    if (d.kind === 'activity') return d.gives;
+    if (d.kind === 'make') return [d.good.item];
+    if (d.kind === 'own' && d.what === 'make') return [d.item];
+    return [];
+  }
+
   private patternLine(v: Village, a: BotAgent): string {
     const counts = TEMPERAMENT_MODE === 'off' ? [] : this.choiceStats.kindCounts(v.name, a.name, 10);
     const total = counts.reduce((s, c) => s + c.n, 0);

@@ -144,6 +144,7 @@ const S = await import('./skills.mts');
 const { TaskBrain } = await import('../../server/src/taskBrain');
 const { CHOOSE } = (await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any;
 const { storageContents, noteFlow } = await import('../../server/src/mineflayer/mcStorage');
+const { baseValue } = await import('../../server/src/barter');
 const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
@@ -658,6 +659,24 @@ const report = {
     const sum = (f: (h: Any) => Counts) => hs.reduce((t: Counts, h) => { for (const [n, q] of Object.entries(f(h) ?? {})) t[n] = (t[n] ?? 0) + (q as number); return t; }, {});
     const b = (v as Any).board;
     return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used), made: sum((h) => h.made),
+      // (s43's specialists: each member's top good as a share of its chest's value, and its top chore kind as a share of
+      // its chores, averaged over members; goods held by anyone)
+      spread: (() => {
+        const tops = hs.filter((h) => h.chest && Object.keys(h.chest.items).length).map((h) => {
+          const vals = Object.entries(h.chest.items as Counts).map(([n, q]) => q * baseValue(n));
+          const t = vals.reduce((x, y) => x + y, 0);
+          return t ? Math.max(...vals) / t : 0;
+        });
+        const byAgent = new Map<string, Map<string, number>>();
+        for (const r of rows.filter((x: Any) => x.type === 'choice' && x.kind !== 'eat')) {
+          const m = byAgent.get(r.agent) ?? new Map<string, number>();
+          m.set(r.kind, (m.get(r.kind) ?? 0) + 1);
+          byAgent.set(r.agent, m);
+        }
+        const kinds = [...byAgent.values()].map((m) => { const t = [...m.values()].reduce((x, y) => x + y, 0); return t ? Math.max(...m.values()) / t : 0; });
+        const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((x, y) => x + y, 0) / xs.length) * 100) / 100 : 0);
+        return { topGood: avg(tops), topKind: avg(kinds), goods: new Set(hs.flatMap((h) => Object.keys(h.chest?.items ?? {}))).size };
+      })(),
       ...(b ? { board: { posted: b.posted, taken: b.taken, lapsed: b.lapsed, open: b.offers.filter((o: Any) => o.state === 'open').length, traded: b.traded, factor: b.factor } } : {}) };
   })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
@@ -682,6 +701,7 @@ say(`  actions: ${kv(report.actions)}${unknown.size ? `; NOT MODELLED: ${kv(repo
 say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
 say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
 if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
+say(`  spread: top good ${report.own.spread?.topGood} of a chest's value, top chore kind ${report.own.spread?.topKind} of a member's chores, ${report.own.spread?.goods} goods held`);
 if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);

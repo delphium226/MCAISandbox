@@ -21,6 +21,16 @@ export const OWN = {
  */
 export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather']);
 
+/**
+ * Specialists (s43, the user's next step: holdings that differ so trades match): MC_SPECIAL=habit,price. `habit`: a member
+ * leans toward the kinds it has done lately (1 + 0.6 x the kind's share of its last 12 chores); `price`: a chore whose
+ * goods the board finds dear weighs more, a cheap one less (the goods' price factors, 0.6..1.6).
+ */
+export const SPECIAL = (() => {
+  const s = new Set((process.env.MC_SPECIAL ?? '').split(/[,;+]/).map((x) => x.trim()).filter(Boolean));
+  return { habit: OWN.on && s.has('habit'), price: OWN.on && s.has('price') };
+})();
+
 /** Items never shared: tools and what carries the work (a rod goes back to the commons whole), emeralds (the
  *  merchant's pay is the village's until the sales levy, DECISIONS 10-20), and seeds (planting stock: 232 of them were
  *  most of what the sim's members owned, s43). */
