@@ -18,6 +18,8 @@
  *   GET /api/usage      model calls, tokens and cost by model, agent and kind (?since=<epoch ms>&agents=A,B), the spend
  *                       ledger's month and programme, and the call gate's waits (`gate`)
  *   POST /api/usage/budget  {tokensPerHour: number|null, windowMs?}: set the hourly cloud token budget (tests)
+ *   GET /api/techtree   each complete village's whole tech tree (techTree.ts: goods made, known and locked, the library's
+ *                       entries, linked by the recipes plans use), for the Tech tab's graph; computed at most every 30 s
  *   GET /api/scorecard  #80's thriving scorecard per complete village: 10-minute points, hours and the pass mark, from a
  *                       sample a minute this process keeps from its first request (a day of them) and the busy history
  */
@@ -40,6 +42,7 @@ import { OWN, LEVY, OWN_FARM, OWN_SALES_ON, SPECIAL } from './own';
 import { INNOVATE, LIBRARY, ROYALTY, pointsIn, techOf } from './tech';
 import { GOALS_ON, goalsOf, progress } from './goals';
 import { ScoreClock, scorecardView, type ScoreWorld } from './scorecard';
+import { techTree, type RecipeOf, type TechTree } from './techTree';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -362,6 +365,19 @@ export function scorecards(w: WorldAdapter) {
   return out;
 }
 
+/** The tech trees, kept 30 s (the Tech tab asks every 30 s; a tree reads every recipe chain once). */
+let treesAt = 0, trees: Record<string, TechTree> = {};
+/** Each complete village's tech tree; {} for a world with no recipe planner (the sandbox). */
+export function techTrees(w: WorldAdapter, now = Date.now()): Record<string, TechTree> {
+  if (now - treesAt < 30_000) return trees;
+  const m = (w as unknown as { materials?: { recipe?: RecipeOf } }).materials;
+  if (!m?.recipe) return {};
+  const recipeOf: RecipeOf = (n) => m.recipe!(n);
+  trees = Object.fromEntries([...w.villages.villages.values()].filter((v) => v.complete).map((v) => [v.name, techTree(v, recipeOf)]));
+  treesAt = now;
+  return trees;
+}
+
 export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
   startScores(w);
   if (req.method === 'POST' && url.pathname === '/api/usage/budget') {
@@ -393,6 +409,7 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     return sendJson(res, 200, w.utilisation(bin, points)), true;
   }
   if (url.pathname === '/api/scorecard') return sendJson(res, 200, scorecards(w)), true;
+  if (url.pathname === '/api/techtree') return sendJson(res, 200, techTrees(w)), true;
   // The full last calls of one agent, for the panel's "what the executor / planner saw" tabs
   const calls = /^\/api\/agents\/([^/]+)\/calls$/.exec(url.pathname);
   if (calls) {

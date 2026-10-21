@@ -194,7 +194,9 @@ the short version; look here for a check script's arguments, a model detail or w
   lacks (own chests, recipes, roads; busy when a run stopped before its BUSY line, the verdict then uses chore busy).
   The panel: `GET /api/scorecard` (a sample a minute from the agent server's first request, with busy from the
   utilisation clock), a Scorecard card in the simple view and a Scorecard tab in the detailed view; offline check
-  `runs/2026-10-21/scorecard/panel_harness.mts SIMDIR`. **The baseline** (default and economy flags, 6 hours,
+  `runs/2026-10-21/scorecard/panel_harness.mts SIMDIR`. The village card's Tech tab draws the whole tech tree
+  (`GET /api/techtree`, `server/src/techTree.ts`: goods made, known and locked and the library's inventions by recipe depth,
+  linked by the recipes plans use; `runs/2026-10-21/scorecard/tree_probe.mts VILLAGES.json` prints it). **The baseline** (default and economy flags, 6 hours,
   `--random-tick 3`, 3 seeds): `runs/2026-10-21/scorecard/baseline.sh`; results in F268.
 - **The economy (s43, all off by default, sim-tested; one live pair Eco1/Eco2):** `MC_OWN=on` (a chest in each owned
   house, a `MC_OWN_SHARE` 0.25 share of farm, slot, pen-work, fishing and gathering yields, carry home, own meals, own makes;

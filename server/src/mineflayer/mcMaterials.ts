@@ -343,6 +343,11 @@ export class Materials {
     return best;
   }
 
+  /** The way a plan gets an item (its recipe), or null when it is gathered: for the panel's tech tree (#80's follow-up). */
+  recipe(name: string): Option | null {
+    return this.choose(name, new Map());
+  }
+
   /**
    * What getting these items takes, given what is already in hand. `covered`: smelts other fuel burns (spare wooden parts,
    * MC_PARTS), planned as no planks.

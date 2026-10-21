@@ -893,7 +893,7 @@ function renderVillage(v) {
   else if (tab === 'tech') {
     const wk = (v.layouts || [])[0]?.works;
     const fs = (wk?.furnaces || []).map((f, k) => (f ? `${k + 1} at <span class="mono">${f.x},${f.y},${f.z}</span>` : '')).filter(Boolean);
-    body = `${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([n, t]) => `<b>${esc(words(n))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`;
+    body = `${techTreeSvg(techtrees?.[v.name])}${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([n, t]) => `<b>${esc(words(n))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`;
   }
   const working = tasks.filter((t) => t.status === 'claimed');
   const stat = (n, label, cls = '') => `<div class="stat${cls}"><b>${n}</b><span>${label}</span></div>`;
@@ -2074,6 +2074,49 @@ document.addEventListener('click', (e) => {
   store.set('panel.utilBin', utilBin);
   refreshUtil().then(() => lastData && render(lastData));
 });
+// ---- the whole tech tree (techTree.ts via /api/techtree): goods by recipe depth, coloured by what the village has ----
+let techtrees = null;
+async function refreshTechTrees() {
+  if (paused) return;
+  try { techtrees = await api('/api/techtree'); } catch { techtrees = null; }
+}
+const TREE_STATES = {
+  made: ['made', 'var(--good)', 'solid'], unlocked: ['invented', 'var(--good)', 'solid'], researching: ['being researched', 'var(--warn)', 'solid'],
+  known: ['known, never made', 'var(--accent)', 'outline'], locked: ['locked', 'var(--muted)', 'dashed'], raw: ['raw material', 'var(--text)', 'outline'],
+};
+/** Columns by recipe depth (raw materials left), each node coloured by its state; inventions drawn as pills. */
+function techTreeSvg(t) {
+  if (!t || !t.nodes.length) return '';
+  const W = 138, H = 18, COL = 164, ROW = 23, PAD = 6;
+  const cols = [];
+  for (const n of t.nodes) (cols[n.depth] ||= []).push(n);
+  const order = ['raw', 'unlocked', 'researching', 'made', 'known', 'locked'];
+  const pos = new Map();
+  cols.forEach((c, d) => (c || []).sort((a, b) => (a.kind === 'invention') - (b.kind === 'invention') || order.indexOf(a.state) - order.indexOf(b.state) || a.label.localeCompare(b.label))
+    .forEach((n, i) => pos.set(n.id, { x: PAD + d * COL, y: PAD + 16 + i * ROW, n })));
+  const width = PAD * 2 + (cols.length - 1) * COL + W, height = PAD * 2 + 16 + Math.max(...cols.map((c) => (c || []).length)) * ROW;
+  const edges = t.edges.map(([a, b]) => {
+    const p = pos.get(a), q = pos.get(b);
+    if (!p || !q) return '';
+    const x1 = p.x + W, y1 = p.y + H / 2, x2 = q.x, y2 = q.y + H / 2, mx = (x1 + x2) / 2;
+    return `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="var(--muted)" stroke-width="1"${q.n.state === 'locked' ? ' stroke-dasharray="3 3" opacity="0.3"' : ' opacity="0.45"'}/>`;
+  }).join('');
+  const nodes = [...pos.values()].map(({ x, y, n }) => {
+    const [word, c, style] = TREE_STATES[n.state] || TREE_STATES.known;
+    const fill = style === 'solid' ? `color-mix(in srgb, ${c} 28%, var(--panel))` : 'var(--panel)';
+    const ins = t.edges.filter(([, b]) => b === n.id).map(([a]) => pos.get(a)?.n.label).filter(Boolean);
+    const label = n.label.length > 19 ? `${n.label.slice(0, 18)}…` : n.label;
+    return `<g><title>${esc(n.label)}: ${esc(word)}${n.how ? ` (${n.how})` : ''}${ins.length ? `; from ${esc(ins.join(', '))}` : ''}</title>`
+      + `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="${n.kind === 'invention' ? 9 : 3}" fill="${fill}" stroke="${c}" stroke-width="${n.kind === 'invention' ? 1.6 : 1}"${style === 'dashed' ? ' stroke-dasharray="3 2"' : ''}/>`
+      + `<text x="${x + W / 2}" y="${y + H / 2 + 4}" text-anchor="middle" font-size="11" fill="var(--text)"${n.kind === 'invention' ? ' font-weight="600"' : ''}${n.state === 'locked' ? ' opacity="0.65"' : ''}>${esc(label)}</text></g>`;
+  }).join('');
+  const heads = cols.map((_, d) => `<text x="${PAD + d * COL + W / 2}" y="${PAD + 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${d ? `step ${d}` : 'raw'}</text>`).join('');
+  const counts = {};
+  for (const n of t.nodes) counts[n.state] = (counts[n.state] || 0) + 1;
+  const legend = Object.entries(TREE_STATES).filter(([k]) => counts[k]).map(([k, [word, c, style]]) => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><span style="display:inline-block;width:12px;height:10px;border-radius:2px;border:1px ${style === 'dashed' ? 'dashed' : 'solid'} ${c};background:${style === 'solid' ? `color-mix(in srgb, ${c} 28%, var(--panel))` : 'transparent'}"></span>${esc(word)} ${counts[k]}</span>`).join('');
+  return `<div class="label">Tech tree</div><div class="sub" style="margin:2px 0 6px">${legend}<span>pills are the library's inventions; hover a box for its recipe</span></div>
+    <div style="overflow-x:auto;margin-bottom:8px"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="the village's tech tree">${heads}${edges}${nodes}</svg></div>`;
+}
 // ---- #80: the thriving scorecard (scripts/scorecard.py's measures and pass mark), from /api/scorecard ----
 let scorecard = null;
 async function refreshScorecard() {
@@ -2203,6 +2246,8 @@ refreshUtil();
 setInterval(refreshUtil, 30000); // #67: the busy history changes by the minute
 refreshScorecard();
 setInterval(refreshScorecard, 60000); // #80: a sample a minute
+refreshTechTrees();
+setInterval(refreshTechTrees, 30000); // the tech tree changes as goods are made
 refreshMaps();
 setInterval(refreshMaps, 2000);
 setTimeout(refreshWorldAtlas, 1500);
