@@ -434,4 +434,7 @@ mode reads well (2026-09-29).
     **VILLAGE_RANGE 144 by default**, 192 and `MC_WORKS_REPEAT` as settings; eight 90-150-minute runs on two test worlds
     (Rch1-Rch8) found and fixed five faults a wider range exposes (lesson 155) and a rescue loop (#77); Rch8 on the final
     defaults: 16.5% chore busy for 90 minutes vs Lng1's 9.6%. A second-settlement spec drafted for the user (#76);
-    issues #75-#77. Commits 2d1a56a to bbe7156 and the close.
+    issues #75-#77. Commits 2d1a56a to 118b4f7 (pushed). Then, on the user's picks one at a time, the economy ladder in
+    the simulator (own stock and wants, own makes, barter, claims, merchant sales with the levy, own farms of four kinds;
+    F264: at real-rate growth trade and diet hold up, busy does not), a live pair Eco1/Eco2, innovation v1 (F265) and a
+    50-member sim. Issues #78 (research points), #79 (life goals). Commits 2840a20 to the close (not pushed).

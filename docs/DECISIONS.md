@@ -622,3 +622,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   entries one step from what the village has, #73 part 1) and from unmet market wants (lapsed barter offers, wants nobody
   fills, #71). Measured in the sim first: new goods an hour, who invents, how techniques spread, late busy. Builds on F264
   (the economy gives reasons to trade, not work to fill idle time).
+- 10-21 (s43, the user's) **The economy ladder built in the sim, each step the user's pick:** personal stock (a fixed 25%
+  share of new goods, a real chest in each house, wants as facts and own stock spent first), own makes, barter (code
+  drafts offers, members accept from menus, prices drift, a notice board by the hut), specialists by claimed plots (after
+  habit and price weights did nothing), members' sales to the merchant with the 25% levy (emeralds a good on the board),
+  own farms of four kinds chosen by price, lack and how many stand. All behind flags, off by default; tested in the sim,
+  then one live pair (Eco1/Eco2). The second settlement (#76) parked by the user for the economy.
+- 10-21 (s43, the user's) **Innovation: experiments pay with commons materials, members pledge goods or emeralds, the
+  inventor collects the pledges.** Next (the user's, for s44): unlock cost from complexity (the recipe chain's steps,
+  inputs, tools) and benefit (the value of what it opens, wants and gluts), as research points that several members add
+  to (credit and pledges split by contribution), with prerequisites (a tech tree); and **life goals**: a goal per member
+  from its temperament (wealth, invention, mastery, standing, home, and **beauty: art, creativity, the look of the
+  village**, the user's addition), progress measured by code, shown on menus and weighting options.

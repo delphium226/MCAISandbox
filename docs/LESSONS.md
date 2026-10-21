@@ -614,3 +614,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    beside a pond flooded, and the atlas promised sandstone collect never reached (a work waiting an hour on 40 failed
    gathers). Grep every use of the constant and of its old literal (96 here) before a long run, and run one live test
    per step outward rather than jumping to the far value.
+156. **Look before writing a file by a common name** (s43): the Write tool's "updated" (not "created") meant
+   server/src/library.ts already existed: the activity library, 125 committed lines, overwritten by innovation code; git
+   restored it and the new code went to tech.ts. Glob or ls the path first, and read the tool's verb. Likewise a Village
+   field (`tech`) was taken: grep the record's type before adding one.
+157. **A simulator's fast settings flatter every feature that waits on growth** (s43, F264): at random ticks 30 each economy
+   step gained 2-4 points of busy and floods of goods; at the game's 3 the gain was ~1 point. Rerun a feature's verdict at
+   real-rate growth before building the next step on it.

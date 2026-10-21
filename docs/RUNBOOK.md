@@ -179,6 +179,13 @@ the short version; look here for a check script's arguments, a model detail or w
   the edge (AWAY), the furnace's fuel carried over; `sim.events.log` adds `[works]`, `[work]`, `[grow]`, `[vote]` and a
   `[stock]` line a minute (logs, cobblestone, sand, glass) to set beside the stage log's STOCK lines. Same seed, same run.
   In check:offline (20 minutes). Fidelity: F260, F262, F263 (Lng1 9.7 vs 9.6%, Rch1 17/16 vs 17%).
+- **The economy (s43, all off by default, sim-tested; one live pair Eco1/Eco2):** `MC_OWN=on` (a chest in each owned
+  house, a `MC_OWN_SHARE` 0.25 share of farm, slot, pen-work, fishing and gathering yields, carry home, own meals, own makes;
+  own.ts), `MC_BARTER=on` (offers on a board, barter.ts), `MC_SPECIAL=claim` (claimed plots; `habit`, `price` weights did
+  nothing), `MC_OWN_SALES=on` (members sell to the merchant, `MC_OWN_LEVY` 0.25 to storage), `MC_OWN_FARM=on` (own wheat,
+  pumpkin, cane or carrot farms by the house), `MC_INNOVATE=on` (tech.ts: experiments unlock library entries;
+  `MC_TECH_UNLOCKED=hay+lantern` starts with some). The sim's report adds own, spread, claims, barter, innovation lines;
+  `--workers N` (to 49) runs 50 members; `--random-tick 3` is real-rate growth (judge features there, lesson 157).
 - **The village range** (s43): `MC_VILLAGE_RANGE` (144 since s43; 96 before) moves the village's range; growth's reach is 16 inside it unless
   `MC_GROW_RANGE`; materials for public works are looked for within it; the site survey reads columns the surveyor has
   not loaded through a fellow member (view distance 8: ~128 blocks round a bot). `MC_GREENS_PER` (5) for experiments.

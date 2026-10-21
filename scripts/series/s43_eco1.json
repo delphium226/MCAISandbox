@@ -1,0 +1,32 @@
+{
+  "about": "s43: the whole economy live (Eco1), real-rate crops (MC_RANDOM_TICK=3), 150 min. Prediction: runs/2026-10-21/s43/eco_prediction.txt",
+  "out": "runs/2026-10-21/s43/s43_eco1",
+  "world": 1,
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "checks": [
+    "agent_log"
+  ],
+  "timeout_min": 200,
+  "server_env": {
+    "MC_NEEDS": "show",
+    "MC_APPETITE": "60",
+    "MC_NEED_HOLD_MIN": "2",
+    "MC_NEED_FIELD_COOLDOWN_MIN": "5",
+    "MC_OWN": "on",
+    "MC_BARTER": "on",
+    "MC_SPECIAL": "claim",
+    "MC_OWN_SALES": "on",
+    "MC_OWN_FARM": "on",
+    "MC_RANDOM_TICK": "3"
+  },
+  "runs": [
+    {
+      "name": "Eco1",
+      "village": "B25x2",
+      "checkpoint": "mv3_grown25",
+      "args": "--after 150 --stock fishing_rod:3"
+    }
+  ]
+}

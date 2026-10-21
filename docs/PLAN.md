@@ -38,29 +38,27 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 `runs/2026-10-21/NEXT_PROMPT_s44.md`)
 
 - **Where the work lives** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
-  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes. s43's
-  commits are local: **not pushed** (ask first).
-- **Done in s43** (an overnight session the user left to decide; DECISIONS 10-21; notes and predictions in
-  `runs/2026-10-21/s43/`):
-  - **The simulator matches both long runs** (F263, lesson 154): sites on the square alone, builds in the wood that
-    covers them, make and fishing times by batch, durations by where the member stands, furnace fuel carried over.
-    Lng1 9.7% vs 9.6%, Rch1 17/16% vs 17%, works 15 vs 15.
-  - **Village range 144 by default** (the user chose "a wider reach" of three): Rch1/Rch2 held 17% to minute 90 vs
-    Lng1's 9.6% collapse at 40. 192 is a setting (`MC_VILLAGE_RANGE`); with `MC_WORKS_REPEAT=on` Rch7 held 16.9% over
-    150 minutes with 3 repeated pieces. Five faults the wider range exposed were fixed (lesson 155): builds walk within
-    sight of unloaded sites, blockName and the site survey read through fellow members, small works keep off unbuilt
-    footprints, growth keeps off squares touching water, a requeued build no longer reposts a material no gather found.
-    The rescue teleports home on a third rescue in one spot (#77). **Rch8 on the final defaults: 16.5% chore busy (21%
-    BUSY all) over 90 minutes, 15 works, [stuck] 16, no dip at minutes 20-40.**
-  - Experiments in the sim: merchant orders are noise (15.7 vs 15.1%); greens per 3 change nothing at 144 (Rch2).
-- **Next (NEXT_PROMPT_s44):** the user's answers on the second settlement spec (#76,
-  `runs/2026-10-21/s43/spec_second_settlement.md`, six open questions), then build it behind `MC_SETTLE` (sim first);
-  or, if the user prefers, the barter ladder (#68-#71) on the 144 default.
-- **Parked:** parallel foundry tickets (#72); public works one at a time (a second at once is the next lever after land,
-  see F263's notes).
-- **Leftovers:** the sim's light parts (53 vs 101) and cod eaten (+30%); a member trapped in the mine's tunnel under
-  the storage hut (#77: the rescue fix is in, the cause is not); 68 [stuck] at range 192 (Rch7); s41's leftovers.
-- **Stack at the close:** test worlds 1 and 2 up (Paper 25566/25567, agent servers 8767/8768, no agents); the rest down.
+  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes. s43's commits
+  up to 118b4f7 are pushed; **2840a20 to the close are not pushed** (ask).
+- **Done in s43** (DECISIONS 10-21; notes, specs and predictions in `runs/2026-10-21/s43/`):
+  - **Village range 144 by default** (F263; Rch1-Rch8): the village stays busy to 90 min (Rch8 16.5% vs Lng1 9.6%); the
+    simulator matches both long runs; five faults of a wider range fixed (lesson 155); `MC_WORKS_REPEAT`, the rescue fix.
+  - **The economy ladder, sim-first, all behind flags (off):** `MC_OWN` (own chests, a 25% share, carry home, own meals and
+    makes), `MC_BARTER` (offers on a board), `MC_SPECIAL=claim` (claimed plots), `MC_OWN_SALES` (sales with the 25% levy),
+    `MC_OWN_FARM` (own farms of four kinds). F264: at real-rate growth trade and diet hold up, busy does not (+~1 point).
+  - **Innovation v1** (`MC_INNOVATE`, server/src/tech.ts; F265): a library unlocked by experiments, pledges to inventors;
+    unlocks by lottery and too early. The second settlement (#76) is parked (the user's).
+  - **Live economy pair Eco1/Eco2** (real-rate crops, 150 min, test worlds 1 and 2): every new path ran live; finals were
+    still running at the close (ended ~13:05 on 10-21): read them first in s44.
+- **Next (NEXT_PROMPT_s44):** Eco1/Eco2's results; then **innovation v2: research points** (#78) and **life goals**
+  including beauty (#79), the user's choices, sim first.
+- **Parked:** the second settlement (#76), parallel foundry tickets (#72), own hen pens (pens beyond the annex), public works
+  one at a time.
+- **Leftovers:** the sim's light parts (53 vs 101) and new members' appetites at 50; hay bales rarely made; own farms
+  refused for houses far from the hut (FIELD_HUT_REACH); the own-farm refusal text says "of the village" for "of your
+  house"; the menu offers an own farm while a public work is being laid out; #77's cause; [stuck] at range 192.
+- **Stack at the close:** test worlds 1 and 2 up (Paper 25566/25567, agent servers 8767/8768) running Eco1/Eco2 until
+  ~13:05; the series remove their agents at the end. Main world and test world 3 down.
 - **Uncommitted at the close:** nothing of this session's.
 
 ## Earlier phases

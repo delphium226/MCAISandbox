@@ -1359,3 +1359,19 @@ CLAUDE.md when a phase ends.
   most offers lapsing, 665 pumpkins idle in chests; with 40 cane and 40 carrots stocked 201-288 trades, a third paid in
   emeralds, 160-180 pies and 230-270 carrots eaten, top good 54-61% of a chest. Members eat ~450 bread a run vs ~75.
   The economy gives members reasons to trade and a varied diet; it does not fill idle time (its chores are short).
+- F265 (10-21, s43, issues #73 #71) **Innovation v1 in the simulator: experiments unlock techniques, but by lottery and
+  too early; and the live economy works on its first run.** MC_INNOVATE (off): a library (server/src/tech.ts) of four
+  entries (hay bales, pies for the commons, lanterns, armour stands; a campfire entry dropped: its recipe plans coal, which
+  the workshop keeps) unlocked by members' experiments (attempt materials from the commons, code's roll, +0.1 a member's
+  failed try), pledges paid to the inventor. Sim (real-rate, 180 min): 2-3 unlocks a run, each by a different member, but
+  in the first 2-7 minutes (curious members explore candidates with no demand) and late busy unchanged; pies made ~100
+  times a run once cane is stocked; hay rarely (members' own wheat goes into bread); no pledge in any run. Cost is not
+  tied to complexity or benefit (hay costs what a lantern does). The user's next step (10-21): research points scaled by
+  complexity and benefit, shared credit, prerequisites. The live economy (Eco1/Eco2, MC_OWN, MC_BARTER, MC_SPECIAL=claim,
+  MC_OWN_SALES, MC_OWN_FARM, real-rate crops, 150 min): every new path ran live without a code failure; at minute 87:
+  25 chests each, 13-14 own farms, 33-38 carry trips, 10 / 35 trades, 34-39 own meals, 10 / 21 own makes, 17 / 7 sales;
+  refusals by design (no 9x9 pad within 24 of a house; houses ~87 from the hut leave 3 blocks of reach under
+  FIELD_HUT_REACH; a public work being laid out); one offer left up after its poster spent the goods (failed twice, fixed
+  in 7d84c87). Final numbers: the next session reads them (runs/2026-10-21/s43/s43_eco1, s43_eco2).
+  Sim at 50 members (--workers 49): busy 11.5% vs 20.4% at 25 (90 min); 14.3% with the economy; new members' appetites
+  look missing (meals 340 vs 312 at 25): check before trusting food numbers at 50.
