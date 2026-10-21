@@ -174,6 +174,29 @@ const fresh = recall(V, 'Cleo', villageMemory(V)!.epoch + 2 * MIN, { mark: false
 const dawnP = buildPrompt({ ...menu, agent: 'Cleo' }, menu.options, { recall: fresh });
 ok(!!fresh?.dawn && dawnP.user.includes('first choice of village day') && props(dawnP).includes('intention,focus'), 'an empty memory still asks for the day intention');
 
+// #86 (MC_MEMORY_QUALITY): merges, refusals told once, the night's keep
+setMemorySettings({ quality: true, clock: false });
+spawn('Dana', true, T0 + 2);
+spawn('Ada', true, T0 + 3);
+const w1 = applyWrites(V, 'Dana', { remember: 'Craft a stone axe soon to fell birch trees faster' }, 'decision', T0 + 10 * MIN);
+const w2 = applyWrites(V, 'Dana', { remember: 'I should craft a stone axe to fell the birch trees' }, 'decision', T0 + 11 * MIN);
+ok(w1[0] === 'add' && /^merge n\d+$/.test(w2[0]) && liveNotes(agentMemory(V, 'Dana')).length === 1, `a near-duplicate merges into the older note (${w2})`);
+ok(liveNotes(agentMemory(V, 'Dana'))[0].text.startsWith('I should craft') && liveNotes(agentMemory(V, 'Dana'))[0].merged === 1, 'the merged note takes the newer text');
+const w3 = applyWrites(V, 'Dana', { remember: 'Craft a pickaxe soon for the iron trip' }, 'decision', T0 + 12 * MIN);
+ok(w3[0] === 'add', 'a different plan with two shared words is a new note');
+const w4 = applyWrites(V, 'Dana', { remember: 'Lighting my house early keeps the hostile mobs away at night' }, 'decision', T0 + 13 * MIN);
+ok(w4[0] === 'refused' && agentMemory(V, 'Dana')!.refused === 'the world is peaceful: there are no hostile mobs', 'a note naming mobs is refused');
+const w5 = applyWrites(V, 'Dana', { remember: 'Light the houses before night falls' }, 'decision', T0 + 14 * MIN);
+ok(w5[0] === 'add', 'night itself is not refused (the village clock has one)');
+ok(applyWrites(V, 'Dana', { remember: 'Ask Zoe for logs' }, 'decision', T0 + 15 * MIN)[0] === 'refused', 'a pool name not in the village is refused');
+const rf = recall(V, 'Dana', T0 + 16 * MIN);
+ok(!!rf?.text.includes('A note you wanted to keep was not kept: Zoe is not a member of Testvale.'), 'the refusal told in the next section');
+ok(!recall(V, 'Dana', T0 + 17 * MIN)?.text.includes('was not kept'), 'and only once');
+const pk = parseReflect({ notes: ['n1', { text: '[n3]' }, { text: 'A real note about the pens' }], intention: 'tend pens', focus: 'tending pens', keep: ['n2'] }, true);
+ok(JSON.stringify(pk?.keep) === '["n2","n1","n3"]' && pk?.notes.length === 1 && pk.notes[0].text === 'A real note about the pens', `the night's keep (${JSON.stringify(pk)})`);
+ok(parseReflect({ notes: ['n1'], intention: 'x' })?.notes.length === 1, 'without quality ids stay notes, as in G1');
+setMemorySettings({ quality: false });
+
 flushMemory();
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`${fail ? 'FAIL' : 'OK'} memory_unit: ${pass} of ${pass + fail} checks passed`);

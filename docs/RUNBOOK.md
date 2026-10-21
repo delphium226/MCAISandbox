@@ -253,6 +253,33 @@ the short version; look here for a check script's arguments, a model detail or w
   prompts with memory off byte-identical to LSc1's sent prompts), `scripts/bench/memorybench.mts` (A writing, B using,
   C a G1 run's own decisions re-asked without the memory section: `ACTS=<run>.acts.jsonl`).
 
+## Social life and specialisation (G2, #27-#29, #17, #86, 2026-10-21)
+
+- **Flags** (every one off or `legacy` by default; spec `runs/2026-10-21/g2-social/spec.md`): `MCAI_SOCIAL`
+  `legacy|on|noblock|countsonly|off` (`social.ts`: `on` replaces the "Others now" line with the awareness block, counts by
+  kind, the menu's kinds nobody is doing, up to 5 code-kept profiles and Riedl's sentence, capped at 1,200 characters;
+  `countsonly` without profiles; `noblock` keeps the legacy line; `off` leaves every other member's name and activity out
+  of every prompt, E.8's (b2)); `MCAI_SOCIAL_ROLES=show` (the role inferred by code shown back, E.8's (e)); `MC_ACTS=on`
+  (`acts.ts`: request, offer, accept, decline, release, report and `say` in the `choose` call, offered once in
+  `MC_ACTS_EVERY` 3 model decisions; one validator; promises of one chore closed by code from chore ends, due in
+  `MC_PROMISE_MIN` 15; the inbox and the menu's `[Ada asked you]` tags; lines shown in the game by tellraw, "Ada says:
+  ...", never bot chat; refused at start with `MCAI_SOCIAL=off`); `MC_MEMORY_QUALITY=on` (#86: near-duplicate notes merge,
+  notes naming hostile mobs, damage, dying, a non-member or an unrecorded promise are refused and the member told once,
+  the night's `keep`); `MC_CONTROLLER=on` (`controller.ts`: the day's intention weighs 1.3 on its focus kind, a chore under
+  30 s with nothing gained counts as a failure); `MC_SKILL=on` (`skill.ts`, #17: practice raises a kind's weight 0.8-1.4,
+  "Your skill:" line, "village ~N min" on the record); `MC_CHOOSE=scripted` (E.4's scripted controller over the model
+  path's menus, no calls; `MC_SCRIPTED_ACTS` 0.3 the chance of an act; E.8's null picker). With the clock and `on`, the
+  night's reflection shows the members dealt with and takes up to 3 profile edits (feel, a 12-word note).
+- **Ledger:** `acts.jsonl` gains `act` (with the validator's verdict), `commitment` (made, kept, broken, released, moot),
+  `request`, `say`, `help`, `role`, `profile`; scripted decisions log their prompt (`scripted: true`). The panel's Memory
+  tab has a Social block (role, skill, inbox, promises, requests, profiles).
+- **Checks and bench:** `social_unit.mts`, `acts_unit.mts`, `memory_unit.mts` (#86's part), `menu_ctx_golden.mts`
+  (`dump|check` every member's model-mode menu, context and prompt on mv3_grown25 with defaults; `audit` under the shell's
+  `MCAI_SOCIAL`: unique option names, and under `off` no name or others' activity), `prompt_golden_memory.mts` (memory-on
+  prompts byte-identical to G1a's), `prompt_audit.py RUN.acts.jsonl --arm on|off [--roles]`, `spec_index.py` (E.8's
+  specialisation index, persistence, and `--arms A=... B=...` the exact permutation contrast),
+  `scripts/bench/socialbench.mts` (A acts and requests, B a broken promise's counterfactual, on G1a's real prompts).
+
 ## Models (gpt-oss for every role; local models as a fallback)
 
 - **Every role defaults to `ollama:gpt-oss:120b-cloud`** (the user's decision, 2026-10-10, A.0): mayor, architect,

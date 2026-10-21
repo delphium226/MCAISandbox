@@ -15,11 +15,14 @@
  *   MC_MEMORY_CARRY  off (default) | on: a spawn with reset keeps the member's memory (a carry-over across runs)
  *   MC_MEMORY_CHARS  2000: the cap on the chooser's memory section (~500 tokens)
  *   MC_MEMORY_NOTES  8: live notes per member
+ *   MC_MEMORY_QUALITY off (default) | on (G2, #86): near-duplicate notes merge into the older, notes the world rules out
+ *                    are refused (and the member told once), the night's `keep`
  *   MCAI_ACTS_LOG    the ledger's file; else beside MCAI_CHOICE_LOG (X.choices.jsonl -> X.acts.jsonl), else runs/acts-<date>.jsonl
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NAME_POOL } from './agentNames';
 
 const on = (v: string | undefined, dflt = false) => (v === undefined || v === '' ? dflt : /^(on|1|true|yes)$/i.test(v));
 
@@ -31,7 +34,16 @@ export const MEMORY = {
   carry: on(process.env.MC_MEMORY_CARRY),
   chars: Number(process.env.MC_MEMORY_CHARS ?? 2000),
   notes: Number(process.env.MC_MEMORY_NOTES ?? 8),
+  quality: on(process.env.MC_MEMORY) && on(process.env.MC_MEMORY_QUALITY),
 };
+
+/** Whether the village's day line may be shown (G2: not under MCAI_SOCIAL=off, where others' activity is left out; set by
+ *  social.ts, which memory.ts cannot import). */
+let villageLine = () => true;
+export function setVillageLineShown(fn: () => boolean): void {
+  villageLine = fn;
+}
+export const villageLineShown = () => villageLine();
 
 /** Test hook: set the settings (memory_unit.mts). */
 export function setMemorySettings(s: Partial<typeof MEMORY>): void {
@@ -60,6 +72,8 @@ export interface Note {
   by: 'decision' | 'night';
   /** The note that replaced it (never shown again). */
   replaced?: string;
+  /** #86: near-duplicates merged into it (its text and time are the latest's). */
+  merged?: number;
 }
 export interface LogEntry {
   t: number;
@@ -123,6 +137,8 @@ export interface AgentMemory {
   nightDone: number;
   /** G2-G4's places (social.ts), empty in G1. */
   social: Record<string, unknown>;
+  /** #86: why the last note it wanted kept was refused, told once in its next memory section. */
+  refused?: string;
 }
 export interface VillageMemory {
   name: string;
@@ -272,6 +288,19 @@ function ensureAgent(village: string, agent: string): AgentMemory {
   return (store.agents[k] ??= {
     name: agent, village, intents: [], notes: [], nextNote: 1, added: { day: 0, n: 0 }, log: [], days: [], kinds: {}, nightDone: 0, social: {},
   });
+}
+
+/** G2: a member's social places (social.ts' MemberSocial), created on first use; touchMemory() after a change. */
+export function socialOf(village: string, agent: string): Record<string, unknown> {
+  return ensureAgent(village, agent).social;
+}
+/** G2: a village's social places (social.ts' VillageSocial). */
+export function villageSocialOf(village: string, now = Date.now()): Record<string, unknown> {
+  return ensureVillage(village, now).social;
+}
+/** A change made through socialOf or villageSocialOf, to be saved. */
+export function touchMemory(): void {
+  save();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -428,6 +457,59 @@ export const liveNotes = (a: AgentMemory | undefined) => (a?.notes ?? []).filter
 
 const cleanText = (s: unknown, max: number) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 
+// (#86, MC_MEMORY_QUALITY) Near-duplicates and false beliefs
+
+const STOP = new Set(('the a an and or but of to in on at for with from by as is are was were be been it its this that these those '
+  + 'i me my mine you your we our they them their he she his her will would should could can may might must shall do does did done '
+  + 'have has had not no so then than too very more most some any all each every soon now later today tomorrow also just still '
+  + 'next first again when while before after into out up down over about what which who how why there here').split(' '));
+/** A note's content words: lower case, stop words and short words out, a plural or verb ending cut. */
+export function contentWords(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().split(/[^a-z]+/)) {
+    if (w.length < 3 || STOP.has(w)) continue;
+    out.add(w.replace(/(ing|ed|es|s)$/, '') || w);
+  }
+  return out;
+}
+/** The live note a new text repeats (Jaccard of content words >= 0.5 and 3+ shared, the closest), if any. */
+export function nearDuplicate(live: Note[], text: string): Note | undefined {
+  const a = contentWords(text);
+  let best: Note | undefined, bj = 0;
+  for (const n of live) {
+    const b = contentWords(n.text);
+    const shared = [...a].filter((w) => b.has(w)).length;
+    const j = shared / (a.size + b.size - shared || 1);
+    if (shared >= 3 && j >= 0.5 && j > bj) {
+      best = n;
+      bj = j;
+    }
+  }
+  return best;
+}
+/** What the world rules out, in words a note may use (peaceful survival: no hostile mobs, no damage; the world's rules). */
+const RULED_OUT: Array<[RegExp, string]> = [
+  [/\b(hostile|mobs?|monsters?|zombies?|creepers?|skeletons?|spiders?|endermen|enderman|witch(es)?|phantoms?)\b/i, 'the world is peaceful: there are no hostile mobs'],
+  [/\b(take|taking|took|takes) damage\b|\b(hurt|injur(y|ed|ies)|wounded|starv(e|ing|ation))\b|\b(die|dies|dying|died)\b/i, 'no one takes damage or dies in this world'],
+];
+/** Other checks a note must pass (acts.ts adds the promise check); each returns why it is refused, or null. */
+const checkers: Array<(village: string, agent: string, text: string) => string | null> = [];
+export function addNoteCheck(fn: (village: string, agent: string, text: string) => string | null): void {
+  checkers.push(fn);
+}
+/** Why the note is false for this world or village, or null (#86): what the world rules out, a member named who is not one of
+ *  the village's (names from the pool only), the added checks. */
+export function checkNote(village: string, agent: string, text: string): string | null {
+  for (const [re, why] of RULED_OUT) if (re.test(text)) return why;
+  const members = new Set(membersOf(village).map((m) => m.name.toLowerCase()));
+  for (const n of NAME_POOL) if (new RegExp(`\\b${n}\\b`).test(text) && !members.has(n.toLowerCase())) return `${n} is not a member of ${village}`;
+  for (const fn of checkers) {
+    const why = fn(village, agent, text);
+    if (why) return why;
+  }
+  return null;
+}
+
 /**
  * What the model chose to keep (a decision's or the night's): a note (replacing `replaces` when it names a live note; when
  * the notes are full and it names none, the oldest of the least shown goes), and an intention. Returns what was done.
@@ -442,7 +524,21 @@ export function applyWrites(village: string, agent: string, w: { remember?: unkn
   if (text) {
     const live = liveNotes(a);
     if (a.added.day !== day) a.added = { day, n: 0 };
-    if (by === 'decision' && a.added.n >= NOTES_PER_DAY) {
+    const refused = MEMORY.quality ? checkNote(village, agent, text) : null;
+    const dup = MEMORY.quality && !refused ? nearDuplicate(live, text) : undefined;
+    if (refused) {
+      a.refused = refused;
+      logAct({ type: 'memory', op: 'refused', why: refused, village, agent, text, by, ref });
+      done.push('refused');
+    } else if (dup) {
+      // (#86: into the older note, which keeps its id and takes the newer text and time; not counted toward the day's cap)
+      logAct({ type: 'memory', op: 'merge', village, agent, id: dup.id, was: dup.text, text, by, ref });
+      dup.text = text;
+      dup.t = now;
+      dup.day = day;
+      dup.merged = (dup.merged ?? 0) + 1;
+      done.push(`merge ${dup.id}`);
+    } else if (by === 'decision' && a.added.n >= NOTES_PER_DAY) {
       logAct({ type: 'memory', op: 'dropped', why: 'per-day cap', village, agent, text, ref });
       done.push('dropped');
     } else if (live.some((n) => n.text.toLowerCase() === text.toLowerCase())) {
@@ -552,7 +648,8 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
       if (notable.length) lines.push({ text: `- Earlier ${c ? 'today' : 'this hour'}: ${notable.map((e) => `"${e.name}": ${e.ok ? 'done (your first of its kind)' : `failed${e.msg ? ` (${e.msg.slice(0, 60)})` : ''}`}, ${ago(now - e.t)}`).join('; ')}.`, items: notable.map((e) => `log:${e.t}`) });
     }
   }
-  if (v?.days.length) lines.push({ text: `- The village: ${v.days[v.days.length - 1].line}`, items: ['village'] });
+  if (v?.days.length && villageLine()) lines.push({ text: `- The village: ${v.days[v.days.length - 1].line}`, items: ['village'] });
+  if (MEMORY.quality && a?.refused) lines.push({ text: `- A note you wanted to keep was not kept: ${a.refused}.`, items: ['refused'], keep: true });
   // (a member with nothing remembered yet still gets the head on its first choice of a day, so the intention is asked)
   if (!lines.length && !dawn) return null;
   const head = c ? `What you remember (village day ${c.day}, ${c.phase}; a day is ${Math.round(c.dayMs / 60000)} minutes):` : 'What you remember:';
@@ -568,6 +665,7 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
   if (text.length > cap) text = `${text.slice(0, cap - 3)}...`;
   if (o.mark !== false && a) {
     for (const n of live) if (kept.some((l) => l.items.includes(n.id))) n.shown++;
+    if (kept.some((l) => l.items.includes('refused'))) delete a.refused;
     save();
   }
   return { text, shown: kept.flatMap((l) => l.items), liveIds: live.map((n) => n.id), full: live.length >= MEMORY.notes, dawn, day: c?.day ?? 0 };

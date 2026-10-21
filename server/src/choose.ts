@@ -22,11 +22,12 @@ import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from 
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
 import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
+import { actFields, type ActFields } from './acts';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
 export const CHOOSE = {
-  mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model',
+  mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model' | 'scripted',
   instances: new Set((process.env.MC_CHOICE_INSTANCES ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
   /** Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). */
   families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish,initiatives,activities').split(',').map((s) => s.trim()).filter(Boolean)),
@@ -53,6 +54,12 @@ const byRank = (a: ChoiceOption, b: ChoiceOption) => a.rank - b.rank;
  * 8 older options at the same lp (S.9's review, lens 2 M1).
  */
 export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
+  // (G2: an option answering a request or keeping a promise keeps its place, beyond the per-kind limit)
+  const pinned = options.filter((o) => o.social);
+  if (pinned.length) {
+    const rest = trimMenu(options.filter((o) => !o.social));
+    return [...pinned.slice(0, MENU_MAX), ...rest.slice(0, Math.max(0, MENU_MAX - pinned.length))].sort(byRank);
+  }
   const perKind = new Map<string, number>();
   const kept: ChoiceOption[] = [];
   // (N.1: within a kind, a need's weight first, then rank; without needs the rank order as before)
@@ -109,12 +116,12 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
 }
 
 /** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
-export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined;
+export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined;
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
 export const weights = (o: ChoiceOption) => {
-  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1);
+  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1);
   return o.gw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
 };
 
@@ -167,7 +174,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '');
+  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.social ? ` ${o.social}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -179,14 +186,19 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   const lines: string[] = [];
   if (ctx.persona?.trim()) lines.push(ctx.persona.trim());
   if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
+  if (ctx.role?.trim()) lines.push(ctx.role.trim());
+  if (ctx.skill?.trim()) lines.push(ctx.skill.trim());
   if (ctx.village?.trim()) lines.push(labelled('Village', ctx.village.trim()));
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
+  if (ctx.social?.trim()) lines.push(ctx.social.trim());
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
   if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
   const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
   lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
   if (rc) lines.push(rc.text);
+  if (ctx.inbox?.length) lines.push(`Your inbox:\n${ctx.inbox.map((l) => `- ${l}`).join('\n')}`);
+  if (ctx.acts?.trim()) lines.push(ctx.acts.trim());
   if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
   lines.push('Options (in no particular order):');
   for (const o of shown) {
@@ -194,7 +206,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
     const effect = o.effect?.trim();
     lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
   }
-  lines.push(mem ? 'Call choose with your reason and the exact name of one option; add `remember` only when something is worth keeping for later.' : 'Call choose with your reason and the exact name of one option.');
+  lines.push((mem ? 'Call choose with your reason and the exact name of one option; add `remember` only when something is worth keeping for later.' : 'Call choose with your reason and the exact name of one option.')
+    + (ctx.acts?.trim() ? ' Add an act or a line to say only when it serves your choice.' : ''));
   const tools: ToolDef[] = [{
     name: 'choose',
     description: 'Choose your next chore: a one-sentence reason first, then the exact name of one option.',
@@ -211,6 +224,16 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
             intention: { type: 'string', maxLength: 200, description: 'What you mean to do today and why, one sentence.' },
             focus: { type: 'string', enum: FOCUS, description: 'The kind of work you mean to do most today.' },
           } : {}),
+        } : {}),
+        // (G2, MC_ACTS: one act and one line, flat fields: gpt-oss nests objects and ignores enums, the spec check's H6)
+        ...(ctx.acts?.trim() ? {
+          act: { type: 'string', enum: ['none', 'request', 'offer', 'accept', 'decline', 'release', 'report'], description: 'Optional: one act (none by default).' },
+          act_to: { type: 'string', description: 'The member the act is for or about, or "anyone" for a request.' },
+          act_item: { type: 'string', description: 'For a request or an offer: an item from the list.' },
+          act_project: { type: 'string', description: 'For a request or an offer: a project from the list.' },
+          act_ref: { type: 'string', description: 'For accept, decline, release or report: the id (r3, c2).' },
+          act_claim: { type: 'string', enum: ['kept', 'broke'], description: 'For a report.' },
+          say: { type: 'string', maxLength: 120, description: 'Optional: one short line said aloud to those near you.' },
         } : {}),
       },
       required: rc?.dawn ? ['reason', 'choice', 'intention', 'focus'] : ['reason', 'choice'],
@@ -266,6 +289,12 @@ function fromText(text: string): { choice: string; reason: string } | null {
 function match(choice: string, shown: ChoiceOption[]): ChoiceOption | { invalid: string } {
   const exact = shown.find((o) => o.name === choice);
   if (exact) return exact;
+  // (a name copied with the line's trailing tags, "[Ada asked you]": the tags cut off; the spec check's L1)
+  if (/\]\s*$/.test(choice)) {
+    const bare = choice.replace(/(\s*\[[^\]]*\])+\s*$/, '');
+    const hit = shown.find((o) => o.name === bare);
+    if (hit) return hit;
+  }
   const f = fold(choice);
   if (!f) return { invalid: 'an empty choice' };
   const folded = shown.filter((o) => fold(o.name) === f);
@@ -350,6 +379,8 @@ export interface ChooseResult {
   waitMs: number;
   promptTokens: number;
   outputTokens: number;
+  /** G2 (MC_ACTS): the reply's act and say fields, from a valid reply. */
+  acts?: ActFields;
 }
 
 /** The fallback reason of a failed call (spec 5.1 step 8). */
@@ -441,6 +472,27 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
         choice: 'invalid' in c ? null : c.id, reason: 'invalid' in c ? '' : c.reason, ...w, done,
         ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens,
       });
+    }
+    if (!('invalid' in c) && req.menu.ctx.acts?.trim()) {
+      const call = r.reply.calls.find((x) => x.name === 'choose') ?? r.reply.calls[0];
+      let input: unknown = call?.input;
+      if (!call) {
+        const t = r.reply.text ?? '';
+        try { input = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch { input = null; }
+      }
+      if (input && typeof input === 'object' && !('choice' in (input as object))) {
+        for (const k of ['arguments', 'parameters', 'input']) {
+          let inner = (input as Record<string, unknown>)[k];
+          if (typeof inner === 'string') {
+            try { inner = JSON.parse(inner); } catch { inner = null; }
+          }
+          if (inner && typeof inner === 'object') {
+            input = inner;
+            break;
+          }
+        }
+      }
+      out.acts = actFields(input);
     }
     if ('invalid' in c) {
       const raw = r.reply.calls.length ? JSON.stringify(r.reply.calls) : r.reply.text;
@@ -682,6 +734,17 @@ export class ChoiceStats {
       minutes += e.minutes;
     }
     return n ? { n, ok, minutes: minutes / n } : null;
+  }
+
+  /** #17: the village's ends of a kind that went well (cut and contention left out): how many and the mean minutes. */
+  villageKind(village: string, kind: ChoiceKind): { n: number; minutes: number } | null {
+    let n = 0, minutes = 0;
+    for (const e of this.list(village)) {
+      if (e.kind !== kind || !e.ok || e.cut || e.contention) continue;
+      n++;
+      minutes += e.minutes;
+    }
+    return n ? { n, minutes: minutes / n } : null;
   }
 
   /** The village's last end of a kind (`id`: of that option only; make's and gather's ids are goods and materials). */

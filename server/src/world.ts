@@ -271,6 +271,12 @@ export interface ChoiceOption {
   /** #79 (MC_GOALS=on): the member's life goal's weight on an option that serves it, 1.6..2 (goals.ts); the fixed pick (no
    *  rank decay on it), the trim and the decline read it. */
   gw?: number;
+  /** G2 (MC_CONTROLLER=on): the day's intention's weight on an option of its focus kind (1.3). */
+  iw?: number;
+  /** G2 (MC_SKILL=on, #17): the member's skill at the option's kind, as a weight 0.8..1.4. */
+  sw?: number;
+  /** G2 (MC_ACTS=on): the option answers a request to the member or keeps its promise ("[Ada asked you]"); the trim keeps it. */
+  social?: string;
 }
 
 export interface ChoiceContext {
@@ -282,6 +288,16 @@ export interface ChoiceContext {
   village: string;
   /** <= 200 chars */
   others: string;
+  /** G2 (MCAI_SOCIAL on, countsonly): the awareness block (social.ts awareness), in place of `others`. */
+  social?: string;
+  /** G2 (MCAI_SOCIAL_ROLES=show): "You have become the village's miner." */
+  role?: string;
+  /** G2 (MC_SKILL=on, #17): "Your skill: harvesting high, tending pens some." */
+  skill?: string;
+  /** G2 (MC_ACTS=on): the member's inbox, at most 4 lines (acts.ts inbox). */
+  inbox?: string[];
+  /** G2 (MC_ACTS=on): the acts on offer this decision (acts.ts actsHelp); with it the tool carries the act and say fields. */
+  acts?: string;
   /** The agent's last <= 5 chore ends, one line each. */
   outcomes: string[];
   /** N.1 (MC_NEEDS=on): the village's needs at LOW or above, most acute first (<= 3, "31 unlit spots in 6 buildings"). */
@@ -305,7 +321,7 @@ export interface ChoiceMenu {
   ctx: ChoiceContext;
 }
 
-export type ChoiceSource = 'model' | 'fixed' | 'only' | 'repeat' | 'fallback';
+export type ChoiceSource = 'model' | 'fixed' | 'only' | 'repeat' | 'fallback' | 'scripted';
 export type FallbackWhy = 'off' | 'budget' | 'rate' | 'queue' | 'withdrawn' | 'timeout' | 'invalid' | 'error' | 'taken';
 
 export interface ChoiceMeta {
@@ -358,6 +374,8 @@ export interface ChoiceSummary {
   fixed: number;
   only: number;
   repeat: number;
+  /** G2: picks by the scripted controller (MC_CHOOSE=scripted). */
+  scripted?: number;
   /** Fixed picks made by the rate throttle (minGapMs with no same-kind option, or the hourly cap): not failures. */
   rate: number;
   /** Failures only: budget, queue, withdrawn, timeout, invalid, error, taken (never 'rate'). */

@@ -44,6 +44,8 @@ import { GOALS_ON, goalsOf, progress } from './goals';
 import { ScoreClock, scorecardView, type ScoreWorld } from './scorecard';
 import { techTree, type RecipeOf, type TechTree } from './techTree';
 import { MEMORY, agentMemory, liveNotes, membersOf, rosterOf, villageMemory } from './memory';
+import { ACTS, socialView } from './acts';
+import { SOCIAL } from './social';
 import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
@@ -442,6 +444,8 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       chores: w.choiceHistory?.(a) ?? [],
       // (G1: its journal)
       journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
+      // (G2: its inbox, promises and requests, with the settings that made them)
+      social: vn ? { mode: SOCIAL.mode, acts: ACTS.on, ...socialView(vn, a.name, Date.now()) } : null,
     }), true;
   }
   // G1: a village's members' memory (compact), and their rosters for scripts/respawn_agents.py

@@ -759,7 +759,18 @@ function mindBody(a) {
     + `<div class="sub">record: ${esc(Object.entries(j.kinds || {}).sort((x, y) => y[1].n - x[1].n).map(([k, r]) => `${k} ${r.n} (${r.productive})`).join(', ') || 'none')}</div>`
     + `${(j.days || []).length ? `<div class="sub">days:</div><ul class="list">${j.days.slice(-6).reverse().map((x) => `<li class="sub">${esc(x.line)}</li>`).join('')}</ul>` : ''}`
     + `<div class="sub">last ends:</div><ul class="list">${(j.log || []).slice(-10).reverse().map((e) => `<li class="sub">${e.ok ? '✓' : '✗'} ${esc(e.line)}</li>`).join('') || '<li class="empty">none</li>'}</ul>` : '';
-  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}${journal}`
+  // (G2: what it knows of the others, kept by code, its role and skill, its inbox and promises)
+  const so = j && j.social ? j.social : {};
+  const sv = d.social || {};
+  const profs = Object.values(so.profiles || {}).sort((x, y) => (y.helped + y.helpedBy + y.kept + y.broke) - (x.helped + x.helpedBy + x.kept + x.broke) || (y.lastMet || 0) - (x.lastMet || 0));
+  const social = (profs.length || so.role || so.skill || (sv.inbox || []).length || (sv.promises || []).length) ? `<div class="label">Social <span class="sub">(G2; ${esc(sv.mode || '')}${sv.acts ? ', acts on' : ''})</span></div>`
+    + `${so.role ? `<div><b>Role</b> ${esc(so.role.kind)} <span class="sub">since ${ago(so.role.since)} ago; last kinds ${esc((so.recent || []).join(', '))}</span></div>` : ''}`
+    + `${so.skill ? `<div class="sub">skill: ${esc(Object.entries(so.skill).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, s]) => `${k} ${s}`).join(', '))}</div>` : ''}`
+    + `${(sv.inbox || []).length ? `<div class="sub">inbox:</div><ul class="list">${sv.inbox.map((l) => `<li class="sub">${esc(l)}</li>`).join('')}</ul>` : ''}`
+    + `${(sv.promises || []).length ? `<div class="sub">promises:</div><ul class="list">${sv.promises.slice().reverse().map((l) => `<li class="sub">${esc(l)}</li>`).join('')}</ul>` : ''}`
+    + `${(sv.requests || []).length ? `<div class="sub">requests:</div><ul class="list">${sv.requests.slice().reverse().map((l) => `<li class="sub">${esc(l)}</li>`).join('')}</ul>` : ''}`
+    + `${profs.length ? `<div class="sub">profiles (${profs.length}):</div><ul class="list">${profs.slice(0, 12).map((p) => `<li class="sub"><b>${esc(p.of)}</b> ${esc((p.kinds || []).join(', ') || 'not seen at work')}; helped ${p.helped}, helped by ${p.helpedBy}; kept ${p.kept}, broke ${p.broke}${p.heardKept || p.heardBroke ? `; heard kept ${p.heardKept || 0}, broke ${p.heardBroke || 0}` : ''}${p.lastMet ? `; met ${ago(p.lastMet)} ago` : ''}${p.feel ? `; feel ${p.feel}` : ''}${p.note ? `; "${esc(p.note)}"` : ''}</li>`).join('')}</ul>` : ''}` : '';
+  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}${journal}${social}`
     + `${traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : ''}`
     + `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`
     + `<div class="label">Memory <span class="sub">(every field it keeps: plan, notes, site, stats...)</span></div>${fields || '<div class="empty">empty</div>'}`;
