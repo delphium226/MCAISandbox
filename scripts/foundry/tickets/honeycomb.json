@@ -1,0 +1,76 @@
+{
+ "id": "honeycomb",
+ "title": "Harvest honeycomb from bee nests: a harvest_honeycomb skill with an activity adapter, locked until researched (from B25x2's wanted list, G6)",
+ "brief": "Add a foundry skill `harvest_honeycomb` to the real-Minecraft world (Mineflayer), so a village member gets honeycomb by using shears on bee nests or beehives in the state honey_level=5, and so the village's `activity` chore kind can run it from a library spec once members have researched it. This ticket was made by scripts/foundry_queue.py from village B25x2's wanted list (G6): opens 18 items (0 used: waxed_copper_block, waxed_chiseled_copper, waxed_cut_copper, waxed_cut_copper_stairs, waxed_cut_copper_slab, ...); 118 raw_copper held idle that its items would use; 4 chunks within 144 of the hut hold bee_nest or beehive. THE GAME: shears used on a bee nest or beehive whose honey_level is 5 (full) drop 3 honeycomb and set it to 0; bees refill it by bringing pollen from flowers; the bees come out angry, but a peaceful world takes no damage; a campfire under the nest keeps them calm; nests hang on tree trunks 2-5 blocks up in forests and plains with flowers. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, holds)); list it in foundry/list.ts (one import, and one entry inside the array before `].map(locked)`: keep `.map(locked)`, which locks a researched activity); edit no other table. THE SKILL `harvest_honeycomb`, arguments: count (honeycomb wanted, default 3, 1..12), x, y, z (optional: one bee nest to use it on, given by the activity adapter), radius (optional, default 48, at most 96: how far to look when x, y, z are not given). It needs shears in the inventory (fail with: 'no shears: withdraw one from storage'). Without x, y, z: find the nearest bee nests or beehives within radius in the state honey_level=5 with the project's nearestBlocks helper (mcUtil.ts; never bot.findBlocks: one event loop serves every bot, lessons 16 and 49), reading each block's state from bot.blockAt(pos).getProperties() (a block whose properties are missing is skipped), skipping blocks on any village's work ground (onVillageGround, lesson 30). For each target until count honeycomb are gathered: walk to a standable dry cell within 3 blocks horizontally of it, on the ground, from which the block is within reach (survival reach 4.5 blocks from the eyes; targets may hang 2-5 blocks above the ground on a tree trunk), with the project's walk helpers (mcUtil walk/reach, which keep the pathfinder off village work and protected ground; the walk must not dig or place: check walk's options); re-read the block's state on arrival (another member may have used it: skip it); equip the shears; look at the block's face toward the bot and use the item on it (bot.activateBlock(block) with the item held, as use_on does in mcSurvival.ts); wait up to 2 s for the state to change and pick up the dropped items (walk to item entities within 6 blocks); a target that gave nothing is not tried again in this call. Stop when count is reached, no target in the state is left in range, the shears breaks or runs out, or 3 minutes of wall time pass (divide by the game's tick-rate scale as other skills do with timeScale() from mcRules.ts). Count honeycomb on the server before and after (CLAUDE.md: 'clear <name> <item> 0', the a.world.rcon.count helper as foundry/fish.ts and mcAnimals.ts use), not from Mineflayer's inventory view. Never break, place or change any block except the target's state change the use itself causes; never attack or lead a mob. Result message: 'got N honeycomb from K bee nests at x,y,z (M more in the state within R blocks)' and why it stopped. Failure messages say what is short and what to do next (lesson 127): no shears; none of the bee nests or beehives within radius ('explore to find one'); all of them used ('bees refill them over minutes; try later'). The skill must accept anything Mineflayer can pass it (a block unloaded or gone, an item entity gone, properties missing: lesson 104). THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member: cheap and never throwing; ctx.hut is the storage hut's centre, none: {why: 'no storage hut'}): keep per village a list of the bee nests or beehives found within 144 blocks of the hut, refreshed at most every 10 minutes by one nearestBlocks search from ctx.agent's bot (count up to 24); return {x, y, z} of the nearest one whose state, read now with ctx.agent.bot.blockAt (a cheap read of a loaded chunk), is honey_level=5, else {why: 'no bee nest in the state honey_level=5 within 144 blocks of the storage hut (bees refill them over minutes)'}; cache that answer 1 minute. activity.holds: one key per target block (`honeycomb:x,y,z`), so two members never walk to the same one. THE LIBRARY SPEC server/library/honeycomb.json (read server/src/library.ts: LibrarySpec, validateLibrarySpec and its `research` block): exactly this JSON: {\"id\": \"lib:honeycomb\", \"name\": \"Harvest honeycomb from bee nests\", \"skill\": \"harvest_honeycomb\", \"count\": {\"arg\": \"count\", \"max\": 6}, \"needs\": {\"shears\": 1}, \"gives\": [{\"item\": \"honeycomb\"}], \"keep\": 16, \"effect\": \"honeycomb for the workshop's beehives, honeycomb blocks; 18 items need it\", \"research\": {\"name\": \"harvesting honeycomb from bee nests\", \"requires\": {\"shears\": 1}, \"attempt\": {\"torch\": 2}, \"minutes\": 3, \"chance\": 0.3, \"complexity\": 4, \"capability\": \"honeycomb\", \"goods\": [{\"item\": \"beehive\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"beehives\", \"forWhat\": \"beehives from the village's honeycomb (an invention of the village)\", \"allow\": [\"honeycomb\"]}, {\"item\": \"honeycomb_block\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"honeycomb blocks\", \"forWhat\": \"honeycomb blocks from the village's honeycomb (an invention of the village)\", \"allow\": [\"honeycomb\"]}]}}. Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts). THE LIVE CHECK scripts/checks/honeycomb.py (Python 3, standard library only, in the style of scripts/checks/fish.py and shear.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2). The foundry starts the agent server with MC_INNOVATE=on before it runs the check. The check: find open, dry, level ground near the test site's centre (-1563, -36 on minevale3; read the ground with /api/block, away from any village plot: GET /api/village lists them); remove any agent Gus; build the target by RCON: a column of 3 oak_log from the ground up at a spot 3 blocks from Gus's cell, and `setblock` a bee_nest with the state [honey_level=5,facing=<toward Gus>] against the column's side at its top (3 blocks above the ground; an empty nest: no bees); spawn Gus on the ground (brain idle, gamemode survival, reset true); give Gus 1 shears by RCON; record the blocks of a box around them (radius 6, from 2 below the ground to 5 above, read with 'execute if block' or /api/block), leaving out the target cell; run `harvest_honeycomb count 1 radius 16` through /api/agents/Gus/act, wait for action_done or action_failed (up to 4 minutes), then verify: at least 1 honeycomb on the server for Gus; the target is no longer in the state honey_level=5 (execute if block ... bee_nest[honey_level=5] fails); it is still a bee_nest; no 'broke' or 'placed' event from Gus during the skill and no other cell of the box changed; then a second call `harvest_honeycomb count 1 radius 16` (the target used) must fail or report that none is left in the state, within 2 minutes (not hang); then clear Gus's shears by RCON, setblock the target back to honey_level=5, and a third call must fail with a message containing 'no shears'. Clean up (remove Gus, set the logs and the target to air) in a finally. Print one line per verification and end with exactly 'HONEYCOMB OK' on success or 'HONEYCOMB FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), mcBuild.ts, tech.ts and lock.ts (they lock it already), the pathfinder's sources.",
+ "read": [
+  "CLAUDE.md",
+  "server/src/mineflayer/foundry/types.ts",
+  "server/src/mineflayer/foundry/list.ts",
+  "server/src/mineflayer/foundry/fish.ts (a foundry skill in the house style: guards, walks, server counts, the adapter)",
+  "server/src/library.ts",
+  "server/src/mineflayer/mcSkills.ts: only the McSkill interface",
+  "server/src/mineflayer/mcSurvival.ts: only use_on (search 'use_on: {') and the imports at the top",
+  "server/src/mineflayer/mcUtil.ts: only walk, reach, standableY, nearestBlocks, onVillageGround, sleep, checkAbort, countItem, itemId, at, num, syncInventory",
+  "server/src/mineflayer/mcRules.ts: only timeScale",
+  "scripts/checks/fish.py (the style of a live check)",
+  "mc/rcon.py",
+  "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block) and GET /api/village"
+ ],
+ "lessons": [
+  4,
+  13,
+  16,
+  29,
+  30,
+  31,
+  35,
+  40,
+  44,
+  49,
+  79,
+  80,
+  102,
+  104,
+  105,
+  127,
+  145,
+  151
+ ],
+ "deliver": [
+  "server/src/mineflayer/foundry/honeycomb.ts",
+  "server/src/mineflayer/foundry/list.ts",
+  "server/library/honeycomb.json",
+  "scripts/checks/honeycomb.py"
+ ],
+ "may_touch": [],
+ "check": {
+  "file": "scripts/checks/honeycomb.py",
+  "args": [],
+  "timeout_min": 12,
+  "pass": "^HONEYCOMB OK",
+  "env": {
+   "MC_INNOVATE": "on"
+  },
+  "log_pass": "\\[activity\\] library: .*lib:honeycomb\\b"
+ },
+ "series": "scripts/foundry/series_base.json",
+ "caps": {
+  "minutes": 45,
+  "turns": 500,
+  "rounds": 3
+ },
+ "model": {
+  "agy": "gemini-4-argon-high",
+  "claude": "claude-opus-5-5"
+ },
+ "wanted": {
+  "village": "B25x2",
+  "rank": 3.46,
+  "value": 4.5,
+  "demand": 1,
+  "why": [
+   "opens 18 items (0 used: waxed_copper_block, waxed_chiseled_copper, waxed_cut_copper, waxed_cut_copper_stairs, waxed_cut_copper_slab, ...)",
+   "118 raw_copper held idle that its items would use"
+  ]
+ }
+}

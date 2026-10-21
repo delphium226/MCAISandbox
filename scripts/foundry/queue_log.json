@@ -1,0 +1,17 @@
+[
+ {
+  "at": "2026-10-21 22:46",
+  "ticket": "honeycomb",
+  "capability": "honeycomb",
+  "village": "B25x2",
+  "source": "http://127.0.0.1:8768/api",
+  "rank": 3.46,
+  "value": 4.5,
+  "demand": 1,
+  "why": [
+   "opens 18 items (0 used: waxed_copper_block, waxed_chiseled_copper, waxed_cut_copper, waxed_cut_copper_stairs, waxed_cut_copper_slab, ...)",
+   "118 raw_copper held idle that its items would use"
+  ],
+  "skipped": []
+ }
+]
