@@ -36,6 +36,10 @@ def main():
     out = []
     say = out.append
 
+    # Run validity (E.8): the fallback share of model-mode decisions
+    fb = [c for c in ch if c.get("source") == "fallback" and c.get("why") in ("timeout", "error", "invalid", "queue", "withdrawn", "budget")]
+    say(f"VALIDITY model decisions {len(model)}, fallbacks {len(fb)} ({Counter(c.get('why') for c in fb)}): share {len(fb) / max(1, len(model) + len(fb)):.1%} (void over 5%)")
+
     # Profiles
     dec = [a for a in acts if a.get("type") == "decision" and a.get("prompt")]
     shown = [d for d in dec if re.search(r"^- \w+: (seen mostly|not seen at work)", d["prompt"], re.M)]

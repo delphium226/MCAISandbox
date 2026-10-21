@@ -691,3 +691,26 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   prompts now. MC_MEMORY and MC_CLOCK (off). Departures from PLAN E.2: `reset_site.py` untouched (a spawn with reset
   begins a run and empties the member's memory instead), the kind table keeps counts and minutes but no per-item yield.
   **Open** (the planning session's): whether MC_MEMORY and MC_CLOCK go on by default.
+- 10-21 (g6-loop session, #73 #71 #16) **G6's loop: the wanted list picks the ticket, members research what comes back**
+  (the user's, four choices after the spec, each as recommended): the first village-made ticket is whatever the wanted
+  list ranks first and ticketable (predicted and found: honeycomb from bee nests), not a pick; the foundry's merge needs
+  only the candidate's own files clean in the shared checkout (other sessions' uncommitted work elsewhere no longer
+  queues it; fast-forward only, never main, never a push, and a typecheck of the main checkout after, logged); the
+  after-merge run stocks 2 shears (as LSc1 stocked rods) rather than researching shears first; with MC_WANTED on, a
+  locked entry whose capability is in the village's wanted top 3 counts as demanded (offered to every member, not only
+  the curious: F266's shears gap). Claude's, after the adversarial check: a merged research activity is locked in code
+  (a `research` block on its library spec, registered by loadLibrary while MC_INNOVATE is on, not loaded while it is
+  off), and the wanted list keeps it as `locked` until researched.
+- 10-21 (g2-social session, #27 #28 #29 #17 #86) **G2's social perception, acts and skill behind flags** (the user's, four
+  choices after the spec, each as recommended): `MCAI_SOCIAL` defaults to `legacy` (today's prompts byte-identical; runs
+  name their arm on, noblock, countsonly or off); a line said is delivered by code to members within 16 blocks and shown
+  by tellraw ("Ada says: ..."), never bot chat, so no brain wakes on it; acts are about what a chore end can settle only
+  (an item a gather or make option names, a step on a project); life goals off in Experiment 1's arms. Claude's, after the
+  adversarial check (runs/2026-10-21/g2-social/spec_check.md): the arms differ only in social perception (the intention's
+  weight and the quick-failure rule under their own MC_CONTROLLER, on in both arms; (b2) runs MC_ACTS=off, and MC_ACTS=on
+  with off refuses to start); `off` leaves names and others' activity out at the source (help, light, furnish and trade
+  options unique by place or offer id); a promise is one chore, kept by a productive chore of its option started after it
+  (or running when it was made); acts offered once in 3 model decisions with flat fields; a member reports only promises
+  it was party to or heard of. Claude's, the user away overnight (10-21): Experiment 1 runs with MCAI_TEMPERAMENT=off in
+  both arms (A.3p's sociability weight reads how many others are on a kind, a channel of social perception (b2) would
+  keep) and with skill off (a non-social driver of specialisation that could mask the contrast).
