@@ -608,3 +608,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    early and its works failed; putting each site Rch1 chose through the sim's site test showed a margin the real
    bestSite never had, and the stock lines beside the real STOCK lines showed builds in the wrong wood. A sim's rule
    written from a doc comment or a summary drifts from the code path; replay the real decisions through it.
+155. **Widening one limit widens every rule that reads it** (s43, Rch3-Rch6): VILLAGE_RANGE 96 -> 144/192 surfaced five
+   faults that 96 hid, each a rule that assumed things near home: builds read sites from the builder's own 8 chunks
+   (45 "not loaded" failures, Rch3 7.9%), lamps did the same from the hut, initiatives took public works' spots, a site
+   beside a pond flooded, and the atlas promised sandstone collect never reached (a work waiting an hour on 40 failed
+   gathers). Grep every use of the constant and of its old literal (96 here) before a long run, and run one live test
+   per step outward rather than jumping to the far value.

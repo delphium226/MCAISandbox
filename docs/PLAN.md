@@ -34,29 +34,33 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-20 at the close of the forty-second session (s42); the next session's prompt is
-`runs/2026-10-20/NEXT_PROMPT_s43.md`)
+(written 2026-10-21 at the close of the forty-third session (s43); the next session's prompt is
+`runs/2026-10-21/NEXT_PROMPT_s44.md`)
 
 - **Where the work lives** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
-  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes.
-- **Done in s42** (DECISIONS 10-20; notes and predictions in `runs/2026-10-20/s42/`):
-  - **The village simulator** (#74, `scripts/sim/`): the real decision code on modelled skills and a 5 s clock, with the
-    run's growth, public works and housing and the members' real TaskBrain; calibrated from a reference choice log and
-    the stage log beside it; in check:offline. 30-minute fidelity against Stg1-3 (F260): busy, make, help, initiatives,
-    harvests, pens, fishing, builds, public works inside the real spread; meals +6-10% (some cod eaten).
-  - v0 (works off) gave two long-run results that were artefacts (F261, lesson 152); the user let the session decide,
-    and it went back to fidelity before more experiments.
-  - **The `activities` family and `MC_MERCHANT` on by default** (Stg2: the purchase fix bought only a rod; Stg3 on the
-    defaults alone, busy 21%). A pumpkin offer tried and taken out. **Merchant orders and levels** in the code behind
-    `MC_MERCHANT_ORDERS` (off, untuned, #73).
-  - **Lng1** (90 min, F262): the village ran out of room at ~40 min (no free site for works within 80 blocks; no new initiatives), busy 9.6%; the sim's predictions missed it until it was given the checkpoint's land (`scripts/sim/land.py`): then busy 11.5% vs 9.6%, initiatives 41 vs 44, works 8 vs 9; its late floor 6-7% vs 2% (cooked cod and charcoal twice as often).
-- **Next (NEXT_PROMPT_s43):** the simulator over long runs (F262's gaps), then trusted experiments confirmed live:
-  merchant orders, a renewable sale, the barter ladder (#68-#71).
-- **Parked:** parallel foundry tickets (#72).
-- **Leftovers:** s41's (fish not eaten while bread lasts; a farmstead failure counts against public works; a field and a
-  neighbourhood can survey at once; half the re-asks taken again). The simulator's: meals +6-10%, the mine and pens
-  unmodelled, one reference (Stg2's settings) calibrated.
-- **Stack at the close:** test world 1 up (Paper 25566, agent server 8767, no agents); the rest down.
+  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes. s43's
+  commits are local: **not pushed** (ask first).
+- **Done in s43** (an overnight session the user left to decide; DECISIONS 10-21; notes and predictions in
+  `runs/2026-10-21/s43/`):
+  - **The simulator matches both long runs** (F263, lesson 154): sites on the square alone, builds in the wood that
+    covers them, make and fishing times by batch, durations by where the member stands, furnace fuel carried over.
+    Lng1 9.7% vs 9.6%, Rch1 17/16% vs 17%, works 15 vs 15.
+  - **Village range 144 by default** (the user chose "a wider reach" of three): Rch1/Rch2 held 17% to minute 90 vs
+    Lng1's 9.6% collapse at 40. 192 is a setting (`MC_VILLAGE_RANGE`); with `MC_WORKS_REPEAT=on` Rch7 held 16.9% over
+    150 minutes with 3 repeated pieces. Five faults the wider range exposed were fixed (lesson 155): builds walk within
+    sight of unloaded sites, blockName and the site survey read through fellow members, small works keep off unbuilt
+    footprints, growth keeps off squares touching water, a requeued build no longer reposts a material no gather found.
+    The rescue teleports home on a third rescue in one spot (#77). **Rch8 on the final defaults: 16.5% chore busy (21%
+    BUSY all) over 90 minutes, 15 works, [stuck] 16, no dip at minutes 20-40.**
+  - Experiments in the sim: merchant orders are noise (15.7 vs 15.1%); greens per 3 change nothing at 144 (Rch2).
+- **Next (NEXT_PROMPT_s44):** the user's answers on the second settlement spec (#76,
+  `runs/2026-10-21/s43/spec_second_settlement.md`, six open questions), then build it behind `MC_SETTLE` (sim first);
+  or, if the user prefers, the barter ladder (#68-#71) on the 144 default.
+- **Parked:** parallel foundry tickets (#72); public works one at a time (a second at once is the next lever after land,
+  see F263's notes).
+- **Leftovers:** the sim's light parts (53 vs 101) and cod eaten (+30%); a member trapped in the mine's tunnel under
+  the storage hut (#77: the rescue fix is in, the cause is not); 68 [stuck] at range 192 (Rch7); s41's leftovers.
+- **Stack at the close:** test worlds 1 and 2 up (Paper 25566/25567, agent servers 8767/8768, no agents); the rest down.
 - **Uncommitted at the close:** nothing of this session's.
 
 ## Earlier phases

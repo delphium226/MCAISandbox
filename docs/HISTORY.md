@@ -429,3 +429,9 @@ mode reads well (2026-09-29).
     of what it left out (F260, F261, lesson 152); merchant orders and levels behind `MC_MERCHANT_ORDERS` (#73, off); a
     pumpkin offer tried and taken out. Lng1 (90 min) ran out of room at ~40 min; the sim matched it only on the
     checkpoint's land (F262, lesson 153). Commits a3ba225 to 85475ae.
+57. 2026-10-21 (s43, overnight, the user's "make your own decisions"): the village grows past its land limit by a wider
+    reach (the user's pick of three). The simulator corrected until it matched both long runs (F263, lesson 154);
+    **VILLAGE_RANGE 144 by default**, 192 and `MC_WORKS_REPEAT` as settings; eight 90-150-minute runs on two test worlds
+    (Rch1-Rch8) found and fixed five faults a wider range exposes (lesson 155) and a rescue loop (#77); Rch8 on the final
+    defaults: 16.5% chore busy for 90 minutes vs Lng1's 9.6%. A second-settlement spec drafted for the user (#76);
+    issues #75-#77. Commits 2d1a56a to bbe7156 and the close.
