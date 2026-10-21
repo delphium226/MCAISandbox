@@ -545,6 +545,8 @@ export interface Village {
    * carried home and spent.
    */
   homes?: Record<string, OwnStock>;
+  /** s43 (MC_SPECIAL=claim): plots claimed by the member that works them (`farm:k`, `slot:k:j`, `penwork:j`): who, when, last worked. */
+  claims?: Record<string, { by: string; at: number; last: number }>;
   initiativeN?: number;
   /** s41 (MC_MERCHANT): the village's merchant: the market stall it stands in (an initiative's id) and its cell, the
    *  offers' uses since the last restock (merchant.ts OFFERS' order), the next restock, and what members traded by item. */

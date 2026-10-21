@@ -24,11 +24,15 @@ export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather'])
 /**
  * Specialists (s43, the user's next step: holdings that differ so trades match): MC_SPECIAL=habit,price. `habit`: a member
  * leans toward the kinds it has done lately (1 + 0.6 x the kind's share of its last 12 chores); `price`: a chore whose
- * goods the board finds dear weighs more, a cheap one less (the goods' price factors, 0.6..1.6).
+ * goods the board finds dear weighs more, a cheap one less (the goods' price factors, 0.6..1.6); `claim` (the user's
+ * choice after those two did nothing: the open pumpkin farm flooded every chest): a member's 3rd harvest of an unclaimed
+ * field, slot or pen claims it, one claim a member; only its claimant works it; a claim lapses after CLAIM_LAPSE_MS
+ * unworked.
  */
+export const CLAIM_AFTER = 3, CLAIM_LAPSE_MS = 15 * 60000;
 export const SPECIAL = (() => {
   const s = new Set((process.env.MC_SPECIAL ?? '').split(/[,;+]/).map((x) => x.trim()).filter(Boolean));
-  return { habit: OWN.on && s.has('habit'), price: OWN.on && s.has('price') };
+  return { habit: OWN.on && s.has('habit'), price: OWN.on && s.has('price'), claim: OWN.on && s.has('claim') };
 })();
 
 /** Items never shared: tools and what carries the work (a rod goes back to the commons whole), emeralds (the

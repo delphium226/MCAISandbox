@@ -38,7 +38,7 @@ import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { OWN, OWN_RECIPES, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_RECIPES, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -2734,6 +2734,8 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private barterAt = new Map<string, number>();
+  /** s43's claims: harvests of each unclaimed plot by member ("village|key" -> name -> n). */
+  private claimWork = new Map<string, Map<string, number>>();
 
   private fieldBackoff = new Map<string, number>();
   private fieldFails = new Map<string, number>();
@@ -3752,6 +3754,23 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     const productive = choreProductive(c.choice.kind, c.status[0]?.type ?? '', ok, message, carried, known);
+    // s43 (MC_SPECIAL=claim): a plot worked counts toward its claim; a claimant working its own keeps the claim fresh
+    if (SPECIAL.claim && v && ok && productive && (c.choice.kind === 'farm' || c.choice.kind === 'slot' || c.choice.kind === 'penwork')) {
+      const claims = (v.claims ??= {});
+      // (the plot's key from the option's id: farm:k, slot:k:j, penwork:j of penwork:j:what)
+      const ck = (c.choice.option ?? '').split(':').slice(0, c.choice.kind === 'slot' ? 3 : 2).join(':');
+      const own = claims[ck];
+      if (own?.by === c.agent) own.last = Date.now();
+      else if (!own && !Object.values(claims).some((q) => q.by === c.agent)) {
+        const w = this.claimWork.get(`${v.name}|${ck}`) ?? new Map<string, number>();
+        w.set(c.agent, (w.get(c.agent) ?? 0) + 1);
+        this.claimWork.set(`${v.name}|${ck}`, w);
+        if (w.get(c.agent)! >= CLAIM_AFTER) {
+          claims[ck] = { by: c.agent, at: Date.now(), last: Date.now() };
+          console.log(`[claim] ${v.name}: ${c.agent} claims ${ck} (its ${CLAIM_AFTER}rd harvest of it)`);
+        }
+      }
+    }
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
@@ -4095,7 +4114,8 @@ export class MineflayerWorld implements WorldAdapter {
       out.push(opt);
     };
 
-    // #68 (MC_OWN): a chest in the member's own house, then its share carried home once 8 items are owed (or any food
+    // #68 (MC_OWN): a chest in the member's own house, then its share carried home once 8 items are owed (ahead of the
+    // makes from 32: a claimant busy on its plot never got to it, s43) (or any food
     // while its own chest holds under 2 meals), as far as the commons can spare them (makeSpare, less the meals others
     // are on their way to)
     if (OWN.on && this.homeOf(v, a.name) && !busy.has(`own:${a.name.toLowerCase()}`)) {
@@ -4125,7 +4145,9 @@ export class MineflayerWorld implements WorldAdapter {
           }
           const n = Object.values(want).reduce((t, q) => t + q, 0);
           if (n) add({
-            id: 'own:carry', kind: 'own', key: me, excludes: [`${me}=`], name: 'Take your share home', rank: 941,
+            id: 'own:carry', kind: 'own', key: me, excludes: [`${me}=`], name: 'Take your share home', rank: total >= 32 ? 880 : 941,
+            // (a weight growing with what is owed: a claimant on a plot ripe every minute never chose it, s43)
+            nw: Math.round(Math.min(3, 1 + total / 48) * 100) / 100,
             at: { x: own.chest.x, z: own.chest.z },
             facts: `owed you: ${Object.entries(owed).slice(0, 6).map(([k, q]) => `${q} ${words(k)}`).join(', ')}; the storage can spare ${n} now; ${dist(own.chest.x, own.chest.z)}`,
             effect: `${n} items into your own chest`,
@@ -5012,6 +5034,21 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
 
+    // s43 (MC_SPECIAL=claim): a plot claimed by another member is its own (claims unworked CLAIM_LAPSE_MS lapse)
+    if (SPECIAL.claim && v.claims) {
+      for (const [k, q] of Object.entries(v.claims))
+        if (now - q.last > CLAIM_LAPSE_MS) {
+          delete v.claims[k];
+          console.log(`[claim] ${v.name}: ${q.by}'s claim on ${k} lapsed (unworked ${Math.round((now - q.last) / 60000)} min)`);
+        }
+      for (let i = out.length - 1; i >= 0; i--) {
+        const o = out[i], q = (o.kind === 'farm' || o.kind === 'slot' || o.kind === 'penwork') ? v.claims[o.key] : undefined;
+        if (q && q.by !== a.name) {
+          reasons[o.kind] ??= `claimed by ${q.by}`;
+          out.splice(i, 1);
+        }
+      }
+    }
     // s43 (MC_SPECIAL): specialists. Habit: the kinds the member has done lately weigh more; price: the goods a chore brings
     // in weigh by the board's price factors (dear goods draw members, cheap ones push them off)
     if (SPECIAL.habit || SPECIAL.price) {

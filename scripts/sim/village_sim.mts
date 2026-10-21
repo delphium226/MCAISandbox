@@ -128,7 +128,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter|claim)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -677,6 +677,7 @@ const report = {
         const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((x, y) => x + y, 0) / xs.length) * 100) / 100 : 0);
         return { topGood: avg(tops), topKind: avg(kinds), goods: new Set(hs.flatMap((h) => Object.keys(h.chest?.items ?? {}))).size };
       })(),
+      claims: Object.fromEntries(Object.entries(v.claims ?? {}).map(([k, q]: [string, Any]) => [k, q.by])),
       ...(b ? { board: { posted: b.posted, taken: b.taken, lapsed: b.lapsed, open: b.offers.filter((o: Any) => o.state === 'open').length, traded: b.traded, factor: b.factor } } : {}) };
   })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
@@ -702,6 +703,7 @@ say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
 say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
 if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
 say(`  spread: top good ${report.own.spread?.topGood} of a chest's value, top chore kind ${report.own.spread?.topKind} of a member's chores, ${report.own.spread?.goods} goods held`);
+if (Object.keys(report.own.claims ?? {}).length) say(`  claims: ${Object.entries(report.own.claims).map(([k, b]) => `${k} ${b}`).join(', ')}`);
 if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
