@@ -662,3 +662,16 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   busy falls below half of hour 1's; needs met leaves the verdict until it has a definition that can move (it sat at ~0.97
   in every baseline run). scripts/scorecard.py and the panel (scorecardView) judge it alike; trends now read the last hour
   against hour 1. The baseline fails 6 of 6 at minute 80-90 (F268).
+- 10-21 (M2 spec session, #4 #6 #81 #44 #75) **M2's core loop, the user's choices on the spec**
+  (`runs/2026-10-21/m2-spec/spec_m2.md`, each as recommended): residents stay unemployed while the day is frozen (the
+  furniture leaves out composters, barrels and grindstones with residents on; F269: employed villagers never breed at
+  noon); resident beds as lodgings in members' houses first, then cottages; a founding pair summoned by code, then births
+  only (no immigrants); a code-kept pantry appetite for residents (4 points a game hour); shears made wanted by the beds
+  gauge (and raw iron with them) plus a small `requires` on the bed chain in #66's shape; day and night behind its own
+  flag after beds, the night skipped once the members sleep (its mechanism below); at most one iron golem a village; the rest of M2 in the order works that grow (#75), upkeep
+  (#44), decoration (#45 #46 #48 #49). After the read-only review, also as recommended: residents pick up nothing and
+  never farm (code puts their food in their inventories; with pickup, births would leak past the code's gate); iron stocked in the
+  simulator's M2 series until it models the mine's iron (shears, so beds, need iron); the night passed by code once
+  every member is home or 3 minutes after dusk (vanilla's sleeping percentage fails once residents take members' beds).
+  Beds are one pool (the game's rule, not a choice). **Open:** upkeep's wear model (visible weathering or a counter), at
+  that step.

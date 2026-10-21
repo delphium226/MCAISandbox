@@ -1429,3 +1429,25 @@ CLAUDE.md when a phase ends.
   30-minute window under half) at minute 80 (def_s1, def_s2, on_s2, on_s3) or 90 (def_s3, on_s1); hour 2 at 0.51-0.62x
   hour 1 (just above), the worst later hour 0.20-0.29x. The panel's verdict and the script's agree on every run
   (`runs/2026-10-21/scorecard/verdict_compare.mts`). Logs: baseline_v2.txt, baseline_v2.json.
+- F269 (10-21, M2 spec session, issues #4 #6 #81) **Vanilla villagers on Paper 26.1, measured: the free bed gates every
+  birth and food given without one is eaten in vain; at the frozen noon only unemployed villagers breed; residents cost
+  little load.** Probes on test world 1 (mv3_grown25 restored; glass pens at y 150 beside an idle Gus, 2 summoned
+  adults each; `runs/2026-10-21/m2-spec/probes.md`). Adults claim a free bed within seconds, babies too. Two adults with
+  12 food points each (3 bread) and a free bed make a baby within ~1 min; each parent eats 12 points (6 bread a baby),
+  waits 6000 ticks (5 min), the baby stays a baby 24000 (20 min). With no free bed the pair keeps trying and eats the
+  food every try (24 bread gone in under a minute, no baby; a full 4-bed pen ate its last 12). At day 6870 (the frozen
+  noon, the working hour) two farmers on composters never bred in 11 min (one pair a rule: each rule observed once); at
+  a frozen 9500 (the meeting hour) they bred within 45 s; unemployed adults bred at 6870. Summoned villagers have `CanPickUpLoot 0b` and never pick up bread until
+  set to 1b (then within 30 s, one villager taking the whole stack). With the day on (tick rate 40), all 12 villagers
+  were in their beds at one reading and an iron golem spawned at dawn among 5 adults that had slept (none in 25 min of
+  frozen day; one night, one golem). Six homeless adults let
+  loose at the village's meeting point drifted out of the village within 4 min, and four housed ones (a bed each in a
+  village house) kept their homes but roamed 18-77 blocks from them within 9 min: a bed does not keep a resident home
+  while the day is frozen. Any bed is a home a villager may take, a member's included. Sheared sheep on a fresh grass
+  floor regrew wool in 30-100 s (tick rate 40). A Mineflayer bot sleeps on 26.1, and the night skips within a second once `players_sleeping_percentage` of the
+  players sleep (100% with one player awake held it). Load (25x25 pen, homeless villagers, 60 s each): Paper 1.3 / 3.2 /
+  5.2 / 9.7 ms a tick at 0 / 50 / 100 / 200 villagers with 9 idle bots (~0.04 ms a villager); the agent server's worker
+  4.6 / 4.8 / 5.6 / 8.1% of a core, loop delay p99 unchanged at ~12 ms (~0.002% of a core per bot per villager:
+  extrapolated, ~5% for 25 bots among 100). Not measured: working bots among residents, residents taking furnished houses' workstations (the
+  checkpoint's houses hold only chairs and tables), residents picking up what working bots drop, restocks of trades
+  with the day frozen. Spec: `runs/2026-10-21/m2-spec/spec_m2.md` (the review folded in: `review.md`).
