@@ -12,6 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
+import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
 import type { MaterialPlan } from './mineflayer/mcMaterials';
@@ -178,6 +179,8 @@ export function unlocksOf(items: string[], plan: (bill: Counts) => MaterialPlan,
 export interface Wanted {
   id: string; name: string; verb: Verb; status: CapStatus; why: string[]; reason?: string;
   value: number; demand: number; rank: number; ticketable: boolean;
+  /** The share of the rank from the village's demand (#89: the village asking, not the recipe graph). */
+  demandShare: number;
   unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
 }
 
@@ -211,6 +214,35 @@ export function statusOf(c: Capability, ctx: Pick<WantedCtx, 'skills' | 'activit
 export const capSkill = (c: Capability) => c.skill ?? `harvest_${c.id}`;
 
 const HOUR = 60 * 60000;
+
+/**
+ * #89: members' wishes from their life goals (MC_GOALS; goals.ts): what a member with each goal wants for its house or
+ * the village beyond its needs. A wish is unmet while neither the member's own chest nor the commons holds the item; an
+ * unmet wish for an item only a missing capability gives is that member asking for the capability (+0.5 a member, by
+ * item). Code keeps them as it keeps the needs; the members' own words come with G5's proposals.
+ */
+export const WISHES: Record<string, string[]> = {
+  home: ['white_bed', 'white_carpet', 'painting', 'flower_pot', 'candle', 'lantern'],
+  beauty: ['white_banner', 'painting', 'flower_pot', 'candle', 'poppy', 'lantern'],
+  standing: ['white_banner', 'lantern', 'bell'],
+  mastery: ['spyglass', 'compass', 'clock'],
+  invention: ['spyglass', 'compass', 'clock'],
+  wealth: ['emerald', 'gold_ingot'],
+};
+/** Demand a member's unmet wish adds to the capability that would answer it. */
+export const WISH_DEMAND = 0.5;
+
+/** Each member's unmet wishes (item -> the members wishing it), from its goal, its own chest and the commons. */
+export function unmetWishes(v: Village, store: Counts): Record<string, string[]> {
+  const g = goalsOf(v);
+  const out: Record<string, string[]> = {};
+  if (!g) return out;
+  for (const [m, goal] of Object.entries(g.of ?? {})) {
+    const own = v.homes?.[m]?.chest?.items ?? {};
+    for (const item of WISHES[goal] ?? []) if (!(own[item] ?? 0) && !(store[item] ?? 0)) (out[item] ??= []).push(m);
+  }
+  return out;
+}
 /** Need kinds and the consumers whose goods answer them. */
 const NEED_ITEMS: Record<string, RegExp> = {
   light: /(lantern|candle|torch|lamp|glowstone|sea_lantern|froglight)$/,
@@ -239,6 +271,7 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
   for (const c of v.storage?.chests ?? []) for (const [k, q] of Object.entries((c as { items?: Counts }).items ?? {})) store[k] = (store[k] ?? 0) + q;
   const held: Counts = { ...store };
   for (const h of Object.values(v.homes ?? {})) for (const [k, q] of Object.entries(h.chest?.items ?? {})) held[k] = (held[k] ?? 0) + q;
+  const wishes = unmetWishes(v, store);
   const out: Wanted[] = [];
   for (const c of CAPABILITIES) {
     const { status, reason } = statusOf(c, ctx, v);
@@ -282,6 +315,17 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
         }
       }
     }
+    // (#89: members whose life goal wishes for an item it opens, each member once)
+    const wishers = new Set<string>(), wished: string[] = [];
+    for (const [item, ms] of Object.entries(wishes)) {
+      if (!theirs.has(item)) continue;
+      wished.push(item);
+      for (const m of ms) wishers.add(m);
+    }
+    if (wishers.size) {
+      demand += WISH_DEMAND * wishers.size;
+      why.push(`${wishers.size} member${wishers.size === 1 ? '' : 's'} wish${wishers.size === 1 ? 'es' : ''} for ${wished.join(', ')} (their life goals)`);
+    }
     // (goods the village holds idle that the unlocked items would use: raw copper for waxed copper; the commons' and the
     // members' own chests, logs and stone aside; +1 a 64 held, at most 3)
     const inputs = new Set<string>();
@@ -300,9 +344,10 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     }
     if (u.items.length) why.unshift(`opens ${u.items.length} item${u.items.length === 1 ? '' : 's'} (${u.used.length} used: ${(u.used.length ? u.used : u.items).slice(0, 5).join(', ')}${(u.used.length || u.items.length) > 5 ? ', ...' : ''})`);
     const rank = Math.round((Math.log2(1 + u.value) + demand) * 100) / 100;
+    const demandShare = rank > 0 ? Math.round((demand / (Math.log2(1 + u.value) + demand)) * 100) / 100 : 0;
     const ticketable = (status === 'missing' || status === 'skill') && TEMPLATES.has(c.verb);
     out.push({
-      id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable,
+      id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable, demandShare,
       unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
     });
   }

@@ -44,7 +44,7 @@ if (json) {
   for (const o of out) {
     console.log(`== ${o.village}: the wanted list (rank = log2(1 + value) + demand)`);
     for (const w of o.list.slice(0, top)) {
-      console.log(`  ${w.rank.toFixed(2).padStart(6)}  ${w.id.padEnd(13)} ${w.status.padEnd(9)} ${w.ticketable ? 'ticketable' : '          '}  value ${w.value}, demand ${w.demand}${w.reason ? `; ${w.reason}` : ''}`);
+      console.log(`  ${w.rank.toFixed(2).padStart(6)}  ${w.id.padEnd(13)} ${w.status.padEnd(9)} ${w.ticketable ? 'ticketable' : '          '}  value ${w.value}, demand ${w.demand} (${Math.round(w.demandShare * 100)}% of the rank)${w.reason ? `; ${w.reason}` : ''}`);
       for (const y of w.why) console.log(`          - ${y}`);
     }
   }

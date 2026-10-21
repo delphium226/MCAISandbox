@@ -79,6 +79,21 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
   ok(w.demand >= by('honeycomb').demand + 4, `demand rises (${w.demand} vs ${by('honeycomb').demand})`);
 }
 
+// #89: life-goal wishes the village cannot answer count for the capability that would (each member once)
+{
+  const v = structuredClone(v0) as Village & { goals?: unknown };
+  (v as unknown as { goals: unknown }).goals = { of: { Ada: 'home', Ben: 'beauty', Clara: 'mastery', Dev: 'wealth' }, drawnFor: 4, at: 0, stats: {} };
+  const l = wantedList(v, ctx);
+  const wool = l.find((x) => x.id === 'wool')!, am = l.find((x) => x.id === 'amethyst')!;
+  ok(wool.why.some((y) => /2 members wish for/.test(y)) && wool.demand === by('wool').demand + 1, `wool: Ada and Ben wish (${wool.why.join(' | ')})`);
+  ok(am.demand === by('amethyst').demand + 0.5 && am.why.some((y) => /spyglass/.test(y)), 'amethyst: Clara wishes for a spyglass');
+  ok(wool.demandShare > by('wool').demandShare && wool.demandShare <= 1, `demand share rises (${by('wool').demandShare} -> ${wool.demandShare})`);
+  // (a wish the member's own chest answers is met; wealth's emeralds come from no missing capability)
+  (v as unknown as { goals: { of: Record<string, string> } }).goals.of = { Ada: 'mastery' };
+  v.homes = { ...(v.homes ?? {}), Ada: { owed: {}, got: {}, used: {}, chest: { x: 0, y: 0, z: 0, items: { spyglass: 1, compass: 1, clock: 1 } } } as never };
+  ok(!wantedList(v, ctx).find((x) => x.id === 'amethyst')!.why.some((y) => /wish/.test(y)), 'a wish its own chest answers is met');
+}
+
 // The research spec: valid; broken research blocks named
 ok(validateLibrarySpec(spec as never, { registry: reg, skills: new Set(['fish']) }).length === 0, 'a research spec is valid');
 const bad = validateLibrarySpec({ ...spec, research: { ...spec.research, goods: [], complexity: 99, requires: { nothing_here: 1 } } } as never, { registry: reg, skills: new Set(['fish']) });
