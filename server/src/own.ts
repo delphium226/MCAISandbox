@@ -50,6 +50,8 @@ export const OWN_RECIPES: Array<{ item: string; inputs: Counts; smelt: boolean }
   { item: 'cooked_cod', inputs: { cod: 1 }, smelt: true },
   { item: 'cooked_salmon', inputs: { salmon: 1 }, smelt: true },
   { item: 'pumpkin_pie', inputs: { pumpkin: 1, sugar: 1, egg: 1 }, smelt: false },
+  // (s43's own cane farms: the pie's sugar)
+  { item: 'sugar', inputs: { sugar_cane: 1 }, smelt: false },
 ];
 
 /** What a member's share takes: food and what its own recipes take (fishing's junk and the rest stay the commons'). */
@@ -71,6 +73,27 @@ export const OWN_SALE_LOTS = 4;
  */
 export const OWN_FARM = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_FARM ?? 'off');
 export const OWN_FARM_REACH = 24;
+
+/**
+ * The kinds of own farm (s43, the user's: members choose by price and what they lack): a wheat field, or a farm slot of
+ * pumpkins, sugar cane or carrots on the same pad (start_farm from storage); each with its product and the plants it
+ * needs in the commons. Hen pens wait for pens beyond the annex.
+ */
+export const OWN_FARM_KINDS: Record<string, { product: string; plant: string; need: number }> = {
+  wheat: { product: 'wheat', plant: 'wheat_seeds', need: 16 },
+  pumpkin: { product: 'pumpkin', plant: 'pumpkin', need: 2 },
+  sugar_cane: { product: 'sugar_cane', plant: 'sugar_cane', need: 6 },
+  carrots: { product: 'carrot', plant: 'carrot', need: 6 },
+};
+
+/**
+ * A kind's appeal to a member: its product's price factor on the board, 1.5 when the member holds none of the product,
+ * divided by 1 + the own farms of that kind already standing (members spread over the kinds).
+ */
+export function farmKindScore(kind: string, factor: Record<string, number>, holds: Record<string, number>, standing: Record<string, number>): number {
+  const k = OWN_FARM_KINDS[kind];
+  return (factor[k.product] ?? 1) * ((holds[k.product] ?? 0) > 0 ? 1 : 1.5) / (1 + (standing[kind] ?? 0));
+}
 export const LEVY = Math.min(1, Math.max(0, Number(process.env.MC_OWN_LEVY ?? 0.25)));
 
 /** A sale's emeralds split: the member's and the levy, the levy's fraction carried in `part.levy`. */

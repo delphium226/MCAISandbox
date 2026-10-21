@@ -8,7 +8,7 @@
  */
 import { noteFood, chooseMeal, storeForMeals, releaseMeal, FOOD_POINTS, APPETITE } from '../../server/src/appetite';
 import { growReach, wheatKeep } from '../../server/src/mineflayer/mcBuild';
-import { SLOT_KINDS, penPlan } from '../../server/src/farmSlots';
+import { SLOT_KINDS, penPlan, slotPlan } from '../../server/src/farmSlots';
 import { holdsDelete, holdKey, makeHolds } from '../../server/src/mineflayer/mcWorkshop';
 import { OFFERS } from '../../server/src/merchant';
 import { designBill, inWood } from '../../server/src/mineflayer/mcMaterials';
@@ -107,6 +107,24 @@ export class CropStore {
   plant(x: number, y: number, z: number, block: string, max: number, age = 0) {
     this.plants.push({ x, y, z, block, max });
     this.set(x, y, z, block, age);
+  }
+  /** A slot planted now (s43's own farms): its plants at age 0, as seed's (stems with their fruit cells, canes one tall). */
+  plantSlot(slot: Any, y: number) {
+    const spec = SLOT_KINDS[slot.kind];
+    if (!spec) return;
+    if (spec.ripe !== undefined) for (const [x, z] of slot.cells ?? []) this.plant(x, y, z, spec.block, spec.ripe, 0);
+    else if (spec.fruit) {
+      const stems: Plant[] = [];
+      for (const [x, z] of slot.cells ?? []) {
+        this.plant(x, y, z, spec.block, 7, 0);
+        stems.push(this.plants[this.plants.length - 1]);
+      }
+      this.fruits.push({ cells: (slot.fruit ?? []) as Array<[number, number]>, y, fruit: spec.fruit, stems });
+    } else
+      for (const [x, z] of slot.cells ?? []) {
+        this.canes.push({ x, y, z, h: 1, age: 0 });
+        this.set(x, y, z, 'sugar_cane');
+      }
   }
   /** The record's farms and slots, at random ages (a resumed world's state is not in the checkpoint). */
   seed(v: Any) {
@@ -469,6 +487,26 @@ function layOutField(args: Any, c: Ctx): Outcome {
   const hut = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : near;
   const farm = placeFarm([], square, { near: hut });
   if (!farm) return { ok: false, message: `lay_out_field: no 5x7 field fits the pad at ${areaText(square)}` };
+  const crop = typeof args.crop === 'string' && args.crop !== 'wheat' ? args.crop : undefined;
+  if (crop) {
+    // (a farm slot of the kind, planted from storage: its plants charged as start_farm's, pumpkins made into seeds)
+    const spec = SLOT_KINDS[crop];
+    const plan = spec ? slotPlan(farm, crop) : null;
+    if (!spec || !plan) return { ok: false, message: `lay_out_field: no farm kind ${crop}` };
+    const need = spec.make ? Math.ceil(plan.cells.length / 4) : plan.cells.length;
+    const got = take(v, spec.take, need);
+    if (got < need) {
+      put(v, spec.take, got);
+      return { ok: false, message: `lay_out_field: not enough ${spec.take} in storage for a ${crop} farm` };
+    }
+    v.plots.push({ id: `simf${v.plots.length + 1}`, ...square, y: site.y, preparedBy: c.name, field: true });
+    const slot = { ...farm, kind: crop, planted: true, cells: plan.cells, fruit: plan.fruit };
+    v.layouts.push({ ...square, buildings: [], field: true, slots: [slot], owner: c.name });
+    const k = v.layouts.length;
+    (v.claims ??= {})[`slot:${k}:1`] = { by: c.name, at: c.now, last: c.now, own: true };
+    c.crops.plantSlot(slot, site.y + 1);
+    return { ok: true, message: `laid out a ${crop} farm of your own (layout ${k}) at ${areaText(farm)} (simulated)` };
+  }
   const seeds = take(v, 'wheat_seeds', farm.sow.length);
   if (seeds < farm.sow.length) put(v, 'wheat_seeds', seeds);
   if (seeds < farm.sow.length) return { ok: false, message: 'lay_out_field: not enough spare seeds in storage' };

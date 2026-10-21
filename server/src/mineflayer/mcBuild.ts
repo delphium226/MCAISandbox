@@ -3737,10 +3737,20 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   }
   if (!preparedAt(v, farm)) throw new Error(`lay_out_field: the pad at ${areaText(square)} was not prepared`);
   const layouts = (v.layouts ??= []);
-  layouts.push({ ...square, buildings: [], field: true, farm, ...(ownHouse ? { owner: a.name } : {}) });
+  // (s43: an own farm of another kind: the pad holds one farm slot, started from storage as a slot is)
+  const crop = ownHouse && typeof args.crop === 'string' && args.crop !== 'wheat' ? args.crop : undefined;
+  if (crop) {
+    layouts.push({ ...square, buildings: [], field: true, slots: [{ ...farm }], owner: a.name });
+  } else layouts.push({ ...square, buildings: [], field: true, farm, ...(ownHouse ? { owner: a.name } : {}) });
   const k = layouts.length;
   // (s43: an own farm is its owner's for good)
-  if (ownHouse) (v.claims ??= {})[`farm:${k}`] = { by: a.name, at: Date.now(), last: Date.now(), own: true };
+  if (ownHouse) (v.claims ??= {})[crop ? `slot:${k}:1` : `farm:${k}`] = { by: a.name, at: Date.now(), last: Date.now(), own: true };
+  if (crop) {
+    a.world.villages.save();
+    console.log(`[own] ${v.name}: ${a.name}'s own ${crop} farm (layout ${k}) laid out at ${areaText(farm)}`);
+    const started = await startFarm(a, { layout: k, slot: 1, kind: crop, from: 'storage' }, signal);
+    return `laid out a ${crop} farm of your own (layout ${k}) at ${areaText(farm)}; ${started}`;
+  }
   a.world.villages.note(v, `${a.name} laid out a wheat field (layout ${k}) at ${areaText(farm)}`);
   a.world.villages.save();
   console.log(`[needwork] ${v.name}: layout ${k} (a field) laid out by ${a.name} at ${areaText(farm)}`);

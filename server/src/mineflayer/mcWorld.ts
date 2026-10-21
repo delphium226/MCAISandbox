@@ -38,7 +38,7 @@ import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -3779,7 +3779,7 @@ export class MineflayerWorld implements WorldAdapter {
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
-      const ownField = c.choice.kind === 'farm' && (v.layouts ?? [])[Number((c.choice.option ?? '').split(':')[1]) - 1]?.owner === c.agent;
+      const ownField = (c.choice.kind === 'farm' || c.choice.kind === 'slot') && (v.layouts ?? [])[Number((c.choice.option ?? '').split(':')[1]) - 1]?.owner === c.agent;
       const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
@@ -4178,15 +4178,23 @@ export class MineflayerWorld implements WorldAdapter {
         // (s43, MC_OWN_FARM: a wheat field of its own by its house, from the commons' spare seeds; one a member, one laid
         // out at a time in the village)
         if (OWN_FARM && !(v.layouts ?? []).some((l) => l.owner === a.name) && !busy.has('ownfarm') && !this.ownFarmBack.has(`${v.name}|${a.name}`)) {
-          const seeds = this.makeSpare(v, a.name).wheat_seeds ?? store.wheat_seeds ?? 0;
           const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
-          if (seeds >= 16 && st) add({
-            id: 'own:farm', kind: 'own', key: me, holds: ['ownfarm'], excludes: [`${me}=`, 'ownfarm='], name: 'Start a wheat farm of your own by your house', rank: 948,
+          // (the kinds the commons has plants for, best for this member first: the board's price, what it lacks, how many
+          // own farms of the kind stand already; the best two offered by name)
+          const spare = this.makeSpare(v, a.name);
+          const standing: Counts = {};
+          for (const l of v.layouts ?? []) if (l.owner) { const kd = l.farm ? 'wheat' : l.slots?.[0]?.kind; if (kd) standing[kd] = (standing[kd] ?? 0) + 1; }
+          const holds = own.chest!.items, factor = boardOf(v).factor;
+          const kinds = Object.entries(OWN_FARM_KINDS).filter(([, q]) => (spare[q.plant] ?? store[q.plant] ?? 0) >= q.need)
+            .map(([kd]) => ({ kd, score: farmKindScore(kd, factor, holds, standing) })).sort((x, y) => y.score - x.score).slice(0, 2);
+          if (st) for (const [i, { kd, score }] of kinds.entries()) add({
+            id: `own:farm:${kd}`, kind: 'own', key: me, holds: ['ownfarm'], excludes: [`${me}=`, 'ownfarm='], name: `Start a ${words(kd)} farm of your own by your house`, rank: 948 + i,
             at: { x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) },
-            facts: `a 5x7 field on a 9x9 pad within ${24} blocks of your house, sown from the storage's spare seeds (${seeds}); its harvests are all yours`,
-            effect: 'a field of your own: wheat for your own bread',
-          }, { kind: 'own', what: 'farm' });
-          else if (!st) reasons.own ??= 'no house for a farm beside';
+            facts: `a 5x7 farm on a 9x9 pad within 24 blocks of your house, planted from the storage's ${words(OWN_FARM_KINDS[kd].plant)}; ${standing[kd] ?? 0} own ${words(kd)} farms stand; its harvests are all yours`,
+            effect: `${words(OWN_FARM_KINDS[kd].product)} of your own (appeal ${Math.round(score * 100) / 100})`,
+          }, { kind: 'own', what: 'farm', crop: kd });
+          if (!st) reasons.own ??= 'no house for a farm beside';
+          else if (!kinds.length) reasons.own ??= 'no plants in storage for a farm';
         }
         // (s43, MC_OWN_SALES: its surplus sold to the merchant, the levy to the storage; a tool it wants bought with emeralds)
         if (OWN_SALES_ON && v.merchant) {
@@ -5225,7 +5233,7 @@ export class MineflayerWorld implements WorldAdapter {
     switch (d.kind) {
       case 'own':
         if (d.what === 'farm') {
-          this.setChore(v, worker, opt.key, [worker.enqueue('lay_out_field', { own: true, chore: true })], 'start a farm of your own', (why) => {
+          this.setChore(v, worker, opt.key, [worker.enqueue('lay_out_field', { own: true, crop: d.crop, chore: true })], `start a ${d.crop} farm of your own`, (why) => {
             // (a member whose house has no room for a field is not offered one again for 30 minutes)
             this.ownFarmBack.add(`${v.name}|${worker.name}`);
             setTimeout(() => this.ownFarmBack.delete(`${v.name}|${worker.name}`), 30 * 60000).unref?.();
@@ -6140,7 +6148,7 @@ type OptionRun =
   | { kind: 'own'; what: 'trade'; offer: string }
   | { kind: 'own'; what: 'sell'; item: string; lots: number }
   | { kind: 'own'; what: 'buy'; item: string }
-  | { kind: 'own'; what: 'farm' }
+  | { kind: 'own'; what: 'farm'; crop: string }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
