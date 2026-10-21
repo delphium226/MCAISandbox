@@ -192,7 +192,7 @@ export function actsHelp(village: string, agent: string, now: number, w: ActsWor
   const items = [...new Set(w.items.values())].slice(0, 12);
   const nearBy = near(w, agent, 32).slice(0, 6);
   return [
-    'You may add one act to this choice (optional; most choices need none): request (ask a member, or anyone, for an item put into storage or for help on a project), '
+    'You may add one act to this choice when another member could help you or you could help one: request (ask a member, or anyone, for an item put into storage or for help on a project), '
     + 'offer (promise a member the item or project of the option you choose), accept or decline (a request to you, by its id; choosing the option a request asks for accepts it), '
     + 'release (one promise of yours, by its id), report (tell those near you that a member kept or broke a promise you know of: act_to the member, act_claim kept or broke).',
     `Items: ${items.join(', ') || 'none now'}.${w.projects.size ? ` Projects: ${[...w.projects.entries()].slice(0, 4).map(([o, p]) => `${p.words} (${p.owner}, ${o})`).join('; ')}.` : ''}`,
@@ -294,17 +294,19 @@ function commit(st: ActsState, village: string, from: string, to: string, what: 
 }
 
 /**
- * A decision's acts, after its pick ran (spec 4.2's validator in order: shape, budget, loop guard, claims, novelty), and its
- * line said. Accepting is implied by choosing an option a request asks for. Returns what happened, for the log and tests.
+ * A decision's acts (spec 4.2's validator in order: shape, budget, loop guard, claims, novelty), and its line said.
+ * Accepting is implied by choosing an option a request asks for. A decision whose pick did not run (taken, re-asked:
+ * `ran` false; about half of model decisions, G2a) keeps the acts that do not depend on the pick (request, decline,
+ * release, report); its offer, accept and line are dropped. Returns what happened, for the log and tests.
  */
-export function handle(village: string, agent: string, fields: ActFields, chosen: Chosen, w: ActsWorld, now: number): string[] {
+export function handle(village: string, agent: string, fields: ActFields, chosen: Chosen, w: ActsWorld, now: number, ran = true): string[] {
   if (!ACTS.on) return [];
   const st = state(village);
   const done: string[] = [];
   const offered = mayAct(village, agent);
   st.since[agent] = (st.since[agent] ?? ACTS.every) + 1;
   const d = dayOf(village, now);
-  const mine = whatOfChosen(w, chosen);
+  const mine = ran ? whatOfChosen(w, chosen) : undefined;
 
   // (accepting by choosing: a direct request first, else the board's oldest)
   if (mine) {
@@ -359,6 +361,9 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
             ok('request', key, { id: r.id, to, option: what.option, words: what.words });
           }
         }
+      } else if (act === 'offer' && !ran) {
+        logAct({ type: 'act', village, agent, act, ...fields, verdict: 'ignored', why: 'the pick did not run', decisionId: chosen.decisionId });
+        done.push('ignored offer: the pick did not run');
       } else if (act === 'offer') {
         const what = mine;
         const named = projectOf(w, fields.act_project) ?? itemOf(w, fields.act_item);
@@ -415,7 +420,8 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
     }
   }
 
-  if (fields.say && offered) say(st, village, agent, fields.say, chosen, fields, w, now, done);
+  if (fields.say && offered && ran) say(st, village, agent, fields.say, chosen, fields, w, now, done);
+  else if (fields.say && offered) logAct({ type: 'say', village, agent, text: fields.say, dropped: 'the pick did not run', decisionId: chosen.decisionId });
   touchMemory();
   return done;
 }

@@ -158,6 +158,15 @@ st().since.Clara = 0;
 d = acts.handle(V, 'Clara', { act: 'request', act_to: 'Ben', act_item: 'torch' }, chosen('gather:logs', 'c6'), world(), T + 4 * MIN);
 ok(d.includes('ignored request'), 'an act on a decision not offered one is ignored');
 
+// A decision whose pick did not run: its request goes through, its offer and line do not
+T += 120 * MIN;
+st().since.Ben = 5;
+d = acts.handle(V, 'Ben', { act: 'request', act_to: 'Clara', act_item: 'cobblestone', say: 'Clara, could you bring cobblestone?' }, { option: '', kind: '', name: '', decisionId: 'dx' }, world(), T, false);
+ok(d.includes('request') && !d.includes('say'), `a request from a decision that did not run (${d})`);
+st().since.Ben = 5;
+d = acts.handle(V, 'Ben', { act: 'offer', act_to: 'Clara' }, { option: '', kind: '', name: '', decisionId: 'dy' }, world(), T + MIN, false);
+ok(d.includes('ignored offer: the pick did not run'), `its offer ignored (${d})`);
+
 // Parsing
 const f1 = acts.actFields({ choice: 'x', act: '{"type":"request","to":"Ben","item":"logs"}' });
 ok(f1.act === 'request' && f1.act_to === 'Ben' && f1.act_item === 'logs', `a stringified act (${JSON.stringify(f1)})`);

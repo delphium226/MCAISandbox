@@ -207,7 +207,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
     lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
   }
   lines.push((mem ? 'Call choose with your reason and the exact name of one option; add `remember` only when something is worth keeping for later.' : 'Call choose with your reason and the exact name of one option.')
-    + (ctx.acts?.trim() ? ' Add an act or a line to say only when it serves your choice.' : ''));
+    + (ctx.acts?.trim() ? ' Add an act or a line to say when it serves you, another member or the village.' : ''));
   const tools: ToolDef[] = [{
     name: 'choose',
     description: 'Choose your next chore: a one-sentence reason first, then the exact name of one option.',

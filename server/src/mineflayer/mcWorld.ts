@@ -6264,11 +6264,12 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** G2: a decision's acts after its pick ran (the chore it started), through acts.ts' validator. */
-  private afterActs(v: Village, a: BotAgent, decisionId: string, fields: ActFields, now: number) {
+  private afterActs(v: Village, a: BotAgent, decisionId: string, fields: ActFields, now: number, ran = true) {
     const c = this.chores.get(a.name.toLowerCase());
-    if (!c || c.choice.decisionId !== decisionId) return;
+    if (ran && (!c || c.choice.decisionId !== decisionId)) return;
     try {
-      const done = handleActs(v.name, a.name, fields, { option: c.choice.option ?? c.key, kind: c.choice.kind ?? '', name: c.choice.name ?? c.what, decisionId, chore: c.choice.id }, this.actsWorld(v, now), now);
+      const chosen = ran && c ? { option: c.choice.option ?? c.key, kind: c.choice.kind ?? '', name: c.choice.name ?? c.what, decisionId, chore: c.choice.id } : { option: '', kind: '', name: '', decisionId };
+      const done = handleActs(v.name, a.name, fields, chosen, this.actsWorld(v, now), now, ran);
       if (done.length) console.log(`[acts] ${v.name}: ${a.name}: ${done.join('; ')}`);
     } catch (e) {
       console.log(`[acts] ${v.name}: ${a.name}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
@@ -6319,7 +6320,8 @@ export class MineflayerWorld implements WorldAdapter {
         if (ACTS.on && r.id) {
           const d = this.decisions.get(id);
           if (d?.decisionId === p.decisionId && d.source === 'model') this.afterActs(v, a, p.decisionId, r.acts ?? {}, Date.now());
-          else if (r.acts && Object.keys(r.acts).length) logAct({ type: 'act', village: v.name, agent: a.name, ...r.acts, verdict: 'ignored', why: 'the pick did not run', decisionId: p.decisionId });
+          // (the acts that do not depend on the pick still go through: acts.handle with ran false)
+          else if (r.acts && Object.keys(r.acts).length) this.afterActs(v, a, p.decisionId, r.acts, Date.now(), false);
         }
       } catch (e) {
         this.choiceError(p, e);
