@@ -43,6 +43,7 @@ import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
+import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 
 type Pos = [number, number, number];
@@ -2287,6 +2288,12 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   // Asked to build what already stands there (e.g. a task someone else finished): that is done, not a failure
   const same = a.village()?.structures.find((st) => st.kind === d.name && overlaps(area, st));
   if (same) return `a ${d.name} built by ${same.builtBy} already stands at ${areaText(same)}, so this is already done`;
+  // #75: a refit design (refit.ts) raises the building of its base kind standing on exactly this footprint a tier: no site
+  // checks (the building is what stands there), at the building's own level, and its record's tier set, no new record
+  const refit = parseRefit(d.name);
+  const raised = refit ? a.village()?.structures.find((st) => st.kind === refit.base && st.x1 === area.x1 && st.z1 === area.z1 && st.x2 === area.x2 && st.z2 === area.z2) : undefined;
+  if (refit && !raised) throw new Error(`no ${refit.base} stands at ${areaText(area)} to refit; check the task's x, z and rotate`);
+  if (refit && raised && (raised.tier ?? 1) >= refit.tier) return `the ${refit.base} at ${areaText(raised)} is already at tier ${raised.tier ?? 1}, so this is already done`;
   // A build stopped part-way (out of materials) continues at the same level: its own walls would fail the site checks
   const key = `${d.name}@${cx},${cz},${rot}`;
   const pending = (a.memory.pendingBuilds ?? {}) as Record<string, number>;
@@ -2326,7 +2333,7 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
       if (e.message === 'cancelled') throw e;
     });
   }
-  const y0 = pending[key] ?? readySite(a, area, d.height, `"${d.name}"`, leave);
+  const y0 = pending[key] ?? raised?.y ?? readySite(a, area, d.height, `"${d.name}"`, leave);
   // A chest the design leaves must be on a "_" cell at its own level: with the floor worked out a block higher (a bump
   // elsewhere in the footprint), the floor layer would be set on top of the chests and empty them
   for (const c of a.village()?.storage?.chests ?? [])
@@ -2407,13 +2414,19 @@ async function buildDesign(a: BotAgent, args: Record<string, unknown>, signal: A
   a.memory.pendingBuilds = { ...pending, [key]: y0 };
   const summary = await runJob(a, {
     targets: work, area, y: y0, what: `the ${d.name}`, design: d.name,
-    claim: { area: claimed, purpose: `build a ${d.name}`, avoidStructures: true, ignore: kept },
+    claim: { area: claimed, purpose: `build a ${d.name}`, avoidStructures: true, ignore: (s) => kept(s) || s === raised },
   }, signal).catch((e: Error) => {
     // A fresh build that placed nothing (short of materials, site taken) gets the site checks again next time
     if (pending[key] === undefined && !/^ran out of/.test(e.message)) delete (a.memory.pendingBuilds as Record<string, number>)[key];
     throw e;
   });
   delete (a.memory.pendingBuilds as Record<string, number>)[key];
+  if (refit && raised) {
+    raised.tier = refit.tier;
+    a.world.villages.note(a.village()!, `${a.name} refitted the ${refit.base} at ${areaText(raised)} to tier ${refit.tier}`);
+    a.world.villages.save();
+    return `refitted the ${refit.base} at ${areaText(raised)} to tier ${refit.tier}; ${summary}`;
+  }
   const rec = recordStructure(a, { ...area, y: y0, kind: d.name });
   // The hut's stations as the server has them (S.5): what the build placed itself is recorded too, and the stations task
   // closed once both stand

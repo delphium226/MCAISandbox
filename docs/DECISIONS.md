@@ -675,3 +675,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   every member is home or 3 minutes after dusk (vanilla's sleeping percentage fails once residents take members' beds).
   Beds are one pool (the game's rule, not a choice). **Open:** upkeep's wear model (visible weathering or a counter), at
   that step.
+- 10-21 (works-grow session, #75) **Works grow as refits of the standing buildings** (the user's, two choices): with the
+  population parked and the probes showing land (public works) and a people cap (greens) as the limits, the user chose
+  **upgrades in place** over growing with buildings, stock or annexes; a larger variant then fitted on 0 of 26 buildings,
+  and the user chose **same-footprint refits** (tier 2 stone, tier 3 timber and a stone roof) over adding a storey or
+  falling back. MC_WORKS_GROW (off); the brief's files plus `mcBuild.ts` (build_design accepts a refit over its own
+  building) and `village.ts` (`Structure.tier`). Also the user's: procedural architecture and settlement layout (GDMC
+  methods, split grammars) to consider later, filed as #84 (Parked). **Open** (the planning session's): whether
+  MC_WORKS_GROW and MC_WORKS_REPEAT go on by default (both together miss the pass mark by one hour, F270).

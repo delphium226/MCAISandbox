@@ -215,6 +215,13 @@ the short version; look here for a check script's arguments, a model detail or w
 - **The village range** (s43): `MC_VILLAGE_RANGE` (144 since s43; 96 before) moves the village's range; growth's reach is 16 inside it unless
   `MC_GROW_RANGE`; materials for public works are looked for within it; the site survey reads columns the surveyor has
   not loaded through a fellow member (view distance 8: ~128 blocks round a bot). `MC_GREENS_PER` (5) for experiments.
+- **Works that grow** (#75): `MC_WORKS_REPEAT=on` (public works repeat built pieces once fewer than three unbuilt ones
+  qualify) and `MC_WORKS_GROW=on` (refits, refit.ts: a layout's standing buildings raised a tier on their own cells,
+  tier 2 cobblestone to stone bricks, tier 3 log posts to wood and wooden roof stairs and slabs to stone brick; offered in
+  the public-work vote where new works leave slots, posted by layout.ts postRefit, built by build_design of `NAME~tN`,
+  which sets the structure's `tier`; `[work] ... refit` lines; `scripts/checks/works_grow.mts` offline,
+  `scripts/checks/refit_cells.mts VILLAGES.json VILLAGE` live: every changed cell read back over RCON). Both off.
+  `MC_REFIT_FIRST=on` (tests) puts refits ahead of new works; with `MC_VOTE=off` a resumed checkpoint starts one at once.
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes

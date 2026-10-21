@@ -1451,3 +1451,28 @@ CLAUDE.md when a phase ends.
   extrapolated, ~5% for 25 bots among 100). Not measured: working bots among residents, residents taking furnished houses' workstations (the
   checkpoint's houses hold only chairs and tables), residents picking up what working bots drop, restocks of trades
   with the day frozen. Spec: `runs/2026-10-21/m2-spec/spec_m2.md` (the review folded in: `review.md`).
+- F270 (10-21, works-grow session, issue #75) **Works that grow, as refits: the late floor doubles while they last, and
+  with repeats beside them the village misses the pass mark by one hour in each run.** What stops the works today (sim,
+  mv3_grown25, Rch1's settings, `--random-tick 3`): public works stop for **land**, not designs (no free 24x24 site within
+  127 blocks at minute ~91; 15 of 48 pieces built, refused 0), small works at a **people cap** (greens = members / 5 = 5,
+  "initiate: no room (greens full)"); with the population parked, a copy per N people adds nothing. A larger variant on a
+  building's own spot fits **0 of 26** buildings (layouts pack them against streets, lamps, signs and neighbours' rings,
+  even spilling off the pad). Vanilla has no building tiers (numbered pieces are worldgen alternatives). So (the user's
+  choice) **refits**: MC_WORKS_GROW (off; refit.ts) raises a layout's standing buildings a tier on their own cells, tier 2
+  cobblestone to stone bricks, tier 3 log posts to wood and wooden roof stairs and slabs to stone brick, only changed cells
+  drawn; offered in the public-work vote where new works leave slots; ~2,700 + 5,200 units on the 240-minute village
+  against ~3,500 for all its public works. 6-hour sim, 3 seeds (busy by hour; collapse minute; worst later hour / hour 1):
+  off 22 / 12 / 6.3 / 6.2 / 6.2 / 6.5, collapse 80-90, 0.28-0.29, FAIL 3; MC_WORKS_REPEAT 22 / 15 / 11.8 / 6.2 / 6.2 / 6.2,
+  collapse 150 (24 works, last at minute ~160), 0.27-0.29, FAIL 3; **MC_WORKS_GROW 22 / 13.1 / 11.5 / 15.3-16.6 /
+  13.5-15.9 / 6.1**, late (hours 4-6) 11.7-12.8% vs 6.2-6.3, FAIL 3 on hour 6 alone (collapse minute 80-90: a dip at
+  80-100 while land-blocked works still fill the vote), all 41 refits built by minute 285-289, then the 6% floor; **both
+  flags 22 / 15 / 12 / 9.8-11.4 / 10.7-11.1 / 15.8-17.6**, collapse 130-150, worst hour **0.45-0.49x**, FAIL 3 by one hour
+  each (47-49 refits, still running at minute 358: repeats add buildings, and each can be refitted). Prediction (refits
+  +2 to +5 late, 0-1 of 3 pass, collapse 150-270) held on the verdict, undershot the gain (+6) and missed the collapse
+  minute (the dip at 80-100). Refits are a sink: storage goods per member
+  end at 120 vs 145, net logs into storage 92 vs 677. Needs met unchanged (0.95-0.99). The scorecard's "+works" counts new
+  structures only, so refits do not show there. Live (test world 1, Base1 from mv3_base1, MC_REFIT_FIRST and MC_VOTE=off,
+  2x, haste 5): a tier 2 and a tier 3 refit built, the builder smelting 44 stone and crafting 44 stone bricks inside
+  build_design; `scripts/checks/refit_cells.mts` read every changed cell back over RCON (43 + 16 right, 0 wrong) and the
+  buildings not refitted unchanged. Where it stops: two tiers a building; the pool grows only with buildings, so after land
+  runs out it ends (minute ~290 alone, past 360 with repeats). Logs: runs/2026-10-21/works-grow/ (probe/, sim/, report.md).

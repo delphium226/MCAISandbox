@@ -65,6 +65,8 @@ export interface Structure extends Area {
   builtBy: string;
   /** N.2 (MC_HOUSING): the member whose house this is (a dwelling; its name on the house's sign). */
   owner?: string;
+  /** #75 (MC_WORKS_GROW): the refit tier it was raised to (refit.ts; none: as first built). */
+  tier?: number;
 }
 export interface Reservation extends Area {
   id: string;

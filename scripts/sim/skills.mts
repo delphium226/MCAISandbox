@@ -14,6 +14,7 @@ import { OFFERS } from '../../server/src/merchant';
 import { designBill, inWood } from '../../server/src/mineflayer/mcMaterials';
 import { storageContents } from '../../server/src/mineflayer/mcStorage';
 import { postLayout } from '../../server/src/layout';
+import { parseRefit } from '../../server/src/refit';
 import { placeFarm } from '../../server/src/streetPlan';
 import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
@@ -687,6 +688,11 @@ function buildDesign(args: Any, c: Ctx): Outcome {
   const st = { x1, z1, x2: x1 + W - 1, z2: z1 + D - 1 };
   const old = v.structures.find((s: Any) => s.kind === d.name && x >= s.x1 && x <= s.x2 && z >= s.z1 && z <= s.z2);
   if (old) return { ok: true, message: `a ${d.name} built by ${old.builtBy} already stands at ${areaText(old)}, so this is already done` };
+  // (#75: a refit raises the standing building of its base kind on this footprint a tier, as the skill's: no new record)
+  const rf = parseRefit(d.name);
+  const raised = rf ? v.structures.find((s: Any) => s.kind === rf.base && s.x1 === st.x1 && s.z1 === st.z1 && s.x2 === st.x2 && s.z2 === st.z2) : undefined;
+  if (rf && !raised) return { ok: false, message: `no ${rf.base} stands at ${areaText(st)} to refit; check the task's x, z and rotate` };
+  if (rf && (raised.tier ?? 1) >= rf.tier) return { ok: true, message: `the ${rf.base} at ${areaText(raised)} is already at tier ${raised.tier ?? 1}, so this is already done` };
   // The bill from storage (what the plan takes from stock; any:logs and the like as the planner resolves them)
   // (the wood as the skill chooses it: the building's own kind (its Build task's label in woodFor), else the village's, and
   // when that does not cover the bill, another kind that does, the most stocked first; s43: the sim built every public work
@@ -702,9 +708,13 @@ function buildDesign(args: Any, c: Ctx): Outcome {
   if (short.length) return { ok: false, message: `ran out of ${short[0][0]} after placing 0 blocks; still needed: ${short.map(([n, q]) => `${q} ${n}`).join(', ')}. Get them, then run the same build again: it continues where it stopped` };
   const used: Counts = {};
   for (const [n, q] of Object.entries(p.fromStock ?? {})) used[n] = take(v, n, q as number);
+  const placed = Object.values(designBill(d)).reduce((s: number, q) => s + (q as number), 0);
+  if (rf) {
+    raised.tier = rf.tier;
+    return { ok: true, message: `refitted the ${rf.base} at ${areaText(raised)} to tier ${rf.tier}; placed ${placed} blocks, cleared 0; used ${list(used)}` };
+  }
   const plot = v.plots.find((q: Any) => x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2) ?? v.plots.find((q: Any) => q.green);
   v.structures.push({ ...st, y: plot?.y ?? v.plots[0]?.y ?? 64, kind: d.name, id: `sim${v.structures.length + 1}`, builtBy: c.name });
-  const placed = Object.values(designBill(d)).reduce((s: number, q) => s + (q as number), 0);
   return { ok: true, message: `${d.name} recorded in village ${v.name} at ${areaText(st)}; placed ${placed} blocks, cleared 0; used ${list(used)}` };
 }
 

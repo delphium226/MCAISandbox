@@ -48,6 +48,8 @@ import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, v
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
+import { postRefit } from '../layout';
 import { signpostText } from '../placeNames';
 import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type NeedReading } from '../needs';
 import { UtilClock, type UtilView } from '../utilisation';
@@ -2391,6 +2393,34 @@ export class MineflayerWorld implements WorldAdapter {
         current: false, novel: true, units: q.units, volume: q.pieces.reduce((s, c) => s + c.volume, 0),
       });
     }
+    // (#75, MC_WORKS_GROW: refits fill the slots new works leave, the cheapest first, one a layout and refused ones never
+    // again: a layout's standing buildings raised a tier on their own cells, no new land)
+    // (MC_REFIT_FIRST=on, for tests: refits ahead of new works, so a staged run reaches one at once)
+    if (WORKS_GROW && (out.length < 3 || REFIT_FIRST)) {
+      const first: VoteOption[] = [];
+      const refits = refitOptions(v).filter((o) => !bad.has(refitProject(o))).map((o) => {
+        let units = 0, blocks = 0;
+        for (const p of o.places) {
+          const d = refitDesign(p.design, o.tier)!;
+          units += this.refitUnits(d);
+          blocks += d.blocks;
+        }
+        return { o, units, blocks };
+      }).sort((p, q) => p.units - q.units || p.o.layout - q.o.layout);
+      for (const r of refits) {
+        if ((REFIT_FIRST ? first : out).length >= 3) break;
+        const lay = v.layouts![r.o.layout - 1];
+        const kinds = [...new Set(r.o.places.map((p) => (isDwelling(p.design.name) ? 'houses' : kindOf(p.design.name).replace(/_/g, ' '))))];
+        const what = lay.name ? `${lay.name}'s ${kinds.length > 1 ? 'buildings' : kinds[0]}` : `the ${kinds.slice(0, 3).join(', ')}${kinds.length > 3 ? ' and more' : ''}`;
+        const n = r.o.places.length;
+        (REFIT_FIRST ? first : out).push({
+          id: refitProject(r.o), name: `Refit ${what} ${TIER_WORDS[r.o.tier].short} (tier ${r.o.tier})`,
+          facts: `${n} standing building${n > 1 ? 's' : ''} of layout ${r.o.layout}: ${TIER_WORDS[r.o.tier].facts}; ~${Math.round(r.units)} units to gather (${r.blocks} blocks changed); on their own ground, no new land`.slice(0, 200),
+          current: false, novel: false, units: Math.round(r.units), volume: r.blocks,
+        });
+      }
+      if (first.length) out.splice(0, out.length, ...[...first, ...out].slice(0, 3));
+    }
     // (N.2: a street of houses for the members without one, H9)
     if (HOUSING) {
       const without = this.homeless(v).length, M = this.growMembers(v).length;
@@ -2403,6 +2433,45 @@ export class MineflayerWorld implements WorldAdapter {
     const rested = !!g.work && !g.work.piece;
     if (out.length && !rested) out.push({ id: PROJECT_NONE, name: 'No new public work for now', facts: 'members stay free for farms, pens and the workshop; the question comes back in a few minutes', current: true, novel: false, units: 0, volume: 0 });
     return out;
+  }
+
+  /** What a refit design costs to gather (materialTasks' units), once a design: votes ask every few minutes. */
+  private refitUnitsOf = new Map<string, number>();
+  private refitUnits(d: Design): number {
+    let u = this.refitUnitsOf.get(d.name);
+    if (u === undefined) this.refitUnitsOf.set(d.name, (u = this.materialTasks(d, d.name).units ?? 0));
+    return u;
+  }
+
+  /**
+   * A refit voted for (#75, MC_WORKS_GROW): its tasks posted (layout.ts postRefit) and watched to its end as a public
+   * work (growth.active with the refit's project id: growEnd closes it, counts a failure and backs off). One no longer
+   * due (built meanwhile) is dropped; one that cannot be had here is never offered again.
+   */
+  private startRefit(v: Village, piece: string, now: number) {
+    const g = (v.growth ??= { past: [] });
+    const rf = parseRefitProject(piece)!;
+    delete g.work;
+    const o = refitOptions(v).find((x) => x.layout === rf.layout && x.tier === rf.tier);
+    if (!o) {
+      this.villages.save();
+      console.log(`[work] ${v.name}: the refit ${piece} is no longer due`);
+      return;
+    }
+    const out = postRefit(this, v, o);
+    if (typeof out === 'string') {
+      g.projectBad = [...new Set([...(g.projectBad ?? []), piece])];
+      this.villages.save();
+      console.log(`[work] ${v.name}: the refit ${piece}: ${out}`);
+      return;
+    }
+    const lay = v.layouts![o.layout - 1];
+    g.active = {
+      k: g.past.length + 1, layout: o.layout, from: Math.min(...out.made.map(taskNum)), at: now, by: 'grow', plot: { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 },
+      houses: [], builds: out.builds, members: this.growMembers(v).length, before: housesOf(v), changed: now, sig: '', project: piece,
+    };
+    this.villages.save();
+    console.log(`[work] ${v.name}: the refit of layout ${o.layout} to tier ${o.tier} posted: ${out.builds.length} buildings, ${out.made.length} tasks (${Math.round(out.units)} units)`);
   }
 
   /**
@@ -2561,6 +2630,7 @@ export class MineflayerWorld implements WorldAdapter {
       return;
     }
     if (piece === PROJECT_FARMSTEAD) return this.layOutFarmstead(v, now);
+    if (parseRefitProject(piece)) return this.startRefit(v, piece, now);
     const q = this.quarterOf(v, piece);
     const w = q?.pieces[0];
     if (!q || !w) {
@@ -6297,6 +6367,10 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
 /** #75: public works may repeat a piece once the unbuilt ones run out (off by default, s43). */
 const WORKS_REPEAT = /^(on|1|true)$/i.test(process.env.MC_WORKS_REPEAT ?? 'off');
+/** #75: works that grow with the village (off by default): standing buildings refitted a tier on their own cells (refit.ts),
+ *  offered in the public-work vote where new works leave slots (runs/2026-10-21/works-grow/design.md). */
+const WORKS_GROW = /^(on|1|true)$/i.test(process.env.MC_WORKS_GROW ?? 'off');
+const REFIT_FIRST = /^(on|1|true)$/i.test(process.env.MC_REFIT_FIRST ?? 'off');
 /** How far a public work's uncommon materials are looked for (96, not the village range: at 144 the atlas saw sandstone
  *  that collect never reached, and a savanna quarter waited an hour for it, s43's Rch6). */
 const WORK_MATERIAL_RANGE = 96;

@@ -4,9 +4,10 @@
  */
 import { HOUSE_UNITS } from './designs';
 import type { WorldAdapter } from './world';
-import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, villageHome, type Area, type FarmSlot, type Layout, type PlotPart, type Village } from './village';
+import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, villageHome, type Area, type FarmSlot, type Layout, type PlotPart, type Task, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
 import { isDwelling } from './grow';
+import { refitDesign, TIER_WORDS, type RefitOption } from './refit';
 import { nameForNew } from './placeNames';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
@@ -707,4 +708,49 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       ? ` Not laid out, no room on this ${street ? streetLimit : limit}x${street ? streetLimit : limit} site: ${left.join(', ')}. Find a second site for ${them}: find_site size=${plotSize(left)} (it keeps off this plot), then plan_layout with ${left.map((n) => `"${n}"`).join(', ')}. The workers start on this plot meanwhile.`
       : ' Now wait for the workers.';
     return `Laid out ${placed.length} buildings on a ${lay.width}x${lay.depth} plot at ${areaText(plot)} (${lay.places.map((p) => `${p.name} at ${p.x},${p.z}`).join('; ')}) and posted ${made.length} tasks: ${made.map((t) => `${t.id} ${t.title}`).join('; ')}.${rest}`;
+}
+
+/**
+ * A refit's tasks (#75, MC_WORKS_GROW; refit.ts): for each building of the option, its refit design into the village's,
+ * the gathering its changed cells need, and one build_design of the refit at the place and turn the building was built
+ * with, in the building's own wood; posted by `poster` ('grow': growth's end watch follows it as a public work). A string
+ * when nothing can be posted (every building's refit cannot be had here).
+ */
+export function postRefit(w: WorldAdapter, v: Village, o: RefitOption, poster = 'grow'): { made: Task[]; builds: string[]; units: number } | string {
+  const tasks: Array<{ title: string; detail: string; after: Array<string | number>; soft?: boolean }> = [];
+  const builds: number[] = [];
+  const why: string[] = [];
+  let units = 0;
+  for (const p of o.places) {
+    const d = refitDesign(p.design, o.tier);
+    if (!d) continue;
+    const label = `${p.label} (tier ${o.tier})`;
+    const wood = v.woodFor?.[p.label] ?? v.wood;
+    const m = w.materialTasks ? w.materialTasks(d, '{label}', wood, false) : { tasks: [], problems: [], units: 0 };
+    if (m.problems.length) {
+      why.push(`${p.label}: ${m.problems.join('; ')}`);
+      continue;
+    }
+    v.designs[d.name] = d;
+    if (wood && v.woodFor?.[p.label]) v.woodFor[label] = wood;
+    units += m.units ?? 0;
+    const gather: number[] = [];
+    for (const t of m.tasks) {
+      gather.push(tasks.length);
+      tasks.push({ title: t.title.replace('{label}', label), detail: t.detail, after: [], soft: true });
+    }
+    builds.push(tasks.length);
+    const W = p.rot % 2 ? p.design.depth : p.design.width, D = p.rot % 2 ? p.design.width : p.design.depth;
+    const x1 = p.x - Math.floor(W / 2), z1 = p.z - Math.floor(D / 2);
+    tasks.push({
+      title: `Build ${label}`,
+      detail: `build_design "${d.name}" x=${p.x} z=${p.z}${p.rot ? ` rotate=${p.rot * 90}` : ''} (a refit of the standing ${p.label}: ${TIER_WORDS[o.tier]?.facts ?? `tier ${o.tier}`}; footprint x ${x1}..${x1 + W - 1}, z ${z1}..${z1 + D - 1}); it takes the materials from the village storage`,
+      after: gather,
+    });
+  }
+  if (!builds.length) return `no refit can be had here (${why.join('; ').slice(0, 200) || 'nothing to change'})`;
+  const made = w.villages.post(v, tasks, poster, 100);
+  w.villages.note(v, `${poster} posted the refit of layout ${o.layout} to tier ${o.tier}: ${builds.length} buildings`);
+  w.villages.save();
+  return { made, builds: builds.map((i) => made[i].id), units };
 }
