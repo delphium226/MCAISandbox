@@ -11,7 +11,7 @@ milestones below.
 ## The goal
 
 A civilisation that keeps thriving for hours, not one finished village: its needs come back and are met, it grows in
-people, land, knowledge and works, and its members have a social life (memory, relationships, promises, rules, culture)
+land, knowledge and works, and its members have a social life (memory, relationships, promises, rules, culture)
 that shapes what they do. The aim behind it is unchanged: 25 or more agents, many activities, and behaviour nobody
 scripted, in the spirit of Project Sid.
 
@@ -32,7 +32,7 @@ scripted, in the spirit of Project Sid.
 Every work session reports its result on it, before and after. Until M1 builds it, the stand-in is chore busy in
 10-minute bins over a 180-minute simulation at real-rate growth (`--random-tick 3`), 3 seeds.
 
-- Population (members and residents) and needs met (food, housing, beds, light).
+- Needs met (food, housing, beds, light). Population is not a measure for now (parked by the user, 10-21).
 - Goods per member and their variety; techniques known; works and roads built.
 - Trades made and promises kept; named places and rules in force (once M4 and M5 exist).
 - The trend of each over 6-10 simulated hours, not its peak.
@@ -49,10 +49,11 @@ pair.
 1. **M1 Scorecard.** The measure above in the simulator's report and on the panel, built on s39's utilisation graphs and
    s44's Economy tab. Done when one command prints the scorecard for a simulated or a live run, and the panel shows it.
 2. **M2 Demand that comes back.** Needs that renew as the village prospers:
-   - vanilla villagers as residents who breed when beds and food allow (#4);
-   - beds, then day and night (#6), with shears made wanted (F266: shears never unlock without demand);
-   - upkeep and repair (#44); decoration that needs no new plot (#45, #46, #48, #49), which the beauty goal feeds;
-   - public works that repeat or grow with the village (#75); farms, mines and rooms as the need shows (#9, #8, #3, #1);
+   - public works that repeat or grow with the village (#75), then upkeep and repair (#44), then decoration that needs
+     no new plot (#45, #46, #48, #49), which the beauty goal feeds (the user's order, U8; the M2 spec predicts upkeep is
+     what reaches the pass mark, F269);
+   - beds, then day and night (#6), with shears made wanted (#81; F266: shears never unlock without demand);
+   - farms, mines and rooms as the need shows (#9, #8, #3, #1);
    - innovation driven by demand (#73, #71, #78), with the activity dependency tree (#66) to plan chains like
      sheep, shears, wool, beds.
 
@@ -77,7 +78,9 @@ one.
 - **Support** (a milestone): the bugs and tools every move relies on: walking and stuck bugs, the foundry (#14-#16,
   #72), the simulator (#74), check scripts. Fixed when a move's runs trip over them, or between moves.
 - **Parked** (a milestone): good ideas that do not serve the goal now, each with its reason on the issue. Phase S's big
-  activities are candidates for the innovation library once demand for them exists.
+  activities are candidates for the innovation library once demand for them exists. **Growing the population**
+  (villagers as residents, #4, and the simulator's residents, #83) is parked by the user (10-21), as a step and as a
+  measure of thriving, to revisit later; the M2 spec's part 1 and F269's measurements stay for that.
 
 ## Rules for work sessions
 
@@ -111,3 +114,5 @@ handover, and writes the next brief. Drift shows up as work outside any mileston
   and s44; the open issues sorted into milestones.
 - 2026-10-21: the pass mark compares every hour after the first with hour 1 (the user's), after the scorecard's
   baseline passed the collapsing default village (F268).
+- 2026-10-21: growing the population parked, as a step of M2 and as a scorecard measure (the user's, after the M2
+  spec: residents added population but little work, F269); M2 starts with works that grow and upkeep.
