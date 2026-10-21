@@ -615,3 +615,10 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   changed nothing at this reach). **MC_WORKS_REPEAT off** until a run outlasts the pool (~26 works). A wider reach only
   postpones the limit (sim: 144 runs out at ~90 min, 192 at ~120, then the pool): the second settlement is drafted as a
   spec for the user (#76, runs/2026-10-21/s43/spec_second_settlement.md).
+- 10-21 (s43, the user's) **Innovation: a library of locked skills, unlocked by members' experiments.** The foundry fills
+  a library offline, ahead of time (skills written, gated and merged but locked); a running village never waits on code
+  generation. Villages unlock library entries by experiments: idle members (the curious first) spend time and materials
+  trying a candidate, succeeding with some chance; candidates come from the adjacent possible (recipe graph and library
+  entries one step from what the village has, #73 part 1) and from unmet market wants (lapsed barter offers, wants nobody
+  fills, #71). Measured in the sim first: new goods an hour, who invents, how techniques spread, late busy. Builds on F264
+  (the economy gives reasons to trade, not work to fill idle time).

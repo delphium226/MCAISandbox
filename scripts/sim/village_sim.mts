@@ -67,6 +67,9 @@ if (SERIES) {
   workers = run.workers ?? spec.workers ?? 24;
   const fast = run.fast ?? spec.fast ?? true;
   Object.assign(env, fast ? { MC_HASTE: '5', MC_RANDOM_TICK: '30' } : {}, spec.server_env ?? {}, run.server_env ?? {});
+  // (--workers N: more members than the checkpoint's run, s43's 50-agent question)
+  const wk = Number(opt('--workers'));
+  if (wk > 0) workers = Math.min(49, Math.floor(wk));
   const ts = run.time_scale ?? spec.time_scale ?? (fast ? (workers < 12 ? 3 : 2) : 2);
   env.MC_TIME_SCALE ??= String(ts);
   checkpoint ??= run.checkpoint ? path.join('mc/testcheckpoints', run.checkpoint) : undefined;
