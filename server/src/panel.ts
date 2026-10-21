@@ -43,6 +43,8 @@ import { INNOVATE, LIBRARY, ROYALTY, pointsIn, techOf } from './tech';
 import { GOALS_ON, goalsOf, progress } from './goals';
 import { ScoreClock, scorecardView, type ScoreWorld } from './scorecard';
 import { techTree, type RecipeOf, type TechTree } from './techTree';
+import { MEMORY, agentMemory, liveNotes, membersOf, rosterOf, villageMemory } from './memory';
+import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -122,6 +124,9 @@ function agentOverview(a: WorldAgent) {
     // (A.3p: the persona line its chore menus show; '' with MCAI_TEMPERAMENT off and no memory.persona)
     persona: (typeof m.persona === 'string' && m.persona) || personaOf(a.name),
     notes: typeof m.notes === 'string' ? m.notes : null,
+    // (G1: what it is doing and why, its intention for the day, the village's clock)
+    intent: m.intent ?? null,
+    ...(v ? (() => { const am = agentMemory(v.name, a.name); const ph = phaseLine(v.name); return { ...(am?.today ? { today: am.today } : {}), ...(ph ? { clock: ph } : {}) }; })() : {}),
     stats: m.stats ?? null,
     rescues: m.rescues ?? null,
     buildSpeed: m.buildSpeed ?? null,
@@ -431,9 +436,26 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
     const a = w.agentList().find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!a) return sendJson(res, 404, { error: `no agent ${name}` }), true;
     const tv = temperament(a.name);
+    const vn = a.village()?.name;
     return sendJson(res, 200, {
       name: a.name, memory: capped(a.memory), temperament: { mode: TEMPERAMENT_MODE, vector: tv, weights: kindWeights(tv), persona: (typeof a.memory.persona === 'string' && a.memory.persona) || personaOf(a.name) },
       chores: w.choiceHistory?.(a) ?? [],
+      // (G1: its journal)
+      journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
+    }), true;
+  }
+  // G1: a village's members' memory (compact), and their rosters for scripts/respawn_agents.py
+  const mem = /^\/api\/memory\/([^/]+)(\/roster)?$/.exec(url.pathname);
+  if (mem) {
+    const vn = decodeURIComponent(mem[1]);
+    if (mem[2]) return sendJson(res, 200, { village: vn, members: rosterOf(vn) }), true;
+    const vm = villageMemory(vn);
+    return sendJson(res, 200, {
+      village: vn, on: MEMORY.on, clock: phaseLine(vn), run: vm?.run ?? null, days: vm?.days ?? [],
+      members: membersOf(vn).map((m) => ({
+        name: m.name, intent: m.intent ?? null, today: m.today ?? null, notes: liveNotes(m), replaced: m.notes.filter((n) => n.replaced).length,
+        log: m.log.length, days: m.days, kinds: m.kinds, nightDone: m.nightDone,
+      })),
     }), true;
   }
   // A2: the agent's last chore decision in full (the menu with its facts, the order shown, the choice, the reason,

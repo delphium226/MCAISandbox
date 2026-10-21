@@ -232,6 +232,27 @@ the short version; look here for a check script's arguments, a model detail or w
   decision: workers' usernames, issue #11; not used by the code yet).
 - **The todo list is GitHub issues** (`gh issue list`), labelled by phase.
 
+## Members' memory and the village clock (G1, #26, 2026-10-21)
+
+- **Flags** (off by default): `MC_MEMORY=on` (each member's journal in `social.json` beside villages.json: its chore ends,
+  a kind table, its notes and intention; a "What you remember" section in the chooser's and the planner's prompts, capped
+  at `MC_MEMORY_CHARS` 2000; the `choose` tool's optional `remember`/`replaces`); `MC_CLOCK=on` (a code-kept village day
+  of `MC_DAY_MIN` 20 minutes divided by `MC_TIME_SCALE`: the first model choice of a member's day asks for an `intention`
+  and a `focus` unless the night set one; at night code writes day lines and each member with chores makes one `reflect`
+  call, `MC_REFLECT=off` to skip it); `MC_MEMORY_CARRY=on` keeps memory across a spawn with reset; `MC_MEMORY_NOTES` (8).
+  Code: `server/src/memory.ts`, `society.ts`, `social.ts` (G2-G4's typed places, empty). `memory.intent` (what a member
+  is doing and why) is written always and shown on the panel's cards; the Memory tab has a Journal block.
+- **Runs:** a spawn with `reset` begins a run (and empties that member's memory); a spawn without it keeps memory (the
+  respawn path). `acts.jsonl` (decisions with full prompts, memory writes, intentions, day lines, reflections, clock
+  phases) sits beside the decision log (`X.choices.jsonl` -> `X.acts.jsonl`), or `MCAI_ACTS_LOG`.
+- **After an agent-server restart:** `python scripts/respawn_agents.py VILLAGE [--api URL]` brings back every member
+  from its stored roster without reset (journals kept; the chooser's statistics refilled from them).
+  `scripts/checks/memory_restart.py VILLAGE --snapshot runs/code/<snap> --env K=V...` kills, restarts and respawns, and
+  compares every journal. `GET /api/memory/VILLAGE` (compact), `/api/memory/VILLAGE/roster`.
+- **Checks and bench:** `scripts/checks/memory_unit.mts` (offline), `scripts/checks/prompt_golden.mts` (the chooser's
+  prompts with memory off byte-identical to LSc1's sent prompts), `scripts/bench/memorybench.mts` (A writing, B using,
+  C a G1 run's own decisions re-asked without the memory section: `ACTS=<run>.acts.jsonl`).
+
 ## Models (gpt-oss for every role; local models as a fallback)
 
 - **Every role defaults to `ollama:gpt-oss:120b-cloud`** (the user's decision, 2026-10-10, A.0): mayor, architect,

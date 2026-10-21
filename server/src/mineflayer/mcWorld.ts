@@ -55,6 +55,8 @@ import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type N
 import { UtilClock, type UtilView } from '../utilisation';
 import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
+import { MEMORY, agentMemory, initMemory, noteEnd as memoryEnd, noteIntent, noteSpawn } from '../memory';
+import { tick as clockTick } from '../society';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
@@ -193,6 +195,8 @@ export class MineflayerWorld implements WorldAdapter {
     this.registry = minecraftData(version);
     this.materials = new Materials(this.registry);
     this.villages = VillageRegistry.forWorld(dataDir);
+    // (G1: members' memory, social.json beside villages.json)
+    initMemory(dataDir);
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
     this.villages.onClaim = (v, t) => this.claimed(v, t);
     this.villages.claimLimit = (v, t, _by, cooled) => this.mineClaim(v, t, cooled);
@@ -1607,6 +1611,16 @@ export class MineflayerWorld implements WorldAdapter {
     }
     if (o.memory) Object.assign(a.memory, o.memory);
     if (typeof a.memory.village === 'string' && a.memory.village) this.villages.ensure(a.memory.village);
+    // (G1: the roster for a respawn; with memory on, a spawn with reset begins a run and empties the member's memory)
+    if (typeof a.memory.village === 'string' && a.memory.village) {
+      noteSpawn(a.memory.village, name, { role: a.role, brain, gamemode: o.gamemode, memory: o.memory ?? {}, reset: !!o.reset });
+      // (a respawn after a restart: the chooser's statistics, empty, refilled from the member's stored ends, so the option
+      // facts, the pattern line, bans and cooldowns agree with what it remembers; the review's S4)
+      const kept = MEMORY.on && !o.reset ? agentMemory(a.memory.village, name) : undefined;
+      if (kept && !this.choiceStats.agentHistory(a.memory.village, name, 1).length)
+        for (const e of kept.log) if (CHOICE_KINDS.includes(e.kind as ChoiceKind))
+          this.choiceStats.record({ village: kept.village, agent: name, kind: e.kind as ChoiceKind, id: e.option, ok: e.ok, cut: e.cut, contention: false, productive: e.productive, minutes: e.minutes, at: e.t, line: e.line });
+    }
     // (a fresh start empties the appetite too, s30's D6)
     const fresh = o.reset && APPETITE.rate ? a.village()?.food?.members[a.name] : undefined;
     if (fresh) {
@@ -3734,6 +3748,10 @@ export class MineflayerWorld implements WorldAdapter {
         choice.with.add(o.choice.id);
       }
     this.chores.set(id, { agent: worker.name, village: v.name, key, status, what, failed, choice });
+    // (G1: what the member is doing now and why, for the panel and its memory)
+    const intent = { kind, what: choice.name ?? what, why: meta?.reason ?? 'fixed order', since: choice.t, source: meta?.source ?? 'fixed' };
+    worker.memory.intent = intent;
+    noteIntent(v.name, worker.name, intent);
     // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
     // (the wheat field and ripe slots) are still code-driven: no menu, `options` empty.
     const menu = meta?.menu;
@@ -3878,6 +3896,20 @@ export class MineflayerWorld implements WorldAdapter {
       const paid = payRoyalties(v, made, (m) => !!this.homeOf(v, m));
       for (const [m, got] of Object.entries(paid)) console.log(`[innovate] ${v.name}: ${m} earns a royalty of ${Object.entries(got).map(([n, q]) => `${q} ${n}`).join(', ')} on ${c.agent}'s make`);
     }
+    // (G1: every chore's end into its member's journal and kind table, grow, eat and tidy too; a contention end is no lesson
+    // about the chore; the intent marked ended)
+    if (MEMORY.on && !code) {
+      try {
+        const mins = Math.round((Date.now() - c.choice.t) / 600) / 100;
+        const verb = ok ? (productive ? 'done' : 'done, nothing gained') : cut ? 'cut short' : `failed (${message.slice(0, 60)})`;
+        const nm = c.choice.name ?? c.choice.option ?? c.choice.id;
+        memoryEnd(c.village, c.agent, { kind: c.choice.kind ?? 'chore', option: c.choice.option ?? c.choice.id, name: nm, ok, productive, cut, minutes: mins, line: `${nm}: ${verb}, ${Math.round(mins * 10) / 10} min`, message });
+      } catch (e) {
+        console.error('[memory] a chore end was not kept:', e);
+      }
+    }
+    const intent = agent?.memory.intent as { since?: number; ended?: number } | undefined;
+    if (intent && intent.since === c.choice.t) intent.ended = Date.now();
     logChoiceEnd({
       id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
       yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
@@ -5842,6 +5874,14 @@ export class MineflayerWorld implements WorldAdapter {
    */
   private sweep(v: Village, q: Set<string>) {
     const now = Date.now();
+    // (G1: the village clock's sweep, with the members present)
+    if (MEMORY.clock) {
+      const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({
+        name: b.name, persona: (typeof b.memory.persona === 'string' && b.memory.persona) || personaOf(b.name),
+        model: typeof b.memory.chooseModel === 'string' ? b.memory.chooseModel : typeof b.memory.execModel === 'string' ? b.memory.execModel : undefined,
+      }));
+      clockTick(now, [{ name: v.name, members }]);
+    }
     const all = this.heldKeys(v, now, 'sweep');
     // Forgiven after an hour (the readers read the effective value; the old picker wrote these as it looked)
     const ax = v.layouts?.[0]?.annex;

@@ -35,6 +35,25 @@ import { GROW, growing, isGrowTask } from './grow';
 import { TaskBrain, taskCalls, taskSkillNames } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 import { CallWithdrawn, callModel, isTransient, label, parseSpec, type CallPriority, type ModelSpec, type Reply, type ToolCall } from './modelCall';
+import { MEMORY, noteEnd as memoryEnd, noteIntent, recall } from './memory';
+
+/** G1: a plan is the agent's intent (the panel's line and its memory). */
+function planIntent(a: WorldAgent, goal: string, why: string, source: string) {
+  const intent = { kind: 'plan', what: goal.slice(0, 160), why: why.slice(0, 160), since: Date.now(), source };
+  a.memory.intent = intent;
+  const v = a.village();
+  if (v) noteIntent(v.name, a.name, intent);
+}
+
+/** G1: a board task the agent held, finished or given up, into its journal (the review's B2: not a chore, so not logged there). */
+function taskEnd(a: WorldAgent, v: Village, taskId: string, ok: boolean, message: string) {
+  if (!MEMORY.on) return;
+  const t = v.tasks.find((x) => x.id === taskId);
+  const intent = a.memory.intent as { kind?: string; since?: number; what?: string } | undefined;
+  const minutes = intent?.kind === 'plan' && intent.since && intent.what?.startsWith(`${taskId}:`) ? Math.round((Date.now() - intent.since) / 600) / 100 : 0;
+  const name = t ? `${taskId}: ${t.title}` : taskId;
+  memoryEnd(v.name, a.name, { kind: 'task', option: taskId, name, ok, productive: ok, cut: false, minutes, line: `${name}: ${ok ? 'done' : `given up (${message.slice(0, 60)})`}, ${Math.round(minutes * 10) / 10} min`, message });
+}
 
 // (the benches import it from here)
 export { OLLAMA_ROUTES } from './modelCall';
@@ -984,6 +1003,7 @@ export class TieredBrain implements AgentBrain {
     // A worker whose plan is complete has finished its task
     if (v && role === 'worker' && complete && plan.taskId && v.tasks.find((t) => t.id === plan.taskId)?.status === 'claimed') {
       a.world.villages.finish(v, plan.taskId, a.name, this.notes.slice(-3).join(' ') || 'done');
+      taskEnd(a, v, plan.taskId, true, 'done');
       plan.taskId = undefined;
     }
     // Its task finished by code (the first deposit completes the storage task) or put back on the board (a build short
@@ -1381,10 +1401,13 @@ export class TieredBrain implements AgentBrain {
     if (all.length) this.seenPlan = all[all.length - 1].id;
     const events = this.eventsFor(a, all);
     const notes = typeof a.memory.notes === 'string' ? a.memory.notes : '';
+    // (G1: the member's memory, without the chooser's earlier-today line)
+    const remembered = MEMORY.on && a.village() ? recall(a.village()!.name, a.name, Date.now(), { cap: 1000, earlierToday: false })?.text ?? '' : '';
     let user = [
       `You are planning for ${a.name}, role: ${a.role}, game mode: ${a.gamemode}. Replanning because ${why}.`,
       typeof a.memory.objective === 'string' ? `Objective: ${a.memory.objective}` : '',
       notes ? `Long-term notes:\n${notes}` : '',
+      remembered,
       formatPlots(a, villageRole(a) !== 'mayor'),
       villageRole(a) === 'mayor' ? boardStatus(a) : '',
       `Previous plan:\n${formatPlan(old)}`,
@@ -1405,6 +1428,7 @@ export class TieredBrain implements AgentBrain {
       if (n >= 3) {
         const detail = v.tasks.find((t) => t.id === old.taskId)?.detail ?? '';
         a.world.villages.giveUp(v, old.taskId, a.name, `stuck after ${n} attempts; last problem: ${why}`);
+        taskEnd(a, v, old.taskId, false, why);
         this.depositLeftovers(a, detail);
         a.memory.plan = { ...old, steps: [], taskId: undefined };
         this.taskReplans.delete(old.taskId);
@@ -1421,6 +1445,7 @@ export class TieredBrain implements AgentBrain {
     if (task && role === 'worker' && calls) {
       const steps = calls.map((c) => `${c.type} ${Object.entries(c.args).map(([k, val]) => `${k}=${val}`).join(' ')}`);
       a.memory.plan = { goal: `${task.id}: ${task.title}`, steps, step: 0, by: 'task', tick: a.world.ticks, taskId: task.id } satisfies Plan;
+      planIntent(a, `${task.id}: ${task.title}`, 'the task it claimed', 'task');
       this.lastPlan = Date.now();
       this.failuresSincePlan = 0;
       a.pushEvent('system', `New plan (the task's own steps): ${steps.map((st, i) => `${i + 1}. ${st}`).join(' ')}`);
@@ -1634,6 +1659,7 @@ export class TieredBrain implements AgentBrain {
     // "Gather 13 logs" tasks in a row plan identical steps: the second was marked done without any work)
     if (old && old.taskId === plan.taskId && JSON.stringify(old.steps) === JSON.stringify(plan.steps)) plan.step = old.step;
     a.memory.plan = plan;
+    planIntent(a, plan.goal, why, 'plan');
     if (typeof call.input.notes === 'string' && call.input.notes.trim()) a.memory.notes = call.input.notes.trim();
     this.lastPlan = Date.now();
     this.failuresSincePlan = 0;

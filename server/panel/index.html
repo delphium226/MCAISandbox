@@ -487,6 +487,7 @@ function renderAgent(a) {
       <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
       ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
       ${choiceLine(a)}
+      ${intentLine(a)}
       ${utilLine(a.name)}
       ${a.persona ? `<div class="sub clamp" title="its temperament (A.3p), shown in its chore menus">${esc(a.persona)}</div>` : ''}
       ${wealthLine(a)}
@@ -564,6 +565,19 @@ function choiceLine(a) {
   const pos = c.position && c.shown ? ` (${c.position} of ${c.shown} shown)` : '';
   const text = `${c.name ? `${c.name}: ` : ''}${sourceWords(c.source, c.why)}${pos}${c.source === 'model' && c.reason ? `: ${c.reason}` : ''}`;
   return `<div class="sub clamp" title="${esc(text)}">chore ${esc(text)}</div>`;
+}
+/** G1: what the agent is doing and why (memory.intent), and its intention for the day. */
+function intentText(a) {
+  const i = a.intent;
+  const parts = [];
+  if (i) parts.push(`${i.what}${i.why && i.why !== 'fixed order' ? `: ${i.why}` : i.source === 'fixed' || i.why === 'fixed order' ? ' (fixed order)' : ''}`);
+  if (a.today) parts.push(`today: ${a.today.text}`);
+  return parts.join(' · ');
+}
+function intentLine(a) {
+  const text = intentText(a);
+  if (!text) return '';
+  return `<div class="sub clamp" title="${esc(text)}">intent ${esc(text)}${a.intent && a.intent.since ? ` <span class="sub">(${ago(a.intent.since)})</span>` : ''}${a.clock ? ` <span class="sub">· ${esc(a.clock)}</span>` : ''}</div>`;
 }
 /** The Choice tab: the last menu in the order shown, the chosen option marked, the reason, how it was decided, tokens. */
 function choiceBody(a) {
@@ -736,7 +750,16 @@ function mindBody(a) {
     + `<span class="sub">${ago(c.at)} ago, ${c.minutes} min${c.ok && !c.productive ? ', nothing gained' : ''}${c.cut ? ', cut short' : ''}</span>${c.line ? `<div class="sub clamp">${esc(c.line)}</div>` : ''}</li>`).join('');
   const mem = d.memory || {};
   const fields = Object.keys(mem).sort().map((k) => det(`mind:${a.name}:${k}`, `<b>${esc(k)}</b> <span class="sub">${esc(preview(mem[k]))}</span>`, `<pre class="prompt" data-scroll="mf:${esc(a.name)}:${esc(k)}">${esc(JSON.stringify(mem[k], null, 2))}</pre>`)).join('');
-  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}`
+  // (G1: its journal: the intention, live notes, record by kind, day lines and last ends)
+  const j = d.journal;
+  const journal = j ? `<div class="label">Journal <span class="sub">(G1${d.clock ? `; ${esc(d.clock)}` : ''}; kept across restarts)</span></div>`
+    + `${j.today ? `<div><b>Intention for day ${j.today.day}</b> <span class="sub">(${esc(j.today.by)})</span>: ${esc(j.today.text)}</div>` : ''}`
+    + `${j.intent ? `<div class="sub">now: ${esc(j.intent.what)}${j.intent.why ? ` (${esc(j.intent.why)})` : ''}, ${esc(j.intent.source)}</div>` : ''}`
+    + `<div class="sub">notes:</div><ul class="list">${(j.notes || []).map((n) => `<li${n.replaced ? ' style="opacity:.5;text-decoration:line-through"' : ''}><span class="mono sub">${esc(n.id)}</span> ${esc(n.text)} <span class="sub">day ${n.day}, ${ago(n.t)} ago, ${esc(n.by)}, shown ${n.shown}</span></li>`).join('') || '<li class="empty">none</li>'}</ul>`
+    + `<div class="sub">record: ${esc(Object.entries(j.kinds || {}).sort((x, y) => y[1].n - x[1].n).map(([k, r]) => `${k} ${r.n} (${r.productive})`).join(', ') || 'none')}</div>`
+    + `${(j.days || []).length ? `<div class="sub">days:</div><ul class="list">${j.days.slice(-6).reverse().map((x) => `<li class="sub">${esc(x.line)}</li>`).join('')}</ul>` : ''}`
+    + `<div class="sub">last ends:</div><ul class="list">${(j.log || []).slice(-10).reverse().map((e) => `<li class="sub">${e.ok ? '✓' : '✗'} ${esc(e.line)}</li>`).join('') || '<li class="empty">none</li>'}</ul>` : '';
+  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}${journal}`
     + `${traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : ''}`
     + `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`
     + `<div class="label">Memory <span class="sub">(every field it keeps: plan, notes, site, stats...)</span></div>${fields || '<div class="empty">empty</div>'}`;
@@ -1661,7 +1684,7 @@ function simpleAgents(agents, scope) {
     const sub = a.task && a.currentAction ? a.task.title : '';
     return `<li>
       <div class="who-name">${compact ? `<i class="adot" style="background:${agentColor(a.name)}"></i>` : ''}<b>${esc(a.name)}</b>${compact ? appetiteBar(a, true) : ''}<span class="sub">${esc(a.villageRole || a.role)}</span>${(() => { const m = econOf(a.name); return m ? `<span class="sub" title="worth of its own chest at the board's prices${m.goal ? `; life goal ${esc(m.goal)}` : ''}">💰${m.worth}</span>${goalChip(m.goal)}` : ''; })()}${compact ? '' : appetiteBar(a)}</div>
-      <div class="who-doing"${compact && sub ? ` title="${esc(sub)}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}</div>
+      <div class="who-doing"${compact && (sub || intentText(a)) ? ` title="${esc([sub, intentText(a) && `intent ${intentText(a)}`].filter(Boolean).join('\n'))}"` : ''}>${esc(doingWords(a))}${flags(a)}${sub && !compact ? `<div class="sub">${esc(sub)}</div>` : ''}${intentText(a) ? `<div class="sub clamp">${esc(intentText(a))}</div>` : ''}</div>
       <div class="who-state"><span class="state" style="--c:${color}">${esc(state)}</span>${st.since && !compact ? `<span class="sub">${ago(st.since)}</span>` : ''}</div></li>`;
   };
   // (the idle fold into one row of name chips: after completion 18 of 25 rows read "Waiting for work"; a chip with a

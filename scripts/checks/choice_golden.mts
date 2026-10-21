@@ -61,6 +61,9 @@ process.env.MC_VOTE = 'off';
 process.env.MC_PROJECTS = 'off';
 // (N.1's needs off: the golden is of the chores without them)
 process.env.MC_NEEDS = 'off';
+// (G1: members' memory and the village clock off, so prompts and choices are as before)
+process.env.MC_MEMORY = 'off';
+process.env.MC_CLOCK = 'off';
 // (N.2's housing and the parts chests: on by default since s38, off here: the golden is of the chores without them)
 process.env.MC_HOUSING ??= 'off';
 process.env.MC_PARTS ??= 'off';

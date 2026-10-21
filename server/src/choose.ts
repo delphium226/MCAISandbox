@@ -21,6 +21,7 @@
 import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from './world';
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
+import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
@@ -151,6 +152,15 @@ const SYSTEM = 'You are a member of a Minecraft village. The village is built; n
   + '`choose` with a short reason (one sentence) and the exact name of one option. Never invent an option.';
 /** A.3p: added when a persona line is shown. */
 const SYSTEM_PERSONA = ' Choose as the person described would.';
+/** G1: added when a memory section is shown. */
+const SYSTEM_MEMORY = ' Use what you remember where it bears on the choice.';
+
+/** G1 (MC_MEMORY=on): the memory section (with whether this is the member's dawn decision) and the last chores from the
+ *  stored log, used when the statistics are empty (a restart). */
+export interface PromptMemory {
+  recall: Recall | null;
+  outcomes?: string[];
+}
 
 /**
  * A.3p's tag on an option line, from its temperament weight. None on `grow` (N.2's street): its weight is forced to the
@@ -163,8 +173,9 @@ const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' :
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
 
 /** The prompt of section 5.2: the options in the order given (shuffled by the caller), named, never numbered (D7). */
-export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: string; user: string; tools: ToolDef[] } {
+export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: PromptMemory): { system: string; user: string; tools: ToolDef[] } {
   const ctx = menu.ctx;
+  const rc = mem?.recall ?? null;
   const lines: string[] = [];
   if (ctx.persona?.trim()) lines.push(ctx.persona.trim());
   if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
@@ -173,14 +184,17 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
   if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
-  lines.push(`Your last chores: ${ctx.outcomes?.length ? ctx.outcomes.join(' | ') : 'none yet'}`);
+  const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
+  lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
+  if (rc) lines.push(rc.text);
+  if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
   lines.push('Options (in no particular order):');
   for (const o of shown) {
     const facts = o.facts?.trim();
     const effect = o.effect?.trim();
     lines.push(`- ${o.name}${facts ? `: ${facts}` : ''}${effect ? ` (expected: ${effect})` : ''}${o.need ? ` [${o.need}]` : ''}${tag(o)}`);
   }
-  lines.push('Call choose with your reason and the exact name of one option.');
+  lines.push(mem ? 'Call choose with your reason and the exact name of one option; add `remember` only when something is worth keeping for later.' : 'Call choose with your reason and the exact name of one option.');
   const tools: ToolDef[] = [{
     name: 'choose',
     description: 'Choose your next chore: a one-sentence reason first, then the exact name of one option.',
@@ -189,11 +203,20 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
       properties: {
         reason: { type: 'string', maxLength: 200, description: 'Why, in one sentence.' },
         choice: { type: 'string', enum: shown.map((o) => o.name), description: 'The exact name of one option.' },
+        // (G1: what the model keeps, read from the same call)
+        ...(mem ? {
+          remember: { type: 'string', maxLength: 160, description: 'Optional: one thing worth remembering on later days (a lesson, a plan, something about the village or a member), in your own words; leave out what this prompt already shows.' },
+          ...(rc?.liveIds.length ? { replaces: { type: 'string', enum: rc.liveIds, description: `Optional: the id of the note your new note replaces${rc.full ? ' (your notes are full: give one)' : ''}.` } } : {}),
+          ...(rc?.dawn ? {
+            intention: { type: 'string', maxLength: 200, description: 'What you mean to do today and why, one sentence.' },
+            focus: { type: 'string', enum: FOCUS, description: 'The kind of work you mean to do most today.' },
+          } : {}),
+        } : {}),
       },
-      required: ['reason', 'choice'],
+      required: rc?.dawn ? ['reason', 'choice', 'intention', 'focus'] : ['reason', 'choice'],
     },
   }];
-  return { system: ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM, user: lines.join('\n'), tools };
+  return { system: (ctx.persona?.trim() ? SYSTEM + SYSTEM_PERSONA : SYSTEM) + (rc ? SYSTEM_MEMORY : ''), user: lines.join('\n'), tools };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -275,6 +298,33 @@ export function parseChoice(reply: Reply, shown: ChoiceOption[]): { id: string; 
   return { id: m.id, reason: got.reason.trim().replace(/\s+/g, ' ').slice(0, 200) };
 }
 
+/** G1: the memory fields of the reply's choose call (or of a choice written as text). */
+export function memoryWrites(reply: Reply): { remember?: string; replaces?: string; intention?: string; focus?: string } {
+  const pick = (o: unknown): Record<string, unknown> | null => {
+    if (!o || typeof o !== 'object') return null;
+    const r = o as Record<string, unknown>;
+    if (typeof r.choice === 'string') return r;
+    for (const k of ['arguments', 'parameters', 'input']) {
+      let inner = r[k];
+      if (typeof inner === 'string') {
+        try { inner = JSON.parse(inner); } catch { inner = null; }
+      }
+      const got = inner && inner !== o ? pick(inner) : null;
+      if (got) return got;
+    }
+    return null;
+  };
+  const calls = reply?.calls ?? [];
+  let o = pick((calls.find((c) => c.name === 'choose' && pick(c.input)) ?? calls.find((c) => pick(c.input)))?.input);
+  if (!o && !calls.length) {
+    const t = reply?.text ?? '';
+    try { o = pick(JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1))); } catch { o = null; }
+  }
+  if (!o) return {};
+  const str = (k: string) => (typeof o![k] === 'string' && (o![k] as string).trim() ? (o![k] as string).trim() : undefined);
+  return { ...(str('remember') ? { remember: str('remember') } : {}), ...(str('replaces') ? { replaces: str('replaces') } : {}), ...(str('intention') ? { intention: str('intention') } : {}), ...(str('focus') ? { focus: str('focus') } : {}) };
+}
+
 // ---------------------------------------------------------------------------------------------
 // One decision
 // ---------------------------------------------------------------------------------------------
@@ -335,7 +385,12 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
   try {
     const shown = shuffled(req.menu.options, `${req.seed}|${req.agent}`);
     if (!shown.length) return { ...out, why: 'invalid' };
-    const p = buildPrompt(req.menu, shown);
+    // (G1: the memory section, read without marking the notes shown until the call is made)
+    const mem: PromptMemory | undefined = MEMORY.on ? {
+      recall: recall(req.menu.village, req.agent, Date.now(), { lastShown: req.menu.ctx.outcomes?.length || 5, mark: false }),
+      outcomes: lastLines(req.menu.village, req.agent, 5),
+    } : undefined;
+    const p = buildPrompt(req.menu, shown, mem);
     out.prompt = p.user;
     // (the degrade levels are the cloud budget's: a local model is never held by them)
     if ((isCloudModel(req.spec.model) && !usage.allows('decisions')) || usage.blocked(req.spec.model, req.agent)) return { ...out, why: 'budget' };
@@ -343,6 +398,8 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     if (req.signal?.aborted) return { ...out, why: 'withdrawn' };
     // (shown only once it goes to the model: a refusal or a withdrawal unsent showed nothing to anyone)
     out.shown = shown.map((o) => o.id);
+    // (G1: the notes' shown counts, once the prompt goes out)
+    if (mem?.recall) recall(req.menu.village, req.agent, Date.now(), { lastShown: req.menu.ctx.outcomes?.length || 5 });
     let r: Awaited<ReturnType<typeof callModel>>;
     try {
       r = await (req.call ?? callModel)({
@@ -372,6 +429,19 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
     out.promptTokens = r.reply.promptTokens ?? 0;
     out.outputTokens = r.reply.outputTokens ?? 0;
     const c = parseChoice(r.reply, shown);
+    // (G1: what the model kept, from a valid reply only, applied here whether its pick then runs, is taken, re-asked or
+    // dropped; the decision into the ledger)
+    if (mem) {
+      const w = 'invalid' in c ? {} : memoryWrites(r.reply);
+      const done = applyWrites(req.menu.village, req.agent, w, 'decision', Date.now(), req.seed);
+      const ck = clockOf(req.menu.village, Date.now());
+      logAct({
+        type: 'decision', village: req.menu.village, agent: req.agent, decisionId: req.seed, ...(ck ? { day: ck.day, phase: ck.phase } : {}),
+        system: p.system, prompt: p.user, memory: mem.recall?.shown ?? [], dawn: !!mem.recall?.dawn,
+        choice: 'invalid' in c ? null : c.id, reason: 'invalid' in c ? '' : c.reason, ...w, done,
+        ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens,
+      });
+    }
     if ('invalid' in c) {
       const raw = r.reply.calls.length ? JSON.stringify(r.reply.calls) : r.reply.text;
       console.log(`[choose] ${req.agent}: invalid reply (${c.invalid}): ${String(raw).replace(/\s+/g, ' ').slice(0, 200)}`);
