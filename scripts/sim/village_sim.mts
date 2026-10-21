@@ -128,7 +128,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -447,7 +447,7 @@ if (buildPairs.length >= 5) {
 }
 const BUILTIN: Record<string, number> = {
   deposit: 0.08, withdraw: 0.05, collect: 0.55, eat_meal: 0.04, harvest_slot: 0.06, harvest_farm: 0.09, put_up_torches: 0.12, furnish: 0.22,
-  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25,
+  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25, trade_offer: 0.3,
   collect_eggs: 0.13, milk_cows: 0.13, breed_pen: 0.13, build_design: 0.5, prepare_green: 1.5, fish: 1.8, trade: 0.1, make: 0.12, tidy_storage: 0.12,
 };
 /** A drawn sample for an action: its minutes, and a reference failure it is to repeat (the skills whose failures come
@@ -656,7 +656,9 @@ const report = {
   own: (() => {
     const hs = Object.values(v.homes ?? {}) as Any[];
     const sum = (f: (h: Any) => Counts) => hs.reduce((t: Counts, h) => { for (const [n, q] of Object.entries(f(h) ?? {})) t[n] = (t[n] ?? 0) + (q as number); return t; }, {});
-    return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used) };
+    const b = (v as Any).board;
+    return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used), made: sum((h) => h.made),
+      ...(b ? { board: { posted: b.posted, taken: b.taken, lapsed: b.lapsed, open: b.offers.filter((o: Any) => o.state === 'open').length, traded: b.traded, factor: b.factor } } : {}) };
   })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
@@ -680,6 +682,7 @@ say(`  actions: ${kv(report.actions)}${unknown.size ? `; NOT MODELLED: ${kv(repo
 say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
 say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
 if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
+if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
 say(`  storage flows: ${kv(flows)}`);

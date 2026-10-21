@@ -36,6 +36,7 @@ import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LO
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
 import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../own';
+import { boardOf, offerText, settle } from '../barter';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4740,6 +4741,28 @@ async function makeOwn(a: BotAgent, args: Record<string, unknown>, signal: Abort
   return `made ${n} ${r.item} from your own stock into your own chest`;
 }
 
+/**
+ * trade_offer (a chore code queues, #70): to the notice board by the storage hut, then the offer settled between the two
+ * records (the poster's goods held back since it posted, the taker's checked), both chests written from them.
+ */
+async function tradeOffer(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('trade_offer: not in a village');
+  const b = boardOf(v);
+  const o = b.offers.find((q) => q.id === args.offer);
+  if (!o || o.state !== 'open') throw new ContentionError(`trade_offer: offer ${String(args.offer)} is no longer on the board`, 'taken', `offer:${String(args.offer)}`);
+  const hut = v.storageHut;
+  const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the notice board', task: 'trade_offer' };
+  await standBy(a, job, signal);
+  const poster = v.homes?.[o.by], taker = v.homes?.[a.name];
+  if (!poster || !taker || !settle(b, o, poster, taker, a.name, Date.now())) throw new ContentionError(`trade_offer: offer ${o.id} (${offerText(o)}) can no longer be settled: one side no longer holds the goods`, 'taken', `offer:${o.id}`);
+  a.world.villages.save();
+  if (poster.chest) await writeOwnChest(a, poster.chest);
+  if (taker.chest) await writeOwnChest(a, taker.chest);
+  console.log(`[barter] ${v.name}: ${a.name} took ${o.by}'s offer ${o.id}: ${offerText(o)}`);
+  return `traded ${o.wantN} ${o.want} for ${o.giveN} ${o.give} with ${o.by}`;
+}
+
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
@@ -6004,6 +6027,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   carry_home: { run: carryHome },
   eat_own: { run: eatOwn },
   make_own: { run: makeOwn },
+  trade_offer: { run: tradeOffer },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

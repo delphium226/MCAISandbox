@@ -17,6 +17,7 @@ import { postLayout } from '../../server/src/layout';
 import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
 import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
+import { boardOf, settle } from '../../server/src/barter';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -422,6 +423,15 @@ function makeOwn(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `made ${n} ${r.item} from your own stock into your own chest (simulated)` };
 }
 
+function tradeOffer(args: Any, c: Ctx): Outcome {
+  const b = boardOf(c.v);
+  const o = b.offers.find((q) => q.id === args.offer);
+  if (!o || o.state !== 'open') return { ok: false, message: `trade_offer: offer ${args.offer} is no longer on the board`, code: 'taken' };
+  const poster = c.v.homes?.[o.by], taker = c.v.homes?.[c.name];
+  if (!poster || !taker || !settle(b, o, poster, taker, c.name, c.now)) return { ok: false, message: `trade_offer: offer ${o.id} can no longer be settled`, code: 'taken' };
+  return { ok: true, message: `traded ${o.wantN} ${o.want} for ${o.giveN} ${o.give} with ${o.by} (simulated)` };
+}
+
 function eatMeal(_args: Any, c: Ctx): Outcome {
   const v = c.v, e = v.food?.members?.[c.name];
   try {
@@ -823,6 +833,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
-  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

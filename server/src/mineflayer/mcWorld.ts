@@ -37,6 +37,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
+import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
 import { OWN, OWN_RECIPES, SHARED, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
@@ -1984,6 +1985,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate; the storage's tidy-up)
     if (NEED_WORKS) this.fieldTick(v, now);
     if (NEED_WORKS) this.tidyTick(v, now);
+    if (BARTER.on && v.complete) this.barterTick(v, now);
     if (v.growth?.active) return this.growEnd(v, now);
     if (HOUSING) this.homeRequestAge(v, now);
     if (!GROW.on || !this.growDue(v, now, true)) {
@@ -2705,6 +2707,33 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private tidyAt = new Map<string, number>();
+
+  /**
+   * #70 (MC_BARTER): the notice board once a minute: open offers past their time lapse (each cheapening its good), and
+   * each member with a chest and none open gets the offer code drafts (its most pressing want some other member can spare,
+   * paid in its surplus at the board's prices).
+   */
+  private barterTick(v: Village, now: number) {
+    if ((this.barterAt.get(v.name) ?? 0) > now) return;
+    this.barterAt.set(v.name, now + 60000);
+    const b = boardOf(v);
+    for (const o of lapse(b, now)) console.log(`[barter] ${v.name}: ${o.by}'s offer ${o.id} (${offerText(o)}) lapsed unanswered`);
+    const names = Object.keys(v.homes ?? {}).filter((n) => v.homes![n].chest);
+    const spare = new Map(names.map((n) => [n, surplus(available(b, n, v.homes![n]))]));
+    for (const n of names) {
+      const others: Counts = {};
+      for (const [m, c] of spare) if (m !== n) for (const [k, q] of Object.entries(c)) others[k] = (others[k] ?? 0) + q;
+      const o = draftOffer(b, n, available(b, n, v.homes![n]), others, now);
+      if (!o) continue;
+      b.offers.push(o);
+      b.posted++;
+      spare.set(n, surplus(available(b, n, v.homes![n])));
+      console.log(`[barter] ${v.name}: ${n} offers ${offerText(o)} (${o.id})`);
+    }
+    this.villages.save();
+  }
+
+  private barterAt = new Map<string, number>();
 
   private fieldBackoff = new Map<string, number>();
   private fieldFails = new Map<string, number>();
@@ -4103,6 +4132,21 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'own', what: 'carry', want });
           else reasons.own ??= 'the storage cannot spare what is owed';
         } else reasons.own ??= total ? `${total} owed (under 8)` : 'nothing owed';
+        // (#70: offers on the board it would take, the two worth most to it)
+        if (BARTER.on) {
+          const b = boardOf(v);
+          const mineNow = available(b, a.name, own);
+          const others: Counts = {};
+          for (const [m, h] of Object.entries(v.homes ?? {})) if (m !== a.name && h.chest) for (const [k, q] of Object.entries(surplus(available(b, m, h)))) others[k] = (others[k] ?? 0) + q;
+          const takes = b.offers.filter((o) => !busy.has(`offer:${o.id}`) && wouldTake(b, o, a.name, mineNow, others)).slice(0, 2);
+          const h = v.storageHut;
+          for (const o of takes) add({
+            id: `own:trade:${o.id}`, kind: 'own', key: me, holds: [`offer:${o.id}`], excludes: [`${me}=`, `offer:${o.id}=`], name: `Trade ${o.wantN} ${words(o.want)} for ${o.giveN} ${words(o.give)} with ${o.by}`, rank: 939,
+            ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
+            facts: `${o.by}'s offer on the notice board by the storage hut; you can spare ${mineNow[o.want] ?? 0} ${words(o.want)}; posted ${ago(now - o.at)}`,
+            effect: `+${o.giveN} ${words(o.give)}, -${o.wantN} ${words(o.want)} in your own chest`,
+          }, { kind: 'own', what: 'trade', offer: o.id });
+        }
         // (s43: food made from its own stock, its own chest to its own chest; a smelt burns the commons' fuel)
         const spare = this.makeSpare(v, a.name);
         const h = v.storageHut;
@@ -5072,6 +5116,11 @@ export class MineflayerWorld implements WorldAdapter {
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
       case 'own':
+        if (d.what === 'trade') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('trade_offer', { offer: d.offer, chore: true })], `take offer ${d.offer}`, undefined, meta, opt.holds, opt);
+          console.log(`[barter] ${v.name}: ${worker.name} goes to take offer ${d.offer}`);
+          return;
+        }
         if (d.what === 'make') {
           this.setChore(v, worker, opt.key, [worker.enqueue('make_own', { item: d.item, count: d.n, fuel: d.fuel, chore: true })], `make ${d.n} ${d.item} from your own stock`, undefined, meta, opt.holds, opt);
           console.log(`[own] ${v.name}: ${worker.name} goes to make ${d.n} ${d.item} from its own stock`);
@@ -5960,6 +6009,7 @@ type OptionRun =
   | { kind: 'own'; what: 'chest' }
   | { kind: 'own'; what: 'carry'; want: Counts }
   | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }
+  | { kind: 'own'; what: 'trade'; offer: string }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
