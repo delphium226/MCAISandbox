@@ -6,7 +6,7 @@ file and PLAN.md's handover after each report. Work sessions read this file and 
 PLAN.md keeps the handover and each phase's design; GitHub issues keep the todo list, each issue under one of the
 milestones below.
 
-*Last updated 2026-10-21 (the planning session; G1 done).*
+*Last updated 2026-10-22 (the planning session, overnight; G1 done, G6's first loop done, G2 under way).*
 
 ## The goals
 
@@ -33,7 +33,7 @@ again 10-21).
 | 2. Sid-style emergence | Mostly unbuilt (Phase E, #26-#34). Life goals already make distinct roles (F267, behind `MC_GOALS`). |
 | 3. Agents' proposals | Not built. Pieces: members' proposals for votes (#13), innovation demand (#73, #71). |
 | 4. Long-horizon memory | **G1 done** (`deea7ea`, F272): journals, intentions and a village clock behind `MC_MEMORY`/`MC_CLOCK` (off); members' later choices use what they remember. Quality left: #86. |
-| 5. Self-improving activities | The foundry (four tickets merged) and the innovation library exist; nothing in a running village yet makes a ticket (#73, #16). |
+| 5. Self-improving activities | **G6's first loop done** (10-22, F274-F275): a running village's wanted list made the honeycomb ticket, the foundry merged it (`9666366`), members researched, unlocked and harvested it. Its rank was 71% recipe value, not members' asking: #89. |
 
 Built on the way and kept behind flags: the economy (s43), innovation v2 and life goals (s44), works that grow as refits
 (`MC_WORKS_GROW`, F270). The village model is cheap to run with models (hour 1 of a live model-driven run: $0.17).
@@ -70,7 +70,8 @@ offline checks, a staged run, then a model-driven run at 25 (lesson 124).
 5. **G5 Agents propose improvements** (goal 3; #13, #73, #71). Members propose works, activities and changes to the
    game from what they lack; code validates; a Claude Code triage session accepts or rejects with a reason the members
    see. Done when, in a model-driven run, members make proposals, see answers, and use at least one accepted one.
-6. **G6 Activities and the self-improving loop** (goals 1 and 5; #14, #15, #16, #66, #72, #78). Tickets from the
+6. **G6 Activities and the self-improving loop** (goals 1 and 5; #14, #15, #16, #66, #72, #78; first loop done 10-22, #73
+   closed; next #89, demand members actually express). Tickets from the
    village's own demand, the skill tree, the outer loop. Done when a ticket made by a running village passes the
    foundry's gates and members take up the new activity.
 
@@ -129,3 +130,5 @@ number rather than a goal.
   moves M1-M5 replaced by goal milestones G1-G6, memory and the clock first; the scorecard became a health check, not
   the target; the rest of M2 and M3 parked.
 - 2026-10-21: G1 done (memory and the clock, F272); the simulator's late collapse is harsher than live (LSc1, F271).
+- 2026-10-22 (overnight, Claude's with the user's leave): G6's first loop done; G5 started as a spec plus the parts outside
+  G2's files, its menu hooks after G2; #89 (visible demand) continues G6.
