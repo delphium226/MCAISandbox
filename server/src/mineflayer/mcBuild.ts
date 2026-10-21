@@ -38,6 +38,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNu
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
+import { LIBRARY, settleAttempt, techOf, techOwnRecipes } from '../tech';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4731,7 +4732,7 @@ async function makeOwn(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const own = ownOf(v, a.name);
   const chest = own.chest;
   if (!chest) throw new Error('make_own: you have no chest at home');
-  const r = OWN_RECIPES.find((q) => q.item === args.item);
+  const r = [...OWN_RECIPES, ...techOwnRecipes(v)].find((q) => q.item === args.item);
   if (!r) throw new Error(`make_own: no recipe for ${String(args.item)} from your own stock`);
   const n = Math.min(Number(args.count) || 1, ownBatch(r, chest.items));
   if (n <= 0) throw new Error(`make_own: your own chest no longer holds what ${r.item} takes`);
@@ -4823,6 +4824,58 @@ async function merchantOwn(a: BotAgent, args: Record<string, unknown>, signal: A
   await writeOwnChest(a, chest);
   console.log(`[own] ${v.name}: ${a.name} bought ${o.n} ${item} of its own for ${o.emeralds} emeralds`);
   return `bought ${o.n} ${item} of your own from the merchant for ${o.emeralds} emeralds`;
+}
+
+/**
+ * experiment (a chore code queues, s43's innovation): at the works, an attempt at a library entry: its materials taken
+ * from the commons (withdrawn and taken by command), its time, then code's roll against the member's chance; a success
+ * unlocks the entry's goods for the village and pays its pledges into the inventor's own chest.
+ */
+async function experiment(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('experiment: not in a village');
+  const e = LIBRARY.find((x) => x.id === args.entry);
+  if (!e) throw new Error(`experiment: no library entry ${String(args.entry)}`);
+  if (techOf(v).unlocked.includes(e.id)) return `the village already makes ${e.name}`;
+  const hut = v.storageHut;
+  const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'an experiment', task: 'experiment' };
+  await standBy(a, job, signal);
+  for (const [k, q] of Object.entries(e.attempt)) {
+    await withdrawItems(a, v, { [k]: q }, signal);
+    const have = await serverCount(a, k);
+    if (have < q) throw new ContentionError(`experiment: another agent took the ${k} the attempt needs`, 'taken', `stock:${k}`);
+    await a.world.rcon.take(a.name, k, q, have);
+  }
+  await sleep((e.minutes * 60000) / timeScale(), signal);
+  const r = settleAttempt(v, e, a.name, Math.random(), Date.now());
+  if (r.ok) {
+    const own = v.homes?.[a.name]?.chest;
+    if (own) for (const [k, q] of Object.entries(r.pledges)) own.items[k] = (own.items[k] ?? 0) + q;
+    if (own) await writeOwnChest(a, own);
+  }
+  a.world.villages.save();
+  console.log(`[innovate] ${v.name}: ${a.name}'s experiment with ${e.name} ${r.ok ? `succeeded (chance ${Math.round(r.chance * 100)}%): the village can make ${e.goods.map((g) => g.item).join(', ')}${Object.keys(r.pledges).length ? `; pledges ${Object.entries(r.pledges).map(([k, q]) => `${q} ${k}`).join(', ')} to ${a.name}` : ''}` : `failed (chance ${Math.round(r.chance * 100)}%)`}`);
+  return r.ok ? `the experiment worked: the village can make ${e.goods.map((g) => g.words).join(' and ')} now` : `the experiment with ${e.name} failed this time (chance ${Math.round(r.chance * 100)}%; the next try is likelier)`;
+}
+
+/** pledge (a chore code queues, s43): own goods held on the board toward a library entry, for whoever first unlocks it. */
+async function pledge(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('pledge: not in a village');
+  const own = v.homes?.[a.name]?.chest;
+  const item = String(args.item), n = Math.max(1, Number(args.count) || 1);
+  if (!own || (own.items[item] ?? 0) < n) throw new Error(`pledge: your own chest no longer holds ${n} ${item}`);
+  const hut = v.storageHut;
+  const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the notice board', task: 'pledge' };
+  await standBy(a, job, signal);
+  own.items[item] -= n;
+  if (!own.items[item]) delete own.items[item];
+  const t = techOf(v);
+  (t.pledges[String(args.entry)] ??= []).push({ by: a.name, item, n });
+  a.world.villages.save();
+  await writeOwnChest(a, own);
+  console.log(`[innovate] ${v.name}: ${a.name} pledged ${n} ${item} toward ${String(args.entry)}`);
+  return `pledged ${n} ${item} toward ${String(args.entry)}: whoever unlocks it first gets it`;
 }
 
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
@@ -6091,6 +6144,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   make_own: { run: makeOwn },
   trade_offer: { run: tradeOffer },
   merchant_own: { run: merchantOwn },
+  experiment: { run: experiment },
+  pledge: { run: pledge },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

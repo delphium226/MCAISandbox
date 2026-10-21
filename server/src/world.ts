@@ -230,7 +230,7 @@ export interface WorldAdapter {
  *  'furnish' (X.1): furniture from storage into a building (the furnish family). 'initiate' and 'help' (s35): a member's
  *  own small work started, and a step of one taken (the initiatives family). 'activity' (s41): a library spec running a
  *  foundry skill (the activities family). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity' | 'own';
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity' | 'own' | 'innovate';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {

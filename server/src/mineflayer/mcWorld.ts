@@ -37,6 +37,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
+import { INNOVATE, LIBRARY, candidates, chanceFor, techGoods, techOf, techOwnRecipes } from '../tech';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
 import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
@@ -623,9 +624,12 @@ export class MineflayerWorld implements WorldAdapter {
    *  wants), as the catalogue's specs give them. */
   goodsFor(v: Village): MakeGood[] {
     const base = appetiteOn(v) ? [...MAKE_GOODS, ...FOOD_GOODS] : MAKE_GOODS;
-    if (!CHOOSE.families.has('catalog')) return base;
-    const c = this.catalog(v);
-    return c ? c.goods.filter((g) => !g.food || appetiteOn(v)) : base;
+    const c = CHOOSE.families.has('catalog') ? this.catalog(v) : null;
+    const goods = c ? c.goods.filter((g) => !g.food || appetiteOn(v)) : base;
+    // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
+    if (!INNOVATE) return goods;
+    const tech = techGoods(v);
+    return tech.length ? [...goods.filter((g) => !tech.some((t) => t.item === g.item)), ...tech] : goods;
   }
 
   /** The catalogue's cache, by village: the key it was built on (wood and the furniture's demand). */
@@ -4220,7 +4224,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (s43: food made from its own stock, its own chest to its own chest; a smelt burns the commons' fuel)
         const spare = this.makeSpare(v, a.name);
         const h = v.storageHut;
-        OWN_RECIPES.forEach((r, i) => {
+        [...OWN_RECIPES, ...(INNOVATE ? techOwnRecipes(v) : [])].forEach((r, i) => {
           const n = ownBatch(r, own.chest!.items);
           if (n <= 0) return;
           const plank = Object.keys(spare).find((k) => /_planks$/.test(k) && spare[k] >= n);
@@ -4236,6 +4240,48 @@ export class MineflayerWorld implements WorldAdapter {
             effect: `+${n} ${words(r.item)} in your own chest`,
           }, { kind: 'own', what: 'make', item: r.item, n, fuel });
         });
+      }
+    }
+
+    // s43's innovation (MC_INNOVATE): experiments on the candidates (the library's entries the village could try now,
+    // ranked by wants nobody filled and gluts they would use), the curious drawn most; and pledges toward them from
+    // members who asked for their goods in vain
+    if (INNOVATE && v.complete) {
+      const b = boardOf(v);
+      const wants: Counts = {};
+      for (const o of b.offers) if (o.state === 'lapsed' && (o.endAt ?? 0) > now - 30 * 60000) wants[o.want] = (wants[o.want] ?? 0) + 1;
+      const held: Counts = {};
+      for (const h of Object.values(v.homes ?? {})) for (const [k, q] of Object.entries(h.chest?.items ?? {})) held[k] = (held[k] ?? 0) + q;
+      const t = techOf(v);
+      const tv = TEMPERAMENT_MODE !== 'off' ? temperament(a.name) : null;
+      for (const c of candidates(v, store, wants, held, now).filter((x) => x.demand || (tv?.curiosity ?? 0) >= 0.5).slice(0, 2)) {
+        const key = `innovate:${c.e.id}`;
+        if (busy.has(key)) continue;
+        const chance = chanceFor(c.e, t.tries[`${c.e.id}|${a.name}`] ?? 0);
+        const h = v.storageHut;
+        add({
+          id: key, kind: 'innovate', key, excludes: [`${key}=`], name: `Experiment with ${c.e.name}`, rank: 955,
+          ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
+          facts: `${c.why.join('; ') || 'one step from what the village has'}; an attempt takes ${Object.entries(c.e.attempt).map(([k, q]) => `${q} ${words(k)}`).join(', ')} from storage and ~${c.e.minutes} min; your chance ${Math.round(chance * 100)}%`,
+          effect: `the village learns to make ${c.e.goods.map((g) => g.words).join(' and ')}`,
+          ...(tv ? { ww: Math.round(2.5 ** tv.curiosity * 100) / 100 } : {}),
+        }, { kind: 'innovate', entry: c.e.id, chance });
+        // (a pledge from a member whose offers asked in vain for the candidate's goods, one a member and entry)
+        const own = v.homes?.[a.name];
+        // (or one sitting on a glut the candidate would use: its pumpkins worth something once pies are made)
+        const asked = b.offers.some((o) => o.by === a.name && o.state === 'lapsed' && c.e.goods.some((g) => g.item === o.want))
+          || c.e.uses.some((u) => (own?.chest?.items[u] ?? 0) >= 32);
+        if (OWN.on && own?.chest && asked && !(t.pledges[c.e.id] ?? []).some((q) => q.by === a.name)) {
+          const em = own.chest.items.emerald ?? 0;
+          const sp = surplus(available(b, a.name, own));
+          const pay = em >= 1 ? { item: 'emerald', n: 1 } : Object.entries(sp).sort((x, y) => y[1] - x[1]).map(([k, q]) => ({ item: k, n: Math.min(q, 4) }))[0];
+          if (pay) add({
+            id: `own:pledge:${c.e.id}`, kind: 'own', key: `own:${a.name.toLowerCase()}`, excludes: [`own:${a.name.toLowerCase()}=`], name: `Pledge ${pay.n} ${words(pay.item)} toward ${c.e.name}`, rank: 944,
+            ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
+            facts: `${c.e.goods.map((g) => g.words).join(' or ')} would answer what you asked for or use what you hold too much of; whoever first makes the village able to gets the pledges (${(t.pledges[c.e.id] ?? []).length} so far)`,
+            effect: `-${pay.n} ${words(pay.item)} from your own chest, held on the board for the inventor`,
+          }, { kind: 'own', what: 'pledge', entry: c.e.id, item: pay.item, n: pay.n });
+        }
       }
     }
 
@@ -5231,7 +5277,16 @@ export class MineflayerWorld implements WorldAdapter {
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
+      case 'innovate':
+        this.setChore(v, worker, opt.key, [worker.enqueue('experiment', { entry: d.entry, chore: true })], `experiment with ${d.entry}`, undefined, meta, opt.holds, opt);
+        console.log(`[innovate] ${v.name}: ${worker.name} experiments with ${d.entry} (chance ${Math.round(d.chance * 100)}%)`);
+        return;
       case 'own':
+        if (d.what === 'pledge') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('pledge', { entry: d.entry, item: d.item, count: d.n, chore: true })], `pledge toward ${d.entry}`, undefined, meta, opt.holds, opt);
+          console.log(`[innovate] ${v.name}: ${worker.name} goes to pledge ${d.n} ${d.item} toward ${d.entry}`);
+          return;
+        }
         if (d.what === 'farm') {
           this.setChore(v, worker, opt.key, [worker.enqueue('lay_out_field', { own: true, crop: d.crop, chore: true })], `start a ${d.crop} farm of your own`, (why) => {
             // (a member whose house has no room for a field is not offered one again for 30 minutes)
@@ -6149,6 +6204,8 @@ type OptionRun =
   | { kind: 'own'; what: 'sell'; item: string; lots: number }
   | { kind: 'own'; what: 'buy'; item: string }
   | { kind: 'own'; what: 'farm'; crop: string }
+  | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
+  | { kind: 'innovate'; entry: string; chance: number }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
@@ -6158,7 +6215,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */

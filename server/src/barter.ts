@@ -143,7 +143,14 @@ export function wouldTake(b: Board, o: Offer, name: string, items: Counts, other
 /** An offer settled between two records (the poster's goods were held back; the taker's are checked); false when either falls short. */
 export function settle(b: Board, o: Offer, poster: OwnStock, taker: OwnStock, takerName: string, now: number): boolean {
   const pc = poster.chest, tc = taker.chest;
-  if (o.state !== 'open' || !pc || !tc || (pc.items[o.give] ?? 0) < o.giveN || (tc.items[o.want] ?? 0) < o.wantN) return false;
+  if (o.state !== 'open' || !pc || !tc) return false;
+  // (a poster no longer holding its goods: the offer comes down, as a lapse; Eco1's Ada failed the same one twice, s43)
+  if ((pc.items[o.give] ?? 0) < o.giveN) {
+    Object.assign(o, { state: 'lapsed', endAt: now });
+    b.lapsed++;
+    return false;
+  }
+  if ((tc.items[o.want] ?? 0) < o.wantN) return false;
   const move = (from: Counts, to: Counts, n: string, q: number) => {
     from[n] -= q;
     if (!from[n]) delete from[n];

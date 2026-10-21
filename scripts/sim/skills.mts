@@ -19,6 +19,7 @@ import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
 import { boardOf, settle } from '../../server/src/barter';
+import { LIBRARY, settleAttempt, techOf, techOwnRecipes } from '../../server/src/tech';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -433,7 +434,7 @@ function eatOwn(_args: Any, c: Ctx): Outcome {
 function makeOwn(args: Any, c: Ctx): Outcome {
   const own = ownOf(c.v, c.name), chest = own.chest;
   if (!chest) return { ok: false, message: 'make_own: you have no chest at home' };
-  const r = OWN_RECIPES.find((q) => q.item === args.item);
+  const r = [...OWN_RECIPES, ...techOwnRecipes(c.v)].find((q) => q.item === args.item);
   if (!r) return { ok: false, message: `make_own: no recipe for ${args.item}` };
   const n = Math.min(Number(args.count) || 1, ownBatch(r, chest.items));
   for (const [k, q] of Object.entries((args.fuel ?? {}) as Counts)) if (take(c.v, k, q) < q) return { ok: false, message: `make_own: another agent took the ${k} for the furnace`, code: 'taken' };
@@ -516,6 +517,29 @@ function layOutField(args: Any, c: Ctx): Outcome {
   (v.claims ??= {})[`farm:${k}`] = { by: c.name, at: c.now, last: c.now, own: true };
   for (const [x, z] of farm.sow) c.crops.plant(x, site.y + 1, z, 'wheat', 7, 0);
   return { ok: true, message: `laid out a wheat field of your own (layout ${k}) at ${areaText(farm)} (simulated)` };
+}
+
+function experiment(args: Any, c: Ctx): Outcome {
+  const v = c.v, e = LIBRARY.find((x) => x.id === args.entry);
+  if (!e) return { ok: false, message: `experiment: no library entry ${args.entry}` };
+  if (techOf(v).unlocked.includes(e.id)) return { ok: true, message: `the village already makes ${e.name}` };
+  for (const [k, q] of Object.entries(e.attempt)) if ((storageContents(v)[k] ?? 0) < q) return { ok: false, message: `experiment: another agent took the ${k}`, code: 'taken' };
+  for (const [k, q] of Object.entries(e.attempt)) take(v, k, q);
+  const r = settleAttempt(v, e, c.name, c.rng(), c.now);
+  if (r.ok) {
+    const own = v.homes?.[c.name]?.chest;
+    for (const [k, q] of Object.entries(r.pledges)) if (own) own.items[k] = (own.items[k] ?? 0) + q;
+  }
+  return { ok: true, message: r.ok ? `the experiment worked: the village can make ${e.name} now (simulated)` : `the experiment with ${e.name} failed this time (chance ${Math.round(r.chance * 100)}%) (simulated)` };
+}
+
+function pledge(args: Any, c: Ctx): Outcome {
+  const own = c.v.homes?.[c.name]?.chest, item = String(args.item), n = Math.max(1, Number(args.count) || 1);
+  if (!own || (own.items[item] ?? 0) < n) return { ok: false, message: `pledge: your own chest no longer holds ${n} ${item}` };
+  own.items[item] -= n;
+  if (!own.items[item]) delete own.items[item];
+  (techOf(c.v).pledges[String(args.entry)] ??= []).push({ by: c.name, item, n });
+  return { ok: true, message: `pledged ${n} ${item} toward ${args.entry} (simulated)` };
 }
 
 function eatMeal(_args: Any, c: Ctx): Outcome {
@@ -919,6 +943,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
-  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer, merchant_own: merchantOwn, lay_out_field: layOutField,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer, merchant_own: merchantOwn, lay_out_field: layOutField, experiment, pledge,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

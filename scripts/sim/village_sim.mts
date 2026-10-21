@@ -131,7 +131,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter|claim)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own|barter|claim|innovate)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -148,6 +148,8 @@ const { TaskBrain } = await import('../../server/src/taskBrain');
 const { CHOOSE } = (await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any;
 const { storageContents, noteFlow } = await import('../../server/src/mineflayer/mcStorage');
 const { baseValue } = await import('../../server/src/barter');
+const { LIBRARY: LIB } = await import('../../server/src/tech');
+const LIB_ITEMS = new Set(LIB.flatMap((e) => e.goods.map((g) => g.item)));
 const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
@@ -451,7 +453,7 @@ if (buildPairs.length >= 5) {
 }
 const BUILTIN: Record<string, number> = {
   deposit: 0.08, withdraw: 0.05, collect: 0.55, eat_meal: 0.04, harvest_slot: 0.06, harvest_farm: 0.09, put_up_torches: 0.12, furnish: 0.22,
-  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25, trade_offer: 0.3, merchant_own: 0.35,
+  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25, trade_offer: 0.3, merchant_own: 0.35, experiment: 2.5, pledge: 0.25,
   collect_eggs: 0.13, milk_cows: 0.13, breed_pen: 0.13, build_design: 0.5, prepare_green: 1.5, fish: 1.8, trade: 0.1, make: 0.12, tidy_storage: 0.12,
 };
 /** A drawn sample for an action: its minutes, and a reference failure it is to repeat (the skills whose failures come
@@ -683,6 +685,17 @@ const report = {
       claims: Object.fromEntries(Object.entries(v.claims ?? {}).map(([k, q]: [string, Any]) => [k, q.by])),
       ...(b ? { board: { posted: b.posted, taken: b.taken, lapsed: b.lapsed, open: b.offers.filter((o: Any) => o.state === 'open').length, traded: b.traded, factor: b.factor } } : {}) };
   })(),
+  // (s43's innovation: unlocks with minute and inventor, attempts, pledges open, the new goods made)
+  innovation: (() => {
+    const t = (v as Any).innovation;
+    if (!t) return undefined;
+    const made: Counts = {};
+    for (const r of rows.filter((x: Any) => x.type === 'choice' && (x.kind === 'make' || String(x.chosen ?? '').startsWith('own:make:')))) {
+      const item = String(r.kind === 'make' ? r.key : r.chosen).replace(/^(own:)?make:/, '');
+      if (LIB_ITEMS.has(item)) made[item] = (made[item] ?? 0) + 1;
+    }
+    return { unlocked: t.unlocked.map((id: string) => `${id} @${Math.round((t.at[id] - T0) / 60000)}m by ${t.inventor[id]}`), attempts: Object.entries(t.tries).filter(([k]) => !k.endsWith('|*')).reduce((s, [, q]) => s + (q as number), 0) + t.unlocked.length, pledgesOpen: Object.values(t.pledges).reduce((s: number, q: Any) => s + q.length, 0), madeChoices: made };
+  })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
@@ -707,6 +720,7 @@ say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.le
 if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
 say(`  spread: top good ${report.own.spread?.topGood} of a chest's value, top chore kind ${report.own.spread?.topKind} of a member's chores, ${report.own.spread?.goods} goods held`);
 if (Object.keys(report.own.claims ?? {}).length) say(`  claims: ${Object.entries(report.own.claims).map(([k, b]) => `${k} ${b}`).join(', ')}`);
+if (report.innovation) say(`  innovation: ${report.innovation.unlocked.join(', ') || 'nothing unlocked'}; ${report.innovation.attempts} attempts; ${report.innovation.pledgesOpen} pledges open; makes of new goods ${kv(report.innovation.madeChoices)}`);
 if (report.own.board) say(`  barter: ${report.own.board.posted} offers posted, ${report.own.board.taken} taken, ${report.own.board.lapsed} lapsed, ${report.own.board.open} open; trades ${kv(report.own.board.traded)}; price factors ${kv(report.own.board.factor)}`);
 if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
