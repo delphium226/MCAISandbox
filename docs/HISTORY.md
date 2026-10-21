@@ -437,4 +437,4 @@ mode reads well (2026-09-29).
     issues #75-#77. Commits 2d1a56a to 118b4f7 (pushed). Then, on the user's picks one at a time, the economy ladder in
     the simulator (own stock and wants, own makes, barter, claims, merchant sales with the levy, own farms of four kinds;
     F264: at real-rate growth trade and diet hold up, busy does not), a live pair Eco1/Eco2, innovation v1 (F265) and a
-    50-member sim. Issues #78 (research points), #79 (life goals). Commits 2840a20 to the close (not pushed).
+    50-member sim. Issues #78 (research points), #79 (life goals). Commits 2840a20 to f48a0e9 pushed; the live pair stopped at minute 95.

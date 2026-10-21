@@ -1368,10 +1368,12 @@ CLAUDE.md when a phase ends.
   times a run once cane is stocked; hay rarely (members' own wheat goes into bread); no pledge in any run. Cost is not
   tied to complexity or benefit (hay costs what a lantern does). The user's next step (10-21): research points scaled by
   complexity and benefit, shared credit, prerequisites. The live economy (Eco1/Eco2, MC_OWN, MC_BARTER, MC_SPECIAL=claim,
-  MC_OWN_SALES, MC_OWN_FARM, real-rate crops, 150 min): every new path ran live without a code failure; at minute 87:
-  25 chests each, 13-14 own farms, 33-38 carry trips, 10 / 35 trades, 34-39 own meals, 10 / 21 own makes, 17 / 7 sales;
+  MC_OWN_SALES, MC_OWN_FARM, real-rate crops; stopped by the user at minute 95): every new path ran live without a code
+  failure; chore busy over 90 min 19.9% / 16.4% vs the sim's 18.7%; 25 chests each, 13-14 own farms, 48 / 36 carry trips,
+  10 / 45 trades, 41 / 48 own meals, 10 / 23 own makes, 19 / 7 sales; the late phase (the sim's collapse after ~90 min)
+  was not observed live;
   refusals by design (no 9x9 pad within 24 of a house; houses ~87 from the hut leave 3 blocks of reach under
   FIELD_HUT_REACH; a public work being laid out); one offer left up after its poster spent the goods (failed twice, fixed
-  in 7d84c87). Final numbers: the next session reads them (runs/2026-10-21/s43/s43_eco1, s43_eco2).
+  in 7d84c87). Logs: runs/2026-10-21/s43/s43_eco1, s43_eco2.
   Sim at 50 members (--workers 49): busy 11.5% vs 20.4% at 25 (90 min); 14.3% with the economy; new members' appetites
   look missing (meals 340 vs 312 at 25): check before trusting food numbers at 50.
