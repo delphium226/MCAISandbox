@@ -586,7 +586,7 @@ export interface Village {
 }
 
 /** A member's own stock (#68): its chest (position and the items it last held), what it is owed from the commons. */
-export interface OwnStock { chest?: { x: number; y: number; z: number; items: Record<string, number> }; owed: Record<string, number>; part?: Record<string, number>; got: Record<string, number>; used: Record<string, number> }
+export interface OwnStock { chest?: { x: number; y: number; z: number; items: Record<string, number> }; owed: Record<string, number>; part?: Record<string, number>; got: Record<string, number>; used: Record<string, number>; made?: Record<string, number> }
 
 /** How far a village's mayor and its site searches may go from home (MC_VILLAGE_RANGE; 144 since s43: the land within 96
  * ran out at ~40 minutes, F262, and at 144 a 90-minute village stayed busy, F263). */

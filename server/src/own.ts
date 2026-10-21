@@ -3,6 +3,7 @@
  * chore earns from its net yield, a member's stock record, its wants as one line of facts. The world (mcWorld.ts) and the
  * skills (mcStorage.ts) move the goods; the simulator uses the same rules.
  */
+import { FOOD_POINTS } from './appetite';
 import type { OwnStock, Village } from './village';
 
 type Counts = Record<string, number>;
@@ -20,9 +21,43 @@ export const OWN = {
  */
 export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather']);
 
-/** Items never shared: tools and what carries the work (a rod goes back to the commons whole), and emeralds (the
- *  merchant's pay is the village's until the sales levy, DECISIONS 10-20). */
-const NEVER = /(_pickaxe|_axe|_shovel|_hoe|_sword|^fishing_rod|^shears|^bucket|^water_bucket|^milk_bucket|^chest|^barrel|^emerald)$/;
+/** Items never shared: tools and what carries the work (a rod goes back to the commons whole), emeralds (the
+ *  merchant's pay is the village's until the sales levy, DECISIONS 10-20), and seeds (planting stock: 232 of them were
+ *  most of what the sim's members owned, s43). */
+const NEVER = /(_pickaxe|_axe|_shovel|_hoe|_sword|^fishing_rod|^shears|^bucket|^water_bucket|^milk_bucket|^chest|^barrel|^emerald|_seeds)$/;
+
+/**
+ * What a member makes from its own stock (s43, the user's next step): food, crafted at the hut's table or smelted at a
+ * works furnace; the inputs from its own chest, the product into it. A smelt burns the commons' fuel (the village's
+ * furnaces: 1 charcoal a batch of up to 8, else 1 plank an item).
+ */
+export const OWN_RECIPES: Array<{ item: string; inputs: Counts; smelt: boolean }> = [
+  { item: 'bread', inputs: { wheat: 3 }, smelt: false },
+  { item: 'cooked_cod', inputs: { cod: 1 }, smelt: true },
+  { item: 'cooked_salmon', inputs: { salmon: 1 }, smelt: true },
+  { item: 'pumpkin_pie', inputs: { pumpkin: 1, sugar: 1, egg: 1 }, smelt: false },
+];
+
+/** What a member's share takes: food and what its own recipes take (fishing's junk and the rest stay the commons'). */
+export const OWN_GOODS = new Set([...Object.keys(FOOD_POINTS), ...OWN_RECIPES.flatMap((r) => Object.keys(r.inputs)), 'sugar_cane']);
+
+/** The most of a recipe the items allow, at most 8. */
+export function ownBatch(r: (typeof OWN_RECIPES)[number], items: Counts): number {
+  return Math.min(8, ...Object.entries(r.inputs).map(([n, q]) => Math.floor((items[n] ?? 0) / q)));
+}
+
+/** A batch made in the record: the inputs out of the chest, the product in; false when the chest no longer holds them. */
+export function makeInRecord(chest: { items: Counts }, r: (typeof OWN_RECIPES)[number], n: number, own?: OwnStock): boolean {
+  if (n <= 0 || ownBatch(r, chest.items) < n) return false;
+  for (const [k, q] of Object.entries(r.inputs)) {
+    chest.items[k] -= q * n;
+    if (!chest.items[k]) delete chest.items[k];
+    if (own) own.used[k] = (own.used[k] ?? 0) + q * n;
+  }
+  chest.items[r.item] = (chest.items[r.item] ?? 0) + n;
+  if (own) (own.made ??= {})[r.item] = (own.made[r.item] ?? 0) + n;
+  return true;
+}
 
 /** A member's record, made on first use. */
 export function ownOf(v: Village, name: string): OwnStock {
@@ -48,7 +83,7 @@ export function earnShare(own: OwnStock, net: Counts, share = OWN.share): Counts
   const added: Counts = {};
   const part = (own.part ??= {});
   for (const [n, q] of Object.entries(net)) {
-    if (q <= 0 || NEVER.test(n)) continue;
+    if (q <= 0 || NEVER.test(n) || !OWN_GOODS.has(n)) continue;
     const x = (part[n] ?? 0) + q * share;
     const whole = Math.floor(x + 1e-9);
     part[n] = Math.round((x - whole) * 1000) / 1000;

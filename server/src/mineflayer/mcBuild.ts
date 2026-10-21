@@ -35,7 +35,7 @@ import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
-import { ownOf } from '../own';
+import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../own';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4702,6 +4702,44 @@ async function eatOwn(a: BotAgent, _args: Record<string, unknown>, signal: Abort
   return `ate ${n} ${meal.item} from your own chest (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)`;
 }
 
+/**
+ * make_own (a chore code queues, s43): food made from the member's own stock: to the hut (a craft) or the works (a
+ * smelt: the commons' fuel withdrawn and burned by command), the time a batch takes, then home with it: the record's
+ * inputs out, the product in, the chest written from the record.
+ */
+async function makeOwn(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`make_own: ${h}`);
+  const { v, P } = h;
+  const own = ownOf(v, a.name);
+  const chest = own.chest;
+  if (!chest) throw new Error('make_own: you have no chest at home');
+  const r = OWN_RECIPES.find((q) => q.item === args.item);
+  if (!r) throw new Error(`make_own: no recipe for ${String(args.item)} from your own stock`);
+  const n = Math.min(Number(args.count) || 1, ownBatch(r, chest.items));
+  if (n <= 0) throw new Error(`make_own: your own chest no longer holds what ${r.item} takes`);
+  const hut = v.storageHut;
+  const job: Job = { targets: [], area: hut ? { x1: hut.x1, z1: hut.z1, x2: hut.x2, z2: hut.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `${r.item} of your own`, task: 'make_own' };
+  await standBy(a, job, signal);
+  const fuel = (args.fuel ?? {}) as Record<string, number>;
+  for (const [k, q] of Object.entries(fuel)) {
+    if (!(q > 0)) continue;
+    await withdrawItems(a, v, { [k]: q }, signal);
+    const have = await serverCount(a, k);
+    if (have < q) throw new ContentionError(`make_own: another agent took the ${k} for the furnace`, 'taken', `stock:${k}`);
+    await a.world.rcon.take(a.name, k, q, have);
+  }
+  // (a craft takes a moment, a smelt 10 s an item of game time)
+  await sleep((r.smelt ? n * 10000 : 3000) / timeScale(), signal);
+  await toOwnDoor(a, P, signal);
+  if (!makeInRecord(chest, r, n, own)) throw new Error(`make_own: your own chest no longer holds what ${n} ${r.item} take`);
+  noteFood(v, 'made', { [r.item]: n });
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[own] ${v.name}: ${a.name} made ${n} ${r.item} from its own stock`);
+  return `made ${n} ${r.item} from your own stock into your own chest`;
+}
+
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
@@ -5965,6 +6003,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   place_own_chest: { run: placeOwnChest },
   carry_home: { run: carryHome },
   eat_own: { run: eatOwn },
+  make_own: { run: makeOwn },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

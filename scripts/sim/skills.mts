@@ -16,7 +16,7 @@ import { storageContents } from '../../server/src/mineflayer/mcStorage';
 import { postLayout } from '../../server/src/layout';
 import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
-import { ownOf } from '../../server/src/own';
+import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -408,6 +408,18 @@ function eatOwn(_args: Any, c: Ctx): Outcome {
   v.food.eaten[meal.item] = (v.food.eaten[meal.item] ?? 0) + n;
   v.food.meals = (v.food.meals ?? 0) + 1;
   return { ok: true, message: `ate ${n} ${meal.item} from your own chest (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)` };
+}
+
+function makeOwn(args: Any, c: Ctx): Outcome {
+  const own = ownOf(c.v, c.name), chest = own.chest;
+  if (!chest) return { ok: false, message: 'make_own: you have no chest at home' };
+  const r = OWN_RECIPES.find((q) => q.item === args.item);
+  if (!r) return { ok: false, message: `make_own: no recipe for ${args.item}` };
+  const n = Math.min(Number(args.count) || 1, ownBatch(r, chest.items));
+  for (const [k, q] of Object.entries((args.fuel ?? {}) as Counts)) if (take(c.v, k, q) < q) return { ok: false, message: `make_own: another agent took the ${k} for the furnace`, code: 'taken' };
+  if (!makeInRecord(chest, r, n, own)) return { ok: false, message: `make_own: your own chest no longer holds what ${r.item} takes` };
+  noteFood(c.v, 'made', { [r.item]: n });
+  return { ok: true, message: `made ${n} ${r.item} from your own stock into your own chest (simulated)` };
 }
 
 function eatMeal(_args: Any, c: Ctx): Outcome {
@@ -811,6 +823,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
-  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

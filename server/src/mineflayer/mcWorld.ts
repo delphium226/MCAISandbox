@@ -37,7 +37,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
-import { OWN, SHARED, earnShare, netPut, openWants, ownOf, wantsLine, type Wants } from '../own';
+import { OWN, OWN_RECIPES, SHARED, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -4103,6 +4103,25 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'own', what: 'carry', want });
           else reasons.own ??= 'the storage cannot spare what is owed';
         } else reasons.own ??= total ? `${total} owed (under 8)` : 'nothing owed';
+        // (s43: food made from its own stock, its own chest to its own chest; a smelt burns the commons' fuel)
+        const spare = this.makeSpare(v, a.name);
+        const h = v.storageHut;
+        OWN_RECIPES.forEach((r, i) => {
+          const n = ownBatch(r, own.chest!.items);
+          if (n <= 0) return;
+          const plank = Object.keys(spare).find((k) => /_planks$/.test(k) && spare[k] >= n);
+          const fuel: Counts = !r.smelt ? {} : (spare.charcoal ?? 0) >= 1 ? { charcoal: 1 } : plank ? { [plank]: n } : { none: 1 };
+          if (fuel.none) {
+            reasons.own ??= 'no fuel to spare for a smelt';
+            return;
+          }
+          add({
+            id: `own:make:${r.item}`, kind: 'own', key: me, excludes: [`${me}=`], name: `Make ${words(r.item)} from your own stock`, rank: 942 + i,
+            ...(h ? { at: { x: Math.floor((h.x1 + h.x2) / 2), z: Math.floor((h.z1 + h.z2) / 2) } } : {}),
+            facts: `your own chest: ${Object.entries(r.inputs).map(([k, q]) => `${own.chest!.items[k] ?? 0} ${words(k)} (${q} a ${words(r.item)})`).join(', ')}; ${r.smelt ? `smelted at a works furnace with ${Object.entries(fuel).map(([k, q]) => `${q} ${words(k)}`).join('')} of the village's fuel` : "crafted at the hut's table"}; your own food made: ${Object.entries(own.made ?? {}).map(([k, q]) => `${q} ${words(k)}`).join(', ') || 'none yet'}`,
+            effect: `+${n} ${words(r.item)} in your own chest`,
+          }, { kind: 'own', what: 'make', item: r.item, n, fuel });
+        });
       }
     }
 
@@ -5053,9 +5072,14 @@ export class MineflayerWorld implements WorldAdapter {
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
       case 'own':
+        if (d.what === 'make') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('make_own', { item: d.item, count: d.n, fuel: d.fuel, chore: true })], `make ${d.n} ${d.item} from your own stock`, undefined, meta, opt.holds, opt);
+          console.log(`[own] ${v.name}: ${worker.name} goes to make ${d.n} ${d.item} from its own stock`);
+          return;
+        }
         if (d.what === 'chest') this.setChore(v, worker, opt.key, [worker.enqueue('place_own_chest', { chore: true })], 'put a chest in your own house', undefined, meta, opt.holds, opt);
         else this.setChore(v, worker, opt.key, [worker.enqueue('carry_home', { want: d.want, chore: true })], 'take your share home', undefined, meta, opt.holds, opt);
-        console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'chest' ? 'put a chest in its house' : `take ${Object.entries(d.want).map(([n, q]) => `${q} ${n}`).join(', ')} home`}`);
+        console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'chest' ? 'put a chest in its house' : `take ${Object.entries((d as { want: Counts }).want).map(([n, q]) => `${q} ${n}`).join(', ')} home`}`);
         return;
       case 'eat':
         if (d.own) {
@@ -5935,6 +5959,7 @@ type OptionRun =
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }
   | { kind: 'own'; what: 'carry'; want: Counts }
+  | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 

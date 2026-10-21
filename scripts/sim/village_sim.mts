@@ -474,9 +474,9 @@ function sampleFor(s: Any, away = false): { m: number; fail?: string } {
     const blocks = Object.values(designBill(d) as Counts).reduce((t, q) => t + q, 0);
     return { m: Math.max(0.05, buildFit.a + buildFit.b * blocks + buildFit.resid[Math.floor(rng() * buildFit.resid.length)]) };
   }
-  const key = s.type === 'make' ? `make:${s.args.item}` : s.type;
+  const key = s.type === 'make' || s.type === 'make_own' ? `make:${s.args.item}` : s.type;
   // (a make's batch and a trip's catch by size: the reference's line through its sizes, its residuals drawn back)
-  const size = s.type === 'make' ? Number(s.args?.count) : s.type === 'fish' ? Math.min(8, Number(s.args?.count ?? 8)) : NaN;
+  const size = s.type === 'make' || s.type === 'make_own' ? Number(s.args?.count) : s.type === 'fish' ? Math.min(8, Number(s.args?.count ?? 8)) : NaN;
   // (a trip's time is its casts: the reference's trips all caught ~8, so its minutes a catch, not a line)
   const trips = s.type === 'fish' && size > 0 ? (samples.get(key) ?? []).filter((x) => x.ok && x.n) : [];
   if (trips.length) {
