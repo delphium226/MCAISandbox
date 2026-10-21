@@ -2130,13 +2130,13 @@ const SCORE_ROWS = [
   ['works built', 'works', true, (x) => `${x}`], ['public works', 'publicWorks', true, (x) => `${x}`], ['barter trades', 'trades', true, (x) => `${x}`], ['merchant emeralds', 'emeralds', true, (x) => `${x}`],
   ['inventions', 'techniques', true, (x) => `${x}`], ['road cells', 'roads', false, (x) => `${x}`],
 ];
-/** Last hour against hour 2, as scripts/scorecard.py words it. */
+/** Last hour against hour 1, as scripts/scorecard.py words it (the pass mark's yardstick). */
 function scoreTrend(hours, f) {
   if (hours.length < 3) return '';
-  const h2 = hours[1][f], last = hours[hours.length - 1][f];
-  if (h2 == null || last == null) return '';
-  if (h2 === 0) return last === 0 ? 'none' : 'rising';
-  const r = last / h2;
+  const h1 = hours[0][f], last = hours[hours.length - 1][f];
+  if (h1 == null || last == null) return '';
+  if (h1 === 0) return last === 0 ? 'none' : 'rising';
+  const r = last / h1;
   return `${r < 0.5 ? 'collapsed' : r < 0.9 ? 'falling' : r > 1.1 ? 'rising' : 'flat'} ${r.toFixed(2)}x`;
 }
 const SCORE_COLOURS = { PASS: 'var(--good)', FAIL: 'var(--bad)', 'NO VERDICT': 'var(--waiting)' };
@@ -2160,7 +2160,7 @@ function scorecardCard(v) {
     return `<tr><td>${esc(label)}${counter ? ' <span class="sub">/ h</span>' : ''}</td><td>${scoreSpark(sc, f)}</td><td class="mono">${x == null ? '-' : esc(show(x))}</td><td class="sub" style="white-space:nowrap">${esc(scoreTrend(sc.hours, f))}</td></tr>`;
   }).join('');
   return `<div class="card"><div class="label">Scorecard</div>
-    <div class="util-head">${scoreVerdict(sc)} <span class="sub">${sc.points.length * 10} min sampled since ${new Date(sc.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; last hour against hour 2</span></div>
+    <div class="util-head">${scoreVerdict(sc)} <span class="sub">${sc.points.length * 10} min sampled since ${new Date(sc.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}; a collapse is any later hour's busy under half of hour 1's</span></div>
     <table><tbody>${rows}</tbody></table></div>`;
 }
 /** The detailed view's Scorecard tab: every measure by hour, each need, and the pass mark's lines. */

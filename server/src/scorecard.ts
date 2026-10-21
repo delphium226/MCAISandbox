@@ -152,39 +152,38 @@ const mean = (xs: Array<number | null | undefined>) => {
   return k.length ? k.reduce((s, x) => s + x, 0) / k.length : null;
 };
 
-/** The minute from which the 30-minute mean stays under `below` to the end (null if it never does). */
-function forGood(vals: Array<number | null>, below: number): number | null {
-  let start: number | null = null;
-  for (let k = vals.length - 1; k >= 0; k--) {
-    const m = mean(vals.slice(k, k + 3));
-    if (m === null || m >= below) break;
-    start = k;
-  }
-  return start === null ? null : start * 10;
-}
-
-/** The pass mark (STRATEGY.md): the last hour's busy or needs met below half of the second hour's is a collapse. */
+/**
+ * The pass mark (STRATEGY.md, the user's of 10-21; scripts/scorecard.py's verdict): a collapse is any hour after the first
+ * whose busy falls below half of hour 1's. Hours are whole 6-point hours (a last hour of at least 3 points counts); the
+ * collapse minute is the start of the first 30-minute window after hour 1 whose mean is under that half. Needs met is not
+ * judged.
+ */
 export function judge(points: ScorePoint[], minutes: number): ScoreVerdict {
-  const why: string[] = [];
-  if (minutes < 180) return { verdict: 'NO VERDICT', collapse: null, why: [`${Math.round(minutes)} min: the pass mark needs at least 3 hours (6 for the strategy's)`] };
-  const n = points.length;
-  const onsets: Array<number | null> = [];
-  let fails = 0, holds = 0;
-  for (const [label, vals] of [['busy', points.map((p) => p.busy)], ['needs met', points.map((p) => p.needsMet)]] as Array<[string, Array<number | null>]>) {
-    const h1 = mean(vals.slice(0, 6)), h2 = mean(vals.slice(6, 12)), last = mean(vals.slice(Math.max(12, n - 6), n));
-    if (h2 === null || last === null) {
-      why.push(`${label}: not measured`);
-      continue;
-    }
-    const c = forGood(vals, h2 / 2);
-    if (last < h2 / 2) {
-      fails++;
-      onsets.push(c);
-    } else holds++;
-    why.push(`${label}: last hour ${+last.toPrecision(3)} vs hour 2 ${+h2.toPrecision(3)}: ${last < h2 / 2 ? 'COLLAPSE' : 'holds'}${c !== null ? `; below half for good from minute ${c}` : ''}${h1 ? `; against hour 1: ${(last / h1).toFixed(2)}x (not judged)` : ''}`);
+  if (minutes < 120) return { verdict: 'NO VERDICT', collapse: null, why: [`${Math.round(minutes)} min: the pass mark needs at least 2 hours (6 for the strategy's)`] };
+  const vals = points.map((p) => p.busy);
+  const hours: Array<number | null> = [];
+  for (let h = 0; h < vals.length; h += 6) {
+    const part = vals.slice(h, h + 6);
+    if (part.length < 3) break;
+    hours.push(mean(part));
   }
-  const known = onsets.filter((x): x is number => x !== null);
-  return { verdict: fails ? 'FAIL' : holds ? 'PASS' : 'NO VERDICT', collapse: known.length ? Math.min(...known) : null, why };
+  if (hours.length < 2 || hours[0] === null) return { verdict: 'NO VERDICT', collapse: null, why: ['busy: hour 1 or a later hour not measured'] };
+  const half = hours[0] / 2;
+  const failed = hours.map((x, h) => (h > 0 && x !== null && x < half ? h + 1 : 0)).filter((h) => h > 0);
+  let collapse: number | null = null;
+  for (let k = 6; k < vals.length; k++) {
+    const m = mean(vals.slice(k, k + 3));
+    if (m !== null && m < half) {
+      collapse = k * 10;
+      break;
+    }
+  }
+  const later = hours.slice(1).map((x) => (x === null ? '-' : String(Math.round(x * 100) / 100))).join(' / ');
+  const why = [`busy: hour 1 ${+hours[0].toPrecision(3)} (half ${+half.toPrecision(3)}); later hours ${later}${failed.length ? `; below half in hour ${failed.join(', ')}` : '; none below half'}${collapse !== null ? `; the 30-minute mean first below half at minute ${collapse}` : ''}`];
+  const worst = Math.min(...hours.slice(1).filter((x): x is number => x !== null));
+  if (Number.isFinite(worst) && hours[0]) why.push(`worst later hour ${(worst / hours[0]).toFixed(2)}x hour 1`);
+  if (minutes < 360) why.push(`(a ${Math.round(minutes)}-minute run: the strategy's pass mark is for 6 hours)`);
+  return { verdict: failed.length ? 'FAIL' : 'PASS', collapse, why };
 }
 
 /**

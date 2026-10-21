@@ -1424,3 +1424,8 @@ CLAUDE.md when a phase ends.
   The scorecard's live side reproduces RUNS' figures (Eco1 chore busy 19.9% over 90 min, Lng1 F262's bins exactly). The sim
   export changes no decision (choice log and villages.json byte-identical, same seed). Logs: runs/2026-10-21/scorecard/
   (baseline.txt, baseline.json, sim/).
+  **Rescored on the revised pass mark** (the user's, 10-21: a collapse is any hour after the first whose busy falls under
+  half of hour 1's; needs met not judged): **all six FAIL**, hours 3-6 under half in every run, collapse (the first
+  30-minute window under half) at minute 80 (def_s1, def_s2, on_s2, on_s3) or 90 (def_s3, on_s1); hour 2 at 0.51-0.62x
+  hour 1 (just above), the worst later hour 0.20-0.29x. The panel's verdict and the script's agree on every run
+  (`runs/2026-10-21/scorecard/verdict_compare.mts`). Logs: baseline_v2.txt, baseline_v2.json.

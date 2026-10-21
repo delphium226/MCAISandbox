@@ -658,3 +658,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   **Open, for the planning session:** the pass mark against hour 2 passes today's default (F268: the collapse falls in
   hour 2); against hour 1, the peak hour or a floor (busy 10%?) it would fail. The scorecard prints the hour-1 ratio,
   not judged.
+- 10-21 (the user's, through the planning session) **The pass mark revised:** a collapse is any hour after the first whose
+  busy falls below half of hour 1's; needs met leaves the verdict until it has a definition that can move (it sat at ~0.97
+  in every baseline run). scripts/scorecard.py and the panel (scorecardView) judge it alike; trends now read the last hour
+  against hour 1. The baseline fails 6 of 6 at minute 80-90 (F268).

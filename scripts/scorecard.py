@@ -6,8 +6,8 @@ Usage: python scripts/scorecard.py RUN [RUN ...] [--json OUT]
        sim.events.log), or a live run as run_series.py writes it: DIR/NAME or DIR/NAME.log (NAME.choices.jsonl beside it,
        the agent server's log through reset_NAME.log, NAME.score.jsonl if /api/scorecard was sampled).
   --json OUT  also write every run's bins and verdict.
-With several runs it ends with one line a run (seeds side by side): verdict, collapse minute, decline minute (busy under
-hour 2's mean for good), busy in hour 1, hour 2 and the last hour, needs met in hour 2 and the last hour.
+With several runs it ends with one line a run (seeds side by side): verdict, collapse minute, the hours below half, busy
+in hour 1, hour 2 and the last hour, and needs met in hour 1 and the last hour.
 
 Measures (a live run lacks some; the scorecard says which and never fills them in):
   busy %        an action running, as run_report.py's busy row (the sim's busy bins; live: the stage log's "BUSY after by
@@ -23,9 +23,9 @@ Measures (a live run lacks some; the scorecard says which and never fills them i
                 (initiatives), roads (street cells, sampled only)
   trades        barter offers taken (sampled, the board's count; live: the [barter] "took" lines) and merchant trades (the
                 [merchant] sells and buys lines, both kinds of run)
-The pass mark (STRATEGY.md): no collapse in a 6-hour run, a collapse being the last hour's busy or needs met below half of
-the second hour's. Collapse minute: where the 30-minute mean falls below that half for good; decline: below the second
-hour's mean for good. A run under 3 hours gets no verdict.
+The pass mark (STRATEGY.md, revised 10-21): no collapse in a 6-hour run, a collapse being any hour after the first whose
+busy falls below half of hour 1's (needs met shown, not judged). Collapse minute: the start of the first 30-minute window
+after hour 1 under that half. A run under 2 hours gets no verdict. Trends: the last hour against hour 1.
 """
 import json, os, re, sys
 
@@ -324,49 +324,37 @@ def hours_of(vals, counter):
     return out
 
 
-def for_good(vals, below):
-    """The minute from which the 30-minute mean stays under `below` to the end (None if it never does)."""
-    sm = [mean(vals[k:k + 3]) for k in range(len(vals))]
-    start = None
-    for k in range(len(sm) - 1, -1, -1):
-        if sm[k] is None or sm[k] >= below:
-            break
-        start = k
-    return None if start is None else start * BIN
-
-
 def verdict(run):
+    """The pass mark (STRATEGY.md, the user's of 10-21): a collapse is any hour after the first whose busy falls below half of
+    hour 1's. Hours are whole 6-bin hours (a last hour of at least 3 bins counts); the collapse minute is the start of the
+    first 30-minute window after hour 1 whose mean is below that half. Needs met is shown, not judged."""
     card, n = run["card"], run["n"]
-    out = {"verdict": "NO VERDICT", "why": [], "collapse": None}
-    if run["minutes"] < 180:
-        out["why"].append(f"{run['minutes']:g} min: the pass mark needs at least 3 hours (6 for STRATEGY.md's)")
+    out = {"verdict": "NO VERDICT", "why": [], "collapse": None, "failed hours": []}
+    if run["minutes"] < 120:
+        out["why"].append(f"{run['minutes']:g} min: the pass mark needs at least 2 hours (6 for STRATEGY.md's)")
         return out
-    busy_key = "busy %" if any(x is not None for x in card.get("busy %", [])) else "chore busy %"
-    fails, onsets = [], []
-    for key in (busy_key, "needs met"):
-        vals = card.get(key)
-        if not vals or all(x is None for x in vals):
-            out["why"].append(f"{key}: not in this run")
-            continue
-        h1, h2 = mean(vals[0:6]), mean(vals[6:12])
-        last = mean(vals[max(12, n - 6):n])
-        if h2 is None or last is None:
-            out["why"].append(f"{key}: hour 2 or the last hour not measured")
-            continue
-        c = for_good(vals, h2 / 2)
-        d = for_good(vals, h2)
-        if last < h2 / 2:
-            fails.append(key)
-            onsets.append(c)
-        out["why"].append(f"{key}: last hour {last:.3g} vs hour 2 {h2:.3g} (half {h2 / 2:.3g}): {'COLLAPSE' if last < h2 / 2 else 'holds'}"
-                          + (f"; below half for good from minute {c}" if c is not None else "")
-                          + (f"; below hour 2's mean for good from minute {d}" if d is not None else "")
-                          + (f"; against hour 1 ({h1:.3g}): {last / h1:.2f}x (not judged)" if h1 else ""))
-        out.setdefault("decline", {})[key] = d
-    known = [x for x in onsets if x is not None]
-    out["collapse"] = min(known) if known else None
-    out["verdict"] = "FAIL" if fails else ("PASS" if len([w for w in out["why"] if "holds" in w]) else "NO VERDICT")
-    if out["verdict"] == "PASS" and run["minutes"] < 360:
+    key = "busy %" if any(x is not None for x in card.get("busy %", [])) else "chore busy %"
+    vals = card.get(key) or []
+    hours = hours_of(vals, False)
+    if len(hours) < 2 or hours[0] is None:
+        out["why"].append(f"{key}: hour 1 or a later hour not measured")
+        return out
+    half = hours[0] / 2
+    out["failed hours"] = [h + 1 for h in range(1, len(hours)) if hours[h] is not None and hours[h] < half]
+    for k in range(6, n):
+        m = mean(vals[k:k + 3])
+        if m is not None and m < half:
+            out["collapse"] = k * BIN
+            break
+    later = " / ".join(fmt(round(x, 2)) if x is not None else "-" for x in hours[1:])
+    out["why"].append(f"{key}: hour 1 {hours[0]:.3g} (half {half:.3g}); later hours {later}"
+                      + (f"; below half in hour {', '.join(map(str, out['failed hours']))}" if out["failed hours"] else "; none below half")
+                      + (f"; the 30-minute mean first below half at minute {out['collapse']}" if out["collapse"] is not None else ""))
+    worst = min((x for x in hours[1:] if x is not None), default=None)
+    if worst is not None and hours[0]:
+        out["why"].append(f"worst later hour {worst / hours[0]:.2f}x hour 1")
+    out["verdict"] = "FAIL" if out["failed hours"] else "PASS"
+    if run["minutes"] < 360:
         out["why"].append(f"(a {run['minutes']:g}-minute run: STRATEGY.md's pass mark is for 6 hours)")
     return out
 
@@ -375,14 +363,14 @@ def trend(hours, counter):
     xs = [x for x in hours if x is not None]
     if len(xs) < 3:
         return "-"
-    h2, last = hours[1], hours[-1]
-    if h2 is None or last is None:
+    h1, last = hours[0], hours[-1]
+    if h1 is None or last is None:
         return "-"
-    if h2 == 0:
+    if h1 == 0:
         return "none" if last == 0 else "rising"
-    r = last / h2
+    r = last / h1
     word = "collapsed" if r < 0.5 else "falling" if r < 0.9 else "rising" if r > 1.1 else "flat"
-    return f"{word} ({r:.2f}x hour 2{' rate' if counter else ''})"
+    return f"{word} ({r:.2f}x hour 1{' rate' if counter else ''})"
 
 
 def fmt(x):
@@ -413,7 +401,7 @@ def show(run):
         hs = hours_of(vals, counter)
         hours = hours or len(hs)
         rows.append((k, hs, trend(hs, counter)))
-    print("by hour".ljust(width) + "".join(f"{f'{h}-{h + 1}h':>9}" for h in range(hours or 0)) + "  trend (last hour vs hour 2)")
+    print("by hour".ljust(width) + "".join(f"{f'{h}-{h + 1}h':>9}" for h in range(hours or 0)) + "  trend (last hour vs hour 1)")
     for k, hs, tr in rows:
         print(k.ljust(width) + "".join(f"{fmt(x):>9}" for x in hs) + f"  {tr}")
     for m in run["missing"]:
@@ -438,15 +426,15 @@ def main():
         r["verdict"] = verdict(r)
         show(r)
     if len(runs) > 1:
-        print("\nrun".ljust(24) + "verdict     collapse  decline  busy h1  busy h2  busy last  needs h2  needs last")
+        print("\nrun".ljust(24) + "verdict     collapse  hours below half  busy h1  busy h2  busy last  needs h1  needs last")
         for r in runs:
             c = r["card"]
             bk = "busy %" if any(x is not None for x in c.get("busy %", [])) else "chore busy %"
             b, nm = c.get(bk) or [], c.get("needs met") or []
             f = lambda xs, a, z: fmt(round(mean(xs[a:z]), 3) if mean(xs[a:z]) is not None else None)
-            dec = (r["verdict"].get("decline") or {}).get(bk)
-            print(f"{r['name'][:22]:<23}{r['verdict']['verdict']:<12}{fmt(r['verdict']['collapse']):<10}{fmt(dec):<9}{f(b, 0, 6):<9}{f(b, 6, 12):<9}{f(b, max(12, r['n'] - 6), r['n']):<11}"
-                  f"{f(nm, 6, 12):<10}{f(nm, max(12, r['n'] - 6), r['n'])}")
+            below = ",".join(map(str, r["verdict"].get("failed hours") or [])) or "-"
+            print(f"{r['name'][:22]:<23}{r['verdict']['verdict']:<12}{fmt(r['verdict']['collapse']):<10}{below:<18}{f(b, 0, 6):<9}{f(b, 6, 12):<9}{f(b, max(12, r['n'] - 6), r['n']):<11}"
+                  f"{f(nm, 0, 6):<10}{f(nm, max(12, r['n'] - 6), r['n'])}")
     if out_json:
         with open(out_json, "w", encoding="utf-8") as fh:
             json.dump(runs, fh, indent=1)

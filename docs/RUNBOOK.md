@@ -185,8 +185,9 @@ the short version; look here for a check script's arguments, a model detail or w
   run_report.py), chore busy (the choice log, sim_report.mts's count; run_report.py prints it too), members and houses,
   needs met (food, housing, light, furnish as shares met), goods per member and kinds (storage; with own chests where
   sampled), inventions and recipes made, works, public works and road cells added, barter and merchant trades; each
-  measure's trend (last hour against hour 2) and the pass mark: **FAIL** when the last hour's busy or needs met is under
-  half of hour 2's, with the minute the 30-minute mean falls under that half for good; no verdict under 3 hours.
+  measure's trend (last hour against hour 1) and the pass mark (STRATEGY.md, revised 10-21): **FAIL** when any hour after
+  the first has busy under half of hour 1's, with the collapse minute (the first 30-minute window after hour 1 under that
+  half) and the hours below it; needs met shown, not judged; no verdict under 2 hours.
   Several runs end with one line each (seeds side by side). The simulator writes `sim.score.jsonl` for it (a sample of
   `server/src/scorecard.ts` every 10 simulated minutes; reading only, the choice log is byte-identical with or without
   it). A live run has no samples unless `NAME.score.jsonl` exists: it then takes needs from the `[need]` lines (MC_NEEDS
