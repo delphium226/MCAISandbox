@@ -1,0 +1,56 @@
+{
+  "id": "lib:honeycomb",
+  "name": "Harvest honeycomb from bee nests",
+  "skill": "harvest_honeycomb",
+  "count": {
+    "arg": "count",
+    "max": 6
+  },
+  "needs": {
+    "shears": 1
+  },
+  "gives": [
+    {
+      "item": "honeycomb"
+    }
+  ],
+  "keep": 16,
+  "effect": "honeycomb for the workshop's beehives, honeycomb blocks; 18 items need it",
+  "research": {
+    "name": "harvesting honeycomb from bee nests",
+    "requires": {
+      "shears": 1
+    },
+    "attempt": {
+      "torch": 2
+    },
+    "minutes": 3,
+    "chance": 0.3,
+    "complexity": 4,
+    "capability": "honeycomb",
+    "goods": [
+      {
+        "item": "beehive",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "beehives",
+        "forWhat": "beehives from the village's honeycomb (an invention of the village)",
+        "allow": [
+          "honeycomb"
+        ]
+      },
+      {
+        "item": "honeycomb_block",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "honeycomb blocks",
+        "forWhat": "honeycomb blocks from the village's honeycomb (an invention of the village)",
+        "allow": [
+          "honeycomb"
+        ]
+      }
+    ]
+  }
+}

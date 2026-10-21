@@ -7,8 +7,10 @@ import type { FoundrySkill } from './types';
 import { locked } from './lock';
 import { FOUNDRY as fish } from './fish';
 import { FOUNDRY as trade } from './trade';
+import { FOUNDRY as honeycomb } from './honeycomb';
 
 export const FOUNDRY_SKILLS: FoundrySkill[] = [
   fish,
   trade,
+  honeycomb,
 ].map(locked);
