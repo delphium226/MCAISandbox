@@ -16,7 +16,7 @@ import { storageContents } from '../../server/src/mineflayer/mcStorage';
 import { postLayout } from '../../server/src/layout';
 import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
-import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
+import { OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
 import { boardOf, settle } from '../../server/src/barter';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -432,6 +432,29 @@ function tradeOffer(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `traded ${o.wantN} ${o.want} for ${o.giveN} ${o.give} with ${o.by} (simulated)` };
 }
 
+function merchantOwn(args: Any, c: Ctx): Outcome {
+  const v = c.v, own = ownOf(v, c.name), chest = own.chest;
+  if (!v.merchant) return { ok: false, message: 'merchant_own: no merchant in this village' };
+  if (!chest) return { ok: false, message: 'merchant_own: you have no chest at home' };
+  if (typeof args.sell === 'string') {
+    const item = args.sell, per = OWN_SALES[item], lots = Math.min(Number(args.lots) || 1, Math.floor((chest.items[item] ?? 0) / (per || Infinity)));
+    if (!per || lots < 1) return { ok: false, message: `merchant_own: your own chest no longer holds ${per} ${item}` };
+    chest.items[item] -= lots * per;
+    if (!chest.items[item]) delete chest.items[item];
+    const { kept, levy } = levySplit(own, lots);
+    chest.items.emerald = (chest.items.emerald ?? 0) + kept;
+    own.sold = { ...(own.sold ?? {}), [item]: (own.sold?.[item] ?? 0) + lots * per };
+    put(v, 'emerald', levy);
+    return { ok: true, message: `sold ${lots * per} ${item} of your own for ${lots} emeralds: ${kept} kept, ${levy} levy (simulated)` };
+  }
+  const o = OFFERS.find((q) => q.dir === 'sells' && q.item === args.buy);
+  if (!o || (chest.items.emerald ?? 0) < o.emeralds) return { ok: false, message: `merchant_own: cannot buy ${args.buy}` };
+  chest.items.emerald -= o.emeralds;
+  if (!chest.items.emerald) delete chest.items.emerald;
+  chest.items[o.item] = (chest.items[o.item] ?? 0) + o.n;
+  return { ok: true, message: `bought ${o.n} ${o.item} of your own for ${o.emeralds} emeralds (simulated)` };
+}
+
 function eatMeal(_args: Any, c: Ctx): Outcome {
   const v = c.v, e = v.food?.members?.[c.name];
   try {
@@ -833,6 +856,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
-  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer, merchant_own: merchantOwn,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

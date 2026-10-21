@@ -448,7 +448,7 @@ if (buildPairs.length >= 5) {
 }
 const BUILTIN: Record<string, number> = {
   deposit: 0.08, withdraw: 0.05, collect: 0.55, eat_meal: 0.04, harvest_slot: 0.06, harvest_farm: 0.09, put_up_torches: 0.12, furnish: 0.22,
-  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25, trade_offer: 0.3,
+  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25, trade_offer: 0.3, merchant_own: 0.35,
   collect_eggs: 0.13, milk_cows: 0.13, breed_pen: 0.13, build_design: 0.5, prepare_green: 1.5, fish: 1.8, trade: 0.1, make: 0.12, tidy_storage: 0.12,
 };
 /** A drawn sample for an action: its minutes, and a reference failure it is to repeat (the skills whose failures come
@@ -658,7 +658,7 @@ const report = {
     const hs = Object.values(v.homes ?? {}) as Any[];
     const sum = (f: (h: Any) => Counts) => hs.reduce((t: Counts, h) => { for (const [n, q] of Object.entries(f(h) ?? {})) t[n] = (t[n] ?? 0) + (q as number); return t; }, {});
     const b = (v as Any).board;
-    return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used), made: sum((h) => h.made),
+    return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used), made: sum((h) => h.made), sold: sum((h) => h.sold),
       // (s43's specialists: each member's top good as a share of its chest's value, and its top chore kind as a share of
       // its chores, averaged over members; goods held by anyone)
       spread: (() => {

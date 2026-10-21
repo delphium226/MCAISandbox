@@ -38,7 +38,7 @@ import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_RECIPES, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -2734,6 +2734,8 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private barterAt = new Map<string, number>();
+  /** s43's sales: lots of each good members sold this restock, by village (reset at the merchant's restock). */
+  ownSold = new Map<string, Counts>();
   /** s43's claims: harvests of each unclaimed plot by member ("village|key" -> name -> n). */
   private claimWork = new Map<string, Map<string, number>>();
 
@@ -3034,6 +3036,7 @@ export class MineflayerWorld implements WorldAdapter {
         }
         if (Date.now() >= m.restockAt) {
           m.uses = [];
+          this.ownSold.delete(v.name);
           m.restockAt = Date.now() + this.restockMs();
           for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
           this.villages.save();
@@ -4169,6 +4172,27 @@ export class MineflayerWorld implements WorldAdapter {
             effect: `+${o.giveN} ${words(o.give)}, -${o.wantN} ${words(o.want)} in your own chest`,
           }, { kind: 'own', what: 'trade', offer: o.id });
         }
+        // (s43, MC_OWN_SALES: its surplus sold to the merchant, the levy to the storage; a tool it wants bought with emeralds)
+        if (OWN_SALES_ON && v.merchant) {
+          const sp = surplus(available(boardOf(v), a.name, own));
+          const sold = (this.ownSold.get(v.name) ?? {}) as Counts;
+          const sale = Object.entries(OWN_SALES).map(([n, per]) => ({ n, per, lots: Math.min(Math.floor((sp[n] ?? 0) / per), OWN_SALE_LOTS - (sold[n] ?? 0)) })).filter((x) => x.lots > 0)
+            .sort((x, y) => y.lots - x.lots)[0];
+          const at = { x: v.merchant.x, z: v.merchant.z };
+          if (sale) add({
+            id: `own:sell:${sale.n}`, kind: 'own', key: me, excludes: [`${me}=`], name: `Sell ${sale.lots * sale.per} ${words(sale.n)} of your own to the merchant`, rank: sale.lots >= 2 ? 885 : 946, at,
+            // (a surplus big enough to sell weighs by its lots, as the share carried home: at 946 it lost to every make)
+            nw: Math.min(3, 1 + sale.lots / 2),
+            facts: `${sale.per} ${words(sale.n)} an emerald; ${sale.lots} emerald${sale.lots === 1 ? '' : 's'}, ${Math.round(LEVY * 100)}% of it to the village's storage as the levy; ${dist(at.x, at.z)}`,
+            effect: `about ${Math.round(sale.lots * (1 - LEVY) * 10) / 10} emeralds in your own chest`,
+          }, { kind: 'own', what: 'sell', item: sale.n, lots: sale.lots });
+          const w = this.wantsOf(v, a.name);
+          const em = own.chest!.items.emerald ?? 0;
+          if (w?.tools.includes('a fishing rod') && em >= 2) add({
+            id: 'own:buy:fishing_rod', kind: 'own', key: me, excludes: [`${me}=`], name: 'Buy a fishing rod of your own from the merchant', rank: 947, at,
+            facts: `2 emeralds; you hold ${em}; ${dist(at.x, at.z)}`, effect: 'a fishing rod in your own chest',
+          }, { kind: 'own', what: 'buy', item: 'fishing_rod' });
+        }
         // (s43: food made from its own stock, its own chest to its own chest; a smelt burns the commons' fuel)
         const spare = this.makeSpare(v, a.name);
         const h = v.storageHut;
@@ -5184,6 +5208,16 @@ export class MineflayerWorld implements WorldAdapter {
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
       case 'own':
+        if (d.what === 'sell' || d.what === 'buy') {
+          if (d.what === 'sell') {
+            const sold = (this.ownSold.get(v.name) ?? {}) as Counts;
+            sold[d.item] = (sold[d.item] ?? 0) + d.lots;
+            this.ownSold.set(v.name, sold);
+          }
+          this.setChore(v, worker, opt.key, [worker.enqueue('merchant_own', d.what === 'sell' ? { sell: d.item, lots: d.lots, chore: true } : { buy: d.item, chore: true })], d.what === 'sell' ? `sell ${d.lots * OWN_SALES[d.item]} ${d.item}` : `buy a ${d.item}`, undefined, meta, opt.holds, opt);
+          console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'sell' ? `sell ${d.lots * OWN_SALES[d.item]} ${d.item}` : `buy a ${d.item}`} at the merchant's`);
+          return;
+        }
         if (d.what === 'trade') {
           this.setChore(v, worker, opt.key, [worker.enqueue('trade_offer', { offer: d.offer, chore: true })], `take offer ${d.offer}`, undefined, meta, opt.holds, opt);
           console.log(`[barter] ${v.name}: ${worker.name} goes to take offer ${d.offer}`);
@@ -6078,6 +6112,8 @@ type OptionRun =
   | { kind: 'own'; what: 'carry'; want: Counts }
   | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }
   | { kind: 'own'; what: 'trade'; offer: string }
+  | { kind: 'own'; what: 'sell'; item: string; lots: number }
+  | { kind: 'own'; what: 'buy'; item: string }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 

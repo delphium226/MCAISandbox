@@ -35,8 +35,9 @@ import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
-import { OWN_RECIPES, makeInRecord, ownBatch, ownOf } from '../own';
+import { OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
 import { boardOf, offerText, settle } from '../barter';
+import { OFFERS } from '../merchant';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4763,6 +4764,52 @@ async function tradeOffer(a: BotAgent, args: Record<string, unknown>, signal: Ab
   return `traded ${o.wantN} ${o.want} for ${o.giveN} ${o.give} with ${o.by}`;
 }
 
+/**
+ * merchant_own (a chore code queues, s43's sales): to the merchant, then a sale of the member's own goods (the record's
+ * goods out, its emeralds in, the levy given to the member and deposited into the village's storage) or a purchase of a
+ * tool with its own emeralds; both chests' records changed and the own chest written.
+ */
+async function merchantOwn(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`merchant_own: ${h}`);
+  const { v } = h;
+  const m = v.merchant;
+  if (!m) throw new Error('merchant_own: no merchant in this village');
+  const own = ownOf(v, a.name);
+  const chest = own.chest;
+  if (!chest) throw new Error('merchant_own: you have no chest at home');
+  const job: Job = { targets: [], area: { x1: m.x - 2, z1: m.z - 2, x2: m.x + 2, z2: m.z + 2 }, y: m.y, free: true, what: 'the merchant', task: 'merchant_own' };
+  await standBy(a, job, signal);
+  if (typeof args.sell === 'string') {
+    const item = args.sell, per = OWN_SALES[item], lots = Math.min(Number(args.lots) || 1, Math.floor((chest.items[item] ?? 0) / (per || Infinity)));
+    if (!per || lots < 1) throw new Error(`merchant_own: your own chest no longer holds ${per ?? '?'} ${item} to sell`);
+    chest.items[item] -= lots * per;
+    if (!chest.items[item]) delete chest.items[item];
+    const { kept, levy } = levySplit(own, lots);
+    chest.items.emerald = (chest.items.emerald ?? 0) + kept;
+    own.sold = { ...(own.sold ?? {}), [item]: (own.sold?.[item] ?? 0) + lots * per };
+    a.world.villages.save();
+    await writeOwnChest(a, chest);
+    if (levy) {
+      await a.world.rcon.command(`give ${a.name} minecraft:emerald ${levy}`).catch(() => undefined);
+      await STORAGE_SKILLS.deposit.run(a, { item: 'emerald', count: levy }, signal).catch(() => undefined);
+    }
+    console.log(`[own] ${v.name}: ${a.name} sold ${lots * per} ${item} for ${lots} emerald${lots === 1 ? '' : 's'} (${kept} kept, ${levy} levy)`);
+    return `sold ${lots * per} ${item} of your own to the merchant for ${lots} emerald${lots === 1 ? '' : 's'}: ${kept} into your own chest, ${levy} to the village's storage as the levy`;
+  }
+  const item = String(args.buy ?? '');
+  const o = OFFERS.find((q) => q.dir === 'sells' && q.item === item);
+  if (!o) throw new Error(`merchant_own: the merchant does not sell ${item}`);
+  if ((chest.items.emerald ?? 0) < o.emeralds) throw new Error(`merchant_own: ${o.emeralds} emeralds needed, your own chest holds ${chest.items.emerald ?? 0}`);
+  chest.items.emerald -= o.emeralds;
+  if (!chest.items.emerald) delete chest.items.emerald;
+  chest.items[item] = (chest.items[item] ?? 0) + o.n;
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[own] ${v.name}: ${a.name} bought ${o.n} ${item} of its own for ${o.emeralds} emeralds`);
+  return `bought ${o.n} ${item} of your own from the merchant for ${o.emeralds} emeralds`;
+}
+
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
@@ -6028,6 +6075,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   eat_own: { run: eatOwn },
   make_own: { run: makeOwn },
   trade_offer: { run: tradeOffer },
+  merchant_own: { run: merchantOwn },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

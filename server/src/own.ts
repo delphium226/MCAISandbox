@@ -55,6 +55,26 @@ export const OWN_RECIPES: Array<{ item: string; inputs: Counts; smelt: boolean }
 /** What a member's share takes: food and what its own recipes take (fishing's junk and the rest stay the commons'). */
 export const OWN_GOODS = new Set([...Object.keys(FOOD_POINTS), ...OWN_RECIPES.flatMap((r) => Object.keys(r.inputs)), 'sugar_cane']);
 
+/**
+ * Members' sales to the merchant (s43, MC_OWN_SALES=on): what it buys from members, items an emerald (vanilla's farmer and
+ * fisherman), at most OWN_SALE_LOTS lots of a good a restock across members; the levy (MC_OWN_LEVY, 0.25: DECISIONS 10-20)
+ * goes to the village's storage, fractions carried per member.
+ */
+export const OWN_SALES_ON = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_SALES ?? 'off');
+export const OWN_SALES: Record<string, number> = { pumpkin: 6, wheat: 20, bread: 6, cod: 15, salmon: 13 };
+export const OWN_SALE_LOTS = 4;
+export const LEVY = Math.min(1, Math.max(0, Number(process.env.MC_OWN_LEVY ?? 0.25)));
+
+/** A sale's emeralds split: the member's and the levy, the levy's fraction carried in `part.levy`. */
+export function levySplit(own: OwnStock, emeralds: number): { kept: number; levy: number } {
+  const part = (own.part ??= {});
+  const x = (part.levy ?? 0) + emeralds * LEVY;
+  const levy = Math.floor(x + 1e-9);
+  part.levy = Math.round((x - levy) * 1000) / 1000;
+  if (!part.levy) delete part.levy;
+  return { kept: emeralds - levy, levy };
+}
+
 /** The most of a recipe the items allow, at most 8. */
 export function ownBatch(r: (typeof OWN_RECIPES)[number], items: Counts): number {
   return Math.min(8, ...Object.entries(r.inputs).map(([n, q]) => Math.floor((items[n] ?? 0) / q)));

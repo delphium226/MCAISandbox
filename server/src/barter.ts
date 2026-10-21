@@ -5,7 +5,7 @@
  * lapses them each minute and offers the trades on menus; the trade skill settles one; the simulator runs the same code.
  */
 import { FOOD_POINTS, foodPoints } from './appetite';
-import { OWN, OWN_RECIPES } from './own';
+import { OWN, OWN_RECIPES, OWN_SALES } from './own';
 import type { OwnStock, Village } from './village';
 
 type Counts = Record<string, number>;
@@ -32,6 +32,8 @@ export function boardOf(v: Village): Board {
 /** A good's code value: its food points; a recipe's input its share of the product's (raw fish 0.8 of cooked); else 1. */
 export function baseValue(item: string): number {
   if (FOOD_POINTS[item] !== undefined) return FOOD_POINTS[item];
+  // (an emerald: what the cheapest sale to the merchant gives for one, s43's sales)
+  if (item === 'emerald') return Math.min(...Object.entries(OWN_SALES).map(([n, q]) => q * baseValue(n)));
   if (item === 'sugar_cane') return baseValue('sugar');
   for (const r of OWN_RECIPES) {
     const k = r.inputs[item];
