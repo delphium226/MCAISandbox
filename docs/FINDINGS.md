@@ -1523,3 +1523,25 @@ CLAUDE.md when a phase ends.
   on and off): an intention set the night before moved the choice to its kind 67% against 17% (5 of 6 cases); the run's
   own pick shown as failed twice in an earlier day line stayed chosen 62% against 69% (2 of 6 cases moved).
   memorybench A-C cost $0.16 in all. Follow-ups: near-duplicate notes, replacement and false-belief checks (#86).
+- F274 (10-22, g6-loop session, #73 #71 #16) **G6's loop closed once: a running village's wanted list made a foundry
+  ticket, the foundry built and merged it, and members researched, unlocked and used it within one run.** W0 (world 2,
+  mv3_grown25, 30 min, model choices, LSc1's flags + MC_WANTED=on): the live writer ranked honeycomb (shears on a full bee
+  nest) first in all 7 samples (rank 3.46); `foundry_queue.py --api` wrote `tickets/honeycomb.json` from it (2 samples, 4
+  chunks within 144 of the hut hold nests: 4 nests, 3 full, all 2-5 blocks up a trunk). The foundry (agy,
+  gemini-4-argon-high): 1 round, 47 steps, 30 min, 4.65M tokens in; every gate passed (live: 3 honeycomb from a nest built
+  by command, 0 of 1,663 cells changed; the new log gate saw `lib:honeycomb` load); merged `9666366` beside 22 of G2's
+  uncommitted paths (the relaxed rule). W1 (same, 75 min, 2 shears stocked): research on 24 members' menus from minute 1
+  (53 menus), 6 attempts by 4 members, unlocked at minute ~27 (inventor Quinn); the activity then on 20 members' menus
+  (34), taken 7 times by 6 members: 4 harvests gave 18 honeycomb, 3 found the nest already used ("try later": bees
+  refill a nest in some minutes); the workshop made 2 beehives and 2 honeycomb blocks from it. Busy 37.8% (LSc1's hour 1
+  35.8%). Of the 13 take-ups (research and harvest) the model chose 3; 9 were the fixed order's fallback (30% of all W1
+  decisions are fallbacks, 33% in LSc1) and 1 a repeat: when the model saw them, it took research 1 time in 18 and the
+  harvest 2 in 9. Cost: W0 $0.08, W1 $0.19 (model calls). Logs: runs/2026-10-21/g6-loop/ (report.md, w0/, w1/,
+  foundry_honeycomb.log), runs/2026-10-21/foundry/honeycomb/.
+- F275 (10-22, g6-loop session, #89) **The wanted list's demand terms barely fire: the ticket was chosen by the adjacent
+  possible, not by members asking.** Honeycomb's rank 3.46 = 2.46 from recipe value (18 items opened, none a consumer
+  uses: waxed copper, beehives, honeycomb blocks, candles) and 1 from the village (118 raw copper held idle that waxed
+  copper would use), 29%. Barter posted 0 offers in W0, W1 and LSc1 though all 25 members have own chests (`wantList`
+  wants only food under 16 points or an own recipe's missing input, and members hold 60-90 goods; and it drafts wants
+  only for goods another member can spare, so by construction it never names a missing capability); no need reached `no
+  answer`; merchant orders are off. Filed #89 (make demand visible) rather than tuning weights.

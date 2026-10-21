@@ -226,8 +226,21 @@ the short version; look here for a check script's arguments, a model detail or w
 - **The skill foundry (X.3):** `python scripts/foundry.py TICKET.json [--cli agy|claude]` (agy the default, the user's),
   tickets in `scripts/foundry/`, its own test world 3 (`MCAI_TEST_WORLD=3`: game 25568, agent server 8769); the CLI writes
   in a worktree on `foundry/<ticket>`, then six gates (scope, typecheck, check:offline, review, the ticket's live check,
-  a series against a baseline); report in `runs/<date>/foundry/<ticket>/report.md`; the user merges. Auto mode blocks
-  its CLI runs and worktrees: the user allows them.
+  a series against a baseline); report in `runs/<date>/foundry/<ticket>/report.md`. `--merge` fast-forwards a passing
+  candidate into tiered-brain-building (the user's, 10-20); since G6 it needs only the candidate's own files clean in the
+  shared checkout and typechecks the main checkout after (`runs/foundry/merges.log`). A ticket's `check.log_pass` is a
+  line the agent server's log must hold (the library loading its spec, lesson 151). Auto mode allowed agy's run in G6.
+- **The wanted list and the queue (G6, #73):** `GET /api/wanted?village=V` ranks every capability a peaceful overworld
+  allows (`server/src/wanted.ts`: status have / locked / skill / missing / dead / user / knowledge, value from the recipe
+  graph, the village's demand terms, `why`); `MC_WANTED=on` also writes `wanted.json` beside villages.json every 5
+  minutes (each capability's samples in the top 3), logs `[wanted]` lines, and makes innovation count a locked entry in the
+  top 3 as demanded. Offline: `node node_modules/tsx/dist/cli.mjs scripts/wanted.mts VILLAGES.json [V]` (set
+  `MC_INNOVATE=on` to see researched activities as locked). `python scripts/foundry_queue.py --api URL [--village V]
+  [--min-samples N] [--write]` (or `--villages FILE`) writes the top ticketable capability as a ticket (the `use_on_block`
+  template), says why it skips the rest, counts its blocks within 144 of the hut in the land (`MC_SERVER_DIR`'s world or
+  `--land`), and logs it in `scripts/foundry/queue_log.json`. A library spec with a `research` block is a locked
+  innovation entry (registered while `MC_INNOVATE` is on, not loaded while it is off; `foundry/lock.ts`). Check:
+  `scripts/checks/wanted_unit.mts`. The first: `honeycomb` (`harvest_honeycomb`, `lib:honeycomb`, `9666366`).
 - **Names:** a pool of 50 human first names in `server/src/agentNames.ts`, whitelisted on every world (the user's
   decision: workers' usernames, issue #11; not used by the code yet).
 - **The todo list is GitHub issues** (`gh issue list`), labelled by phase.

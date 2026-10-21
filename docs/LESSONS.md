@@ -625,3 +625,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    `replaces` named 3 times in 278 full-note writes, focus words outside the enum. Keep caps, eviction and mapping in code
    (a per-day cap, oldest-first eviction, free text to a kind), and measure write behaviour live: the bench's 47% was half
    the run's rate.
+159. **Count who made a choice before crediting the members with a behaviour** (G6, F274): 10 of the 13 take-ups of the
+   first village-made activity came from the fixed order's fallback and repeats, not the model (the model took research
+   1 time in 18 when it saw it). A choice log's `source` says which; report take-up by source, and judge whether the model
+   wants a new activity on its own picks.
+160. **A demand signal names only what its generator can draft** (G6, F275): barter wants are drawn from goods another
+   member can spare, so no barter want can ever name a capability nobody has. Before ranking on a demand source, read
+   the code that produces it and ask whether the thing you want it to show can appear there at all.
