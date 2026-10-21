@@ -5,11 +5,15 @@ world (Project Sid-style experiments); the same agents also run in real Minecraf
 nearly all current work happens. This file is the short version of how to work on the project; it is loaded into every
 session, so keep it short and put detail in the files below.
 
+**The strategy is `docs/STRATEGY.md`** (the user's, 2026-10-21): the goal, the scorecard, the five moves (GitHub
+milestones) and the rules for work sessions. A planning session starts work sessions with a brief and writes
+STRATEGY.md and PLAN.md's handover; a work session reads STRATEGY.md, keeps to its brief and reports back in the form it
+gives.
 **Current work is planned in `docs/PLAN.md`**: read its "Next session starts with" and the current phase at the start
 of every session, work step by step, and record as you go (PLAN.md's "How to use" says where each kind of note goes).
 **The todo list is GitHub issues** (the user's, 2026-10-18): `gh issue list` (labels `phase-N`, `phase-X`, `bug`,
-`idea`, `on-hold`); close or comment on an issue with the commit that settles it, and file new work as an issue, not as
-a checkbox in PLAN.md.
+`idea`, `on-hold`; milestones M1-M5, Support, Parked); close or comment on an issue with the commit that settles it, and
+file new work as an issue with a milestone, not as a checkbox in PLAN.md.
 **Ongoing work is private** (the user's, 2026-10-20): branches are pushed to the private repo
 `delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`; `gh` defaults to it) and the
 issues live there (moved with their numbers); the public `origin` stays as it was until the user says to publish.
@@ -104,10 +108,11 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   main world's step 3 above, unless started from a snapshot with `MCAI_ROOT` set to the repo).
 - **Auto mode's classifier** blocks `git push`, Agent calls with `isolation: "worktree"` and edits to Claude's own
   settings. Do not work around it: ask the user to switch out of auto mode or to request the action explicitly.
-- **Two Claude sessions at once** (the user runs them): one test world means one session runs tests on it at a time
-  (check `python scripts/stack.py status` and the agent count before resetting a site); the other works offline (specs,
-  analysis, code, benches). Only the session the user names writes PLAN.md's handover and closes the session record; the
-  other leaves its notes in `runs/<date>/<session>/` for it. Logs append-only (FINDINGS, RUNS, DECISIONS) can take entries
+- **Several Claude sessions at once** (the user runs them, started from the planning session): one test world means one
+  session runs tests on it at a time (check `python scripts/stack.py status` and the agent count before resetting a
+  site); the others work offline (specs, analysis, code, benches), never two on the same file. The planning session
+  writes PLAN.md's handover and STRATEGY.md and closes the session records; work sessions leave their notes in
+  `runs/<date>/<session>/` for it. Logs append-only (FINDINGS, RUNS, DECISIONS) can take entries
   from both: re-read the end of the file right before adding to it.
 - **Start sessions on the main checkout** (`D:\Projects\MCAISandbox`), never in a worktree (no worlds, run logs or
   `node_modules` there, and the desktop app refused its edits to the main checkout).

@@ -3,6 +3,33 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-21 at the close of the forty-third session (s43); the next session's prompt is
+`runs/2026-10-21/NEXT_PROMPT_s44.md`)
+
+- **Where the work lives** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
+  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes. s43's commits
+  up to 118b4f7 are pushed; **2840a20 to the close are not pushed** (ask).
+- **Done in s43** (DECISIONS 10-21; notes, specs and predictions in `runs/2026-10-21/s43/`):
+  - **Village range 144 by default** (F263; Rch1-Rch8): the village stays busy to 90 min (Rch8 16.5% vs Lng1 9.6%); the
+    simulator matches both long runs; five faults of a wider range fixed (lesson 155); `MC_WORKS_REPEAT`, the rescue fix.
+  - **The economy ladder, sim-first, all behind flags (off):** `MC_OWN` (own chests, a 25% share, carry home, own meals and
+    makes), `MC_BARTER` (offers on a board), `MC_SPECIAL=claim` (claimed plots), `MC_OWN_SALES` (sales with the 25% levy),
+    `MC_OWN_FARM` (own farms of four kinds). F264: at real-rate growth trade and diet hold up, busy does not (+~1 point).
+  - **Innovation v1** (`MC_INNOVATE`, server/src/tech.ts; F265): a library unlocked by experiments, pledges to inventors;
+    unlocks by lottery and too early. The second settlement (#76) is parked (the user's).
+  - **Live economy pair Eco1/Eco2** (real-rate crops, test worlds 1 and 2; stopped by the user at minute 95): every new
+    path ran live without a code failure; busy over 90 min 19.9% / 16.4% vs the sim's 18.7% (RUNS, F265).
+- **Next (NEXT_PROMPT_s44):** **innovation v2: research points** (#78) and **life goals**
+  including beauty (#79), the user's choices, sim first.
+- **Parked:** the second settlement (#76), parallel foundry tickets (#72), own hen pens (pens beyond the annex), public works
+  one at a time.
+- **Leftovers:** the sim's light parts (53 vs 101) and new members' appetites at 50; hay bales rarely made; own farms
+  refused for houses far from the hut (FIELD_HUT_REACH); the own-farm refusal text says "of the village" for "of your
+  house"; the menu offers an own farm while a public work is being laid out; #77's cause; [stuck] at range 192.
+- **Stack at the close:** everything down (test worlds 1 and 2 stopped cleanly after Eco1/Eco2; their villages.json
+  still list the 25 run agents: reset_site restores the site anyway).
+- **Uncommitted at the close:** nothing of this session's.
+
 (written 2026-10-20 at the close of the forty-first session (s41); the next session's prompt is
 `runs/2026-10-20/NEXT_PROMPT_s42.md`)
 
