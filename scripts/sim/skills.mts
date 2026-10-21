@@ -14,9 +14,10 @@ import { OFFERS } from '../../server/src/merchant';
 import { designBill, inWood } from '../../server/src/mineflayer/mcMaterials';
 import { storageContents } from '../../server/src/mineflayer/mcStorage';
 import { postLayout } from '../../server/src/layout';
+import { placeFarm } from '../../server/src/streetPlan';
 import { overlaps, villageHome } from '../../server/src/village';
 import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
-import { OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
+import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../../server/src/own';
 import { boardOf, settle } from '../../server/src/barter';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -455,6 +456,30 @@ function merchantOwn(args: Any, c: Ctx): Outcome {
   return { ok: true, message: `bought ${o.n} ${o.item} of your own for ${o.emeralds} emeralds (simulated)` };
 }
 
+/** lay_out_field (s43: own farms only): a 9x9 pad by the member's house on the land, prepared, a 5x7 field sown. */
+function layOutField(args: Any, c: Ctx): Outcome {
+  const v = c.v;
+  if (args.own !== true) return { ok: true, message: 'lay_out_field done (not modelled)' };
+  const st = v.structures.find((s: Any) => s.owner === c.name && isDwelling(s.kind));
+  if (!st) return { ok: false, message: 'lay_out_field: you have no house of your own for a farm beside' };
+  const near = { x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) };
+  const site = freeSquare(v, 9, c.land, near, OWN_FARM_REACH);
+  if ('why' in site) return { ok: false, message: `lay_out_field: ${site.why}` };
+  const square = { x1: site.x - 4, z1: site.z - 4, x2: site.x + 4, z2: site.z + 4 };
+  const hut = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : near;
+  const farm = placeFarm([], square, { near: hut });
+  if (!farm) return { ok: false, message: `lay_out_field: no 5x7 field fits the pad at ${areaText(square)}` };
+  const seeds = take(v, 'wheat_seeds', farm.sow.length);
+  if (seeds < farm.sow.length) put(v, 'wheat_seeds', seeds);
+  if (seeds < farm.sow.length) return { ok: false, message: 'lay_out_field: not enough spare seeds in storage' };
+  v.plots.push({ id: `simf${v.plots.length + 1}`, ...square, y: site.y, preparedBy: c.name, field: true });
+  v.layouts.push({ ...square, buildings: [], field: true, farm: { ...farm, planted: farm.sow.length }, owner: c.name });
+  const k = v.layouts.length;
+  (v.claims ??= {})[`farm:${k}`] = { by: c.name, at: c.now, last: c.now, own: true };
+  for (const [x, z] of farm.sow) c.crops.plant(x, site.y + 1, z, 'wheat', 7, 0);
+  return { ok: true, message: `laid out a wheat field of your own (layout ${k}) at ${areaText(farm)} (simulated)` };
+}
+
 function eatMeal(_args: Any, c: Ctx): Outcome {
   const v = c.v, e = v.food?.members?.[c.name];
   try {
@@ -689,11 +714,11 @@ export interface Land { home: [number, number]; x0: number; z0: number; n: numbe
  * home (growReach), the square dry and no steeper than 2 blocks, else 4 (bestSite's window), clear of every plot, layout
  * and structure by 4; the nearest to home. Without land: a ring search by geometry alone (v0), and the reasons counted.
  */
-function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: number } | { why: string } {
-  const home = villageHome(v) ?? { x: v.plots[0].x1, z: v.plots[0].z1 };
+function freeSquare(v: Any, S: number, land?: Land, near?: { x: number; z: number }, within?: number): { x: number; y: number; z: number } | { why: string } {
+  const home = near ?? villageHome(v) ?? { x: v.plots[0].x1, z: v.plots[0].z1 };
   const taken = [...v.plots, ...(v.layouts ?? []), ...v.structures].map((q: Any) => ({ x1: q.x1 - 4, z1: q.z1 - 4, x2: q.x2 + 4, z2: q.z2 + 4 }));
   const half = Math.floor(S / 2);
-  const reach = growReach(S);
+  const reach = within ?? growReach(S);
   if (!land) {
     for (let r = S; r < 200; r += 4)
       for (let k = 0; k < 16; k++) {
@@ -856,6 +881,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
-  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer, merchant_own: merchantOwn,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn, make_own: makeOwn, trade_offer: tradeOffer, merchant_own: merchantOwn, lay_out_field: layOutField,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

@@ -38,7 +38,7 @@ import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -2734,6 +2734,8 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private barterAt = new Map<string, number>();
+  /** s43's own farms: members whose house had no room for one, offered none for a while ("village|name"). */
+  private ownFarmBack = new Set<string>();
   /** s43's sales: lots of each good members sold this restock, by village (reset at the merchant's restock). */
   ownSold = new Map<string, Counts>();
   /** s43's claims: harvests of each unclaimed plot by member ("village|key" -> name -> n). */
@@ -3764,7 +3766,7 @@ export class MineflayerWorld implements WorldAdapter {
       const ck = (c.choice.option ?? '').split(':').slice(0, c.choice.kind === 'slot' ? 3 : 2).join(':');
       const own = claims[ck];
       if (own?.by === c.agent) own.last = Date.now();
-      else if (!own && !Object.values(claims).some((q) => q.by === c.agent)) {
+      else if (!own && !Object.values(claims).some((q) => q.by === c.agent && !q.own)) {
         const w = this.claimWork.get(`${v.name}|${ck}`) ?? new Map<string, number>();
         w.set(c.agent, (w.get(c.agent) ?? 0) + 1);
         this.claimWork.set(`${v.name}|${ck}`, w);
@@ -3777,7 +3779,8 @@ export class MineflayerWorld implements WorldAdapter {
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
-      const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)));
+      const ownField = c.choice.kind === 'farm' && (v.layouts ?? [])[Number((c.choice.option ?? '').split(':')[1]) - 1]?.owner === c.agent;
+      const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
     logChoiceEnd({
@@ -4171,6 +4174,19 @@ export class MineflayerWorld implements WorldAdapter {
             facts: `${o.by}'s offer on the notice board by the storage hut; you can spare ${mineNow[o.want] ?? 0} ${words(o.want)}; posted ${ago(now - o.at)}`,
             effect: `+${o.giveN} ${words(o.give)}, -${o.wantN} ${words(o.want)} in your own chest`,
           }, { kind: 'own', what: 'trade', offer: o.id });
+        }
+        // (s43, MC_OWN_FARM: a wheat field of its own by its house, from the commons' spare seeds; one a member, one laid
+        // out at a time in the village)
+        if (OWN_FARM && !(v.layouts ?? []).some((l) => l.owner === a.name) && !busy.has('ownfarm') && !this.ownFarmBack.has(`${v.name}|${a.name}`)) {
+          const seeds = this.makeSpare(v, a.name).wheat_seeds ?? store.wheat_seeds ?? 0;
+          const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
+          if (seeds >= 16 && st) add({
+            id: 'own:farm', kind: 'own', key: me, holds: ['ownfarm'], excludes: [`${me}=`, 'ownfarm='], name: 'Start a wheat farm of your own by your house', rank: 948,
+            at: { x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) },
+            facts: `a 5x7 field on a 9x9 pad within ${24} blocks of your house, sown from the storage's spare seeds (${seeds}); its harvests are all yours`,
+            effect: 'a field of your own: wheat for your own bread',
+          }, { kind: 'own', what: 'farm' });
+          else if (!st) reasons.own ??= 'no house for a farm beside';
         }
         // (s43, MC_OWN_SALES: its surplus sold to the merchant, the levy to the storage; a tool it wants bought with emeralds)
         if (OWN_SALES_ON && v.merchant) {
@@ -5059,9 +5075,9 @@ export class MineflayerWorld implements WorldAdapter {
     }
 
     // s43 (MC_SPECIAL=claim): a plot claimed by another member is its own (claims unworked CLAIM_LAPSE_MS lapse)
-    if (SPECIAL.claim && v.claims) {
+    if ((SPECIAL.claim || OWN_FARM) && v.claims) {
       for (const [k, q] of Object.entries(v.claims))
-        if (now - q.last > CLAIM_LAPSE_MS) {
+        if (!q.own && now - q.last > CLAIM_LAPSE_MS) {
           delete v.claims[k];
           console.log(`[claim] ${v.name}: ${q.by}'s claim on ${k} lapsed (unworked ${Math.round((now - q.last) / 60000)} min)`);
         }
@@ -5208,6 +5224,16 @@ export class MineflayerWorld implements WorldAdapter {
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
       case 'own':
+        if (d.what === 'farm') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('lay_out_field', { own: true, chore: true })], 'start a farm of your own', (why) => {
+            // (a member whose house has no room for a field is not offered one again for 30 minutes)
+            this.ownFarmBack.add(`${v.name}|${worker.name}`);
+            setTimeout(() => this.ownFarmBack.delete(`${v.name}|${worker.name}`), 30 * 60000).unref?.();
+            console.log(`[own] ${v.name}: ${worker.name} could not start a farm of its own: ${why.slice(0, 160)}`);
+          }, meta, opt.holds, opt);
+          console.log(`[own] ${v.name}: ${worker.name} goes to start a farm of its own`);
+          return;
+        }
         if (d.what === 'sell' || d.what === 'buy') {
           if (d.what === 'sell') {
             const sold = (this.ownSold.get(v.name) ?? {}) as Counts;
@@ -6114,6 +6140,7 @@ type OptionRun =
   | { kind: 'own'; what: 'trade'; offer: string }
   | { kind: 'own'; what: 'sell'; item: string; lots: number }
   | { kind: 'own'; what: 'buy'; item: string }
+  | { kind: 'own'; what: 'farm' }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 

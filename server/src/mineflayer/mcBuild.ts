@@ -35,7 +35,7 @@ import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
-import { OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
+import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
@@ -3692,7 +3692,10 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   // Out of the deep first (lesson 101), then home, as prepare_green
   const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
   if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
-  const home = villageHome(v, a.memory);
+  // (s43, `own`: a field of the member's own, sited by its house)
+  const ownHouse = args.own === true ? v.structures.find((s) => s.owner === a.name && isDwelling(s.kind)) : undefined;
+  if (args.own === true && !ownHouse) throw new Error('lay_out_field: you have no house of your own for a farm beside');
+  const home = ownHouse ? { x: Math.floor((ownHouse.x1 + ownHouse.x2) / 2), z: Math.floor((ownHouse.z1 + ownHouse.z2) / 2) } : villageHome(v, a.memory);
   if (!home) throw new Error('lay_out_field: the village has no home');
   if (Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
     await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
@@ -3702,7 +3705,7 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   const hut = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : home;
   // (a centre within this of home keeps every corner within FIELD_HUT_REACH of the hut: the hut's distance from home and
   // the pad's half-diagonal taken off, the check's 3: refused after preparing, the plot was left an orphan)
-  const reach = Math.min(growReach(S), Math.floor(FIELD_HUT_REACH - Math.hypot(hut.x - home.x, hut.z - home.z) - Math.ceil((S / 2) * Math.SQRT2)));
+  const reach = Math.min(ownHouse ? OWN_FARM_REACH : growReach(S), Math.floor(FIELD_HUT_REACH - Math.hypot(hut.x - home.x, hut.z - home.z) - Math.ceil((S / 2) * Math.SQRT2)));
   if (reach < 8) throw new Error(`lay_out_field: no free ${S}x${S} site within ${Math.max(0, reach)} blocks of the village (the storage hut is far from home)`);
   const r = reach + Math.ceil(S / 2) + 1;
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
@@ -3734,8 +3737,10 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   }
   if (!preparedAt(v, farm)) throw new Error(`lay_out_field: the pad at ${areaText(square)} was not prepared`);
   const layouts = (v.layouts ??= []);
-  layouts.push({ ...square, buildings: [], field: true, farm });
+  layouts.push({ ...square, buildings: [], field: true, farm, ...(ownHouse ? { owner: a.name } : {}) });
   const k = layouts.length;
+  // (s43: an own farm is its owner's for good)
+  if (ownHouse) (v.claims ??= {})[`farm:${k}`] = { by: a.name, at: Date.now(), last: Date.now(), own: true };
   a.world.villages.note(v, `${a.name} laid out a wheat field (layout ${k}) at ${areaText(farm)}`);
   a.world.villages.save();
   console.log(`[needwork] ${v.name}: layout ${k} (a field) laid out by ${a.name} at ${areaText(farm)}`);

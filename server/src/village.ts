@@ -490,6 +490,8 @@ export interface Village {
     grow?: number;
     /** A field work (s40, lay_out_field): a pad holding only `farm`, no buildings, streets, lamps or signs. */
     field?: boolean;
+    /** s43 (MC_OWN_FARM): the member whose own farm this field is. */
+    owner?: string;
     /** A neighbourhood's name (#10, placeNames.ts): on its houses' signs, the panel and the summary. */
     name?: string;
     /** Why a neighbourhood laid out with a field has none (s30's food step: the biome, the grass, no room, too far). */
@@ -546,7 +548,7 @@ export interface Village {
    */
   homes?: Record<string, OwnStock>;
   /** s43 (MC_SPECIAL=claim): plots claimed by the member that works them (`farm:k`, `slot:k:j`, `penwork:j`): who, when, last worked. */
-  claims?: Record<string, { by: string; at: number; last: number }>;
+  claims?: Record<string, { by: string; at: number; last: number; own?: boolean }>;
   initiativeN?: number;
   /** s41 (MC_MERCHANT): the village's merchant: the market stall it stands in (an initiative's id) and its cell, the
    *  offers' uses since the last restock (merchant.ts OFFERS' order), the next restock, and what members traded by item. */

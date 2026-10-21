@@ -63,6 +63,14 @@ export const OWN_GOODS = new Set([...Object.keys(FOOD_POINTS), ...OWN_RECIPES.fl
 export const OWN_SALES_ON = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_SALES ?? 'off');
 export const OWN_SALES: Record<string, number> = { pumpkin: 6, wheat: 20, bread: 6, cod: 15, salmon: 13 };
 export const OWN_SALE_LOTS = 4;
+
+/**
+ * Members' own farms (s43, MC_OWN_FARM=on): a member with a house and no farm may lay out a wheat field of its own near its
+ * house (lay_out_field's pad, within OWN_FARM_REACH of the house), seeded from the commons' spare seeds; it is claimed for
+ * it for good, and its harvests are wholly its own (a share of 1).
+ */
+export const OWN_FARM = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_FARM ?? 'off');
+export const OWN_FARM_REACH = 24;
 export const LEVY = Math.min(1, Math.max(0, Number(process.env.MC_OWN_LEVY ?? 0.25)));
 
 /** A sale's emeralds split: the member's and the levy, the levy's fraction carried in `part.levy`. */
