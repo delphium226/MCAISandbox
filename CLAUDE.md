@@ -58,7 +58,7 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
 - Agent-server settings worth knowing: `MC_TIME_SCALE=2` (staged runs and checks; never for model-driven acceptance
   runs), for staged after-phase tests `MC_RANDOM_TICK=30` (crops ripen ~7x faster: first harvest at +2.4 min, not ~+17)
   and `MC_HASTE=5` (bots dig faster for real; never in acceptance runs); with `MC_TIME_SCALE=3` a 3-agent staged
-  build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
+  build completes 35% sooner (H5T3 3.2 min, CPv1 4.9; untested at 25 agents, where the agent server is the limit), `MC_GROW=0` (no growth after completion), `MC_VILLAGE_RANGE` (144 since s43; growth reaches 16 inside it), `MC_WORKS_REPEAT=on` (public works repeat once the pool is used; off), `MC_GROW_FARMS=1` and `MC_APPETITE=18` (food; both off by default),
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37, `activities` since s42), `MC_MERCHANT=off` (on since s42), `MC_MERCHANT_ORDERS=on` (off), `MC_NEEDS=off|show|on`,
   `MC_HOUSING=off`, `MC_PARTS=off`, `MC_NEED_WORKS=off` (Phase N; needs off by default, housing and parts on since s38,
   need works since s40; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;

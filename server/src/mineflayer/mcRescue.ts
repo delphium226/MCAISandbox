@@ -199,11 +199,23 @@ function home(a: BotAgent): { x: number; y?: number; z: number; what: string } |
   return sp ? { x: Math.floor(sp.x), z: Math.floor(sp.z), what: 'the world spawn' } : null;
 }
 
+/** Each agent's recent rescues (s43, #77: Grace "walked out" 160 times along the mine's tunnel under the storage hut,
+ *  never reaching the surface): a third within 10 minutes and 10 blocks of the others goes straight to the teleport. */
+const rescuedAt = new Map<string, Array<{ t: number; x: number; y: number; z: number }>>();
+const RESCUE_AGAIN_MS = 10 * 60000, RESCUE_AGAIN_BLOCKS = 10;
+
 /** Get the bot out, trying the gentle ways first. Returns what it did (for the brain and the log). */
 export async function rescue(a: BotAgent, signal: AbortSignal): Promise<{ how: 'walked' | 'climbed' | 'teleported' | 'failed'; text: string }> {
   const bot = a.bot;
   const from = bot.entity.position.clone();
   const done: string[] = [];
+  const now = Date.now();
+  const past = (rescuedAt.get(a.name) ?? []).filter((r) => now - r.t < RESCUE_AGAIN_MS);
+  rescuedAt.set(a.name, [...past, { t: now, x: from.x, y: from.y, z: from.z }]);
+  if (past.filter((r) => Math.hypot(r.x - from.x, r.y - from.y, r.z - from.z) <= RESCUE_AGAIN_BLOCKS).length >= 2) {
+    const t = await teleportHome(a, signal);
+    if (t) return { how: 'teleported', text: `stuck here a third time in 10 minutes (the walks out led back): ${t}` };
+  }
   if (inWater(a)) {
     await swimUp(a, signal);
     done.push('swam up');

@@ -1247,7 +1247,7 @@ interface Ground {
   extremes: Map<number, { lo: Int16Array; hi: Int16Array }>;
 }
 
-async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal, noGroundWet = false): Promise<Ground> {
+async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, taken: Area[], signal?: AbortSignal, noGroundWet = false, wetPad = 0): Promise<Ground> {
   const n = 2 * r + 1, x0 = cx - r, z0 = cz - r, yHint = Math.floor(a.bot.entity.position.y);
   taken = taken.filter((q) => q.x2 >= x0 && q.x1 <= x0 + n - 1 && q.z2 >= z0 && q.z1 <= z0 + n - 1);
   const y = new Int16Array(n * n), kind = new Uint8Array(n * n), trees = new Uint16Array(n * n), built = new Uint8Array(n * n);
@@ -1293,6 +1293,20 @@ async function surveyGround(a: BotAgent, cx: number, cz: number, r: number, take
       if (signal) checkAbort(signal);
       t = Date.now();
     }
+  }
+  // (`wetPad`: a column beside water counts as wet too, growth's sites: s43, a square touching a pond flooded once
+  // prepared, "water flows in from beside it", and growth waited 10 minutes on it in Rch4 and Rch5)
+  if (wetPad > 0) {
+    const wet = kind.map((q) => +(q === 2));
+    for (let j = 0; j < n; j++)
+      for (let i = 0; i < n; i++) {
+        if (!wet[j * n + i]) continue;
+        for (let dj = -wetPad; dj <= wetPad; dj++)
+          for (let di = -wetPad; di <= wetPad; di++) {
+            const ii = i + di, jj = j + dj;
+            if (ii >= 0 && jj >= 0 && ii < n && jj < n && kind[jj * n + ii] === 0) kind[jj * n + ii] = 2;
+          }
+      }
   }
   const prefix = (f: (k: number) => number) => {
     const m = n + 1, P = new Int32Array(m * m);
@@ -3586,7 +3600,7 @@ async function growSite(a: BotAgent, v: Village, opts: PadOption[], signal: Abor
   const taken = growTaken(a, v, home, r);
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   // (the survey takes the scan turn as find_site's and the annex's do, E.1)
-  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true));
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true, 1));
   for (const opt of opts) {
     const S = opt.size, reach = growReach(S);
     for (const slope of [2, 4]) {
@@ -3624,7 +3638,7 @@ async function prepareGreen(a: BotAgent, args: Record<string, unknown>, signal: 
   const taken = growTaken(a, v, home, r);
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   // (the survey takes the scan turn as growSite's does, E.1)
-  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true));
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, taken, signal, true, 1));
   let c: ReturnType<typeof bestSite> = null;
   for (const slope of [2, 4]) {
     for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;

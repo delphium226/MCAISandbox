@@ -12,7 +12,7 @@ import type { Area, Design, Task, Village } from './village';
 
 /** On unless MC_GROW=0 (Q1: off until the staged runs passed; G3 and G25 did, 10-15); batch and range (D4, D6; 16 inside
  *  the village's range unless MC_GROW_RANGE says, s43). */
-export const GROW = { on: process.env.MC_GROW !== '0', batch: Number(process.env.MC_GROW_BATCH) || 4, range: Number(process.env.MC_GROW_RANGE) || (Number(process.env.MC_VILLAGE_RANGE) || 96) - 16 };
+export const GROW = { on: process.env.MC_GROW !== '0', batch: Number(process.env.MC_GROW_BATCH) || 4, range: Number(process.env.MC_GROW_RANGE) || (Number(process.env.MC_VILLAGE_RANGE) || 144) - 16 };
 
 /**
  * N.2 housing (s37; on by default since s38, MC_HOUSING=off turns it off): each member owns a house, a street of houses is a member's own project

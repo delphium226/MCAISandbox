@@ -619,10 +619,13 @@ function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: 
         let lo = Infinity, hi = -Infinity, bad: 'wet' | 'unloaded' | null = null;
         // (the square alone, as bestSite's window: s43, a 2-block margin here ran the sim out of room 20 minutes before Rch1,
         // whose sites had 5-8 blocks of range and water in that margin)
-        for (let zz = sq.z1; zz <= sq.z2 && !bad; zz++)
-          for (let xx = sq.x1; xx <= sq.x2; xx++) {
+        for (let zz = sq.z1 - 1; zz <= sq.z2 + 1 && !bad; zz++)
+          for (let xx = sq.x1 - 1; xx <= sq.x2 + 1; xx++) {
+            // (the ring a block out: water only, as surveyGround's wetPad; its height does not count)
+            const ring = xx < sq.x1 || xx > sq.x2 || zz < sq.z1 || zz > sq.z2;
             const c = at(xx, zz);
             if (!c || c.y < -900) {
+              if (ring) continue;
               bad = 'unloaded';
               break;
             }
@@ -630,6 +633,7 @@ function freeSquare(v: Any, S: number, land?: Land): { x: number; y: number; z: 
               bad = 'wet';
               break;
             }
+            if (ring) continue;
             lo = Math.min(lo, c.y);
             hi = Math.max(hi, c.y);
           }

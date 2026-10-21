@@ -606,3 +606,12 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   merchant orders stay in the code, off by default, untuned, until the sim holds over long runs.
 - 10-20 (s42) **The simulator runs the run's own growth, works, housing and votes** (votes predicted: code, never a model)
   with the members' TaskBrain; `--v0` switches them off as v0 ran. It is in check:offline (20 minutes).
+- 10-21 (s43) **The village grows past its land limit by a wider reach** (the user's choice of three: a wider reach,
+  harder land, a second settlement; the rejection counts said reach: taken 19,422 vs wet 446 and steep 213). The user
+  then left the session to decide overnight. **VILLAGE_RANGE 96 -> 144 by default** (MC_VILLAGE_RANGE; growth's reach 16
+  inside it): Rch1 and Rch2 held 17% busy to minute 90 vs Lng1's 9.6% collapse at 40, with few stalls. 192 stays a
+  setting: Rch3 (before build_design's walk) collapsed to 7.9%, Rch4 and Rch5 (150 min) were 16% and 13.3%, no better
+  than 144 within 150 minutes; the sim says 192 pays off only after ~90 minutes. **MC_GREENS_PER stays 5** (Rch2: per 3
+  changed nothing at this reach). **MC_WORKS_REPEAT off** until a run outlasts the pool (~26 works). A wider reach only
+  postpones the limit (sim: 144 runs out at ~90 min, 192 at ~120, then the pool): the second settlement is drafted as a
+  spec for the user (#76, runs/2026-10-21/s43/spec_second_settlement.md).

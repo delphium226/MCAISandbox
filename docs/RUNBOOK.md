@@ -179,7 +179,7 @@ the short version; look here for a check script's arguments, a model detail or w
   the edge (AWAY), the furnace's fuel carried over; `sim.events.log` adds `[works]`, `[work]`, `[grow]`, `[vote]` and a
   `[stock]` line a minute (logs, cobblestone, sand, glass) to set beside the stage log's STOCK lines. Same seed, same run.
   In check:offline (20 minutes). Fidelity: F260, F262, F263 (Lng1 9.7 vs 9.6%, Rch1 17/16 vs 17%).
-- **The village range** (s43): `MC_VILLAGE_RANGE` (96) moves the village's range; growth's reach is 16 inside it unless
+- **The village range** (s43): `MC_VILLAGE_RANGE` (144 since s43; 96 before) moves the village's range; growth's reach is 16 inside it unless
   `MC_GROW_RANGE`; materials for public works are looked for within it; the site survey reads columns the surveyor has
   not loaded through a fellow member (view distance 8: ~128 blocks round a bot). `MC_GREENS_PER` (5) for experiments.
 - **Checkpoint `mv3_grown25`**: B25x2 with 25 houses in 6 layouts (s36's G25), the usual base for after-phase tests.
@@ -388,7 +388,7 @@ the short version; look here for a check script's arguments, a model detail or w
 - Survival skills that exist and work (`collect`, `craft`, `smelt`, `mine`, `place`, `explore`): see the lessons below
   (crafting desync, buried stone, leaves). The self-defence reflex stays but should never fire in peaceful.
 - Survival walking is slower than creative (no flying, real digging times); watch `stuck` failures in `move_to`.
-- Every village member stays within 96 blocks of the village (move_to and explore are refused or shortened beyond;
+- Every village member stays within the village range (VILLAGE_RANGE: 144 since s43, 96 before; MC_VILLAGE_RANGE) (move_to and explore are refused or shortened beyond;
   collect walks back first). find_site searches up to 112 blocks and walks up to two 40-block legs; in survival a
   site needs 30 log blocks within 48 (only wood within 16 of the ground counts). plan_layout refuses designs whose
   materials are not near the site in the amounts needed (as collect can reach them; wood may be 25% short).
