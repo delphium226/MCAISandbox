@@ -3,6 +3,33 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-21 by the planning session, after s44; the strategy is `docs/STRATEGY.md`)
+
+- **How work runs now** (the user's, 10-21): a planning session owns `docs/STRATEGY.md` (the goal, the scorecard, the
+  five moves as milestones M1-M5, Support and Parked, and the rules for work sessions) and this handover. Work sessions
+  are started from it with a brief, keep to it, and end with a report in STRATEGY.md's form. A session started some
+  other way reads STRATEGY.md and works on the current move.
+- **Where the work lives** (the user's, 10-20): the private repo `delphium226/MCAISandbox-dev` (remote `private`, the
+  branch's upstream; `gh` defaults to it). The public `origin` stays at `cf48061` until the user publishes. Everything
+  up to `ca752ef` is pushed.
+- **Done in s44** (DECISIONS 10-21; specs and simulator logs in `runs/2026-10-21/s44/`), both behind flags (off), no
+  live run:
+  - **Innovation v2** (`a58e018`, #78, F266): research points from complexity, demand speeding research,
+    prerequisites, inventors' royalties; unlocks at 5-51 min instead of 2-6; shears and jack o'lanterns never unlocked
+    (no demand: #81).
+  - **Life goals** (`ca752ef`, #79, F267): beauty, standing and invention make distinct roles (4-10x their share of
+    picks); wealth mixed, home and mastery not yet; busy unchanged. The panel's Economy tab and card.
+  - s44's HISTORY.md entry is not written yet.
+- **Current move: M1, the scorecard** (#80): every later move is judged by it. Then M2, demand that comes back
+  (villagers #4, beds #6 with shears #81, upkeep #44, works that grow #75, decoration, demand-driven innovation).
+- **Backlog review** (10-21, the user's approval): every open issue is under a milestone; closed #12, #20, #62, #67-#70;
+  parked #18, #19, #21-#25, #43, #47, #50; #76 unparked (M3).
+- **Leftovers** (s43's, unchanged): the sim's light parts (53 vs 101) and new members' appetites at 50; hay bales
+  rarely made; own farms refused for houses far from the hut (FIELD_HUT_REACH); the own-farm refusal text says "of the
+  village" for "of your house"; the menu offers an own farm while a public work is being laid out; #77's cause; [stuck]
+  at range 192.
+- **Stack:** everything down (s44 ran only the simulator).
+
 (written 2026-10-21 at the close of the forty-third session (s43); the next session's prompt is
 `runs/2026-10-21/NEXT_PROMPT_s44.md`)
 

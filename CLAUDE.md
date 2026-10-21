@@ -5,14 +5,14 @@ world (Project Sid-style experiments); the same agents also run in real Minecraf
 nearly all current work happens. This file is the short version of how to work on the project; it is loaded into every
 session, so keep it short and put detail in the files below.
 
-**The strategy is `docs/STRATEGY.md`** (the user's, 2026-10-21): the goal, the scorecard, the five moves (GitHub
-milestones) and the rules for work sessions. A planning session starts work sessions with a brief and writes
+**The strategy is `docs/STRATEGY.md`** (the user's, 2026-10-21): the user's five goals, the health check, the goal
+milestones and the rules for work sessions. A planning session starts work sessions with a brief and writes
 STRATEGY.md and PLAN.md's handover; a work session reads STRATEGY.md, keeps to its brief and reports back in the form it
 gives.
 **Current work is planned in `docs/PLAN.md`**: read its "Next session starts with" and the current phase at the start
 of every session, work step by step, and record as you go (PLAN.md's "How to use" says where each kind of note goes).
 **The todo list is GitHub issues** (the user's, 2026-10-18): `gh issue list` (labels `phase-N`, `phase-X`, `bug`,
-`idea`, `on-hold`; milestones M1-M5, Support, Parked); close or comment on an issue with the commit that settles it, and
+`idea`, `on-hold`; milestones G1-G6, Support, Parked); close or comment on an issue with the commit that settles it, and
 file new work as an issue with a milestone, not as a checkbox in PLAN.md.
 **Ongoing work is private** (the user's, 2026-10-20): branches are pushed to the private repo
 `delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`; `gh` defaults to it) and the
