@@ -621,3 +621,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 157. **A simulator's fast settings flatter every feature that waits on growth** (s43, F264): at random ticks 30 each economy
    step gained 2-4 points of busy and floods of goods; at the game's 3 the gain was ~1 point. Rerun a feature's verdict at
    real-rate growth before building the next step on it.
+158. **gpt-oss fills whatever memory fields it is offered and ignores enums** (G1, F273): `remember` in 96% of decisions,
+   `replaces` named 3 times in 278 full-note writes, focus words outside the enum. Keep caps, eviction and mapping in code
+   (a per-day cap, oldest-first eviction, free text to a kind), and measure write behaviour live: the bench's 47% was half
+   the run's rate.

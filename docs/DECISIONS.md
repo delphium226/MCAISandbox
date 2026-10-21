@@ -683,3 +683,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   building) and `village.ts` (`Structure.tier`). Also the user's: procedural architecture and settlement layout (GDMC
   methods, split grammars) to consider later, filed as #84 (Parked). **Open** (the planning session's): whether
   MC_WORKS_GROW and MC_WORKS_REPEAT go on by default (both together miss the pass mark by one hour, F270).
+- 10-21 (g1-memory session, #26) **G1's memory: model writes ride on decisions and a nightly call** (the user's, four
+  choices after the spec and its adversarial check): members write notes from their chore decisions (`remember`, one a
+  call, three a member-day) **and** each member with chores makes one reflection call a village night (up to 2 notes and
+  tomorrow's intention; the user's pick over the recommendation of decisions only); when the 8 notes are full the model
+  names one to replace and code replaces the oldest if it does not; a 20-minute village day; the village's day line in
+  prompts now. MC_MEMORY and MC_CLOCK (off). Departures from PLAN E.2: `reset_site.py` untouched (a spawn with reset
+  begins a run and empties the member's memory instead), the kind table keeps counts and minutes but no per-item yield.
+  **Open** (the planning session's): whether MC_MEMORY and MC_CLOCK go on by default.

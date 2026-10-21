@@ -1476,3 +1476,34 @@ CLAUDE.md when a phase ends.
   build_design; `scripts/checks/refit_cells.mts` read every changed cell back over RCON (43 + 16 right, 0 wrong) and the
   buildings not refitted unchanged. Where it stops: two tiers a building; the pool grows only with buildings, so after land
   runs out it ends (minute ~290 alone, past 360 with repeats). Logs: runs/2026-10-21/works-grow/ (probe/, sim/, report.md).
+- F272 (10-21, g1-memory session, #26) **With G1's memory on, members' later choices use what they remember, and an
+  agent-server restart keeps every journal.** G1a: test world 1, mv3_grown25, 120 min at 1x, `--choose model`, LSc1's
+  settings plus MC_MEMORY=on MC_CLOCK=on (20-minute days, the night's reflection). 924 model decisions in the ledger, 475
+  notes written, 175 intentions (25 at the first dawn, then nearly all from the nights' 148 reflections). **Shown:** 704
+  of 924 decisions (76%) showed a note or intention written 20+ minutes before. **Cited:** 137 of those reasons (19%)
+  cite it (68 by 3+ shared content words, 69 naming it: "my intention", "as planned"), e.g. Kai at 31.5m chose fishing:
+  "I need a fishing rod for personal food" <- its note of minute ~7 "I should still plan to craft a fishing rod soon".
+  **Followed:** where the menu offered the intention's focus kind, members chose it 70% of 50 times against 30% by chance
+  (its share of the options) and 33% with focuses shuffled across member-days (p < 0.001). **Counterfactual**
+  (memorybench C: 24 of the run's own decisions re-asked 5 times with and without their memory section): the modal choice
+  86% with it, 57% without; 12 of 24 decisions changed (e.g. Elena's first choice of day 1, intention "make torches":
+  charcoal 5/5 with memory, her bench 5/5 without). **Restart** (R1, world 1, 25 members, model choices at 3x):
+  `memory_restart.py` killed the agent server after night 1 (64 notes, 74 ends, 21 day lines), restarted it from a code
+  snapshot in 11 s, `respawn_agents.py` brought all 25 back without reset: every journal as before; night 2's 23
+  reflections and the members' choices went on from them. Health check against LSc1 (memory off, same settings, world 2):
+  busy 36.0 / 27.3% by hour (LSc1 35.8 / 24.5), needs met 0.94-0.95 (0.97; food 0.84-0.87 against 0.93-0.88), works 54 /
+  53 (52 / 39), PASS with no 30-minute collapse (LSc1's at minute 100); cost $0.44 (LSc1 $0.25: prompts ~1,350 tokens
+  against ~900, plus 148 reflections); 0 [lag], 7 [stuck]. Prediction (`prediction.md`) held on use and health; the cost
+  was at its low end. Logs: runs/2026-10-21/g1-memory/ (report.md, memory_use_G1a.txt, g1run/, restart/, bench/).
+- F273 (10-21, g1-memory session, #26) **gpt-oss as its own memory's keeper: it writes at almost every chance, never
+  supersedes unless forced, repeats itself, ignores enums, and keeps false beliefs; intentions steer it, remembered
+  failures in day lines do not.** In G1a `remember` came in 889 of 924 decisions (96%; memorybench A: 47% of 150 on
+  LSc1's prompts, 0 copies of the prompt): the per-day cap (3 a member-day) dropped 509; once notes were full it named
+  `replaces` 3 times against 275 evictions by code (add-only, as AgeMem found untrained models to be); live notes are often
+  near-duplicates ("craft an axe soon" three times) that exact-text dedup misses. At night it often answered the notes
+  array with ids of notes to keep ("n1") rather than new text. It ignored the `focus` enum in the dawn and night tools
+  ("animal care", "building", "beauty"): code maps free text to a kind (normaliseFocus). Some notes are false for this
+  world ("lighting my house early prevents night mobs": peaceful, always day). Bench B (LSc1's prompts, 10 samples a case
+  on and off): an intention set the night before moved the choice to its kind 67% against 17% (5 of 6 cases); the run's
+  own pick shown as failed twice in an earlier day line stayed chosen 62% against 69% (2 of 6 cases moved).
+  memorybench A-C cost $0.16 in all. Follow-ups: near-duplicate notes, replacement and false-belief checks (#86).

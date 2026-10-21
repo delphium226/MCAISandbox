@@ -104,6 +104,41 @@ for _ in range(args.perms):
 perm.sort()
 p_value = sum(1 for x in perm if x >= followed) / max(1, len(perm))
 
+# Intention followed where the menu offered the focus kind (the menu shown, from the decision log), against chance (the
+# focus kind's share of the options shown) and the same permutation restricted to such decisions
+def menu_kinds(d):
+    c = choices.get(d["decisionId"])
+    # (the menu the model was shown is logged only when its pick ran: 'model'; a taken pick logs the fresh menu)
+    if not c or c.get("source") != "model":
+        return None
+    shown = [o for o in c.get("options", []) if o.get("shown")] or c.get("options", [])
+    return [KIND_WORDS.get(o["kind"], o["kind"]) for o in shown]
+elig_rows = []  # (member-day, chosen kind word, menu kind words)
+for d in decs:
+    mk = menu_kinds(d)
+    if mk and d.get("day"):
+        elig_rows.append(((d["agent"], d["day"]), KIND_WORDS.get(kind_of(d["choice"]), kind_of(d["choice"])), mk))
+md_focus = {k: v[1] for k, v in intentions.items() if v[1]}
+def offered(focus_of):
+    n = hit = 0
+    chance = 0.0
+    for md, ck, mk in elig_rows:
+        f = focus_of.get(md)
+        if f and f in mk:
+            n += 1
+            hit += ck == f
+            chance += mk.count(f) / len(mk)
+    return n, hit, chance
+n_off, hit_off, chance_off = offered(md_focus)
+keys = list(md_focus)
+vals = [md_focus[k] for k in keys]
+perm_off = []
+for _ in range(args.perms):
+    rng.shuffle(vals)
+    n2, h2, _c = offered(dict(zip(keys, vals)))
+    perm_off.append(h2 / max(1, n2))
+p_off = sum(1 for x in perm_off if x >= hit_off / max(1, n_off)) / max(1, len(perm_off))
+
 # Writing
 by_hour = collections.defaultdict(lambda: collections.Counter())
 for r in acts:
@@ -127,6 +162,7 @@ print(f"SHOWN  decisions whose prompt showed a note or intention >= {args.min_ag
 print(f"CITED  of those, reasons citing it: {len(cited)} ({100 * len(cited) / max(1, len(shown_old)):.0f}%): {len(cited) - len(cited_named)} by shared words only, {len(cited_named)} naming memory")
 print(f"FOLLOW member-days with an intention and a focus: {len(pairs)}; their model choices of the focus kind {100 * followed:.0f}% "
       f"against {100 * sum(perm) / max(1, len(perm)):.0f}% with focuses shuffled (p {p_value:.3f}, {args.perms} permutations)")
+print(f"FOLLOW where the menu offered the focus kind: {n_off} decisions; chose it {100 * hit_off / max(1, n_off):.0f}% against {100 * chance_off / max(1, n_off):.0f}% by chance (its share of the options shown) and {100 * sum(perm_off) / max(1, len(perm_off)):.0f}% with focuses shuffled (p {p_off:.3f})")
 print("WRITE  by hour: " + "; ".join(f"h{h}: " + ", ".join(f"{k} {v}" for k, v in sorted(c.items())) for h, c in sorted(by_hour.items())))
 print("EXAMPLES (reason <- what it remembered):")
 for e in ex_cite:
