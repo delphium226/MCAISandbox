@@ -37,8 +37,9 @@ Every work session reports its result on it, before and after. Until M1 builds i
 - Trades made and promises kept; named places and rules in force (once M4 and M5 exist).
 - The trend of each over 6-10 simulated hours, not its peak.
 
-**The pass mark:** no collapse in a 6-hour simulation at real-rate growth. A collapse is the last hour's busy or needs
-met falling below half of the second hour's (today: ~6% against ~17%).
+**The pass mark:** no collapse in a 6-hour simulation at real-rate growth. A collapse is any hour after the first whose
+busy falls below half of hour 1's (today: ~6% from minute 80-100 against ~22% in hour 1). Changed 2026-10-21 from "the
+last hour against hour 2": hour 2 already holds the collapse, so the default village passed (F268).
 
 ## The moves, in order
 
@@ -108,3 +109,5 @@ handover, and writes the next brief. Drift shows up as work outside any mileston
 
 - 2026-10-21: written by the planning session (the user's decision to run one); the five moves from the review of s43
   and s44; the open issues sorted into milestones.
+- 2026-10-21: the pass mark compares every hour after the first with hour 1 (the user's), after the scorecard's
+  baseline passed the collapsing default village (F268).
