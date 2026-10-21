@@ -64,6 +64,8 @@ process.env.MC_NEEDS = 'off';
 // (N.2's housing and the parts chests: on by default since s38, off here: the golden is of the chores without them)
 process.env.MC_HOUSING ??= 'off';
 process.env.MC_PARTS ??= 'off';
+// (#68/#69's own stock and wants: off by default, pinned here so the golden stays the chores')
+process.env.MC_OWN = 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

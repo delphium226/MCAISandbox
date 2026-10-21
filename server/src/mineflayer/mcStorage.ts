@@ -382,7 +382,49 @@ async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer
   return c;
 }
 
+/**
+ * Each agent's new goods put into the commons (#68, s43): what it takes out is a debt, and a deposit credits only what
+ * exceeds the debt (a make's leftover inputs, a rod put back, a board task's carried logs: not the agent's yield). A
+ * chore's yield is the credit gained across it (mcWorld's endChoice), the base of its owner's share. Kept whatever
+ * MC_OWN says (cheap).
+ */
+const credits = new Map<string, Record<string, number>>(), debts = new Map<string, Record<string, number>>();
+export const storageFlow = (agent: string): Record<string, number> => ({ ...(credits.get(agent) ?? {}) });
+/** The simulator's modelled actions feed the flow by the commons' change around each (scripts/sim). */
+export const noteFlow = (agent: string, c: Record<string, number>, sign: 1 | -1) => flow(agent, c, sign);
+function flow(agent: string, c: Record<string, number>, sign: 1 | -1) {
+  const cr = credits.get(agent) ?? {}, dt = debts.get(agent) ?? {};
+  for (const [n, q] of Object.entries(c)) {
+    if (!(q > 0)) continue;
+    if (sign < 0) dt[n] = (dt[n] ?? 0) + q;
+    else {
+      const owed = Math.min(q, dt[n] ?? 0);
+      dt[n] = (dt[n] ?? 0) - owed;
+      if (q > owed) cr[n] = (cr[n] ?? 0) + q - owed;
+    }
+  }
+  credits.set(agent, cr);
+  debts.set(agent, dt);
+}
+const carriedNow = (a: BotAgent) => {
+  const out: Record<string, number> = {};
+  for (const it of a.bot.inventory.items()) out[it.name] = (out[it.name] ?? 0) + it.count;
+  return out;
+};
+
+/** deposit, its puts counted in the agent's flow (what left the inventory went into the commons). */
 async function deposit(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const before = carriedNow(a);
+  try {
+    return await depositToCommons(a, args, signal);
+  } finally {
+    const after = carriedNow(a), put: Record<string, number> = {};
+    for (const [n, q] of Object.entries(before)) if (q > (after[n] ?? 0)) put[n] = q - (after[n] ?? 0);
+    flow(a.name, put, 1);
+  }
+}
+
+async function depositToCommons(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('deposit puts items in the village storage, and you are not in a village');
   const raw = args.item === undefined ? 'all' : str(args.item, 'item');
@@ -740,6 +782,7 @@ async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string)
     v.storage!.updated = Date.now();
     a.world.villages.save();
   }
+  flow(a.name, got, -1);
   return { got, invFull };
 }
 

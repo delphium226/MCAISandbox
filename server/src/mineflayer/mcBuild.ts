@@ -23,7 +23,7 @@ import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease,
 import { doorOutward, outsideCells, turnState } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
-import type { LightPart } from './mcWorld';
+import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
@@ -34,7 +34,8 @@ import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, taskNum, type PadOption } from '../grow';
+import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
+import { ownOf } from '../own';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
 import { CHOOSE } from '../choose';
@@ -4568,6 +4569,139 @@ async function eatMeal(a: BotAgent, _args: Record<string, unknown>, signal: Abor
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// #68 (MC_OWN): a member's own chest, its share carried home, its own meals
+// ---------------------------------------------------------------------------------------------
+
+/** The member's own house and its furnishing part (with the chest cell), or why not. */
+function ownHome(a: BotAgent): { v: Village; st: Structure; P: DecorPart } | string {
+  const v = a.village();
+  if (!v) return 'not in a village';
+  const st = v.structures.find((s) => s.owner === a.name && isDwelling(s.kind));
+  if (!st) return 'you have no house of your own yet';
+  const P = a.world.decorParts(v).find((q) => q.structure.id === st.id);
+  if (!P?.chest) return `your house (${st.kind}) has no free cell for a chest`;
+  return { v, st, P };
+}
+
+/** To the stand spot beside the member's own door (as furnish's: never inside); false when the walk failed. */
+async function toOwnDoor(a: BotAgent, P: DecorPart, signal: AbortSignal): Promise<boolean> {
+  const lp: LightPart = { part: P.part, label: P.label, kind: 'building', structure: P.structure, place: P.place, spots: [], unlit: 0, growing: false, ...(P.walk !== undefined ? { walk: P.walk } : {}) };
+  const spot = doorStand(a, lp);
+  if (!spot) return false;
+  return walk(a, new goals.GoalNear(spot.x, spot.y, spot.z, 1), 'your own door', signal, 90000, { scaffold: false }).then(() => true, (e: Error) => {
+    if (e.message === 'cancelled' || unmoved(e)) throw e;
+    return false;
+  });
+}
+
+/** The own chest's items written from the record (the record is the authority; the chest shows it in-game). */
+async function writeOwnChest(a: BotAgent, c: { x: number; y: number; z: number; items: Record<string, number> }): Promise<void> {
+  const slots: string[] = [];
+  for (const [n, q0] of Object.entries(c.items)) {
+    let q = q0;
+    const max = a.world.registry.itemsByName[n]?.stackSize ?? 64;
+    while (q > 0 && slots.length < 27) {
+      const k = Math.min(q, max);
+      slots.push(`{Slot:${slots.length}b,id:"minecraft:${n}",count:${k}}`);
+      q -= k;
+    }
+  }
+  await a.world.rcon.command(`data modify block ${c.x} ${c.y} ${c.z} Items set value [${slots.join(',')}]`).catch(() => undefined);
+}
+
+/** place_own_chest (a chore code queues): a chest set by command on the house's chest cell, charged 2 logs from storage. */
+async function placeOwnChest(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`place_own_chest: ${h}`);
+  const { v, P } = h, c = P.chest!;
+  const own = ownOf(v, a.name);
+  if (own.chest) return `your chest already stands at ${c.x},${c.y},${c.z}`;
+  const store = storageContents(v);
+  const log = Object.keys(store).filter((n) => /_log$/.test(n) && !n.startsWith('stripped_') && store[n] >= 2).sort((p, q) => store[q] - store[p])[0];
+  if (!log) throw new Error('place_own_chest: no 2 logs of one kind in the village storage for a chest');
+  await withdrawItems(a, v, { [log]: 2 }, signal);
+  const have = await serverCount(a, log);
+  if (have < 2) throw new ContentionError(`place_own_chest: another agent took the ${log}`, 'taken', `stock:${log}`);
+  const walked = await toOwnDoor(a, P, signal);
+  const took = await a.world.rcon.take(a.name, log, 2, have);
+  if (took < 2) throw new Error(`place_own_chest: the server took ${took} of 2 ${log}`);
+  const r = await a.world.rcon.command(`execute unless entity @e[type=!item,x=${c.x},y=${c.y},z=${c.z},dx=0,dy=0,dz=0] run setblock ${c.x} ${c.y} ${c.z} minecraft:chest[facing=${c.facing}] keep`).catch(() => '');
+  const there = await a.world.rcon.command(`execute if block ${c.x} ${c.y} ${c.z} minecraft:chest`).catch(() => '');
+  if (!/passed/i.test(there)) {
+    await a.world.rcon.command(`give ${a.name} minecraft:${log} 2`).catch(() => undefined);
+    throw new Error(`place_own_chest: the chest did not go down at ${c.x},${c.y},${c.z} (${String(r).slice(0, 80) || 'no reply'}); the logs were given back`);
+  }
+  own.chest = { x: c.x, y: c.y, z: c.z, items: {} };
+  a.world.villages.save();
+  console.log(`[own] ${v.name}: ${a.name} put a chest in its house at ${c.x},${c.y},${c.z}${walked ? '' : ' (from where it stood)'}`);
+  return `put a chest in your house at ${c.x},${c.y},${c.z} (2 ${log} from storage): your own stock goes there`;
+}
+
+/** carry_home (a chore code queues): the share owed, as far as the commons can spare it (`want`), taken into the own chest. */
+async function carryHome(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`carry_home: ${h}`);
+  const { v, P } = h;
+  const own = ownOf(v, a.name);
+  const chest = own.chest;
+  if (!chest) throw new Error('carry_home: you have no chest at home yet');
+  const want = (args.want ?? {}) as Record<string, number>;
+  const fetch = Object.fromEntries(Object.entries(want).filter(([n, q]) => q > 0 && (own.owed[n] ?? 0) > 0).map(([n, q]) => [n, Math.min(q, own.owed[n])]));
+  if (!Object.keys(fetch).length) return 'carried nothing home (nothing owed the commons can spare)';
+  await withdrawItems(a, v, fetch, signal);
+  await toOwnDoor(a, P, signal);
+  const moved: Record<string, number> = {};
+  for (const n of Object.keys(fetch)) {
+    const have = await serverCount(a, n);
+    const k = Math.min(have, fetch[n]);
+    if (k <= 0) continue;
+    const took = await a.world.rcon.take(a.name, n, k, have);
+    if (took <= 0) continue;
+    moved[n] = took;
+    chest.items[n] = (chest.items[n] ?? 0) + took;
+    own.owed[n] = Math.max(0, (own.owed[n] ?? 0) - took);
+    if (!own.owed[n]) delete own.owed[n];
+    own.got[n] = (own.got[n] ?? 0) + took;
+  }
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  const text = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
+  console.log(`[own] ${v.name}: ${a.name} carried ${text || 'nothing'} home (owed now ${Object.entries(own.owed).map(([n, q]) => `${q} ${n}`).join(', ') || 'nothing'})`);
+  return text ? `carried ${text} home into your own chest` : 'carried nothing home (the commons had none of it after all)';
+}
+
+/** eat_own (a chore code queues): a meal from the member's own chest, eaten at its door. */
+async function eatOwn(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const h = ownHome(a);
+  if (typeof h === 'string') throw new Error(`eat_own: ${h}`);
+  const { v, P } = h;
+  const own = ownOf(v, a.name);
+  const e = appetiteOn(v) ? v.food!.members[a.name] : undefined;
+  if (!e) throw new Error('eat_own: the village keeps no appetite for you');
+  const chest = own.chest;
+  if (!chest) throw new Error('eat_own: you have no chest at home');
+  const meal = chooseMeal(e.level, chest.items);
+  if (!meal) throw new Error('eat_own: nothing to eat in your own chest');
+  await toOwnDoor(a, P, signal);
+  // (the record is the authority: from the take to the record nothing awaits)
+  const n = Math.min(meal.n, chest.items[meal.item] ?? 0);
+  chest.items[meal.item] -= n;
+  if (!chest.items[meal.item]) delete chest.items[meal.item];
+  own.used[meal.item] = (own.used[meal.item] ?? 0) + n;
+  const before = e.level;
+  e.level = Math.min(APPETITE.cap, e.level + n * FOOD_POINTS[meal.item]);
+  e.meals = (e.meals ?? 0) + 1;
+  e.lastMeal = { at: Date.now(), item: meal.item, n };
+  const f = v.food!;
+  f.eaten[meal.item] = (f.eaten[meal.item] ?? 0) + n;
+  f.meals = (f.meals ?? 0) + 1;
+  a.world.villages.save();
+  await writeOwnChest(a, chest);
+  console.log(`[food] ${a.name} ate ${n} ${meal.item} from its own chest (${before.toFixed(1)} -> ${e.level.toFixed(1)} of 20; ${stateOf(e.level)})`);
+  return `ate ${n} ${meal.item} from your own chest (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)`;
+}
+
 /** Pickaxes from the weakest up (an iron one beats the stone ones a miner makes). */
 const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'];
 const pickRank = (n: string) => PICKS.indexOf(n);
@@ -5828,6 +5962,9 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   bake_cake: { run: bakeCake },
   // (s30's appetite: a meal from the village storage, a chore code queues for a peckish member, never a model's tool)
   eat_meal: { run: eatMeal },
+  place_own_chest: { run: placeOwnChest },
+  carry_home: { run: carryHome },
+  eat_own: { run: eatOwn },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
   make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },

@@ -230,7 +230,7 @@ export interface WorldAdapter {
  *  'furnish' (X.1): furniture from storage into a building (the furnish family). 'initiate' and 'help' (s35): a member's
  *  own small work started, and a step of one taken (the initiatives family). 'activity' (s41): a library spec running a
  *  foundry skill (the activities family). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity';
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity' | 'own';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {
@@ -266,6 +266,8 @@ export interface ChoiceOption {
   /** N.1: the need's weight on it, 1..2.5 (the need's level and the member's trait); the fixed pick and the trim read it
    *  beside tw, the prompt's tags and the decline only tw. */
   nw?: number;
+  /** #69 (MC_OWN): the member's own wants this option answers, as a weight 1 + 0.3 a want; the fixed pick reads it. */
+  ww?: number;
 }
 
 export interface ChoiceContext {
@@ -281,6 +283,8 @@ export interface ChoiceContext {
   outcomes: string[];
   /** N.1 (MC_NEEDS=on): the village's needs at LOW or above, most acute first (<= 3, "31 unlit spots in 6 buildings"). */
   needs?: string[];
+  /** #69 (MC_OWN): the member's own open wants, one line ("Your wants: food (none of your own); your house (3 ...)"). */
+  wants?: string;
 }
 
 export interface ChoiceMenu {

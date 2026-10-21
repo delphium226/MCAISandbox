@@ -64,7 +64,7 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   if (kept.length <= MENU_MAX) return kept;
   // (a missing lp or tw counts as the neutral weight, 1; A.3p: a kind its agent dislikes, tw below DISLIKED, gets no
   // reserved place and competes for the rest of the room)
-  const w = (o: ChoiceOption) => (o.lp ?? 1) * (o.tw ?? 1) * (o.nw ?? 1);
+  const w = (o: ChoiceOption) => (o.lp ?? 1) * (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1);
   const order = [...kept].sort((a, b) => w(b) - w(a) || a.rank - b.rank);
   const seen = new Set<string>();
   const firsts = order.filter((o) => (o.tw ?? 1) >= DISLIKED && !seen.has(o.kind) && seen.add(o.kind));
@@ -120,11 +120,12 @@ const ENJOYED = 1.6, DULL = 0.63;
 export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   let best: ChoiceOption | undefined;
   for (const o of menu.options) if (!best || o.rank < best.rank) best = o;
-  if (!best || best.kind === 'eat' || !menu.options.some((o) => o.tw !== undefined || o.nw !== undefined)) return best;
+  if (!best || best.kind === 'eat' || !menu.options.some((o) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined)) return best;
   const place = new Map<string, number>();
   for (const o of [...menu.options].sort(byRank)) if (!place.has(o.kind)) place.set(o.kind, place.size);
   // (N.1: a need's weight beside the temperament's)
-  const score = (o: ChoiceOption) => (o.tw ?? 1) * (o.nw ?? 1) * KIND_DECAY ** (place.get(o.kind) ?? 0);
+  // (#69: the member's own wants beside both)
+  const score = (o: ChoiceOption) => (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * KIND_DECAY ** (place.get(o.kind) ?? 0);
   for (const o of menu.options) {
     const d = score(o) - score(best);
     if (d > 1e-9 || (Math.abs(d) <= 1e-9 && o.rank < best.rank)) best = o;
@@ -156,6 +157,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[]): { system: 
   if (ctx.village?.trim()) lines.push(labelled('Village', ctx.village.trim()));
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
+  if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
   lines.push(`Your last chores: ${ctx.outcomes?.length ? ctx.outcomes.join(' | ') : 'none yet'}`);
   lines.push('Options (in no particular order):');
   for (const o of shown) {

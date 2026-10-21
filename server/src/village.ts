@@ -539,6 +539,12 @@ export interface Village {
    * and how it ended. `initiativeN` numbers them.
    */
   initiatives?: Initiative[];
+  /**
+   * #68 (MC_OWN, s43): each member's own stock, apart from the commons (storageContents never counts it): its chest in
+   * its own house, the share it has earned and not carried home (`owed`, whole items; `part`, the fractions), and totals
+   * carried home and spent.
+   */
+  homes?: Record<string, OwnStock>;
   initiativeN?: number;
   /** s41 (MC_MERCHANT): the village's merchant: the market stall it stands in (an initiative's id) and its cell, the
    *  offers' uses since the last restock (merchant.ts OFFERS' order), the next restock, and what members traded by item. */
@@ -578,6 +584,9 @@ export interface Village {
   /** The village mine (V.5). */
   mine?: Mine;
 }
+
+/** A member's own stock (#68): its chest (position and the items it last held), what it is owed from the commons. */
+export interface OwnStock { chest?: { x: number; y: number; z: number; items: Record<string, number> }; owed: Record<string, number>; part?: Record<string, number>; got: Record<string, number>; used: Record<string, number> }
 
 /** How far a village's mayor and its site searches may go from home (MC_VILLAGE_RANGE; 144 since s43: the land within 96
  * ran out at ~40 minutes, F262, and at 144 a 90-minute village stayed busy, F263). */

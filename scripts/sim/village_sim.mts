@@ -128,7 +128,7 @@ const stamp = () => `+${((clock - T0) / 60000).toFixed(2)}m`;
 console.log = (...a: unknown[]) => {
   const s = a.map(String).join(' ');
   if (LOG) logLines.push(`${stamp()} ${s.slice(0, 400)}`);
-  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
+  if (/^\[(choice-none|merchant|initiative|food|activity|needwork|light|work|grow|vote|own)\]/.test(s)) keep.push({ t: clock, s: s.slice(0, 2000) });
 };
 console.warn = () => {};
 console.info = () => {};
@@ -143,7 +143,7 @@ const { Vec3 } = await import('vec3');
 const S = await import('./skills.mts');
 const { TaskBrain } = await import('../../server/src/taskBrain');
 const { CHOOSE } = (await import(new URL('../../server/src/choose.ts', import.meta.url).href)) as Any;
-const { storageContents } = await import('../../server/src/mineflayer/mcStorage');
+const { storageContents, noteFlow } = await import('../../server/src/mineflayer/mcStorage');
 const { designBill } = await import('../../server/src/mineflayer/mcMaterials');
 
 // ---- the world ---------------------------------------------------------------------------------------------------------
@@ -447,6 +447,7 @@ if (buildPairs.length >= 5) {
 }
 const BUILTIN: Record<string, number> = {
   deposit: 0.08, withdraw: 0.05, collect: 0.55, eat_meal: 0.04, harvest_slot: 0.06, harvest_farm: 0.09, put_up_torches: 0.12, furnish: 0.22,
+  place_own_chest: 0.5, carry_home: 0.45, eat_own: 0.25,
   collect_eggs: 0.13, milk_cows: 0.13, breed_pen: 0.13, build_design: 0.5, prepare_green: 1.5, fish: 1.8, trade: 0.1, make: 0.12, tidy_storage: 0.12,
 };
 /** A drawn sample for an action: its minutes, and a reference failure it is to repeat (the skills whose failures come
@@ -523,7 +524,17 @@ function finish(a: SimAgent) {
     out = { ok: true, message: `${s.type} done (not modelled)` };
   } else
     try {
+      // (#68: the member's flow, as the real deposit and take feed it: the commons' change around the action)
+      const before = storageContents(v);
       out = model(s.args, { w, v, name: a.name, carry: carries.get(a.name)!, crops, eggs, rng, now: clock, greenKept, tripLoads, land });
+      const after = storageContents(v), put: Counts = {}, took: Counts = {};
+      for (const n of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        const d = (after[n] ?? 0) - (before[n] ?? 0);
+        if (d > 0) put[n] = d;
+        else if (d < 0) took[n] = -d;
+      }
+      noteFlow(a.name, took, -1);
+      noteFlow(a.name, put, 1);
     } catch (e) {
       errors.push(`${stamp()} model ${s.type} threw: ${String((e as Error)?.stack ?? e).split('\n').slice(0, 3).join(' | ')}`);
       out = { ok: false, message: `${s.type} failed in the simulator` };
@@ -641,6 +652,12 @@ const report = {
     const ps = w.lightParts(v) as Any[];
     return { parts: ps.length, newBuildings: ps.filter((q) => String(q.part).startsWith('sim')).length, structuresNew: v.structures.filter((q: Any) => String(q.id).startsWith('sim')).length, spots: ps.reduce((t, q) => t + q.spots.length, 0), unlit: ps.reduce((t, q) => t + q.unlit, 0) };
   })(),
+  // (#68: the members' own stock: chests, what they hold, carried home, still owed, eaten from them)
+  own: (() => {
+    const hs = Object.values(v.homes ?? {}) as Any[];
+    const sum = (f: (h: Any) => Counts) => hs.reduce((t: Counts, h) => { for (const [n, q] of Object.entries(f(h) ?? {})) t[n] = (t[n] ?? 0) + (q as number); return t; }, {});
+    return { members: hs.length, chests: hs.filter((h) => h.chest).length, held: sum((h) => h.chest?.items), got: sum((h) => h.got), owed: sum((h) => h.owed), used: sum((h) => h.used) };
+  })(),
   failsFromReference: fromRef, errors: errors.length, saves, rcon: Object.fromEntries(rconCounts),
 };
 fs.writeFileSync(path.join(OUT, 'sim.report.json'), JSON.stringify(report, null, 2));
@@ -663,6 +680,7 @@ say(`  actions: ${kv(report.actions)}${unknown.size ? `; NOT MODELLED: ${kv(repo
 say(`  initiatives: ${JSON.stringify(report.initiatives)}`);
 say(`  merchant: ${report.merchant ? `ledger ${JSON.stringify(report.merchant.ledger)}, ${report.merchant.emeralds} emeralds in storage, ${report.merchant.xp} traded` : 'none'}`);
 if (report.merchant && Object.keys(report.merchant.orders).length) say(`  orders: ${JSON.stringify(report.merchant.orders)}; filled ${report.merchant.filled.join(', ')}`);
+if (report.own.members) say(`  own: ${report.own.chests} chests; held ${kv(report.own.held)}; carried home ${kv(report.own.got)}; owed ${kv(report.own.owed)}; eaten from them ${kv(report.own.used)}`);
 say(`  food: ${report.food ? `made ${kv(report.food.made)}; eaten ${kv(report.food.eaten)}; ${report.food.meals} meals` : 'none'}`);
 say(`  storage flows: ${kv(flows)}`);
 say(`  choice-none: ${report.choiceNone.length} lines${report.choiceNone.length ? `; first ${report.choiceNone[0].slice(0, 200)}` : ''}`);

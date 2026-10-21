@@ -15,7 +15,8 @@ import { designBill, inWood } from '../../server/src/mineflayer/mcMaterials';
 import { storageContents } from '../../server/src/mineflayer/mcStorage';
 import { postLayout } from '../../server/src/layout';
 import { overlaps, villageHome } from '../../server/src/village';
-import { housesOf, taskNum } from '../../server/src/grow';
+import { housesOf, isDwelling, taskNum } from '../../server/src/grow';
+import { ownOf } from '../../server/src/own';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -348,6 +349,65 @@ function harvestSlot(args: Any, c: Ctx): Outcome {
   slot.harvests = (slot.harvests ?? 0) + 1;
   slot.lastHarvest = { at: c.now, ok: true };
   return { ok: true, message: `harvested ${taken} ${slot.kind} at ${areaText(slot)} into the village storage` };
+}
+
+// ---- #68 (MC_OWN): the own chest, the share carried home, own meals ------------------------------------------------------
+
+/** The member's house's furnishing part with its chest cell (the real world's decorParts), or why not. */
+function ownPart(c: Ctx): Any | string {
+  const st = c.v.structures.find((s: Any) => s.owner === c.name && isDwelling(s.kind));
+  if (!st) return 'you have no house of your own yet';
+  const P = c.w.decorParts(c.v).find((q: Any) => q.structure.id === st.id);
+  return P?.chest ? P : `your house (${st.kind}) has no free cell for a chest`;
+}
+
+function placeOwnChest(_args: Any, c: Ctx): Outcome {
+  const P = ownPart(c);
+  if (typeof P === 'string') return { ok: false, message: `place_own_chest: ${P}` };
+  const own = ownOf(c.v, c.name);
+  if (own.chest) return { ok: true, message: 'your chest already stands' };
+  const store = storageContents(c.v);
+  const log = Object.keys(store).filter((n) => /_log$/.test(n) && store[n] >= 2).sort((p, q) => store[q] - store[p])[0];
+  if (!log) return { ok: false, message: 'place_own_chest: no 2 logs of one kind in the village storage for a chest' };
+  take(c.v, log, 2);
+  own.chest = { x: P.chest.x, y: P.chest.y, z: P.chest.z, items: {} };
+  return { ok: true, message: `put a chest in your house at ${P.chest.x},${P.chest.y},${P.chest.z} (2 ${log} from storage) (simulated)` };
+}
+
+function carryHome(args: Any, c: Ctx): Outcome {
+  const own = ownOf(c.v, c.name);
+  if (!own.chest) return { ok: false, message: 'carry_home: you have no chest at home yet' };
+  const moved: Counts = {};
+  for (const [n, q] of Object.entries((args.want ?? {}) as Counts)) {
+    const k = take(c.v, n, Math.min(q, own.owed[n] ?? 0));
+    if (k <= 0) continue;
+    moved[n] = k;
+    own.chest.items[n] = (own.chest.items[n] ?? 0) + k;
+    own.owed[n] -= k;
+    if (!own.owed[n]) delete own.owed[n];
+    own.got[n] = (own.got[n] ?? 0) + k;
+  }
+  const text = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
+  return { ok: true, message: text ? `carried ${text} home into your own chest (simulated)` : 'carried nothing home (the commons had none of it after all)' };
+}
+
+function eatOwn(_args: Any, c: Ctx): Outcome {
+  const v = c.v, e = v.food?.members?.[c.name], own = ownOf(v, c.name), chest = own.chest;
+  if (!e) return { ok: false, message: 'eat_own: the village keeps no appetite for you' };
+  if (!chest) return { ok: false, message: 'eat_own: you have no chest at home' };
+  const meal = chooseMeal(e.level, chest.items);
+  if (!meal) return { ok: false, message: 'eat_own: nothing to eat in your own chest' };
+  const n = Math.min(meal.n, chest.items[meal.item] ?? 0);
+  chest.items[meal.item] -= n;
+  if (!chest.items[meal.item]) delete chest.items[meal.item];
+  own.used[meal.item] = (own.used[meal.item] ?? 0) + n;
+  const before = e.level;
+  e.level = Math.min(APPETITE.cap, e.level + n * (FOOD_POINTS[meal.item] ?? 0));
+  e.meals = (e.meals ?? 0) + 1;
+  e.lastMeal = { at: c.now, item: meal.item, n };
+  v.food.eaten[meal.item] = (v.food.eaten[meal.item] ?? 0) + n;
+  v.food.meals = (v.food.meals ?? 0) + 1;
+  return { ok: true, message: `ate ${n} ${meal.item} from your own chest (appetite ${Math.round(before)} -> ${Math.round(e.level)} of 20)` };
 }
 
 function eatMeal(_args: Any, c: Ctx): Outcome {
@@ -751,5 +811,6 @@ function makeIntoStorage(args: Any, c: Ctx): Outcome {
 export const MODELS: Record<string, (args: Any, c: Ctx) => Outcome> = {
   lay_out_houses: layOutHouses, prepare_site: prepareSite, light_streets: lightStreets, put_up_signs: putUpSigns, make_into_storage: makeIntoStorage,
   deposit, withdraw, collect, harvest_farm: harvestFarm, harvest_slot: harvestSlot, eat_meal: eatMeal, make,
+  place_own_chest: placeOwnChest, carry_home: carryHome, eat_own: eatOwn,
   put_up_torches: putUpTorches, furnish, collect_eggs: collectEggs, build_design: buildDesign, prepare_green: prepareGreen, fish, trade,
 };

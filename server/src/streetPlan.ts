@@ -691,7 +691,7 @@ export interface DecorSpot { x: number; layer: number; z: number; block: string;
  * grindstone runs along it. The caller skips the huts and town centres. Pure (scripts/checks/decor_check.mts checks it at
  * four turns over the vanilla houses).
  */
-export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: LightSpot[]; signs?: SignSpot[] } = {}): DecorSpot[] {
+export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: LightSpot[]; signs?: SignSpot[]; chest?: { spot?: { x: number; z: number; facing: SignSpot['facing'] } } } = {}): DecorSpot[] {
   const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
   // (worked out in the design's own cells, so distances and ties are the same at every turn; turned at the end)
   const cell = (l: number, i: number, j: number) => {
@@ -744,7 +744,9 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
   const chosen: Array<(typeof cands)[number]> = [];
   const dist2 = (a: { i: number; j: number }, b: { i: number; j: number }) => (a.i - b.i) ** 2 + (a.j - b.j) ** 2;
   const tried = new Set<string>();
-  while (chosen.length < want) {
+  // (#68: one more spot by the same rule, after the furniture's, for its owner's chest; the furniture's are the same with
+  // or without it, the choice being greedy)
+  while (chosen.length < want + (opts.chest ? 1 : 0)) {
     const from = chosen.length ? chosen : [{ i: door[0], j: door[1] }];
     let best: (typeof cands)[number] | null = null, bestD = -1;
     // (a strict > keeps the first in the piece's order on ties)
@@ -761,6 +763,13 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
     chosen.push(best);
   }
   const PIECES = ['chair', 'table', 'crafting_table', 'barrel', 'grindstone', 'composter'] as const;
+  if (opts.chest && chosen.length > want) {
+    const c = chosen.pop()!;
+    let wall = c.wall;
+    for (let r = 0; r < rot; r++) wall = CLOCKWISE[wall];
+    // (a chest faces away from its wall)
+    opts.chest.spot = { ...world(c.i, c.j), facing: CLOCKWISE[CLOCKWISE[wall]] };
+  }
   return chosen.map((c, n) => {
     let wall = c.wall;
     for (let r = 0; r < rot; r++) wall = CLOCKWISE[wall];

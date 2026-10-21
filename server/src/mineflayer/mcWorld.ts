@@ -36,12 +36,13 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, storageContents, storageSlots, storageStrays } from './mcStorage';
+import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
+import { OWN, SHARED, earnShare, netPut, openWants, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
-import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace } from '../streetPlan';
+import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
 import { signpostText } from '../placeNames';
@@ -78,6 +79,8 @@ export interface SpawnOptions {
  */
 type ChoiceState = {
   id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string>;
+  /** #68: the member's commons flow (put minus taken) at the start, for its share of the net yield. */
+  flow?: Counts;
   /** A.2: when it ended (heldKeys' async hold), its decision, the further keys it holds, what it was (kind, option id and
    *  name), and for an explore its ring point with how much of its land the atlas knew at the start. */
   endedAt?: number; decisionId?: string; holds: string[]; kind?: ChoiceKind; option?: string; name?: string;
@@ -117,6 +120,8 @@ export type LightPart = {
 export type DecorPart = {
   part: string; label: string; structure: Structure; place: SignPlace; walk?: number;
   spots: Array<DecorSpot & { y: number }>; open: Array<DecorSpot & { y: number }>;
+  /** #68 (MC_OWN): the cell for its owner's chest (one more spot by buildingDecor's rule, facing away from its wall). */
+  chest?: { x: number; y: number; z: number; facing: string };
 };
 
 /** Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. */
@@ -688,13 +693,15 @@ export class MineflayerWorld implements WorldAdapter {
     for (const P of buildings) {
       const st = P.structure!, place = P.place!;
       const lights: LightSpot[] = P.spots.map((q) => ({ x: q.x, layer: q.y - st.y, z: q.z, block: q.block, ...(q.facing ? { facing: q.facing as LightSpot['facing'] } : {}), src: q.src ?? 'code', inside: true }));
-      const spots = buildingDecor(place, wood, { lights, signs })
+      const chest: { spot?: { x: number; z: number; facing: SignSpot['facing'] } } | undefined = OWN.on ? {} : undefined;
+      const spots = buildingDecor(place, wood, { lights, signs, ...(chest ? { chest } : {}) })
         .filter((q) => q.x >= st.x1 && q.x <= st.x2 && q.z >= st.z1 && q.z <= st.z2 && q.layer >= 1 && q.layer < place.design.height && (!q.also || q.also.layer < place.design.height))
         .map((q) => ({ ...q, y: st.y + q.layer }));
       if (!spots.length) continue;
       const r = v.decor?.[P.part];
       const open = spots.filter((q) => !r?.done.includes(`${q.x},${q.y},${q.z}`) && !r?.never?.includes(`${q.x},${q.y},${q.z}`));
-      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open });
+      const own = chest?.spot && chest.spot.x >= st.x1 && chest.spot.x <= st.x2 && chest.spot.z >= st.z1 && chest.spot.z <= st.z2 ? { x: chest.spot.x, y: st.y + 1, z: chest.spot.z, facing: chest.spot.facing } : undefined;
+      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}) });
     }
     parts.sort((p, q) => q.open.length - p.open.length);
     this.decorCache.set(v.name, { sig, parts });
@@ -2080,6 +2087,37 @@ export class MineflayerWorld implements WorldAdapter {
   private homeOf(v: Village, name: string): Structure | Task | undefined {
     return v.structures.find((s) => s.owner === name && isDwelling(s.kind))
       ?? v.tasks.find((t) => t.owner === name && /^Build /.test(t.title) && t.status !== 'failed');
+  }
+
+  /**
+   * #69 (MC_OWN): a member's own wants as code measures them: meals' worth of food in its own chest and its appetite, its
+   * own house's open furniture and unlit spots, the tools it lacks (hands and own chest), its own initiative's missing
+   * materials. Null for a member with no house (no own stock yet).
+   */
+  wantsOf(v: Village, name: string): Wants | null {
+    const home = this.homeOf(v, name);
+    if (!home || !('owner' in home) || !('x1' in home)) return null;
+    const own = v.homes?.[name];
+    const items = own?.chest?.items ?? {};
+    const lvl = appetiteOn(v) ? v.food.members[name]?.level : undefined;
+    const st = home as Structure;
+    const decor = this.decorParts(v).find((P) => P.structure?.id === st.id);
+    const light = this.lightParts(v).find((P) => P.kind === 'building' && P.structure?.id === st.id);
+    const b = this.agents.get(name.toLowerCase());
+    const has = { ...items, ...(b ? heldCounts(b) ?? {} : {}) };
+    const tools = [['a pickaxe', /^(stone|iron|diamond)_pickaxe$/], ['an axe', /_axe$/], ['a fishing rod', /^fishing_rod$/]] as const;
+    const it = (v.initiatives ?? []).find((i) => i.by === name && i.state === 'open');
+    let project: Wants['project'];
+    if (it && v.designs[it.design]) {
+      const missing = Object.fromEntries(Object.entries(this.materials.plan(inWood(designBill(v.designs[it.design]), this.catalogWoodOf(v)), it.gathered ?? {}).gather).filter(([, q]) => q > 0));
+      project = { kind: it.kind.replace(/_/g, ' '), missing };
+    }
+    return {
+      food: { meals: Math.floor(foodPoints(items) / 8), hungry: lvl !== undefined && lvl <= APPETITE.eatAt },
+      house: { furnish: decor?.open.length ?? 0, light: light?.unlit ?? 0 },
+      tools: tools.filter(([, re]) => !Object.entries(has).some(([n, q]) => q > 0 && re.test(n))).map(([w]) => w),
+      ...(project ? { project } : {}),
+    };
   }
 
   /** The members without a home (H1), in homeOrder. */
@@ -3564,7 +3602,7 @@ export class MineflayerWorld implements WorldAdapter {
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
     const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
-    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on ? { flow: storageFlow(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
     if (opt?.kind === 'explore' && opt.at) {
       try {
         choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
@@ -3587,7 +3625,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -3685,6 +3723,12 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     const productive = choreProductive(c.choice.kind, c.status[0]?.type ?? '', ok, message, carried, known);
+    // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
+    // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
+    if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
+      const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)));
+      if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
+    }
     logChoiceEnd({
       id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
       yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
@@ -4022,6 +4066,46 @@ export class MineflayerWorld implements WorldAdapter {
       out.push(opt);
     };
 
+    // #68 (MC_OWN): a chest in the member's own house, then its share carried home once 8 items are owed (or any food
+    // while its own chest holds under 2 meals), as far as the commons can spare them (makeSpare, less the meals others
+    // are on their way to)
+    if (OWN.on && this.homeOf(v, a.name) && !busy.has(`own:${a.name.toLowerCase()}`)) {
+      const me = `own:${a.name.toLowerCase()}`;
+      const own = v.homes?.[a.name];
+      const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
+      const P = st ? this.decorParts(v).find((q) => q.structure.id === st.id) : undefined;
+      if (!own?.chest) {
+        if (P?.chest) add({
+          id: 'own:chest', kind: 'own', key: me, excludes: [`${me}=`], name: 'Put a chest in your own house', rank: 940,
+          at: { x: P.chest.x, z: P.chest.z },
+          facts: `your ${words(st!.kind)} has no chest; one takes 2 logs from storage; ${dist(P.chest.x, P.chest.z)}`,
+          effect: 'a chest of your own: your share of what you bring in goes there',
+        }, { kind: 'own', what: 'chest' });
+        else reasons.own ??= 'no cell for a chest';
+      } else {
+        const owed = own.owed;
+        const total = Object.values(owed).reduce((t, q) => t + q, 0);
+        const lowFood = foodPoints(own.chest.items) < 16 && Object.keys(owed).some((n) => FOOD_POINTS[n] !== undefined);
+        if (total >= 8 || lowFood) {
+          const spare = this.makeSpare(v, a.name);
+          const meals = storeForMeals(v.name, store, a.name);
+          const want: Counts = {};
+          for (const [n, q] of Object.entries(owed)) {
+            const k = Math.min(q, Math.floor(spare[n] ?? store[n] ?? 0), meals[n] ?? store[n] ?? 0);
+            if (k > 0) want[n] = k;
+          }
+          const n = Object.values(want).reduce((t, q) => t + q, 0);
+          if (n) add({
+            id: 'own:carry', kind: 'own', key: me, excludes: [`${me}=`], name: 'Take your share home', rank: 941,
+            at: { x: own.chest.x, z: own.chest.z },
+            facts: `owed you: ${Object.entries(owed).slice(0, 6).map(([k, q]) => `${q} ${words(k)}`).join(', ')}; the storage can spare ${n} now; ${dist(own.chest.x, own.chest.z)}`,
+            effect: `${n} items into your own chest`,
+          }, { kind: 'own', what: 'carry', want });
+          else reasons.own ??= 'the storage cannot spare what is owed';
+        } else reasons.own ??= total ? `${total} owed (under 8)` : 'nothing owed';
+      }
+    }
+
     // A meal first (s30's appetite, D11): a peckish member's own, while storage holds food and one of APPETITE.eaters
     // places at the hut is free (25 withdrawers at once would crowd its chest spots)
     const ap = appetiteOn(v) ? v.food!.members[a.name] : undefined;
@@ -4033,7 +4117,19 @@ export class MineflayerWorld implements WorldAdapter {
       const meal = chooseMeal(ap.level, food);
       const me = `eat:${a.name.toLowerCase()}`;
       const k = Array.from({ length: APPETITE.eaters }, (_, i) => i + 1).find((i) => !busy.has(`eaters:${i}`));
-      if (!meal) reasons.eat = 'no food in storage';
+      // (#68: a meal of its own first, eaten at its own door; no hut place held)
+      const mine = OWN.on ? v.homes?.[a.name]?.chest : undefined;
+      const ownMeal = mine ? chooseMeal(ap.level, mine.items) : null;
+      if (ownMeal && !busy.has(me)) {
+        const after = Math.min(APPETITE.cap, ap.level + ownMeal.n * FOOD_POINTS[ownMeal.item]);
+        add({
+          id: 'eat:own', kind: 'eat', key: me, excludes: [`${me}=`], name: 'Eat a meal from your own chest', rank: -1,
+          at: { x: mine!.x, z: mine!.z },
+          facts: `you: appetite ${Math.round(ap.level)} of 20; your own chest: ${foodText(mine!.items)}; ${dist(mine!.x, mine!.z)}`,
+          effect: `back to about ${Math.round(after)} of 20 (${ownMeal.n} ${words(ownMeal.item)})`,
+        }, { kind: 'eat', level: ap.level, item: ownMeal.item, n: ownMeal.n, own: true });
+        reasons.eat ??= 'eats from its own chest';
+      } else if (!meal) reasons.eat = 'no food in storage';
       else if (busy.has(me) || k === undefined) reasons.eat = 'busy';
       else {
         const after = Math.min(APPETITE.cap, ap.level + meal.n * FOOD_POINTS[meal.item]);
@@ -4834,6 +4930,24 @@ export class MineflayerWorld implements WorldAdapter {
         }
       }
     }
+    // #69 (MC_OWN): the member's own wants weigh on the options that answer them, 1 + 0.3 a want (food work for its own
+    // food, its own house's furnishing and lighting, a tool it lacks made, its own project's steps)
+    if (OWN.on) {
+      const w = this.wantsOf(v, a.name);
+      if (w && openWants(w).length) {
+        const food = w.food.meals < 2, house = !!w.house && (w.house.furnish > 0 || w.house.light > 0);
+        const tools = new Set(w.tools);
+        const mine = (v.initiatives ?? []).find((i) => i.by === a.name && i.state === 'open');
+        for (const o of out) {
+          let n = 0;
+          if (food && o.kind !== 'eat' && (isFoodKind(o.kind, o) || o.kind === 'activity' || o.kind === 'own')) n++;
+          if (house && (o.kind === 'furnish' || o.kind === 'light') && /your own house/.test(o.facts ?? '')) n++;
+          if (tools.size && o.kind === 'make' && ((tools.has('a pickaxe') && /pickaxe$/.test(o.id)) || (tools.has('an axe') && /_axe$/.test(o.id)) || (tools.has('a fishing rod') && /fishing_rod$/.test(o.id)))) n++;
+          if (mine && o.kind === 'help') { const d = OPTION_RUN.get(o); if (d?.kind === 'help' && d.id === mine.id) n++; }
+          if (n) o.ww = 1 + 0.3 * n;
+        }
+      }
+    }
 
     // The appetite (s30): the food makes and the meal in rank order (the fixed sweep runs the first option); a hungry member
     // takes food work only (D8), the rest guarded in model mode, left out in fixed mode, with why
@@ -4921,6 +5035,8 @@ export class MineflayerWorld implements WorldAdapter {
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
+      // (#69: the member's own wants, one line)
+      ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
       // (N.1: the needs at LOW or above, most acute first)
       ...(NEEDS_MODE === 'on' && (this.needReadings.get(v.name) ?? []).some((r) => r.level >= LOW)
         ? { needs: (this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).sort((x, y) => y.level - x.level).slice(0, 3).map((r) => r.text) } : {}),
@@ -4936,7 +5052,17 @@ export class MineflayerWorld implements WorldAdapter {
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
+      case 'own':
+        if (d.what === 'chest') this.setChore(v, worker, opt.key, [worker.enqueue('place_own_chest', { chore: true })], 'put a chest in your own house', undefined, meta, opt.holds, opt);
+        else this.setChore(v, worker, opt.key, [worker.enqueue('carry_home', { want: d.want, chore: true })], 'take your share home', undefined, meta, opt.holds, opt);
+        console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'chest' ? 'put a chest in its house' : `take ${Object.entries(d.want).map(([n, q]) => `${q} ${n}`).join(', ')} home`}`);
+        return;
       case 'eat':
+        if (d.own) {
+          this.setChore(v, worker, opt.key, [worker.enqueue('eat_own', { chore: true })], `eat ${d.n} ${d.item} from your own chest`, undefined, meta, opt.holds, opt);
+          console.log(`[food] ${v.name}: ${worker.name} goes to eat ${d.n} ${d.item} from its own chest (${d.level.toFixed(1)} of 20)`);
+          return;
+        }
         this.setChore(v, worker, opt.key, [worker.enqueue('eat_meal', { chore: true })], `eat ${d.n} ${d.item}`, undefined, meta, opt.holds, opt);
         // (held from the other members' meals and claims until the chore ends: lens 1 M1)
         holdMeal(v.name, worker.name, { item: d.item, n: d.n });
@@ -5806,7 +5932,9 @@ type OptionRun =
   | { kind: 'initiate'; work: string; green?: boolean }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'grow'; houseless: number }
-  | { kind: 'eat'; level: number; item: string; n: number }
+  | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
+  | { kind: 'own'; what: 'chest' }
+  | { kind: 'own'; what: 'carry'; want: Counts }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
@@ -5816,7 +5944,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
