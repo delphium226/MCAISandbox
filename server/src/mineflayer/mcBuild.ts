@@ -251,8 +251,15 @@ async function requeueBuild(a: BotAgent, job: Job, need: Counts, short: Counts, 
   for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
   for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
   const plan = a.world.materials.plan(short, other);
-  // Not what no one can find near the village (sand for glass: the windows stay open when only glass is short)
+  // Not what no one can find near the village (sand for glass: the windows stay open when only glass is short), nor what
+  // a gather task already failed to find at all (s43's Rch6: a savanna quarter's sandstone, posted and failed 40 times in
+  // an hour while the public work never ended): the build fails instead, and its work with it
   for (const n of v.unavailable ?? []) delete plan.gather[n];
+  for (const t of v.tasks)
+    if (t.status === 'failed' && /cannot be gathered here/.test(t.result ?? '')) {
+      const m = /^collect block=(\S+) /.exec(t.detail);
+      if (m) for (const n of Object.keys(plan.gather)) if (n.replace(/^any:/, '') === m[1]) delete plan.gather[n];
+    }
   if (!Object.keys(plan.gather).length || plan.problems.length) return '';
   // A log spare (a second requeue for one log happened), of any kind: the builder splits a part across kinds, and the
   // village's own kind may be what ran short near here

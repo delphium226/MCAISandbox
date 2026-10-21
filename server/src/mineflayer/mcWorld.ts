@@ -1858,7 +1858,7 @@ export class MineflayerWorld implements WorldAdapter {
       const want: Record<string, number> = {};
       for (const h of hs) for (const [k, q] of Object.entries(h.gather)) if (!/(_log|^logs|^cobblestone|^sand|^dirt)$/.test(k)) want[k] = (want[k] ?? 0) + (q / hs.length) * GROW.batch;
       if (Object.keys(want).length) {
-        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, VILLAGE_RANGE) : null;
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, WORK_MATERIAL_RANGE) : null;
         if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) {
           console.log(`[vote] ${v.name}: ${STYLE_LOOK[b].name} left off the ballot (${Object.entries(want).map(([k, q]) => `${Math.ceil(q)} ${k}`).join(', ')} wanted near home; ${found ? `found ${Object.entries(want).map(([k]) => found[k] ?? 0).join(', ')}` : 'no member near home to look'})`);
           continue;
@@ -2316,7 +2316,7 @@ export class MineflayerWorld implements WorldAdapter {
       const want: Counts = {};
       for (const [k, q] of Object.entries(w.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) want[k] = q;
       if (Object.keys(want).length) {
-        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, VILLAGE_RANGE) : null;
+        const found = near && home ? this.materialsNear(near.name, want, home.x, y, home.z, WORK_MATERIAL_RANGE) : null;
         if (!found || Object.entries(want).some(([k, q]) => (found[k] ?? 0) < Math.ceil(q))) continue;
       }
       // (with the quarter it leads: its companions' uncommon materials checked the same way, X.2 part 2a)
@@ -2325,7 +2325,7 @@ export class MineflayerWorld implements WorldAdapter {
       const others: Counts = {};
       for (const c of q.pieces.slice(1)) for (const [k, n] of Object.entries(c.gather)) if (!/(_log|^any:logs|^logs|cobblestone|^sand|^dirt)$/.test(k)) others[k] = (others[k] ?? 0) + n;
       if (Object.keys(others).length) {
-        const found = near && home ? this.materialsNear(near.name, others, home.x, y, home.z, VILLAGE_RANGE) : null;
+        const found = near && home ? this.materialsNear(near.name, others, home.x, y, home.z, WORK_MATERIAL_RANGE) : null;
         if (!found || Object.entries(others).some(([k, n]) => (found[k] ?? 0) < Math.ceil(n))) continue;
       }
       kinds.add(kind);
@@ -5834,6 +5834,9 @@ interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
 /** #75: public works may repeat a piece once the unbuilt ones run out (off by default, s43). */
 const WORKS_REPEAT = /^(on|1|true)$/i.test(process.env.MC_WORKS_REPEAT ?? 'off');
+/** How far a public work's uncommon materials are looked for (96, not the village range: at 144 the atlas saw sandstone
+ *  that collect never reached, and a savanna quarter waited an hour for it, s43's Rch6). */
+const WORK_MATERIAL_RANGE = 96;
 /** Menu reasons that do not block a need (needNote): another member is on it, this member only, or it is under way. */
 const NOT_BLOCKING = new Set(['busy', 'hungry', 'has a house', 'a street is asked for', 'a layout is being built', 'a vote is under way']);
 const PROJECT_FARMSTEAD = 'farmstead';
