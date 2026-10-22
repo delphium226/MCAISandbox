@@ -714,3 +714,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   it was party to or heard of. Claude's, the user away overnight (10-21): Experiment 1 runs with MCAI_TEMPERAMENT=off in
   both arms (A.3p's sociability weight reads how many others are on a kind, a channel of social perception (b2) would
   keep) and with skill off (a non-social driver of specialisation that could mask the contrast).
+- 10-22 (g5-proposals session, #13) **G5's design, Claude's, the user away overnight** (the planning session's brief):
+  proposals come from the night's reflection, at most one a member-night, offered only on nights with a reason code can
+  see (not from the 90-second decision call: gpt-oss fills optional fields it is offered there, F273); five kinds
+  (activity, item, work, rule, fix); code answers outright only what it can settle (impossible in this world; already
+  possible for item and activity proposals), and everything else goes to a headless Claude Code triage (`claude -p` on
+  the user's subscription, no tools, settings or MCP servers, an empty folder, members' words as data) whose verdicts code
+  guards (never accept what code found impossible; the user's calls and config changes deferred to the user; the foundry
+  only for a ticketable capability); duplicates count as endorsements; two backers, a fix seen 3+ times or a capability
+  in the wanted top 3 sends a proposal to triage; verdicts reach members as a pinned memory line and an inbox report
+  (hooks after G2); accepted ones go to `accepted.json` for the foundry's queue (a hook) and to issue drafts, none filed
+  automatically. MC_PROPOSALS (off). **Open** (the user's): the five deferred proposals (farm and works radii, plot
+  reservations, an automated coop), and whether triage may file issues itself.

@@ -1545,3 +1545,28 @@ CLAUDE.md when a phase ends.
   wants only food under 16 points or an own recipe's missing input, and members hold 60-90 goods; and it drafts wants
   only for goods another member can spare, so by construction it never names a missing capability); no need reached `no
   answer`; merchant orders are off. Filed #89 (make demand visible) rather than tuning weights.
+- F276 (10-22, g5-proposals session, #13, #71, #89) **Asked at night, members propose improvements on about 1 night in
+  7, and their proposals cluster on what keeps failing for them; code settles little, the triage settles all.**
+  `scripts/proposals_draft.mts` re-asked 80 real night-reflection prompts of G1a and G2a (24 "reason nights" with a
+  failure or refusal that day, 56 drawn at random; 2 samples each, gpt-oss medium, $0.08) with proposals.ts' optional
+  `propose` field: 24 proposals in 160 replies (15%; reason nights 8 of 48, random 16 of 112), plus 5 `fix` drafts from
+  failures that recurred in the decision logs. Themes, in the members' words: shared storage for tools, logs, seeds, torches
+  or eggs (10); farms that cannot find a free 9x9 site (9: a wider radius, reserved plots, a plot-finder tool, pumpkins on
+  dirt, a seed pack); a wider radius for public works, a request board, an automated coop, a tool crafting station, an
+  irrigation block (5). 12 of 29 were duplicates of
+  an open one (counted as backing it). Code's check (after three rounds of fixes on these very proposals): ok 8, the
+  user's call 5, unclear 4, nothing it could answer outright (its "you can already" answers were wrong 5 of 5 on works
+  and rules naming items in passing, so code now answers only item and activity proposals). The triage
+  (`scripts/triage_proposals.mts`, headless `claude -p`, no tools, Opus 5.5; 2 runs, 66 s, $0.13): accepted 4 (a request
+  board, a chest by the pens, the farm-site failure, the birch-sign failure), rejected 8 with how it already works
+  (shared storage holds tools and logs; water already keeps farmland wet), deferred 5 to the user (wider farm and works
+  radii, plot reservations). Its reasons are plain and correct about this world; it does not know G2's acts (it accepted
+  a request board, which G2's requests already are). Logs: runs/2026-10-21/g5-proposals/ (report.md, draft.log,
+  triage.log, proposals.json, accepted.json).
+- F277 (10-22, g5-proposals session) **gpt-oss fills an optional object field with keys of its own invention, and the
+  night's parsers were dropping them.** Of 24 filled `propose` fields, none used the schema's `what`/`why`: they came as
+  `{"remoteFarmPlots": "Allow players to claim..."}`, `{"increasePumpkinFarmPlacementRadius": 5, "reason": ...}` or
+  `{"birchLogExchange": {"description": ...}}`; parsed by the schema alone, 0 of 24 survived (the first parse). The same
+  holds for G1's notes: in G1a's 148 reflections, 98 note items came as `{content, id}` or `{content, replace}` and
+  society.ts' parseReflect dropped them (#90; G2a 16). Parse by shape (the key in words, the first sentence-long value, a
+  nested description), keep the raw replies, and count fill against parse.

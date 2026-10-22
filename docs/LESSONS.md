@@ -632,3 +632,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 160. **A demand signal names only what its generator can draft** (G6, F275): barter wants are drawn from goods another
    member can spare, so no barter want can ever name a capability nobody has. Before ranking on a demand source, read
    the code that produces it and ask whether the thing you want it to show can appear there at all.
+161. **Record a model's raw replies before trusting a parser of its optional fields** (G5, F277): 24 proposals came back
+   and the first parse kept none, because gpt-oss names the fields itself. With the calls recorded
+   (`MC_MODEL_RECORD`) and the chosen prompts saved, a fixed parser re-reads the same replies free and exactly
+   (`MC_MODEL_REPLAY`, 160 of 160 matched); count "field filled" beside "parsed" in every bench of an optional field.

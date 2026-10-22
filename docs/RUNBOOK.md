@@ -293,6 +293,23 @@ the short version; look here for a check script's arguments, a model detail or w
   specialisation index, persistence, and `--arms A=... B=...` the exact permutation contrast),
   `scripts/bench/socialbench.mts` (A acts and requests, B a broken promise's counterfactual, on G1a's real prompts).
 
+## Members' proposals and their triage (G5, goal 3; 2026-10-22)
+
+- **What exists (offline; the live path waits on G2's hooks, `runs/2026-10-21/g5-proposals/hooks.md`):**
+  `server/src/proposals.ts` (`MC_PROPOSALS`, off): typed proposals (activity, item, work, rule, fix) kept in
+  `proposals.json` beside villages.json; code's check (`checkProposal`: impossible in this world, the user's call, a
+  failing chore, already possible and how, costed through the recipe graph with the capability that would unlock it);
+  duplicates as endorsements; the night's `propose` field (`withPropose`, `proposeLine`, `parsePropose`, which reads
+  gpt-oss's invented keys); the triage's prompt, reply parser and code's guard on verdicts.
+- **Draw proposals from a run:** `node_modules/.bin/tsx scripts/proposals_draft.mts RUN [RUN...] --nights 80` asks real
+  night-reflection prompts (RUN.acts.jsonl) again with the `propose` field (gpt-oss, 2 samples a night) and adds
+  recurring failures as `fix` drafts; `--reuse` with `MC_MODEL_REPLAY=<its calls>` re-parses the same replies free.
+- **Triage:** `node_modules/.bin/tsx scripts/triage_proposals.mts --store DIR [--all] [--audit N] [--dry]` runs the
+  native `claude -p` with no tools, settings or MCP servers from an empty temp folder (members' words are data), on the
+  user's subscription; verdicts with members' reasons go back into the store, accepted ones to `accepted.json` and
+  `triage_issues.md` (drafts; nothing is filed). `--max-budget-usd` caps a run (`--budget`, default 1).
+- **Check:** `scripts/checks/proposals_unit.mts` (offline).
+
 ## Models (gpt-oss for every role; local models as a fallback)
 
 - **Every role defaults to `ollama:gpt-oss:120b-cloud`** (the user's decision, 2026-10-10, A.0): mayor, architect,
