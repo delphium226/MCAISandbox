@@ -22,7 +22,7 @@ import { refusedSince } from './acts';
 import { addLaw, backLaw, classOf, laws, rulesInForce, type Law } from './rules';
 import { councilOn, councilTick } from './council';
 import {
-  FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, villageLineShown, villageMemory,
+  FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, scrub, villageLineShown, villageMemory,
   type Phase,
 } from './memory';
 
@@ -201,13 +201,13 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
     sch.properties.law = { type: 'object', description: 'Optional, and rare: a village rule you propose.', properties: { what: { type: 'string', maxLength: 140, description: 'The rule, one sentence.' }, why: { type: 'string', maxLength: 200 } }, required: ['what'] };
     if (openLaws.length) sch.properties.back_laws = { type: 'array', maxItems: 2, items: { type: 'object', properties: { id: { type: 'string', enum: openLaws.map((l) => l.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
   }
-  if (!pr) return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools };
+  if (!pr) return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools };
   const withP = withPropose(tools);
   if (pr.others.length) {
     const sch = withP[0].input_schema as { properties: Record<string, unknown> };
     sch.properties.back = { type: 'array', maxItems: 2, description: "Optional: others' proposals you back (or oppose) because your own day met the same need.", items: { type: 'object', properties: { id: { type: 'string', enum: pr.others.slice(0, 3).map((p) => p.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
   }
-  return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools: withP };
+  return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools: withP };
 }
 
 /** The reply's notes and intention, from the reflect call's input (arguments written as strings normalised). With `quality`

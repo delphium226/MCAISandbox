@@ -111,6 +111,14 @@ soc.setSocialSettings({ mode: 'off' });
 ok(!mem.villageLineShown(), 'the village line hidden under off');
 soc.setSocialSettings({ mode: 'on' });
 
+// Names scrubbed under off (E1b4's leak: a skill's failure message naming a member)
+const failLine = 'Start a wheat farm of your own by your house: failed (cannot work at x 1..2: Ben has reserve), 0.1 min';
+ok(mem.scrub(V, 'Ada', failLine) === failLine, 'nothing scrubbed under on');
+soc.setSocialSettings({ mode: 'off' });
+ok(mem.scrub(V, 'Ada', failLine).includes('a member has reserve') && !/\bBen\b/.test(mem.scrub(V, 'Ada', failLine)), 'a member under off');
+ok(soc.scrubNames(V, 'Ada', "Ada lit the Mayor's house; Zoe and Mayor came") === "Ada lit the Mayor's house; a member and a member came", 'its own name and "the Mayor" stay');
+soc.setSocialSettings({ mode: 'on' });
+
 // Skill from practice (#17)
 const sk = await import('../../server/src/skill');
 ok(sk.skillLine(V, 'Eve') === '' && sk.skillOf(V, 'Eve', 'farm') === 0, 'skill off: nothing');

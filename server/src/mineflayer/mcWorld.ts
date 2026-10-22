@@ -65,7 +65,7 @@ import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, 
 import { setProposalCtx } from '../society';
 import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
-import { clockOf, noteAnswer, toldAnswer } from '../memory';
+import { clockOf, noteAnswer, scrub, toldAnswer } from '../memory';
 import { tellMember } from '../acts';
 import { RULES, breaks, duties, levyRate, noteCompliance, noteTakes, rulesLine } from '../rules';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
@@ -5719,7 +5719,7 @@ export class MineflayerWorld implements WorldAdapter {
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       ...(block ? { social: block } : {}), ...(role ? { role } : {}), ...(skill ? { skill } : {}), ...(rules ? { rules } : {}),
-      outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
+      outcomes: this.choiceStats.outcomes(v.name, a.name, 5).map((l) => scrub(v.name, a.name, l)),
       // (#69: the member's own wants, one line)
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
       // (#79: the member's life goal and its progress, one line)
