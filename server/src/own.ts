@@ -191,3 +191,67 @@ export function wantsLine(w: Wants): string {
   const o = openWants(w);
   return o.length ? `Your wants: ${o.join('; ')}.` : '';
 }
+
+/**
+ * G3's levy on the decision call (spec runs/2026-10-21/g3-rules/spec.md 4, as revised): a sharing chore's share is
+ * pending, not owed, until the member's next model decision says how much of it to leave in the village storage (none,
+ * the levy's amount, or all). The caller (the world, behind MC_RULES' levy) decides when to pend, ask and settle; with
+ * nothing pended these change nothing. Pending goods are counted as owed nowhere: they sit in the commons until settled.
+ */
+export interface Pending { items: Counts; since: number }
+export type ShareSplit = 'none' | 'levy' | 'all';
+
+const pendingRec = (own: OwnStock) => own as OwnStock & { pending?: Pending };
+
+/** A net yield's share pended (earnShare's fractions and exclusions; `now` starts its age if none was pending). */
+export function pendShare(own: OwnStock, net: Counts, now: number, share = OWN.share): Counts {
+  const tmp: OwnStock = { owed: {}, got: {}, used: {}, ...(own.part ? { part: own.part } : {}) };
+  const added = earnShare(tmp, net, share);
+  if (tmp.part) own.part = tmp.part;
+  if (!Object.keys(added).length) return added;
+  const o = pendingRec(own);
+  const p = (o.pending ??= { items: {}, since: now });
+  for (const [n, q] of Object.entries(added)) p.items[n] = (p.items[n] ?? 0) + q;
+  return added;
+}
+
+/** The member's pending share (items, their total, since when), or null. */
+export function pendingOf(own: OwnStock | undefined): (Pending & { total: number }) | null {
+  const p = own ? pendingRec(own).pending : undefined;
+  if (!p) return null;
+  const total = Object.values(p.items).reduce((t, q) => t + q, 0);
+  return total > 0 ? { ...p, total } : null;
+}
+
+/** What the levy at `rate` (0..1) leaves of a pending total: rounded, at least 1 when both are above 0, at most all. */
+export const levyLeft = (total: number, rate: number) => (total <= 0 || rate <= 0 ? 0 : Math.min(total, Math.max(1, Math.round(total * rate))));
+
+/**
+ * The member's answer: `none` owes it all, `levy` leaves levyLeft(total, rate) items in the commons (the most plentiful
+ * first) and owes the rest, `all` leaves everything. Returns what became owed and what was left; null with nothing
+ * pending.
+ */
+export function settlePending(own: OwnStock, split: ShareSplit, rate: number): { kept: Counts; left: Counts } | null {
+  const p = pendingOf(own);
+  if (!p) return null;
+  let leave = split === 'all' ? p.total : split === 'levy' ? levyLeft(p.total, rate) : 0;
+  const kept: Counts = {}, left: Counts = {};
+  for (const [n, q] of Object.entries(p.items).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))) {
+    const l = Math.min(q, leave);
+    leave -= l;
+    if (l) left[n] = l;
+    if (q - l) {
+      kept[n] = q - l;
+      own.owed[n] = (own.owed[n] ?? 0) + q - l;
+    }
+  }
+  delete pendingRec(own).pending;
+  return { kept, left };
+}
+
+/** A pending share older than `maxMs` (a village day) is kept by the member (owed whole, no levy): the lapsed goods. */
+export function lapsePending(own: OwnStock, now: number, maxMs: number): Counts | null {
+  const p = pendingOf(own);
+  if (!p || now - p.since < maxMs) return null;
+  return settlePending(own, 'none', 0)!.kept;
+}
