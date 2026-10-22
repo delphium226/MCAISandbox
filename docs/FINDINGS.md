@@ -1716,3 +1716,14 @@ CLAUDE.md when a phase ends.
     missing. The sapling's leaf trip fails to reach canopy leaves (18 failures, most of the 44 `[stuck]` lines).
 
   Logs: runs/2026-10-22/quicknext/ (report.md, staged/).
+- F288 (10-22, g2-social, the user's "Victor just stood around") **With MC_QUICK_NEXT, the sweep's fixed member order
+  starved the last members: in staged L1, Rosa to Xavier never chose (Ada 51 choices, Victor 0).** A sweep came at each
+  chore's end. The first members in the list finished short chores and took every freed option again, while up to 17
+  idle members found nothing feasible. Q0 (off) was even (Victor 17), Q1 was skewed (Ada 62, Victor 6). Fixed (975f283):
+  under MC_QUICK_NEXT the sweep serves the longest idle first, the Mayor still last; in L2 every member chose 11-17 times.
+  - The fair order lengthens each member's own wait: gap median 36.5 s against L1's 5.1 s, since options are scarce.
+  - The sapling's leaf trip takes only leaves within reach of the ground: 0 and 3 "could not reach" (L1, L2) against
+    Q1's 18.
+  - front_bed reached menus and its wildflowers were gathered, but its 4x4 box overlapped a house twice (sent to G6).
+
+  Logs: runs/2026-10-22/quicknext/leaves/.
