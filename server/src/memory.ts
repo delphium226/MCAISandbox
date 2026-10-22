@@ -45,6 +45,14 @@ export function setVillageLineShown(fn: () => boolean): void {
 }
 export const villageLineShown = () => villageLine();
 
+/** Other members' names left out of a member's remembered text (G2, MCAI_SOCIAL=off: a skill's failure message named a
+ *  member in E1b4's "Your last chores"; set by social.ts). */
+let scrubber: ((village: string, agent: string, text: string) => string) | null = null;
+export function setScrubber(fn: ((village: string, agent: string, text: string) => string) | null): void {
+  scrubber = fn;
+}
+export const scrub = (village: string, agent: string, text: string) => (scrubber ? scrubber(village, agent, text) : text);
+
 /** Test hook: set the settings (memory_unit.mts). */
 export function setMemorySettings(s: Partial<typeof MEMORY>): void {
   Object.assign(MEMORY, s);
@@ -679,7 +687,7 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
     kept = kept.filter((_, j) => j !== i);
     out = [head, ...kept.map((l) => l.text)];
   }
-  let text = out.join('\n');
+  let text = scrub(village, agent, out.join('\n'));
   if (text.length > cap) text = `${text.slice(0, cap - 3)}...`;
   if (o.mark !== false && a) {
     for (const n of live) if (kept.some((l) => l.items.includes(n.id))) n.shown++;
@@ -691,7 +699,7 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
 
 /** The last n end lines (the chooser's "Your last chores" after a restart emptied the statistics). */
 export function lastLines(village: string, agent: string, n: number): string[] {
-  return (agentMemory(village, agent)?.log ?? []).slice(-n).map((e) => e.line);
+  return (agentMemory(village, agent)?.log ?? []).slice(-n).map((e) => scrub(village, agent, e.line));
 }
 
 // ---------------------------------------------------------------------------------------------

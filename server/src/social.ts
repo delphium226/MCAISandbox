@@ -15,7 +15,8 @@
  *                      no names, no others' activity in any prompt; E.8's (b2))
  *   MCAI_SOCIAL_ROLES  hide (default) | show: the member's role inferred by code shown back to it (E.8's (e))
  */
-import { KIND_WORDS, MEMORY, logAct, setVillageLineShown, socialOf, touchMemory } from './memory';
+import { KIND_WORDS, MEMORY, logAct, membersOf, setScrubber, setVillageLineShown, socialOf, touchMemory } from './memory';
+import { NAME_POOL } from './agentNames';
 
 const MODES = ['legacy', 'on', 'noblock', 'countsonly', 'off'] as const;
 export type SocialMode = (typeof MODES)[number];
@@ -35,6 +36,20 @@ export function setSocialSettings(s: Partial<typeof SOCIAL>): void {
 
 // (the village's day line names members and counts their work: left out under off)
 setVillageLineShown(() => !socialOff());
+// (and under off, any other member's name a remembered line carries, a skill's failure message among them: "a member")
+setScrubber((village, agent, text) => (socialOff() ? scrubNames(village, agent, text) : text));
+
+/** Other members' names (the village's and the pool's) as "a member"; "the Mayor" is a role word and stays. */
+export function scrubNames(village: string, agent: string, text: string): string {
+  const names = new Set([...membersOf(village).map((m) => m.name), ...NAME_POOL]);
+  names.delete(agent);
+  let out = text;
+  for (const n of names) {
+    if (!out.includes(n)) continue;
+    out = n === 'Mayor' ? out.replace(/(?<!\bthe )\bMayor\b/g, 'a member') : out.replace(new RegExp(`\\b${n}\\b`, 'g'), 'a member');
+  }
+  return out;
+}
 
 /** Whether code keeps observations and profiles (the block's profiles, or acts that need them). */
 export const observing = () => SOCIAL.mode === 'on' || SOCIAL.mode === 'countsonly' || ACTS_ON();

@@ -758,3 +758,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   defaults and `foundry_queue.py`'s new tickets), in place of Gemini 4 Argon high: Argon's quota ran out on 10-21 (resets
   ~10-25; Flash high and low still answer). The five earlier tickets keep their recorded model. Flash has not written a
   ticket yet: watch its repair rounds and the gates on the first one.
+- 10-22 (motivation spec, written by the g5-proposals session for the planning session; runs/2026-10-22/motivation/spec.md)
+  **The user's choices (AskUserQuestion):** needs that bite = own food and own tools (not house wear, not an account
+  commons); ambitions = the member picks one of 2-3 code ladder branches for its goal at night (over the recommended
+  fixed ladder per goal); the village ambition = a ballot of all members at the start among 3 staged goals; the test = a
+  pilot first, then the experiment's design. **Claude's, after the adversarial check:** every ladder step names the
+  option or act that advances it and is skipped (with the reason shown) where the run offers no path (own-house furnish
+  options were 0 in G2a's 1,359 menus; trades 0); a separate step weight (1.3, inside the 6.25 cap) beside the goal's,
+  and repeats honouring weights; measures split by who decided; the experiment recommended after the pilot is M1,
+  ambitions alone against off, 5 vs 5, primary "projects carried across days" with shadow ladders in the off arm; G3's
+  validity rule (failed model calls under 5%); own-food eating exempt from bans, tools delivered to their askers; the
+  village ambition counted from delivered goods and built parts on land reserved at the start (pledges never reached
+  live menus); titles off in Experiment 1 and 3 runs; the build after Experiment 1 and after G3's Experiment 2.
