@@ -647,3 +647,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    stairs two high, the coding model built them so, and the bot could not walk back up (a step up needs headroom above
    the head); four repair rounds patched the walk, never the stairs. Before a ticket that digs or builds a way, walk the
    shape through the game's movement rules (or a quick live probe), and let the live check name the cell that blocked.
+165. **An interim reading of a model-driven pair is not a result** (g2-social, F286): at 68 minutes, persistence read
+   0.41 with character on against 0.71 off. By 120 minutes it was 0.32 against 0.28: the contrast reversed. A measure
+   built from window pairs has few pairs early on. Report an interim's counts, not its contrasts, or mark them as
+   unstable.

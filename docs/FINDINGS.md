@@ -1688,3 +1688,19 @@ CLAUDE.md when a phase ends.
   shards before the climb picked up the drops of a cluster broken on the way; now action_done with 4 shards from 1
   cluster, twice live; the climb-out still fails from a deeper staircase (#96). Logs: runs/2026-10-22/flowers/ (fl1/,
   planprobe.mts).
+- F286 (10-22, g2-social, character v2 step 5) **Character v2's layers reach the prompts and the weights, but at 25
+  members over 2 hours their effect on model decisions is small: identifiability 1.8x chance (predicted 3-6x), the
+  trait's option picked at 1.3x chance, a specialisation index above the null (0.026, p 0.02, against -0.008 off), and no
+  mood effect.** A pair at the same time on one build, CM1 (MC_CHARACTER=on, world 1) and CM0 (off, world 2), 25 members,
+  mv3_grown25, 120 minutes after completion, model choice at 1x. Both are valid (1 invalid reply each, 0.3%; prompt audit
+  clean) and both pass the health check: busy 40->28% on against 38->31% off; needs 0.90 in both.
+  - Results with character on: 58 rests by 23 members (0.39 a member-day; predicted 1-3); 8 requests taken up and kept
+    against 5.
+  - Goals from values: within 10 points of the draw except home (4%).
+  - Public works in hour 2: 25 on against 42 off (rests, and members held to their kinds of work).
+  - Predictions: identifiability, mood and rests fail; goals partly pass; the agreeableness lever is not measurable (5
+    requests shown).
+  - The interim's persistence contrast (0.41 against 0.71 at 68 min) reversed by the end (0.32 against 0.28).
+
+  The gap between chores is the same in both (median 57-58 s, the 30 s cycle; MC_QUICK_NEXT is for it). ~$1.07.
+  Logs: runs/2026-10-22/character/ (report.md, model/).
