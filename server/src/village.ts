@@ -421,6 +421,24 @@ export interface TechEntry { at: number; by: string; how: 'craft' | 'smelt'; n: 
 /** B.4: a part's torch spots ("x,y,z"): confirmed by the server, never able to hold one, skipped (runs, chunk loaded); the last run. */
 export interface LightRecord { done: string[]; never?: string[]; skips?: Record<string, number>; at: number; by: string }
 
+/** G8 (MC_LADDER): a village's ladder of ages, worked by ladder.ts. A stage's counter runs from the stage's start. */
+export interface LadderState {
+  /** The rung being worked (a wanted.ts RungId; wanted.ts reads it). */
+  current?: string;
+  /** The rungs on the open rung ballot (wanted.ts reads it); removed when the ballot closes. */
+  offered?: string[];
+  /** The current rung's stage (0-based), when it began, and its counter since. */
+  stage: number;
+  stageStart: number;
+  count: number;
+  /** Who did each stage's work: `<rung>:<stage>` -> member -> amount. */
+  work: Record<string, Record<string, number>>;
+  /** Rungs reached: when, the village day, and each stage's main workers. */
+  reached: Array<{ rung: string; t: number; day?: number; workers: string[][] }>;
+  /** Rung ballots held: when, the options, the winner. */
+  ballots: Array<{ t: number; options: string[]; winner?: string }>;
+}
+
 export interface Village {
   name: string;
   objective: string;
@@ -442,6 +460,9 @@ export interface Village {
   /** X.1: the wood kind the workshop's catalogue makes wood goods in, pinned once (v.wood, else the most stocked logs then):
    *  a kind that flipped with each gathering trip orphaned the old kind's stock and targets (the critique's 2). */
   catalogWood?: string;
+  /** G8 (MC_LADDER): the ladder of ages (ladder.ts); never written with the flag off. wanted.ts reads `current` and
+   *  `offered` only. */
+  ladder?: LadderState;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;
