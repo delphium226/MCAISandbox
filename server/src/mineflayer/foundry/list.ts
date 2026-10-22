@@ -9,10 +9,12 @@ import { FOUNDRY as fish } from './fish';
 import { FOUNDRY as trade } from './trade';
 import { FOUNDRY as honeycomb } from './honeycomb';
 import { FOUNDRY as wool } from './wool';
+import { FOUNDRY as amethyst } from './amethyst';
 
 export const FOUNDRY_SKILLS: FoundrySkill[] = [
   fish,
   trade,
   honeycomb,
   wool,
+  amethyst,
 ].map(locked);

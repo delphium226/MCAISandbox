@@ -1,0 +1,56 @@
+{
+  "id": "lib:amethyst",
+  "name": "Mine amethyst in geodes",
+  "skill": "harvest_amethyst",
+  "count": {
+    "arg": "count",
+    "max": 8
+  },
+  "needs": {
+    "stone_pickaxe": 1
+  },
+  "gives": [
+    {
+      "item": "amethyst_shard"
+    }
+  ],
+  "keep": 16,
+  "effect": "amethyst shard for the workshop's spyglass, amethyst blocks: what members wish for",
+  "research": {
+    "name": "mining amethyst shard in geodes",
+    "requires": {
+      "stone_pickaxe": 1
+    },
+    "attempt": {
+      "torch": 2
+    },
+    "minutes": 3,
+    "chance": 0.3,
+    "complexity": 5,
+    "capability": "amethyst",
+    "goods": [
+      {
+        "item": "spyglass",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "spyglass",
+        "forWhat": "spyglass from the village's amethyst shard (an invention of the village)",
+        "allow": [
+          "amethyst_shard"
+        ]
+      },
+      {
+        "item": "amethyst_block",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "amethyst blocks",
+        "forWhat": "amethyst blocks from the village's amethyst shard (an invention of the village)",
+        "allow": [
+          "amethyst_shard"
+        ]
+      }
+    ]
+  }
+}
