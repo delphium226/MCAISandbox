@@ -20,6 +20,7 @@ Usage: python scripts/foundry_queue.py [--api URL | --villages FILE] [--village 
   --write         write the ticket (without it: a dry run that prints what it would write)
   --capability ID ticket that capability (an accepted proposal routed to the foundry, #90), not the rank's first; the
                   same skips apply to it
+  --wanted FILE   a wanted.json the live writer saved (MC_WANTED; a run's own list, read after the run)
   --accepted FILE the triage's accepted.json (triage_proposals.mts): the first accepted proposal routed `foundry` whose
                   capability has no ticket yet, as --capability
 """
@@ -187,9 +188,71 @@ def skill_ticket_for(w, village, why):
     return t, None
 
 
+# The mine template (#91's second): a block sealed underground that a pickaxe breaks for its drop (amethyst clusters in a
+# geode), reached by a staircase the skill digs itself, as a locked library activity
+MINE_BRIEF = """Add a foundry skill `{skill}` to the real-Minecraft world (Mineflayer), so a village member digs its own way down to {targets_w} sealed underground and mines them for {yields_w}, and so the village's `activity` chore kind can run it from a library spec once members have researched it. Members have asked for it: this ticket was made by scripts/foundry_queue.py from village {village}'s wanted list (G6, #91): {why}. THE GAME: {facts}. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, holds)); list it in foundry/list.ts (one import, and one entry inside the array before `].map(locked)`: keep `.map(locked)`, which locks a researched activity); edit no other table. THE SKILL `{skill}`, arguments: x, y, z (one {target0_w} to go for, given by the adapter), count ({yield0_w} wanted, default {count_default}, 1..{count_max}), radius (optional, default 32, at most 64: how far to look when x, y, z are not given). It needs a pickaxe in the inventory (any: wooden, stone, iron, diamond or netherite; fail with: 'no pickaxe: withdraw one from storage'). Without x, y, z: the nearest {target0_w} within radius, found with the project's nearestBlocks helper (mcUtil.ts; never bot.findBlocks: lessons 16 and 49). THE WAY DOWN: walk on the surface (mcUtil walk/reach, which keep off village work and protected ground) to a standable cell 3-6 blocks horizontally from the target's column, not within 8 blocks (x, z) of any village's ground (onVillageGround at the surface), then dig a staircase toward the target: each step digs the two cells ahead at head and feet height and the one below them, and steps down one, by real digs with the pickaxe equipped (bot.dig; Paper times digs by the wall clock: never shorten digTime, lesson 40), never by command; turn toward the target as you go; once beside it, dig straight through what lies between you and the target (the shell: smooth basalt, calcite, amethyst blocks: these may be broken) but NEVER break {avoid_w} (step around it: dig a cell beside it instead) and never dig a cell with water, lava or a falling block (sand, gravel) next to it or above it: stop there and fail with what was found ('lava beside the way down at x,y,z: the tunnel stops there'). Read every cell before digging it (bot.blockAt; a cell not loaded or unknown is not dug). Inside, mine every {target0_w} within 4 blocks that the bot can reach (bot.dig on each, the pickaxe equipped; skip {avoid_w}) and pick up the drops (walk to item entities within 6 blocks), until count {yield0_w} are gathered or none is left within reach. Then climb back up your own staircase to the surface (walk; the stairs you dug are free cells). At most 48 cells dug in a call and 5 minutes of wall time (divide by the game's tick-rate scale as other skills do with timeScale() from mcRules.ts): past either, stop, climb out and report. Place no block; dig nothing but the staircase, the way through the shell and the {targets_w}. Count {yields_w} on the server before and after (the a.world.rcon.count helper, as foundry/fish.ts and mcAnimals.ts use). Read server/src/mineflayer/mcMine.ts's digCell, unsafe and digIronStairs for how the village's mine digs safely (do not import them: they are private and tied to the village's mine; write your own small versions in this file). Result message: 'got N {yield0_w} from K {target0_w}s at x,y,z (M left within 4 blocks; dug D cells; back at x,y,z)' and why it stopped. Failure messages say what is short and what to do next (lesson 127): no pickaxe; none of the {targets_w} within radius ('explore to find a geode'); the way down blocked (water, lava, sand above: 'try another one'); the pickaxe broke ('withdraw another'). The skill must accept anything Mineflayer can pass it (a block unloaded or gone, an item entity gone, the bot falling into the hollow: lesson 104); falling does no damage in this world. THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member: cheap and never throwing; ctx.hut is the storage hut's centre, none: {{why: 'no storage hut'}}): keep per village a list of the {targets_w} found within {reach} blocks of the hut, refreshed at most every 10 minutes by one nearestBlocks search from ctx.agent's bot (count up to 24), leaving out any within 8 blocks (x, z) of a village's ground; return {{x, y, z}} of the nearest one still a {target0} when read now (bot.blockAt; a cheap read of a loaded chunk), else {{why: 'no {target0_w} known within {reach} blocks of the storage hut away from the village (explore to find a geode)'}}; cache that answer 1 minute. activity.holds: one key per target's geode, `{id}:` and the target's x, y, z rounded down to a multiple of 16, so two members never dig toward the same geode. THE LIBRARY SPEC server/library/{id}.json (read server/src/library.ts: LibrarySpec, validateLibrarySpec and its `research` block): exactly this JSON: {spec_json}. Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts). THE LIVE CHECK scripts/checks/{id}.py (Python 3, standard library only, in the style of scripts/checks/fish.py and shear.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2). The foundry starts the agent server with MC_INNOVATE=on before it runs the check. The check: find open, dry, level ground near the test site's centre (-1563, -36 on minevale3; read the ground with /api/block, away from any village plot: GET /api/village lists them); build a small geode by RCON 10 blocks below the ground there, 6 blocks horizontally from Gus's spot: `fill` a 7x7x7 cube of smooth_basalt, then a 5x5x5 of calcite inside it, then a 3x3x3 of amethyst_block inside that, then hollow its centre (the single middle cell, air), and set one cell of the lining to budding_amethyst and put 2 {target0} in the hollow's air against the lining (setblock with facing away from the lining it stands on); spawn Gus on the ground (brain idle, gamemode survival, reset true); give Gus 1 {tool} by RCON; record the blocks of a box covering the geode and Gus's spot, plus 4 on every side (read with 'execute if block' or /api/block), and of the corridor (the box between Gus's spot and the geode, both included, widened by 1); run `{skill}` with x, y, z of one {target0} and `count {check_count}` through /api/agents/Gus/act; wait for action_done or action_failed (up to 6 minutes); then verify: at least {check_count} {yield0_w} more on the server for Gus ({count_cmd}); the budding_amethyst is still there; no 'placed' event from Gus; no cell of the big box changed outside the corridor and the geode; Gus stands within 3 blocks of the ground's height (it climbed out); then a second call with x, y, z of a {target0} cell now mined must fail or report none left, within 3 minutes; then clear Gus's pickaxes by RCON, and a third call must fail with a message containing 'no pickaxe'. Clean up (remove Gus) in a finally (the foundry restores the site before every check). Print one line per verification and end with exactly '{CHECK} OK' on success or '{CHECK} FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), mcBuild.ts, tech.ts and lock.ts (they lock it already), the pathfinder's sources."""
+
+
+def mine_ticket_for(w, village, why):
+    cid, skill = w["id"], w.get("activitySkill") or f"harvest_{w['id']}"
+    tool = w.get("tool") or "stone_pickaxe"
+    y0, target0 = w["yields"][0], w["target"][0]
+    goods = goods_for(w, y0)
+    if not goods:
+        return None, "nothing the workshop could make of its yield"
+    spec = {
+        "id": f"lib:{cid}", "name": w["name"][:60], "skill": skill, "count": {"arg": "count", "max": 8},
+        "needs": {tool: 1}, "gives": [{"item": y} for y in w["yields"]], "keep": 16,
+        "effect": f"{words(y0)} for the workshop's {', '.join(plural(g['item']) for g in goods)}: what members wish for"[:160],
+        "research": {
+            "name": f"mining {words(y0)} in geodes"[:40], "requires": {tool: 1}, "attempt": {"torch": 2},
+            "minutes": 3, "chance": 0.3, "complexity": 5, "capability": cid, "goods": goods,
+        },
+    }
+    fields = dict(
+        skill=skill, id=cid, village=village, why=why, facts=w.get("facts") or "", yields_w=" and ".join(words(y) for y in w["yields"]),
+        yield0_w=words(y0), targets_w=" or ".join(plural(t) for t in w["target"]), target0=target0, target0_w=words(target0),
+        avoid_w=" or ".join(words(b) for b in (w.get("avoid") or [])) or "anything outside the way", tool=tool, count_default=4, count_max=16,
+        reach=REACH, spec_json=json.dumps(spec, separators=(", ", ": ")), check_count=2, CHECK=cid.upper(),
+        count_cmd=f"count with RCON 'clear Gus minecraft:{y0} 0' before and after",
+    )
+    t = {
+        "id": cid,
+        "title": f"{w['name']}: a {skill} skill that digs its own way to them, with an activity adapter, locked until researched (from {village}'s wanted list, #91)",
+        "brief": MINE_BRIEF.format(**fields),
+        "read": [
+            "CLAUDE.md",
+            "server/src/mineflayer/foundry/types.ts",
+            "server/src/mineflayer/foundry/list.ts",
+            "server/src/mineflayer/foundry/fish.ts (a foundry skill in the house style: guards, walks, server counts, the adapter)",
+            "server/src/mineflayer/foundry/honeycomb.ts: only its activity adapter (a cached block list per village)",
+            "server/src/mineflayer/mcMine.ts: only digCell, unsafe and digIronStairs (how the mine digs safely)",
+            "server/src/library.ts",
+            "server/src/mineflayer/mcSkills.ts: only the McSkill interface",
+            "server/src/mineflayer/mcUtil.ts: only walk, reach, standableY, nearestBlocks, onVillageGround, sleep, checkAbort, countItem, itemId, at, num, syncInventory",
+            "server/src/mineflayer/mcRules.ts: only timeScale",
+            "scripts/checks/fish.py (the style of a live check)",
+            "mc/rcon.py",
+            "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block) and GET /api/village",
+        ],
+        "lessons": [4, 13, 16, 29, 30, 31, 35, 40, 44, 49, 79, 80, 102, 104, 105, 127, 145, 151],
+        "deliver": [f"server/src/mineflayer/foundry/{cid}.ts", "server/src/mineflayer/foundry/list.ts", f"server/library/{cid}.json", f"scripts/checks/{cid}.py"],
+        "may_touch": [],
+        "check": {"file": f"scripts/checks/{cid}.py", "args": [], "timeout_min": 15, "pass": f"^{cid.upper()} OK",
+                  "env": {"MC_INNOVATE": "on"}, "log_pass": rf"\[activity\] library: .*lib:{cid}\b"},
+        "series": "scripts/foundry/series_base.json",
+        "caps": {"minutes": 45, "turns": 500, "rounds": 3},
+        "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
+        "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "demandShare": w.get("demandShare"), "why": w["why"]},
+    }
+    return t, None
+
+
 def ticket_for(w, village, why):
     if w["status"] == "skill":
         return skill_ticket_for(w, village, why)
+    if w["verb"] == "mine":
+        return mine_ticket_for(w, village, why)
     return block_ticket_for(w, village, why)
 
 
@@ -270,6 +333,7 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--capability")
     ap.add_argument("--accepted")
+    ap.add_argument("--wanted")
     a = ap.parse_args()
     if a.accepted:
         acc = json.loads(pathlib.Path(a.accepted).read_text(encoding="utf-8"))
@@ -280,14 +344,28 @@ def main():
             return 0
         a.capability = cands[0]["capability"]
         print(f"accepted proposal {cands[0].get('id')} ({cands[0].get('by')}: {str(cands[0].get('what'))[:80]}) asks for {a.capability}")
-    if not a.villages and not a.api:
-        raise SystemExit("give --api URL (or MCAI_API) or --villages FILE")
-    got = wanted_from_file(a.villages, a.village) if a.villages else wanted_from_api(a.api.rstrip("/"), a.village)
+    if not a.villages and not a.api and not a.wanted:
+        raise SystemExit("give --api URL (or MCAI_API), --villages FILE or --wanted FILE")
+    if a.wanted:
+        saved = json.loads(pathlib.Path(a.wanted).read_text(encoding="utf-8"))
+        name = a.village or next(iter(saved.get("villages", {})), None)
+        got = [{"village": name, "at": saved.get("at"), "list": saved["villages"][name], "history": (saved.get("history") or {}).get(name)}] if name in saved.get("villages", {}) else []
+        # (the run's own rank, demand and wishes; the capability's fields as the code has them now: a saved list may be
+        # older than a template or a tool added since)
+        fresh = {w["id"]: w for w in wanted_from_file(ROOT / "mc" / "testcheckpoints" / "mv3_grown25" / "villages.json", None)[0]["list"]}
+        for w in (got[0]["list"] if got else []):
+            f = fresh.get(w["id"])
+            if f and f["status"] == w["status"]:
+                for k in ("verb", "target", "state", "tool", "facts", "find", "avoid", "skill", "activitySkill", "ticketable"):
+                    if k in f:
+                        w[k] = f[k]
+    else:
+        got = wanted_from_file(a.villages, a.village) if a.villages else wanted_from_api(a.api.rstrip("/"), a.village)
     if not got:
         raise SystemExit("no complete village in the wanted list")
     entry = got[0]
     village, lst, history = entry["village"], entry["list"], entry.get("history") or {}
-    src = a.villages or a.api
+    src = a.wanted or a.villages or a.api
     print(f"wanted list of {village} ({src}): {len(lst)} capabilities")
     # (the village's land: its storage hut from the record, its world from the agent server's folder)
     vrec = None

@@ -34,5 +34,21 @@
     "why": "the activity is built; research harvesting honeycomb from bee nests to unlock it"
    }
   ]
+ },
+ {
+  "at": "2026-10-22 05:32",
+  "ticket": "amethyst",
+  "capability": "amethyst",
+  "village": "B25x2",
+  "source": "runs/2026-10-22/g6-demand/wanted_W3.json",
+  "rank": 7.31,
+  "value": 0.75,
+  "demand": 6.5,
+  "why": [
+   "opens 3 items (0 used: amethyst_block, tinted_glass, spyglass)",
+   "9 members wish for spyglass (their life goals)",
+   "142 raw_copper held idle that its items would use"
+  ],
+  "skipped": []
  }
 ]

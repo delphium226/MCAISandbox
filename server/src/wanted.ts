@@ -50,6 +50,8 @@ export interface Capability {
   skill?: string;
   /** Blocks to look for near a village (foundry_queue counts them in the land). */
   find?: string[];
+  /** Blocks the action must never break (budding amethyst: it gives nothing and is the geode's regrowth). */
+  avoid?: string[];
   /** Fixed statuses, with their reason. */
   dead?: string;
   user?: string;
@@ -84,8 +86,8 @@ export const CAPABILITIES: Capability[] = [
     facts: 'a water bottle (a glass bottle filled at water) used on dirt turns it to mud; mud dries to clay above pointed dripstone',
   },
   {
-    id: 'amethyst', name: 'Mine amethyst in geodes', verb: 'mine', target: ['amethyst_cluster'], yields: ['amethyst_shard'], find: ['amethyst_cluster', 'budding_amethyst'],
-    facts: 'amethyst clusters grow on budding amethyst inside geodes underground; a pickaxe breaks a cluster for 4 shards',
+    id: 'amethyst', name: 'Mine amethyst in geodes', verb: 'mine', target: ['amethyst_cluster'], tool: 'stone_pickaxe', yields: ['amethyst_shard'], find: ['amethyst_cluster', 'budding_amethyst'], avoid: ['budding_amethyst'],
+    facts: 'a geode is a sealed ball underground (y -58 to 30): an outer shell of smooth basalt, then calcite, then a lining of amethyst blocks with budding amethyst among them, hollow inside; amethyst clusters grow on budding amethyst and a pickaxe breaks one for 4 shards (2 without); budding amethyst gives nothing when broken and is what regrows the clusters, so it is never broken; the walk-and-dig pathfinder does not reach a cluster inside the shell (live, 10-22: collect stopped at the shell)',
   },
   {
     id: 'copper_age', name: 'Let copper weather', verb: 'wait', target: ['copper_block'], yields: ['exposed_copper', 'weathered_copper', 'oxidized_copper'],
@@ -107,7 +109,7 @@ export const CAPABILITIES: Capability[] = [
 
 /** The verbs foundry_queue.py has a ticket template for (a new skill); a capability with status `skill` takes the
  *  skill-activity template whatever its verb (#91). */
-export const TEMPLATES = new Set<Verb>(['use_on_block']);
+export const TEMPLATES = new Set<Verb>(['use_on_block', 'mine']);
 
 /**
  * Raw items the village gets today (collect, the mine, farms, pens, fishing, the merchant's sales; s41's probe's list),
@@ -182,7 +184,7 @@ export interface Wanted {
   value: number; demand: number; rank: number; ticketable: boolean;
   /** The share of the rank from the village's demand (#89: the village asking, not the recipe graph). */
   demandShare: number;
-  unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string;
+  unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string; avoid?: string[];
   /** Items members wish for that it opens (#89), most wished first; `activitySkill`: the foundry skill a ticket names. */
   wished: string[]; activitySkill: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
 }
@@ -362,7 +364,7 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     const ticketable = status === 'skill' || (status === 'missing' && TEMPLATES.has(c.verb));
     out.push({
       id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable, demandShare,
-      unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, wished, activitySkill: activitySkill(c), ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
+      unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, ...(c.avoid ? { avoid: c.avoid } : {}), wished, activitySkill: activitySkill(c), ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
     });
   }
   // (what the village cannot or should not ticket last, so the top of the list is what a ticket could answer)
