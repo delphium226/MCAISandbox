@@ -1,11 +1,11 @@
 """#45's gardens, live: after a staged run with MC_GARDENS=on, the garden initiatives the village started and built
 (villages.json beside the test server), and every flower or sapling each built one planted, read back over RCON
-(`execute if block`), with the cells either side checked against the walkway rule (no planted cell in a door's column
-within 3 cells out). Prints one line a garden and ends "GARDENS OK" (at least one built, every planted cell there) or
+(`execute if block`; a sapling grown into its tree counts, and a chunk no bot keeps loaded is force-loaded for the
+read). Prints one line a garden and ends "GARDENS OK" (at least one built, every planted cell there) or
 "GARDENS FAILED: <why>".
 Usage: MC_SERVER_DIR=mc/testserver3 python scripts/checks/gardens_live.py [VILLAGE]
 """
-import json, os, pathlib, subprocess, sys
+import json, os, pathlib, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SERVER = os.environ.get("MC_SERVER_DIR")
@@ -48,10 +48,24 @@ def main():
                 if c in "._":
                     continue
                 block = d["palette"][c].split("[")[0]
-                out = rcon(f"execute if block {x1 + i} {y} {z1 + j} minecraft:{block}")
+                bx, bz = x1 + i, z1 + j
+                # (a sapling may have grown into its tree since: its log stands in the cell, G2's Q1 under random ticks 30)
+                accept = [block] + ([block.replace("_sapling", "_log")] if block.endswith("_sapling") else [])
                 planted_total += 1
-                if "passed" not in out.lower():
-                    missing.append(f"{x1 + i},{y},{z1 + j} ({block}: {out[:40]})")
+                found, out = False, ""
+                for b in accept:
+                    out = rcon(f"execute if block {bx} {y} {bz} minecraft:{b}")
+                    if "not loaded" in out.lower():
+                        # (a chunk no bot keeps loaded: load it for the read, then let it go, G2's Q0)
+                        rcon(f"forceload add {bx} {bz}")
+                        time.sleep(1.5)
+                        out = rcon(f"execute if block {bx} {y} {bz} minecraft:{b}")
+                        rcon(f"forceload remove {bx} {bz}")
+                    if "passed" in out.lower():
+                        found = True
+                        break
+                if not found:
+                    missing.append(f"{bx},{y},{bz} ({'/'.join(accept)}: {out[:40]})")
         missing_total += len(missing)
         print(f"  {it['id']} {it['kind']} at {it['x']},{it.get('y')},{it['z']} by {it.get('by')}: {sum(1 for row in top for c in row if c not in '._')} cells, "
               + (f"{len(missing)} missing: {'; '.join(missing[:4])}" if missing else "all there"))
