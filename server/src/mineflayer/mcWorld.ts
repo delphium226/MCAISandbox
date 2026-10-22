@@ -67,6 +67,8 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, toldAnswer } from '../memory';
 import { tellMember } from '../acts';
+import { RULES, breaks, duties, noteCompliance, noteTakes, rulesLine } from '../rules';
+import { councilLine } from '../council';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
@@ -3794,6 +3796,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2: a member's own choices make its role, code's label)
     if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, kind, choice.t);
     if (ACTS.on) actsStart(v.name, worker.name, choice.option ?? key, choice.id);
+    if (RULES.on && opt?.takes) noteTakes(v.name, worker.name, opt.takes, choice.t);
     // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
     // (the wheat field and ripe slots) are still code-driven: no menu, `options` empty.
     const menu = meta?.menu;
@@ -5442,6 +5445,35 @@ export class MineflayerWorld implements WorldAdapter {
       const mine = p.by === a.name ? 'you proposed this' : p.endorsements.some((e) => e.by === a.name) ? 'you backed this' : '';
       if (mine) for (const o of out) if (o.key === ref || o.id === ref) o.mark = `[${mine}]`;
     }
+    // G3 (MC_RULES): options whose takes from storage break a quota or a floor leave the menu, the rule named (logged once
+    // a member, option and hour); a duty's options are tagged and ranked first until the member has done it today
+    if (RULES.on) {
+      const ds = duties(v.name);
+      const doneToday = (kind: string) => {
+        const c = clockOf(v.name, now);
+        return !!agentMemory(v.name, a.name)?.log.some((e) => e.kind === kind && e.ok && (!c || e.day === c.day));
+      };
+      for (let i = out.length - 1; i >= 0; i--) {
+        const o = out[i];
+        if (o.kind === 'eat') continue;
+        const takes = this.takesOf(o);
+        if (Object.keys(takes).length) o.takes = takes;
+        const why = Object.keys(takes).length ? breaks(v.name, a.name, takes, store, now) : null;
+        if (why) {
+          out.splice(i, 1);
+          const k = `${v.name}|${a.name}|${o.id}|${Math.floor(now / 3600000)}`;
+          if (!this.ruleLogged.has(k)) {
+            this.ruleLogged.add(k);
+            noteCompliance(v.name, a.name, { op: 'refused', option: o.id, why, takes });
+          }
+          continue;
+        }
+        if (ds.includes(o.kind) && !doneToday(o.kind)) {
+          o.ruleTag = '[the duty: once a day]';
+          o.rank = 1;
+        }
+      }
+    }
     // G2 (MC_ACTS=on): an option answering a request to the member or keeping its promise is tagged, and the trim keeps it
     if (ACTS.on) {
       const t = actsTags(v.name, a.name, now);
@@ -5553,6 +5585,21 @@ export class MineflayerWorld implements WorldAdapter {
     };
   }
 
+  /** G3: refusals by a rule already logged (village|agent|option|hour). */
+  private ruleLogged = new Set<string>();
+
+  /** G3: what an option takes from the village storage when it runs (its make's inputs, a light trip's torches, furniture,
+   *  an activity's needs), for the quota and floor rules. */
+  private takesOf(o: ChoiceOption): Record<string, number> {
+    const d = OPTION_RUN.get(o);
+    if (!d) return {};
+    if (d.kind === 'make') return { ...d.inputs };
+    if (d.kind === 'light') return { torch: d.n };
+    if (d.kind === 'furnish') return { ...d.items };
+    if (d.kind === 'activity') return { ...d.needs };
+    return {};
+  }
+
   /** G5: the village day whose triage marking is done, by village. */
   private triageDay = new Map<string, number>();
 
@@ -5636,6 +5683,7 @@ export class MineflayerWorld implements WorldAdapter {
     const block = blockOn() ? awareness(v.name, a.name, facts.t, { kinds, choosing, idle, menuKinds, near: this.nearOf(v, a) }).text : '';
     const role = roleLine(v.name, a.name);
     const skill = skillLine(v.name, a.name);
+    const rules = RULES.on ? [rulesLine(v.name), councilLine(v.name, facts.t)].filter(Boolean).join(' ') : '';
     // (A.3p: the user's own persona first, else the temperament's line; the own-pattern reminder from the last 10 ends)
     const own = typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '';
     const pattern = this.patternLine(v, a);
@@ -5643,7 +5691,7 @@ export class MineflayerWorld implements WorldAdapter {
       persona: own || personaOf(a.name),
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
-      ...(block ? { social: block } : {}), ...(role ? { role } : {}), ...(skill ? { skill } : {}),
+      ...(block ? { social: block } : {}), ...(role ? { role } : {}), ...(skill ? { skill } : {}), ...(rules ? { rules } : {}),
       outcomes: this.choiceStats.outcomes(v.name, a.name, 5),
       // (#69: the member's own wants, one line)
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),

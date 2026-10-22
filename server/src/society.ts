@@ -19,6 +19,8 @@ import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
 import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
 import { refusedSince } from './acts';
+import { addLaw, backLaw, classOf, laws, rulesInForce, type Law } from './rules';
+import { councilOn, councilTick } from './council';
 import {
   FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, villageLineShown, villageMemory,
   type Phase,
@@ -71,6 +73,8 @@ export function tick(now: number, villages: Array<{ name: string; members: Membe
           }
         }
       }
+      // (G3, MC_COUNCIL: the agenda, the dusk ballots and the count)
+      councilTick(village, members, now);
       // (days that ended while the server was down: closed without reflections)
       closeVillageDays(village, c.phase === 'night' ? c.day : c.day - 1);
       for (const m of members) {
@@ -85,6 +89,7 @@ export function tick(now: number, villages: Array<{ name: string; members: Membe
         // (G5, the scripted controller: a proposal from a script on a fixed night, so staged runs exercise the store,
         // triage and the answers without models)
         if (had && PROPOSALS_ON && CHOOSE.mode === 'scripted') scriptedProposal(village, m.name, c.day);
+        if (had && councilOn() && CHOOSE.mode === 'scripted') scriptedLaw(village, m.name, c.day, now);
       }
     } catch (e) {
       console.log(`[clock] ${village}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
@@ -147,6 +152,16 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
     + 'something about the village or another member; not the counts above, which are kept for you), each replacing one of '
     + 'your notes by its id when it corrects or outdates it, your intention for tomorrow in one sentence, and its focus, the kind '
     + `of work you mean to do most: one of ${FOCUS.join(', ')}.`);
+  // (G3, MC_COUNCIL: the rules in force, others' open laws to back, and a law of its own)
+  const openLaws = councilOn() ? laws(village).filter((l) => l.by !== m.name && l.status === 'open').slice(-3) : [];
+  if (councilOn()) {
+    const rs = rulesInForce(village);
+    lines.push([
+      rs.length ? `Village rules in force: ${rs.map((r) => r.text).join('; ')}.` : 'The village has no rules yet.',
+      'You may propose one village rule (`law`) if your day showed a need for it: a daily quota on tools, logs or torches taken from storage, a minimum storage keeps of an item, a duty every member does once a day, a levy on members\' shares, or a custom in words. Most nights there is none.',
+      ...(openLaws.length ? [`Rules others proposed (back or oppose up to 2 with \`back_laws\`; a rule with 2 backers goes to the next dusk's secret vote): ${openLaws.map((l) => `[${l.id}] ${l.text}`).join(' ')}`] : []),
+    ].join('\n'));
+  }
   // (G5, MC_PROPOSALS: the propose field on nights the day gave a reason, others' open proposals to back)
   const pr = proposing(village, m.name, day, v?.dayMs ?? MEMORY.dayMs, now);
   if (pr) lines.push(proposeLine(pr.others));
@@ -181,6 +196,11 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
       required: ['notes', 'intention', 'focus'],
     },
   }];
+  if (councilOn()) {
+    const sch = tools[0].input_schema as { properties: Record<string, unknown> };
+    sch.properties.law = { type: 'object', description: 'Optional, and rare: a village rule you propose.', properties: { what: { type: 'string', maxLength: 140, description: 'The rule, one sentence.' }, why: { type: 'string', maxLength: 200 } }, required: ['what'] };
+    if (openLaws.length) sch.properties.back_laws = { type: 'array', maxItems: 2, items: { type: 'object', properties: { id: { type: 'string', enum: openLaws.map((l) => l.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
+  }
   if (!pr) return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools };
   const withP = withPropose(tools);
   if (pr.others.length) {
@@ -246,6 +266,8 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
     if (SOCIAL.mode === 'on') done.push(...applyProfileEdits(village, m.name, (c?.input ?? null), day));
     // (G5, MC_PROPOSALS: a proposal into the store, checked by code; backing others' where the member's day touched them)
     if (PROPOSALS_ON) done.push(...applyProposal(village, m.name, c?.input ?? null, day));
+    // (G3, MC_COUNCIL: a law and backing others' laws)
+    if (councilOn()) done.push(...applyLaws(village, m.name, c?.input ?? null, day, Date.now()));
     logAct({ type: 'reflect', village, agent: m.name, day, system: p.system, prompt: p.user, reply: got ?? { text: r.reply.text.slice(0, 400) }, done, ms: r.ms, waitMs: r.waitMs, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
     console.log(`[reflect] ${village}: ${m.name} day ${day}: ${done.join(', ') || 'nothing kept'}${got?.intention ? `; tomorrow: ${got.intention.slice(0, 100)}` : ''}`);
   } catch (e) {
@@ -275,6 +297,56 @@ function scriptedProposal(village: string, agent: string, day: number): void {
     const first = allProposals(village).find((p) => p.by !== agent && (p.status === 'open' || p.status === 'endorsed'));
     if (first && endorse(first.id, agent)) logAct({ type: 'proposal', village, agent, back: first.id, counted: true, scripted: true });
   }
+}
+
+/** G3's scripted laws: on night 1 one member in eight (by hash) proposes a log quota; on later nights one in three backs
+ *  the first open law (the plumbing's test: the council's agenda, ballot and enforcement without models). */
+export function scriptedLaw(village: string, agent: string, day: number, now: number): void {
+  const h = [...`law|${agent}|${day}`].reduce((x, ch) => (Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0), 2166136261);
+  if (day === 1 && h % 8 === 0) addLaw(village, agent, { what: 'Each member takes at most 8 logs a day from storage', why: 'logs run short' }, now);
+  else if (day >= 1 && h % 3 === 0) {
+    const first = laws(village).find((l) => l.by !== agent && l.status === 'open');
+    if (first) backLaw(village, first.id, agent);
+  }
+}
+
+/** G3: the night's law and backing from the reflect call's input; backing counts only where the member's own day touched
+ *  the law's target (its quota class, floor item or duty kind; for a custom, two of its words). */
+export function applyLaws(village: string, agent: string, input: unknown, day: number, now: number): string[] {
+  const done: string[] = [];
+  let o = input as Record<string, unknown> | string | null;
+  if (typeof o === 'string') {
+    try { o = JSON.parse(o) as Record<string, unknown>; } catch { return done; }
+  }
+  if (!o || typeof o !== 'object') return done;
+  const rec = o as Record<string, unknown>;
+  let lw = rec.law ?? rec.rule;
+  if (typeof lw === 'string') lw = { what: lw };
+  if (lw && typeof lw === 'object' && String((lw as Record<string, unknown>).what ?? (lw as Record<string, unknown>).text ?? '').trim().length >= 8) {
+    const l = addLaw(village, agent, lw as Record<string, unknown>, now);
+    done.push(`law ${l.id}${l.refused ? ` refused (${l.refused})` : ''}`);
+  }
+  const a = agentMemory(village, agent);
+  const words = (a?.log ?? []).filter((e) => e.day === day).map((e) => `${e.name} ${e.line}`.toLowerCase()).join(' ');
+  const touches = (l: Law) => {
+    if (l.type === 'quota') return [...words.matchAll(/[a-z_]+/g)].some((w) => classOf(w[0]) === l.params.class) || words.includes(String(l.params.class).replace(/s$/, ''));
+    if (l.type === 'floor') return words.includes(String(l.params.item).replace(/_/g, ' '));
+    if (l.type === 'duty') return words.includes(String(l.params.kind));
+    return String(l.text).toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && words.includes(w)).length >= 2;
+  };
+  const backs = Array.isArray(rec.back_laws) ? (rec.back_laws as unknown[]).slice(0, 2) : [];
+  for (const b of backs) {
+    const id = typeof b === 'string' ? b : String((b as { id?: unknown })?.id ?? '');
+    const l = laws(village).find((x) => x.id === id);
+    if (!l) continue;
+    if (!touches(l)) {
+      logAct({ type: 'law', village, agent, id, op: 'back', counted: false, why: 'its day did not touch it' });
+      continue;
+    }
+    const oppose = (b as { oppose?: unknown })?.oppose === true;
+    if (backLaw(village, id, agent, oppose)) done.push(`${oppose ? 'opposed' : 'backed'} ${id}`);
+  }
+  return done;
 }
 
 /** G5 (#90): the night's proposal and backing from the reflect call's input. A proposal is checked by code (the world's

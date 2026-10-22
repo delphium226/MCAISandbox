@@ -47,6 +47,8 @@ import { MEMORY, agentMemory, liveNotes, membersOf, rosterOf, villageMemory } fr
 import { ACTS, socialView } from './acts';
 import { SOCIAL } from './social';
 import { PROPOSALS_ON, allProposals } from './proposals';
+import { RULES, laws as lawsOf, rulesInForce } from './rules';
+import { councilLine } from './council';
 import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
@@ -447,6 +449,8 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
       // (G2: its inbox, promises and requests, with the settings that made them)
       social: vn ? { mode: SOCIAL.mode, acts: ACTS.on, ...socialView(vn, a.name, Date.now()) } : null,
+      // (G3: the village's rules in force, laws proposed, the council's lines)
+      rules: vn && RULES.on ? { inForce: rulesInForce(vn).map((r) => ({ id: r.id, text: r.text, votes: r.votedBy })), laws: lawsOf(vn).slice(-10).reverse().map((l) => ({ id: l.id, by: l.by, text: l.text || l.what, status: l.status, backers: l.backers.length, opposers: l.opposers.length, refused: l.refused, result: l.result })), council: councilLine(vn, Date.now()) } : null,
       // (G5: the village's proposals, newest first)
       proposals: vn && PROPOSALS_ON ? allProposals(vn).slice(-12).reverse().map((p) => ({ id: p.id, by: p.by, kind: p.kind, what: p.what, status: p.status, check: p.check.verdict, backers: p.endorsements.length, against: p.objections.length, verdict: p.verdict ? `${p.verdict.decision}: ${p.verdict.reason}` : '' })) : null,
     }), true;

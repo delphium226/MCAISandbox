@@ -279,6 +279,10 @@ export interface ChoiceOption {
   social?: string;
   /** G5 (MC_PROPOSALS): an accepted proposal of the member's, or one it backed, brought this option ("[you proposed this]"). */
   mark?: string;
+  /** G3 (MC_RULES): what it takes from the village storage (the quota and floor rules read it; never shown). */
+  takes?: Record<string, number>;
+  /** G3 (MC_RULES): a duty's tag, "[the duty: once a day]". */
+  ruleTag?: string;
 }
 
 export interface ChoiceContext {
@@ -294,6 +298,8 @@ export interface ChoiceContext {
   social?: string;
   /** G2 (MCAI_SOCIAL_ROLES=show): "You have become the village's miner." */
   role?: string;
+  /** G3 (MC_RULES, MC_COUNCIL): the rules in force, tonight's ballot, the last vote's totals. */
+  rules?: string;
   /** G2 (MC_SKILL=on, #17): "Your skill: harvesting high, tending pens some." */
   skill?: string;
   /** G2 (MC_ACTS=on): the member's inbox, at most 4 lines (acts.ts inbox). */

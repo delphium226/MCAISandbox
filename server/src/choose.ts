@@ -174,7 +174,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '');
+  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -189,6 +189,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.role?.trim()) lines.push(ctx.role.trim());
   if (ctx.skill?.trim()) lines.push(ctx.skill.trim());
   if (ctx.village?.trim()) lines.push(labelled('Village', ctx.village.trim()));
+  if (ctx.rules?.trim()) lines.push(ctx.rules.trim());
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   if (ctx.social?.trim()) lines.push(ctx.social.trim());
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
