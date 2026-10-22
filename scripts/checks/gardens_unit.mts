@@ -1,7 +1,7 @@
 /**
- * #45's gardens, offline (smallWorks.ts gardenSpots, MC_GARDENS): a front garden either side of a door's walkway, 1-2
- * cells out from the wall, never on the walkway's own column (the door, its stand cells) and never on a hard area or off
- * soil; both walkway directions; a flower ring round a green's centre, open on each side; build_design's centre puts the
+ * #45's gardens, offline (smallWorks.ts gardenSpots, MC_GARDENS): a 2x2 front bed beside a door's walkway, never on the
+ * walkway or the cell beside it (the sign, the stand cells), moved out past the building and a street, never on a hard
+ * area or off soil; every door direction; a flower ring round a green's centre, open on each side; build_design's centre puts the
  * design's flowers exactly on the spot's cells; the kinds count toward beauty; off by default (SMALL_WORKS unchanged).
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/gardens_unit.mts
  */
@@ -28,32 +28,36 @@ function planted(kind: string, x: number, z: number): string[] {
   return out.sort();
 }
 
-// A door at (10, 20) in a south wall, opening south (oz +1): the walkway is x = 10, z = 21.. (the stand cells beside it)
+// A door at (10, 20) in a south wall, opening south (oz +1): the walkway is x = 10, z = 21..; a 2x2 bed beside it, its
+// near column 2 cells to the side (x 8 or 12), rows 1-2 out, never on the walkway or the cell beside it
 {
-  const s = gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [], soil: soilAll });
-  ok(s.length === 1 && s[0].kind === 'garden_ns', `one north-south garden (${JSON.stringify(s)})`);
-  const cells = s[0].cells.map(key).sort();
-  ok(cells.length === 8 && cells.every((c) => !c.startsWith('10,')), `8 cells, none on the walkway's column x=10 (${cells.join(' ')})`);
-  ok(s[0].cells.every((c) => c.z === 21 || c.z === 22) && s[0].cells.every((c) => Math.abs(c.x - 10) >= 1 && Math.abs(c.x - 10) <= 2), 'rows 1-2 out from the wall, 1-2 cells either side');
-  ok(JSON.stringify(planted('garden_ns', s[0].x, s[0].z)) === JSON.stringify(cells), 'build_design plants exactly the spot\'s cells');
+  const s1 = gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [], soil: soilAll });
+  ok(s1.length === 1 && s1[0].kind === 'front_bed' && s1[0].cells.length === 4, `one front bed (${JSON.stringify(s1)})`);
+  ok(s1[0].cells.every((c) => Math.abs(c.x - 10) >= 2 && Math.abs(c.x - 10) <= 3 && (c.z === 21 || c.z === 22)), `beside the walkway, 2-3 to the side, rows 1-2 (${s1[0].cells.map(key).join(' ')})`);
+  ok(JSON.stringify(planted('front_bed', s1[0].x, s1[0].z)) === JSON.stringify(s1[0].cells.map(key).sort()), "build_design plants exactly the spot's cells");
 }
-// Opening north (oz -1), and east/west (ox +-1)
-{
-  const n = gardenSpots({ doors: [{ x: 0, z: 0, ox: 0, oz: -1, y: 64 }], greens: [], hard: [], soil: soilAll })[0];
-  ok(!!n && n.cells.every((c) => (c.z === -1 || c.z === -2) && c.x !== 0) && JSON.stringify(planted('garden_ns', n.x, n.z)) === JSON.stringify(n.cells.map(key).sort()), 'opening north');
-  const e = gardenSpots({ doors: [{ x: 5, z: 5, ox: 1, oz: 0, y: 64 }], greens: [], hard: [], soil: soilAll })[0];
-  ok(!!e && e.kind === 'garden_ew' && e.cells.length === 8 && e.cells.every((c) => (c.x === 6 || c.x === 7) && c.z !== 5) && JSON.stringify(planted('garden_ew', e.x, e.z)) === JSON.stringify(e.cells.map(key).sort()), 'opening east');
-  const w = gardenSpots({ doors: [{ x: 5, z: 5, ox: -1, oz: 0, y: 64 }], greens: [], hard: [], soil: soilAll })[0];
-  ok(!!w && w.cells.every((c) => (c.x === 4 || c.x === 3) && c.z !== 5), 'opening west');
+// The other directions
+for (const [ox, oz] of [[0, -1], [1, 0], [-1, 0]]) {
+  const b = gardenSpots({ doors: [{ x: 0, z: 0, ox, oz, y: 64 }], greens: [], hard: [], soil: soilAll })[0];
+  const along = (c: { x: number; z: number }) => (ox ? c.x * ox : c.z * oz), side = (c: { x: number; z: number }) => Math.abs(ox ? c.z : c.x);
+  ok(!!b && b.cells.every((c) => along(c) >= 1 && along(c) <= 2 && side(c) >= 2) && JSON.stringify(planted('front_bed', b.x, b.z)) === JSON.stringify(b.cells.map(key).sort()), `opening ${ox},${oz}`);
 }
-// A hard area (a lamp beside the walkway) or a cell off soil drops the garden; a diagonal door is refused
+// mv3_grown25's shapes (G2's probe, 10-22): the door a cell inside the outline, the sign beside it, a street along the
+// wall: the bed moves out and to the free side
 {
-  const hard: GardenInput['hard'] = [{ x1: 12, z1: 22, x2: 12, z2: 22 }];
-  ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard, soil: soilAll }).length === 0, 'a lamp on a bed cell: no garden');
-  ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [], soil: (x, z) => !(x === 8 && z === 21) }).length === 0, 'a cell off soil: no garden');
+  const hard: GardenInput['hard'] = [
+    { x1: 7, z1: 15, x2: 13, z2: 21 },   // the house, the door at z 20 one cell in from its south edge (z 21)
+    { x1: 9, z1: 20, x2: 11, z2: 22 },   // its sign padded by 1, beside the walkway
+    { x1: 4, z1: 22, x2: 30, z2: 23 },   // a street along the front, rows 2-3 out
+  ];
+  const b = gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard, soil: soilAll })[0];
+  ok(!!b && b.cells.every((c) => !hard.some((h) => c.x >= h.x1 && c.x <= h.x2 && c.z >= h.z1 && c.z <= h.z2)) && b.cells.every((c) => c.x !== 10), `a bed past the house, the sign and the street (${b ? b.cells.map(key).join(' ') : 'none'})`);
+}
+// A hard area on every candidate, or no soil, or a diagonal door: none
+{
+  ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [{ x1: 0, z1: 21, x2: 20, z2: 40 }], soil: soilAll }).length === 0, 'all of the front taken: none');
+  ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [], soil: () => false }).length === 0, 'no soil: none');
   ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 1, oz: 1, y: 64 }], greens: [], hard: [], soil: soilAll }).length === 0, 'a diagonal door: none');
-  // (the walkway itself hard, as a street: still a garden, since none of its cells is the walkway)
-  ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [{ x1: 10, z1: 21, x2: 10, z2: 40 }], soil: soilAll }).length === 1, 'a street on the walkway column: the garden stays beside it');
 }
 // The ring round a green's centre (a 3x3 statue there, left alone)
 {
@@ -72,7 +76,7 @@ function planted(kind: string, x: number, z: number): string[] {
 }
 
 // Goals and the flag
-ok(['garden_ns', 'garden_ew', 'flower_ring', 'sapling'].every((k) => BEAUTY_WORKS.has(k) && !STANDING_WORKS.has(k)), 'gardens count toward beauty, not standing');
+ok(['front_bed', 'flower_ring', 'sapling'].every((k) => BEAUTY_WORKS.has(k) && !STANDING_WORKS.has(k)), 'gardens count toward beauty, not standing');
 ok(GARDENS || !SMALL_WORKS.some((k) => GARDEN_WORKS.includes(k)), 'off by default: SMALL_WORKS without the gardens');
 for (const k of GARDEN_WORKS.filter((x) => x.kind !== 'sapling')) {
   const d = k.make('birch');

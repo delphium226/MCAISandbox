@@ -153,19 +153,16 @@ export const GARDENS = /^(on|1|true)$/i.test(process.env.MC_GARDENS ?? 'off');
 /** The flower a garden plants (the commonest near minevale3, yellow; one item a block). */
 export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
 
-/** A 5x2 front garden for a walkway running north-south: two 2x2 beds, the middle column (the walkway) untouched. */
-function gardenNs(_w: string): Design {
-  return design('garden_ns', _w, 'a front garden: flower beds either side of a door walkway', { F: GARDEN_FLOWER }, [
-    ['_____', '_____'],
-    ['FF_FF', 'FF_FF'],
-  ]);
-}
-
-/** The same garden for a walkway running east-west (2 wide, 5 deep). */
-function gardenEw(_w: string): Design {
-  return design('garden_ew', _w, 'a front garden: flower beds either side of a door walkway', { F: GARDEN_FLOWER }, [
-    ['__', '__', '__', '__', '__'],
-    ['FF', 'FF', '__', 'FF', 'FF'],
+/**
+ * A 2x2 front bed of flowers beside a door's walkway (one side; the other side may take its own). The two fixed garden
+ * shapes first tried (5x2 and 2x5 either side of the walkway) fitted none of mv3_grown25's 28 doors: doors sit a cell
+ * inside the outline, streets run along the walls, and the door's sign covers the cells beside the walkway (G2's probe,
+ * 10-22); a one-sided bed searched outward fits where the land is free.
+ */
+function frontBed(_w: string): Design {
+  return design('front_bed', _w, "a flower bed by a house's door", { F: GARDEN_FLOWER }, [
+    ['__', '__'],
+    ['FF', 'FF'],
   ]);
 }
 
@@ -188,8 +185,7 @@ function sapling(w: string): Design {
 
 /** The garden kinds (#45, #46), small works with their own spots (gardenSpots). */
 export const GARDEN_WORKS: SmallWorkKind[] = [
-  { kind: 'garden_ns', words: 'front garden', forWhat: "flowers by a house's door", make: gardenNs },
-  { kind: 'garden_ew', words: 'front garden', forWhat: "flowers by a house's door", make: gardenEw },
+  { kind: 'front_bed', words: 'flower bed', forWhat: "flowers by a house's door", make: frontBed },
   { kind: 'flower_ring', words: 'flower ring', forWhat: 'flowers round the green', make: flowerRing },
   { kind: 'sapling', words: 'young tree', forWhat: 'shade and green for the village', make: sapling },
 ];
@@ -280,9 +276,9 @@ export interface GardenSpot { kind: string; x: number; y: number; z: number; cel
 const inArea = (a: Area, x: number, z: number) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
 
 /**
- * Where gardens fit (pure, #45): for each door, the beds 1-2 cells either side of its walkway, 1-2 cells out from the
- * wall (the walkway's own column untouched, kept for the door and the stand cells beside it: lessons 44, 62, 68); for
- * each green, the ring round its centre. A spot is kept only when every cell it plants is free of the hard areas and on
+ * Where gardens fit (pure, #45): for each door, a 2x2 flower bed beside its walkway (its near column 2-4 cells to either
+ * side, its rows 1-5 out from the door, the first that fits: the walkway and the cells beside it stay free for the door's
+ * sign and its stand cells, lessons 44, 62, 68); for each green, the ring round its centre; #46's corner trees. A spot is kept only when every cell it plants is free of the hard areas and on
  * soil. Each spot's centre is build_design's for its design (x1 + floor(w / 2), z1 + floor(d / 2)).
  */
 export function gardenSpots(input: GardenInput): GardenSpot[] {
@@ -297,15 +293,17 @@ export function gardenSpots(input: GardenInput): GardenSpot[] {
   };
   for (const dr of input.doors) {
     if (Math.abs(dr.ox) + Math.abs(dr.oz) !== 1) continue;
-    // (rows 1 and 2 out from the wall; the walkway is the door's column)
-    if (dr.oz !== 0) {
-      const d = gardenNs('oak');
-      const z1 = dr.oz > 0 ? dr.z + 1 : dr.z - 2;
-      plant('garden_ns', d, dr.x - 2, z1, dr.y);
-    } else {
-      const d = gardenEw('oak');
-      const x1 = dr.ox > 0 ? dr.x + 1 : dr.x - 2;
-      plant('garden_ew', d, x1, dr.z - 2, dr.y);
+    // (the bed's rows 1-5 out from the door, its near column 2-4 cells to either side of the walkway: the walkway and the
+    // cell beside it stay free for the door's sign and its stand cells, lessons 44, 62, 68; the first that fits)
+    const d = frontBed('oak');
+    const px = dr.oz !== 0 ? 1 : 0, pz = dr.ox !== 0 ? 1 : 0;
+    const n = out.length;
+    find: for (let k = 1; k <= 5; k++) for (let lat = 2; lat <= 4; lat++) for (const side of [-1, 1]) {
+      // (the bed's two cells nearest the door start k out; its near column `lat` to the side)
+      const ax = dr.x + dr.ox * k + px * side * lat, az = dr.z + dr.oz * k + pz * side * lat;
+      const bx = ax + dr.ox + px * side, bz = az + dr.oz + pz * side;
+      plant('front_bed', d, Math.min(ax, bx), Math.min(az, bz), dr.y);
+      if (out.length > n) break find;
     }
   }
   for (const g of input.greens) plant('flower_ring', flowerRing('oak'), g.x - 2, g.z - 2, g.y);

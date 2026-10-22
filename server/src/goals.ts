@@ -37,7 +37,7 @@ const AFFINITY: Record<Goal, Partial<Temperament>> = {
 export const GOAL_WEIGHT = 1.6;
 
 /** The small works that count toward beauty, and the rest toward standing (the check's 6: every initiative is a small work). */
-export const BEAUTY_WORKS = new Set(['statue', 'gazebo', 'lamp_posts', 'bench', 'garden_ns', 'garden_ew', 'flower_ring', 'sapling']);
+export const BEAUTY_WORKS = new Set(['statue', 'gazebo', 'lamp_posts', 'bench', 'front_bed', 'flower_ring', 'sapling']);
 export const STANDING_WORKS = new Set(SMALL_WORKS.map((k) => k.kind).filter((k) => !BEAUTY_WORKS.has(k)));
 /** Goods made for the look of the village. */
 export const DECOR_GOODS = new Set(['lantern', 'jack_o_lantern']);
