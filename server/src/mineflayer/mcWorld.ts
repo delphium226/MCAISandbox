@@ -2934,9 +2934,9 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Areas a small work keeps off (every village's buildings with a ring, streets, lamps, signs, farms, slots, the side
    *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from. */
-  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[] }>();
+  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[]; own: Area[] }>();
 
-  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[] } {
+  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[]; own: Area[] } {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
@@ -2994,7 +2994,7 @@ export class MineflayerWorld implements WorldAdapter {
     const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts && !(q.green && waiting.has(q.green))).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
     // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
     const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
-    const entry = { sig, blocked, plots, hard };
+    const entry = { sig, blocked, plots, hard, own };
     this.smallBlockedCache.set(v.name, entry);
     return entry;
   }
@@ -3002,7 +3002,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
   private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number } | null {
     const d = k.make(wood);
-    const { blocked, plots, hard } = this.smallBlocked(v);
+    const { blocked, plots, hard, own } = this.smallBlocked(v);
     // (#45, MC_GARDENS: a garden's spots by its doors and greens, gardenSpots in smallWorks.ts)
     if (GARDENS && isGarden(k.kind)) {
       const doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }> = [];
@@ -3022,7 +3022,8 @@ export class MineflayerWorld implements WorldAdapter {
           return false;
         }
       };
-      const spots = gardenSpots({ doors, greens, plots, hard, soil }).filter((sp) => sp.kind === k.kind);
+      // (every village's building footprints: a garden's box and its 1-cell margin keep clear of them)
+      const spots = gardenSpots({ doors, greens, plots, hard, structures: own, soil }).filter((sp) => sp.kind === k.kind);
       if (!spots.length) return null;
       const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
       return { x: sp.x, y: sp.y, z: sp.z };
