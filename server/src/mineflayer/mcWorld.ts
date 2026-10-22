@@ -162,7 +162,8 @@ const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobbleston
  *  GATHER_KINDS). */
 const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wildflowers' };
 /** #46 (MC_GARDENS): a sapling of the village's wood, from its leaves (they drop saplings by chance: ~20 leaves a trip). */
-const SAPLING_GATHER = { trip: 20, block: (wood?: string) => `${wood ?? 'oak'}_leaves`, deposit: (wood?: string) => `${wood ?? 'oak'}_sapling` };
+// (the collect counts the saplings, not every drop: a leaf drops one 1 time in 20, F287)
+const SAPLING_GATHER = { trip: 2, block: (wood?: string) => `${wood ?? 'oak'}_leaves`, deposit: (wood?: string) => `${wood ?? 'oak'}_sapling` };
 /** A gathering that found none of its material backs it off this long; a second such answer counts toward "unavailable"
  *  only this long after the first (S.9's review, lens 4 M2). */
 const GATHER_NONE_BACK = 30 * 60000;
@@ -3061,9 +3062,12 @@ export class MineflayerWorld implements WorldAdapter {
       if (m === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
       if (m === 'sand' && v.unavailable?.includes('sand')) continue;
       const spec = m === 'flowers' ? FLOWER_GATHER : m === 'saplings' ? SAPLING_GATHER : GATHER_KINDS[m];
-      // (a sapling trip collects ~20 leaves for its one or two saplings, whatever the bill's count)
-      const amount = m === 'saplings' ? spec.trip : Math.min(spec.trip, Math.max(4, Math.ceil(q)));
-      return { what: 'gather', material: m, amount, block: spec.block(v.wood ?? v.catalogWood), deposit: m === 'saplings' ? spec.deposit(this.catalogWoodOf(v)) : spec.deposit(v.wood) };
+      // (a sapling trip breaks leaves within reach of the ground until it holds the saplings wanted, at most 2)
+      if (m === 'saplings') {
+        const wood = this.catalogWoodOf(v);
+        return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(1, Math.ceil(q))), block: spec.block(wood), deposit: spec.deposit(wood), item: spec.deposit(wood) };
+      }
+      return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block(v.wood ?? v.catalogWood), deposit: spec.deposit(v.wood) };
     }
     return null;
   }
@@ -3108,7 +3112,7 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[initiative] ${v.name}: ${worker.name} builds ${it.id} (${it.by}'s ${k?.words ?? it.kind}) at ${it.x},${it.z}`);
       return;
     }
-    const collect = worker.enqueue('collect', { block: step.block, count: step.amount, chore: true });
+    const collect = worker.enqueue('collect', { block: step.block, count: step.amount, chore: true, ...(step.item ? { item: step.item } : {}) });
     const deposit = worker.enqueue('deposit', { item: step.deposit, also: GATHER_ALSO, chore: true });
     const failed = (why: string) => {
       if (why === 'cancelled' || collect.code || deposit.code) return;
@@ -3902,6 +3906,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (c.choice.ended) return;
     c.choice.ended = true;
     c.choice.endedAt = Date.now();
+    this.idleSince.set(c.agent.toLowerCase(), c.choice.endedAt);
     const bad = c.status.find((q) => q.state === 'failed');
     const agent = this.agents.get(c.agent.toLowerCase());
     if ((agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') this.reportFailed(c);
@@ -5351,11 +5356,12 @@ export class MineflayerWorld implements WorldAdapter {
         const order = shuffled(SMALL_WORKS, `${a.name}|${v.initiativeN ?? 0}`);
         let r = 0;
         const roomless: SmallWorkKind[] = [];
-        // (#45: the two front-garden kinds read alike: one of them a menu)
+        // (#45: front gardens read alike: one of them a menu)
         let frontGarden = false;
         for (const k of order) {
           if (r >= 2) break;
-          const front = GARDENS && isGarden(k.kind) && k.kind !== 'flower_ring';
+          // (a sapling is not a front garden: it took the slot from front_bed in staged L1)
+          const front = GARDENS && isGarden(k.kind) && k.kind !== 'flower_ring' && k.kind !== 'sapling';
           if (front && frontGarden) continue;
           const spot = this.smallWorkSpot(v, k, wood, a.name);
           if (!spot) {
@@ -5724,6 +5730,8 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** MC_WORK_BLOCKS: each member's open block of work (the option it repeats, until when, who decided it). */
   private blocks = new Map<string, { option: string; until: number; from: string }>();
+  /** When each member's last chore ended (MC_QUICK_NEXT: the longest idle choose first). */
+  private idleSince = new Map<string, number>();
 
   /** Character v2: villages whose run began in this process (a spawn with reset clears the state once). */
   private characterBegun = new Set<string>();
@@ -6377,6 +6385,12 @@ export class MineflayerWorld implements WorldAdapter {
     // (a public work's tasks are held for as a neighbourhood's, X.2)
     let members = GROW.on || PROJECTS_ON ? this.growHold(v, this.idleMembers(v, now), now) : this.idleMembers(v, now);
     if (!members.length) return;
+    // (MC_QUICK_NEXT: the longest idle first, the Mayor still last: with a sweep at each chore's end, the first members in
+    // the list took every freed option again and again and the last ones never chose, staged L1's Rosa to Xavier)
+    if (QUICK_NEXT) {
+      const since = (b: BotAgent) => this.idleSince.get(b.name.toLowerCase()) ?? 0;
+      members = [...members.filter((b) => b.memory.villageRole !== 'mayor').sort((x, y) => since(x) - since(y)), ...members.filter((b) => b.memory.villageRole === 'mayor')];
+    }
     const facts = this.sweepFacts(v, now, members[0]);
     // The fields the old wheat loop got as far as reading the busy keys for
     const ready = (v.layouts ?? []).map((l, i) => (l.farm && facts.field(String(i + 1)) ? i + 1 : 0)).filter(Boolean);
@@ -6960,7 +6974,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
-type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings'; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
+type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings'; amount: number; block: string; deposit: string; item?: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
 const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER

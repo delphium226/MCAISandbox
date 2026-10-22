@@ -361,6 +361,27 @@ function treeLogs(a: BotAgent, start: Vec3, keep: (p: Vec3) => boolean): Vec3[] 
   return out;
 }
 
+/**
+ * Whether a bot on the ground can break the leaf block at p (the sapling trip, #46): a cell within 2 sideways with solid
+ * ground (not a log or leaves) at most 6 below the leaf and two clear cells over it, from whose eye the leaf is within
+ * 4.3 blocks. Canopy leaves are not: 18 of a staged run's 46 failures were "could not reach birch_leaves" (F287).
+ */
+export function leafInReach(a: BotAgent, p: Vec3): boolean {
+  const v = new Vec3(0, 0, 0);
+  for (let dx = -2; dx <= 2; dx++)
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let y = p.y + 1; y >= p.y - 6; y--) {
+        const g = a.bot.blockAt(v.set(p.x + dx, y, p.z + dz));
+        if (!g || isTreeLog(g.name)) break;
+        if (g.boundingBox !== 'block' || g.name.endsWith('_leaves')) continue;
+        const f = a.bot.blockAt(v.set(p.x + dx, y + 1, p.z + dz))?.boundingBox, h = a.bot.blockAt(v.set(p.x + dx, y + 2, p.z + dz))?.boundingBox;
+        if (f === 'empty' && h === 'empty' && Math.hypot(dx, y + 1 + 1.62 - (p.y + 0.5), dz) <= 4.3) return true;
+        break;
+      }
+    }
+  return false;
+}
+
 /** The first solid ground under x, z below y (logs and leaves do not count); null if not loaded or none within 40. */
 function groundBelow(a: BotAgent, x: number, y: number, z: number): number | null {
   const v = new Vec3(x, 0, z);
@@ -713,7 +734,11 @@ async function collect(a: BotAgent, args: Record<string, unknown>, signal: Abort
 }
 
 async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
-  const { blocks, items, label } = collectTargets(a, str(args.block, 'block'));
+  const { blocks, items: drops, label } = collectTargets(a, str(args.block, 'block'));
+  // `item`: only that drop counts (a sapling from leaves, which drop sticks too); leaves only within reach of the ground
+  const only = typeof args.item === 'string' ? a.world.registry.itemsByName[args.item]?.id : undefined;
+  const items = only !== undefined ? [only] : drops;
+  const leaves = /_leaves$/.test(label);
   // Shared by every bot: a log another worker could not reach is usually out of reach for all (high in a canopy)
   const bad = unreachable;
   for (const [k, until] of bad) if (until < Date.now()) bad.delete(k);
@@ -806,7 +831,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   while (true) {
     checkAbort(signal);
     const got = items.length ? have() - start : mined;
-    if (got >= want) return `collected ${got} ${label}${alsoTook()}`;
+    if (got >= want) return `collected ${got} ${only !== undefined ? String(args.item) : label}${only !== undefined ? ` from ${label}` : ''}${alsoTook()}`;
     if (got > lastGot) { lastGot = got; lastGain = Date.now(); }
     if (failed.size >= 3 || failMs > 90000 || (failed.size && Date.now() - lastGain > 2 * 60000)) throw giveUp(got);
     if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
@@ -846,8 +871,15 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     const tooBig = Math.max(40, 2 * (want - got) + 20);
     let giant: Vec3 | undefined, passed = 0;
     let next: Vec3 | undefined;
+    let outOfReach = 0;
     for (const p of [...cost.keys()].sort((u, w) => cost.get(u)! - cost.get(w)!)) {
       if (giant && cost.get(p)! > cost.get(giant)! + 40) break;
+      // (canopy leaves passed over for every bot, 60 a pass at most: each reads up to 200 blocks)
+      if (leaves && !leafInReach(a, p)) {
+        bad.set(at(p), Date.now() + 10 * 60000);
+        if (++outOfReach >= 60) break;
+        continue;
+      }
       if ((treeSize.get(at(p)) ?? 0) > tooBig) {
         giant ??= p;
         continue;
@@ -873,7 +905,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
       const p0 = a.bot.entity.position;
       // (cheapest first: most matches are buried, and near() goes through every village's areas)
       // (nor one another gatherer is on its way to: the check's #10)
-      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near));
+      next = nearestBlocks(a, blocks, 128, 512, (p) => p.distanceTo(p0) > 48 && exposed(a, p) && near(p) && stalk(p) && !failed.has(at(p)) && !bad.has(at(p)) && !takenByOther(p), ys).find((p) => !skipBuilt(p, near) && (!leaves || leafInReach(a, p)));
       if (next) {
         const far = Math.round(next.distanceTo(a.bot.entity.position));
         const t1 = Date.now();
