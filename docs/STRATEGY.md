@@ -80,6 +80,15 @@ offline checks, a staged run, then a model-driven run at 25 (lesson 124).
    take requests as acts and promises (G2), carry proposals to the council (G3, G5) and keep a relationship with them.
    Done when the user can ask a member for something in either place and see it remembered, answered and done or refused
    with a reason.
+8. **G8 The ladder of ages** (the user's, 10-22: the focus now). The village climbs Minecraft's progression as a ladder of
+   voted village ambitions, each in four stages counted by code (the motivation spec's village ambition): **iron** (mine
+   trips, raw iron, iron tools, every member with one), **letters** (paper, leather, books, a library; #21), **diamond**
+   (the deep mine, #22), **enchantment** (obsidian, the table, experience; #23, #19), **the Nether** (a portal and an
+   expedition; netherite at the top; #25); branches **copper**, **machines** (rails and redstone, #24) and **trade**.
+   Each rung's new skills come through the foundry and the innovation library's prerequisites (`tech.ts`), and each
+   needs different specialists, the condition for roles to form. Peaceful mode rules out blazes and endermen, so no
+   brewing and no End (to verify in game). Done for a rung when a model-driven village votes for it, works its four
+   stages and reaches it.
 
 **Why this order:** memory is goal 4 itself, and every behaviour in goal 2 needs agents that remember: profiles,
 promises, reputations, rules and customs all live in memory. G5 and G6 can run beside G1-G4 where their files do not
@@ -145,3 +154,5 @@ number rather than a goal.
   `docs/research/character-model-v2.md`, spec `runs/2026-10-22/character/`) makes the identical-member tests moot. Built
   and tested straight after its spec, every element and its trend over time shown on the control panel.
 - 2026-10-22 (the user's): **G7, talking with the village**, next after G2's character v2; Phase 3's issues unparked.
+- 2026-10-22 (the user's): **the ladder of ages (G8) is the focus**: iron first, then letters, diamond, enchantment and
+  the Nether; #19, #21-#25 unparked into it.
