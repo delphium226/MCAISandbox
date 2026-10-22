@@ -1,0 +1,95 @@
+{
+  "id": "lib:wool",
+  "name": "Shear the sheep",
+  "skill": "shear_sheep_at",
+  "count": {
+    "arg": "count",
+    "max": 8
+  },
+  "needs": {
+    "shears": 1
+  },
+  "gives": [
+    {
+      "item": "white_wool"
+    }
+  ],
+  "also": [
+    "orange_wool",
+    "magenta_wool",
+    "light_blue_wool",
+    "yellow_wool",
+    "lime_wool",
+    "pink_wool",
+    "gray_wool",
+    "light_gray_wool",
+    "cyan_wool",
+    "purple_wool",
+    "blue_wool",
+    "brown_wool",
+    "green_wool",
+    "red_wool",
+    "black_wool"
+  ],
+  "keep": 24,
+  "effect": "white wool for the workshop's white banners, paintings, white beds, white carpets: what members wish for",
+  "research": {
+    "name": "shear sheep for white wool",
+    "requires": {
+      "shears": 1
+    },
+    "attempt": {
+      "wheat": 2
+    },
+    "minutes": 3,
+    "chance": 0.3,
+    "complexity": 4,
+    "capability": "wool",
+    "goods": [
+      {
+        "item": "white_banner",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "white banners",
+        "forWhat": "white banners from the village's white wool (an invention of the village)",
+        "allow": [
+          "white_wool"
+        ]
+      },
+      {
+        "item": "painting",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "paintings",
+        "forWhat": "paintings from the village's white wool (an invention of the village)",
+        "allow": [
+          "white_wool"
+        ]
+      },
+      {
+        "item": "white_bed",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "white beds",
+        "forWhat": "white beds from the village's white wool (an invention of the village)",
+        "allow": [
+          "white_wool"
+        ]
+      },
+      {
+        "item": "white_carpet",
+        "target": 2,
+        "batch": 1,
+        "unit": 1,
+        "words": "white carpets",
+        "forWhat": "white carpets from the village's white wool (an invention of the village)",
+        "allow": [
+          "white_wool"
+        ]
+      }
+    ]
+  }
+}
