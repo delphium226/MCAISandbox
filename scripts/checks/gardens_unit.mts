@@ -53,15 +53,26 @@ for (const [ox, oz] of [[0, -1], [1, 0], [-1, 0]]) {
   const b = gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard, soil: soilAll })[0];
   ok(!!b && b.cells.every((c) => !hard.some((h) => c.x >= h.x1 && c.x <= h.x2 && c.z >= h.z1 && c.z <= h.z2)) && b.cells.every((c) => c.x !== 10), `a bed past the house, the sign and the street (${b ? b.cells.map(key).join(' ') : 'none'})`);
 }
+// The build box's 1-cell margin clear of buildings (G2's L2: a bed's box ran into the house beside it): a house right
+// beside the first candidate pushes the bed on
+{
+  const house = { x1: 13, z1: 15, x2: 19, z2: 30 };
+  const b = gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [house], structures: [house], soil: soilAll })[0];
+  ok(!!b && Math.min(...b.cells.map((c) => c.x)) - 1 > house.x2 || (!!b && Math.max(...b.cells.map((c) => c.x)) + 1 < house.x1), `the bed and its margin clear of the house (${b ? b.cells.map(key).join(' ') : 'none'})`);
+  const box = b ? { x1: Math.min(...b.cells.map((c) => c.x)) - 1, x2: Math.max(...b.cells.map((c) => c.x)) + 1, z1: Math.min(...b.cells.map((c) => c.z)) - 1, z2: Math.max(...b.cells.map((c) => c.z)) + 1 } : null;
+  ok(!!box && !(house.x1 <= box.x2 && house.x2 >= box.x1 && house.z1 <= box.z2 && house.z2 >= box.z1), 'no overlap with the house');
+}
 // A hard area on every candidate, or no soil, or a diagonal door: none
 {
   ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [{ x1: 0, z1: 21, x2: 20, z2: 40 }], soil: soilAll }).length === 0, 'all of the front taken: none');
   ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 0, oz: 1, y: 64 }], greens: [], hard: [], soil: () => false }).length === 0, 'no soil: none');
   ok(gardenSpots({ doors: [{ x: 10, z: 20, ox: 1, oz: 1, y: 64 }], greens: [], hard: [], soil: soilAll }).length === 0, 'a diagonal door: none');
 }
-// The ring round a green's centre (a 3x3 statue there, left alone)
+// The ring round a green's centre: an empty centre takes it; a building there (a statue) refuses it, since build_design
+// works on the ring's whole box
 {
-  const r = gardenSpots({ doors: [], greens: [{ x: 50, z: 50, y: 64 }], hard: [{ x1: 49, z1: 49, x2: 51, z2: 51 }], soil: soilAll })[0];
+  ok(gardenSpots({ doors: [], greens: [{ x: 50, z: 50, y: 64 }], hard: [], structures: [{ x1: 49, z1: 49, x2: 51, z2: 51 }], soil: soilAll }).length === 0, 'a statue at the centre: no ring');
+  const r = gardenSpots({ doors: [], greens: [{ x: 50, z: 50, y: 64 }], hard: [], soil: soilAll })[0];
   ok(!!r && r.kind === 'flower_ring' && r.x === 50 && r.z === 50, `a ring centred on the green (${JSON.stringify(r)})`);
   ok(!!r && r.cells.length === 12 && r.cells.every((c) => Math.max(Math.abs(c.x - 50), Math.abs(c.z - 50)) === 2) && !r.cells.some((c) => (c.x === 50 || c.z === 50)), 'its 12 cells on the 5x5 border, each side\'s middle open');
   ok(!!r && JSON.stringify(planted('flower_ring', r.x, r.z)) === JSON.stringify(r.cells.map(key).sort()), 'build_design plants the ring\'s cells');

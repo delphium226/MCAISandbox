@@ -166,7 +166,8 @@ function frontBed(_w: string): Design {
   ]);
 }
 
-/** A 5x5 flower ring round a green's centre (its middle 3x3 left as it is, the middle of each side open as a way in). */
+/** A 5x5 flower ring round a green's centre (its middle 3x3 left as it is, the middle of each side open as a way in; only round
+ *  an empty centre: build_design refuses a box over a building). */
 function flowerRing(_w: string): Design {
   return design('flower_ring', _w, "a flower ring round the green's centre, open on each side", { F: GARDEN_FLOWER }, [
     ['_____', '_____', '_____', '_____', '_____'],
@@ -266,6 +267,9 @@ export interface GardenInput {
   /** Cells no garden may touch: buildings' own footprints, streets, lamps and signs, farms and slots, the mine, other
    *  works, reservations, builds laid out... (not the rings and door fronts other works keep off: a garden hugs them). */
   hard: Area[];
+  /** The buildings' footprints (build_design refuses a box over one): checked against each spot's box and its 1-cell
+   *  margin; without it, `hard` is (stricter: streets, signs and lamps then keep off the margin too). */
+  structures?: Area[];
   /** Whether the ground at (x, z), at the spot's level, is soil a flower stands on (grass, dirt, podzol...). */
   soil: (x: number, z: number, y: number) => boolean;
 }
@@ -276,8 +280,8 @@ export interface GardenSpot { kind: string; x: number; y: number; z: number; cel
 const inArea = (a: Area, x: number, z: number) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
 
 /**
- * Where gardens fit (pure, #45): for each door, a 2x2 flower bed beside its walkway (its near column 2-4 cells to either
- * side, its rows 1-5 out from the door, the first that fits: the walkway and the cells beside it stay free for the door's
+ * Where gardens fit (pure, #45): for each door, a 2x2 flower bed beside its walkway (its near column 2-6 cells to either
+ * side, its rows 1-6 out from the door, the first that fits, its build box and margin clear of every building: the walkway and the cells beside it stay free for the door's
  * sign and its stand cells, lessons 44, 62, 68); for each green, the ring round its centre; #46's corner trees. A spot is kept only when every cell it plants is free of the hard areas and on
  * soil. Each spot's centre is build_design's for its design (x1 + floor(w / 2), z1 + floor(d / 2)).
  */
@@ -289,16 +293,20 @@ export function gardenSpots(input: GardenInput): GardenSpot[] {
     const top = d.layers[1];
     for (let j = 0; j < top.length; j++) for (let i = 0; i < top[j].length; i++) if (top[j][i] === 'F') cells.push({ x: x1 + i, z: z1 + j });
     if (!cells.every((c) => free(c.x, c.z, y))) return;
+    // (build_design works on the design's box and a 1-cell margin, and refuses one that overlaps a building: the margin
+    // clear of the buildings' footprints too, G2's L2: a front bed's box ran into the house beside it)
+    const box = { x1: x1 - 1, z1: z1 - 1, x2: x1 + d.width, z2: z1 + d.depth };
+    if ((input.structures ?? input.hard).some((a) => a.x1 <= box.x2 && a.x2 >= box.x1 && a.z1 <= box.z2 && a.z2 >= box.z1)) return;
     out.push({ kind, x: x1 + Math.floor(d.width / 2), y, z: z1 + Math.floor(d.depth / 2), cells });
   };
   for (const dr of input.doors) {
     if (Math.abs(dr.ox) + Math.abs(dr.oz) !== 1) continue;
-    // (the bed's rows 1-5 out from the door, its near column 2-4 cells to either side of the walkway: the walkway and the
+    // (the bed's rows 1-6 out from the door, its near column 2-6 cells to either side of the walkway: the walkway and the
     // cell beside it stay free for the door's sign and its stand cells, lessons 44, 62, 68; the first that fits)
     const d = frontBed('oak');
     const px = dr.oz !== 0 ? 1 : 0, pz = dr.ox !== 0 ? 1 : 0;
     const n = out.length;
-    find: for (let k = 1; k <= 5; k++) for (let lat = 2; lat <= 4; lat++) for (const side of [-1, 1]) {
+    find: for (let k = 1; k <= 6; k++) for (let lat = 2; lat <= 6; lat++) for (const side of [-1, 1]) {
       // (the bed's two cells nearest the door start k out; its near column `lat` to the side)
       const ax = dr.x + dr.ox * k + px * side * lat, az = dr.z + dr.oz * k + pz * side * lat;
       const bx = ax + dr.ox + px * side, bz = az + dr.oz + pz * side;
