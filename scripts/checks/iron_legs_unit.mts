@@ -74,13 +74,49 @@ const level = (extra: Partial<IronLevel> = {}): IronLevel => ({ x: 0, z: 0, y: 4
   MM.releaseIronClaims('G', 'Cal');
   ok(MM.ironGate('G', 'Dan', i, until) === null, 'a place freed is taken');
   for (const n of ['Ada', 'Ben', 'Dan']) MM.releaseIronClaims('G', n);
+  // The stairs: taken only at their start (I4), so a miner on its way holds nothing
   const s = level({ level: undefined, legs: [] });
-  ok(MM.ironGate('S', 'Ada', s, until) === null, 'the first digs the stairs');
-  const st = MM.ironGate('S', 'Ben', s, until);
-  ok(!!st && /stairs/.test(st), `another waits for the stairs (${st})`);
+  ok(MM.ironGate('S', 'Ada', s, until) === null && MM.ironGate('S', 'Ben', s, until) === null, 'walkers to the stairs both go down');
+  ok(MM.takeIronStairs('S', 'Ada', until), 'the first at the start digs the stairs');
+  ok(!MM.takeIronStairs('S', 'Ben', until), 'the second at the start waits');
+  const st = MM.ironGate('S', 'Cal', s, until);
+  ok(!!st && /stairs/.test(st), `a miner coming while they are dug is told (${st})`);
   MM.releaseIronClaims('S', 'Ada');
-  ok(MM.ironGate('S', 'Ben', s, until) === null, 'the stairs free once their digger lets go');
-  MM.releaseIronClaims('S', 'Ben');
+  ok(MM.ironGate('S', 'Cal', s, until) === null && MM.takeIronStairs('S', 'Ben', until), 'the stairs free once their digger lets go');
+  for (const n of ['Ben', 'Cal']) MM.releaseIronClaims('S', n);
+}
+
+// The world's test of a deeper start (I4): a dug cell to start from, no air on the way down
+{
+  const old = level({ finished: 'x', dug: 320, legs: [leg(22, 0, 18, [1, 0], 120)] });
+  const air = new Set<string>();
+  const dig = (x: number, z: number) => { air.add(`${x},18,${z}`); air.add(`${x},19,${z}`); };
+  dig(22, 0);
+  for (const c of MM.legCells(old.legs[0])) dig(c.x, c.z);
+  const world = (extra: string[] = []) => ({
+    name: 'Ada', world: { villages: reg },
+    bot: {
+      world: { getColumn: () => null },
+      blockAt: (p: { x: number; y: number; z: number }) => {
+        const open = air.has(`${p.x},${p.y},${p.z}`) || extra.includes(`${p.x},${p.y},${p.z}`);
+        return { name: open ? 'air' : 'stone', boundingBox: open ? 'empty' : 'block', position: p };
+      },
+    },
+  }) as never;
+  const lay = (a: never) => {
+    const m = { top: { x: 0, z: 0 }, dir: [1, 0], steps: 10, level: 59, dug: 0, ended: [], got: {}, hut: { x1: -2, z1: -2, x2: 2, z2: 2 }, legs: [], iron: { ...old } } as unknown as Mine;
+    MM.layNextIronLevel(reg, v, m, m.iron!, a);
+    return m.iron!;
+  };
+  const n1 = lay(world());
+  ok(n1.x === 22 && n1.z === 0 && n1.dir[1] === -1, `solid all the way: the bottom step, sideways (${n1.x},${n1.z} ${n1.dir})`);
+  // A cave two steps down that way: the other side
+  const n2 = lay(world(['22,17,-2']));
+  ok(n2.x === 22 && n2.z === 0 && n2.dir[1] === 1, `air two steps down: not that way (${n2.x},${n2.z} ${n2.dir})`);
+  // The bottom step not open (a record cell passed undug): a dug cell instead
+  air.delete('22,18,0');
+  const n3 = lay(world());
+  ok(!(n3.x === 22 && n3.z === 0) && air.has(`${n3.x},18,${n3.z}`) && air.has(`${n3.x},19,${n3.z}`), `an undug cell is never a start (${n3.x},${n3.z})`);
 }
 
 // The next iron level: from the old one's bottom step, sideways, 12 below
@@ -99,13 +135,13 @@ const level = (extra: Partial<IronLevel> = {}): IronLevel => ({ x: 0, z: 0, y: 4
   ok(n.dug === 320 && n.dugAt === 320 && n.got.raw_iron === 17 && n.got !== old.got, '`dug` and `got` run on, the old record kept apart');
   ok(MM.mineAreas(m).length === areasBefore, 'the old level stays protected (its boxes kept)');
   ok(MM.mineLights(m).length === lightsBefore && MM.mineLights(m).every((q) => q.part.startsWith('mine:')), 'the old level keeps its torch spots');
-  // Not again from an unfinished level, nor below y 0, nor past three levels
+  // Not again from an unfinished level, nor aimed below y -8, nor past four levels
   ok(MM.layNextIronLevel(reg, v, m, n) === '', 'an unfinished level lays nothing');
-  Object.assign(n, { steps: 13, level: 6, legs: [leg(22, 13, 6, [0, 1], 50)], finished: 'every tunnel ended' });
-  ok(MM.layNextIronLevel(reg, v, m, n) === '' && m.iron === n, 'no level aimed below y 0 (6 - 12)');
+  Object.assign(n, { steps: 13, level: 2, legs: [leg(22, 13, 2, [0, 1], 50)], finished: 'every tunnel ended' });
+  ok(MM.layNextIronLevel(reg, v, m, n) === '' && m.iron === n, 'no level aimed below y -8 (2 - 12)');
   const deep = { ...level({ level: 28, finished: 'x' }) };
-  const m3 = { ...m, ironPast: [level(), level()], iron: deep } as Mine;
-  ok(MM.layNextIronLevel(reg, v, m3, deep) === '', 'three levels at most');
+  const m3 = { ...m, ironPast: [level(), level(), level()], iron: deep } as Mine;
+  ok(MM.layNextIronLevel(reg, v, m3, deep) === '', 'four levels at most');
   const m2 = { ...m, ironPast: undefined, iron: level({ level: 28, finished: 'x' }) } as Mine;
   ok(!!MM.layNextIronLevel(reg, v, m2, m2.iron!) && m2.iron!.targetY === 16, `a level at y 28 is followed by one aimed at 16 (${m2.iron!.targetY})`);
 }

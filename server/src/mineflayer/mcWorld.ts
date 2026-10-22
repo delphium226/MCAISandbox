@@ -938,7 +938,10 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (a works furnace first, else the hut's: the workshop's makes held all three works furnaces most of staged I1)
     const free = this.freeFurnaces(v, busy), k = free.find((q) => q >= 1) ?? free[0];
+    // (a load of 8 or fewer goes to one smelter at a time: two took the same 7 raw iron in staged I5, and the second failed)
+    const smelting = [...busy].some((q) => q.startsWith('ironsmelt:'));
     if (raw < 1) why.push('no raw iron to smelt');
+    else if (raw <= 8 && smelting) why.push('being smelted');
     else if (k === undefined) why.push('works furnaces busy');
     else if (backing('smelt')) why.push('smelting backs off');
     else {
@@ -7299,7 +7302,7 @@ function choreName(key: string, what: string): string {
 /** G8: the iron tools a smith forges, their ingots, and whose work needs each (miners first; spec B3). */
 const FORGE_TOOLS = ['iron_pickaxe', 'iron_hoe', 'shears', 'bucket'];
 /** G8: the iron level's answers that mean another miner is in the way (mcMine's gate, stairs and leg claims). */
-const IRON_WAIT = /another worker is digging|miners are on the iron level|has its miner|another miner finished/;
+const IRON_WAIT = /another worker is digging|miners are on the iron level|has its miner|another miner finished|no raw iron in storage|no raw_iron in inventory/;
 const FORGE_COST: Record<string, number> = { iron_pickaxe: 3, iron_hoe: 2, shears: 2, bucket: 3 };
 const FORGE_NEEDS: Array<[string, (k: Map<string, number>) => boolean, string]> = [
   ['iron_pickaxe', (k) => (k.get('iron:dig') ?? 0) >= 1, 'mines without one'],
