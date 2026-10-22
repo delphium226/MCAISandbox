@@ -1626,3 +1626,21 @@ CLAUDE.md when a phase ends.
   routed `foundry` for a capability no ticket can build was guarded to `issue`, the wanted list's demand rose +1 to +2 on
   acceptance, and a checkpoint kept and restored the village's proposals and 25 members' memory. Logs:
   runs/2026-10-22/g6-demand/ (w3/, wanted_W3.json, scorecard_W3.txt, foundry_wool*.log), runs/2026-10-22/foundry/wool/.
+- F282 (10-22, g6-loop session, #91 #92) **Gemini 3.8 Flash high on the amethyst ticket: sound code that passes every
+  offline gate, a live check failed four times on one point it never diagnosed, and the ticket's own geometry was the
+  cause.** The ticket (foundry_queue's mine template, 3d09a49, from W3's list: 9 members wish for a spyglass) asked for
+  a skill that digs its own staircase into a geode. Flash's code did that right in the live check: 29 cells dug, 4 shards,
+  the budding amethyst kept, 0 of 5,940 cells changed outside the corridor and the geode. But the bot never climbed out
+  (ended 9.6 below the ground). The template said to dig two cells ahead (feet, head) and the one below at each step: a
+  staircase two high, which the no-dig walk cannot climb (a step up needs headroom above the head). Run 1: 5 rounds (one
+  lost to a refused command), 102 tool steps, ~25 min of CLI, ~0.74M input + 11.2M cache reads + 162k output (132k
+  thinking); scope, typecheck and check:offline passed every round; reviews passed with 1-3 low findings; live failed
+  twice; then a network outage (06:29) ended it (no review verdict, the sign-in stop). Run 2 (`--gates-only`, the kept
+  worktree): 4 rounds (one refused command), 51 steps, round 2 took 19 of the 31 minutes left, so rounds 3-4 had ~1 min
+  each and answered nothing; live failed 4 times at the same verification. Not merged; the worktree kept. Against
+  Argon (gemini-4-argon-high) on four earlier tickets: 1 round each, 47-151 steps, 30-52 minutes, 4.7-9.5M input, every
+  gate first time, reviews 0 findings; but those were smaller tickets (use an item, a trade, fishing, an existing skill)
+  and none had a geometry error in its brief. Flash's reviews found more (4 runs, 0-3 low findings each). The foundry
+  also summed agy's cumulative usage (the report's 28-42M input is several times the real figure; fixed). Template and
+  ticket corrected to three-high stairs (not rerun). Logs: runs/2026-10-22/foundry/amethyst/ (cli-round1-10, report.md,
+  live_check.txt), runs/2026-10-22/g6-demand/foundry_amethyst*.log.

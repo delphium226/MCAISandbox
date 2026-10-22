@@ -405,8 +405,22 @@ class Cli:
         # (#92: a CLI error no repair can get past; and the round files of an earlier run of this ticket today are kept:
         # this run's rounds are numbered after them)
         self.fatal = None
+        # (agy reports a conversation's usage so far in each round's result: rounds add only what grew since, by conversation)
+        self.seen_usage = {}
         done = [int(m.group(1)) for f in out.glob("cli-round*.jsonl") if (m := re.fullmatch(r"cli-round(\d+)\.jsonl", f.name))]
         self.offset = max(done, default=0)
+
+    def add_usage(self, u, conv=None):
+        """A round's usage into the run's: as reported, or (`conv`: agy's cumulative report for that conversation) only what
+        grew since its last report."""
+        inp = int(u.get("input_tokens") or 0) + int(u.get("cache_read_tokens") or u.get("cache_read_input_tokens") or 0)
+        out = int(u.get("output_tokens") or 0) + int(u.get("thinking_tokens") or 0)
+        if conv:
+            was = self.seen_usage.get(conv, (0, 0))
+            self.seen_usage[conv] = (max(inp, was[0]), max(out, was[1]))
+            inp, out = max(0, inp - was[0]), max(0, out - was[1])
+        self.usage["input"] += inp
+        self.usage["output"] += out
 
     def left_min(self):
         return max(1.0, self.caps["minutes"] - (time.time() - self.started) / 60)
@@ -494,8 +508,7 @@ class Cli:
                     kill_tree(proc)
         proc.wait()
         u = result.get("usage") or steps_usage
-        self.usage["input"] += int(u.get("input_tokens") or 0) + int(u.get("cache_read_tokens") or u.get("cache_read_input_tokens") or 0)
-        self.usage["output"] += int(u.get("output_tokens") or 0) + int(u.get("thinking_tokens") or 0)
+        self.add_usage(u, self.conv if self.kind == "agy" and result.get("usage") else None)
         self.cost += float(result.get("total_cost_usd") or 0)
         response = result.get("response") if self.kind == "agy" else result.get("result")
         status = why or (result.get("status") or result.get("subtype") or f"exit {proc.returncode}")

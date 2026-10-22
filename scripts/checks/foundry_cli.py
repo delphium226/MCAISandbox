@@ -37,6 +37,16 @@ with tempfile.TemporaryDirectory() as d:
     empty = F.Cli("agy", "m", pathlib.Path(d) / "wt", pathlib.Path(d) / "none", {"minutes": 45, "turns": 500, "rounds": 3})
     ok(empty.offset == 0, "no earlier rounds: offset 0")
 
+# agy's cumulative usage counted once (the amethyst ticket's rounds 2-4, 10-22: 0.32M, 0.33M, 0.47M input so far)
+with tempfile.TemporaryDirectory() as d:
+    c = F.Cli("agy", "m", pathlib.Path(d), pathlib.Path(d), {"minutes": 45, "turns": 500, "rounds": 3})
+    for inp, outp in ((324689, 138335), (334361, 139121), (467293, 144807)):
+        c.add_usage({"input_tokens": inp, "output_tokens": outp}, "conv1")
+    ok(c.usage == {"input": 467293, "output": 144807}, f"cumulative rounds counted once: {c.usage}")
+    c.add_usage({"input_tokens": 1000, "output_tokens": 10}, "conv2")
+    c.add_usage({"input_tokens": 5, "output_tokens": 5})
+    ok(c.usage == {"input": 468298, "output": 144822}, f"a new conversation and a per-call report add: {c.usage}")
+
 # Authorship
 class C:
     kind, model, round, steps = "claude", "claude-opus-5-5", 1, 12

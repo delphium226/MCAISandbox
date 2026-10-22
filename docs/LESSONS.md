@@ -643,3 +643,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 163. **An external CLI's plan is a resource that runs out mid-task** (G6, #92): agy's quota ended a ticket after 3 of 4
    files and the foundry spent its repair rounds on instant errors. Keep a second back-end able to resume a half-done
    worktree (`--gates-only --cli claude` finished it in 2 minutes), and read the CLI's error before retrying.
+164. **A ticket's geometry is copied exactly: check it against how a bot moves** (G6, F282): the mine template asked for
+   stairs two high, the coding model built them so, and the bot could not walk back up (a step up needs headroom above
+   the head); four repair rounds patched the walk, never the stairs. Before a ticket that digs or builds a way, walk the
+   shape through the game's movement rules (or a quick live probe), and let the live check name the cell that blocked.
