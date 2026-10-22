@@ -112,7 +112,7 @@ type ChoiceState = {
   make?: { item: string; count: number; smelts: boolean; k?: number };
   gather?: { material: Material; n: number };
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
-  initiative?: { id: string; material: Material | 'flowers'; n: number };
+  initiative?: { id: string; material: Material | 'flowers' | 'saplings'; n: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -161,6 +161,8 @@ const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobbleston
 /** #45 (MC_GARDENS): a garden's wildflowers, gathered by its own crew only (not a workshop material: the catalogue reads
  *  GATHER_KINDS). */
 const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wildflowers' };
+/** #46 (MC_GARDENS): a sapling of the village's wood, from its leaves (they drop saplings by chance: ~20 leaves a trip). */
+const SAPLING_GATHER = { trip: 20, block: (wood?: string) => `${wood ?? 'oak'}_leaves`, deposit: (wood?: string) => `${wood ?? 'oak'}_sapling` };
 /** A gathering that found none of its material backs it off this long; a second such answer counts toward "unavailable"
  *  only this long after the first (S.9's review, lens 4 M2). */
 const GATHER_NONE_BACK = 30 * 60000;
@@ -3007,7 +3009,8 @@ export class MineflayerWorld implements WorldAdapter {
         const door = P.kind === 'building' && P.place ? placedDoor(P.place) : null;
         if (door && P.structure) doors.push({ x: door.x, z: door.z, ox: door.ox, oz: door.oz, y: P.structure.y });
       }
-      const greens = v.plots.filter((p) => p.green).map((p) => ({ x: Math.floor((p.x1 + p.x2) / 2), z: Math.floor((p.z1 + p.z2) / 2), y: p.y }));
+      // (#46: greens with their areas, and the building plots, for the corner trees)
+      const greens = v.plots.filter((p) => p.green).map((p) => ({ x: Math.floor((p.x1 + p.x2) / 2), z: Math.floor((p.z1 + p.z2) / 2), y: p.y, x1: p.x1, z1: p.z1, x2: p.x2, z2: p.z2 }));
       const bot = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.bot.entity)?.bot;
       const SOIL = new Set(['grass_block', 'dirt', 'podzol', 'coarse_dirt', 'rooted_dirt', 'moss_block']);
       const soil = (x: number, z: number, y: number) => {
@@ -3018,7 +3021,7 @@ export class MineflayerWorld implements WorldAdapter {
           return false;
         }
       };
-      const spots = gardenSpots({ doors, greens, hard, soil }).filter((sp) => sp.kind === k.kind);
+      const spots = gardenSpots({ doors, greens, plots, hard, soil }).filter((sp) => sp.kind === k.kind);
       if (!spots.length) return null;
       const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
       return { x: sp.x, y: sp.y, z: sp.z };
@@ -3049,16 +3052,18 @@ export class MineflayerWorld implements WorldAdapter {
     const left = Object.entries(gather).filter(([, q]) => q > 0);
     if (!left.length) return [...busy].some((k) => k.startsWith(`initiative:${it.id}:`)) ? null : { what: 'build' };
     if ([1, 2].slice(0, INITIATIVE_GATHERERS).every((n) => busy.has(`initiative:${it.id}:${n}`))) return null;
-    const mat = (n: string): Material | 'flowers' | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone'
-      // (#45, MC_GARDENS: a garden's wildflowers, gathered by its crew)
-      : GARDENS && (n === 'wildflowers' || FLOWER_ITEMS.includes(n)) ? 'flowers' : null);
+    const mat = (n: string): Material | 'flowers' | 'saplings' | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone'
+      // (#45, #46, MC_GARDENS: a garden's wildflowers and a corner tree's sapling, gathered by its crew)
+      : GARDENS && (n === 'wildflowers' || FLOWER_ITEMS.includes(n)) ? 'flowers' : GARDENS && /_sapling$/.test(n) ? 'saplings' : null);
     for (const [n, q] of left.sort((x, y) => y[1] - x[1])) {
       const m = mat(n);
       if (!m) continue;
       if (m === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
       if (m === 'sand' && v.unavailable?.includes('sand')) continue;
-      const spec = m === 'flowers' ? FLOWER_GATHER : GATHER_KINDS[m];
-      return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block(v.wood ?? v.catalogWood), deposit: spec.deposit(v.wood) };
+      const spec = m === 'flowers' ? FLOWER_GATHER : m === 'saplings' ? SAPLING_GATHER : GATHER_KINDS[m];
+      // (a sapling trip collects ~20 leaves for its one or two saplings, whatever the bill's count)
+      const amount = m === 'saplings' ? spec.trip : Math.min(spec.trip, Math.max(4, Math.ceil(q)));
+      return { what: 'gather', material: m, amount, block: spec.block(v.wood ?? v.catalogWood), deposit: m === 'saplings' ? spec.deposit(this.catalogWoodOf(v)) : spec.deposit(v.wood) };
     }
     return null;
   }
@@ -3921,7 +3926,7 @@ export class MineflayerWorld implements WorldAdapter {
       const vi = ini && n > 0 ? this.villages.villages.get(c.village.toLowerCase()) : undefined;
       const it = vi?.initiatives?.find((i) => i.id === ini!.id);
       if (vi && it && ini) {
-        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material;
+        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material === 'saplings' ? `${this.catalogWoodOf(vi)}_sapling` : ini.material;
         it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + n };
         this.villages.save();
       }
@@ -6955,7 +6960,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
-type InitiativeStep = { what: 'gather'; material: Material | 'flowers'; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
+type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings'; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
 const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
@@ -7025,9 +7030,9 @@ function depositedItems(message: string, items: string[]): number {
   return n;
 }
 
-function depositedOf(message: string, m: Material | 'flowers'): number {
+function depositedOf(message: string, m: Material | 'flowers' | 'saplings'): number {
   const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
-  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : 'cobblestone';
+  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : m === 'saplings' ? '[a-z_]+_sapling' : 'cobblestone';
   let n = 0;
   for (const x of head.matchAll(new RegExp(`(\\d+) ${name}\\b`, 'g'))) n += Number(x[1]);
   return n;
