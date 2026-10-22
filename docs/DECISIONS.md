@@ -784,3 +784,13 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   competence and autonomy measures only, belonging folded into extraversion; mood never levers help; values half
   independent of traits, standing from self-transcendence, self-enhancement-dominant members capped at 25%; measures split
   by who decided; `character.ts` built offline first, wired after Experiment 1, the motivation build and G3's.
+- 10-22 (character v2 spec, addition; the user's through the planning session) **Experiment 1 cancelled and
+  Experiment 1b dropped; the panel is part of the spec.** Character v2 goes straight to build and test in G2's files:
+  offline checks, a staged run at 25, then two 2-hour model-driven runs back to back on the same build with
+  `MC_CHARACTER=on` and `=off` (descriptive measures, predictions marked pass/fail). **Claude's, after the second check
+  (spec_check2.md):** the per-member series and affinity snapshots live in memory and a separate `character.json`
+  written once a minute and cleared at a new run (not social.json, rewritten twice a second, and never in checkpoints),
+  sampled every 60 s / MC_TIME_SCALE from the world's start; three routes (`/api/character?village=`,
+  `/api/agents/:name/character?since=`, `/api/character/series?village=&since=`), the matrix only on request; the views:
+  Members -> Character (absorbing Mind's Persona and Chores' Temperament), affinity in Members -> Social, Society -> People
+  and Relations, an Overview mood card, the flags in Run -> Flags; mood's items called feelings.
