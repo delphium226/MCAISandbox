@@ -381,8 +381,8 @@ $('theme').onclick = () => {
 const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Members'], ['society', 'Society'], ['economy', 'Economy'], ['run', 'Run']];
 const L2 = {
   village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['land', 'Land']],
-  members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
-  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['needs', 'Needs'], ['culture', 'Culture']],
+  members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
+  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
   run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['flags', 'Flags']],
 };
@@ -499,7 +499,7 @@ function selectedAgent(d = lastData) {
 /** What the open member tab needs fetched: its map, memory, votes, a model call. */
 function memberNeeds() {
   if (route.top !== 'members') return new Set();
-  return new Set({ now: ['map'], mind: ['mind'], social: ['mind', 'votes'], chores: ['mind', 'choice'], model: [chipOf('l3:model', 'thoughts')], log: [] }[route.sub.members] || []);
+  return new Set({ now: ['map'], mind: ['mind'], social: ['mind', 'votes'], character: ['character'], chores: ['mind', 'choice'], model: [chipOf('l3:model', 'thoughts')], log: [] }[route.sub.members] || []);
 }
 
 /** One member: what it is doing, its vitals and actions, then its sub-tabs (Now, Mind, Social, Chores, Model, Log). */
@@ -545,6 +545,7 @@ function memberView(a) {
   } else if (sub === 'mind') body = mind.state || `${mind.persona}${mind.journal || '<div class="empty">no journal (MC_MEMORY off)</div>'}${mind.fields}`;
   else if (sub === 'social') body = (mind.state || mind.social || '<div class="empty">nothing social recorded (MCAI_SOCIAL off, or nobody met yet)</div>')
     + (a.village ? `${label('Its ballots')}${votesBody(a.village, a.name)}` : '');
+  else if (sub === 'character') body = characterBody(a);
   else if (sub === 'chores') body = `${label('Its last chore menu')}${choiceBody(a)}${mind.state || `${mind.temper}${mind.chores}`}`;
   else if (sub === 'model') {
     const m = chipOf('l3:model', 'thoughts');
@@ -770,15 +771,119 @@ async function refreshExtras() {
     if (need.has('thoughts')) jobs.push(fetchExtra(`thoughts:${a.name}`, `/api/agents/${encodeURIComponent(a.name)}/thoughts`));
     if (need.has('mind')) jobs.push(mind(a.name));
     if (need.has('votes') && a.village) jobs.push(votes(a.village));
+    // (character v2: the member in full, its series included)
+    if (need.has('character')) jobs.push(fetchExtra(`char:${a.name}`, `/api/agents/${encodeURIComponent(a.name)}/character`));
   }
   // (the village's proposals and rules come with any member's memory view; Run > Flags reads its modes from it too)
   const v = curVillage(lastData), sub = route.sub[route.top];
   if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
   const vm = v && villageMember(v);
   if (vm && ((route.top === 'society' && (sub === 'proposals' || sub === 'rules')) || (route.top === 'run' && sub === 'flags'))) jobs.push(mind(vm.name));
+  // (character v2: every member compact for People, the matrix and quartiles for Relations and the Overview's mood card)
+  if (v && route.top === 'society' && (sub === 'people' || sub === 'relations')) jobs.push(fetchExtra(`charv:${v.name}`, `/api/character?village=${encodeURIComponent(v.name)}`));
+  if (v && route.top === 'overview') jobs.push(fetchExtra(`charv:${v.name}`, `/api/character?village=${encodeURIComponent(v.name)}`));
+  if (v && ((route.top === 'society' && sub === 'relations') || route.top === 'overview')) jobs.push(fetchExtra(`chars:${v.name}`, `/api/character/series?village=${encodeURIComponent(v.name)}&matrix=${route.top === 'society' ? 1 : 0}`));
   if (!jobs.length) return;
   if ((await Promise.all(jobs)).some(Boolean) && lastData) render(lastData);
 }
+// ---- character v2 (spec 14): a member's layers, the village's people and relations; data from /api/character* ----
+const TRAIT_LEVER = { H: 'honesty-humility: measured against what it keeps for itself', E: 'emotionality: pens and home; feels bad things more', X: 'extraversion: help and shared work; pulled toward others', A: 'agreeableness: help; takes requests more readily, forgives sooner', C: 'conscientiousness: gathering, making, farming', O: 'openness: exploring, new crafts, lighting, works' };
+const VALUE_WORDS = { openness: 'openness to change', conservation: 'tradition and order', enhancement: 'getting ahead', transcendence: 'the good of others' };
+/** A bar from -1..1 (traits) or 0..1 (values). */
+const charBar = (x, signed) => {
+  const pct = signed ? Math.round(((x + 1) / 2) * 100) : Math.round(x * 100);
+  return `<span style="display:inline-block;width:120px;height:8px;background:var(--line);vertical-align:middle;position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:${Math.max(0, Math.min(100, pct))}%;background:var(--accent)"></span></span> <span class="mono sub">${signed && x > 0 ? '+' : ''}${Number(x).toFixed(2)}</span>`;
+};
+/** A small line of a series (values in `lo..hi`). */
+function spark(points, lo, hi, w = 240, h = 36) {
+  if (!points.length) return '<span class="sub">no points yet</span>';
+  const t0 = points[0][0], t1 = points[points.length - 1][0] || t0 + 1;
+  const xy = points.map(([t, y]) => `${Math.round(((t - t0) / Math.max(1, t1 - t0)) * w)},${Math.round(h - ((Math.max(lo, Math.min(hi, y)) - lo) / (hi - lo)) * h)}`);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="series"><line x1="0" x2="${w}" y1="${Math.round(h - ((0 - lo) / (hi - lo)) * h)}" y2="${Math.round(h - ((0 - lo) / (hi - lo)) * h)}" class="util-grid"/><polyline points="${xy.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
+}
+/** Members -> Character: the identity line as the model sees it, traits and values with what they lever, energy and
+ *  mood with their series and the feelings behind mood, affinities with their facts, every prompt line as last written. */
+function characterBody(a) {
+  const st = extraState(`char:${a.name}`);
+  if (st) return st;
+  const d = extraData.get(`char:${a.name}`).data;
+  const label = (t, extra = '') => `<div class="label">${t}${extra ? ` <span class="sub">${extra}</span>` : ''}</div>`;
+  const col = (k) => (d.columns || []).indexOf(k);
+  const series = (k) => (d.series || []).map((p) => [p[0], p[col(k)]]);
+  const lines = d.lines || {};
+  return `${label('Identity', 'as the model sees it')}<div>${esc(lines.identity || '(not shown: MC_IDENTITY off)')}</div>`
+    + `${label('Temperament', esc(d.traitWords || ''))}<ul class="list">${Object.entries(d.traits || {}).map(([t, x]) => `<li class="sub"><b>${esc(t)}</b> ${charBar(x, true)} ${esc(TRAIT_LEVER[t] || '')}</li>`).join('')}</ul>`
+    + `${label('Values', `life goal from values: ${esc(d.goalFromValues || '')}`)}<ul class="list">${Object.entries(d.values || {}).map(([k, x]) => `<li class="sub"><b>${esc(VALUE_WORDS[k] || k)}</b> ${charBar(x, false)}</li>`).join('')}</ul>`
+    + `${label('Energy', `${Math.round((d.energy ?? 1) * 100)}% now; rests ${(d.rests || []).length}`)}${spark(series('energy'), 0, 1)}`
+    + `${label('Mood', `${d.mood ?? 0} now (-30..30)`)}${spark(series('mood'), -30, 30)}`
+    + `<ul class="list">${(d.thoughts || []).map((t) => `<li class="sub">${t.now > 0 ? '+' : ''}${t.now} ${esc(t.src)} <span class="sub">ends in ${Math.max(0, Math.round((t.end - Date.now()) / 60000))} min</span></li>`).join('') || '<li class="empty">no feelings now</li>'}</ul>`
+    + `${label('Character factor', 'its decisions\' mean, a minute')}${spark(series('factor'), 0.67, 1.5)}`
+    + `${label('Affinity', 'from verified facts, -10..10')}<ul class="list">${(d.affinity || []).map((x) => `<li class="sub"><b>${esc(x.of)}</b> ${x.a > 0 ? '+' : ''}${x.a}${x.word ? ` (${esc(x.word)})` : ''}${x.facts ? ` <span class="sub">kept ${x.facts.kept}, broke ${x.facts.broke}, helped ${x.facts.helped}, helped by ${x.facts.helpedBy}, accepted ${x.facts.accepted}, refused ${x.facts.refused}, beside ${x.facts.beside}</span>` : ''}</li>`).join('') || '<li class="empty">none yet</li>'}</ul>`
+    + `${label('Prompt lines', 'as last written')}<dl class="kv">${Object.entries(lines).filter(([, x]) => x).map(([k, x]) => `<dt>${esc(k)}</dt><dd>${esc(x)}</dd>`).join('') || '<dd class="sub">none yet</dd>'}</dl>`
+    + `${(d.lineLog || []).length ? det(`charlog:${a.name}`, `the lines' history <span class="sub">(${d.lineLog.length})</span>`, `<ul class="list">${[...d.lineLog].reverse().map((x) => `<li class="sub">${ago(x.t)} ago: ${esc(x.line)}</li>`).join('')}</ul>`) : ''}`;
+}
+/** Society -> People: one row a member: its strongest traits, top value, goal, energy and mood now, strongest friendship. */
+function peopleBody(v) {
+  const st = extraState(`charv:${v.name}`);
+  if (st) return st;
+  const d = extraData.get(`charv:${v.name}`).data;
+  if (!(d.members || []).length) return offBox('No members', 'The village\'s members show here once they are in the world.');
+  const top2 = (tr) => Object.entries(tr || {}).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).slice(0, 2).map(([t, x]) => `${t}${x > 0 ? '+' : '-'}`).join(' ');
+  const topValue = (vs) => Object.entries(vs || {}).sort((x, y) => y[1] - x[1])[0]?.[0] || '';
+  const rows = d.members.map((m) => `<tr><td><b>${esc(m.name)}</b></td><td class="mono">${esc(top2(m.traits))}</td><td>${esc(VALUE_WORDS[topValue(m.values)] || '')}</td><td>${esc(m.goal || '')}</td><td>${Math.round((m.energy ?? 1) * 100)}%</td><td>${m.mood > 0 ? '+' : ''}${m.mood}</td><td>${m.top?.[0] ? `${esc(m.top[0][0])} (${m.top[0][1]})` : ''}</td></tr>`).join('');
+  return card(`People <span class="sub">mood median ${d.dist?.mood?.[2] ?? 0}, energy median ${Math.round((d.dist?.energy?.[2] ?? 1) * 100)}%; flags ${esc(Object.entries(d.flags || {}).filter(([, x]) => x).map(([k]) => k).join(', ') || 'none')}</span>`,
+    `<table class="streets"><tr><th>member</th><th>strongest traits</th><th>top value</th><th>goal</th><th>energy</th><th>mood</th><th>strongest friend</th></tr>${rows}</table>`);
+}
+/** Society -> Relations: the latest affinity matrix (cells coloured by sign), and the village's mood over time. */
+function relationsBody(v) {
+  const st = extraState(`chars:${v.name}`);
+  if (st) return st;
+  const d = extraData.get(`chars:${v.name}`).data;
+  const snap = (d.matrix || [])[d.matrix.length - 1];
+  if (!snap) return offBox('No relations yet', 'Affinity between members, from kept and broken promises, help and work side by side, shows here every 10 village minutes.');
+  const cell = (x) => `<td title="${x}" style="width:14px;height:14px;padding:0;background:${x > 0 ? `rgba(76,194,127,${Math.min(1, x / 6)})` : x < 0 ? `rgba(224,69,58,${Math.min(1, -x / 6)})` : 'transparent'}"></td>`;
+  const head = `<tr><th></th>${snap.names.map((n) => `<th class="sub" style="writing-mode:vertical-rl;font-weight:normal">${esc(n)}</th>`).join('')}</tr>`;
+  const rows = snap.names.map((n, i) => `<tr><th class="sub" style="text-align:right;font-weight:normal">${esc(n)}</th>${snap.m[i].map(cell).join('')}</tr>`).join('');
+  return card(`Relations <span class="sub">affinity, ${ago(snap.t)} ago; green friends, red wary; rows: what each member holds for each other</span>`, `<div style="overflow-x:auto"><table style="border-collapse:collapse">${head}${rows}</table></div>`)
+    + card('Village mood <span class="sub">median and quartiles a minute</span>', spark((d.points || []).map((p) => [p.t, p.mood[1]]), -30, 30, 480, 48));
+}
+
+/** The Overview's "Village mood" card (character v2): the median mood and its quartiles over time; nothing without data. */
+function villageMoodCard(v) {
+  const d = extraData.get(`chars:${v.name}`)?.data;
+  const pts = (d && d.points) || [];
+  if (!pts.length) return '';
+  const mem = extraData.get(`charv:${v.name}`)?.data?.members || [];
+  const word = (x) => (x >= 10 ? ['very good', 'var(--good)'] : x >= 3 ? ['good', 'var(--good)'] : x > -3 ? ['neutral', 'var(--muted)'] : x > -10 ? ['low', 'var(--warn)'] : ['very low', 'var(--bad)']);
+  const med = pts[pts.length - 1].mood[1];
+  const [w, c] = word(med);
+  const good = mem.filter((m) => m.mood >= 3).length, low = mem.filter((m) => m.mood <= -3).length;
+  const counts = mem.length ? `${good} feel good, ${mem.length - good - low} neutral, ${low} low` : '';
+  const byMood = [...mem].sort((x, y) => y.mood - x.mood);
+  const who = (m) => m ? `<b>${esc(m.name)}</b> ${m.mood > 0 ? '+' : ''}${Math.round(m.mood)}${m.feelings?.[0] ? ` <span class="sub">(${esc(m.feelings[0].src)})</span>` : ''}` : '';
+  // (the chart: the middle half of members as a band, the median as a line, scaled to the data, at least -10..+10)
+  const W = 520, H = 70, top = Math.max(10, Math.ceil(Math.max(...pts.flatMap((p) => p.mood.map(Math.abs))) / 5) * 5);
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t || t0 + 1;
+  const X = (t) => Math.round(((t - t0) / Math.max(1, t1 - t0)) * (W - 34)) + 30;
+  const Y = (y) => Math.round(4 + (H - 8) * (1 - (y + top) / (2 * top)));
+  const band = `${pts.map((p) => `${X(p.t)},${Y(p.mood[2])}`).join(' ')} ${[...pts].reverse().map((p) => `${X(p.t)},${Y(p.mood[0])}`).join(' ')}`;
+  const line = pts.map((p) => `${X(p.t)},${Y(p.mood[1])}`).join(' ');
+  const mins = Math.round((t1 - t0) / 60000);
+  const svg = `<svg width="${W}" height="${H + 14}" viewBox="0 0 ${W} ${H + 14}" role="img" aria-label="village mood over time">
+    <text x="0" y="${Y(top) + 4}" class="sub" font-size="10" fill="var(--muted)">+${top}</text>
+    <text x="8" y="${Y(0) + 4}" font-size="10" fill="var(--muted)">0</text>
+    <text x="0" y="${Y(-top) + 4}" font-size="10" fill="var(--muted)">-${top}</text>
+    <line x1="30" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)"/>
+    <polygon points="${band}" fill="var(--accent)" opacity="0.18"/>
+    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <text x="30" y="${H + 12}" font-size="10" fill="var(--muted)">${mins} min ago</text>
+    <text x="${W - 22}" y="${H + 12}" font-size="10" fill="var(--muted)">now</text></svg>`;
+  return card(`Village mood`, `<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div><div style="font-size:22px;font-weight:600;color:${c}">${w}</div><div class="sub">median ${med > 0 ? '+' : ''}${med} on -30..+30${counts ? `; ${counts}` : ''}</div>
+      ${byMood.length ? `<div class="sub" style="margin-top:6px">happiest: ${who(byMood[0])}</div><div class="sub">lowest: ${who(byMood[byMood.length - 1])}</div>` : ''}</div>
+    <div>${svg}<div class="sub">the line is the median member; the band holds the middle half of members</div></div></div>`);
+}
+
 /** Loading, an error, or an agent server from before these views (its routes answer 404). */
 function extraState(key) {
   const e = extraData.get(key);
@@ -1047,6 +1152,8 @@ function societyTab(v, tab) {
     return parts.data.rules == null ? offBox('Rules and the council are off in this run', '<span class="mono">MC_RULES=off</span>. With them on: the agenda, the dusk ballots and the laws in force.')
       : parts.rulesCard ? card('', parts.rulesCard) : offBox('No rules yet', 'Laws members propose and back show here, with the council\'s line.');
   }
+  if (tab === 'people') return peopleBody(v);
+  if (tab === 'relations') return relationsBody(v);
   if (tab === 'needs') {
     const ns = Object.entries(v.needGauges?.kinds || {}).sort((x, y) => y[1].level - x[1].level);
     if (!v.needGauges) return offBox('Needs are off in this run', '<span class="mono">MC_NEEDS=off</span>. With it on (show or on): each need\'s level against LOW 0.25 and HIGH 0.6.');
@@ -2203,7 +2310,7 @@ function viewHtml(d, v) {
   if (top === 'members') return membersView(d);
   if (top === 'run') return runTab(d, v, sub);
   if (!v) return top === 'overview' ? '' : '<div class="offbox"><b>No village yet</b>The mayor has not laid one out.</div>';
-  if (top === 'overview') return overviewStrip(v, d.agents.filter((a) => a.village === v.name));
+  if (top === 'overview') return overviewStrip(v, d.agents.filter((a) => a.village === v.name)) + villageMoodCard(v);
   if (top === 'village') return villageTab(v, sub);
   if (top === 'society') return societyTab(v, sub);
   if (top === 'economy') return economyTab(v, sub);

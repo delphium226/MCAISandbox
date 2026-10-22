@@ -37,6 +37,13 @@ export const OLLAMA_ROUTES = new Map(
 );
 const ollamaUrl = (model: string) => OLLAMA_ROUTES.get(model) ?? OLLAMA_URL;
 export const OLLAMA_CTX = Number(process.env.MC_OLLAMA_CTX ?? 8192);
+
+/** Ollama's sampling temperature for every call (MC_TEMPERATURE, default 0.4: the value hard-coded before; gpt-oss is often
+ *  run at 1.0, the character bench compares them). A function so a bench can set it per call through the environment. */
+export const temperature = () => {
+  const t = Number(process.env.MC_TEMPERATURE);
+  return Number.isFinite(t) && process.env.MC_TEMPERATURE ? Math.min(2, Math.max(0, t)) : 0.4;
+};
 /** How long one local model call may take (MC_OLLAMA_TIMEOUT, seconds): a 27B planner can queue behind another agent's call. */
 const OLLAMA_TIMEOUT_MS = Number(process.env.MC_OLLAMA_TIMEOUT ?? 300) * 1000;
 
@@ -82,7 +89,7 @@ async function completeOllama(model: string, system: string, user: string, tools
       // A model on its own pinned server stays loaded: reloaded after an idle unload, it once came back partly in
       // system RAM (a planner call then took over 3 minutes); the shared app unloads after 30 minutes as before
       keep_alive: OLLAMA_ROUTES.has(model) ? -1 : '30m',
-      options: { num_ctx: OLLAMA_CTX, temperature: 0.4 },
+      options: { num_ctx: OLLAMA_CTX, temperature: temperature() },
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
     }),
