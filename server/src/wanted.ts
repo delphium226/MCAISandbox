@@ -48,6 +48,8 @@ export interface Capability {
   yields: string[];
   /** The skill that does it today, if any (its status: have when a library spec runs it). */
   skill?: string;
+  /** The library activity's skill when it is not `<skill>_at` (pick_flowers runs collect). */
+  activity?: string;
   /** Blocks to look for near a village (foundry_queue counts them in the land). */
   find?: string[];
   /** Blocks the action must never break (budding amethyst: it gives nothing and is the geode's regrowth). */
@@ -93,11 +95,13 @@ export const CAPABILITIES: Capability[] = [
     id: 'copper_age', name: 'Let copper weather', verb: 'wait', target: ['copper_block'], yields: ['exposed_copper', 'weathered_copper', 'oxidized_copper'],
     facts: 'placed copper blocks age by random ticks over hours (exposed, weathered, oxidized); honeycomb waxes a stage to keep it',
   },
-  { id: 'flowers', name: 'Pick flowers', verb: 'collect', target: ['poppy'], yields: ['poppy', 'dandelion', 'cornflower', 'lily_of_the_valley', 'azure_bluet', 'blue_orchid', 'oxeye_daisy', 'lilac', 'rose_bush', 'peony', 'sunflower', 'allium', 'pitcher_plant'],
-    knowledge: 'collect picks flowers today; the planner lists them as ungatherable (a table fix, not a ticket)', facts: '' },
+  // (10-22: no longer a knowledge gap: the planner gathers flowers, and pick_flowers runs collect on them as a library
+  // activity, server/library/flowers.json, locked until researched as dyeing)
+  { id: 'flowers', name: 'Pick flowers for dyes', verb: 'collect', target: ['wildflowers', 'dandelion', 'poppy', 'lily_of_the_valley'], skill: 'collect', activity: 'pick_flowers',
+    yields: ['wildflowers', 'poppy', 'dandelion', 'cornflower', 'lily_of_the_valley', 'azure_bluet', 'blue_orchid', 'oxeye_daisy', 'lilac', 'rose_bush', 'peony', 'sunflower', 'allium', 'pitcher_plant', 'pink_petals', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'torchflower'],
+    find: ['wildflowers', 'dandelion', 'poppy', 'lily_of_the_valley', 'lilac'],
+    facts: 'flowers break at a touch and drop themselves; each makes a dye (wildflowers and dandelions yellow, poppies red, lilies of the valley white, lilacs magenta, cornflowers blue)' },
   { id: 'dripstone', name: 'Collect pointed dripstone', verb: 'collect', target: ['pointed_dripstone'], yields: ['pointed_dripstone'], knowledge: 'collect breaks it today (a table fix)', facts: '' },
-  { id: 'terracotta', name: 'Collect terracotta', verb: 'collect', target: ['terracotta'], yields: ['terracotta'], knowledge: 'collect digs it in badlands (a table fix)', facts: '' },
-  { id: 'green_dye', name: 'Smelt cactus into green dye', verb: 'collect', target: ['cactus'], yields: ['green_dye'], knowledge: 'a smelt the planner misses (a table fix)', facts: '' },
   { id: 'leather', name: 'Kill cows for leather', verb: 'kill', target: ['cow'], yields: ['leather', 'beef'], user: 'killing passive animals is the user\'s call (books, enchanting)', facts: '' },
   { id: 'ink', name: 'Kill squid for ink', verb: 'kill', target: ['squid'], yields: ['ink_sac', 'glow_ink_sac'], user: 'killing passive animals is the user\'s call (the merchant sells ink sacs)', facts: '' },
   { id: 'quartz', name: 'Mine nether quartz', verb: 'mine', target: ['nether_quartz_ore'], yields: ['quartz'], dead: 'Nether only', facts: '' },
@@ -120,7 +124,7 @@ const GATHERED_SET = new Set(['cobblestone', 'stone', 'sand', 'red_sand', 'sands
   'flint', 'wheat', 'wheat_seeds', 'carrot', 'potato', 'beetroot', 'beetroot_seeds', 'pumpkin', 'pumpkin_seeds', 'melon_slice', 'melon_seeds', 'sugar_cane', 'cocoa_beans',
   'egg', 'milk_bucket', 'cod', 'salmon', 'pufferfish', 'tropical_fish', 'emerald', 'lapis_lazuli', 'redstone', 'diamond', 'kelp', 'seagrass', 'lily_pad', 'vine', 'bamboo',
   'cactus', 'snowball', 'ice', 'feather', 'apple', 'stick', 'granite', 'diorite', 'andesite', 'deepslate', 'cobbled_deepslate', 'tuff', 'calcite', 'moss_block', 'grass_block',
-  'podzol', 'sweet_berries', ...SELLS.map((o) => o.item)]);
+  'podzol', 'sweet_berries', 'terracotta', 'cactus', 'beetroot', ...SELLS.map((o) => o.item)]);
 
 /** Items a consumer uses (members' meals, the workshop's goods, the merchant's buys, the innovation library's goods): an
  *  unlocked one counts 1 in a capability's value, any other item 0.25. */
@@ -221,7 +225,7 @@ export function statusOf(c: Capability, ctx: Pick<WantedCtx, 'skills' | 'activit
 export const capSkill = (c: Capability) => c.skill ?? `harvest_${c.id}`;
 /** The foundry skill whose activity runs it: a new skill's own name, or `<skill>_at` for an existing skill run at the
  *  adapter's place (#91's skill-activity template: shear_sheep_at). */
-export const activitySkill = (c: Capability) => (c.skill ? `${c.skill}_at` : capSkill(c));
+export const activitySkill = (c: Capability) => c.activity ?? (c.skill ? `${c.skill}_at` : capSkill(c));
 
 const HOUR = 60 * 60000;
 

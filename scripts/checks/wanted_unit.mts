@@ -1,6 +1,6 @@
 /**
  * G6's wanted list and locked foundry activities, offline (spec runs/2026-10-21/g6-loop/spec.md): the list from the real
- * recipe data (26.1) and the mv3_grown25 checkpoint's record (honeycomb first and ticketable, the dead, the user's call and
+ * recipe data (26.1) and the mv3_grown25 checkpoint's record (flowers first, honeycomb ticketable, the dead, the user's call and
  * the knowledge gaps in their tiers, wool a skill without an activity); demand terms from a lapsed want, an expired order
  * and a need with no answer; a library spec's research block validated, registered as a locked entry, offered as demanded
  * while it is among the wanted top 3, and its activity answering "locked" until the village unlocks it; with
@@ -59,13 +59,18 @@ const v0 = rec.villages[0];
 const list = wantedList(v0, ctx);
 const by = (id: string) => list.find((w) => w.id === id)!;
 console.log(`  top: ${list.slice(0, 4).map((w) => `${w.id} ${w.status} ${w.rank}`).join(', ')}`);
-ok(list[0].id === 'honeycomb' && list[0].ticketable && list[0].status === 'missing', `honeycomb first and ticketable (got ${list[0].id})`);
+// (10-22: flowers are no knowledge gap now; without their activity loaded they are missing, their value the dyes, glass and
+// coloured wool they open, first; honeycomb next and ticketable)
+ok(list[0].id === 'flowers' && list[0].value > by('honeycomb').value, `flowers first, by what dyes open (got ${list[0].id})`);
+ok(by('honeycomb').ticketable && by('honeycomb').status === 'missing', 'honeycomb missing and ticketable');
+ok(by('flowers').unlocks.includes('red_dye') && by('flowers').unlocks.includes('yellow_stained_glass') && by('flowers').unlocks.includes('yellow_concrete_powder'), 'flowers open dyes, stained glass and concrete powder');
+ok(!list.some((w) => w.id === 'terracotta' || w.id === 'green_dye'), 'terracotta and green dye are gathered and smelted now, no rows');
 ok(by('honeycomb').unlocks.length >= 15 && by('honeycomb').simplest.includes('beehive'), 'honeycomb opens the waxed copper and beehives');
-ok(by('quartz').status === 'dead' && by('leather').status === 'user' && by('flowers').status === 'knowledge', 'dead, user and knowledge statuses');
+ok(by('quartz').status === 'dead' && by('leather').status === 'user' && by('dripstone').status === 'knowledge', 'dead, user and knowledge statuses');
 ok(by('wool').status === 'skill' && by('wool').ticketable && by('wool').activitySkill === 'shear_sheep_at', 'wool: a skill without an activity, ticketable as shear_sheep_at (#91)');
 ok(by('amethyst').ticketable && by('amethyst').tool === 'stone_pickaxe' && (by('amethyst').avoid ?? []).includes('budding_amethyst'), 'amethyst: ticketable by the mine template, budding amethyst avoided');
 ok(list.findIndex((w) => w.status === 'dead') > list.findIndex((w) => w.status === 'knowledge'), 'the dead after the knowledge gaps');
-ok(topWanted(list)[0] === 'honeycomb', 'topWanted');
+ok(topWanted(list)[0] === 'flowers' && topWanted(list).includes('honeycomb'), 'topWanted');
 const h = recordTop(recordTop(undefined, list, 1), list, 2);
 ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first === 1 && h.top.honeycomb.last === 2, 'persistence record');
 

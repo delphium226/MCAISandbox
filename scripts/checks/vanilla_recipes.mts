@@ -18,7 +18,7 @@
 import fs from 'node:fs';
 import minecraftData from 'minecraft-data';
 import type { Design } from '../../server/src/village';
-import { Materials, SMELT_FALLBACK, designBill, designBlockList, gatherNames, inWood, smeltOptions, woodPart, type Counts, type MaterialPlan, type Option } from '../../server/src/mineflayer/mcMaterials';
+import { FLOWER_ITEMS, Materials, SMELT_FALLBACK, designBill, designBlockList, gatherNames, inWood, smeltOptions, woodPart, type Counts, type MaterialPlan, type Option } from '../../server/src/mineflayer/mcMaterials';
 import { hasJar, itemTag, listEntries, readJson, vanillaJar } from '../../server/src/vanillaData';
 import { VILLAGE_BIOMES, centreToDesign, listPieces, pieceToDesign, readPiece } from '../../server/src/vanillaPieces';
 
@@ -47,7 +47,8 @@ function literal<T>(start: string, end: string): T {
   const i = SRC.indexOf(start);
   if (i < 0) throw new Error(`mcMaterials.ts: ${start} not found`);
   const j = SRC.indexOf(end, i + start.length);
-  return new Function(`return ${SRC.slice(i + start.length, j + (end.startsWith('}') ? 1 : 0))}`)() as T;
+  // (a table may spread an exported list: FLOWER_ITEMS in GATHER, 10-22)
+  return new Function('FLOWER_ITEMS', `return ${SRC.slice(i + start.length, j + (end.startsWith('}') ? 1 : 0))}`)(FLOWER_ITEMS) as T;
 }
 const GATHER = literal<string[]>('const GATHER = new Set(', ');');
 const UNOBTAINABLE = literal<Record<string, string>>('const UNOBTAINABLE: Record<string, string> = ', '};');

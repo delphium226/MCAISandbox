@@ -25,6 +25,18 @@ const FAMILIES: Record<string, RegExp> = {
 const FAMILY_OF = (name: string) => Object.keys(FAMILIES).find((f) => FAMILIES[f].test(name));
 const FAMILY_RECIPES: Record<string, Option> = { 'any:planks': { kind: 'craft', out: 4, ins: { 'any:logs': 1 } } };
 
+/** The flowers collect picks (10-22): one-block and tall flowers that drop themselves and make a dye. */
+export const FLOWER_ITEMS = ['dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'oxeye_daisy',
+  'cornflower', 'lily_of_the_valley', 'torchflower', 'sunflower', 'lilac', 'rose_bush', 'peony', 'pink_petals', 'wildflowers'];
+/**
+ * Coloured wool from white wool and the colour's dye (10-22): the registry's one recipe recolours "any wool", which leads
+ * back into itself, so red wool (and red banners, beds and carpets) was planned as gathered as it is. White wool is what
+ * shearing gives.
+ */
+/** What dyes are made of (flowers, the farms' beetroot, cactus, cocoa, the mine's lapis): held, it is used first. */
+const DYE_SOURCES = new Set([...FLOWER_ITEMS, 'beetroot', 'cactus', 'cocoa_beans', 'lapis_lazuli']);
+const DYED_WOOL = /^(orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_wool$/;
+
 /** Smelting (output <- input, one each) when the jar cannot be read: the hand table the jar's recipes replaced (V2.5). */
 export const SMELT_FALLBACK: Record<string, string> = {
   glass: 'sand', stone: 'any:cobblestone', smooth_stone: 'stone', brick: 'clay_ball', terracotta: 'clay',
@@ -35,10 +47,13 @@ export const SMELT_FALLBACK: Record<string, string> = {
 /** Found in the world as they are (gathering beats their recipes, e.g. coal from a coal block; wheat from the fields: its
  *  only recipe is from hay_block, whose recipe is from wheat, and that cycle made bread plan as gathered, s30's check M1;
  *  cod and salmon from the fishing activity, s41). */
-const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat', 'cod', 'salmon']);
+const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_wool', 'clay_ball', 'sand', 'red_sand', 'sandstone', 'red_sandstone', 'terracotta', 'dirt', 'gravel', 'sugar_cane', 'leather', 'vine', 'wheat', 'cod', 'salmon',
+  // (10-22, the flowers knowledge gap: what collect and the farms give that dyes are made of; the cactus smelts to green dye)
+  ...FLOWER_ITEMS, 'cactus', 'beetroot']);
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
-const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3 };
+const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
+  ...Object.fromEntries(FLOWER_ITEMS.map((f) => [f, 2])), cactus: 2 };
 // (a stripped log has no recipe, but no village finds one: it takes an axe on a log, a step no chore does; at 1 it tied
 // with "any logs" and a smoker planned from 4 stripped warped stems, F237)
 const gatherCost = (name: string) => GATHER_COST[name] ?? (/^stripped_/.test(name) ? 2 : 1);
@@ -270,6 +285,8 @@ export class Materials {
     if (cached) return cached;
     const out: Option[] = [];
     if (FAMILY_RECIPES[name]) out.push(FAMILY_RECIPES[name]);
+    const dyed = DYED_WOOL.exec(name);
+    if (dyed) out.push({ kind: 'craft', out: 1, ins: { white_wool: 1, [`${dyed[1]}_dye`]: 1 } });
     const item = this.registry.itemsByName[name];
     const recipes = (item && (this.registry.recipes as Record<number, any[]>)[item.id]) || [];
     const groups = new Map<string, { exact: Option; general: Option; n: number }>();
@@ -326,13 +343,17 @@ export class Materials {
     return best;
   }
 
-  /** The chosen way to get an item, or null when it is gathered. */
-  private choose(name: string, memo: Map<string, number>): Option | null {
+  /**
+   * The chosen way to get an item, or null when it is gathered. `held`: what is in hand; a dye's source held costs
+   * nothing, so a dye is made from the flowers in storage (wildflowers) before the cheaper tall ones nobody picked (10-22).
+   */
+  private choose(name: string, memo: Map<string, number>, held: Counts = {}): Option | null {
     const gather = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !!UNOBTAINABLE[name];
     let best: Option | null = null, bestCost = gather ? (UNOBTAINABLE[name] ? 1000 : gatherCost(name)) : Infinity;
     for (const o of this.optionsFor(name)) {
       let c = o.kind === 'smelt' ? 0.3 : 0.02;
       for (const [n, q] of Object.entries(o.ins)) {
+        if (DYE_SOURCES.has(n) && (held[n] ?? 0) >= q) continue;
         const ci = this.cost(n, new Set([name]), memo);
         if (ci === null) { c = Infinity; break; }
         c += ci * q;
@@ -373,7 +394,7 @@ export class Materials {
     // Producers of each item's ingredients, found depth first
     const visit = (n: string) => {
       if (chosen.has(n)) return;
-      const o = this.choose(n, memo);
+      const o = this.choose(n, memo, haveIn);
       chosen.set(n, o);
       if (o) for (const i of Object.keys(o.ins)) visit(i);
     };

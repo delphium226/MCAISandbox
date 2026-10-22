@@ -1,0 +1,108 @@
+{
+  "id": "lib:flowers",
+  "name": "Pick flowers for dyes",
+  "skill": "pick_flowers",
+  "count": {
+    "arg": "count",
+    "max": 16
+  },
+  "gives": [
+    {
+      "item": "wildflowers"
+    },
+    {
+      "item": "dandelion"
+    },
+    {
+      "item": "lily_of_the_valley"
+    },
+    {
+      "item": "lilac"
+    },
+    {
+      "item": "poppy"
+    },
+    {
+      "item": "sunflower"
+    }
+  ],
+  "also": [
+    "rose_bush",
+    "red_tulip",
+    "allium",
+    "peony",
+    "pink_tulip",
+    "pink_petals",
+    "cornflower",
+    "blue_orchid",
+    "azure_bluet",
+    "oxeye_daisy",
+    "white_tulip",
+    "orange_tulip",
+    "torchflower"
+  ],
+  "keep": 32,
+  "effect": "flowers for the workshop's dyes, stained glass and coloured wool: the colours members wish for",
+  "research": {
+    "name": "dyeing with flowers",
+    "requires": {
+      "glass": 1
+    },
+    "attempt": {
+      "torch": 2
+    },
+    "minutes": 3,
+    "chance": 0.3,
+    "complexity": 3,
+    "capability": "flowers",
+    "goods": [
+      {
+        "item": "yellow_dye",
+        "target": 8,
+        "batch": 2,
+        "unit": 1,
+        "words": "yellow dye",
+        "forWhat": "yellow dye from wildflowers and dandelions (an invention of the village)",
+        "allow": [
+          "wildflowers",
+          "dandelion",
+          "sunflower"
+        ]
+      },
+      {
+        "item": "white_dye",
+        "target": 4,
+        "batch": 1,
+        "unit": 1,
+        "words": "white dye",
+        "forWhat": "white dye from lilies of the valley (an invention of the village)",
+        "allow": [
+          "lily_of_the_valley"
+        ]
+      },
+      {
+        "item": "magenta_dye",
+        "target": 4,
+        "batch": 1,
+        "unit": 1,
+        "words": "magenta dye",
+        "forWhat": "magenta dye from lilacs (an invention of the village)",
+        "allow": [
+          "lilac"
+        ]
+      },
+      {
+        "item": "yellow_stained_glass",
+        "target": 8,
+        "batch": 8,
+        "unit": 8,
+        "words": "yellow stained glass",
+        "forWhat": "yellow glass for the village's windows (an invention of the village)",
+        "allow": [
+          "yellow_dye",
+          "glass"
+        ]
+      }
+    ]
+  }
+}
