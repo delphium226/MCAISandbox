@@ -3745,7 +3745,9 @@ export class MineflayerWorld implements WorldAdapter {
       this.endChoice(c);
       this.cooling.set(`${v.name}|${c.key}`, Date.now() + 10000);
       for (const h of c.choice.holds) this.cooling.set(`${v.name}|${h}`, Date.now() + 10000);
-      this.cooling.set(`agent|${id}`, Date.now() + 10000);
+      // (MC_QUICK_NEXT: a chore whose actions all finished, its agent here, leaves the member free at once)
+      const finished = QUICK_NEXT && this.agents.has(id) && c.status.every((q) => q.state === 'done' || (q.state === 'failed' && !/stopped|cancel/i.test(q.message ?? '')));
+      if (!finished) this.cooling.set(`agent|${id}`, Date.now() + 10000);
       this.reportFailed(c);
     }
     return keys;
@@ -3805,6 +3807,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2: a member's own choices make its role, code's label)
     if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, kind, choice.t);
     if (characterAny() && (meta?.source === 'model' || meta?.source === 'scripted')) noteDecision(v.name, worker.name, opt?.cf ?? 1);
+    // (MC_WORK_BLOCKS: a decided choice opens a block of the same option; a block's own repeats keep it)
+    if (WORK_BLOCKS && opt && meta && meta.source !== 'repeat' && meta.reason !== 'work block' && opt.kind !== 'rest') this.blocks.set(id, { option: opt.id, until: choice.t + BLOCK_MS, from: meta.source });
     if (ACTS.on) actsStart(v.name, worker.name, choice.option ?? key, choice.id);
     if (RULES.on && opt?.takes) noteTakes(v.name, worker.name, opt.takes, choice.t);
     // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
@@ -4005,7 +4009,11 @@ export class MineflayerWorld implements WorldAdapter {
     for (const [id, c] of this.chores) {
       if (c.choice.ended) continue;
       const going = c.status.some((q) => q.state === 'queued' || q.state === 'running');
-      if (!going || !this.agents.has(id)) this.endChoice(c);
+      if (!going || !this.agents.has(id)) {
+        this.endChoice(c);
+        // (MC_QUICK_NEXT: the village's check (its sweep) comes within QUICK_GAP_MS, not at the 30 s cycle)
+        if (QUICK_NEXT) this.farmCheckAt = Math.min(this.farmCheckAt, Date.now() - 30000 + QUICK_GAP_MS);
+      }
     }
     for (const p of [...this.pending.values()]) {
       const a = this.agents.get(p.id);
@@ -5660,6 +5668,9 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages.save();
   }
 
+  /** MC_WORK_BLOCKS: each member's open block of work (the option it repeats, until when, who decided it). */
+  private blocks = new Map<string, { option: string; until: number; from: string }>();
+
   /** Character v2: villages whose run began in this process (a spawn with reset clears the state once). */
   private characterBegun = new Set<string>();
 
@@ -6365,6 +6376,23 @@ export class MineflayerWorld implements WorldAdapter {
           }
           continue;
         }
+        // MC_WORK_BLOCKS: a member in a block runs its option again, no decision, while it is on the menu and it is not
+        // hungry (a meal on the menu of a hungry member ends the block)
+        const blk = WORK_BLOCKS ? this.blocks.get(a.name.toLowerCase()) : undefined;
+        if (blk) {
+          const again = menu.options.find((o) => o.id === blk.option);
+          const hungry = blk.option.split(':')[0] !== 'eat' && menu.options.some((o) => o.kind === 'eat') && this.hungerOf(v, a) === 'hungry';
+          if (blk.until <= now || !again || hungry) this.blocks.delete(a.name.toLowerCase());
+          else {
+            const r = this.runChoice(a, again.id, { source: 'repeat', reason: 'work block', menu });
+            if (r.ok) {
+              take(r.key);
+              for (const h of this.chores.get(a.name.toLowerCase())?.choice.holds ?? []) take(h);
+              continue;
+            }
+            this.blocks.delete(a.name.toLowerCase());
+          }
+        }
         // A meal is code's to run, never a model call (the food check's M2: 72-86 meals a wall-hour at 25 members)
         if (pick.kind === 'eat') {
           const r = this.runChoice(a, pick.id, { source: 'fixed', reason: 'appetite', menu });
@@ -6694,6 +6722,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2, MC_CONTROLLER: a chore over in under 30 s with nothing gained counts as a failure toward the kind's cooldown, E.4)
     const quick = CONTROLLER.on && ok && !productive && !cut && kind !== 'eat' && now - c.choice.t < 30000;
     if (ACTS.on) actsEnd(c.village, c.agent, { option: id, chore: c.choice.id, started: c.choice.t, ok, productive, cut }, now);
+    // (MC_WORK_BLOCKS: a failure or a chore that gained nothing ends the member's block)
+    if (WORK_BLOCKS && (!ok || (!productive && !cut))) this.blocks.delete(c.agent.toLowerCase());
     // (character v2: a rest restores energy; other work spends it; a failure is a small bad feeling)
     if (characterAny() && !cut) {
       if (kind === 'rest') {
@@ -6768,6 +6798,17 @@ export class MineflayerWorld implements WorldAdapter {
     return { ...acc.s, fallback: { ...acc.s.fallback }, positions: [...acc.s.positions], expected: [...acc.s.expected], msP50: q(acc.ms, 0.5), queueWaitP90: q(acc.queue, 0.9) };
   }
 }
+
+/** The wait between chores (the user's, 10-22): MC_QUICK_NEXT=on runs the village's check within a few seconds of a
+ *  chore's end (at most every QUICK_GAP_MS) instead of at the 30 s cycle, and skips the 10 s member cooling for a chore
+ *  whose actions all finished (the cooling is for a stopped or removed agent whose skill's finally still runs). */
+const QUICK_NEXT = /^(on|1|true|yes)$/i.test(process.env.MC_QUICK_NEXT ?? '');
+const QUICK_GAP_MS = 5000;
+/** A choice commits a member to a block of work (the user's, 10-22): MC_WORK_BLOCKS=on: a model or fixed choice opens a
+ *  block of MC_BLOCK_MIN minutes (6, divided by MC_TIME_SCALE) in which the same option runs again with no new decision
+ *  while it is on the member's menu; a failure, a chore that gained nothing, or hunger ends it early. */
+const WORK_BLOCKS = /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
+const BLOCK_MS = (Number(process.env.MC_BLOCK_MIN ?? 6) * 60000) / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
 
 /** A2: what the sweep needs per village, once per sweep time (spec 2.3, C10). */
 interface Facts {
