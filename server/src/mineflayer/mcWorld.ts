@@ -47,7 +47,8 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
-import { SMALL_WORKS, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { GARDENS, SMALL_WORKS, gardenSpots, isGarden, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
 import { postRefit } from '../layout';
 import { signpostText } from '../placeNames';
@@ -111,7 +112,7 @@ type ChoiceState = {
   make?: { item: string; count: number; smelts: boolean; k?: number };
   gather?: { material: Material; n: number };
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
-  initiative?: { id: string; material: Material; n: number };
+  initiative?: { id: string; material: Material | 'flowers'; n: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -157,6 +158,9 @@ const MATERIALS: Material[] = ['sand', 'logs', 'cobblestone'];
 /** The smallest trip a further gatherer is sent for while some of the material is already on the way (no walk for one
  *  log; with nothing incoming any want goes, so the last few still come). */
 const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobblestone: 8 };
+/** #45 (MC_GARDENS): a garden's wildflowers, gathered by its own crew only (not a workshop material: the catalogue reads
+ *  GATHER_KINDS). */
+const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wildflowers' };
 /** A gathering that found none of its material backs it off this long; a second such answer counts toward "unavailable"
  *  only this long after the first (S.9's review, lens 4 M2). */
 const GATHER_NONE_BACK = 30 * 60000;
@@ -2927,9 +2931,9 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Areas a small work keeps off (every village's buildings with a ring, streets, lamps, signs, farms, slots, the side
    *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from. */
-  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }> }>();
+  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[] }>();
 
-  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }> } {
+  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[] } {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
@@ -2940,7 +2944,16 @@ export class MineflayerWorld implements WorldAdapter {
     const pad = (q: Area, n: number): Area => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
     const cell = (x: number, z: number, n = 0): Area => ({ x1: x - n, z1: z - n, x2: x + n, z2: z + n });
     const blocked: Area[] = [];
-    for (const o of this.villages.villages.values()) for (const st of o.structures) blocked.push(pad(st, 1));
+    // (#45: the same areas for a garden, which hugs buildings and door fronts: structures without their ring, no door
+    // fronts; `soft` collects what only `blocked` keeps)
+    const soft = new Set<Area>();
+    const own: Area[] = [];
+    for (const o of this.villages.villages.values()) for (const st of o.structures) {
+      const ring = pad(st, 1);
+      blocked.push(ring);
+      soft.add(ring);
+      own.push({ x1: st.x1, z1: st.z1, x2: st.x2, z2: st.z2 });
+    }
     for (const l of v.layouts ?? []) {
       for (const st of l.streets ?? []) blocked.push(st);
       for (const lp of l.lamps ?? []) blocked.push(cell(lp.x, lp.z, 1));
@@ -2953,7 +2966,11 @@ export class MineflayerWorld implements WorldAdapter {
     // (three cells out from every building's door: the way in stays clear)
     for (const P of this.lightParts(v)) {
       const door = P.kind === 'building' && P.place ? placedDoor(P.place) : null;
-      if (door) for (let k = 0; k <= 3; k++) blocked.push(cell(door.x + door.ox * k, door.z + door.oz * k, 1));
+      if (door) for (let k = 0; k <= 3; k++) {
+        const c = cell(door.x + door.ox * k, door.z + door.oz * k, 1);
+        blocked.push(c);
+        soft.add(c);
+      }
     }
     for (const q of res) blocked.push(q);
     // (a building laid out and not built yet, by its Build task's footprint: an initiative took a public work's spot before
@@ -2972,7 +2989,9 @@ export class MineflayerWorld implements WorldAdapter {
     // (a green waits for its own initiative's spot before others may use it, s36's review)
     const waiting = new Set((v.initiatives ?? []).filter((i) => i.state === 'open' && i.pending).map((i) => i.id));
     const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts && !(q.green && waiting.has(q.green))).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
-    const entry = { sig, blocked, plots };
+    // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
+    const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
+    const entry = { sig, blocked, plots, hard };
     this.smallBlockedCache.set(v.name, entry);
     return entry;
   }
@@ -2980,7 +2999,30 @@ export class MineflayerWorld implements WorldAdapter {
   /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
   private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number } | null {
     const d = k.make(wood);
-    const { blocked, plots } = this.smallBlocked(v);
+    const { blocked, plots, hard } = this.smallBlocked(v);
+    // (#45, MC_GARDENS: a garden's spots by its doors and greens, gardenSpots in smallWorks.ts)
+    if (GARDENS && isGarden(k.kind)) {
+      const doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }> = [];
+      for (const P of this.lightParts(v)) {
+        const door = P.kind === 'building' && P.place ? placedDoor(P.place) : null;
+        if (door && P.structure) doors.push({ x: door.x, z: door.z, ox: door.ox, oz: door.oz, y: P.structure.y });
+      }
+      const greens = v.plots.filter((p) => p.green).map((p) => ({ x: Math.floor((p.x1 + p.x2) / 2), z: Math.floor((p.z1 + p.z2) / 2), y: p.y }));
+      const bot = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.bot.entity)?.bot;
+      const SOIL = new Set(['grass_block', 'dirt', 'podzol', 'coarse_dirt', 'rooted_dirt', 'moss_block']);
+      const soil = (x: number, z: number, y: number) => {
+        try {
+          const g = bot?.blockAt(new Vec3(x, y, z)), up = bot?.blockAt(new Vec3(x, y + 1, z));
+          return !!g && !!up && SOIL.has(g.name) && up.name === 'air';
+        } catch {
+          return false;
+        }
+      };
+      const spots = gardenSpots({ doors, greens, hard, soil }).filter((sp) => sp.kind === k.kind);
+      if (!spots.length) return null;
+      const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
+      return { x: sp.x, y: sp.y, z: sp.z };
+    }
     const spots = smallWorkSpots({ plots, blocked }, d.width, d.depth, 8);
     if (!spots.length) return null;
     return spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
@@ -3007,13 +3049,15 @@ export class MineflayerWorld implements WorldAdapter {
     const left = Object.entries(gather).filter(([, q]) => q > 0);
     if (!left.length) return [...busy].some((k) => k.startsWith(`initiative:${it.id}:`)) ? null : { what: 'build' };
     if ([1, 2].slice(0, INITIATIVE_GATHERERS).every((n) => busy.has(`initiative:${it.id}:${n}`))) return null;
-    const mat = (n: string): Material | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone' : null);
+    const mat = (n: string): Material | 'flowers' | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone'
+      // (#45, MC_GARDENS: a garden's wildflowers, gathered by its crew)
+      : GARDENS && (n === 'wildflowers' || FLOWER_ITEMS.includes(n)) ? 'flowers' : null);
     for (const [n, q] of left.sort((x, y) => y[1] - x[1])) {
       const m = mat(n);
       if (!m) continue;
       if (m === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
       if (m === 'sand' && v.unavailable?.includes('sand')) continue;
-      const spec = GATHER_KINDS[m];
+      const spec = m === 'flowers' ? FLOWER_GATHER : GATHER_KINDS[m];
       return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block(v.wood ?? v.catalogWood), deposit: spec.deposit(v.wood) };
     }
     return null;
@@ -3877,7 +3921,7 @@ export class MineflayerWorld implements WorldAdapter {
       const vi = ini && n > 0 ? this.villages.villages.get(c.village.toLowerCase()) : undefined;
       const it = vi?.initiatives?.find((i) => i.id === ini!.id);
       if (vi && it && ini) {
-        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material;
+        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material;
         it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + n };
         this.villages.save();
       }
@@ -5302,13 +5346,18 @@ export class MineflayerWorld implements WorldAdapter {
         const order = shuffled(SMALL_WORKS, `${a.name}|${v.initiativeN ?? 0}`);
         let r = 0;
         const roomless: SmallWorkKind[] = [];
+        // (#45: the two front-garden kinds read alike: one of them a menu)
+        let frontGarden = false;
         for (const k of order) {
           if (r >= 2) break;
+          const front = GARDENS && isGarden(k.kind) && k.kind !== 'flower_ring';
+          if (front && frontGarden) continue;
           const spot = this.smallWorkSpot(v, k, wood, a.name);
           if (!spot) {
-            roomless.push(k);
+            if (!(GARDENS && isGarden(k.kind))) roomless.push(k);
             continue;
           }
+          if (front) frontGarden = true;
           const d = k.make(wood);
           // (only a work whose first step can be taken now: otherwise it would open, sit and lapse; s36)
           if (!this.initiativeStep(v, { id: '_new', design: d.name }, facts.spare(), busy, d)) {
@@ -6906,7 +6955,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
-type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
+type InitiativeStep = { what: 'gather'; material: Material | 'flowers'; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
 const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
@@ -6976,9 +7025,9 @@ function depositedItems(message: string, items: string[]): number {
   return n;
 }
 
-function depositedOf(message: string, m: Material): number {
+function depositedOf(message: string, m: Material | 'flowers'): number {
   const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
-  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : 'cobblestone';
+  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : 'cobblestone';
   let n = 0;
   for (const x of head.matchAll(new RegExp(`(\\d+) ${name}\\b`, 'g'))) n += Number(x[1]);
   return n;
