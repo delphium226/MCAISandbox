@@ -74,6 +74,12 @@ offline checks, a staged run, then a model-driven run at 25 (lesson 124).
    closed; next #89, demand members actually express). Tickets from the
    village's own demand, the skill tree, the outer loop. Done when a ticket made by a running village passes the
    foundry's gates and members take up the new activity.
+7. **G7 Talking with the village** (the user's, 10-22; next after G2's character v2; #35-#40, unparked). The user
+   interacts with members in the game (chat heard by nearby members, requests, gifts) and through the control panel
+   (messages to a member or the village, requests, proposals); members remember the user (G1), answer in character (G2),
+   take requests as acts and promises (G2), carry proposals to the council (G3, G5) and keep a relationship with them.
+   Done when the user can ask a member for something in either place and see it remembered, answered and done or refused
+   with a reason.
 
 **Why this order:** memory is goal 4 itself, and every behaviour in goal 2 needs agents that remember: profiles,
 promises, reputations, rules and customs all live in memory. G5 and G6 can run beside G1-G4 where their files do not
@@ -87,8 +93,7 @@ overlap (the foundry's scripts and the library, against `social.ts` and the brai
 - **Parked** (a milestone): good ideas that do not serve the goals now, each with its reason on the issue. Among them:
   growing the population (#4, #83; the user's, 10-21), upkeep (#44; the user's, 10-21), the rest of the old M2 (beds and
   day/night #6, #81; decoration #45, #46, #48, #49; needs-driven farms, mines and rooms #3, #8, #9; works that grow #75,
-  built as refits behind a flag), the second settlement (#42, #76), a second agent-server process (#5), humans in the
-  loop (#35-#40), and Phase S's big activities (candidates for the innovation library once demand for them exists).
+  built as refits behind a flag), the second settlement (#42, #76), a second agent-server process (#5), and Phase S's big activities (candidates for the innovation library once demand for them exists).
 
 ## Rules for work sessions
 
@@ -139,3 +144,4 @@ number rather than a goal.
   (HEXACO-based temperament, Schwartz values, needs, mood, relationships, a code-held identity; research note
   `docs/research/character-model-v2.md`, spec `runs/2026-10-22/character/`) makes the identical-member tests moot. Built
   and tested straight after its spec, every element and its trend over time shown on the control panel.
+- 2026-10-22 (the user's): **G7, talking with the village**, next after G2's character v2; Phase 3's issues unparked.
