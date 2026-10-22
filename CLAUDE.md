@@ -12,7 +12,7 @@ gives.
 **Current work is planned in `docs/PLAN.md`**: read its "Next session starts with" and the current phase at the start
 of every session, work step by step, and record as you go (PLAN.md's "How to use" says where each kind of note goes).
 **The todo list is GitHub issues** (the user's, 2026-10-18): `gh issue list` (labels `phase-N`, `phase-X`, `bug`,
-`idea`, `on-hold`; milestones G1-G6, Support, Parked); close or comment on an issue with the commit that settles it, and
+`idea`, `on-hold`; milestones G1-G8, Support, Parked); close or comment on an issue with the commit that settles it, and
 file new work as an issue with a milestone, not as a checkbox in PLAN.md.
 **Ongoing work is private** (the user's, 2026-10-20): branches are pushed to the private repo
 `delphium226/MCAISandbox-dev` (remote `private`, the upstream of `tiered-brain-building`; `gh` defaults to it) and the
