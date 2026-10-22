@@ -1704,3 +1704,15 @@ CLAUDE.md when a phase ends.
 
   The gap between chores is the same in both (median 57-58 s, the 30 s cycle; MC_QUICK_NEXT is for it). ~$1.07.
   Logs: runs/2026-10-22/character/ (report.md, model/).
+- F287 (10-22, g2-social, the wait between chores) **The 30-60 s gap between chores was the 30 s village cycle plus the
+  10 s member cooling: MC_QUICK_NEXT cuts it to 5 s (median, 55 s off), and members spend 37% of their time on chores
+  against 25%.** A staged pair, side by side on af3c35b: Q1 (MC_QUICK_NEXT and MC_WORK_BLOCKS on, world 1) against Q0
+  (off, world 2), 25 members, mv3_grown25, scripted, 30 min, character and MC_GARDENS on in both.
+  - Busy 41% against 28%.
+  - Work blocks: 64 repeats; decided choices 172 against 301; role changes 59 against 103. The specialisation index is
+    not raised in scripted runs (0.012, p 0.24, against 0.029, p 0.02).
+  - Load: tick p99 18.5 ms against 5.3 ms.
+  - Gardens: all 9 of Q1's saplings planted and grew into birches under MC_RANDOM_TICK=30, which gardens_live.py reads as
+    missing. The sapling's leaf trip fails to reach canopy leaves (18 failures, most of the 44 `[stuck]` lines).
+
+  Logs: runs/2026-10-22/quicknext/ (report.md, staged/).
