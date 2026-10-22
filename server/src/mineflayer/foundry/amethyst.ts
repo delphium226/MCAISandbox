@@ -674,8 +674,11 @@ export const FOUNDRY: FoundrySkill = {
         for (const cp of cellsToDig) {
           checkAbort(signal);
           if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
+          // (#93: a cluster in the way is mined too: its shards fall in the tunnel and are picked up on the way)
+          const wasCluster = a.bot.blockAt(cp)?.name === 'amethyst_cluster';
           const dug = await digAmethystCell(a, cp, signal);
           if (dug) dugCellsCount++;
+          if (dug && wasCluster) clustersMined++;
         }
 
         if (dugCellsCount >= 48) {
@@ -754,8 +757,10 @@ export const FOUNDRY: FoundrySkill = {
           checkAbort(signal);
           if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
           const cp = new Vec3(nextX, currentPos.y + dy, nextZ);
+          const wasCluster = a.bot.blockAt(cp)?.name === 'amethyst_cluster';
           const dug = await digAmethystCell(a, cp, signal);
           if (dug) dugCellsCount++;
+          if (dug && wasCluster) clustersMined++;
         }
 
         if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
@@ -767,7 +772,8 @@ export const FOUNDRY: FoundrySkill = {
         dugStairs.push(currentPos.clone());
       }
 
-      // Phase 3: Mine amethyst clusters within 4 blocks
+      // Phase 3: Mine amethyst clusters within 4 blocks (first the drops of any broken on the way, #93)
+      if (clustersMined > 0) await pickUpShardDrops(a, signal, scale);
       let shardsAfter = await serverShardCount(a);
       let shardsGained = shardsAfter - shardsBefore;
 
@@ -827,6 +833,10 @@ export const FOUNDRY: FoundrySkill = {
           /* ignore */
         }
       }
+
+      // (#93: counted again once out: drops lying in the tunnel are picked up on the climb, after the count above)
+      shardsAfter = await serverShardCount(a);
+      shardsGained = Math.max(0, shardsAfter - shardsBefore);
 
       const endPos = a.bot.entity.position.floored();
       const backCoord = `${endPos.x},${endPos.y},${endPos.z}`;

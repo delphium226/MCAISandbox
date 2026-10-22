@@ -410,6 +410,9 @@ def main():
         print(f"verify 1 (server amethyst shards): gained {gained} shards (before={shards_before}, after={shards_after}, event={ev_type1}, msg={text1})")
         if gained < 2:
             fail(f"expected at least 2 amethyst shard on server for Gus, got {gained} ({ev_type1}: {text1})")
+        # (#93: a harvest that gained its shards must say so: a member's chore is judged by the event, not the server's count)
+        if ev_type1 != "action_done":
+            fail(f"the first call gained {gained} shards but ended {ev_type1}: {text1}")
 
         # Verification 2: the budding_amethyst is still there
         chk_bud_after = rcon(f"execute if block {bud_x} {bud_y} {bud_z} minecraft:budding_amethyst")
@@ -446,6 +449,11 @@ def main():
         obs1 = call("/agents/Gus/observe?radius=4")
         pos1 = (obs1.get("position") if isinstance(obs1, dict) else None) or {}
         gus_y = pos1.get("y", 0)
+        # (the ground where Gus stands now: the skill climbs out at its own surface spot, 3-6 blocks from the geode, whose
+        # ground may lie lower or higher than the spawn's on uneven land; the spawn's ground is the fallback)
+        here_g = find_ground_y(int(math.floor(pos1.get("x", gx))), int(math.floor(pos1.get("z", gz))), int(round(gus_y)), {}) if pos1 else None
+        if here_g is not None and abs(here_g - gy) <= 6:
+            gy = here_g
         y_diff = abs(gus_y - gy)
         print(f"verify 5 (Gus climbed out): Gus y={gus_y:.2f}, ground gy={gy} (diff={y_diff:.2f})")
         if y_diff > 3.0:
