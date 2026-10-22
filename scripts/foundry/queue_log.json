@@ -13,5 +13,26 @@
    "118 raw_copper held idle that its items would use"
   ],
   "skipped": []
+ },
+ {
+  "at": "2026-10-22 01:25",
+  "ticket": "wool",
+  "capability": "wool",
+  "village": "B25x2",
+  "source": "mc/testserver2/villages.json",
+  "rank": 7.5,
+  "value": 1,
+  "demand": 6.5,
+  "why": [
+   "opens 4 items (0 used: white_carpet, painting, white_bed, white_banner)",
+   "13 members wish for white_banner, painting, white_bed, white_carpet (their life goals)"
+  ],
+  "skipped": [
+   {
+    "id": "honeycomb",
+    "rank": 10.96,
+    "why": "the activity is built; research harvesting honeycomb from bee nests to unlock it"
+   }
+  ]
  }
 ]

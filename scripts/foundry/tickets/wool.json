@@ -1,0 +1,76 @@
+{
+ "id": "wool",
+ "title": "Shear the sheep: a shear_sheep_at activity running the existing shear_sheep, locked until researched (from B25x2's wanted list, #91)",
+ "brief": "Add a foundry skill `shear_sheep_at` to the real-Minecraft world (Mineflayer): it runs the EXISTING skill `shear_sheep` (exported in ANIMAL_SKILLS from server/src/mineflayer/mcAnimals.ts; read its run function and arguments, change nothing in that file) at a place the activity adapter gives, so the village's `activity` chore kind can run shear_sheep as a chore from a library spec once members have researched it. Members have asked for it: this ticket was made by scripts/foundry_queue.py from village B25x2's wanted list (G6, #91): opens 4 items (0 used: white_carpet, painting, white_bed, white_banner); 13 members wish for white_banner, painting, white_bed, white_carpet (their life goals). THE GAME: shears used on an adult unsheared sheep drop 1-3 wool of its colour; the wool regrows when it eats grass. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, holds)); list it in foundry/list.ts (one import, and one entry inside the array before `].map(locked)`: keep `.map(locked)`, which locks a researched activity); edit no other table. Import the existing skill from its own file (`import { ANIMAL_SKILLS } from '../mcAnimals'`), never from mcSkills.ts (mcSkills.ts imports foundry/list.ts: a cycle). THE SKILL `shear_sheep_at`, arguments: x, y, z (where to go: given by the adapter), count (white wool wanted, default 3, 1..12), radius (passed on to shear_sheep, default 16, at most 32). It checks shears in the inventory first (fail with: 'no shears: withdraw one from storage'); walks to within 4 blocks of x, y, z with the project's walk helpers (mcUtil walk/reach, which keep the pathfinder off village work and protected ground; no digging or placing: check walk's options), giving up after 90 s of walking with a message that says where it got to; then calls ANIMAL_SKILLS.shear_sheep.run(a, { count, radius }, signal) and returns its result message, prefixed with where it ran ('at x,y,z: ' + the message); a failure of shear_sheep is passed on as it is (its messages already say what is short and what to do next). Count white wool on the server before and after (the a.world.rcon.count helper, '#minecraft:wool' style tags where the base skill uses one), and put the number gained in the result. The skill must accept anything it is passed (missing or non-numeric x, y, z: fail 'no place given'; lesson 104). THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member: cheap and never throwing; ctx.hut is the storage hut's centre, none: {why: 'no storage hut'}): from the atlas's animal sightings (ctx.agent.world.atlas.animals, a Map of uuid -> {kind, x, y, z, t}, mcAtlas.ts AnimalSighting), among sightings of kind sheep within 144 blocks of the hut seen in the last 30 minutes, the one with the most such sightings within 16 blocks of it (ties: the nearest the hut); return {x, y, z} of it; none: {why: 'no sheep seen within 144 blocks of the storage hut (explore to find some)'}; cache the answer per village for 1 minute. activity.holds: none (the spec's own key holds it to one member at a time). THE LIBRARY SPEC server/library/wool.json (read server/src/library.ts: LibrarySpec, validateLibrarySpec and its `research` block): exactly this JSON: {\"id\": \"lib:wool\", \"name\": \"Shear the sheep\", \"skill\": \"shear_sheep_at\", \"count\": {\"arg\": \"count\", \"max\": 8}, \"needs\": {\"shears\": 1}, \"gives\": [{\"item\": \"white_wool\"}], \"also\": [\"orange_wool\", \"magenta_wool\", \"light_blue_wool\", \"yellow_wool\", \"lime_wool\", \"pink_wool\", \"gray_wool\", \"light_gray_wool\", \"cyan_wool\", \"purple_wool\", \"blue_wool\", \"brown_wool\", \"green_wool\", \"red_wool\", \"black_wool\"], \"keep\": 24, \"effect\": \"white wool for the workshop's white banners, paintings, white beds, white carpets: what members wish for\", \"research\": {\"name\": \"shear sheep for white wool\", \"requires\": {\"shears\": 1}, \"attempt\": {\"wheat\": 2}, \"minutes\": 3, \"chance\": 0.3, \"complexity\": 4, \"capability\": \"wool\", \"goods\": [{\"item\": \"white_banner\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"white banners\", \"forWhat\": \"white banners from the village's white wool (an invention of the village)\", \"allow\": [\"white_wool\"]}, {\"item\": \"painting\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"paintings\", \"forWhat\": \"paintings from the village's white wool (an invention of the village)\", \"allow\": [\"white_wool\"]}, {\"item\": \"white_bed\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"white beds\", \"forWhat\": \"white beds from the village's white wool (an invention of the village)\", \"allow\": [\"white_wool\"]}, {\"item\": \"white_carpet\", \"target\": 2, \"batch\": 1, \"unit\": 1, \"words\": \"white carpets\", \"forWhat\": \"white carpets from the village's white wool (an invention of the village)\", \"allow\": [\"white_wool\"]}]}}. Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts). THE LIVE CHECK scripts/checks/wool.py (Python 3, standard library only, in the style of scripts/checks/shear.py and fish.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2). The foundry starts the agent server with MC_INNOVATE=on before it runs the check. The check: find open, dry, level ground near the test site's centre (-1563, -36 on minevale3; read the ground with /api/block, away from any village plot: GET /api/village lists them); summon 4 adult sheep there by RCON (/summon minecraft:sheep x y z, with a tag of the check's own so it can count and remove them after); remove any agent Gus; spawn Gus on the ground 8 blocks from that spot (brain idle, gamemode survival, reset true); give Gus 1 shears by RCON; record the blocks of a box around Gus and the spot (every cell from 2 below the ground to 3 above, a radius covering both plus 4); run `shear_sheep_at` with x, y, z of the spot and `count 2` through /api/agents/Gus/act; wait for action_done or action_failed (up to 4 minutes); then verify: at least 2 white wool more on the server for Gus (count with RCON 'clear Gus #minecraft:wool 0' before and after); all 4 tagged sheep still alive (execute if entity @e[tag=...] count); no 'broke' or 'placed' event from Gus and no cell of the box changed; then clear Gus's shears by RCON, and a second call must fail with a message containing 'no shears'; and a call with no x must fail with 'no place given'. Clean up (kill the tagged sheep, remove Gus) in a finally. Print one line per verification and end with exactly 'WOOL OK' on success or 'WOOL FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), mcBuild.ts, tech.ts and lock.ts (they lock it already), the pathfinder's sources.",
+ "read": [
+  "CLAUDE.md",
+  "server/src/mineflayer/foundry/types.ts",
+  "server/src/mineflayer/foundry/list.ts",
+  "server/src/mineflayer/foundry/fish.ts (a foundry skill in the house style: guards, walks, server counts, the adapter)",
+  "server/src/mineflayer/mcAnimals.ts: only shear_sheep (its run function and the helpers it calls) and the imports at the top",
+  "server/src/library.ts",
+  "server/src/mineflayer/mcSkills.ts: only the McSkill interface",
+  "server/src/mineflayer/mcAtlas.ts: only AnimalSighting and the animals map",
+  "server/src/mineflayer/mcUtil.ts: only walk, reach, sleep, checkAbort, at, num, syncInventory",
+  "scripts/checks/shear.py (the style of a live check)",
+  "mc/rcon.py",
+  "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block) and GET /api/village"
+ ],
+ "lessons": [
+  4,
+  13,
+  16,
+  29,
+  30,
+  31,
+  35,
+  44,
+  49,
+  79,
+  80,
+  102,
+  104,
+  105,
+  127,
+  145,
+  151
+ ],
+ "deliver": [
+  "server/src/mineflayer/foundry/wool.ts",
+  "server/src/mineflayer/foundry/list.ts",
+  "server/library/wool.json",
+  "scripts/checks/wool.py"
+ ],
+ "may_touch": [],
+ "check": {
+  "file": "scripts/checks/wool.py",
+  "args": [],
+  "timeout_min": 12,
+  "pass": "^WOOL OK",
+  "env": {
+   "MC_INNOVATE": "on"
+  },
+  "log_pass": "\\[activity\\] library: .*lib:wool\\b"
+ },
+ "series": "scripts/foundry/series_base.json",
+ "caps": {
+  "minutes": 45,
+  "turns": 500,
+  "rounds": 3
+ },
+ "model": {
+  "agy": "gemini-4-argon-high",
+  "claude": "claude-opus-5-5"
+ },
+ "wanted": {
+  "village": "B25x2",
+  "rank": 7.5,
+  "value": 1,
+  "demand": 6.5,
+  "demandShare": 0.87,
+  "why": [
+   "opens 4 items (0 used: white_carpet, painting, white_bed, white_banner)",
+   "13 members wish for white_banner, painting, white_bed, white_carpet (their life goals)"
+  ]
+ }
+}
