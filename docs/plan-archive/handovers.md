@@ -3,6 +3,39 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-22 ~04:00 by the planning session, overnight with the user's leave to decide; the strategy is
+`docs/STRATEGY.md`)
+
+- **How work runs now** (the user's, 10-21): a planning session owns `docs/STRATEGY.md` (the user's five goals, the
+  health check, the goal milestones G1-G6, Support and Parked, and the rules for work sessions) and this handover. Work
+  sessions are started from it with a brief (briefs in `runs/2026-10-21/planning/`) and end with a report.
+- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`. The night's commits are pushed up to `82a1d50`
+  (Claude's, the user away, to back them up). Every new feature is behind a flag, off.
+- **Done overnight (10-21/22; decisions recorded in DECISIONS as Claude's, the user away):**
+  - **G2 social life** (`6fc532b`, `f757fcb`, `29431f2`, F279-F280): awareness and code-kept profiles, roles, acts and
+    promises with one validator, memory quality, the controller's rules, skill from practice. G2a (2 h, 25 members):
+    profiles in 1,001 of 1,005 prompts, 22 requests, 15 promises all kept; a request now makes its own work.
+  - **Experiment 1 (#32) running** on test world 1 from frozen code (`runs/code-src/29431f2`, relauncher
+    `runs/2026-10-21/g2-social/e1_relaunch.py`): 10 runs ABBA, ~16 h; the g2-social session reports each pair.
+  - **G6's loop on members' wishes** (#73 closed, #89, #91, #92 closed; F274-F278, F281): the wanted list ranks on
+    members' life-goal wishes (78-87% demand); honeycomb and wool were ticketed from it, merged through every gate,
+    researched and used; W3 made the wished banners, beds, paintings and a carpet. agy is out of quota until ~10-25
+    (the foundry's `--cli claude` works; no new ticket was started without the user).
+  - **G5 proposals** (`739b7e4`, `faffa8a`, `d910dbd`; F276-F277): members propose at night, code checks, a headless
+    Claude Code triage answers (24 drawn from real runs: 4 accepted, 8 rejected, 5 deferred, $0.13); hooks in both
+    sides done; a live run with proposals on is still to do.
+  - **G3 rules and votes** (spec `runs/2026-10-21/g3-rules/`; `889d1c9`, `c26564f`, `1e7d532`, `e5cd19f`): laws,
+    backing, the agenda, secret dusk ballots, quota/floor/duty, the levy on own shares; offline only. Left: zone, the
+    need vote, a staged check, rulebench (after Experiment 1 frees the cloud slots).
+  - **G4 culture**: spec only (`runs/2026-10-21/g4-culture/`, decisions `07ff4a2`).
+- **For the user this morning:** whether `MC_MEMORY`/`MC_CLOCK` (and G2's flags) go on by
+  default; whether to spend Claude CLI on foundry tickets while agy is out (next wanted: amethyst, which needs a new
+  tunnelling skill, #91); G2's Experiment 1 continues through the day on world 1.
+- **Leftovers** (s43's, unchanged): the sim's light parts and new members' appetites at 50; hay bales rarely made;
+  FIELD_HUT_REACH refusals; #77's cause; [stuck] at range 192. G1's: `mcApi.ts` flush on shutdown, `memory_unit` and
+  `prompt_golden` not in check_offline's list. s44's HISTORY.md entry is not written.
+- **Stack:** test world 1 runs Experiment 1 (25 agents); world 3 up and idle; worlds main and 2 down.
+
 (written 2026-10-21 by the planning session, after the strategy was re-centred on the user's goals; the strategy is
 `docs/STRATEGY.md`)
 

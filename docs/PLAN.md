@@ -34,38 +34,32 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-22 ~04:00 by the planning session, overnight with the user's leave to decide; the strategy is
+(written 2026-10-23 ~00:20 by the planning session, at the user's shutdown for the night; the strategy is
 `docs/STRATEGY.md`)
 
-- **How work runs now** (the user's, 10-21): a planning session owns `docs/STRATEGY.md` (the user's five goals, the
-  health check, the goal milestones G1-G6, Support and Parked, and the rules for work sessions) and this handover. Work
-  sessions are started from it with a brief (briefs in `runs/2026-10-21/planning/`) and end with a report.
-- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`. The night's commits are pushed up to `82a1d50`
-  (Claude's, the user away, to back them up). Every new feature is behind a flag, off.
-- **Done overnight (10-21/22; decisions recorded in DECISIONS as Claude's, the user away):**
-  - **G2 social life** (`6fc532b`, `f757fcb`, `29431f2`, F279-F280): awareness and code-kept profiles, roles, acts and
-    promises with one validator, memory quality, the controller's rules, skill from practice. G2a (2 h, 25 members):
-    profiles in 1,001 of 1,005 prompts, 22 requests, 15 promises all kept; a request now makes its own work.
-  - **Experiment 1 (#32) running** on test world 1 from frozen code (`runs/code-src/29431f2`, relauncher
-    `runs/2026-10-21/g2-social/e1_relaunch.py`): 10 runs ABBA, ~16 h; the g2-social session reports each pair.
-  - **G6's loop on members' wishes** (#73 closed, #89, #91, #92 closed; F274-F278, F281): the wanted list ranks on
-    members' life-goal wishes (78-87% demand); honeycomb and wool were ticketed from it, merged through every gate,
-    researched and used; W3 made the wished banners, beds, paintings and a carpet. agy is out of quota until ~10-25
-    (the foundry's `--cli claude` works; no new ticket was started without the user).
-  - **G5 proposals** (`739b7e4`, `faffa8a`, `d910dbd`; F276-F277): members propose at night, code checks, a headless
-    Claude Code triage answers (24 drawn from real runs: 4 accepted, 8 rejected, 5 deferred, $0.13); hooks in both
-    sides done; a live run with proposals on is still to do.
-  - **G3 rules and votes** (spec `runs/2026-10-21/g3-rules/`; `889d1c9`, `c26564f`, `1e7d532`, `e5cd19f`): laws,
-    backing, the agenda, secret dusk ballots, quota/floor/duty, the levy on own shares; offline only. Left: zone, the
-    need vote, a staged check, rulebench (after Experiment 1 frees the cloud slots).
-  - **G4 culture**: spec only (`runs/2026-10-21/g4-culture/`, decisions `07ff4a2`).
-- **For the user this morning:** whether `MC_MEMORY`/`MC_CLOCK` (and G2's flags) go on by
-  default; whether to spend Claude CLI on foundry tickets while agy is out (next wanted: amethyst, which needs a new
-  tunnelling skill, #91); G2's Experiment 1 continues through the day on world 1.
-- **Leftovers** (s43's, unchanged): the sim's light parts and new members' appetites at 50; hay bales rarely made;
-  FIELD_HUT_REACH refusals; #77's cause; [stuck] at range 192. G1's: `mcApi.ts` flush on shutdown, `memory_unit` and
-  `prompt_golden` not in check_offline's list. s44's HISTORY.md entry is not written.
-- **Stack:** test world 1 runs Experiment 1 (25 agents); world 3 up and idle; worlds main and 2 down.
+- **How work runs:** the planning session owns `docs/STRATEGY.md` and this handover; work sessions get briefs (in
+  `runs/2026-10-2*/planning/`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder of ages**
+  (iron first, then letters, diamond, enchantment, the Nether).
+- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`; everything committed is pushed. **Uncommitted
+  at the close:** the g2-social session's in-progress fixes (`server/src/ladder.ts`, `mcWorld.ts`, `village.ts`,
+  `scripts/checks/ladder_unit.mts`), left for it to finish and commit.
+- **Done on 10-22** (findings F268-F289; reports in `runs/2026-10-22/<session>/`):
+  - character v2 (six layers, `MC_CHARACTER`; CM1/CM0, F286: identifiable members, specialisation above chance for the
+    first time); temperature stays 0.4; quick-next and work blocks (F287) and the sweep's fairness (F288);
+  - G6: flowers (F285), #93, gardens (#45, #46: flower rings, front beds, saplings; `MC_GARDENS`), the foundry request
+    queue (`scripts/foundry/requests.json`, the panel's Foundry view), the ladder's side, #96 (merged through the new
+    Claude Opus 5.5 medium fallback, $5.37 + ~$3 reviews); Flash high is the foundry's default;
+  - G8: the ladder spec (`runs/2026-10-22/ladder/`), the iron age built (`MC_LADDER`, `MC_IRON_AGE`, `MC_OWN_TOOLS`) and
+    staged (I1-I5); IM1 model-driven did not reach iron (F289: the mine ran dry at 85 raw iron, stages counted from
+    their own starts, half the forges failed, rate fallbacks made 83 of 91 iron picks).
+- **In progress (g2-social, offline only, no runs):** stages counted from the rung's start, the forge only on free
+  ingots, an ore-following mine, and the rate rule that crowds out model choices.
+- **Long1** (10-hour observation run, every feature on, world 4, code dc1dc83, session "1-hour model-driven run..."):
+  ran from 19:56 to ~23:48 (village life minute 226), then its servers died; hourly notes stopped after the first.
+  Its session is to report the cause and write up the 3h46m. Not restarted (the user's: no new runs).
+- **The user's open choices:** default flags (memory, clock, social, character); when to restart model-driven runs;
+  the foundry's next ticket (cast obsidian, the enchantment rung).
+- **Stack at the close:** everything stopped (world 4 stopped cleanly by the planning session).
 
 ## Earlier phases
 
