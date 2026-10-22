@@ -135,3 +135,7 @@ number rather than a goal.
 - 2026-10-22: **motivation** added to G2/G3 (the user's): members act but do not drive progress (react to a menu, plan one
   day, feel no need). A spec for ambitions with milestones, needs that bite, recognition and a village ambition, tested
   on vs off in 4-6 hour runs by behaviour (`runs/2026-10-22/motivation/`).
+- 2026-10-22 (the user's): **Experiment 1 cancelled, Experiment 1b dropped; character v2 next.** A six-layer character model
+  (HEXACO-based temperament, Schwartz values, needs, mood, relationships, a code-held identity; research note
+  `docs/research/character-model-v2.md`, spec `runs/2026-10-22/character/`) makes the identical-member tests moot. Built
+  and tested straight after its spec, every element and its trend over time shown on the control panel.
