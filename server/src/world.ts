@@ -300,6 +300,9 @@ export interface ChoiceContext {
   role?: string;
   /** G3 (MC_RULES, MC_COUNCIL): the rules in force, tonight's ballot, the last vote's totals. */
   rules?: string;
+  /** G3 (a levy in force, MC_OWN): the member's pending share and what it may leave in the village storage; the tool asks
+   *  `share` with these answers (shuffled), amounts only. */
+  share?: { total: number; levy: number; answers: Array<{ id: 'none' | 'levy' | 'all'; text: string }> };
   /** G2 (MC_SKILL=on, #17): "Your skill: harvesting high, tending pens some." */
   skill?: string;
   /** G2 (MC_ACTS=on): the member's inbox, at most 4 lines (acts.ts inbox). */

@@ -113,7 +113,7 @@ rules.enact(V, { ...l2, status: 'passed' }, { yes: 4, no: 1, abstain: 0 }, at(3,
 ok(rules.breaks(V, 'Ada', { torch: 8 }, { torch: 20 }, at(3, 0.3))?.startsWith('the floor:') && rules.breaks(V, 'Ada', { torch: 4 }, { torch: 20 }, at(3, 0.3)) === null, 'the floor');
 const q2 = rules.enact(V, { ...l1, id: 'l9', params: { class: 'logs', n: 20 }, text: 'each member takes at most 20 logs a day from storage', status: 'passed' }, { yes: 5, no: 0, abstain: 0 }, at(3, 0.4));
 ok(quota.supersededBy === q2.id && rules.rulesInForce(V).filter((r) => r.type === 'quota').length === 1, 'a new quota supersedes the old');
-ok(rules.rulesLine(V).startsWith('Village rules (voted):') && rules.rulesLine(V).includes('20 logs'), 'the rules line');
+ok(rules.rulesLine(V).startsWith('Village rules:') && rules.rulesLine(V).includes('20 logs'), 'the rules line');
 
 // The night's laws and the touch rule
 mem.noteEnd(V, 'Elena', { kind: 'make', option: 'make:torch', name: 'Make torches', ok: true, productive: true, cut: false, minutes: 1, line: 'Make torches: done, 1 min', message: '' }, at(3, 0.5));
@@ -121,6 +121,23 @@ const l4 = rules.addLaw(V, 'Dev', { what: 'Storage keeps at least 8 torch' }, at
 const d1 = soc.applyLaws(V, 'Finn', { back_laws: [{ id: l4.id }] }, 3, at(3, 0.9));
 const d2 = soc.applyLaws(V, 'Elena', { back_laws: [l4.id], law: { what: 'Every member lights the village once a day' } }, 3, at(3, 0.9));
 ok(!d1.length && d2.includes(`backed ${l4.id}`) && d2.some((x) => x.startsWith('law l')), `backing counts where the day touched it; a law proposed (${d1} | ${d2})`);
+
+// The levy: its rate, the line, the decision's share field and its answer
+ok(rules.levyRate(V) === undefined, 'no levy by default');
+rules.setRulesSettings({ levy: 0.2 });
+ok(rules.levyRate(V) === 0.2 && rules.rulesLine(V).includes('members leave 20% of their share'), "MC_LEVY's levy in the line");
+rules.enact(V, { id: 'lv', by: 'Ada', at: 0, day: 3, type: 'levy', params: { rate: 30 }, text: 'members leave 30% of their share in the village storage', what: '', why: '', backers: [], opposers: [], status: 'passed' } as never, { yes: 4, no: 2, abstain: 0 }, at(4, 0.1));
+ok(rules.levyRate(V) === 0.3 && !rules.rulesLine(V).includes('20%'), 'a voted levy replaces it');
+rules.setRulesSettings({ levy: undefined });
+const { buildPrompt, choose } = await import('../../server/src/choose');
+const opt = { id: 'make:x', kind: 'make', key: 'make:x', name: 'Make x', facts: '', effect: '', rank: 1, holds: [] } as never;
+const share = { total: 10, levy: 3, answers: [{ id: 'all' as const, text: 'Leave all 10' }, { id: 'none' as const, text: 'Keep all 10' }, { id: 'levy' as const, text: 'Leave 3 of 10' }] };
+const menu = { agent: 'Ada', village: V, t: 0, options: [opt, { ...(opt as object), id: 'make:y', key: 'make:y', name: 'Make y' }], guarded: [], reasons: {}, ctx: { persona: '', village: '', others: '', outcomes: [], share } } as never;
+const pp = buildPrompt(menu, (menu as { options: never[] }).options);
+ok(pp.user.includes('your share of them is 10') && !/levy|rule/i.test(pp.user.split('your share')[1].split('\n')[0]) && JSON.stringify(pp.tools).includes('Leave 3 of 10'), 'the share asked by amounts only');
+const fake = (async () => ({ reply: { calls: [{ name: 'choose', input: { reason: 'r', choice: 'Make x', share: 'Leave 3 of 10' } }], text: '' }, ms: 1, waitMs: 0 })) as never;
+const res = await choose({ agent: 'Ada', spec: { provider: 'ollama', model: 'm' } as never, level: 'low', menu, seed: 's', call: fake });
+ok(res.id === 'make:x' && res.share === 'levy', `the answer read (${res.share})`);
 
 console.log(`rules_unit: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

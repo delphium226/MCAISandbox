@@ -36,6 +36,15 @@ def main():
     out.append(f"RULES enacted {len(enacted)}: {en}")
     comp = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "refused"]
     out.append(f"REFUSALS by a rule {len(comp)} ({len({a['agent'] for a in comp})} members): {dict(Counter(a.get('why', '').split(':')[0] for a in comp))}")
+    # The levy: members' answers on their pending shares (lapsed ones apart, outside the measure)
+    lv = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "levy"]
+    if lv:
+        sp = Counter(a.get("split") for a in lv)
+        answered = sum(n for k, n in sp.items() if k != "lapsed")
+        paid = sp.get("levy", 0) + sp.get("all", 0)
+        left = sum(a.get("left", 0) for a in lv if a.get("split") != "lapsed")
+        total = sum(a.get("total", 0) for a in lv if a.get("split") != "lapsed")
+        out.append(f"LEVY answers {answered} by {len({a['agent'] for a in lv if a.get('split') != 'lapsed'})} members: {dict(sp)}; P(levy or all) {paid / max(1, answered):.0%}; left {left} of {total} items shared")
     # Duties kept: member-days after enactment with the kind done
     clocks = sorted((a["t"], a["day"]) for a in acts if a.get("type") == "clock")
     def day_at(t):

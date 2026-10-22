@@ -198,6 +198,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
   lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
   if (rc) lines.push(rc.text);
+  if (ctx.share) lines.push(`Your last chores brought new goods into the village storage; your share of them is ${ctx.share.total}. Say in \`share\` how much of it you leave in the village storage: ${ctx.share.answers.map((a) => `"${a.text}"`).join(', ')}.`);
   if (ctx.inbox?.length) lines.push(`Your inbox:\n${ctx.inbox.map((l) => `- ${l}`).join('\n')}`);
   if (ctx.acts?.trim()) lines.push(ctx.acts.trim());
   if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
@@ -226,6 +227,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
             focus: { type: 'string', enum: FOCUS, description: 'The kind of work you mean to do most today.' },
           } : {}),
         } : {}),
+        // (G3: the pending share's answer, amounts only)
+        ...(ctx.share ? { share: { type: 'string', enum: ctx.share.answers.map((a) => a.text), description: 'How much of your share you leave in the village storage.' } } : {}),
         // (G2, MC_ACTS: one act and one line, flat fields: gpt-oss nests objects and ignores enums, the spec check's H6)
         ...(ctx.acts?.trim() ? {
           act: { type: 'string', enum: ['none', 'request', 'offer', 'accept', 'decline', 'release', 'report'], description: 'Optional: one act (none by default).' },
@@ -382,6 +385,8 @@ export interface ChooseResult {
   outputTokens: number;
   /** G2 (MC_ACTS): the reply's act and say fields, from a valid reply. */
   acts?: ActFields;
+  /** G3: the share's answer (none, levy or all), from a valid reply whose prompt asked it. */
+  share?: 'none' | 'levy' | 'all';
 }
 
 /** The fallback reason of a failed call (spec 5.1 step 8). */
@@ -494,6 +499,13 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
         }
       }
       out.acts = actFields(input);
+    }
+    // (G3: the share's answer, by its text or its first number)
+    if (!('invalid' in c) && req.menu.ctx.share) {
+      const call = r.reply.calls.find((x) => x.name === 'choose') ?? r.reply.calls[0];
+      const raw = String(((call?.input ?? {}) as Record<string, unknown>).share ?? '').trim().toLowerCase();
+      const hit = req.menu.ctx.share.answers.find((a) => a.text.toLowerCase() === raw) ?? req.menu.ctx.share.answers.find((a) => raw && a.text.toLowerCase().startsWith(raw.slice(0, 12)));
+      if (hit) out.share = hit.id;
     }
     if ('invalid' in c) {
       const raw = r.reply.calls.length ? JSON.stringify(r.reply.calls) : r.reply.text;

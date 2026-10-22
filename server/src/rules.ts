@@ -16,7 +16,11 @@
 import { KIND_WORDS, clockOf, logAct, touchMemory, villageSocialOf } from './memory';
 import type { Rule } from './social';
 
-export const RULES = { on: /^(on|1|true|yes)$/i.test(process.env.MC_RULES ?? '') };
+export const RULES = {
+  on: /^(on|1|true|yes)$/i.test(process.env.MC_RULES ?? ''),
+  /** A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. */
+  levy: Number.isFinite(Number(process.env.MC_LEVY)) && process.env.MC_LEVY ? Math.min(0.5, Math.max(0, Number(process.env.MC_LEVY))) : undefined as number | undefined,
+};
 /** Test hook. */
 export function setRulesSettings(s: Partial<typeof RULES>): void {
   Object.assign(RULES, s);
@@ -180,11 +184,20 @@ export function enact(village: string, l: Law, votes: { yes: number; no: number;
   return r;
 }
 
-/** The decision prompt's line: the rules in force ('' when none). */
+/** The levy's rate in force (0..1): a voted levy, else MC_LEVY's; undefined when there is none. */
+export function levyRate(village: string): number | undefined {
+  if (!RULES.on) return undefined;
+  const r = rulesInForce(village).find((x) => x.type === 'levy');
+  return r ? Number(r.params.rate) / 100 : RULES.levy;
+}
+
+/** The decision prompt's line: the rules in force, and MC_LEVY's levy while no vote has set one ('' when none). */
 export function rulesLine(village: string): string {
   if (!RULES.on) return '';
   const rs = rulesInForce(village);
-  return rs.length ? `Village rules (voted): ${rs.map((r) => r.text).join('; ')}.` : '';
+  const texts = rs.map((r) => r.text);
+  if (RULES.levy !== undefined && !rs.some((r) => r.type === 'levy')) texts.push(ruleText('levy', { rate: Math.round(RULES.levy * 100) }));
+  return texts.length ? `Village rules: ${texts.join('; ')}.` : '';
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -67,7 +67,8 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, toldAnswer } from '../memory';
 import { tellMember } from '../acts';
-import { RULES, breaks, duties, noteCompliance, noteTakes, rulesLine } from '../rules';
+import { RULES, breaks, duties, levyRate, noteCompliance, noteTakes, rulesLine } from '../rules';
+import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine } from '../council';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -3924,7 +3925,9 @@ export class MineflayerWorld implements WorldAdapter {
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
       const ownField = (c.choice.kind === 'farm' || c.choice.kind === 'slot') && (v.layouts ?? [])[Number((c.choice.option ?? '').split(':')[1]) - 1]?.owner === c.agent;
-      const added = earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
+      // (G3: while a levy is in force the share is pending, answered on the member's next model decision)
+      const levy = levyRate(v.name);
+      const added = levy !== undefined ? pendShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), Date.now(), ownField ? 1 : undefined) : earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
     // (#79: the chore's end into its member's goal counters: its craft, lights, furnishings, help)
@@ -4257,6 +4260,16 @@ export class MineflayerWorld implements WorldAdapter {
   private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[] } {
     const r = this.choiceOptions(v, a, busy, guards, facts, first);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
+    // (G3: a pending share under a levy, asked by amounts only, the answers shuffled per member and moment)
+    if (RULES.on && OWN.on) {
+      const rate = levyRate(v.name);
+      const p = rate !== undefined ? pendingOf(v.homes?.[a.name]) : null;
+      if (p && p.total > 0 && rate !== undefined) {
+        const l = levyLeft(p.total, rate);
+        const answers = shuffled([{ id: 'none' as const, text: `Keep all ${p.total}` }, { id: 'levy' as const, text: `Leave ${l} of ${p.total}` }, { id: 'all' as const, text: `Leave all ${p.total}` }], `${a.name}|${Math.floor(facts.t / 60000)}`);
+        ctx.share = { total: p.total, levy: l, answers };
+      }
+    }
     // (G2, MC_ACTS: the items any member was offered lately, the member's inbox, and the acts on offer to it)
     if (ACTS.on) {
       for (const o of r.feasible) if (/^(gather|make):/.test(o.id)) this.offered.set(`${v.name}|${o.id}`, facts.t);
@@ -5585,6 +5598,20 @@ export class MineflayerWorld implements WorldAdapter {
     };
   }
 
+  /** G3: a member's answer to its pending share under the levy, settled (kept to its own stock, the rest left in the
+   *  commons) and logged for compliance (rules_use.py's levy table). */
+  private settleShare(v: Village, agent: string, split: 'none' | 'levy' | 'all', decisionId?: string) {
+    const rate = levyRate(v.name);
+    const own = v.homes?.[agent];
+    if (rate === undefined || !own) return;
+    const total = pendingOf(own)?.total ?? 0;
+    const r = settlePending(own, split, rate);
+    if (!r) return;
+    const left = Object.values(r.left).reduce((t, q) => t + q, 0);
+    noteCompliance(v.name, agent, { op: 'levy', split, rate, total, left, decisionId });
+    this.villages.save();
+  }
+
   /** G3: refusals by a rule already logged (village|agent|option|hour). */
   private ruleLogged = new Set<string>();
 
@@ -6156,6 +6183,11 @@ export class MineflayerWorld implements WorldAdapter {
     if (observing()) observe(v.name, this.presences(v), now);
     if (ACTS.on) actsSweep(v.name, this.actsWorld(v, now), now);
     if (PROPOSALS_ON) this.proposalSweep(v, now);
+    // (G3: a pending share unanswered for a village day is kept whole, outside the levy's measure)
+    if (RULES.on && OWN.on && v.homes) for (const [agent, own] of Object.entries(v.homes)) {
+      const kept = lapsePending(own, now, MEMORY.dayMs);
+      if (kept) noteCompliance(v.name, agent, { op: 'levy', split: 'lapsed', total: Object.values(kept).reduce((t, q) => t + q, 0) });
+    }
     const all = this.heldKeys(v, now, 'sweep');
     // Forgiven after an hour (the readers read the effective value; the old picker wrote these as it looked)
     const ax = v.layouts?.[0]?.annex;
@@ -6415,6 +6447,11 @@ export class MineflayerWorld implements WorldAdapter {
     this.lastModelKind.set(a.name.toLowerCase(), pick.kind);
     const r = this.runChoice(a, pick.id, { source: 'scripted', reason: 'scripted', decisionId, menu, shown: shown.map((o) => o.id) });
     if (r.ok && ACTS.on) this.afterActs(v, a, decisionId, fields, now);
+    // (G3: the scripted controller answers a pending share by a seeded draw: keep 30%, the levy 50%, all 20%)
+    if (menu.ctx.share && RULES.on && OWN.on) {
+      const x = rnd();
+      this.settleShare(v, a.name, x < 0.3 ? 'none' : x < 0.8 ? 'levy' : 'all', decisionId);
+    }
     return { ran: r.ok ? { ok: true, key: r.key } : { ok: false } };
   }
 
@@ -6472,6 +6509,8 @@ export class MineflayerWorld implements WorldAdapter {
           return true;
         };
         this.runPick(a, r.id, meta, reask);
+        // (G3: the share's answer settles the member's pending share, whatever the pick did)
+        if (r.share && RULES.on && OWN.on) this.settleShare(v, a.name, r.share, p.decisionId);
         if (ACTS.on && r.id) {
           const d = this.decisions.get(id);
           if (d?.decisionId === p.decisionId && d.source === 'model') this.afterActs(v, a, p.decisionId, r.acts ?? {}, Date.now());
