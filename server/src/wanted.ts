@@ -134,6 +134,9 @@ export const LADDER_ON = /^(on|1|true)$/i.test(process.env.MC_LADDER ?? 'off');
 /** The ladder's rungs (G8, runs/2026-10-22/ladder/spec.md 3). */
 export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade';
 export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade'];
+/** How far up the ladder a rung is (iron first; the branches after it; enchantment after letters and diamond; the Nether at
+ *  the top): the queue works the lower rungs' needs first (the user's, 10-22). */
+export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond: 1, copper: 1, machines: 1, trade: 1, enchantment: 2, nether: 3 };
 /** Each rung's needs (have: nothing to build; hand: code built by hand; ticket: the foundry's), for ladder.ts' ballot
  *  preview and the rung's waiting line. Iron and trade need nothing; leather for the letters rung is the merchant's. */
 export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string }>> = {
@@ -142,7 +145,7 @@ export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' 
   diamond: [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
   enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
-  copper: [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }],
+  copper: [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }, { capability: 'amethyst', how: 'ticket', note: 'amethyst shards for the spyglass (its climb-out from a deeper geode, #96)' }],
   machines: [{ capability: 'machines', how: 'hand', note: 'rails and hoppers laid by command' }],
   trade: [],
 };
@@ -160,7 +163,7 @@ export function rungNeeds(rung: RungId, ctx?: Pick<WantedCtx, 'skills' | 'activi
 }
 
 /** The ladder's state as wanted.ts reads it (G2's `v.ladder`, village.ts; undefined with MC_LADDER off). */
-const ladderOf = (v: Village) => (v as Village & { ladder?: { current?: RungId; offered?: RungId[] } }).ladder;
+const ladderOf = (v: Village) => (v as Village & { ladder?: { current?: RungId; offered?: RungId[]; reached?: Array<{ rung?: string }> } }).ladder;
 
 /** The verbs foundry_queue.py has a ticket template for (a new skill); a capability with status `skill` takes the
  *  skill-activity template whatever its verb (#91). */
@@ -240,8 +243,9 @@ export interface Wanted {
   /** The share of the rank from the village's demand (#89: the village asking, not the recipe graph). */
   demandShare: number;
   unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string; avoid?: string[];
-  /** A ladder rung's need (G8): the rung, and whether it is the chosen one (else offered). */
-  ladder?: { rung: RungId; chosen: boolean };
+  /** A ladder rung's need (G8): the rung, whether it is the chosen one, and (neither chosen nor offered) planned: a rung
+   *  still ahead, its depth up the ladder. */
+  ladder?: { rung: RungId; chosen: boolean; planned?: boolean; depth: number };
   /** Items members wish for that it opens (#89), most wished first; `activitySkill`: the foundry skill a ticket names. */
   wished: string[]; activitySkill: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
 }
@@ -343,9 +347,13 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
   const out: Wanted[] = [];
   const ladder = LADDER_ON ? ladderOf(v) : undefined;
   for (const c of CAPABILITIES) {
-    // (a rung's need only while its rung is chosen or offered, MC_LADDER)
-    const chosen = !!c.rung && ladder?.current === c.rung, offered = !!c.rung && !chosen && !!ladder?.offered?.includes(c.rung);
-    if (c.rung && !chosen && !offered) continue;
+    // (a rung's need: demand while its rung is chosen or offered; a rung still ahead is listed as planned, without demand, so
+    // the queue can work the ladder from the bottom; none of them without MC_LADDER)
+    const needOf = (RUNGS.find((r) => RUNG_NEEDS[r].some((n) => n.capability === c.id)));
+    const rung = c.rung ?? (LADDER_ON ? needOf : undefined);
+    if (c.rung && !LADDER_ON) continue;
+    const chosen = !!rung && ladder?.current === rung, offered = !!rung && !chosen && !!ladder?.offered?.includes(rung);
+    const planned = !!rung && !chosen && !offered && !(ladder?.reached ?? []).some((r) => (r as { rung?: string }).rung === rung);
     const { status, reason } = statusOf(c, ctx, v);
     const u = unlocks.get(c.id) ?? { items: [], used: [], value: 0, simplest: [] };
     const why: string[] = [];
@@ -430,7 +438,7 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     const ticketable = status === 'skill' || (status === 'missing' && TEMPLATES.has(c.verb));
     out.push({
       id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable, demandShare,
-      ...(c.rung && (chosen || offered) ? { ladder: { rung: c.rung, chosen } } : {}),
+      ...(rung && (chosen || offered || planned) ? { ladder: { rung, chosen, ...(planned ? { planned: true } : {}), depth: RUNG_DEPTH[rung] } } : {}),
       unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, ...(c.avoid ? { avoid: c.avoid } : {}), wished, activitySkill: activitySkill(c), ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
     });
   }

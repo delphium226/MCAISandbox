@@ -117,7 +117,9 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
 
 // G8's ladder (MC_LADDER): a rung's needs only while it is chosen (+3) or offered (+1); hand needs shown, never ticketable
 {
-  ok(!list.some((w) => ['cast_obsidian', 'barter_piglin', 'deep_mine', 'enchant'].includes(w.id)), 'no ladder state: no rung needs on the list');
+  const pl = list.find((w) => w.id === 'cast_obsidian'), am = list.find((w) => w.id === 'amethyst');
+  ok(!!pl && pl.ladder?.planned === true && pl.ladder.depth === 2 && !pl.why.some((y) => /rung/.test(y)), `no ladder state: a rung's needs listed as planned, no demand (${JSON.stringify(pl?.ladder)})`);
+  ok(am?.ladder?.planned === true && am.ladder.depth === 1 && am.ladder.rung === 'copper', 'amethyst planned for the copper rung, depth 1');
   const v = structuredClone(v0) as Village & { ladder?: unknown };
   (v as unknown as { ladder: unknown }).ladder = { current: 'enchantment', offered: ['nether'] };
   const l = wantedList(v, ctx);
@@ -126,7 +128,8 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
   ok(!!en && en.status === 'hand' && !en.ticketable && /hand build/.test(en.reason ?? ''), 'its hand need shown with why, never ticketable');
   ok(!!pg && pg.demand >= 1 && pg.demand < 3 && pg.ladder?.chosen === false && !pg.ticketable, "an offered rung's need, +1 (no template for use_on_entity yet)");
   ok(!!nt && nt.status === 'hand', "the offered rung's hand need too");
-  ok(!l.some((w) => w.id === 'deep_mine'), 'a rung neither chosen nor offered: none of its needs');
+  const dm = l.find((w) => w.id === 'deep_mine');
+  ok(!!dm && dm.ladder?.planned === true && dm.status === 'hand', 'a rung neither chosen nor offered: its needs planned');
   ok(RUNGS.length === 8 && RUNG_NEEDS.iron.length === 0 && RUNG_NEEDS.trade.length === 0, 'eight rungs; iron and trade need nothing');
   const rn = rungNeeds('enchantment', ctx);
   ok(rn.length === 2 && rn.find((n) => n.capability === 'cast_obsidian')?.status === 'missing' && rn.find((n) => n.capability === 'enchant')?.status === 'hand', `rungNeeds with live status (${JSON.stringify(rn.map((n) => [n.capability, n.status]))})`);

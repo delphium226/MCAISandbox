@@ -30,6 +30,12 @@ R.add_source(d, "wool", "proposal", "p3", score=1)
 ok(R.top(d)["capability"] == "wool", "an accepted proposal above the wanted list")
 R.add_source(d, "obsidian", "ladder", "rung:enchantment", detail="offered")
 ok(R.top(d)["capability"] == "obsidian", "an offered rung above a proposal")
+R.add_source(d, "nether_thing", "ladder", "rung:nether", score=-3, detail="planned")
+R.add_source(d, "spyglass_thing", "ladder", "rung:copper", score=-1, detail="planned")
+ok(R.top(d)["capability"] == "obsidian", "an offered rung above planned ones")
+R.find(d, "obsidian")["status"] = "rejected"
+ok(R.top(d)["capability"] == "spyglass_thing", "planned rungs by depth: the lower rung first, above proposals")
+R.find(d, "obsidian")["status"] = "requested"
 R.add_source(d, "deep_mine", "ladder", "rung:diamond", detail="chosen")
 ok(R.top(d)["capability"] == "deep_mine", "the chosen rung above an offered one")
 R.find(d, "mud")["pinned"] = True
@@ -46,7 +52,7 @@ R.add_source(d, "deep_mine", "wanted", "B25x2", score=9)
 ok(R.find(d, "deep_mine")["status"] == "merged" and R.top(d)["capability"] != "deep_mine", "a merged request is not reopened by a new source")
 R.set_status(d, "obsidian", "failed", "the live check failed", "foundry")
 R.set_status(d, "wool", "rejected", "the user's call", "user")
-ok(R.top(d)["capability"] == "honeycomb", "failed and rejected requests leave the queue")
+ok(R.top(d)["capability"] not in ("obsidian", "wool") and R.find(d, "obsidian")["status"] == "failed", "failed and rejected requests leave the queue")
 try:
     R.set_status(d, "honeycomb", "nonsense", "x", "y")
     ok(False, "an unknown status is refused")
@@ -58,7 +64,7 @@ with tempfile.TemporaryDirectory() as t:
     R.save(d, p)
     raw = p.read_bytes()
     back = R.load(p)
-    ok(b"\r\n" in raw and back["requests"][0]["capability"] in ("honeycomb", "mud") and [r["order"] for r in back["requests"]] == list(range(1, len(back["requests"]) + 1)), "saved ranked with each request's order, CRLF, read back")
+    ok(b"\r\n" in raw and back["requests"][0]["status"] == "requested" and [r["order"] for r in back["requests"]] == list(range(1, len(back["requests"]) + 1)), "saved ranked with each request's order, CRLF, read back")
     ok([r["status"] for r in back["requests"][:2]] == ["requested", "requested"] and back["requests"][-1]["status"] in ("merged", "failed", "rejected"), "open requests first in the file")
 
 # The committed store reads and is ranked

@@ -5,7 +5,8 @@ Stored in scripts/foundry/requests.json (committed, like the tickets). A request
   capability   the wanted list's id (wanted.ts CAPABILITIES: honeycomb, wool, amethyst...)
   sources      who asked: {kind, ref, at, score, detail}; kinds, in priority order:
                  user      the user (this CLI's `add` or `pin`; the panel later)
-                 ladder    a rung's missing skill (G8; ref "rung:<id>", detail "chosen" or "offered")
+                 ladder    a rung's missing skill (G8; ref "rung:<id>", detail "chosen", "offered" or "planned": a rung
+                           still ahead, scored by its depth so the lower rungs come first)
                  proposal  an accepted proposal routed to the foundry (G5's triage; ref the proposal's id)
                  wanted    a village's wanted list (ref the village; score its rank)
   status       requested -> ticketed -> in_foundry -> merged | failed | rejected; each change in `history` with its
@@ -13,8 +14,8 @@ Stored in scripts/foundry/requests.json (committed, like the tickets). A request
   blocked      why the queue does not pull it (no ticket template, a peaceful world cannot give it, the user's call,
                the foundry failed it): flagged with the reason, never dropped silently; it stays `requested`
   ticket, commits, pinned
-Priority (`rank_key`): pinned first; then the best source's tier (user, a chosen rung, an offered rung, an accepted
-proposal, the wanted list); within a tier the higher score (a wanted rank, endorsements); then the oldest.
+Priority (`rank_key`): pinned first; then the best source's tier (user, a chosen rung, an offered rung, a planned rung
+by its depth up the ladder, an accepted proposal, the wanted list); within a tier the higher score (a wanted rank, endorsements); then the oldest.
 
 Usage: python scripts/foundry_requests.py list [--all] [--json]
        python scripts/foundry_requests.py add CAPABILITY [--why TEXT] [--pin]        (a user's request)
@@ -34,7 +35,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 STORE = ROOT / "scripts" / "foundry" / "requests.json"
 STATUSES = ("requested", "ticketed", "in_foundry", "merged", "failed", "rejected")
 OPEN = ("requested", "ticketed", "in_foundry")
-TIERS = {"user": 0, "ladder:chosen": 1, "ladder:offered": 2, "proposal": 3, "wanted": 4}
+TIERS = {"user": 0, "ladder:chosen": 1, "ladder:offered": 2, "ladder:planned": 3, "proposal": 4, "wanted": 5}
 
 
 def now():
@@ -64,7 +65,7 @@ def save(data, path=STORE):
 
 def tier_of(src):
     if src["kind"] == "ladder":
-        return TIERS["ladder:chosen"] if src.get("detail") == "chosen" else TIERS["ladder:offered"]
+        return TIERS.get(f"ladder:{src.get('detail')}", TIERS["ladder:offered"])
     return TIERS.get(src["kind"], 9)
 
 

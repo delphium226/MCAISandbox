@@ -1,0 +1,65 @@
+{
+ "id": "amethyst_climb",
+ "capability": "amethyst",
+ "title": "Repair harvest_amethyst's climb-out from a deeper geode (#96; the request queue's first, for the copper rung's spyglass)",
+ "brief": "Repair the existing foundry skill `harvest_amethyst` (server/src/mineflayer/foundry/amethyst.ts, merged c61fcc8 and a205432) so the bot always climbs back out to the surface after mining, from any depth it dug to. This repair comes from the foundry's request queue (scripts/foundry/requests.json: amethyst, first in the ladder's order: the copper rung's spyglass needs amethyst shards; issue #96). THE FAULT (#96): in live checks with the geode about 10 blocks below a hilltop (ground at y 69-71, geode at y 58-60) the skill mined its shards (action_done, 4 shards, no stray cell changed) but ended 4-6 blocks below the surface ('back at -1563,65,-35' while the ground there is y 71); on level ground with a 9-block climb it got out. The climb (Phase 4, around line 812) walks the recorded stairs (dugStairs) in reverse with walkToStep, ignoring failures, then a walkDry GoalBlock to the surface spot. Find why it stops: first add a log line for each climb step (the step, where the bot is after it, and on a failed step the blocks at the bot's feet, head and head+1 and at the next step's feet, head and head+1), reproduce with the live check, and fix the cause. Likely causes to rule in or out: a step where Phase 1 changed direction (the turn's corner cell left 2 high), the Phase 2 corridor dug only head and feet (lines ~750-760: a step up from it needs a third cell), a step whose floor is the dug corridor's air (nothing to stand on), the surface spot not reachable by the no-dig walk from the top step. Whatever the cause, ALSO add a fallback: when the climb ends more than 2 blocks below the surface (the highest solid block in the column at the bot's x, z, read with bot.blockAt), the bot digs its own way up: a staircase rising one block a step toward the surface spot, each step digging the cells at feet+1, feet+2 and feet+3 ahead (three high, so the step can be walked), never through water, lava or a falling block (sand, gravel: dig around it or stop and report), until its feet are at the surface; at most 32 more cells and 2 more minutes of wall time (timeScale as elsewhere). The result message then says 'climbed out by its own stair' and how many cells; if even that fails, the message says where the bot is and why ('stuck at x,y,z under sand: ...'). Keep everything else as it is (the descent, the shell, budding amethyst never broken, the counting after the climb: #93's fix). Place no block. Real digs only (bot.dig; lesson 40). THE LIVE CHECK scripts/checks/amethyst.py: keep its verifications and add a second geode case: after the first case (10 below the ground, as now), reset the area by RCON fills to what it was (or pick a fresh spot 24 blocks away), build a second geode 16 blocks below the ground at a spot where the ground is at least 2 blocks higher than the spot 6 blocks away (a slope; if none is found within 32 blocks, build a 3-high dirt mound over the geode's column by RCON before the run so the climb starts below raised ground), run the skill, and verify the same five things for it, the climb-out measured at Gus's own x, z (the highest solid block in Gus's column, as now). Print one line per verification and end with exactly 'AMETHYST OK' on success or 'AMETHYST FAILED: <why>' and exit 1, as now. Out of scope, no need to read: the HTTP server and panel, mcWorld.ts, the library spec (server/library/amethyst.json stays as it is), tech.ts and lock.ts.",
+ "read": [
+  "CLAUDE.md",
+  "server/src/mineflayer/foundry/amethyst.ts",
+  "scripts/checks/amethyst.py",
+  "server/src/mineflayer/mcMine.ts: only digCell, unsafe and digIronStairs (how the village's mine digs a stair safely)",
+  "server/src/mineflayer/mcUtil.ts: only walk, reach, standableY, sleep, checkAbort, at, num",
+  "server/src/mineflayer/mcRules.ts: only timeScale",
+  "mc/rcon.py"
+ ],
+ "lessons": [
+  4,
+  13,
+  29,
+  31,
+  35,
+  40,
+  44,
+  78,
+  79,
+  80,
+  100,
+  101,
+  102,
+  104,
+  127,
+  145,
+  151,
+  164
+ ],
+ "deliver": [
+  "server/src/mineflayer/foundry/amethyst.ts",
+  "scripts/checks/amethyst.py"
+ ],
+ "may_touch": [],
+ "check": {
+  "file": "scripts/checks/amethyst.py",
+  "args": [],
+  "timeout_min": 25,
+  "pass": "^AMETHYST OK",
+  "env": {
+   "MC_INNOVATE": "on"
+  },
+  "log_pass": "\\[activity\\] library: .*lib:amethyst\b"
+ },
+ "series": "scripts/foundry/series_base.json",
+ "caps": {
+  "minutes": 90,
+  "turns": 500,
+  "rounds": 3
+ },
+ "model": {
+  "agy": "gemini-3.8-flash-high",
+  "claude": "claude-opus-5-5"
+ },
+ "request": {
+  "queue": "scripts/foundry/requests.json",
+  "capability": "amethyst",
+  "issue": 96
+ }
+}

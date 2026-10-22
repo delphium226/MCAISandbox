@@ -18,6 +18,7 @@ Usage: python scripts/foundry_queue.py [--api URL | --villages FILE] [--village 
   --land WORLD    a world folder to count the capability's blocks in, within 144 of the storage hut (default: the
                   agent server's own world, from MC_SERVER_DIR, else mc/testworld)
   --write         write the ticket (without it: a dry run that prints what it would write)
+  --sync-only     merge the sources into the request queue and save it, write no ticket
   --capability ID ticket that capability (an accepted proposal routed to the foundry, #90), not the rank's first; the
                   same skips apply to it
   --wanted FILE   a wanted.json the live writer saved (MC_WANTED; a run's own list, read after the run)
@@ -370,6 +371,7 @@ def main():
     ap.add_argument("--capability")
     ap.add_argument("--accepted")
     ap.add_argument("--wanted")
+    ap.add_argument("--sync-only", action="store_true")
     a = ap.parse_args()
     accepted = []
     if a.accepted:
@@ -434,7 +436,9 @@ def main():
         # (G8: a chosen or offered rung's need comes as the ladder's request, ranked above proposals and the wanted list)
         if w.get("ladder"):
             lad = w["ladder"]
-            R.add_source(reqs, w["id"], "ladder", f"rung:{lad['rung']}", score=w["rank"], detail="chosen" if lad["chosen"] else "offered",
+            # (a planned rung: scored by its depth, the lowest rung first; the user's order, 10-22)
+            detail = "chosen" if lad["chosen"] else "planned" if lad.get("planned") else "offered"
+            R.add_source(reqs, w["id"], "ladder", f"rung:{lad['rung']}", score=(-lad.get("depth", 0) if detail == "planned" else w["rank"]), detail=detail,
                          title=w["name"], why="; ".join(w["why"])[:300])
             R.set_blocked(reqs, w["id"], blocked_why(w))
         elif w["status"] in ("missing", "skill") or (w["status"] in ("dead", "user", "knowledge") and w["demand"] > 0):
@@ -445,6 +449,12 @@ def main():
         w = by_id.get(x["capability"])
         if w:
             R.set_blocked(reqs, x["capability"], blocked_why(w))
+    if a.sync_only:
+        R.save(reqs)
+        print(f"QUEUE: synced into {R.STORE.relative_to(ROOT)} (no ticket); its order now:")
+        for r in R.ranked(reqs):
+            print(R.line(r))
+        return 0
     order = [r["capability"] for r in R.ranked(reqs)]
     if a.capability:
         order = [a.capability] + [c for c in order if c != a.capability]

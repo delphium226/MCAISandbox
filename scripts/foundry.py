@@ -1086,7 +1086,7 @@ def main():
     out = ROOT / "runs" / TODAY / "foundry" / t["id"]
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    request_status(t["id"], "in_foundry", f"{'gates only on the kept worktree' if a.gates_only else 'a run'} on {a.cli} ({model})",
+    request_status(t.get("capability", t["id"]), "in_foundry", f"{'gates only on the kept worktree' if a.gates_only else 'a run'} on {a.cli} ({model})",
                    ticket=a.ticket.replace("\\", "/"))
     with Lock(FOUNDRY / "foundry.lock"):
         if (FOUNDRY / "agy_rules_added").exists():
@@ -1186,11 +1186,11 @@ def main():
     # (the request: merged with its commit; passed but its merge queued, or the CLI stopped, back to ticketed; else failed)
     merged = re.search(r"merged into tiered-brain-building at (\w+)", outcome)
     if merged:
-        request_status(t["id"], "merged", outcome[:300], commit=merged.group(1))
+        request_status(t.get("capability", t["id"]), "merged", outcome[:300], commit=merged.group(1))
     elif outcome.startswith("passed every gate") or outcome.startswith("the CLI stopped"):
-        request_status(t["id"], "ticketed", outcome[:300], **({"commit": sha} if sha else {}))
+        request_status(t.get("capability", t["id"]), "ticketed", outcome[:300], **({"commit": sha} if sha else {}))
     else:
-        request_status(t["id"], "failed", outcome[:300])
+        request_status(t.get("capability", t["id"]), "failed", outcome[:300])
     print(f"FOUNDRY DONE {t['id']}: {outcome}")
 
 
