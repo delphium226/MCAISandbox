@@ -23,6 +23,7 @@ import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } fr
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
 import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
 import { actFields, type ActFields } from './acts';
+import { capFloor, characterAny } from './character';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
@@ -116,12 +117,14 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
 }
 
 /** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
-export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined;
+export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined;
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
 export const weights = (o: ChoiceOption) => {
-  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1);
+  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1);
+  // (character v2's B1: with any layer on, every product capped at 6.25 and floored at 0.16)
+  if (characterAny()) return capFloor(p);
   return o.gw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
 };
 
@@ -185,6 +188,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   const rc = mem?.recall ?? null;
   const lines: string[] = [];
   if (ctx.persona?.trim()) lines.push(ctx.persona.trim());
+  if (ctx.character?.trim()) lines.push(ctx.character.trim());
   if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
   if (ctx.role?.trim()) lines.push(ctx.role.trim());
   if (ctx.skill?.trim()) lines.push(ctx.skill.trim());

@@ -278,7 +278,12 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let dirty = false;
 
 /** Load character.json from the world's folder (null: memory only). Never in a checkpoint (the spec's K1). */
+let hooked = false;
 export function initCharacter(dataDir: string | null): void {
+  if (!hooked) {
+    hooked = true;
+    process.on('exit', () => flushCharacter());
+  }
   file = dataDir ? path.join(dataDir, 'character.json') : null;
   store = { version: 1, villages: {} };
   if (file && fs.existsSync(file)) {

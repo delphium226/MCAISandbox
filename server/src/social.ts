@@ -17,6 +17,7 @@
  */
 import { KIND_WORDS, MEMORY, logAct, membersOf, setScrubber, setVillageLineShown, socialOf, touchMemory } from './memory';
 import { NAME_POOL } from './agentNames';
+import { noteFact, think } from './character';
 
 const MODES = ['legacy', 'on', 'noblock', 'countsonly', 'off'] as const;
 export type SocialMode = (typeof MODES)[number];
@@ -226,6 +227,8 @@ export function observe(village: string, members: Presence[], now: number): void
       if (d <= MEET && now - p.lastMet > 60000) {
         p.lastMet = now;
         changed = true;
+        // (character v2: work beside, the same kind within 16 blocks, into affinity)
+        if (a.chore && b.chore && a.chore.kind === b.chore.kind) noteFact(village, a.name, b.name, 'beside');
       }
     }
   }
@@ -234,6 +237,12 @@ export function observe(village: string, members: Presence[], now: number): void
 
 /** A successful step by `helper` on `owner`'s project (the chore end, by code): each sees the other's work there. */
 export function noteHelp(village: string, helper: string, owner: string, now: number, project: string): void {
+  // (character v2: help into both members' affinity and the owner's feelings, whatever the social mode)
+  if (helper !== owner) {
+    noteFact(village, helper, owner, 'helped');
+    noteFact(village, owner, helper, 'helpedBy');
+    think(village, owner, 'helped', `${helper} helped with your project`, now);
+  }
   if (!observing() || helper === owner) return;
   const p = profileOf(village, helper, owner);
   p.helped++;
@@ -392,6 +401,8 @@ export function roleLine(village: string, agent: string): string {
   return r ? `You have become the village's ${ROLE_NOUN[r.kind] ?? `${kindWord(r.kind)} hand`}.` : '';
 }
 
+/** A role's noun ("lamplighter"), for E.8's (e) and the identity line. */
+export const roleNoun = (kind: string) => ROLE_NOUN[kind] ?? `${kindWord(kind)} hand`;
 const ROLE_NOUN: Record<string, string> = {
   farm: 'harvester', start: 'farm starter', annex: 'annex builder', pen: 'herder', penwork: 'herder', cake: 'baker',
   iron: 'miner', explore: 'explorer', works: 'works builder', make: 'maker', gather: 'gatherer', light: 'lamplighter',

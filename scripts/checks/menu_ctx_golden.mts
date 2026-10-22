@@ -119,7 +119,7 @@ for (const a of agents) {
     continue;
   }
   const opts = (menu.options ?? []).map((o: Any) => ({
-    id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, need: o.need, rank: o.rank, lp: o.lp, tw: o.tw, nw: o.nw, ww: o.ww, gw: o.gw,
+    id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, need: o.need, rank: o.rank, lp: o.lp, tw: o.tw, nw: o.nw, ww: o.ww, gw: o.gw, iw: o.iw, sw: o.sw, mw: o.mw, fw: o.fw, dw: o.dw, cf: o.cf, social: o.social, mark: o.mark, ruleTag: o.ruleTag,
   }));
   const p = buildPrompt(menu, shuffled(menu.options, `golden|${a.name}`));
   dumpOf[`${tag}|${a.name}`] = { ctx: menu.ctx, options: opts, guarded: menu.guarded, reasons: menu.reasons, system: p.system, user: p.user, tools: p.tools };

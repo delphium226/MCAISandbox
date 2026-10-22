@@ -49,6 +49,7 @@ import { SOCIAL } from './social';
 import { PROPOSALS_ON, allProposals } from './proposals';
 import { RULES, laws as lawsOf, rulesInForce } from './rules';
 import { councilLine } from './council';
+import { memberView, seriesView, villageView } from './character';
 import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
@@ -454,6 +455,26 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       // (G5: the village's proposals, newest first)
       proposals: vn && PROPOSALS_ON ? allProposals(vn).slice(-12).reverse().map((p) => ({ id: p.id, by: p.by, kind: p.kind, what: p.what, status: p.status, check: p.check.verdict, backers: p.endorsements.length, against: p.objections.length, verdict: p.verdict ? `${p.verdict.decision}: ${p.verdict.reason}` : '' })) : null,
     }), true;
+  }
+  // Character v2 (spec 14.2, S2): every member compact, one member in full since T, the village's series since T
+  if (url.pathname === '/api/character') {
+    const vn = url.searchParams.get('village') ?? '';
+    const v = [...w.villages.villages.values()].find((x) => x.name.toLowerCase() === vn.toLowerCase());
+    if (!v) return sendJson(res, 404, { error: `no village ${vn}` }), true;
+    const names = w.agentList().filter((a) => a.village()?.name === v.name).map((a) => a.name);
+    return sendJson(res, 200, villageView(v.name, names, (GOALS_ON ? goalsOf(v)?.of : undefined) ?? {}, Date.now())), true;
+  }
+  if (url.pathname === '/api/character/series') {
+    const vn = url.searchParams.get('village') ?? '';
+    return sendJson(res, 200, seriesView(vn, Number(url.searchParams.get('since') ?? 0) || 0, url.searchParams.get('matrix') === '1')), true;
+  }
+  const charOf = /^\/api\/agents\/([^/]+)\/character$/.exec(url.pathname);
+  if (charOf) {
+    const name = decodeURIComponent(charOf[1]);
+    const a = w.agentList().find((x) => x.name.toLowerCase() === name.toLowerCase());
+    const vn = a?.village()?.name;
+    if (!a || !vn) return sendJson(res, 404, { error: `no member ${name}` }), true;
+    return sendJson(res, 200, memberView(vn, a.name, Number(url.searchParams.get('since') ?? 0) || 0, Date.now())), true;
   }
   // G1: a village's members' memory (compact), and their rosters for scripts/respawn_agents.py
   const mem = /^\/api\/memory\/([^/]+)(\/roster)?$/.exec(url.pathname);

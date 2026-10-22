@@ -230,7 +230,7 @@ export interface WorldAdapter {
  *  'furnish' (X.1): furniture from storage into a building (the furnish family). 'initiate' and 'help' (s35): a member's
  *  own small work started, and a step of one taken (the initiatives family). 'activity' (s41): a library spec running a
  *  foundry skill (the activities family). */
-export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity' | 'own' | 'innovate';
+export type ChoiceKind = 'farm' | 'slot' | 'start' | 'annex' | 'pen' | 'penwork' | 'cake' | 'iron' | 'explore' | 'works' | 'make' | 'gather' | 'light' | 'furnish' | 'initiate' | 'help' | 'grow' | 'eat' | 'tidy' | 'activity' | 'own' | 'innovate' | 'rest';
 
 /** One feasible chore instance: data only (the world runs it by id). */
 export interface ChoiceOption {
@@ -283,6 +283,12 @@ export interface ChoiceOption {
   takes?: Record<string, number>;
   /** G3 (MC_RULES): a duty's tag, "[the duty: once a day]". */
   ruleTag?: string;
+  /** Character v2: mood's (own projects), affinity's (help, requests) and needs' (the night's rest) weights, and the
+   *  character factor they make, clamped 0.67..1.5 (character.ts); with any layer on every product is capped and floored. */
+  mw?: number;
+  fw?: number;
+  dw?: number;
+  cf?: number;
 }
 
 export interface ChoiceContext {
@@ -300,6 +306,8 @@ export interface ChoiceContext {
   role?: string;
   /** G3 (MC_RULES, MC_COUNCIL): the rules in force, tonight's ballot, the last vote's totals. */
   rules?: string;
+  /** Character v2: the values, needs and mood lines (character.ts), after the identity line in `persona`. */
+  character?: string;
   /** G3 (a levy in force, MC_OWN): the member's pending share and what it may leave in the village storage; the tool asks
    *  `share` with these answers (shuffled), amounts only. */
   share?: { total: number; levy: number; answers: Array<{ id: 'none' | 'levy' | 'all'; text: string }> };

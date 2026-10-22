@@ -26,7 +26,7 @@ import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { workerNumber } from '../agentNames';
-import { KIND_PHRASE, TEMPERAMENT_MODE, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
+import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
@@ -57,7 +57,7 @@ import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue,
 import { vanillaJar } from '../vanillaData';
 import { MEMORY, agentMemory, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
-import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, socialOff, type Presence } from '../social';
+import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
 import { ACTS, actsHelp, openRequests, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
@@ -70,6 +70,7 @@ import { tellMember } from '../acts';
 import { RULES, breaks, duties, levyRate, noteCompliance, noteTakes, rulesLine } from '../rules';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine } from '../council';
+import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
@@ -210,6 +211,7 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages = VillageRegistry.forWorld(dataDir);
     // (G1: members' memory, social.json beside villages.json)
     initMemory(dataDir);
+    initCharacter(dataDir);
     // (G5, #90, MC_PROPOSALS: members' proposals beside villages.json, and code's check of them from what this world can do)
     if (PROPOSALS_ON) {
       initProposals(dataDir);
@@ -1656,6 +1658,11 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: the roster for a respawn; with memory on, a spawn with reset begins a run and empties the member's memory)
     if (typeof a.memory.village === 'string' && a.memory.village) {
       noteSpawn(a.memory.village, name, { role: a.role, brain, gamemode: o.gamemode, memory: o.memory ?? {}, reset: !!o.reset });
+      // (character v2: a spawn with reset begins the village's run once in this process, as G1's memory)
+      if (characterAny() && o.reset && typeof a.memory.village === 'string' && !this.characterBegun.has(a.memory.village)) {
+        this.characterBegun.add(a.memory.village);
+        characterRunBegin(a.memory.village, Date.now());
+      }
       // (a respawn after a restart: the chooser's statistics, empty, refilled from the member's stored ends, so the option
       // facts, the pattern line, bans and cooldowns agree with what it remembers; the review's S4)
       const kept = MEMORY.on && !o.reset ? agentMemory(a.memory.village, name) : undefined;
@@ -3069,6 +3076,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** An initiative ended: the record, a note, a line with its crew. */
   private endInitiative(v: Village, it: Initiative, state: 'built' | 'failed' | 'lapsed', why: string) {
     it.state = state;
+    if (state === 'built') think(v.name, it.by, 'built', `your ${SMALL_WORKS.find((k) => k.kind === it.kind)?.words ?? it.kind} was built`, Date.now());
     it.end = Date.now();
     it.why = why;
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
@@ -3796,6 +3804,7 @@ export class MineflayerWorld implements WorldAdapter {
     noteIntent(v.name, worker.name, intent);
     // (G2: a member's own choices make its role, code's label)
     if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, kind, choice.t);
+    if (characterAny() && (meta?.source === 'model' || meta?.source === 'scripted')) noteDecision(v.name, worker.name, opt?.cf ?? 1);
     if (ACTS.on) actsStart(v.name, worker.name, choice.option ?? key, choice.id);
     if (RULES.on && opt?.takes) noteTakes(v.name, worker.name, opt.takes, choice.t);
     // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
@@ -3806,7 +3815,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -5340,8 +5349,9 @@ export class MineflayerWorld implements WorldAdapter {
     // A.3p: the temperament's weight on every option (both modes; the fixed pick and the trim read it), from the kind and
     // sociability's pull toward the kinds other members are on now
     if (TEMPERAMENT_MODE !== 'off') {
-      const tv = temperament(a.name);
-      const weights = kindWeights(tv);
+      // (character v2, MC_HEXACO: the six traits' kind weights, and extraversion's pull in sociability's place)
+      const tv = CHARACTER.hexaco ? { ...temperament(a.name), sociability: hexacoOf(a.name).X } : temperament(a.name);
+      const weights = CHARACTER.hexaco ? hexacoWeights(a.name, activeKinds()) : kindWeights(tv);
       const on = new Map<string, number>();
       for (const c of this.chores.values()) if (c.village === v.name && c.agent !== a.name && !c.choice.ended && c.choice.kind) on.set(c.choice.kind, (on.get(c.choice.kind) ?? 0) + 1);
       // (a help option pulls a sociable member by its crew: members on its steps come and go, s35's check 10)
@@ -5492,6 +5502,36 @@ export class MineflayerWorld implements WorldAdapter {
       const t = actsTags(v.name, a.name, now);
       if (t.size) for (const o of out) if (t.has(o.id)) o.social = t.get(o.id);
     }
+    // Character v2: the night's rest at home for a tired member (the user's: at night only), then each option's character
+    // factor: mood on own projects, affinity on help for a friend and on a request's tag, needs on the rest
+    if (CHARACTER.gauges && v.complete && clockOf(v.name, now)?.phase === 'night' && !busy.has(`rest:${a.name}`)) {
+      const w = restWeight(v.name, a.name);
+      const h = this.homeOf(v, a.name);
+      if (w !== null && h && 'x1' in h) {
+        const x = Math.floor(((h as Structure).x1 + (h as Structure).x2) / 2), z = Math.floor(((h as Structure).z1 + (h as Structure).z2) / 2);
+        add({ id: 'rest', kind: 'rest', key: `rest:${a.name}`, excludes: [`rest:${a.name}=`], name: 'Rest at home', rank: 1200, at: { x, y: (h as Structure).y, z },
+          facts: `your energy is ${Math.round((1 - (w - 1) / 2) * 100)}%; walk home and rest a while`, effect: 'your energy back up' }, { kind: 'rest', x, y: (h as Structure).y, z });
+      }
+    }
+    if (characterAny()) {
+      for (const o of out) {
+        if (o.kind === 'eat') continue;
+        const mw = moodWeight(v.name, a.name, o.kind, now);
+        let fw = 1;
+        if (CHARACTER.affinity && o.kind === 'help') {
+          const d = OPTION_RUN.get(o);
+          const it = d?.kind === 'help' ? (v.initiatives ?? []).find((i) => i.id === d.id) : undefined;
+          if (it && it.by !== a.name) fw = helpWeight(v.name, a.name, it.by);
+        }
+        const asker = /^\[(\w+) asked you\]/.exec(o.social ?? '')?.[1];
+        if (asker) fw *= requestWeight(v.name, a.name, asker);
+        const dw = o.kind === 'rest' ? restWeight(v.name, a.name) ?? 1 : 1;
+        if (mw !== 1) o.mw = mw;
+        if (fw !== 1) o.fw = Math.round(fw * 100) / 100;
+        if (dw !== 1) o.dw = dw;
+        o.cf = characterFactor({ mw, fw, dw });
+      }
+    }
     const guarded: Array<{ id: string; why: string }> = guards ? starved.map((o) => ({ id: o.id, why: 'hungry' })) : [];
     let options = out;
     // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
@@ -5525,6 +5565,14 @@ export class MineflayerWorld implements WorldAdapter {
     const members = [...this.agents.values()].filter((b) => b.village() === v).map((b) => ({ name: b.name, t: vectorOf(b.name) }));
     const before = goalsOf(v)?.drawnFor;
     const g = ensureGoals(v, members, Date.now());
+    // (character v2, MC_VALUES: life goals drawn from values, the user's choice; a checkpoint's stored goals redrawn once, logged)
+    if (CHARACTER.values) for (const m of members) {
+      const want = goalFromValues(m.name);
+      if (g.of[m.name] !== want) {
+        console.log(`[goal] ${v.name}: ${m.name}'s goal ${g.of[m.name] ?? 'none'} -> ${want} (from values)`);
+        g.of[m.name] = want as typeof g.of[string];
+      }
+    }
     if (before === undefined) console.log(`[goal] ${v.name}: goals drawn over ${members.length} members: ${Object.entries(g.of).map(([m, x]) => `${m} ${x}`).join(', ')}`);
     return g;
   }
@@ -5612,6 +5660,9 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages.save();
   }
 
+  /** Character v2: villages whose run began in this process (a spawn with reset clears the state once). */
+  private characterBegun = new Set<string>();
+
   /** G3: refusals by a rule already logged (village|agent|option|hour). */
   private ruleLogged = new Set<string>();
 
@@ -5653,7 +5704,10 @@ export class MineflayerWorld implements WorldAdapter {
       for (const who of [p.by, ...p.endorsements.map((e) => e.by)]) {
         if (toldAnswer(v.name, who, p.id)) continue;
         const line = who === p.by ? verdictLine(p) : verdictLine(p).replace(/^Your proposal/, `${p.by}'s proposal you backed,`);
-        if (noteAnswer(v.name, who, p.id, line, now)) tellMember(v.name, who, line, now);
+        if (noteAnswer(v.name, who, p.id, line, now)) {
+          tellMember(v.name, who, line, now);
+          if (who === p.by && p.verdict.by === 'triage') think(v.name, who, p.verdict.decision === 'accept' ? 'accepted' : 'rejected', `your proposal was ${p.verdict.decision === 'accept' ? 'accepted' : 'not taken up'}`, now);
+        }
       }
     }
   }
@@ -5676,6 +5730,22 @@ export class MineflayerWorld implements WorldAdapter {
     const p = a.bot.entity?.position;
     if (!p) return [];
     return this.presences(v).filter((q) => q.name !== a.name && Math.hypot(q.x - p.x, q.z - p.z) <= 32).map((q) => q.name);
+  }
+
+  /** Character v2: the identity line (in the persona's place: name, temperament words, life goal, house; the role only
+   *  with roles shown) and the values, needs and mood lines, as the model sees them (names scrubbed under
+   *  MCAI_SOCIAL=off); recorded as last written for the panel. */
+  private characterLines(v: Village, a: BotAgent, now: number): { persona: string; character: string } {
+    if (!characterAny()) return { persona: '', character: '' };
+    const h = this.homeOf(v, a.name);
+    const house = h && 'x1' in h ? `the ${(h as Structure).kind.replace(/_/g, ' ')} at ${Math.round(((h as Structure).x1 + (h as Structure).x2) / 2)},${Math.round(((h as Structure).z1 + (h as Structure).z2) / 2)}` : undefined;
+    const goal = GOALS_ON ? goalsOf(v)?.of[a.name] : undefined;
+    const role = SOCIAL.roles ? roleOf(v.name, a.name)?.kind : undefined;
+    const persona = CHARACTER.identity ? identityLine(a.name, { goal, house, ...(role ? { role: roleNoun(role) } : {}) }) : CHARACTER.hexaco ? `You are ${temperamentWords(a.name)}.` : '';
+    const lines = { identity: persona, values: CHARACTER.values ? valuesLine(a.name) : '', needs: needsLine(v.name, a.name), mood: moodLine(v.name, a.name, now) };
+    const character = scrub(v.name, a.name, [lines.values, lines.needs, lines.mood].filter(Boolean).join(' '));
+    noteLines(v.name, a.name, lines, now);
+    return { persona: scrub(v.name, a.name, persona), character };
   }
 
   /** The prompt's context (pure): the village at a glance, the others' chores, the agent's last outcomes. */
@@ -5714,8 +5784,10 @@ export class MineflayerWorld implements WorldAdapter {
     // (A.3p: the user's own persona first, else the temperament's line; the own-pattern reminder from the last 10 ends)
     const own = typeof a.memory.persona === 'string' ? a.memory.persona.slice(0, 300) : '';
     const pattern = this.patternLine(v, a);
+    const char = this.characterLines(v, a, facts.t);
     return {
-      persona: own || personaOf(a.name),
+      persona: own || char.persona || personaOf(a.name),
+      ...(char.character ? { character: char.character } : {}),
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
       ...(block ? { social: block } : {}), ...(role ? { role } : {}), ...(skill ? { skill } : {}), ...(rules ? { rules } : {}),
@@ -5739,6 +5811,9 @@ export class MineflayerWorld implements WorldAdapter {
     const d = OPTION_RUN.get(opt);
     if (!d) throw new Error(`no run data for ${opt.id}`);
     switch (d.kind) {
+      case 'rest':
+        this.setChore(v, worker, opt.key, [worker.enqueue('move_to', { x: d.x, y: d.y, z: d.z, range: 3, chore: true }), worker.enqueue('wait', { seconds: Math.max(10, Math.round(120 / timeScale())), chore: true })], 'rest at home', undefined, meta, opt.holds, opt);
+        return;
       case 'innovate':
         this.setChore(v, worker, opt.key, [worker.enqueue('experiment', { entry: d.entry, boost: d.boost, chore: true })], `experiment with ${d.entry}`, undefined, meta, opt.holds, opt);
         console.log(`[innovate] ${v.name}: ${worker.name} experiments with ${d.entry} (chance ${Math.round(d.chance * 100)}%)`);
@@ -6174,7 +6249,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: the village clock's sweep, with the members present)
     if (MEMORY.clock) {
       const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({
-        name: b.name, persona: (typeof b.memory.persona === 'string' && b.memory.persona) || personaOf(b.name),
+        name: b.name, persona: (typeof b.memory.persona === 'string' && b.memory.persona) || this.characterLines(v, b, now).persona || personaOf(b.name),
         model: typeof b.memory.chooseModel === 'string' ? b.memory.chooseModel : typeof b.memory.execModel === 'string' ? b.memory.execModel : undefined,
       }));
       clockTick(now, [{ name: v.name, members }]);
@@ -6183,6 +6258,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (observing()) observe(v.name, this.presences(v), now);
     if (ACTS.on) actsSweep(v.name, this.actsWorld(v, now), now);
     if (PROPOSALS_ON) this.proposalSweep(v, now);
+    // (character v2: a point per member once a village minute, the matrix every 10)
+    if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
     // (G3: a pending share unanswered for a village day is kept whole, outside the levy's measure)
     if (RULES.on && OWN.on && v.homes) for (const [agent, own] of Object.entries(v.homes)) {
       const kept = lapsePending(own, now, MEMORY.dayMs);
@@ -6399,7 +6476,8 @@ export class MineflayerWorld implements WorldAdapter {
     const id = a.name.toLowerCase();
     if (now - this.choiceStats.lastModelAt(a.name) < CHOOSE.minGapMs) {
       const kind = this.lastModelKind.get(id);
-      const same = kind ? menu.options.filter((o) => o.kind === kind).sort((p, q) => p.rank - q.rank)[0] : undefined;
+      // (character v2's B1: a repeat honours the options' weights when a layer is on, else the lowest rank as before)
+      const same = kind ? menu.options.filter((o) => o.kind === kind).sort((p, q) => (characterAny() ? weights(q) - weights(p) : 0) || p.rank - q.rank)[0] : undefined;
       return same ? run(same.id, { source: 'repeat', reason: 'fixed order' }) : run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
     }
     if (this.choiceStats.modelCallsLastHour(a.name, now) >= CHOOSE.perHour) return run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
@@ -6616,6 +6694,18 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2, MC_CONTROLLER: a chore over in under 30 s with nothing gained counts as a failure toward the kind's cooldown, E.4)
     const quick = CONTROLLER.on && ok && !productive && !cut && kind !== 'eat' && now - c.choice.t < 30000;
     if (ACTS.on) actsEnd(c.village, c.agent, { option: id, chore: c.choice.id, started: c.choice.t, ok, productive, cut }, now);
+    // (character v2: a rest restores energy; other work spends it; a failure is a small bad feeling)
+    if (characterAny() && !cut) {
+      if (kind === 'rest') {
+        if (ok) {
+          noteRest(c.village, c.agent, now);
+          think(c.village, c.agent, 'rested', 'you rested at home', now);
+        }
+      } else if (kind !== 'eat') {
+        noteWork(c.village, c.agent, (now - c.choice.t) / 60000);
+        if (!ok && !contention) think(c.village, c.agent, 'failed', `"${(c.choice.name ?? id).slice(0, 40)}" failed`, now);
+      }
+    }
     if (SKILL.on && !cut) noteSkill(c.village, c.agent, kind, TEMPERAMENT_MODE === 'on' ? kindWeights(vectorOf(c.agent))[kind] ?? 1 : 1);
     this.choiceStats.record({
       village: c.village, agent: c.agent, kind, id, ok: ok && !quick, cut, contention, productive, minutes: Math.round((now - c.choice.t) / 600) / 100, at: now,
@@ -6763,6 +6853,7 @@ type OptionRun =
   | { kind: 'own'; what: 'farm'; crop: string }
   | { kind: 'own'; what: 'pledge'; entry: string; item: string; n: number }
   | { kind: 'innovate'; entry: string; chance: number; boost: number }
+  | { kind: 'rest'; x: number; y: number; z: number }
   | { kind: 'activity'; spec: LibrarySpec; args: Record<string, unknown>; count: number; stock: number; keep: number; needs: Counts; gives: string[] };
 const OPTION_RUN = new WeakMap<ChoiceOption, OptionRun>();
 
@@ -6772,7 +6863,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 /** A growth claim whose holder was idle on no chore, its brain not holding it, this many checks in a row (30 s apart) is
  *  handed back (s30's review, L-3). */
 const GROW_ORPHAN_CHECKS = 4;
-const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate'];
+const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
 type InitiativeStep = { what: 'gather'; material: Material; amount: number; block: string; deposit: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */

@@ -19,6 +19,7 @@
 import type { Commitment } from './social';
 import { SOCIAL, memberSocial, noteHeard, noteKept, setActsOn } from './social';
 import { MEMORY, addNoteCheck, clockOf, contentWords, logAct, membersOf, touchMemory, villageSocialOf } from './memory';
+import { noteFact, think } from './character';
 
 const scale = Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
 const wantActs = /^(on|1|true|yes)$/i.test(process.env.MC_ACTS ?? '');
@@ -347,6 +348,7 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
     if (r && !st.commitments.some((c) => c.state === 'open' && c.from === agent && c.what.option === mine.option)) {
       r.state = 'accepted';
       r.by = agent;
+      noteFact(village, r.from, agent, 'accepted');
       const c = commit(st, village, agent, r.from, mine, now, `accepted ${r.id}`, chosen.decisionId, chosen.chore);
       logAct({ type: 'act', village, agent, act: 'accept', ref: r.id, implied: true, verdict: 'ok', decisionId: chosen.decisionId });
       push(st, r.from, { t: now, kind: 'report', text: `${agent} took up your request: ${r.what.words} (${c.id})` });
@@ -415,6 +417,8 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
         if (!r) refuse(`no open request ${fields.act_ref ?? ''} to you`, false);
         else {
           (r.declined ??= []).push(agent);
+          noteFact(village, r.from, agent, 'refused');
+          think(village, r.from, 'refused', `${agent} declined your request`, now);
           if (r.to === agent) push(st, r.from, { t: now, kind: 'declined', text: `${agent} declined your request: ${r.what.words}` });
           ok('decline', sig(agent, 'decline', r.id, ''), { ref: r.id });
         }
@@ -507,6 +511,8 @@ function close(st: ActsState, village: string, c: ActsState['commitments'][numbe
   logAct({ type: 'commitment', op: s, village, id: c.id, from: c.from, to: c.to, option: c.what.option, evidence, late: s === 'kept' && now > c.due });
   if (s === 'kept' || s === 'broken') {
     noteKept(village, c.to, c.from, s === 'kept');
+    noteFact(village, c.to, c.from, s === 'kept' ? 'kept' : 'broke');
+    think(village, c.to, s === 'kept' ? 'kept' : 'broke', `${c.from} ${s === 'kept' ? 'kept' : 'broke'} a promise to you`, now);
     push(st, c.to, { t: now, kind: 'report', text: `${c.from} ${s === 'kept' ? 'kept' : 'broke'} a promise to you: ${c.what.words} (${c.id})` });
     if (s === 'broken') push(st, c.from, { t: now, kind: 'report', text: `You broke your promise to ${c.to}: ${c.what.words}` });
   } else if (s === 'released') push(st, c.to, { t: now, kind: 'report', text: `${c.from} took back a promise to you: ${c.what.words}` });
