@@ -234,6 +234,13 @@ the short version; look here for a check script's arguments, a model detail or w
   A CLI's quota or sign-in error stops the rounds at once (#92; `FATAL_CLI`) and keeps the worktree: finish it with
   `--gates-only --cli <the other> --written-by "..."` (the commit then names both writers); a second run's round files
   are numbered after the first's. Check: `python scripts/checks/foundry_cli.py`.
+  **The fallback** (the user's, 10-22): agy on Gemini 3.8 Flash high stays the first choice; an agy run that ends without
+  a merge for the model's own fault (a gate still failing after its repair rounds, or a cap), or the second agy run of a
+  ticket in a row without a merge, is finished once by the Claude Code CLI on Opus 5.5 at medium effort from the kept
+  worktree (`foundry.py TICKET --cli claude --model claude-opus-5-5 --effort medium --gates-only --merge`, which the
+  foundry runs itself; `--no-fallback` turns it off); the hand-over is in the log, the request queue's history and the
+  commit's authorship. The claude CLI's effort: `claude --effort low|medium|high|xhigh|max` (2.1.301), passed by
+  `foundry.py --effort`.
 - **The wanted list and the queue (G6, #73):** `GET /api/wanted?village=V` ranks every capability a peaceful overworld
   allows (`server/src/wanted.ts`: status have / locked / skill / missing / dead / user / knowledge, value from the recipe
   graph, the village's demand terms, `why`); `MC_WANTED=on` also writes `wanted.json` beside villages.json every 5

@@ -18,6 +18,9 @@ Usage: python scripts/foundry.py TICKET.json [--cli agy|claude] [--model M] [--g
   --written-by T  with --gates-only: who wrote the change, for the commit message and the report
   --cleanup ID    remove the worktree .foundry/ID (and the branch foundry/ID only with --delete-branch)
   --merge         merge a candidate that passed every gate (see above), then clean up its worktree and branch
+  --effort LEVEL  claude only: the session's effort (low, medium, high, xhigh, max)
+  --no-fallback   an agy run that ends without a merge is not handed to the Claude fallback (Opus 5.5, medium effort,
+                  gates only on the kept worktree, once: the user's rule, 10-22)
   --apply-merge ID  the same for a candidate already committed on foundry/ID (a queued one, or a run without --merge)
 
 Steps: preflight (test world 3 only, 0 agents on it: lesson 146), the worktree .foundry/<id> on branch foundry/<id> from
@@ -229,6 +232,12 @@ def load_ticket(path):
     bad = sorted(f for f in files if f in NEVER or f.startswith(("mc/", ".git", "node_modules")) or ".." in f)
     if bad:
         raise SystemExit(f"ticket {t['id']}: these files are never a candidate's: {', '.join(bad)}")
+    # (a pattern with a control character was mangled in writing: "\b" became a backspace in the amethyst_climb ticket,
+    # and the live gate failed a passing check four times, 10-22)
+    for k in ("pass", "log_pass"):
+        pat = t["check"].get(k)
+        if pat and any(ord(c) < 32 for c in pat):
+            raise SystemExit(f"ticket {t['id']}: check.{k} holds a control character ({pat!r}): write the regex with plain backslashes")
     if t["check"]["file"] not in t["deliver"]:
         raise SystemExit(f"ticket {t['id']}: its check {t['check']['file']} must be among the files it delivers")
     t.setdefault("read", [])
@@ -407,8 +416,9 @@ def ticket_prompt(t, base):
 class Cli:
     """One conversation with an external CLI: start(prompt), then resume(message) for repair rounds."""
 
-    def __init__(self, kind, model, wt, out, caps):
+    def __init__(self, kind, model, wt, out, caps, effort=None):
         self.kind, self.model, self.wt, self.out, self.caps = kind, model, wt, out, caps
+        self.effort = effort
         self.conv, self.round, self.steps, self.started = None, 0, 0, time.time()
         self.usage = {"input": 0, "output": 0}
         self.cost = 0.0
@@ -458,6 +468,9 @@ class Cli:
             cmd = [shutil.which("claude") or "claude", "-p", "--output-format", "stream-json", "--verbose", "--model", self.model,
                    "--max-turns", str(max(1, self.caps["turns"] - self.steps)), "--permission-mode", "acceptEdits",
                    "--allowedTools", ",".join(CLAUDE_ALLOW), "--disallowedTools", ",".join(CLAUDE_DENY)]
+            # (the effort level: `claude --effort low|medium|high|xhigh|max`, 2.1.301; the user's fallback runs at medium)
+            if self.effort:
+                cmd += ["--effort", self.effort]
             if self.conv:
                 cmd += ["--resume", self.conv]
             stdin = short
@@ -1069,6 +1082,8 @@ def main():
     ap.add_argument("--delete-branch", action="store_true")
     ap.add_argument("--merge", action="store_true")
     ap.add_argument("--apply-merge")
+    ap.add_argument("--effort", help="claude only: the session's effort level (low, medium, high, xhigh, max)")
+    ap.add_argument("--no-fallback", action="store_true", help="no Claude fallback after a failed agy run")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if a.cleanup:
@@ -1098,7 +1113,7 @@ def main():
         base = git("merge-base", "HEAD", "tiered-brain-building", cwd=wt)
         cp = private_checkpoint(t["series"])
         main_before = git("status", "--porcelain")
-        cli = Cli(a.cli, model, wt, out, t["caps"])
+        cli = Cli(a.cli, model, wt, out, t["caps"], a.effort)
         holder = {}
         bthread = threading.Thread(target=lambda: holder.update(data=baseline(t, base, cp, a.skip_baseline)), daemon=True)
         bthread.start()
@@ -1192,6 +1207,28 @@ def main():
     else:
         request_status(t.get("capability", t["id"]), "failed", outcome[:300])
     print(f"FOUNDRY DONE {t['id']}: {outcome}")
+    # The fallback (the user's, 10-22): Flash stays the first choice; a ticket an agy run fails after its repair rounds (a
+    # gate still failing, or a cap: not a network or sign-in stop, which is no fault of the model), or the second agy run in
+    # a row that ends without a merge, is finished once by Claude Opus 5.5 at medium effort from the kept worktree
+    if a.cli == "agy" and not a.no_fallback and "merged into" not in outcome and not outcome.startswith("passed every gate"):
+        cap = t.get("capability", t["id"])
+        try:
+            hist = (R.find(R.load(), cap) or {}).get("history", [])
+        except Exception:  # noqa: BLE001
+            hist = []
+        agy_runs = [h for h in hist if h.get("status") == "in_foundry" and "on agy" in (h.get("why") or "")]
+        model_fault = not outcome.startswith("the CLI stopped")
+        if model_fault or len(agy_runs) >= 2:
+            why = (f"agy ({model}) ended without a merge ({outcome[:160]}); falling back once to Claude Opus 5.5 at medium effort"
+                   f"{' (the second agy run in a row)' if not model_fault else ''}")
+            log(why)
+            request_status(cap, "ticketed", why)
+            written = f"by agy ({model}) in {cli.round if 'cli' in locals() else '?'} rounds, which ended without a merge"
+            cmd = [PY, str(pathlib.Path(__file__)), a.ticket, "--cli", "claude", "--model", "claude-opus-5-5", "--effort", "medium", "--gates-only",
+                   "--no-fallback", "--written-by", written] + (["--merge"] if a.merge else [])
+            log("fallback: " + " ".join(str(c) for c in cmd[1:]))
+            r = subprocess.run(cmd, cwd=ROOT)
+            return r.returncode
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@
   "env": {
    "MC_INNOVATE": "on"
   },
-  "log_pass": "\\[activity\\] library: .*lib:amethyst\b"
+  "log_pass": "\\[activity\\] library: .*lib:amethyst\\b"
  },
  "series": "scripts/foundry/series_base.json",
  "caps": {

@@ -2,9 +2,498 @@
  "version": 1,
  "requests": [
   {
+   "capability": "cast_obsidian",
+   "title": "Cast obsidian from lava",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:enchantment",
+     "at": "2026-10-22 18:17",
+     "score": -2,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    }
+   ],
+   "commits": [],
+   "order": 1
+  },
+  {
+   "capability": "mud",
+   "title": "Make mud with water bottles",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 18:17",
+     "score": 1.17,
+     "why": "opens 5 items (0 used: mud_brick_slab, packed_mud, mud_bricks, mud_brick_stairs, mud_brick_wall)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 1.17)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 2
+  },
+  {
+   "capability": "honey_bottle",
+   "title": "Bottle honey from bee nests",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 18:17",
+     "score": 0
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 0)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 3
+  },
+  {
+   "capability": "bone_meal",
+   "title": "Compost crops into bone meal",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 18:17",
+     "score": 0
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 0)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 4
+  },
+  {
+   "capability": "deep_mine",
+   "title": "The deep mine",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:diamond",
+     "at": "2026-10-22 18:17",
+     "score": -1,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: the deep stair past lava, its holders, teleport home (lessons 100, 101; the foundry's mine template cannot dig a usable stair, F282), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: the deep stair past lava, its holders, teleport home (lessons 100, 101; the foundry's mine template cannot dig a usable stair, F282), not a ticket",
+   "order": 5
+  },
+  {
+   "capability": "library_furniture",
+   "title": "Library furniture",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:letters",
+     "at": "2026-10-22 18:17",
+     "score": -1,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: shelves and a lectern in the furnish catalogue (code), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: shelves and a lectern in the furnish catalogue (code), not a ticket",
+   "order": 6
+  },
+  {
+   "capability": "copper_side",
+   "title": "Copper kept from the mine",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:copper",
+     "at": "2026-10-22 18:17",
+     "score": -1,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: the iron mine's side-yield into stock (#19, code), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: the iron mine's side-yield into stock (#19, code), not a ticket",
+   "order": 7
+  },
+  {
+   "capability": "machines",
+   "title": "Rails and hoppers",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:machines",
+     "at": "2026-10-22 18:17",
+     "score": -1,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: rail laying and hopper placement by command (code), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: rail laying and hopper placement by command (code), not a ticket",
+   "order": 8
+  },
+  {
+   "capability": "enchant",
+   "title": "Enchanting",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:enchantment",
+     "at": "2026-10-22 18:17",
+     "score": -2,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: enchanting by a charged command after a live syntax test (lesson 109), and the XP ledger (code), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: enchanting by a charged command after a live syntax test (lesson 109), and the XP ledger (code), not a ticket",
+   "order": 9
+  },
+  {
+   "capability": "barter_piglin",
+   "title": "Barter gold with piglins",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:nether",
+     "at": "2026-10-22 18:17",
+     "score": -3,
+     "detail": "planned"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: no ticket template for its verb use_on_entity",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "no ticket template for its verb use_on_entity",
+   "order": 10
+  },
+  {
+   "capability": "nether_travel",
+   "title": "Nether travel and portals",
+   "status": "requested",
+   "created": "2026-10-22 18:17",
+   "sources": [
+    {
+     "kind": "ladder",
+     "ref": "rung:nether",
+     "at": "2026-10-22 18:17",
+     "score": -3,
+     "detail": "planned",
+     "why": "opens 1 item (0 used: spectral_arrow)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "first asked",
+     "by": "foundry_requests"
+    },
+    {
+     "at": "2026-10-22 18:17",
+     "status": "requested",
+     "why": "blocked: a hand build: portal building, walking in the Nether, debris mining (#25: 4-6 sessions), not a ticket",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "a hand build: portal building, walking in the Nether, debris mining (#25: 4-6 sessions), not a ticket",
+   "order": 11
+  },
+  {
+   "capability": "copper_age",
+   "title": "Let copper weather",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 18:17",
+     "score": 2.25,
+     "why": "opens 15 items (0 used: exposed_chiseled_copper, weathered_chiseled_copper, oxidized_chiseled_copper, exposed_cut_copper, weathered_cut_copper, ...)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 3.21)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "no ticket template for its verb wait",
+   "order": 12
+  },
+  {
+   "capability": "wool",
+   "title": "Shear the sheep",
+   "status": "merged",
+   "created": "2026-10-18 12:00",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-18 12:00",
+     "score": 0,
+     "why": "shear_sheep, written by hand (s36)"
+    },
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 01:25",
+     "score": 7.5,
+     "why": "13 members wish for white banners, paintings, white beds, white carpets (87% demand, W2)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-18 12:00",
+     "status": "requested",
+     "why": "the shear_sheep skill, a hand-written ticket (s36)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-18 18:46",
+     "status": "merged",
+     "why": "shear_sheep merged (b3ab0b7); no activity ran it: the wanted list's status 'skill'",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 01:25",
+     "status": "ticketed",
+     "why": "the skill-activity ticket from W2's wanted list (rank 7.5)",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-22 01:27",
+     "status": "in_foundry",
+     "why": "agy gemini-4-argon-high; its quota ran out after 3 of 4 files",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 01:58",
+     "status": "merged",
+     "why": "finished by the Claude Code back-end, every gate (08891a0); W3: 12 shearings, banners, beds, paintings, a carpet made (F281)",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "b3ab0b7",
+    "08891a0"
+   ],
+   "ticket": "scripts/foundry/tickets/wool.json",
+   "order": 13
+  },
+  {
+   "capability": "fish",
+   "title": "Go fishing (fish)",
+   "status": "merged",
+   "created": "2026-10-20 14:15",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-20 14:15",
+     "score": 0,
+     "why": "written by hand (s41)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-20 14:15",
+     "status": "requested",
+     "why": "a hand-written ticket (s41)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 14:15",
+     "status": "ticketed",
+     "why": "scripts/foundry/tickets/fish.json",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 15:11",
+     "status": "merged",
+     "why": "passed every gate (agy gemini-4-argon-high), a336ded",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "a336ded"
+   ],
+   "ticket": "scripts/foundry/tickets/fish.json",
+   "order": 14
+  },
+  {
+   "capability": "trade",
+   "title": "Trade with the merchant (trade)",
+   "status": "merged",
+   "created": "2026-10-20 15:30",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-20 15:30",
+     "score": 0,
+     "why": "written by hand (s41)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-20 15:30",
+     "status": "requested",
+     "why": "a hand-written ticket (s41)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 15:30",
+     "status": "ticketed",
+     "why": "scripts/foundry/tickets/trade.json",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 16:08",
+     "status": "merged",
+     "why": "passed every gate (agy gemini-4-argon-high), fb81e1b",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "fb81e1b"
+   ],
+   "ticket": "scripts/foundry/tickets/trade.json",
+   "order": 15
+  },
+  {
    "capability": "amethyst",
    "title": "Mine amethyst in geodes",
-   "status": "ticketed",
+   "status": "merged",
    "created": "2026-10-22 05:32",
    "sources": [
     {
@@ -77,502 +566,68 @@
      "status": "ticketed",
      "why": "the #96 repair ticket, written by hand (no template covers a repair)",
      "by": "user"
+    },
+    {
+     "at": "2026-10-22 18:20",
+     "status": "in_foundry",
+     "why": "a run on agy (gemini-3.8-flash-high)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 18:37",
+     "status": "ticketed",
+     "why": "the CLI stopped: authentication failed or timed out (the worktree .foundry\\amethyst_climb is kept: finish it with --gates-only --cli claude --written-by \"agy (gemini-3.8-flash-high), cut off\")",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 18:43",
+     "status": "in_foundry",
+     "why": "a run on agy (gemini-3.8-flash-high)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 19:57",
+     "status": "failed",
+     "why": "failed the check:offline gate after 3 repair rounds",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 19:58",
+     "status": "ticketed",
+     "why": "agy (gemini-3.8-flash-high) ended without a merge (live failed in round 4: no floor under the tunnel; round 5 failed check:offline on pf_share); falling back once to Claude Opus 5.5 at medium effort (the user's rule)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 19:58",
+     "status": "in_foundry",
+     "why": "gates only on the kept worktree on claude (claude-opus-5-5)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 20:30",
+     "status": "failed",
+     "why": "failed the live gate after 3 repair rounds",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 20:32",
+     "status": "in_foundry",
+     "why": "gates only on the kept worktree on claude (claude-opus-5-5)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 20:54",
+     "status": "merged",
+     "why": "passed every gate; merged into tiered-brain-building at 719eb45",
+     "by": "foundry"
     }
    ],
    "commits": [
     "c61fcc8",
-    "a205432"
+    "a205432",
+    "719eb45"
    ],
    "ticket": "scripts/foundry/tickets/amethyst_climb.json",
-   "order": 1
-  },
-  {
-   "capability": "cast_obsidian",
-   "title": "Cast obsidian from lava",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:enchantment",
-     "at": "2026-10-22 18:17",
-     "score": -2,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    }
-   ],
-   "commits": [],
-   "order": 2
-  },
-  {
-   "capability": "mud",
-   "title": "Make mud with water bottles",
-   "status": "requested",
-   "created": "2026-10-22 03:35",
-   "sources": [
-    {
-     "kind": "wanted",
-     "ref": "B25x2",
-     "at": "2026-10-22 18:17",
-     "score": 1.17,
-     "why": "opens 5 items (0 used: mud_brick_slab, packed_mud, mud_bricks, mud_brick_stairs, mud_brick_wall)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 03:35",
-     "status": "requested",
-     "why": "W3's wanted list (rank 1.17)",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "order": 3
-  },
-  {
-   "capability": "honey_bottle",
-   "title": "Bottle honey from bee nests",
-   "status": "requested",
-   "created": "2026-10-22 03:35",
-   "sources": [
-    {
-     "kind": "wanted",
-     "ref": "B25x2",
-     "at": "2026-10-22 18:17",
-     "score": 0
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 03:35",
-     "status": "requested",
-     "why": "W3's wanted list (rank 0)",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "order": 4
-  },
-  {
-   "capability": "bone_meal",
-   "title": "Compost crops into bone meal",
-   "status": "requested",
-   "created": "2026-10-22 03:35",
-   "sources": [
-    {
-     "kind": "wanted",
-     "ref": "B25x2",
-     "at": "2026-10-22 18:17",
-     "score": 0
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 03:35",
-     "status": "requested",
-     "why": "W3's wanted list (rank 0)",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "order": 5
-  },
-  {
-   "capability": "deep_mine",
-   "title": "The deep mine",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:diamond",
-     "at": "2026-10-22 18:17",
-     "score": -1,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: the deep stair past lava, its holders, teleport home (lessons 100, 101; the foundry's mine template cannot dig a usable stair, F282), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: the deep stair past lava, its holders, teleport home (lessons 100, 101; the foundry's mine template cannot dig a usable stair, F282), not a ticket",
-   "order": 6
-  },
-  {
-   "capability": "library_furniture",
-   "title": "Library furniture",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:letters",
-     "at": "2026-10-22 18:17",
-     "score": -1,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: shelves and a lectern in the furnish catalogue (code), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: shelves and a lectern in the furnish catalogue (code), not a ticket",
-   "order": 7
-  },
-  {
-   "capability": "copper_side",
-   "title": "Copper kept from the mine",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:copper",
-     "at": "2026-10-22 18:17",
-     "score": -1,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: the iron mine's side-yield into stock (#19, code), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: the iron mine's side-yield into stock (#19, code), not a ticket",
-   "order": 8
-  },
-  {
-   "capability": "machines",
-   "title": "Rails and hoppers",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:machines",
-     "at": "2026-10-22 18:17",
-     "score": -1,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: rail laying and hopper placement by command (code), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: rail laying and hopper placement by command (code), not a ticket",
-   "order": 9
-  },
-  {
-   "capability": "enchant",
-   "title": "Enchanting",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:enchantment",
-     "at": "2026-10-22 18:17",
-     "score": -2,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: enchanting by a charged command after a live syntax test (lesson 109), and the XP ledger (code), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: enchanting by a charged command after a live syntax test (lesson 109), and the XP ledger (code), not a ticket",
-   "order": 10
-  },
-  {
-   "capability": "barter_piglin",
-   "title": "Barter gold with piglins",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:nether",
-     "at": "2026-10-22 18:17",
-     "score": -3,
-     "detail": "planned"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: no ticket template for its verb use_on_entity",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "no ticket template for its verb use_on_entity",
-   "order": 11
-  },
-  {
-   "capability": "nether_travel",
-   "title": "Nether travel and portals",
-   "status": "requested",
-   "created": "2026-10-22 18:17",
-   "sources": [
-    {
-     "kind": "ladder",
-     "ref": "rung:nether",
-     "at": "2026-10-22 18:17",
-     "score": -3,
-     "detail": "planned",
-     "why": "opens 1 item (0 used: spectral_arrow)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "first asked",
-     "by": "foundry_requests"
-    },
-    {
-     "at": "2026-10-22 18:17",
-     "status": "requested",
-     "why": "blocked: a hand build: portal building, walking in the Nether, debris mining (#25: 4-6 sessions), not a ticket",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "a hand build: portal building, walking in the Nether, debris mining (#25: 4-6 sessions), not a ticket",
-   "order": 12
-  },
-  {
-   "capability": "copper_age",
-   "title": "Let copper weather",
-   "status": "requested",
-   "created": "2026-10-22 03:35",
-   "sources": [
-    {
-     "kind": "wanted",
-     "ref": "B25x2",
-     "at": "2026-10-22 18:17",
-     "score": 2.25,
-     "why": "opens 15 items (0 used: exposed_chiseled_copper, weathered_chiseled_copper, oxidized_chiseled_copper, exposed_cut_copper, weathered_cut_copper, ...)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-22 03:35",
-     "status": "requested",
-     "why": "W3's wanted list (rank 3.21)",
-     "by": "foundry_queue"
-    }
-   ],
-   "commits": [],
-   "blocked": "no ticket template for its verb wait",
-   "order": 13
-  },
-  {
-   "capability": "wool",
-   "title": "Shear the sheep",
-   "status": "merged",
-   "created": "2026-10-18 12:00",
-   "sources": [
-    {
-     "kind": "user",
-     "ref": "hand ticket",
-     "at": "2026-10-18 12:00",
-     "score": 0,
-     "why": "shear_sheep, written by hand (s36)"
-    },
-    {
-     "kind": "wanted",
-     "ref": "B25x2",
-     "at": "2026-10-22 01:25",
-     "score": 7.5,
-     "why": "13 members wish for white banners, paintings, white beds, white carpets (87% demand, W2)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-18 12:00",
-     "status": "requested",
-     "why": "the shear_sheep skill, a hand-written ticket (s36)",
-     "by": "user"
-    },
-    {
-     "at": "2026-10-18 18:46",
-     "status": "merged",
-     "why": "shear_sheep merged (b3ab0b7); no activity ran it: the wanted list's status 'skill'",
-     "by": "foundry"
-    },
-    {
-     "at": "2026-10-22 01:25",
-     "status": "ticketed",
-     "why": "the skill-activity ticket from W2's wanted list (rank 7.5)",
-     "by": "foundry_queue"
-    },
-    {
-     "at": "2026-10-22 01:27",
-     "status": "in_foundry",
-     "why": "agy gemini-4-argon-high; its quota ran out after 3 of 4 files",
-     "by": "foundry"
-    },
-    {
-     "at": "2026-10-22 01:58",
-     "status": "merged",
-     "why": "finished by the Claude Code back-end, every gate (08891a0); W3: 12 shearings, banners, beds, paintings, a carpet made (F281)",
-     "by": "foundry"
-    }
-   ],
-   "commits": [
-    "b3ab0b7",
-    "08891a0"
-   ],
-   "ticket": "scripts/foundry/tickets/wool.json",
-   "order": 14
-  },
-  {
-   "capability": "fish",
-   "title": "Go fishing (fish)",
-   "status": "merged",
-   "created": "2026-10-20 14:15",
-   "sources": [
-    {
-     "kind": "user",
-     "ref": "hand ticket",
-     "at": "2026-10-20 14:15",
-     "score": 0,
-     "why": "written by hand (s41)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-20 14:15",
-     "status": "requested",
-     "why": "a hand-written ticket (s41)",
-     "by": "user"
-    },
-    {
-     "at": "2026-10-20 14:15",
-     "status": "ticketed",
-     "why": "scripts/foundry/tickets/fish.json",
-     "by": "user"
-    },
-    {
-     "at": "2026-10-20 15:11",
-     "status": "merged",
-     "why": "passed every gate (agy gemini-4-argon-high), a336ded",
-     "by": "foundry"
-    }
-   ],
-   "commits": [
-    "a336ded"
-   ],
-   "ticket": "scripts/foundry/tickets/fish.json",
-   "order": 15
-  },
-  {
-   "capability": "trade",
-   "title": "Trade with the merchant (trade)",
-   "status": "merged",
-   "created": "2026-10-20 15:30",
-   "sources": [
-    {
-     "kind": "user",
-     "ref": "hand ticket",
-     "at": "2026-10-20 15:30",
-     "score": 0,
-     "why": "written by hand (s41)"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-20 15:30",
-     "status": "requested",
-     "why": "a hand-written ticket (s41)",
-     "by": "user"
-    },
-    {
-     "at": "2026-10-20 15:30",
-     "status": "ticketed",
-     "why": "scripts/foundry/tickets/trade.json",
-     "by": "user"
-    },
-    {
-     "at": "2026-10-20 16:08",
-     "status": "merged",
-     "why": "passed every gate (agy gemini-4-argon-high), fb81e1b",
-     "by": "foundry"
-    }
-   ],
-   "commits": [
-    "fb81e1b"
-   ],
-   "ticket": "scripts/foundry/tickets/trade.json",
    "order": 16
   },
   {
@@ -669,5 +724,5 @@
    "blocked": "a table fix, not a ticket: collect picks flowers today; the planner lists them as ungatherable (a table fix, not a ticket)"
   }
  ],
- "updated": "2026-10-22 18:18"
+ "updated": "2026-10-22 20:54"
 }
