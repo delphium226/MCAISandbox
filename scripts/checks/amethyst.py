@@ -207,6 +207,31 @@ def find_ground_y(x: int, z: int, y_hint: int, cache: dict) -> int | None:
     return None
 
 
+def column_stand_y(x: int, z: int, y_top: int, y_bottom: int) -> int | None:
+    """The height one stands at on the highest solid block of the column (x, z), scanned down from y_top to y_bottom.
+    Trees, plants, water and unknown cells do not count, so a bot in a tunnel reads the ground above its head."""
+    cells = read_box_blocks(x, y_bottom, z, x, y_top, z)
+    for y in range(y_top, y_bottom - 1, -1):
+        name = cells.get((x, y, z)) or "?"
+        if name == "?" or name in PASSABLE or name in BAD_GROUND:
+            continue
+        if any(w in name for w in ("leaves", "log", "vine", "torch", "wood")):
+            continue
+        return y + 1
+    return None
+
+
+def climb_out_diff(pos: dict, ref_y: int) -> tuple:
+    """(Gus's y, the stand height over Gus's own column, their difference) for a climb-out verification."""
+    gus_y = float(pos.get("y", 0))
+    x, z = int(math.floor(pos.get("x", 0))), int(math.floor(pos.get("z", 0)))
+    top = max(int(math.floor(gus_y)), ref_y) + 30
+    stand = column_stand_y(x, z, top, int(math.floor(gus_y)) - 4)
+    if stand is None:
+        stand = ref_y
+    return gus_y, stand, abs(gus_y - stand)
+
+
 def find_level_open_spot(base_x: int, base_z: int, y_hint: int, boxes: list):
     cache = {}
 
@@ -448,13 +473,11 @@ def main():
         time.sleep(0.5)
         obs1 = call("/agents/Gus/observe?radius=4")
         pos1 = (obs1.get("position") if isinstance(obs1, dict) else None) or {}
-        gus_y = pos1.get("y", 0)
-        # (the ground where Gus stands now: the skill climbs out at its own surface spot, 3-6 blocks from the geode, whose
-        # ground may lie lower or higher than the spawn's on uneven land; the spawn's ground is the fallback)
-        here_g = find_ground_y(int(math.floor(pos1.get("x", gx))), int(math.floor(pos1.get("z", gz))), int(round(gus_y)), {}) if pos1 else None
-        if here_g is not None and abs(here_g - gy) <= 6:
-            gy = here_g
-        y_diff = abs(gus_y - gy)
+        if not pos1:
+            fail("case 1: Gus's position could not be read after the run")
+        # (measured at Gus's own x, z: the highest solid block in its column, scanned from 30 above, so a tunnel reads
+        # the ground over its head; the spawn's ground only if nothing solid is found)
+        gus_y, gy, y_diff = climb_out_diff(pos1, gy)
         print(f"verify 5 (Gus climbed out): Gus y={gus_y:.2f}, ground gy={gy} (diff={y_diff:.2f})")
         if y_diff > 3.0:
             fail(f"Gus did not climb out to within 3 blocks of ground height: Gus y={gus_y}, ground y={gy} (diff={y_diff:.2f})")
@@ -478,6 +501,176 @@ def main():
         print(f"verify 7 (third call without pickaxe): {ev_type3} -> {text3}")
         if ev_type3 != "action_failed" or "no pickaxe" not in text3.lower():
             fail(f"expected action_failed with message containing 'no pickaxe', got {ev_type3}: {text3}")
+
+        # Reset Case 1's area by RCON fill
+        rcon(f"fill {cx - 3} {cy - 3} {cz - 3} {cx + 3} {cy + 3} {cz + 3} minecraft:stone")
+        rcon(f"fill {corr_x1} {corr_y1} {corr_z1} {corr_x2} {ground_y - 1} {corr_z2} minecraft:stone replace minecraft:air")
+        rcon(f"fill {corr_x1} {ground_y} {corr_z1} {corr_x2} {ground_y} {corr_z2} minecraft:dirt replace minecraft:air")
+        box_case1_end = read_box_blocks(corr_x1, corr_y1, corr_z1, corr_x2, corr_y2, corr_z2)
+        for coord, b_orig in box_before.items():
+            x, y, z = coord
+            if corr_x1 <= x <= corr_x2 and corr_y1 <= y <= corr_y2 and corr_z1 <= z <= corr_z2:
+                in_geode = (geo_x1 <= x <= geo_x2 and geo_y1 <= y <= geo_y2 and geo_z1 <= z <= geo_z2)
+                if not in_geode and box_case1_end.get(coord) != b_orig:
+                    b_cmd = b_orig if ":" in b_orig else f"minecraft:{b_orig}"
+                    rcon(f"setblock {x} {y} {z} {b_cmd}")
+
+        # Case 2: build a second geode 16 blocks below the ground at a spot where the ground is at least 2 blocks higher than the spot 6 blocks away (slope)
+        slope_spot = None
+        cand_cache = {}
+        for ox in range(-32, 33, 4):
+            for oz in range(-32, 33, 4):
+                if math.hypot(ox, oz) > 32:
+                    continue
+                sx, sz = base_x + ox, base_z + oz
+                if not away_from_villages(sx, sz, boxes, 14) or not away_from_villages(sx + 6, sz, boxes, 14):
+                    continue
+                sy = find_ground_y(sx, sz, base_y, cand_cache)
+                if sy is None:
+                    continue
+                sy6 = find_ground_y(sx + 6, sz, sy, cand_cache)
+                if sy6 is None:
+                    continue
+                if sy6 - sy >= 2:
+                    slope_spot = (sx, sy, sz, sx + 6, sz, sy6 - 1)
+                    break
+                elif sy - sy6 >= 2:
+                    slope_spot = (sx + 6, sy6, sz, sx, sz, sy - 1)
+                    break
+            if slope_spot:
+                break
+
+        if slope_spot:
+            gx2, gy2, gz2, cx2, cz2, ground_y2 = slope_spot
+            # (ground_y2 derived from geode column's ground)
+        else:
+            # Pick a fresh spot 24 blocks away
+            spot2 = find_level_open_spot(base_x + 24, base_z, base_y, boxes)
+            if spot2 is None:
+                gy2_cand = find_ground_y(base_x + 24, base_z, base_y, {}) or base_y
+                spot2 = (base_x + 24, gy2_cand, base_z)
+            gx2, gy2, gz2 = spot2
+            cx2 = gx2 + 6
+            cz2 = gz2
+            # (ground_y2 derived from geode column's ground)
+            # Build a 3-high dirt mound over the geode's column by RCON before the run so the climb starts below raised ground
+            cy_geo2 = find_ground_y(cx2, cz2, gy2, {}) or gy2
+            rcon(f"fill {cx2 - 1} {cy_geo2} {cz2 - 1} {cx2 + 1} {cy_geo2 + 2} {cz2 + 1} minecraft:dirt")
+            ground_y2 = cy_geo2 + 2
+
+        # Build geode 2 by RCON 16 blocks below the ground
+        cy2 = ground_y2 - 16
+        rcon(f"fill {cx2 - 3} {cy2 - 3} {cz2 - 3} {cx2 + 3} {cy2 + 3} {cz2 + 3} minecraft:smooth_basalt")
+        rcon(f"fill {cx2 - 2} {cy2 - 2} {cz2 - 2} {cx2 + 2} {cy2 + 2} {cz2 + 2} minecraft:calcite")
+        rcon(f"fill {cx2 - 1} {cy2 - 1} {cz2 - 1} {cx2 + 1} {cy2 + 1} {cz2 + 1} minecraft:amethyst_block")
+        rcon(f"setblock {cx2} {cy2} {cz2} minecraft:air")
+        bud2_x, bud2_y, bud2_z = cx2, cy2 - 1, cz2
+        rcon(f"setblock {bud2_x} {bud2_y} {bud2_z} minecraft:budding_amethyst")
+        cl2_x, cl2_y, cl2_z = cx2, cy2, cz2
+        rcon(f"setblock {cl2_x} {cl2_y} {cl2_z} minecraft:amethyst_cluster[facing=up]")
+
+        chk_bud2_init = rcon(f"execute if block {bud2_x} {bud2_y} {bud2_z} minecraft:budding_amethyst")
+        if "passed" not in chk_bud2_init.lower():
+            fail(f"case 2 failed to setblock budding_amethyst at {bud2_x},{bud2_y},{bud2_z}: {chk_bud2_init}")
+        chk_cl2_init = rcon(f"execute if block {cl2_x} {cl2_y} {cl2_z} minecraft:amethyst_cluster")
+        if "passed" not in chk_cl2_init.lower():
+            fail(f"case 2 failed to setblock amethyst_cluster at {cl2_x},{cl2_y},{cl2_z}: {chk_cl2_init}")
+
+        # Delete Gus from case 1 before spawning for case 2
+        call("/agents/Gus", method="DELETE")
+        time.sleep(0.4)
+
+        # Spawn Gus on the ground for case 2
+        sp2 = call("/agents", {
+            "name": "Gus",
+            "brain": "idle",
+            "gamemode": "survival",
+            "reset": True,
+            "position": {"x": gx2 + 0.5, "y": gy2, "z": gz2 + 0.5},
+        })
+        if not isinstance(sp2, dict) or sp2.get("error"):
+            fail(f"could not spawn Gus at {gx2},{gy2},{gz2} for case 2: {sp2}")
+
+        # Give Gus 1 stone_pickaxe by RCON
+        rcon("give Gus minecraft:stone_pickaxe 1")
+        time.sleep(0.5)
+
+        geo2_x1, geo2_x2 = cx2 - 3, cx2 + 3
+        geo2_y1, geo2_y2 = cy2 - 3, cy2 + 3
+        geo2_z1, geo2_z2 = cz2 - 3, cz2 + 3
+
+        box2_x1 = min(gx2, geo2_x1) - 4
+        box2_x2 = max(gx2, geo2_x2) + 4
+        box2_y1 = min(gy2, geo2_y1) - 4
+        box2_y2 = max(gy2, geo2_y2, gy2 + 5) + 4
+        box2_z1 = min(gz2, geo2_z1) - 4
+        box2_z2 = max(gz2, geo2_z2) + 4
+
+        corr2_x1 = min(gx2, geo2_x1) - 1
+        corr2_x2 = max(gx2, geo2_x2) + 1
+        corr2_y1 = min(gy2, geo2_y1) - 1
+        corr2_y2 = max(gy2, geo2_y2, gy2 + 5) + 1
+        corr2_z1 = min(gz2, geo2_z1) - 1
+        corr2_z2 = max(gz2, geo2_z2) + 1
+
+        box2_before = read_box_blocks(box2_x1, box2_y1, box2_z1, box2_x2, box2_y2, box2_z2)
+        shards_before2 = server_item_count("Gus", "amethyst_shard")
+
+        # Run harvest_amethyst for case 2
+        ev_type4, text4, evs4 = act("harvest_amethyst", timeout_s=360, x=cl2_x, y=cl2_y, z=cl2_z, count=2)
+        if ev_type4 == "timeout":
+            fail(f"case 2 harvest_amethyst call timed out after 360s: {text4}")
+
+        # Verification 8: at least 2 amethyst shard more on the server for Gus
+        shards_after2 = server_item_count("Gus", "amethyst_shard")
+        gained2 = shards_after2 - shards_before2
+        print(f"verify 8 (case 2 server amethyst shards): gained {gained2} shards (before={shards_before2}, after={shards_after2}, event={ev_type4}, msg={text4})")
+        if gained2 < 2:
+            fail(f"expected at least 2 amethyst shard on server for Gus in case 2, got {gained2} ({ev_type4}: {text4})")
+        if ev_type4 != "action_done":
+            fail(f"case 2 call gained {gained2} shards but ended {ev_type4}: {text4}")
+
+        # Verification 9: the budding_amethyst is still there
+        chk_bud2_after = rcon(f"execute if block {bud2_x} {bud2_y} {bud2_z} minecraft:budding_amethyst")
+        bud2_intact = "passed" in chk_bud2_after.lower()
+        print(f"verify 9 (case 2 budding amethyst preserved): budding_amethyst at {bud2_x},{bud2_y},{bud2_z} intact={bud2_intact}")
+        if not bud2_intact:
+            fail(f"case 2 budding_amethyst at {bud2_x},{bud2_y},{bud2_z} was broken! ({chk_bud2_after})")
+
+        # Verification 10: no 'placed' event from Gus
+        placed_evs2 = [e for e in evs4 if e.get("type") == "placed"]
+        print(f"verify 10 (case 2 no placed events): {len(placed_evs2)} placed events from Gus")
+        if placed_evs2:
+            fail(f"Gus emitted 'placed' events during case 2 harvest_amethyst: {placed_evs2[:3]}")
+
+        # Verification 11: no cell of the big box changed outside the corridor and the geode
+        box2_after = read_box_blocks(box2_x1, box2_y1, box2_z1, box2_x2, box2_y2, box2_z2)
+        changed_outside2 = []
+        for coord, b_before in box2_before.items():
+            b_after = box2_after.get(coord)
+            if b_before != b_after:
+                x, y, z = coord
+                in_corridor = (corr2_x1 <= x <= corr2_x2 and corr2_y1 <= y <= corr2_y2 and corr2_z1 <= z <= corr2_z2)
+                in_geode = (geo2_x1 <= x <= geo2_x2 and geo2_y1 <= y <= geo2_y2 and geo2_z1 <= z <= geo2_z2)
+                if not in_corridor and not in_geode:
+                    if {b_before, b_after} <= {"grass_block", "dirt"}:
+                        continue
+                    changed_outside2.append((coord, b_before, b_after))
+        print(f"verify 11 (case 2 box unchanged outside corridor/geode): {len(changed_outside2)} cells changed outside corridor and geode")
+        if changed_outside2:
+            fail(f"{len(changed_outside2)} block cells changed outside corridor and geode in case 2: {changed_outside2[:5]}")
+
+        # Verification 12: Gus stands within 3 blocks of the ground's height (it climbed out)
+        time.sleep(0.5)
+        obs2 = call("/agents/Gus/observe?radius=4")
+        pos2 = (obs2.get("position") if isinstance(obs2, dict) else None) or {}
+        if not pos2:
+            fail("case 2: Gus's position could not be read after the run")
+        # (as case 1: the highest solid block in Gus's own column, scanned from 30 above the ground)
+        gus2_y, target_g2, y_diff2 = climb_out_diff(pos2, max(gy2, ground_y2 + 1))
+        print(f"verify 12 (case 2 Gus climbed out): Gus y={gus2_y:.2f}, ground gy={target_g2} (diff={y_diff2:.2f})")
+        if y_diff2 > 3.0:
+            fail(f"case 2 Gus did not climb out to within 3 blocks of ground height: Gus y={gus2_y}, ground y={target_g2} (diff={y_diff2:.2f})")
 
         print("AMETHYST OK")
     except SystemExit:

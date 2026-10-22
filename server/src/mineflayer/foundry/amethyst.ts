@@ -219,6 +219,26 @@ function unsafeAmethyst(a: BotAgent, p: Vec3): string | null {
   return null;
 }
 
+/** Find the highest solid block Y coordinate in the column at (x, z), not counting trees (leaves, logs). */
+function getColumnSurfaceY(a: BotAgent, x: number, z: number): number | null {
+  const p = new Vec3(x, 0, z);
+  const botY = Math.floor(a.bot.entity.position.y);
+  for (let y = Math.min(319, Math.max(128, botY + 48)); y >= botY - 1; y--) {
+    p.y = y;
+    const b = a.bot.blockAt(p);
+    if (b && b.boundingBox === 'block' && !/leaves|_log$|_wood$|_stem$|hyphae/.test(b.name)) {
+      return y;
+    }
+  }
+  return null;
+}
+
+/** Name the blocks at a cell's feet, head and head+1 (for climb log lines and failure messages). */
+function cellsAt(a: BotAgent, p: Vec3): string {
+  const n = (dy: number) => a.bot.blockAt(p.offset(0, dy, 0))?.name ?? 'unloaded';
+  return `feet=${n(0)}, head=${n(1)}, head+1=${n(2)}`;
+}
+
 /** Dig a single cell with pickaxe equipped, never breaking budding amethyst or placing blocks. */
 async function digAmethystCell(a: BotAgent, p: Vec3, signal: AbortSignal): Promise<boolean> {
   checkAbort(signal);
@@ -582,6 +602,9 @@ export const FOUNDRY: FoundrySkill = {
       let dugCellsCount = 0;
       let clustersMined = 0;
       let stopWhy = `reached target of ${want} amethyst shard`;
+      const depth = Math.abs(startStand.y - targetPos.y);
+      // (the ticket's 48-cell cap did not reach a geode 16 down with the turns' extra cells: it grows with the depth, to 192)
+      const maxDugCells = Math.min(192, Math.max(96, Math.ceil((depth + 8) * 4)));
 
       // Corridor bounds: between Gus's spot and the geode / target, widened by 1
       const minX = Math.min(startStand.x, targetPos.x - 3) - 1;
@@ -594,7 +617,7 @@ export const FOUNDRY: FoundrySkill = {
       let lastDz = 0;
 
       // Phase 1: Dig staircase down toward the target depth
-      while (currentPos.y > targetPos.y && dugCellsCount < 48 && Date.now() - t0 < maxWallMs) {
+      while (currentPos.y > targetPos.y && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
         checkAbort(signal);
 
         // If we already have line of sight to a cluster, stop descending
@@ -640,6 +663,14 @@ export const FOUNDRY: FoundrySkill = {
             }
           }
 
+          // If turning, also check headroom over the turn
+          const isTurn = (lastDx !== 0 || lastDz !== 0) && (dx !== lastDx || dz !== lastDz);
+          if (!whyUnsafe && isTurn) {
+            const cTurnHead = new Vec3(nextX, currentPos.y + 2, nextZ);
+            const why = unsafeAmethyst(a, cTurnHead);
+            if (why) whyUnsafe = why;
+          }
+
           const newDistH = Math.hypot(targetPos.x - nextX, targetPos.z - nextZ);
           // Prioritize moving closer to the target column (lower score = higher priority)
           // When within 2.2 blocks horizontally, stay beside the geode rather than cutting into the hollow from above
@@ -664,8 +695,9 @@ export const FOUNDRY: FoundrySkill = {
         const nextX = currentPos.x + pick.dx;
         const nextZ = currentPos.z + pick.dz;
 
-        // Dig the 3 cells: top first, down to feet
+        const isTurn = (lastDx !== 0 || lastDz !== 0) && (pick.dx !== lastDx || pick.dz !== lastDz);
         const cellsToDig = [
+          ...(isTurn ? [new Vec3(nextX, currentPos.y + 2, nextZ)] : []),
           new Vec3(nextX, currentPos.y + 1, nextZ),
           new Vec3(nextX, currentPos.y, nextZ),
           new Vec3(nextX, currentPos.y - 1, nextZ),
@@ -673,7 +705,7 @@ export const FOUNDRY: FoundrySkill = {
 
         for (const cp of cellsToDig) {
           checkAbort(signal);
-          if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
+          if (dugCellsCount >= maxDugCells || Date.now() - t0 >= maxWallMs) break;
           // (#93: a cluster in the way is mined too: its shards fall in the tunnel and are picked up on the way)
           const wasCluster = a.bot.blockAt(cp)?.name === 'amethyst_cluster';
           const dug = await digAmethystCell(a, cp, signal);
@@ -681,8 +713,8 @@ export const FOUNDRY: FoundrySkill = {
           if (dug && wasCluster) clustersMined++;
         }
 
-        if (dugCellsCount >= 48) {
-          stopWhy = '48 cells dug limit reached';
+        if (dugCellsCount >= maxDugCells) {
+          stopWhy = `${maxDugCells} cells dug limit reached`;
           break;
         }
         if (Date.now() - t0 >= maxWallMs) {
@@ -701,7 +733,7 @@ export const FOUNDRY: FoundrySkill = {
       }
 
       // Phase 2: Once at target depth / beside it, dig straight through what lies between bot and target
-      while (!hasLineOfSight(a, targetPos) && dugCellsCount < 48 && Date.now() - t0 < maxWallMs) {
+      while (!hasLineOfSight(a, targetPos) && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
         checkAbort(signal);
         if (findReachableClusters(a).length > 0) break;
 
@@ -726,6 +758,7 @@ export const FOUNDRY: FoundrySkill = {
           if (nextX < minX || nextX > maxX || nextZ < minZ || nextZ > maxZ) continue;
 
           const cellsAhead = [
+            new Vec3(nextX, currentPos.y + 2, nextZ),
             new Vec3(nextX, currentPos.y + 1, nextZ),
             new Vec3(nextX, currentPos.y, nextZ),
           ];
@@ -753,9 +786,9 @@ export const FOUNDRY: FoundrySkill = {
         const nextZ = currentPos.z + chosenDir[1];
 
         // Dig straight through what lies ahead (head and feet)
-        for (const dy of [1, 0]) {
+        for (const dy of [2, 1, 0]) {
           checkAbort(signal);
-          if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
+          if (dugCellsCount >= maxDugCells || Date.now() - t0 >= maxWallMs) break;
           const cp = new Vec3(nextX, currentPos.y + dy, nextZ);
           const wasCluster = a.bot.blockAt(cp)?.name === 'amethyst_cluster';
           const dug = await digAmethystCell(a, cp, signal);
@@ -763,7 +796,7 @@ export const FOUNDRY: FoundrySkill = {
           if (dug && wasCluster) clustersMined++;
         }
 
-        if (dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
+        if (dugCellsCount >= maxDugCells || Date.now() - t0 >= maxWallMs) break;
 
         // Step forward into the dug opening
         const newStand = new Vec3(nextX + 0.5, currentPos.y, nextZ + 0.5);
@@ -777,7 +810,7 @@ export const FOUNDRY: FoundrySkill = {
       let shardsAfter = await serverShardCount(a);
       let shardsGained = shardsAfter - shardsBefore;
 
-      while (shardsGained < want && dugCellsCount < 48 && Date.now() - t0 < maxWallMs) {
+      while (shardsGained < want && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
         checkAbort(signal);
         const clusters = findReachableClusters(a);
         if (clusters.length === 0) break;
@@ -785,7 +818,7 @@ export const FOUNDRY: FoundrySkill = {
         let minedAnyInPass = false;
         for (const clusterPos of clusters) {
           checkAbort(signal);
-          if (shardsGained >= want || dugCellsCount >= 48 || Date.now() - t0 >= maxWallMs) break;
+          if (shardsGained >= want || dugCellsCount >= maxDugCells || Date.now() - t0 >= maxWallMs) break;
 
           const clBlock = a.bot.blockAt(clusterPos);
           if (clBlock && clBlock.name === 'amethyst_cluster') {
@@ -813,10 +846,22 @@ export const FOUNDRY: FoundrySkill = {
       for (let i = dugStairs.length - 1; i >= 0; i--) {
         checkAbort(signal);
         const step = dugStairs[i];
+        const targetStand = new Vec3(step.x + 0.5, step.y, step.z + 0.5);
         try {
-          await walkToStep(a, new Vec3(step.x + 0.5, step.y, step.z + 0.5), signal);
+          await walkToStep(a, targetStand, signal);
         } catch {
           /* continue climbing */
+        }
+
+        const bp = a.bot.entity.position;
+        const dist = bp.distanceTo(targetStand);
+        if (dist <= 0.85) {
+          console.log(`[amethyst:climb] step ${i} (${step.x},${step.y},${step.z}) ok -> bot at ${at(bp)}`);
+        } else {
+          console.log(
+            `[amethyst:climb] step ${i} (${step.x},${step.y},${step.z}) failed -> bot at ${at(bp)} ` +
+              `(bot: ${cellsAt(a, bp.floored())}; step: ${cellsAt(a, step)})`,
+          );
         }
       }
 
@@ -834,11 +879,148 @@ export const FOUNDRY: FoundrySkill = {
         }
       }
 
+      // Fallback (#96): when the climb ends more than 2 blocks below the surface (the highest solid block in the bot's
+      // column), the bot digs its own stair up, one block a step, three cells high ahead, toward the surface spot
+      let endPos = a.bot.entity.position.floored();
+      const surfY = getColumnSurfaceY(a, endPos.x, endPos.z);
+      let fallbackDug = 0;
+      let climbedOwnStair = false;
+      let stuckMsg: string | null = null;
+
+      if (surfY !== null && surfY - endPos.y > 2) {
+        const refSurfaceY = surfY;
+        console.log(`[amethyst] climb ended at ${at(endPos)}, ${refSurfaceY - endPos.y} blocks below the surface (y ${refSurfaceY}): digging its own stair`);
+        const tFallback0 = Date.now();
+        const maxFallbackMs = Math.round(120_000 / scale);
+        const exitSpot = bestSurfaceSpot ?? startStand;
+        // (columns the bot dug itself: an opening into them is not the surface)
+        const ownCols = new Set(dugStairs.map((s) => `${s.x},${s.z}`));
+        const failedSteps = new Set<string>();
+        let blocker: string | null = null;
+        let lastTry = '';
+
+        // At the surface: nothing solid over the bot's head, and its feet within a block of the ground it was under, or
+        // level (+-1) with a neighbouring column it did not dig (an opening on lower ground, downhill)
+        const atSurface = (p: Vec3): boolean => {
+          const top = getColumnSurfaceY(a, p.x, p.z);
+          if (top !== null && top >= p.y) return false;
+          if (p.y >= refSurfaceY) return true;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            if (ownCols.has(`${p.x + dx},${p.z + dz}`)) continue;
+            const t = getColumnSurfaceY(a, p.x + dx, p.z + dz);
+            if (t !== null && t + 1 >= p.y - 1 && t + 1 <= p.y + 1) return true;
+          }
+          return false;
+        };
+
+        for (;;) {
+          checkAbort(signal);
+          const cur = a.bot.entity.position.floored();
+          if (atSurface(cur)) {
+            climbedOwnStair = true;
+            break;
+          }
+          if (fallbackDug >= 32) {
+            blocker = `after the 32-cell limit of its own stair${lastTry}`;
+            break;
+          }
+          if (Date.now() - tFallback0 >= maxFallbackMs) {
+            blocker = `after the 2-minute limit of its own stair${lastTry}`;
+            break;
+          }
+
+          const sx = Math.sign(exitSpot.x - cur.x);
+          const sz = Math.sign(exitSpot.z - cur.z);
+          const pref: Array<[number, number]> = Math.abs(exitSpot.x - cur.x) >= Math.abs(exitSpot.z - cur.z)
+            ? [[sx, 0], [0, sz], [0, -sz], [-sx, 0]]
+            : [[0, sz], [sx, 0], [-sx, 0], [0, -sz]];
+          const dirs: Array<[number, number]> = [];
+          for (const d of [...pref, [1, 0], [-1, 0], [0, 1], [0, -1]] as Array<[number, number]>) {
+            if ((d[0] === 0) === (d[1] === 0)) continue;
+            if (!dirs.some((c) => c[0] === d[0] && c[1] === d[1])) dirs.push(d);
+          }
+
+          let chosen: Vec3[] | null = null;
+          let chosenStand: Vec3 | null = null;
+          let chosenKey = '';
+          let firstWhy: string | null = null;
+          for (const [dx, dz] of dirs) {
+            const nx = cur.x + dx;
+            const nz = cur.z + dz;
+            const key = `${cur.x},${cur.y},${cur.z}:${dx},${dz}`;
+            if (failedSteps.has(key)) {
+              firstWhy ??= `the step to ${nx},${cur.y + 1},${nz} did not raise it (${cellsAt(a, new Vec3(nx, cur.y + 1, nz))})`;
+              continue;
+            }
+            const floor = new Vec3(nx, cur.y, nz);
+            const fb = a.bot.blockAt(floor);
+            if (!fb || fb.boundingBox !== 'block') {
+              firstWhy ??= `with no floor for the next step (${fb?.name ?? 'unloaded'} at ${at(floor)})`;
+              continue;
+            }
+            // (its own head+1, for the jump, then the step's feet, head and head+1)
+            const cells = [
+              new Vec3(cur.x, cur.y + 2, cur.z),
+              new Vec3(nx, cur.y + 1, nz),
+              new Vec3(nx, cur.y + 2, nz),
+              new Vec3(nx, cur.y + 3, nz),
+            ];
+            let why: string | null = null;
+            for (const cp of cells) {
+              why = unsafeAmethyst(a, cp);
+              if (why) break;
+            }
+            if (why) {
+              const m = /^(\S+) (over|beside)/.exec(why);
+              const head = m ? (m[2] === 'over' ? `under ${m[1]}` : `beside ${m[1]}`) : 'blocked';
+              firstWhy ??= `${head} (${why.replace(/: the tunnel stops there \(try another one\)$/, '')})`;
+              continue;
+            }
+            chosen = cells;
+            chosenStand = new Vec3(nx + 0.5, cur.y + 1, nz + 0.5);
+            chosenKey = key;
+            break;
+          }
+
+          if (!chosen || !chosenStand) {
+            blocker = firstWhy ?? 'with every way up blocked';
+            break;
+          }
+
+          for (const cp of chosen) {
+            checkAbort(signal);
+            if (fallbackDug >= 32) break;
+            if (await digAmethystCell(a, cp, signal)) {
+              fallbackDug++;
+              dugCellsCount++;
+            }
+          }
+          if (fallbackDug >= 32 && chosen.some((cp) => a.bot.blockAt(cp)?.boundingBox === 'block')) continue;
+
+          await walkToStep(a, chosenStand, signal);
+          const after = a.bot.entity.position.floored();
+          ownCols.add(`${chosenStand.x - 0.5},${chosenStand.z - 0.5}`);
+          lastTry = ` (last step to ${at(chosenStand.floored())}: ${cellsAt(a, chosenStand.floored())})`;
+          console.log(`[amethyst:stair] step to ${at(chosenStand.floored())} -> bot at ${at(after)} (${fallbackDug} cells)`);
+          if (after.y <= cur.y) failedSteps.add(chosenKey);
+        }
+
+        endPos = a.bot.entity.position.floored();
+        if (climbedOwnStair) {
+          console.log(`[amethyst] climbed out by its own stair (${fallbackDug} cells) to ${at(endPos)}`);
+        } else {
+          stuckMsg =
+            `stuck at ${endPos.x},${endPos.y},${endPos.z} ${blocker}, ${refSurfaceY + 1 - endPos.y} blocks below the surface ` +
+            `(dug ${fallbackDug} cells of its own stair): dig a way up from here before the next job`;
+          console.log(`[amethyst] own stair failed: ${stuckMsg}`);
+        }
+      }
+
       // (#93: counted again once out: drops lying in the tunnel are picked up on the climb, after the count above)
       shardsAfter = await serverShardCount(a);
       shardsGained = Math.max(0, shardsAfter - shardsBefore);
 
-      const endPos = a.bot.entity.position.floored();
+      endPos = a.bot.entity.position.floored();
       const backCoord = `${endPos.x},${endPos.y},${endPos.z}`;
       const targetCoord = `${targetPos.x},${targetPos.y},${targetPos.z}`;
 
@@ -849,14 +1031,19 @@ export const FOUNDRY: FoundrySkill = {
         if (clustersMined === 0 && leftWithin4 === 0) {
           throw new Error(`no amethyst cluster found within ${radius} blocks of ${targetCoord}: explore to find a geode`);
         }
-        throw new Error(`the way down blocked (${stopWhy}): try another one`);
+        throw new Error(`the way down blocked (${stopWhy}): try another one${stuckMsg ? `; then ${stuckMsg}` : ''}`);
       }
 
       if (shardsGained >= want) {
         stopWhy = `reached target of ${want} amethyst shard`;
       }
 
-      return `got ${shardsGained} amethyst shard from ${clustersMined} amethyst clusters at ${targetCoord} (${leftWithin4} left within 4 blocks; dug ${dugCellsCount} cells; back at ${backCoord}): ${stopWhy}`;
+      const stairMsg = climbedOwnStair
+        ? `; climbed out by its own stair (${fallbackDug} cells)`
+        : stuckMsg
+          ? `; ${stuckMsg}`
+          : '';
+      return `got ${shardsGained} amethyst shard from ${clustersMined} amethyst clusters at ${targetCoord} (${leftWithin4} left within 4 blocks; dug ${dugCellsCount} cells; back at ${backCoord}${stairMsg}): ${stopWhy}`;
     },
   },
 
