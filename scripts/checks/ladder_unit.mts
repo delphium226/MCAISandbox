@@ -16,21 +16,22 @@ ok(st.current === 'iron' && st.stage === 0, 'the ladder starts on iron, stage 1'
 ok(/^The village's ambition: the iron age, stage 1 of 4: 0 of 600 cells dug/.test(L.progressLine(village, t0, 600000)), `progress line: ${L.progressLine(village, t0, 600000)}`);
 ok(L.feedsStage(village, 'iron:dig') && !L.feedsStage(village, 'iron:smelt'), 'stage 1 feeds the dig, not the smelt');
 ok(L.stageTag(village) === '[for the iron age]', 'the tag');
-// raw iron before its stage does not count
-ok(L.noteLadder(village, 'raw_iron', 'Ada', 5, t0) === null && st.count === 0, 'raw iron does not count during stage 1');
-let news = null;
-for (let i = 0; i < 20 && !news; i++) news = L.noteLadder(village, 'cells', i % 3 ? 'Ada' : 'Ben', 40, t0 + i);
-ok(news?.kind === 'stage' && st.stage === 1 && st.count === 0, `stage 1 ends at 600 cells: ${news?.text}`);
+// raw iron brought up during stage 1 counts toward stage 2 (every counter from the rung's start), the stage stays 1
+ok(L.noteLadder(village, 'raw_iron', 'Ada', 5, t0).length === 0 && st.stage === 0 && st.totals?.raw_iron === 5, 'raw iron during stage 1 is kept for stage 2');
+let news: ReturnType<typeof L.noteLadder>[number] | null = null;
+for (let i = 0; i < 20 && !news; i++) news = L.noteLadder(village, 'cells', i % 3 ? 'Ada' : 'Ben', 40, t0 + i)[0] ?? null;
+ok(news?.kind === 'stage' && st.stage === 1 && st.count === 5, `stage 1 ends at 600 cells, stage 2 starts at the 5 raw iron already up: ${news?.text}`);
 ok(!!news && news.workers[0] === 'Ada', 'the stage names its main worker first');
 ok(/finished stage 1/.test(L.progressLine(village, t0 + 100, 600000)), 'the news shows for a village day');
 ok(!/finished stage 1/.test(L.progressLine(village, t0 + 700000, 600000)), 'and not after');
-L.noteLadder(village, 'raw_iron', 'Cara', 31, t0 + 10);
-ok(st.stage === 2, 'stage 2 ends at 30 raw iron (over-count capped)');
-L.noteLadder(village, 'ingots', 'Dan', 24, t0 + 20);
-ok(st.stage === 3 && L.feedsStage(village, 'iron:forge:iron_pickaxe:Ben'), 'stage 3 ends at 24 ingots; stage 4 feeds the forge');
-for (let i = 0; i < 9; i++) news = L.noteLadder(village, 'tools', 'Eve', 1, t0 + 30 + i);
-ok(news === null && st.count === 9, '9 tools: not yet');
-news = L.noteLadder(village, 'tools', 'Fay', 1, t0 + 40, 6);
+// ingots and tools done early wait for their stages
+L.noteLadder(village, 'ingots', 'Dan', 24, t0 + 5);
+for (let i = 0; i < 9; i++) L.noteLadder(village, 'tools', 'Eve', 1, t0 + 6 + i);
+ok(st.stage === 1, 'early ingots and tools do not jump stage 2');
+const burst = L.noteLadder(village, 'raw_iron', 'Cara', 31, t0 + 10);
+ok(burst.length === 2 && st.stage === 3 && st.count === 9, `raw iron ends stage 2, and stage 3's ingots already there end it too (${burst.map((x) => x.stage + 1).join(', ')})`);
+ok(L.feedsStage(village, 'iron:forge:iron_pickaxe:Ben'), 'stage 4 feeds the forge');
+news = L.noteLadder(village, 'tools', 'Fay', 1, t0 + 40, 6)[0] ?? null;
 ok(news?.kind === 'rung' && !st.current && st.reached.length === 1 && st.reached[0].day === 6, `the rung is reached: ${news?.text}`);
 ok(st.reached[0].workers.length === 4 && st.reached[0].workers[3][0] === 'Eve', 'each stage\'s workers kept');
 ok(/reached the iron age/.test(L.progressLine(village, t0 + 50, 600000)), 'the line after the rung');
@@ -46,7 +47,7 @@ ok(st.offered?.length === 4 && /choosing its next ambition/.test(L.progressLine(
 L.chooseRung(village, 'letters', opts, t0 + 70);
 ok(st.current === 'letters' && !st.offered && st.ballots.length === 1, 'the winner becomes the current rung');
 ok(/not built yet/.test(L.progressLine(village, t0 + 80, 600000)), `a stage without a counter says so: ${L.progressLine(village, t0 + 80, 600000)}`);
-ok(L.noteLadder(village, 'cells', 'Ada', 999, t0 + 90) === null, 'letters counts nothing yet');
+ok(L.noteLadder(village, 'cells', 'Ada', 999, t0 + 90).length === 0, 'letters counts nothing yet');
 for (const line of [L.progressLine(village, t0 + 80, 600000)]) ok(line.length <= 300, `line size ${line.length}`);
 const view = L.ladderView(village) as { rungs: Array<{ id: string; stages: Array<{ state: string }> }> };
 ok(view.rungs.find((r) => r.id === 'iron')!.stages.every((s) => s.state === 'done'), 'the view: iron done');

@@ -113,42 +113,55 @@ export function topWorkers(st: LadderState, rung: string, stage: number, n = 3):
 }
 
 /**
- * Work done: `n` of `counter` by `member`. Counts toward the current stage when that stage counts it (each counter runs
- * from its stage's start); a stage that reaches its target ends, and the last ends the rung. Returns the news (a stage
- * or the rung) or null. The caller saves the village and spreads the news (dawn line, chronicle, log).
+ * Work done: `n` of `counter` by `member`. Every counter runs from the rung's start (the user's, 10-23, after IM1: the
+ * village smelts and forges while it still digs, and 18 tools given before stage 4 counted for nothing); the stages end in
+ * order, each once its counter's total since the rung began reaches its target, several at once when the work is
+ * already done. Returns the news of each stage ended (the last may be the rung), oldest first. The caller saves the
+ * village and spreads the news (dawn line, chronicle, log).
  */
-export function noteLadder(v: Village, counter: Counter, member: string, n: number, now: number, day?: number): LadderNews | null {
+export function noteLadder(v: Village, counter: Counter, member: string, n: number, now: number, day?: number): LadderNews[] {
   const st = ladderOf(v, now);
-  if (!st?.current || n <= 0) return null;
+  if (!st?.current || n <= 0) return [];
   const def = RUNG_DEFS[st.current as RungId];
-  const sd = def?.stages[st.stage];
-  if (!sd || sd.counter !== counter || !sd.target) return null;
-  const key = stageKey(def.id, st.stage);
-  const w = (st.work[key] ??= {});
+  if (!def) return [];
+  const i = def.stages.findIndex((q) => q.counter === counter);
+  if (i < 0) return [];
+  const totals = (st.totals ??= {});
+  totals[counter] = (totals[counter] ?? 0) + n;
+  // (the work is credited to the stage that counts it, ended or not)
+  const w = (st.work[stageKey(def.id, i)] ??= {});
   w[member] = (w[member] ?? 0) + n;
-  st.count = Math.min(sd.target, st.count + n);
-  if (st.count < sd.target) return null;
-  (st.ends ??= {})[key] = now;
-  const workers = topWorkers(st, def.id, st.stage);
-  const done = fill(sd.words, sd.target, sd.target).replace(/^\d+ of /, '');
-  if (st.stage < 3) {
-    const news: LadderNews = { kind: 'stage', rung: def.id, stage: st.stage, workers, text: `The village finished stage ${st.stage + 1} of ${def.name} (${done})${workers.length ? `, mostly by ${words(workers)}` : ''}.` };
-    st.stage++;
-    st.stageStart = now;
+  const out: LadderNews[] = [];
+  for (;;) {
+    const sd = def.stages[st.stage];
+    const have = sd?.counter ? totals[sd.counter] ?? 0 : 0;
+    st.count = sd?.target ? Math.min(sd.target, have) : 0;
+    if (!sd?.counter || !sd.target || have < sd.target) break;
+    (st.ends ??= {})[stageKey(def.id, st.stage)] = now;
+    const workers = topWorkers(st, def.id, st.stage);
+    const done = fill(sd.words, sd.target, sd.target).replace(/^\d+ of /, '');
+    if (st.stage < 3) {
+      const news: LadderNews = { kind: 'stage', rung: def.id, stage: st.stage, workers, text: `The village finished stage ${st.stage + 1} of ${def.name} (${done})${workers.length ? `, mostly by ${words(workers)}` : ''}.` };
+      st.stage++;
+      st.stageStart = now;
+      st.news = { t: now, text: news.text };
+      out.push(news);
+      continue;
+    }
+    const all = [0, 1, 2, 3].map((k) => topWorkers(st, def.id, k));
+    st.reached.push({ rung: def.id, t: now, ...(day !== undefined ? { day } : {}), workers: all });
+    const names = [...new Set(all.flat())].slice(0, 5);
+    const news: LadderNews = { kind: 'rung', rung: def.id, stage: 3, workers: names, text: `The village reached ${def.name}${day !== undefined ? ` on day ${day}` : ''}${names.length ? `, thanks most to ${words(names)}` : ''}.` };
+    st.current = undefined;
+    st.stage = 0;
     st.count = 0;
+    st.stageStart = now;
+    st.totals = {};
     st.news = { t: now, text: news.text };
-    return news;
+    out.push(news);
+    break;
   }
-  const all = [0, 1, 2, 3].map((i) => topWorkers(st, def.id, i));
-  st.reached.push({ rung: def.id, t: now, ...(day !== undefined ? { day } : {}), workers: all });
-  const names = [...new Set(all.flat())].slice(0, 5);
-  const news: LadderNews = { kind: 'rung', rung: def.id, stage: 3, workers: names, text: `The village reached ${def.name}${day !== undefined ? ` on day ${day}` : ''}${names.length ? `, thanks most to ${words(names)}` : ''}.` };
-  st.current = undefined;
-  st.stage = 0;
-  st.count = 0;
-  st.stageStart = now;
-  st.news = { t: now, text: news.text };
-  return news;
+  return out;
 }
 
 /** Whether an option feeds the current stage (it gets the tag and `vw`). */
@@ -214,6 +227,7 @@ export function chooseRung(v: Village, winner: RungId, options: RungId[], now: n
   st.current = winner;
   st.stage = 0;
   st.count = 0;
+  st.totals = {};
   st.stageStart = now;
   st.news = { t: now, text: `The village chose ${RUNG_DEFS[winner].name} as its next ambition.` };
 }
@@ -228,7 +242,7 @@ export function ladderView(v: Village): Record<string, unknown> | null {
     return {
       id, name: def.name, after: def.after, reached: got ? { t: got.t, day: got.day } : null, current: st.current === id,
       stages: def.stages.map((sd, i) => ({
-        words: sd.target ? fill(sd.words, st.current === id && st.stage === i ? st.count : got || (st.current === id && i < st.stage) ? sd.target : 0, sd.target) : sd.words,
+        words: sd.target ? fill(sd.words, got || (st.current === id && i < st.stage) ? sd.target : st.current === id && sd.counter ? Math.min(sd.target, st.totals?.[sd.counter] ?? 0) : 0, sd.target) : sd.words,
         counted: !!sd.counter, target: sd.target ?? null, work: st.work[stageKey(id, i)] ?? {}, ended: st.ends?.[stageKey(id, i)] ?? null,
         state: got || (st.current === id && i < st.stage) ? 'done' : st.current === id && i === st.stage ? 'current' : 'later',
       })),

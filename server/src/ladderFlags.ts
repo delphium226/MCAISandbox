@@ -5,6 +5,9 @@ export const LADDER = flag('MC_LADDER');
 /** MC_IRON_AGE: the widened iron chain (dig on up to 3 legs, smelt at the works furnaces, forge for a named member,
  *  new iron levels as each ends); usable without the ladder. */
 export const IRON_AGE = flag('MC_IRON_AGE');
+/** MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns
+ *  and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. */
+export const ORE_MINE = flag('MC_ORE_MINE');
 /** MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. */
 export const OWN_TOOLS = flag('MC_OWN_TOOLS');
 /** Up to this many miners at once on the iron level, each on its own leg (spec B2). */

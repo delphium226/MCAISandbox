@@ -437,7 +437,9 @@ export interface LadderState {
   current?: string;
   /** The rungs on the open rung ballot (wanted.ts reads it); removed when the ballot closes. */
   offered?: string[];
-  /** The current rung's stage (0-based), when it began, and its counter since. */
+  /** Each counter's total since the current rung began (cells, raw iron, ingots, tools; stages read them in order). */
+  totals?: Record<string, number>;
+  /** The current rung's stage (0-based), when it began, and its counter's total (capped at the stage's target). */
   stage: number;
   stageStart: number;
   count: number;

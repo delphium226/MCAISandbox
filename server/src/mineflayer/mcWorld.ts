@@ -921,7 +921,12 @@ export class MineflayerWorld implements WorldAdapter {
     // (several members work each kind at once: one member's failure is not the village's; three in a row since the last
     // success back that kind off 10 minutes, staged I1: one miner without a pickaxe stopped all digging for 25 minutes)
     const backing = (stage: string) => ((tries as Record<string, number>)[stage] ?? 0) >= 3 && m.ironLastTry?.stage === stage && now - m.ironLastTry.at < 10 * 60000;
-    const raw = store.raw_iron ?? 0, ingots = store.iron_ingot ?? 0;
+    const raw = store.raw_iron ?? 0;
+    // (ingots another chore has earmarked are not this forge's: two forges on 4-6 ingots failed "cannot be made" 18 times in
+    // IM1, then the forge was banned for two hours)
+    let held = 0;
+    for (const [hk, c] of makeHolds) if (hk.startsWith(`${v.name}|`)) held += c.iron_ingot ?? 0;
+    const ingots = Math.max(0, (store.iron_ingot ?? 0) - held);
     const why: string[] = [];
     let added = 0;
     const slot = Array.from({ length: IRON_MINERS }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
@@ -4043,7 +4048,10 @@ export class MineflayerWorld implements WorldAdapter {
     if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, kind, choice.t);
     if (characterAny() && (meta?.source === 'model' || meta?.source === 'scripted')) noteDecision(v.name, worker.name, opt?.cf ?? 1);
     // (MC_WORK_BLOCKS: a decided choice opens a block of the same option; a block's own repeats keep it)
-    if (WORK_BLOCKS && opt && meta && meta.source !== 'repeat' && meta.reason !== 'work block' && opt.kind !== 'rest') this.blocks.set(id, { option: opt.id, until: choice.t + BLOCK_MS, from: meta.source });
+    // (only a decided choice opens one: the model's or the scripted controller's, or the fixed pick in fixed mode; IM1's rate
+    // fallbacks opened blocks too, and fixed picks held most of the members' work for 6 minutes at a time)
+    const decided = meta?.source === 'model' || meta?.source === 'scripted' || (meta?.source === 'fixed' && CHOOSE.mode === 'fixed');
+    if (WORK_BLOCKS && opt && meta && decided && meta.reason !== 'work block' && opt.kind !== 'rest') this.blocks.set(id, { option: opt.id, until: choice.t + BLOCK_MS, from: meta.source });
     if (ACTS.on) actsStart(v.name, worker.name, choice.option ?? key, choice.id);
     if (RULES.on && opt?.takes) noteTakes(v.name, worker.name, opt.takes, choice.t);
     // The decision log (A.1; A.2 adds the menu the choice was made on and how it was decided). Chores before completion
@@ -4129,7 +4137,7 @@ export class MineflayerWorld implements WorldAdapter {
       console.log(`[activity] ${c.village}: ${c.agent} ends ${act.id}: ${n} ${act.items.join('/')} deposited${n ? '' : ` (${message.slice(0, 120)})`}`);
     }
     // (an earmark left by a make or furnace placement stopped while queued, lesson 67; the skill's finally deletes its own)
-    if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light' || c.choice.kind === 'furnish') holdsDelete(holdKey(c.village, c.agent));
+    if (c.choice.kind === 'make' || c.choice.kind === 'works' || c.choice.kind === 'light' || c.choice.kind === 'furnish' || (IRON_AGE && c.choice.kind === 'iron')) holdsDelete(holdKey(c.village, c.agent));
     // (and a meal's: eat_meal's finally deletes its own, s30)
     if (c.choice.kind === 'eat') releaseMeal(c.village, c.agent);
     // A light run that confirmed, found and ruled out nothing (the lighter inside, spots not loaded) ends ok but backs the
@@ -4213,8 +4221,7 @@ export class MineflayerWorld implements WorldAdapter {
           if (n) got.push(['ingots', Number(n[1])]);
         } else if (q.type === 'make_iron_tool' && /given to [A-Za-z0-9_]+/.test(q.message)) got.push(['tools', 1]);
         for (const [counter, n] of got) {
-          const news = noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day);
-          if (news) this.ladderNews(v, news);
+          for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
         if (got.length) this.villages.save();
       }
@@ -6229,6 +6236,8 @@ export class MineflayerWorld implements WorldAdapter {
           this.villages.save();
         };
         this.setChore(v, worker, opt.key, [status], `iron: ${stage}`, failed, meta, opt.holds, opt);
+        // (G8: a forge's ingots earmarked until its chore ends, set after the chore as a make's are)
+        if (IRON_AGE && stage === 'forge') holdsSet(holdKey(v.name, worker.name), { iron_ingot: FORGE_COST[d.tool] ?? 3 });
         console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${d.iron} iron in storage)` : stage === 'smelt' ? `smelts ${d.count} raw iron at works furnace ${d.k}`
           : stage === 'forge' ? `forges ${d.tool}${d.for ? ` for ${d.for}` : ' for the village'}` : `makes a ${stage}`}`);
         return;
@@ -6801,10 +6810,15 @@ export class MineflayerWorld implements WorldAdapter {
     };
     if (menu.options.length === 1) return run(menu.options[0].id, { source: 'only', reason: 'fixed order' });
     const id = a.name.toLowerCase();
-    if (now - this.choiceStats.lastModelAt(a.name) < CHOOSE.minGapMs) {
+    // (MC_WORK_BLOCKS: a model decision buys a block of work, so the floor is 30 s, and a member inside it with nothing of the
+    // same kind waits for its turn instead of taking the fixed pick: in IM1, with chores ending every 5-40 s, 421 rate
+    // fallbacks against 168 model decisions)
+    const gap = WORK_BLOCKS ? Math.min(CHOOSE.minGapMs, BLOCK_GAP_MS) : CHOOSE.minGapMs;
+    if (now - this.choiceStats.lastModelAt(a.name) < gap) {
       const kind = this.lastModelKind.get(id);
       // (character v2's B1: a repeat honours the options' weights when a layer is on, else the lowest rank as before)
       const same = kind ? menu.options.filter((o) => o.kind === kind).sort((p, q) => (characterAny() ? weights(q) - weights(p) : 0) || p.rank - q.rank)[0] : undefined;
+      if (!same && WORK_BLOCKS) return { ran: { ok: false } };
       return same ? run(same.id, { source: 'repeat', reason: 'fixed order' }) : run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
     }
     if (this.choiceStats.modelCallsLastHour(a.name, now) >= CHOOSE.perHour) return run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
@@ -7111,6 +7125,8 @@ const QUICK_GAP_MS = 5000;
  *  while it is on the member's menu; a failure, a chore that gained nothing, or hunger ends it early. */
 const WORK_BLOCKS = /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
 const BLOCK_MS = (Number(process.env.MC_BLOCK_MIN ?? 6) * 60000) / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
+/** With work blocks, an agent's model decisions at least this far apart (CHOOSE.minGapMs' 90 s otherwise). */
+const BLOCK_GAP_MS = 30000;
 
 /** A2: what the sweep needs per village, once per sweep time (spec 2.3, C10). */
 interface Facts {
