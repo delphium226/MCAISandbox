@@ -56,7 +56,7 @@
  },
  "series": "scripts/foundry/series_base.json",
  "caps": {
-  "minutes": 45,
+  "minutes": 90,
   "turns": 500,
   "rounds": 3
  },
