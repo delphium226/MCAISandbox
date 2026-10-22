@@ -1727,3 +1727,31 @@ CLAUDE.md when a phase ends.
   - front_bed reached menus and its wildflowers were gathered, but its 4x4 box overlapped a house twice (sent to G6).
 
   Logs: runs/2026-10-22/quicknext/leaves/.
+- F289 (10-22, g2-social, G8 the iron age) **The iron age runs live, but the village did not reach iron in 3 hours: the
+  mine gave out at minute 46, and stages counted from their own starts missed the work done early.** Five staged runs
+  (I1-I5, world 1) each found a blocker, all fixed (dc1dc83, 1f587fa):
+  - tools unfound by name;
+  - a village-wide back-off on one failure;
+  - turned-back miners banning the iron kind;
+  - an unreachable stairs start;
+  - three levels too few;
+  - two smelters on one load.
+
+  The model-driven run IM1 (25 members, 1x, 3 h, $0.62):
+  - **Stages:** stage 1 (600 cells) at minute 17, stage 2 (30 raw iron) at 37; stage 3 stuck at 11 of 24 ingots.
+  - **The mine:** all four levels (1,919 cells, y 28 down to y -8) dug by minute 46, giving 85 raw iron (0.044 a cell, as
+    the spec measured).
+  - **Tools:** 18 given to 18 members, all before stage 4; 16 smelts.
+  - **Why iron was not reached:** counted from the rung's start, every stage's target was met by minute 46.
+  - **Forging:** 18 of 36 forge chores failed, "cannot be made from the village storage" with 4-6 ingots stored (other
+    chores' earmarks, likely), and the forge was banned for over two hours.
+  - **Specialisation over the iron kinds:** none, among 8 members with 5+ iron chores (index -0.028, p 0.74; 4 of 8 at
+    60%+). Only 8 of 91 iron picks were the model's (421 rate fallbacks).
+  - **Health check:** fails, busy 59% -> 37% -> 15% (collapse from minute 120, once the iron was gone).
+
+  Next:
+  - count each stage cumulatively from the rung's start, in order;
+  - offer forging only when the ingots are free of earmarks;
+  - add iron supply beyond four levels, or lower the targets.
+
+  Logs: runs/2026-10-22/ladder/ (staged/, model/).
