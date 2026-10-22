@@ -6,7 +6,7 @@ file and PLAN.md's handover after each report. Work sessions read this file and 
 PLAN.md keeps the handover and each phase's design; GitHub issues keep the todo list, each issue under one of the
 milestones below.
 
-*Last updated 2026-10-22 (the planning session, overnight; G1 done, G6's first loop done, G2 under way).*
+*Last updated 2026-10-22 (the planning session, overnight; G1 done, G6's loop runs on members' wishes, G2 and G3 under way, G3-G5 specs written).*
 
 ## The goals
 
@@ -33,7 +33,7 @@ again 10-21).
 | 2. Sid-style emergence | Mostly unbuilt (Phase E, #26-#34). Life goals already make distinct roles (F267, behind `MC_GOALS`). |
 | 3. Agents' proposals | Not built. Pieces: members' proposals for votes (#13), innovation demand (#73, #71). |
 | 4. Long-horizon memory | **G1 done** (`deea7ea`, F272): journals, intentions and a village clock behind `MC_MEMORY`/`MC_CLOCK` (off); members' later choices use what they remember. Quality left: #86. |
-| 5. Self-improving activities | **G6's first loop done** (10-22, F274-F275): a running village's wanted list made the honeycomb ticket, the foundry merged it (`9666366`), members researched, unlocked and harvested it. Its rank was 71% recipe value, not members' asking: #89. |
+| 5. Self-improving activities | **G6's first loop done** (10-22, F274-F275): a running village's wanted list made the honeycomb ticket, the foundry merged it (`9666366`), members researched, unlocked and harvested it. Then #89/#91 (F278, F281): the list ranks on members' own wishes (78-87% demand); wool was ticketed from 13 members' wishes, merged, researched, sheared (47 wool) and made into the banners, beds, paintings and carpets they wished for. Open: amethyst needs a tunnelling skill (#91), foundry gaps (#92), the unattended outer loop (#16). |
 
 Built on the way and kept behind flags: the economy (s43), innovation v2 and life goals (s44), works that grow as refits
 (`MC_WORKS_GROW`, F270). The village model is cheap to run with models (hour 1 of a live model-driven run: $0.17).
