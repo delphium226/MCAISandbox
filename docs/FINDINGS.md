@@ -1580,3 +1580,30 @@ CLAUDE.md when a phase ends.
   (locked; no template for `use_on_entity` or `mine`) and fell through to mud (0 demand), which it could not ticket: the
   next limit is templates (#91). Busy 37% (W0 39%). Logs: runs/2026-10-22/g6-demand/ (w2/, wanted_W2.json,
   scorecard_W2.txt).
+- F279 (10-22, g2-social session, #27 #28 #29 #86) **With G2's social perception and acts on, 25 members see each other
+  through code-kept profiles, ask, take up and keep promises, and say lines; on the real prompts a request lifts its option
+  from 29% to 65% and a broken promise halves the help its breaker gets.** G2a: test world 1, mv3_grown25, 120 min at 1x,
+  `--choose model`, G1a's settings plus MCAI_SOCIAL=on MC_ACTS=on MC_MEMORY_QUALITY=on MC_CONTROLLER=on MC_SKILL=on (code
+  f757fcb): 347 model decisions (fallbacks 1.4%); profiles in 1,001 of 1,005 prompts, 692 with facts beyond sight (help,
+  promises, reports); 32 reasons name another member ("Helping Grace gathers needed logs for the market stall"); 22
+  requests delivered, 6 taken up by choosing the tagged option, all 6 kept (Grace made the stone hoe Lena asked for); 15
+  promises, all kept; 171 lines said (15 dropped off topic); 130 note merges (#86); roles: 6 distinct at the end,
+  persistence of the modal kind over 5-decision windows 0.44 (G1a 0.54), specialisation index 0.079 (G1a 0.094). Health
+  check against G1a: busy 37.5 / 28.2% by hour (36 / 27.3), worst hour 0.75x, needs met 0.92 (0.94); $0.55 ($0.44); 0
+  [lag], 15 [stuck]. socialbench on G1a's real prompts: A (240 calls) 99.6% valid, `say` on topic 94%, no position over
+  1.15x chance, the requested option chosen 65% with the request against 29% without; B (320 calls: two alike help options,
+  one owner's profile shows it broke a promise to the chooser) the breaker got 28% of the help picks against 56% with plain
+  profiles, 7 of 8 cases moved, 44 reasons cite the promise. #86 replayed on G1a's 984 note writes: 36% merge as
+  near-duplicates, 0.2% refused (mobs). Scripted staged runs at 25 (no model calls): S3 24 requests, 17 taken up, all 17
+  kept. Logs: runs/2026-10-21/g2-social/ (report.md, social_use_G2a.txt, bench/, staged*/).
+- F280 (10-22, g2-social session, #29) **gpt-oss asks for what no menu offers, and acts tied to the menus' current options
+  were mostly refused; a request has to be able to create the work that answers it.** In G2a members proposed 287 requests;
+  the validator refused 265, most for items no gather or make option offered then (birch logs 151 in four spellings, stone
+  hoes 51+, pickaxes): members wanted tools and materials the workshop had stopped making at its stock targets. About 60% of
+  model decisions never run their pick (re-asked, taken or empty, as in G1a), and acts on them were lost until f757fcb.
+  Fixed in 29431f2: an open request (or the promise that took it up) adds a batch to the make target or a trip to the gather
+  want, so the asked option appears; a request may name any good or raw material; the storage check answers what storage
+  covers. S2 found the demand vanishing once accepting closed the request (the make then failed "at stock"); counting open
+  promises fixed it (S3: 17 of 17 kept). With the acts paragraph no longer saying "most choices need none", lines said rose
+  from 36% to 62% of bench replies; spontaneous requests stayed rare in the bench (2 of 117) and frequent live, where real
+  shortages prompt them.

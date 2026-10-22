@@ -636,3 +636,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    and the first parse kept none, because gpt-oss names the fields itself. With the calls recorded
    (`MC_MODEL_RECORD`) and the chosen prompts saved, a fixed parser re-reads the same replies free and exactly
    (`MC_MODEL_REPLAY`, 160 of 160 matched); count "field filled" beside "parsed" in every bench of an optional field.
+162. **An act must be able to create the work that answers it** (G2, F280): requests limited to the options on menus now
+   were refused 265 times in 287, because members ask for what the village has stopped making; making an open request
+   (and the promise that took it up) a demand on the make target or gather want brought the option back. Count demand while
+   the promise is open, not only the request (S2's makes failed "at stock" once accepting closed it).
