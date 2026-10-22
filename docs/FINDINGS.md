@@ -1490,8 +1490,7 @@ CLAUDE.md when a phase ends.
   needs agree with `scorecard.py`. But (1) its busy points are the utilisation clock's bins aligned to the current minute,
   not to the scorecard's start, so they run ~one bin late and drift between reads (bin 0 read 26 against 39); and
   (2) busy is read from the agents present, so once the run's agents were removed every bin's busy and the verdict went
-  (the last sample also showed goods per member 2,416 with 0 members). Issues drafted, not filed (the classifier blocked
-  `gh issue create`). Logs: runs/2026-10-21/live-scorecard/ (report.md, scorecard.txt, panel_scorecard_final.json).
+  (the last sample also showed goods per member 2,416 with 0 members). Issues #94 (the bins) and #95 (busy lost). Logs: runs/2026-10-21/live-scorecard/ (report.md, scorecard.txt, panel_scorecard_final.json).
 - F272 (10-21, g1-memory session, #26) **With G1's memory on, members' later choices use what they remember, and an
   agent-server restart keeps every journal.** G1a: test world 1, mv3_grown25, 120 min at 1x, `--choose model`, LSc1's
   settings plus MC_MEMORY=on MC_CLOCK=on (20-minute days, the night's reflection). 924 model decisions in the ledger, 475
@@ -1675,3 +1674,17 @@ CLAUDE.md when a phase ends.
   identical members may load-balance rather than differentiate (the planning session's reading), so the next test is
   character v2's heterogeneous members over 4-6 hour runs. ~$3.4. Logs: runs/2026-10-21/g2-social/ (report.md, e1/,
   e1_prereg.md, e1_primary.txt, e1_secondary.txt).
+- F285 (10-22, g6-loop session, #91 #93 #96) **The flowers knowledge gap was mostly not the planner's: it planned dyes from
+  flowers already, but no chore gathered them, coloured wool had no plan, and a dye planned from the tall flowers nobody
+  picked.** The planner (mcMaterials.ts) chose red dye from rose bushes and yellow from sunflowers (2 dye a flower) and
+  never from what storage held; green dye was dropped (cactus not gathered); coloured wool's one recipe recolours "any
+  wool" and loops, so red wool, banners, beds and carpets planned as "gathered as they are". Fixed (7074fc4): flowers,
+  cactus and beetroot gathered; coloured wool from white wool and its dye; a dye's source held in storage costs nothing
+  when a recipe is chosen; no plan without a dye changed (the recipe check's same 28/29 differences). A pick_flowers
+  library activity (collect on the flower with the most blocks near the hut), locked as "dyeing with flowers". Staged
+  live (FL1, world 3, mv3_grown25, dyeing unlocked, scripted members, 15 min): Dev picked 18 wildflowers in its first
+  chore; the workshop made 8 yellow dye and 8 yellow stained glass from them. On the wanted list flowers are now first
+  (value 15.5: dyes, stained glass, concrete powder, coloured wool). #93 fixed (a205432): harvest_amethyst counted its
+  shards before the climb picked up the drops of a cluster broken on the way; now action_done with 4 shards from 1
+  cluster, twice live; the climb-out still fails from a deeper staircase (#96). Logs: runs/2026-10-22/flowers/ (fl1/,
+  planprobe.mts).
