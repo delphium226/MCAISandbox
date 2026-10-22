@@ -797,3 +797,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-22 (the user's) **Model temperature stays 0.4** (`MC_TEMPERATURE`, default 0.4): charbench's 0.4 against 1.0 on
   G2a's rebuilt character prompts showed no real difference (valid 120/120 vs 119/120, distinct picks 2.75 vs 2.83, most-
   weighted pick 0.25 vs 0.26, say-do 0.86 vs 0.87). Temperature is not a character lever (docs/research/character-model-v2.md).
+- 10-22 (G8 ladder spec, written by the g5-proposals session for the planning session; runs/2026-10-22/ladder/spec.md)
+  **The user's choices (AskUserQuestion, all as recommended):** iron fixed as the first rung, ballots after; leather for
+  books bought from the merchant (no culling); the iron age's last stage counts iron tools issued to members; the Nether
+  kept as the top rung (peaceful probed: blazes, endermen and every hostile mob cannot be summoned, so no brewing and no
+  End; piglins, hoglins, striders and shulkers can). **Claude's, after the adversarial check:** the iron rung sized to the
+  measured supply (2.66 raw iron a trip over 200 trips; a level ends at 12-25): 600 cells dug, 30 raw iron, 24 ingots at
+  the works furnaces, 10 tools issued, with new iron levels opened as each finishes and per-leg locks for up to 3 miners;
+  forge options name a recipient whose work needs the tool, delivered to it, and members use their own tools first;
+  the blast furnace moves to the copper branch (`smelt` takes a plain furnace only); the rung ballot is a `vote.ts`
+  topic, not G3's law council; `ladder.ts` holds rungs, prerequisites and typed needs (have, hand build, ticket) and is
+  the motivation spec's village-ambition engine; enchantment starts at 8 levels; specialisation over the iron kinds
+  judged against a permutation null on model picks.
