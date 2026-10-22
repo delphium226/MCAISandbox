@@ -32,6 +32,9 @@ def commands():
         out[name] = ([node, TSX, f"scripts/checks/{name}.mts", *args], needs)
     for name in UNITS:
         out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], [])
+    # (G6: the foundry's CLI handling and its request queue, Python and offline)
+    for name in ("foundry_cli", "foundry_requests_check"):
+        out[name] = ([sys.executable, f"scripts/checks/{name}.py"], [])
     # (s42: the village simulator, 20 simulated minutes on mv3_grown25: no error, every member picking)
     out["village_sim"] = ([node, TSX, "scripts/sim/village_sim.mts", "--minutes", "20"], ["mc/testcheckpoints/mv3_grown25/villages.json"])
     return out

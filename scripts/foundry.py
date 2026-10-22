@@ -39,6 +39,17 @@ import argparse, datetime, hashlib, json, os, pathlib, re, shutil, subprocess, s
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import run_report  # noqa: E402
+import foundry_requests as R  # noqa: E402
+
+
+def request_status(tid, status, why, **extra):
+    """The ticket's request in the queue (foundry_requests.py) moved; a failure here never stops the foundry."""
+    try:
+        data = R.load()
+        R.set_status(data, tid, status, why, "foundry", **extra)
+        R.save(data)
+    except Exception as e:  # noqa: BLE001
+        log(f"note: the request queue was not updated ({e})")
 
 PY = sys.executable
 WORLD = 3
@@ -1075,6 +1086,8 @@ def main():
     out = ROOT / "runs" / TODAY / "foundry" / t["id"]
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()
+    request_status(t["id"], "in_foundry", f"{'gates only on the kept worktree' if a.gates_only else 'a run'} on {a.cli} ({model})",
+                   ticket=a.ticket.replace("\\", "/"))
     with Lock(FOUNDRY / "foundry.lock"):
         if (FOUNDRY / "agy_rules_added").exists():
             agy_rules(False)
@@ -1170,6 +1183,14 @@ def main():
             write_report(t, wt, out, cli, base, gates, sha, started, outcome, a.written_by)
     if "; merged into" in outcome:
         cleanup(t["id"], True)
+    # (the request: merged with its commit; passed but its merge queued, or the CLI stopped, back to ticketed; else failed)
+    merged = re.search(r"merged into tiered-brain-building at (\w+)", outcome)
+    if merged:
+        request_status(t["id"], "merged", outcome[:300], commit=merged.group(1))
+    elif outcome.startswith("passed every gate") or outcome.startswith("the CLI stopped"):
+        request_status(t["id"], "ticketed", outcome[:300], **({"commit": sha} if sha else {}))
+    else:
+        request_status(t["id"], "failed", outcome[:300])
     print(f"FOUNDRY DONE {t['id']}: {outcome}")
 
 

@@ -384,7 +384,7 @@ const L2 = {
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
   society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
-  run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['flags', 'Flags']],
+  run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['foundry', 'Foundry'], ['flags', 'Flags']],
 };
 const route = (() => {
   let s = {};
@@ -2253,7 +2253,39 @@ function runTab(d, v, tab) {
     return card(`Every member's recent events · ${all.length}`, `<ul class="list feed mono">${all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>'}</ul>`);
   }
   if (tab === 'flags') return flagsView(d, v);
+  if (tab === 'foundry') return foundryView();
   return '';
+}
+
+// ---- G6: the foundry's request queue (scripts/foundry_requests.py, GET /api/foundry/requests): what was asked for, by whom,
+// where it stands and why ----
+let foundryReqs = null;
+async function refreshFoundry() {
+  if (paused) return;
+  try { foundryReqs = await api('/api/foundry/requests'); } catch { foundryReqs = null; }
+}
+const REQ_GROUPS = [
+  ['waiting', 'Waiting', (r) => r.status === 'requested' && !r.blocked],
+  ['building', 'Building', (r) => r.status === 'ticketed' || r.status === 'in_foundry'],
+  ['landed', 'Landed', (r) => r.status === 'merged'],
+  ['stopped', 'Failed, rejected or blocked', (r) => r.status === 'failed' || r.status === 'rejected' || (r.status === 'requested' && r.blocked)],
+];
+const REQ_COLOUR = { requested: 'var(--accent)', ticketed: 'var(--warn)', in_foundry: 'var(--warn)', merged: 'var(--done)', failed: 'var(--bad, #c44)', rejected: 'var(--muted)' };
+function foundryView() {
+  const rs = foundryReqs?.requests;
+  if (!rs) return offBox('No request queue', 'The foundry\'s requests are kept in <span class="mono">scripts/foundry/requests.json</span> (<span class="mono">python scripts/foundry_requests.py list</span>).');
+  const which = chipOf('l3:foundry', 'waiting');
+  const g = REQ_GROUPS.find(([k]) => k === which) || REQ_GROUPS[0];
+  const shown = rs.filter(g[2]).sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
+  const src = (s) => `${esc(s.kind)}${s.ref ? `:${esc(s.ref)}` : ''}${s.detail ? ` (${esc(s.detail)})` : ''}${s.score ? ` <span class="sub">${esc(String(s.score))}</span>` : ''}`;
+  const item = (r) => det(`freq:${r.capability}`, `<b>${esc(r.order ?? '')}. ${esc(r.title || r.capability)}</b> <span class="state" style="--c:${REQ_COLOUR[r.status] || 'var(--muted)'}">${esc(r.status.replace('_', ' '))}</span>${r.pinned ? ' <span class="sub">pinned</span>' : ''}
+      <span class="sub">${(r.sources || []).map(src).join(', ')}</span>${r.blocked ? `<div class="sub">blocked: ${esc(r.blocked)}</div>` : ''}`,
+    `<div class="sub mono">${esc(r.capability)}${r.ticket ? ` · ${esc(r.ticket)}` : ''}${(r.commits || []).length ? ` · ${r.commits.map(esc).join(', ')}` : ''}</div>
+     <ul class="list">${(r.history || []).slice().reverse().map((h) => `<li><span class="sub">${esc(h.at)}</span> <b>${esc(h.status.replace('_', ' '))}</b> ${esc(h.why)} <span class="sub">(${esc(h.by)})</span></li>`).join('')}</ul>`);
+  return card(`The foundry's requests · ${rs.filter((r) => ['requested', 'ticketed', 'in_foundry'].includes(r.status)).length} open of ${rs.length}`,
+    chipRow('l3:foundry', 'waiting', REQ_GROUPS.map(([k, label, f]) => [k, label, rs.filter(f).length]), 'Which requests')
+    + (shown.length ? `<ul class="list">${shown.map((r) => `<li>${item(r)}</li>`).join('')}</ul>` : '<div class="empty">none</div>')
+    + `<div class="sub">Ranked: pinned, then the ladder's chosen rung, an offered rung, accepted proposals, the wanted list. Updated ${esc(foundryReqs.updated || '-')}.</div>`);
 }
 
 // ---- the two levels of tabs and the page ----
@@ -2684,6 +2716,8 @@ refreshScorecard();
 setInterval(refreshScorecard, 60000); // #80: a sample a minute
 refreshTechTrees();
 setInterval(refreshTechTrees, 30000); // the tech tree changes as goods are made
+refreshFoundry();
+setInterval(refreshFoundry, 30000); // G6: the foundry's requests move by the hour
 refreshMaps();
 setInterval(refreshMaps, 2000);
 setTimeout(refreshWorldAtlas, 1500);

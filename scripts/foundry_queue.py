@@ -21,8 +21,11 @@ Usage: python scripts/foundry_queue.py [--api URL | --villages FILE] [--village 
   --capability ID ticket that capability (an accepted proposal routed to the foundry, #90), not the rank's first; the
                   same skips apply to it
   --wanted FILE   a wanted.json the live writer saved (MC_WANTED; a run's own list, read after the run)
-  --accepted FILE the triage's accepted.json (triage_proposals.mts): the first accepted proposal routed `foundry` whose
-                  capability has no ticket yet, as --capability
+  --accepted FILE the triage's accepted.json (triage_proposals.mts): its proposals routed `foundry` join the request
+                  queue as `proposal` sources (ranked above the wanted list's)
+The request queue (scripts/foundry_requests.py, scripts/foundry/requests.json) decides: the wanted list and accepted
+proposals are merged into it (one request a capability, the unbuildable flagged with their reason), and the queue's top
+open request that passes the run's own checks is ticketed (its request marked `ticketed`; only with --write).
 """
 import argparse, json, math, os, pathlib, re, subprocess, sys, time, urllib.request
 
@@ -30,6 +33,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 TICKETS = ROOT / "scripts" / "foundry" / "tickets"
 QUEUE_LOG = ROOT / "scripts" / "foundry" / "queue_log.json"
 sys.path.insert(0, str(ROOT / "scripts" / "checks"))
+sys.path.insert(0, str(ROOT / "scripts"))
+import foundry_requests as R  # noqa: E402
 REACH = 144
 
 
@@ -335,15 +340,11 @@ def main():
     ap.add_argument("--accepted")
     ap.add_argument("--wanted")
     a = ap.parse_args()
+    accepted = []
     if a.accepted:
         acc = json.loads(pathlib.Path(a.accepted).read_text(encoding="utf-8"))
-        ticketed = {p.stem for p in TICKETS.glob("*.json")}
-        cands = [x for x in acc if x.get("route") == "foundry" and x.get("capability") and x["capability"] not in ticketed]
-        if not cands:
-            print(f"QUEUE: no accepted proposal routed to the foundry without a ticket in {a.accepted}")
-            return 0
-        a.capability = cands[0]["capability"]
-        print(f"accepted proposal {cands[0].get('id')} ({cands[0].get('by')}: {str(cands[0].get('what'))[:80]}) asks for {a.capability}")
+        accepted = [x for x in acc if x.get("route") == "foundry" and x.get("capability")]
+        print(f"{len(accepted)} accepted proposals routed to the foundry in {a.accepted}: {', '.join(sorted({x['capability'] for x in accepted})) or 'none'}")
     if not a.villages and not a.api and not a.wanted:
         raise SystemExit("give --api URL (or MCAI_API), --villages FILE or --wanted FILE")
     if a.wanted:
@@ -384,22 +385,46 @@ def main():
         land = ROOT / land
     have = {p.stem for p in TICKETS.glob("*.json")}
     failed = failed_before()
-    chosen, skipped = None, []
-    if a.capability:
-        lst = [w for w in lst if w["id"] == a.capability]
-        if not lst:
-            raise SystemExit(f"QUEUE: no capability {a.capability} in the wanted list")
-    for w in lst:
-        cid = w["id"]
-        why_not = None
+    by_id = {w["id"]: w for w in lst}
+
+    def blocked_why(w):
+        """Why the foundry cannot take it at all (kept on its request), or None."""
         if not w["ticketable"]:
-            why_not = {"have": "the village has it", "locked": w.get("reason") or "built, locked until researched",
-                       "dead": f"a peaceful overworld cannot give it: {w.get('reason')}", "user": f"the user's call: {w.get('reason')}",
-                       "knowledge": f"a table fix, not a ticket: {w.get('reason')}"}.get(w["status"]) or f"no ticket template for its verb {w['verb']}"
+            return {"have": None, "locked": None,
+                    "dead": f"a peaceful overworld cannot give it: {w.get('reason')}", "user": f"the user's call: {w.get('reason')}",
+                    "knowledge": f"a table fix, not a ticket: {w.get('reason')}"}.get(w["status"], f"no ticket template for its verb {w['verb']}")
+        return failed.get(w["id"])
+
+    # The request queue (foundry_requests.py): the wanted list and accepted proposals merged into it, the unbuildable
+    # flagged with their reason; the queue's rank picks, not the list's
+    reqs = R.load()
+    for w in lst:
+        if w["status"] in ("missing", "skill") or (w["status"] in ("dead", "user", "knowledge") and w["demand"] > 0):
+            R.add_source(reqs, w["id"], "wanted", village, score=w["rank"], title=w["name"], why="; ".join(w["why"])[:300])
+            R.set_blocked(reqs, w["id"], blocked_why(w))
+    for x in accepted:
+        R.add_source(reqs, x["capability"], "proposal", str(x.get("id")), score=1, why=f"{x.get('by')}: {str(x.get('what'))[:120]}")
+        w = by_id.get(x["capability"])
+        if w:
+            R.set_blocked(reqs, x["capability"], blocked_why(w))
+    order = [r["capability"] for r in R.ranked(reqs)]
+    if a.capability:
+        order = [a.capability] + [c for c in order if c != a.capability]
+    chosen, skipped = None, []
+    for cid in order:
+        r = R.find(reqs, cid)
+        w = by_id.get(cid)
+        why_not = None
+        if not w:
+            why_not = "not on this village's wanted list"
+        elif r and r["status"] != "requested" and cid != a.capability:
+            why_not = f"its request is {r['status']}"
+        elif r and r.get("blocked"):
+            why_not = r["blocked"]
+        elif not r and blocked_why(w):
+            why_not = blocked_why(w)
         elif cid in have:
             why_not = f"a ticket exists (scripts/foundry/tickets/{cid}.json)"
-        elif cid in failed:
-            why_not = failed[cid]
         elif a.min_samples and (history.get("top", {}).get(cid, {}).get("samples", 0) < a.min_samples):
             why_not = f"in the top 3 {history.get('top', {}).get(cid, {}).get('samples', 0)} times, fewer than {a.min_samples}"
         elif w.get("find") and hut and land.exists():
@@ -409,26 +434,32 @@ def main():
             else:
                 w["_land"] = f"{n} chunks within {REACH} of the hut hold {' or '.join(w['find'])}"
         if why_not:
-            skipped.append((cid, w["rank"], why_not))
+            skipped.append((cid, w["rank"] if w else "-", why_not))
             continue
         chosen = w
         break
     for cid, rank, why_not in skipped:
         print(f"  skip {cid} (rank {rank}): {why_not}")
     if not chosen:
+        if a.write:
+            R.save(reqs)
         print("QUEUE: nothing to ticket")
         return 0
     why = "; ".join(chosen["why"] + ([chosen["_land"]] if chosen.get("_land") else [])) or "it opens items nothing else gives"
     t, err = ticket_for(chosen, village, why)
     if not t:
-        print(f"QUEUE: {chosen['id']} chosen (rank {chosen['rank']}) but no ticket: {err}")
+        # (kept on its request, so the next run moves on to the next one instead of stopping here again)
+        if a.write:
+            R.set_blocked(reqs, chosen["id"], f"no ticket: {err}")
+            R.save(reqs)
+        print(f"QUEUE: {chosen['id']} chosen (rank {chosen['rank']}) but no ticket: {err}" + ("; its request is blocked with that reason" if a.write else ""))
         return 1
     path = TICKETS / f"{t['id']}.json"
     print(f"  chose {chosen['id']} (rank {chosen['rank']}, value {chosen['value']}, demand {chosen['demand']}): {why}")
     if a.json:
         print(json.dumps(t, indent=1))
     if not a.write:
-        print(f"QUEUE: would write {path.relative_to(ROOT)} (dry run; --write to write it)")
+        print(f"QUEUE: would write {path.relative_to(ROOT)} (dry run; --write to write it and update {R.STORE.relative_to(ROOT)})")
         return 0
     path.write_text(json.dumps(t, indent=1) + "\n", encoding="utf-8")
     log = json.loads(QUEUE_LOG.read_text(encoding="utf-8")) if QUEUE_LOG.exists() else []
@@ -436,7 +467,10 @@ def main():
                 "rank": chosen["rank"], "value": chosen["value"], "demand": chosen["demand"], "why": chosen["why"],
                 "skipped": [{"id": c, "rank": r, "why": y} for c, r, y in skipped]})
     QUEUE_LOG.write_text(json.dumps(log, indent=1) + "\n", encoding="utf-8")
-    print(f"QUEUE: wrote {path.relative_to(ROOT)}; logged in {QUEUE_LOG.relative_to(ROOT)}")
+    R.set_status(reqs, chosen["id"], "ticketed", f"ticket written from {village}'s wanted list (rank {chosen['rank']})", "foundry_queue",
+                 ticket=str(path.relative_to(ROOT)).replace("\\", "/"))
+    R.save(reqs)
+    print(f"QUEUE: wrote {path.relative_to(ROOT)}; logged in {QUEUE_LOG.relative_to(ROOT)}; its request ticketed")
     return 0
 
 

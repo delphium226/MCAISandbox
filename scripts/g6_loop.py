@@ -3,7 +3,9 @@ makes a ticket, the foundry builds it, members take it up", each step's output c
 
   1. demand: a model-driven run on test world 2 with MC_WANTED on (run_series.py, the DEMAND spec), its wanted list
      read from the live agent server while it runs (foundry_queue.py --api, at least --min-samples in the top 3);
-  2. ticket: foundry_queue.py --write (it says why it skips what it skips; nothing ticketable ends the round);
+  2. ticket: foundry_queue.py --write (the request queue, scripts/foundry_requests.py, decides: the run's wanted list
+     merged into it with the ladder's and proposals' requests; it says why it skips what it skips; nothing ticketable
+     ends the round);
   3. foundry: foundry.py TICKET --merge on test world 3 (a candidate that passes every gate merges; anything else ends
      the round with the report's outcome);
   4. take-up: the TAKEUP spec on test world 2, then the counts of research, unlocks and the activity's runs from its

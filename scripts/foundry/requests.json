@@ -1,0 +1,377 @@
+{
+ "version": 1,
+ "requests": [
+  {
+   "capability": "mud",
+   "title": "Make mud with water bottles",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 1.17,
+     "why": "opens 5 items (0 used: mud_brick_slab, packed_mud, mud_bricks, mud_brick_stairs, mud_brick_wall)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 1.17)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 1
+  },
+  {
+   "capability": "honey_bottle",
+   "title": "Bottle honey from bee nests",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 0
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 0)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 2
+  },
+  {
+   "capability": "bone_meal",
+   "title": "Compost crops into bone meal",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 0
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 0)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "order": 3
+  },
+  {
+   "capability": "copper_age",
+   "title": "Let copper weather",
+   "status": "requested",
+   "created": "2026-10-22 03:35",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 3.21,
+     "why": "opens 33 items (0 used: exposed_chiseled_copper, weathered_chiseled_copper, oxidized_chiseled_copper, exposed_cut_copper, weathered_cut_copper, ...)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 03:35",
+     "status": "requested",
+     "why": "W3's wanted list (rank 3.21)",
+     "by": "foundry_queue"
+    }
+   ],
+   "commits": [],
+   "blocked": "no ticket template for its verb wait",
+   "order": 4
+  },
+  {
+   "capability": "wool",
+   "title": "Shear the sheep",
+   "status": "merged",
+   "created": "2026-10-18 12:00",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-18 12:00",
+     "score": 0,
+     "why": "shear_sheep, written by hand (s36)"
+    },
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 01:25",
+     "score": 7.5,
+     "why": "13 members wish for white banners, paintings, white beds, white carpets (87% demand, W2)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-18 12:00",
+     "status": "requested",
+     "why": "the shear_sheep skill, a hand-written ticket (s36)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-18 18:46",
+     "status": "merged",
+     "why": "shear_sheep merged (b3ab0b7); no activity ran it: the wanted list's status 'skill'",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 01:25",
+     "status": "ticketed",
+     "why": "the skill-activity ticket from W2's wanted list (rank 7.5)",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-22 01:27",
+     "status": "in_foundry",
+     "why": "agy gemini-4-argon-high; its quota ran out after 3 of 4 files",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 01:58",
+     "status": "merged",
+     "why": "finished by the Claude Code back-end, every gate (08891a0); W3: 12 shearings, banners, beds, paintings, a carpet made (F281)",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "b3ab0b7",
+    "08891a0"
+   ],
+   "ticket": "scripts/foundry/tickets/wool.json",
+   "order": 5
+  },
+  {
+   "capability": "fish",
+   "title": "Go fishing (fish)",
+   "status": "merged",
+   "created": "2026-10-20 14:15",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-20 14:15",
+     "score": 0,
+     "why": "written by hand (s41)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-20 14:15",
+     "status": "requested",
+     "why": "a hand-written ticket (s41)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 14:15",
+     "status": "ticketed",
+     "why": "scripts/foundry/tickets/fish.json",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 15:11",
+     "status": "merged",
+     "why": "passed every gate (agy gemini-4-argon-high), a336ded",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "a336ded"
+   ],
+   "ticket": "scripts/foundry/tickets/fish.json",
+   "order": 6
+  },
+  {
+   "capability": "trade",
+   "title": "Trade with the merchant (trade)",
+   "status": "merged",
+   "created": "2026-10-20 15:30",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "hand ticket",
+     "at": "2026-10-20 15:30",
+     "score": 0,
+     "why": "written by hand (s41)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-20 15:30",
+     "status": "requested",
+     "why": "a hand-written ticket (s41)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 15:30",
+     "status": "ticketed",
+     "why": "scripts/foundry/tickets/trade.json",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-20 16:08",
+     "status": "merged",
+     "why": "passed every gate (agy gemini-4-argon-high), fb81e1b",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "fb81e1b"
+   ],
+   "ticket": "scripts/foundry/tickets/trade.json",
+   "order": 7
+  },
+  {
+   "capability": "flowers",
+   "title": "Pick flowers for dyes",
+   "status": "merged",
+   "created": "2026-10-22 12:30",
+   "sources": [
+    {
+     "kind": "user",
+     "ref": "planning session",
+     "at": "2026-10-22 17:10",
+     "score": 0,
+     "why": "the flowers knowledge gap (the user's, 10-22)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 12:30",
+     "status": "requested",
+     "why": "the wanted list's knowledge gap, the largest unlock (46 items)",
+     "by": "user"
+    },
+    {
+     "at": "2026-10-22 12:59",
+     "status": "merged",
+     "why": "built by hand, no foundry ticket (7074fc4): the planner gathers flowers, pick_flowers locked as dyeing (F285)",
+     "by": "user"
+    }
+   ],
+   "commits": [
+    "7074fc4"
+   ],
+   "order": 8
+  },
+  {
+   "capability": "amethyst",
+   "title": "Mine amethyst in geodes",
+   "status": "merged",
+   "created": "2026-10-22 05:32",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 7.31,
+     "why": "9 members wish for a spyglass; 142 raw copper idle (W3, 89% demand)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-22 05:32",
+     "status": "requested",
+     "why": "W3's wanted list",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-22 05:32",
+     "status": "ticketed",
+     "why": "the mine template's ticket",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-22 05:33",
+     "status": "in_foundry",
+     "why": "agy gemini-3.8-flash-high; two runs failed the live check (two-high stairs in the brief, F282)",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 09:18",
+     "status": "in_foundry",
+     "why": "a fresh run, three-high stairs, a 90-minute cap",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-22 11:11",
+     "status": "merged",
+     "why": "every gate in 5 rounds (c61fcc8, F283); #93 fixed (a205432); #96 open: the climb-out from a deeper staircase",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "c61fcc8",
+    "a205432"
+   ],
+   "ticket": "scripts/foundry/tickets/amethyst.json",
+   "order": 9
+  },
+  {
+   "capability": "honeycomb",
+   "title": "Harvest honeycomb from bee nests",
+   "status": "merged",
+   "created": "2026-10-21 22:46",
+   "sources": [
+    {
+     "kind": "wanted",
+     "ref": "B25x2",
+     "at": "2026-10-22 17:10",
+     "score": 3.46,
+     "why": "opens 18 items; 118 raw copper idle (W0, 29% demand)"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-21 22:46",
+     "status": "requested",
+     "why": "W0's wanted list, first in 7 of 7 samples",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-21 22:46",
+     "status": "ticketed",
+     "why": "the use_on_block ticket",
+     "by": "foundry_queue"
+    },
+    {
+     "at": "2026-10-21 22:47",
+     "status": "in_foundry",
+     "why": "agy gemini-4-argon-high",
+     "by": "foundry"
+    },
+    {
+     "at": "2026-10-21 23:16",
+     "status": "merged",
+     "why": "every gate, 1 round (9666366); W1: researched, harvested 7 times (F274)",
+     "by": "foundry"
+    }
+   ],
+   "commits": [
+    "9666366"
+   ],
+   "ticket": "scripts/foundry/tickets/honeycomb.json",
+   "order": 10
+  }
+ ],
+ "updated": "2026-10-22 17:11"
+}

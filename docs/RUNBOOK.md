@@ -241,10 +241,18 @@ the short version; look here for a check script's arguments, a model detail or w
   top 3 as demanded. Offline: `node node_modules/tsx/dist/cli.mjs scripts/wanted.mts VILLAGES.json [V]` (set
   `MC_INNOVATE=on` to see researched activities as locked). `python scripts/foundry_queue.py --api URL [--village V]
   [--min-samples N] [--write]` (or `--villages FILE`) writes the top ticketable capability as a ticket (the `use_on_block`
-  template), says why it skips the rest, counts its blocks within 144 of the hut in the land (`MC_SERVER_DIR`'s world or
+  template, from the request queue's top), says why it skips the rest, counts its blocks within 144 of the hut in the land (`MC_SERVER_DIR`'s world or
   `--land`), and logs it in `scripts/foundry/queue_log.json`. A library spec with a `research` block is a locked
   innovation entry (registered while `MC_INNOVATE` is on, not loaded while it is off; `foundry/lock.ts`). Check:
   `scripts/checks/wanted_unit.mts`. The first: `honeycomb` (`harvest_honeycomb`, `lib:honeycomb`, `9666366`).
+- **The foundry's request queue (G6, 10-22):** `scripts/foundry/requests.json` (committed), one request a capability with
+  its sources merged (user, a ladder rung chosen or offered, an accepted proposal, a village's wanted list), ranked in
+  that order (a pin first, then by score, the oldest on ties), status `requested -> ticketed -> in_foundry -> merged |
+  failed | rejected` with each change's time and reason, the unbuildable flagged `blocked` with why.
+  `python scripts/foundry_requests.py list [--all]|add CAP [--pin]|ladder CAP RUNG chosen|offered|pin|unpin|reject CAP
+  --why|reopen|show|top`. foundry_queue.py syncs and pulls it (only with `--write`); foundry.py moves a ticket's request;
+  `GET /api/foundry/requests`; the panel's Run > Foundry view. Checks: `scripts/checks/foundry_requests_check.py`,
+  `foundry_cli.py` (both in check:offline).
 - **Names:** a pool of 50 human first names in `server/src/agentNames.ts`, whitelisted on every world (the user's
   decision: workers' usernames, issue #11; not used by the code yet).
 - **The todo list is GitHub issues** (`gh issue list`), labelled by phase.

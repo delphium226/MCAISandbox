@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { Vec3 } from 'vec3';
 import { readJson, sendJson } from '../api';
@@ -70,6 +71,9 @@ function perf(w: MineflayerWorld) {
     at: now,
   };
 }
+
+/** The repo (MCAI_ROOT when this runs from a code snapshot, as index.ts reads it). */
+const REPO = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /** G6's wanted list for a village (wanted.ts): the world's registry, recipe plan, skills and the library's activities. */
 function wantedOf(w: MineflayerWorld, v: Village) {
@@ -150,6 +154,15 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const vs = one ? [w.villages.get(one)].filter((v): v is Village => !!v) : [...w.villages.villages.values()].filter((v) => v.complete);
     if (one && !vs.length) return sendJson(res, 404, { error: 'no such village' });
     return sendJson(res, 200, vs.map((v) => ({ village: v.name, at: Date.now(), list: wantedOf(w, v), history: wantedHistory[v.name] ?? null })));
+  }
+  // G6: the foundry's request queue (scripts/foundry_requests.py keeps scripts/foundry/requests.json; read here as it
+  // is, ranked by its own `order`)
+  if (parts[1] === 'foundry' && parts[2] === 'requests' && req.method === 'GET') {
+    try {
+      return sendJson(res, 200, JSON.parse(fs.readFileSync(path.join(REPO, 'scripts', 'foundry', 'requests.json'), 'utf8')));
+    } catch (e) {
+      return sendJson(res, 200, { version: 1, requests: [], error: `no request queue: ${(e as Error).message.slice(0, 120)}` });
+    }
   }
   // G5's proposals (#90; proposals.ts, MC_PROPOSALS): the village's list (?village=), and a triage's verdict applied
   // through code's guard (impossible never accepted, the user's calls deferred, the foundry only for a ticketable
