@@ -62,7 +62,8 @@ console.log(`  top: ${list.slice(0, 4).map((w) => `${w.id} ${w.status} ${w.rank}
 ok(list[0].id === 'honeycomb' && list[0].ticketable && list[0].status === 'missing', `honeycomb first and ticketable (got ${list[0].id})`);
 ok(by('honeycomb').unlocks.length >= 15 && by('honeycomb').simplest.includes('beehive'), 'honeycomb opens the waxed copper and beehives');
 ok(by('quartz').status === 'dead' && by('leather').status === 'user' && by('flowers').status === 'knowledge', 'dead, user and knowledge statuses');
-ok(by('wool').status === 'skill' && !by('wool').ticketable, 'wool: a skill without an activity, no template yet');
+ok(by('wool').status === 'skill' && by('wool').ticketable && by('wool').activitySkill === 'shear_sheep_at', 'wool: a skill without an activity, ticketable as shear_sheep_at (#91)');
+ok(!by('amethyst').ticketable, 'amethyst: no template for mine');
 ok(list.findIndex((w) => w.status === 'dead') > list.findIndex((w) => w.status === 'knowledge'), 'the dead after the knowledge gaps');
 ok(topWanted(list)[0] === 'honeycomb', 'topWanted');
 const h = recordTop(recordTop(undefined, list, 1), list, 2);

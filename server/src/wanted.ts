@@ -105,7 +105,8 @@ export const CAPABILITIES: Capability[] = [
   { id: 'end', name: 'Gather End blocks', verb: 'mine', target: ['end_stone'], yields: ['end_stone', 'popped_chorus_fruit', 'shulker_shell'], dead: 'the End only', facts: '' },
 ];
 
-/** The verbs foundry_queue.py has a ticket template for (scripts/foundry/templates/). */
+/** The verbs foundry_queue.py has a ticket template for (a new skill); a capability with status `skill` takes the
+ *  skill-activity template whatever its verb (#91). */
 export const TEMPLATES = new Set<Verb>(['use_on_block']);
 
 /**
@@ -181,7 +182,9 @@ export interface Wanted {
   value: number; demand: number; rank: number; ticketable: boolean;
   /** The share of the rank from the village's demand (#89: the village asking, not the recipe graph). */
   demandShare: number;
-  unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
+  unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string;
+  /** Items members wish for that it opens (#89), most wished first; `activitySkill`: the foundry skill a ticket names. */
+  wished: string[]; activitySkill: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
 }
 
 /** What the world (or an offline script) passes in: its skills, the skills a library spec runs, the recipe graph. */
@@ -200,7 +203,7 @@ export function statusOf(c: Capability, ctx: Pick<WantedCtx, 'skills' | 'activit
   if (c.user) return { status: 'user', reason: c.user };
   if (c.knowledge) return { status: 'knowledge', reason: c.knowledge };
   // (a foundry skill run by a library spec, or the capability's named skill so run; locked until researched)
-  const run = [...ctx.activitySkills].find((s) => s === c.skill || s === capSkill(c));
+  const run = [...ctx.activitySkills].find((s) => s === c.skill || s === capSkill(c) || s === activitySkill(c));
   if (run) {
     const e = LOCKED_SKILLS.get(run);
     if (e && !(v && (v as Village & { innovation?: unknown }).innovation && techOf(v).unlocked.includes(e.id))) return { status: 'locked', reason: `the activity is built; research ${e.name} to unlock it` };
@@ -212,6 +215,9 @@ export function statusOf(c: Capability, ctx: Pick<WantedCtx, 'skills' | 'activit
 
 /** The skill name a ticket gives a capability (harvest_honeycomb). */
 export const capSkill = (c: Capability) => c.skill ?? `harvest_${c.id}`;
+/** The foundry skill whose activity runs it: a new skill's own name, or `<skill>_at` for an existing skill run at the
+ *  adapter's place (#91's skill-activity template: shear_sheep_at). */
+export const activitySkill = (c: Capability) => (c.skill ? `${c.skill}_at` : capSkill(c));
 
 const HOUR = 60 * 60000;
 
@@ -307,7 +313,7 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
         why.push(`innovation's ${e.name} needs ${short.join(', ')}`);
       }
       // (research members put into a locked entry that runs this capability: an activity entry's skill)
-      if (e.activity && e.skill === capSkill(c)) {
+      if (e.activity && (e.skill === capSkill(c) || e.skill === activitySkill(c))) {
         const pts = Object.values(tech.points[e.id] ?? {}).reduce((s, q) => s + q, 0) / 10;
         if (pts >= 10) {
           demand += Math.floor(pts / 10);
@@ -316,12 +322,9 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
       }
     }
     // (#89: members whose life goal wishes for an item it opens, each member once)
-    const wishers = new Set<string>(), wished: string[] = [];
-    for (const [item, ms] of Object.entries(wishes)) {
-      if (!theirs.has(item)) continue;
-      wished.push(item);
-      for (const m of ms) wishers.add(m);
-    }
+    const wishers = new Set<string>();
+    const wished = Object.entries(wishes).filter(([item]) => theirs.has(item)).sort((x, y) => y[1].length - x[1].length).map(([item]) => item);
+    for (const item of wished) for (const m of wishes[item]) wishers.add(m);
     if (wishers.size) {
       demand += WISH_DEMAND * wishers.size;
       why.push(`${wishers.size} member${wishers.size === 1 ? '' : 's'} wish${wishers.size === 1 ? 'es' : ''} for ${wished.join(', ')} (their life goals)`);
@@ -345,10 +348,10 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     if (u.items.length) why.unshift(`opens ${u.items.length} item${u.items.length === 1 ? '' : 's'} (${u.used.length} used: ${(u.used.length ? u.used : u.items).slice(0, 5).join(', ')}${(u.used.length || u.items.length) > 5 ? ', ...' : ''})`);
     const rank = Math.round((Math.log2(1 + u.value) + demand) * 100) / 100;
     const demandShare = rank > 0 ? Math.round((demand / (Math.log2(1 + u.value) + demand)) * 100) / 100 : 0;
-    const ticketable = (status === 'missing' || status === 'skill') && TEMPLATES.has(c.verb);
+    const ticketable = status === 'skill' || (status === 'missing' && TEMPLATES.has(c.verb));
     out.push({
       id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable, demandShare,
-      unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
+      unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, wished, activitySkill: activitySkill(c), ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
     });
   }
   // (what the village cannot or should not ticket last, so the top of the list is what a ticket could answer)

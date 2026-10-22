@@ -90,7 +90,106 @@ def land_counts(world, hut, blocks):
 BRIEF = """Add a foundry skill `{skill}` to the real-Minecraft world (Mineflayer), so a village member gets {yields_w} by using {tool_a} on {targets_w} {state_w}, and so the village's `activity` chore kind can run it from a library spec once members have researched it. This ticket was made by scripts/foundry_queue.py from village {village}'s wanted list (G6): {why}. THE GAME: {facts}. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, holds)); list it in foundry/list.ts (one import, and one entry inside the array before `].map(locked)`: keep `.map(locked)`, which locks a researched activity); edit no other table. THE SKILL `{skill}`, arguments: count ({yield0_w} wanted, default {count_default}, 1..{count_max}), x, y, z (optional: one {target0_w} to use it on, given by the activity adapter), radius (optional, default 48, at most 96: how far to look when x, y, z are not given). It needs {tool_a} in the inventory (fail with: 'no {tool_w}: withdraw one from storage'). Without x, y, z: find the nearest {targets_w} within radius in the state {state} with the project's nearestBlocks helper (mcUtil.ts; never bot.findBlocks: one event loop serves every bot, lessons 16 and 49), reading each block's state from bot.blockAt(pos).getProperties() (a block whose properties are missing is skipped), skipping blocks on any village's work ground (onVillageGround, lesson 30). For each target until count {yield0_w} are gathered: walk to a standable dry cell within 3 blocks horizontally of it, on the ground, from which the block is within reach (survival reach 4.5 blocks from the eyes; targets may hang 2-5 blocks above the ground on a tree trunk), with the project's walk helpers (mcUtil walk/reach, which keep the pathfinder off village work and protected ground; the walk must not dig or place: check walk's options); re-read the block's state on arrival (another member may have used it: skip it); equip the {tool_w}; look at the block's face toward the bot and use the item on it (bot.activateBlock(block) with the item held, as use_on does in mcSurvival.ts); wait up to 2 s for the state to change and pick up the dropped items (walk to item entities within 6 blocks); a target that gave nothing is not tried again in this call. Stop when count is reached, no target in the state is left in range, the {tool_w} breaks or runs out, or 3 minutes of wall time pass (divide by the game's tick-rate scale as other skills do with timeScale() from mcRules.ts). Count {yields_w} on the server before and after (CLAUDE.md: 'clear <name> <item> 0', the a.world.rcon.count helper as foundry/fish.ts and mcAnimals.ts use), not from Mineflayer's inventory view. Never break, place or change any block except the target's state change the use itself causes; never attack or lead a mob. Result message: 'got N {yield0_w} from K {target0_w}s at x,y,z (M more in the state within R blocks)' and why it stopped. Failure messages say what is short and what to do next (lesson 127): no {tool_w}; none of the {targets_w} within radius ('explore to find one'); all of them used ('{refill}; try later'). The skill must accept anything Mineflayer can pass it (a block unloaded or gone, an item entity gone, properties missing: lesson 104). THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member: cheap and never throwing; ctx.hut is the storage hut's centre, none: {{why: 'no storage hut'}}): keep per village a list of the {targets_w} found within {reach} blocks of the hut, refreshed at most every 10 minutes by one nearestBlocks search from ctx.agent's bot (count up to 24); return {{x, y, z}} of the nearest one whose state, read now with ctx.agent.bot.blockAt (a cheap read of a loaded chunk), is {state}, else {{why: 'no {target0_w} in the state {state} within {reach} blocks of the storage hut ({refill})'}}; cache that answer 1 minute. activity.holds: one key per target block (`{id}:x,y,z`), so two members never walk to the same one. THE LIBRARY SPEC server/library/{id}.json (read server/src/library.ts: LibrarySpec, validateLibrarySpec and its `research` block): exactly this JSON: {spec_json}. Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts). THE LIVE CHECK scripts/checks/{id}.py (Python 3, standard library only, in the style of scripts/checks/fish.py and shear.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2). The foundry starts the agent server with MC_INNOVATE=on before it runs the check. The check: find open, dry, level ground near the test site's centre (-1563, -36 on minevale3; read the ground with /api/block, away from any village plot: GET /api/village lists them); remove any agent Gus; build the target by RCON: a column of 3 oak_log from the ground up at a spot 3 blocks from Gus's cell, and `setblock` a {target0} with the state [{state},facing=<toward Gus>] against the column's side at its top (3 blocks above the ground; an empty nest: no bees); spawn Gus on the ground (brain idle, gamemode survival, reset true); give Gus {tool_give} by RCON; record the blocks of a box around them (radius 6, from 2 below the ground to 5 above, read with 'execute if block' or /api/block), leaving out the target cell; run `{skill} count {check_count} radius 16` through /api/agents/Gus/act, wait for action_done or action_failed (up to 4 minutes), then verify: at least {check_count} {yield0} on the server for Gus; the target is no longer in the state {state} (execute if block ... {target0}[{state}] fails); it is still a {target0}; no 'broke' or 'placed' event from Gus during the skill and no other cell of the box changed; then a second call `{skill} count 1 radius 16` (the target used) must fail or report that none is left in the state, within 2 minutes (not hang); then clear Gus's {tool_w} by RCON, setblock the target back to {state}, and a third call must fail with a message containing 'no {tool_w}'. Clean up (remove Gus, set the logs and the target to air) in a finally. Print one line per verification and end with exactly '{CHECK} OK' on success or '{CHECK} FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), mcBuild.ts, tech.ts and lock.ts (they lock it already), the pathfinder's sources."""
 
 
+# The skill-activity template (#91): a capability whose skill exists but no activity runs it (wool: shear_sheep), run
+# at a place the adapter finds, as a locked library activity like honeycomb's
+SKILL_BRIEF = """Add a foundry skill `{skill}` to the real-Minecraft world (Mineflayer): it runs the EXISTING skill `{base}` (exported in {base_set} from {base_file}; read its run function and arguments, change nothing in that file) at a place the activity adapter gives, so the village's `activity` chore kind can run {base} as a chore from a library spec once members have researched it. Members have asked for it: this ticket was made by scripts/foundry_queue.py from village {village}'s wanted list (G6, #91): {why}. THE GAME: {facts}. Foundry skills live one file each in server/src/mineflayer/foundry/ and export `FOUNDRY: FoundrySkill` (read foundry/types.ts: name, skill (an McSkill: check + run), tool (a ToolDef: name, a one-sentence description a model can act on, input_schema), activity (place, holds)); list it in foundry/list.ts (one import, and one entry inside the array before `].map(locked)`: keep `.map(locked)`, which locks a researched activity); edit no other table. Import the existing skill from its own file (`import {{ {base_set} }} from '../{base_mod}'`), never from mcSkills.ts (mcSkills.ts imports foundry/list.ts: a cycle). THE SKILL `{skill}`, arguments: x, y, z (where to go: given by the adapter), count ({yield0_w} wanted, default {count_default}, 1..{count_max}), radius (passed on to {base}, default 16, at most 32). It checks {tool_a} in the inventory first (fail with: 'no {tool_w}: withdraw one from storage'); walks to within 4 blocks of x, y, z with the project's walk helpers (mcUtil walk/reach, which keep the pathfinder off village work and protected ground; no digging or placing: check walk's options), giving up after 90 s of walking with a message that says where it got to; then calls {base_set}.{base}.run(a, {{ count, radius }}, signal) and returns its result message, prefixed with where it ran ('at x,y,z: ' + the message); a failure of {base} is passed on as it is (its messages already say what is short and what to do next). Count {yields_w} on the server before and after (the a.world.rcon.count helper, '#minecraft:wool' style tags where the base skill uses one), and put the number gained in the result. The skill must accept anything it is passed (missing or non-numeric x, y, z: fail 'no place given'; lesson 104). THE ACTIVITY ADAPTER (activity.place, called inside the menu for every idle member: cheap and never throwing; ctx.hut is the storage hut's centre, none: {{why: 'no storage hut'}}): {place_rule}; cache the answer per village for 1 minute. activity.holds: none (the spec's own key holds it to one member at a time). THE LIBRARY SPEC server/library/{id}.json (read server/src/library.ts: LibrarySpec, validateLibrarySpec and its `research` block): exactly this JSON: {spec_json}. Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts). THE LIVE CHECK scripts/checks/{id}.py (Python 3, standard library only, in the style of scripts/checks/shear.py and fish.py: urllib calls to the agent server API, mc/rcon.py through subprocess with the environment passed through so MC_SERVER_DIR picks the server; never default to the main world: if MCAI_API is not set, exit 2). The foundry starts the agent server with MC_INNOVATE=on before it runs the check. The check: {check_setup}; spawn Gus on the ground 8 blocks from that spot (brain idle, gamemode survival, reset true); give Gus {tool_give} by RCON; record the blocks of a box around Gus and the spot (every cell from 2 below the ground to 3 above, a radius covering both plus 4); run `{skill}` with x, y, z of the spot and `count {check_count}` through /api/agents/Gus/act; wait for action_done or action_failed (up to 4 minutes); then verify: at least {check_count} {yield0_w} more on the server for Gus ({count_cmd}); {check_alive}; no 'broke' or 'placed' event from Gus and no cell of the box changed; then clear Gus's {tool_w} by RCON, and a second call must fail with a message containing 'no {tool_w}'; and a call with no x must fail with 'no place given'. Clean up ({cleanup}, remove Gus) in a finally. Print one line per verification and end with exactly '{CHECK} OK' on success or '{CHECK} FAILED: <why>' and exit 1. Out of scope, no need to read: the HTTP server and panel (server/src/index.ts, api.ts, panel.ts, mineflayer/index.ts, mcApi.ts), mcWorld.ts (it already runs foundry activities from library specs), mcBuild.ts, tech.ts and lock.ts (they lock it already), the pathfinder's sources."""
+
+ENTITY_PLACE = "from the atlas's animal sightings (ctx.agent.world.atlas.animals, a Map of uuid -> {{kind, x, y, z, t}}, mcAtlas.ts AnimalSighting), among sightings of kind {target0} within {reach} blocks of the hut seen in the last 30 minutes, the one with the most such sightings within 16 blocks of it (ties: the nearest the hut); return {{x, y, z}} of it; none: {{why: 'no {target0} seen within {reach} blocks of the storage hut (explore to find some)'}}"
+ENTITY_SETUP = "find open, dry, level ground near the test site's centre (-1563, -36 on minevale3; read the ground with /api/block, away from any village plot: GET /api/village lists them); summon 4 adult {target0} there by RCON (/summon minecraft:{target0} x y z, with a tag of the check's own so it can count and remove them after); remove any agent Gus"
+
+
+def base_skill(base):
+    """The file and record exporting an existing skill (`  shear_sheep: {` inside `export const X_SKILLS`)."""
+    for f in sorted((ROOT / "server" / "src" / "mineflayer").glob("*.ts")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if re.search(rf"^\s+{re.escape(base)}: \{{", text, re.M):
+            m = re.search(r"export const (\w+_SKILLS)\b", text)
+            if m:
+                return f.relative_to(ROOT).as_posix(), m.group(1)
+    return None, None
+
+
+def goods_for(w, y0):
+    """The research's workshop goods: what members wished for that it opens first (#89), then the simplest it opens."""
+    order = [i for i in (w.get("wished") or []) if i in (w.get("unlocks") or [])] + [i for i in (w.get("simplest") or []) if i not in (w.get("wished") or [])]
+    out = []
+    for item in order[:4]:
+        out.append({"item": item, "target": 2, "batch": 1, "unit": 1, "words": plural(item),
+                    "forWhat": f"{plural(item)} from the village's {words(y0)} (an invention of the village)"[:120], "allow": [y0]})
+    return out
+
+
+def skill_ticket_for(w, village, why):
+    cid, base = w["id"], w["skill"]
+    skill = w.get("activitySkill") or f"{base}_at"
+    base_file, base_set = base_skill(base)
+    if not base_file:
+        return None, f"the skill {base} was not found in server/src/mineflayer/*.ts"
+    if w["verb"] != "use_on_entity":
+        return None, f"the skill-activity template places only entity targets so far, not {w['verb']}"
+    tool = w.get("tool") or "nothing"
+    y0, target0 = w["yields"][0], w["target"][0]
+    goods = goods_for(w, y0)
+    if not goods:
+        return None, "nothing the workshop could make of its yield"
+    also = [f"{c}_wool" for c in ("orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black")] if y0 == "white_wool" else []
+    spec = {
+        "id": f"lib:{cid}", "name": w["name"][:60], "skill": skill, "count": {"arg": "count", "max": 8},
+        **({"needs": {tool: 1}} if tool != "nothing" else {}),
+        "gives": [{"item": y} for y in w["yields"]], **({"also": also} if also else {}), "keep": 24,
+        "effect": f"{words(y0)} for the workshop's {', '.join(plural(g['item']) for g in goods)}: what members wish for"[:160],
+        "research": {
+            "name": f"{words(base)} for {words(y0)}"[:40], "requires": {tool: 1} if tool != "nothing" else {"torch": 2}, "attempt": {"wheat": 2},
+            "minutes": 3, "chance": 0.3, "complexity": 4, "capability": cid, "goods": goods,
+        },
+    }
+    count_cmd = "count with RCON 'clear Gus #minecraft:wool 0' before and after" if y0.endswith("_wool") else f"count with RCON 'clear Gus minecraft:{y0} 0' before and after"
+    fields = dict(
+        skill=skill, base=base, base_set=base_set, base_file=base_file, base_mod=pathlib.PurePosixPath(base_file).stem, id=cid, village=village, why=why,
+        facts=w.get("facts") or "", tool_a=("nothing" if tool == "nothing" else words(tool) if tool.endswith("s") else f"a {words(tool)}"), tool_w=words(tool),
+        tool_give=f"1 {tool}", yields_w=" and ".join(words(y) for y in w["yields"]), yield0_w=words(y0), count_default=3, count_max=12, reach=REACH,
+        place_rule=ENTITY_PLACE.format(target0=target0, reach=REACH), check_setup=ENTITY_SETUP.format(target0=target0),
+        check_alive=f"all 4 tagged {target0} still alive (execute if entity @e[tag=...] count)", cleanup=f"kill the tagged {target0}",
+        count_cmd=count_cmd, spec_json=json.dumps(spec, separators=(", ", ": ")), check_count=2, CHECK=cid.upper(),
+    )
+    t = {
+        "id": cid,
+        "title": f"{w['name']}: a {skill} activity running the existing {base}, locked until researched (from {village}'s wanted list, #91)",
+        "brief": SKILL_BRIEF.format(**fields),
+        "read": [
+            "CLAUDE.md",
+            "server/src/mineflayer/foundry/types.ts",
+            "server/src/mineflayer/foundry/list.ts",
+            "server/src/mineflayer/foundry/fish.ts (a foundry skill in the house style: guards, walks, server counts, the adapter)",
+            f"{base_file}: only {base} (its run function and the helpers it calls) and the imports at the top",
+            "server/src/library.ts",
+            "server/src/mineflayer/mcSkills.ts: only the McSkill interface",
+            "server/src/mineflayer/mcAtlas.ts: only AnimalSighting and the animals map",
+            "server/src/mineflayer/mcUtil.ts: only walk, reach, sleep, checkAbort, at, num, syncInventory",
+            "scripts/checks/shear.py (the style of a live check)",
+            "mc/rcon.py",
+            "docs/API.md: only the agent endpoints (/agents, /agents/:name/act, /agents/:name/events, /block) and GET /api/village",
+        ],
+        "lessons": [4, 13, 16, 29, 30, 31, 35, 44, 49, 79, 80, 102, 104, 105, 127, 145, 151],
+        "deliver": [f"server/src/mineflayer/foundry/{cid}.ts", "server/src/mineflayer/foundry/list.ts", f"server/library/{cid}.json", f"scripts/checks/{cid}.py"],
+        "may_touch": [],
+        "check": {"file": f"scripts/checks/{cid}.py", "args": [], "timeout_min": 12, "pass": f"^{cid.upper()} OK",
+                  "env": {"MC_INNOVATE": "on"}, "log_pass": rf"\[activity\] library: .*lib:{cid}\b"},
+        "series": "scripts/foundry/series_base.json",
+        "caps": {"minutes": 45, "turns": 500, "rounds": 3},
+        "model": {"agy": "gemini-4-argon-high", "claude": "claude-opus-5-5"},
+        "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "demandShare": w.get("demandShare"), "why": w["why"]},
+    }
+    return t, None
+
+
 def ticket_for(w, village, why):
+    if w["status"] == "skill":
+        return skill_ticket_for(w, village, why)
+    return block_ticket_for(w, village, why)
+
+
+def block_ticket_for(w, village, why):
     cid = w["id"]
     skill = w["skill"]
     tool = w.get("tool") or "nothing"
