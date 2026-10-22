@@ -1661,3 +1661,17 @@ CLAUDE.md when a phase ends.
   require `action_done`). Members' take-up is not run yet (worlds 1-2 held by Experiment 1). Logs:
   runs/2026-10-22/foundry/amethyst/, runs/2026-10-22/g6-demand/foundry_amethyst3.log (the earlier runs:
   g6-demand/amethyst_flash_run1-2/).
+- F284 (10-22, g2-social session, #32) **Experiment 1, stopped early by the user's decision: with identical members over
+  90 minutes, social perception did not raise specialisation; the off arm specialised as much or more; inconclusive.**
+  Arms (a) MCAI_SOCIAL=on MC_ACTS=on against (b2) off; memory, clock, memory quality and the controller's rules on in
+  both, temperaments, goals and skill off; 25 members, mv3_grown25, 90 min at 1x, code frozen at 29431f2; ABBA, then
+  simultaneous pairs on worlds 1 and 2 with arms alternating (a recorded deviation). Valid runs: (a) 0.028, 0.015, 0.013,
+  0.047 (mean 0.026); (b2) 0.037, 0.093, 0.068 (mean 0.066); primary one-sided exact p (a > b2) 0.97, the opposite
+  direction (not pre-registered) 0.057. Void: E1b2 and E1a2 (a network drop at 06:24-06:34: error fallbacks 12% and 19%),
+  E1b4 (the off-arm audit found a skill's failure message naming a member: fixed in c91b609); with E1b4 counted, 0.026
+  against 0.054. Not pre-registered: the index over all picks 0.032 against 0.039, minutes-weighted 0.123 against 0.136,
+  persistence over all picks ~0.5 everywhere. Power: 8-10 model decisions a member a run, pooled SD 0.022: a difference of
+  0.02 needs ~15 runs per arm, 0.04 ~4. The data cannot tell a real absence from a lack of power; awareness among
+  identical members may load-balance rather than differentiate (the planning session's reading), so the next test is
+  character v2's heterogeneous members over 4-6 hour runs. ~$3.4. Logs: runs/2026-10-21/g2-social/ (report.md, e1/,
+  e1_prereg.md, e1_primary.txt, e1_secondary.txt).
