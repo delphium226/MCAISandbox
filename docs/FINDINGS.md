@@ -1644,3 +1644,20 @@ CLAUDE.md when a phase ends.
   also summed agy's cumulative usage (the report's 28-42M input is several times the real figure; fixed). Template and
   ticket corrected to three-high stairs (not rerun). Logs: runs/2026-10-22/foundry/amethyst/ (cli-round1-10, report.md,
   live_check.txt), runs/2026-10-22/g6-demand/foundry_amethyst*.log.
+- F283 (10-22, g6-loop session, #91 #93) **With the brief right (three-high stairs) and a 90-minute cap, Gemini 3.8 Flash
+  high wrote the amethyst skill and passed every gate in 5 rounds: the village's second wished capability, merged.**
+  Fresh run (a6c739b, world 3): round 1 (69 steps, 13.5 min) wrote the four files; the review gate failed it (7
+  findings, 2 high: the descent stopped outside the geode's shell, and a dig the server refused was ignored); round 2
+  fixed them (review pass, 2 findings); the live check failed (no path to the surface spot); round 3 (one refused command)
+  and 4; live failed again (the climb-out ended 4 blocks short); round 5 passed live (4 shards, the budding amethyst kept,
+  0 cells changed outside the corridor and the geode, back at the ground's height) and the series; merged c61fcc8. In
+  all: 5 rounds, 204 tool steps, ~54 min of CLI (113 min with the gates), 1.2M input + 23.5M cache reads, 377k output
+  (302k thinking; the corrected count: the conversation's total, not a sum of cumulative reports). Reviews: 7 (2 high),
+  2, 4, 3 findings. Against Argon (four earlier, smaller tickets: 1 round, 47-151 steps, 30-52 min, every gate first
+  time, 0 review findings): Flash needs repair rounds on a hard ticket but makes real use of them (it fixed both high
+  review findings and both live failures), and its review is the stricter one (it failed round 1 where Argon's reviews
+  never found anything). The passing check hid one fault: the first call ended `action_failed` ("no amethyst cluster
+  found") though it gained 4 shards on the server; the skill counts before the drops reach it (#93: the check should
+  require `action_done`). Members' take-up is not run yet (worlds 1-2 held by Experiment 1). Logs:
+  runs/2026-10-22/foundry/amethyst/, runs/2026-10-22/g6-demand/foundry_amethyst3.log (the earlier runs:
+  g6-demand/amethyst_flash_run1-2/).
