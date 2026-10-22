@@ -167,6 +167,19 @@ st().since.Ben = 5;
 d = acts.handle(V, 'Ben', { act: 'offer', act_to: 'Clara' }, { option: '', kind: '', name: '', decisionId: 'dy' }, world(), T + MIN, false);
 ok(d.includes('ignored offer: the pick did not run'), `its offer ignored (${d})`);
 
+// gpt-oss's own words: "help" as an offer, "birch_log" as logs; a promise moot once its item is off every menu
+st().since.Dev = 5;
+d = acts.handle(V, 'Dev', { act: 'help', act_to: 'Ada' }, chosen('help:i1', 'dh', 'Help Ada build a gazebo'), world(), T + 2 * MIN);
+ok(d.includes('offer'), `"help" read as an offer (${d})`);
+st().since.Dev = 5;
+d = acts.handle(V, 'Dev', { act: 'request', act_to: 'Ben', act_item: 'birch_log' }, chosen('make:torch', 'di'), world(), T + 3 * MIN);
+ok(d.includes('request') && acts.openRequests(V, 'gather:logs') >= 1, `"birch_log" read as logs, an open request counted (${d})`);
+st().since.Clara = 5;
+acts.handle(V, 'Clara', { act: 'offer', act_to: 'Dev' }, chosen('make:torch', 'cm'), world(), T + 4 * MIN);
+const cm = st().commitments.find((c) => c.from === 'Clara' && c.to === 'Dev')!;
+acts.sweep(V, { ...world(), offered: new Set(['gather:logs']) }, T + 5 * MIN);
+ok(cm.state === 'moot', 'moot when its item is off every menu');
+
 // Parsing
 const f1 = acts.actFields({ choice: 'x', act: '{"type":"request","to":"Ben","item":"logs"}' });
 ok(f1.act === 'request' && f1.act_to === 'Ben' && f1.act_item === 'logs', `a stringified act (${JSON.stringify(f1)})`);
@@ -174,8 +187,8 @@ const f2 = acts.actFields({ choice: 'x', act: { type: 'report', about: 'Ben', cl
 ok(f2.act === 'report' && f2.act_to === 'Ben' && f2.act_claim === 'kept' && f2.say === 'hi', 'a nested act');
 
 // The note check: a promise no record holds
-const why = mem.checkNote(V, 'Dev', 'Clara promised me 10 torches tomorrow');
-ok(why === 'no promise between you and Clara is on record', `a note claiming an unrecorded promise refused (${why})`);
+const why = mem.checkNote(V, 'Dev', 'Ben promised me 10 torches tomorrow');
+ok(why === 'no promise between you and Ben is on record', `a note claiming an unrecorded promise refused (${why})`);
 ok(mem.checkNote(V, 'Ada', 'Ben promised me logs') === null, 'a recorded one passes');
 
 // MC_ACTS=on under MCAI_SOCIAL=off refused at start

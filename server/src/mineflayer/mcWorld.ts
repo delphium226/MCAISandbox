@@ -58,7 +58,7 @@ import { vanillaJar } from '../vanillaData';
 import { MEMORY, agentMemory, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, socialOff, type Presence } from '../social';
-import { ACTS, actsHelp, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
+import { ACTS, actsHelp, openRequests, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
@@ -863,6 +863,14 @@ export class MineflayerWorld implements WorldAdapter {
     out.cobblestone.need += keepCobble;
     if (keepLogs) out.logs.for.push('the keep');
     if (keepCobble) out.cobblestone.for.push('the keep');
+    // (G2, MC_ACTS: a trip for each open request of a member's for the material)
+    if (ACTS.on) for (const m of MATERIALS) {
+      const n = openRequests(v.name, `gather:${m}`);
+      if (n) {
+        out[m].need += n * GATHER_KINDS[m].trip;
+        out[m].for.push('a request');
+      }
+    }
     for (const g of going.gather) out[g.material].incoming += g.n;
     for (const m of MATERIALS) out[m].want = Math.max(0, out[m].need - out[m].incoming);
     return out;
@@ -1009,7 +1017,9 @@ export class MineflayerWorld implements WorldAdapter {
   makeTarget(v: Village, g: MakeGood): number {
     // (s42: and the merchant's open orders for it, on top)
     const ordered = ORDERS_ON ? (v.merchant?.orders ?? []).filter((o) => o.state === 'open' && o.item === g.item).reduce((s, o) => s + o.n, 0) : 0;
-    return ordered + this.baseTarget(v, g);
+    // (G2, MC_ACTS: a batch for each open request of a member's for it)
+    const requested = ACTS.on ? openRequests(v.name, `make:${g.item}`) * g.batch : 0;
+    return ordered + requested + this.baseTarget(v, g);
   }
 
   private baseTarget(v: Village, g: MakeGood): number {
@@ -4250,31 +4260,46 @@ export class MineflayerWorld implements WorldAdapter {
   /** G2: what the acts need from the world now: items on offer (seen on a menu in the last 10 minutes), open projects,
    *  members' places, the stock check. */
   private actsWorld(v: Village, now: number): ActsWorld {
-    const items = new Map<string, string>();
+    const offered = new Set<string>();
     for (const [k, t] of this.offered) {
       if (!k.startsWith(`${v.name}|`)) continue;
       if (now - t > 10 * 60000) {
         this.offered.delete(k);
         continue;
       }
-      const id = k.slice(v.name.length + 1);
-      items.set(id, words(id.split(':')[1] ?? id));
+      offered.add(k.slice(v.name.length + 1));
     }
+    // (what a request may name: every good the workshop can make here, every gather material; G2a's members asked for
+    // stone hoes and logs the menus no longer offered, and a request raises the demand that brings the option back)
+    const items = new Map<string, string>();
+    if (CHOOSE.families.has('make')) for (const g of this.goodsFor(v)) items.set(`make:${g.item}`, g.words);
+    if (CHOOSE.families.has('gather')) for (const m of MATERIALS) items.set(`gather:${m}`, m);
     const projects = new Map<string, { words: string; owner: string }>();
     for (const it of (v.initiatives ?? []).filter((i) => i.state === 'open')) projects.set(`help:${it.id}`, { words: SMALL_WORKS.find((k) => k.kind === it.kind)?.words ?? it.kind, owner: it.by });
     const at = new Map<string, { x: number; z: number }>();
     for (const p of this.presences(v)) at.set(p.name, { x: p.x, z: p.z });
-    return { items, projects, at, verify: (c) => this.verifyClaim(v.name, c) };
+    return { items, offered, projects, at, verify: (c) => this.verifyClaim(v.name, c) };
   }
 
   /**
-   * G2 (E.5's claims, `WorldAdapter.verifyClaim`): whether a claim about the world holds, else why not. `stock`: an item a
-   * request asks for is still wanted (a gather or make option offering it was on some member's menu in the last 2
-   * minutes; the menus leave it out once the storage holds its target), the local recovery of E.5.
+   * G2 (E.5's claims, `WorldAdapter.verifyClaim`): whether a claim about the world holds, else why not. `stock`: the
+   * storage does not already hold plenty of the item a request asks for (twice a batch of a good, or a trip of a material:
+   * then the request is answered from storage, E.5's local recovery).
    */
   verifyClaim(village: string, claim: { type: 'stock'; option: string }): true | string {
-    const t = this.offered.get(`${village}|${claim.option}`);
-    if (claim.type === 'stock' && (t === undefined || Date.now() - t > 2 * 60000)) return `nobody is offered ${words(claim.option.split(':')[1] ?? claim.option)} now: the storage holds what the village keeps`;
+    const v = this.villages.get(village);
+    if (!v || claim.type !== 'stock') return true;
+    const [kind, item] = claim.option.split(':');
+    const store = storageContents(v);
+    if (kind === 'make') {
+      const g = this.goodsFor(v).find((x) => x.item === item);
+      const n = store[item] ?? 0;
+      if (g && n >= 2 * g.batch) return `the storage holds ${n} ${g.words} already: the village has plenty`;
+    } else if (kind === 'gather') {
+      const m = item as Material;
+      const n = m === 'logs' ? Object.entries(store).filter(([k]) => /_log$/.test(k)).reduce((s, [, q]) => s + q, 0) : store[m] ?? 0;
+      if (GATHER_KINDS[m] && n >= 2 * GATHER_KINDS[m].trip && this.gatherWanted(v, store)[m].want <= 0) return `the storage holds ${n} ${m} already: the village has plenty`;
+    }
     return true;
   }
 

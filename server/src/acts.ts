@@ -125,8 +125,10 @@ const PRIO: Record<InboxItem['kind'], number> = { report: 2, declined: 2, offer:
 
 /** The village's items and projects on offer now, members' places, and the claims the world can check. */
 export interface ActsWorld {
-  /** Item options seen on any member's menu in the last 10 minutes: option id -> words ("logs", "torches"). */
+  /** Items a request may name: every good the village can make and every gather material, option id -> words. */
   items: Map<string, string>;
+  /** Item options seen on any member's menu in the last 10 minutes (a promise of one off them all is moot); default items. */
+  offered?: Set<string>;
   /** Open projects: option id (help:<id>) -> words and owner. */
   projects: Map<string, { words: string; owner: string }>;
   /** Members present and where they stand. */
@@ -189,13 +191,15 @@ export function actsHelp(village: string, agent: string, now: number, w: ActsWor
   const st = state(village);
   const d = dayOf(village, now);
   const left = (t: string) => Math.max(0, ACTS.budget[t] - (st.used[`${agent}|${d}|${t}`] ?? 0));
-  const items = [...new Set(w.items.values())].slice(0, 12);
+  // (the items on menus lately first; a request may name any other good or material too)
+  const lately = [...w.items.entries()].filter(([o]) => !w.offered || w.offered.has(o)).map(([, x]) => x);
+  const items = [...new Set([...lately, ...w.items.values()])].slice(0, 14);
   const nearBy = near(w, agent, 32).slice(0, 6);
   return [
     'You may add one act to this choice when another member could help you or you could help one: request (ask a member, or anyone, for an item put into storage or for help on a project), '
     + 'offer (promise a member the item or project of the option you choose), accept or decline (a request to you, by its id; choosing the option a request asks for accepts it), '
     + 'release (one promise of yours, by its id), report (tell those near you that a member kept or broke a promise you know of: act_to the member, act_claim kept or broke).',
-    `Items: ${items.join(', ') || 'none now'}.${w.projects.size ? ` Projects: ${[...w.projects.entries()].slice(0, 4).map(([o, p]) => `${p.words} (${p.owner}, ${o})`).join('; ')}.` : ''}`,
+    `Items (any good the village can make or a raw material; a request makes it wanted): ${items.join(', ') || 'none now'}${w.items.size > items.length ? ', ...' : ''}.${w.projects.size ? ` Projects: ${[...w.projects.entries()].slice(0, 4).map(([o, p]) => `${p.words} (${p.owner}, ${o})`).join('; ')}.` : ''}`,
     `Members near you: ${nearBy.join(', ') || 'nobody'}. Left today: ${left('request')} requests, ${left('offer')} offers, ${left('report')} reports.`,
     'You may also say one short line aloud to those near you (`say`), about your choice or your act.',
   ].join(' ');
@@ -255,6 +259,8 @@ const fold = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 /** An item option by the model's word ("logs", "torch", "gather:logs"), or undefined. */
 function itemOf(w: ActsWorld, raw: string | undefined): What | undefined {
   if (!raw) return undefined;
+  // (gpt-oss names blocks: "birch_log", "oak logs", "wood")
+  if (/(^|_|\s)(logs?|wood)$/i.test(raw.trim()) && w.items.has('gather:logs')) raw = 'gather:logs';
   const f = fold(raw);
   for (const [option, words] of w.items) if (fold(option) === f || fold(words) === f || fold(option.split(':')[1] ?? '') === f || fold(words).replace(/s$/, '') === f.replace(/s$/, ''))
     return { kind: 'item', option, words: `${option.startsWith('make:') ? 'make' : 'gather'} ${words}` };
@@ -280,6 +286,19 @@ function memberNamed(village: string, raw: string | undefined, self: string): st
   const f = fold(raw);
   if (f === 'anyone' || f === 'everyone' || f === 'all') return 'anyone';
   return membersOf(village).map((m) => m.name).find((n) => fold(n) === f && n !== self);
+}
+
+/** Act words gpt-oss writes outside the enum (G2a: "help" twice), as the act they mean. */
+const ALIASES: Record<string, ActType> = { help: 'offer', promise: 'offer', give: 'offer', ask: 'request', need: 'request', tell: 'report', gossip: 'report', refuse: 'decline', withdraw: 'release' };
+
+/** The demand members' acts make for an option: its open requests and its open promises (an item a member asked for is
+ *  wanted until the request closes, then until the promise that took it up closes: S2's makes failed "at stock" once
+ *  accepting closed the request). */
+export function openRequests(village: string, option: string): number {
+  if (!ACTS.on) return 0;
+  const st = state(village);
+  return st.requests.filter((r) => r.state === 'open' && r.what.option === option).length
+    + st.commitments.filter((c) => c.state === 'open' && c.what.option === option).length;
 }
 
 const sig = (agent: string, type: string, to: string, what: string) => `${agent}|${type}|${to}|${what}`;
@@ -323,7 +342,7 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
   }
 
   let act = fields.act?.toLowerCase().trim();
-  if (act && !(ACT_TYPES as readonly string[]).includes(act)) act = (ACT_TYPES as readonly string[]).find((t) => act!.startsWith(t)) ?? act;
+  if (act && !(ACT_TYPES as readonly string[]).includes(act)) act = (ACT_TYPES as readonly string[]).find((t) => act!.startsWith(t)) ?? ALIASES[act] ?? act;
   const refuse = (why: string, tell = true, fabricated = false) => {
     logAct({ type: 'act', village, agent, act, ...fields, verdict: 'refused', why, decisionId: chosen.decisionId });
     if (tell) push(st, agent, { t: now, kind: 'refused', text: `Your ${act} was not made: ${why}` });
@@ -514,7 +533,7 @@ export function sweep(village: string, w: ActsWorld, now: number): void {
   let changed = false;
   for (const c of st.commitments) {
     if (c.state !== 'open') continue;
-    const gone = c.what.kind === 'project' ? !w.projects.has(c.what.option ?? '') : !w.items.has(c.what.option ?? '');
+    const gone = c.what.kind === 'project' ? !w.projects.has(c.what.option ?? '') : !(w.offered ?? new Set(w.items.keys())).has(c.what.option ?? '');
     if (gone) {
       close(st, village, c, 'moot', now, c.what.kind === 'project' ? 'the project closed' : 'nobody can do it now');
       changed = true;
