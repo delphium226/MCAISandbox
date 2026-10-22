@@ -36,9 +36,10 @@ if (process.argv[2] === '--off') {
 }
 
 process.env.MC_INNOVATE = 'on';
+process.env.MC_LADDER = 'on';
 const { loadLibrary, validateLibrarySpec } = await import('../../server/src/library');
-const { LIBRARY, LOCKED_SKILLS, WANTED_TOP, candidates, complexity, techOf } = await import('../../server/src/tech');
-const { wantedList, topWanted, recordTop } = await import('../../server/src/wanted');
+const { LIBRARY, LOCKED_SKILLS, RUNG_SKILLS, WANTED_TOP, candidates, complexity, techOf } = await import('../../server/src/tech');
+const { wantedList, topWanted, recordTop, rungNeeds, RUNG_NEEDS, RUNGS } = await import('../../server/src/wanted');
 const { locked } = await import('../../server/src/mineflayer/foundry/lock');
 
 const m = new Materials(reg);
@@ -114,6 +115,24 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
   ok(l.find((x) => x.id === 'mud')!.demand === by('mud').demand + 1, 'mud: one open proposal');
 }
 
+// G8's ladder (MC_LADDER): a rung's needs only while it is chosen (+3) or offered (+1); hand needs shown, never ticketable
+{
+  ok(!list.some((w) => ['cast_obsidian', 'barter_piglin', 'deep_mine', 'enchant'].includes(w.id)), 'no ladder state: no rung needs on the list');
+  const v = structuredClone(v0) as Village & { ladder?: unknown };
+  (v as unknown as { ladder: unknown }).ladder = { current: 'enchantment', offered: ['nether'] };
+  const l = wantedList(v, ctx);
+  const ob = l.find((w) => w.id === 'cast_obsidian'), en = l.find((w) => w.id === 'enchant'), pg = l.find((w) => w.id === 'barter_piglin'), nt = l.find((w) => w.id === 'nether_travel');
+  ok(!!ob && ob.status === 'missing' && ob.ticketable && ob.demand >= 3 && ob.ladder?.rung === 'enchantment' && ob.ladder.chosen && ob.why.some((y) => /chosen rung/.test(y)), `the chosen rung's ticket need, +3 (${JSON.stringify(ob && { s: ob.status, d: ob.demand, why: ob.why })})`);
+  ok(!!en && en.status === 'hand' && !en.ticketable && /hand build/.test(en.reason ?? ''), 'its hand need shown with why, never ticketable');
+  ok(!!pg && pg.demand >= 1 && pg.demand < 3 && pg.ladder?.chosen === false && !pg.ticketable, "an offered rung's need, +1 (no template for use_on_entity yet)");
+  ok(!!nt && nt.status === 'hand', "the offered rung's hand need too");
+  ok(!l.some((w) => w.id === 'deep_mine'), 'a rung neither chosen nor offered: none of its needs');
+  ok(RUNGS.length === 8 && RUNG_NEEDS.iron.length === 0 && RUNG_NEEDS.trade.length === 0, 'eight rungs; iron and trade need nothing');
+  const rn = rungNeeds('enchantment', ctx);
+  ok(rn.length === 2 && rn.find((n) => n.capability === 'cast_obsidian')?.status === 'missing' && rn.find((n) => n.capability === 'enchant')?.status === 'hand', `rungNeeds with live status (${JSON.stringify(rn.map((n) => [n.capability, n.status]))})`);
+  ok(RUNGS.every((r) => RUNG_NEEDS[r].every((n) => !!n.note)), 'every need has a note');
+}
+
 // The research spec: valid; broken research blocks named
 ok(validateLibrarySpec(spec as never, { registry: reg, skills: new Set(['fish']) }).length === 0, 'a research spec is valid');
 const bad = validateLibrarySpec({ ...spec, research: { ...spec.research, goods: [], complexity: 99, requires: { nothing_here: 1 } } } as never, { registry: reg, skills: new Set(['fish']) });
@@ -161,6 +180,25 @@ ok(LIBRARY.filter((x) => x.id === 'honeycomb').length === 1, 'registering twice 
   techOf(v2).unlocked.push('honeycomb');
   ok(wantedList(v2, ctx2).find((x) => x.id === 'honeycomb')!.status === 'have', 'have once unlocked');
   LOCKED_SKILLS.delete('harvest_honeycomb');
+}
+
+// G8's rung lock: a spec's `rung` validated, registered with MC_LADDER on, its activity open only while the rung is
+// current or reached
+{
+  const rdir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-rung-'));
+  const rspec = { id: 'lib:cast_obsidian', name: 'Cast obsidian from lava', skill: 'trade', gives: [{ item: 'obsidian' }], keep: 16, effect: 'obsidian for the enchantment age', rung: 'enchantment' };
+  ok(validateLibrarySpec(rspec as never, { registry: reg, skills: new Set(['trade']) }).length === 0, 'a rung spec is valid');
+  ok(validateLibrarySpec({ ...rspec, rung: 'moon' } as never, { registry: reg, skills: new Set(['trade']) }).some((e) => /rung "moon"/.test(e)), 'an unknown rung named');
+  ok(validateLibrarySpec({ ...rspec, research: spec.research } as never, { registry: reg, skills: new Set(['trade']) }).some((e) => /not both/.test(e)), 'research and a rung together refused');
+  fs.writeFileSync(path.join(rdir, 'cast_obsidian.json'), JSON.stringify(rspec));
+  const rl = loadLibrary(reg, new Set(['trade']), rdir);
+  ok(rl.specs.length === 1 && RUNG_SKILLS.get('trade') === 'enchantment', 'registered while MC_LADDER is on');
+  const g = locked({ name: 'trade', skill: {} as never, tool: {} as never, activity: { place: () => ({ x: 7 }) } });
+  const at = (ladder: unknown) => g.activity!.place({ village: { name: 'L', plots: [], ladder } as unknown as Village, agent: {} as never, hut: null }) as { x?: number; why?: string };
+  ok(/not reached the enchantment age/.test(String(at(undefined).why)) && /not reached/.test(String(at({ current: 'iron', reached: [] }).why)), 'locked before the rung');
+  ok(at({ current: 'enchantment' }).x === 7 && at({ current: 'nether', reached: [{ rung: 'enchantment', t: 1, workers: [] }] }).x === 7, 'open while the rung is current or reached');
+  RUNG_SKILLS.delete('trade');
+  fs.rmSync(rdir, { recursive: true, force: true });
 }
 
 // MC_INNOVATE off: the spec stays out (a child process, the flag read at load)

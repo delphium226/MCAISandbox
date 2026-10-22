@@ -98,6 +98,8 @@ export function registerResearch(s: { id: string; skill: string; gives: Array<{ 
 
 /** The locked foundry activities: the entry each skill's activity waits on, by skill name (foundry/lock.ts gates them). */
 export const LOCKED_SKILLS = new Map<string, LibraryEntry>();
+/** G8: the foundry skills a ladder rung locks (a library spec's `rung`; registered by loadLibrary while MC_LADDER is on). */
+export const RUNG_SKILLS = new Map<string, string>();
 
 /**
  * The wanted list's top capabilities by village (wanted.ts, written by the API's writer with MC_WANTED on): a locked entry

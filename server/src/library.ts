@@ -11,7 +11,11 @@ import { fileURLToPath } from 'node:url';
 import type minecraftData from 'minecraft-data';
 import { UNOBTAINABLE } from './mineflayer/mcMaterials';
 import { obtainableHere } from './merchant';
-import { INNOVATE, registerResearch, type Research } from './tech';
+import { INNOVATE, RUNG_SKILLS, registerResearch, type Research } from './tech';
+
+/** G8's rungs (wanted.ts RungId, kept here so the library imports no wanted list), and MC_LADDER. */
+const RUNG_IDS = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade'];
+const LADDER = /^(on|1|true)$/i.test(process.env.MC_LADDER ?? 'off');
 
 type Registry = ReturnType<typeof minecraftData>;
 
@@ -47,6 +51,8 @@ export interface LibrarySpec {
    * least one: the menu's "research toward ..." and the unlock line name them); `capability`: the wanted list's id.
    */
   research?: Research;
+  /** G8: locked to a ladder rung instead (lock.ts opens it while the village works or has reached the rung). */
+  rung?: string;
 }
 
 /** The keep of a spec whose gives no consumer uses (F258, lesson 149: no surplus nobody uses). */
@@ -98,6 +104,8 @@ function check(s: LibrarySpec, ctx: { registry: Registry; skills: Set<string>; i
   }
   for (const n of s.also ?? []) item(n, 'also');
   if (s.keep !== undefined && (!Number.isInteger(s.keep) || s.keep < 1 || s.keep > 256)) errs.push('keep must be a whole number in 1..256');
+  if (s.rung !== undefined && !RUNG_IDS.includes(s.rung)) errs.push(`rung "${s.rung}" is not one of ${RUNG_IDS.join(', ')}`);
+  if (s.rung !== undefined && s.research !== undefined) errs.push('a spec is locked by research or by a rung, not both');
   if (s.research !== undefined) {
     const r = s.research;
     if (!r || typeof r !== 'object') errs.push('research is not an object');
@@ -159,6 +167,13 @@ export function loadLibrary(registry: Registry, skills: Set<string>, dir = LIBRA
         continue;
       }
       ids.add(s.id);
+      if (s.rung) {
+        if (!LADDER) {
+          locked.push(s.id);
+          continue;
+        }
+        RUNG_SKILLS.set(s.skill, s.rung);
+      }
       if (s.research) {
         if (!INNOVATE) {
           locked.push(s.id);

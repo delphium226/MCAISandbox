@@ -30,7 +30,7 @@ export const WANTED_ON = /^(on|1|true)$/i.test(process.env.MC_WANTED ?? 'off');
  * peaceful overworld cannot give it; user: killing passive animals (the user's call, foundry-skill-tree.md 3); knowledge:
  * collectable today but missing from the planner's gatherable list (a table fix, not a ticket; s41's probe).
  */
-export type CapStatus = 'have' | 'locked' | 'skill' | 'missing' | 'dead' | 'user' | 'knowledge';
+export type CapStatus = 'have' | 'locked' | 'skill' | 'missing' | 'dead' | 'user' | 'knowledge' | 'hand';
 /** How it is done: an item used on a block in a state, on an entity, a block collected, mined underground, a kill. */
 export type Verb = 'use_on_block' | 'use_on_entity' | 'collect' | 'mine' | 'kill' | 'wait';
 
@@ -54,7 +54,10 @@ export interface Capability {
   find?: string[];
   /** Blocks the action must never break (budding amethyst: it gives nothing and is the geode's regrowth). */
   avoid?: string[];
-  /** Fixed statuses, with their reason. */
+  /** Fixed statuses, with their reason (`hand`: built by hand in code, never a foundry ticket: a ladder rung's need). */
+  hand?: string;
+  /** A ladder rung's need (G8): on the list only while that rung is chosen or offered (MC_LADDER). */
+  rung?: RungId;
   dead?: string;
   user?: string;
   knowledge?: string;
@@ -109,7 +112,55 @@ export const CAPABILITIES: Capability[] = [
   { id: 'nether', name: 'Gather Nether blocks', verb: 'mine', target: ['blackstone'], yields: ['blackstone', 'nether_brick', 'soul_soil', 'basalt', 'nether_wart', 'warped_fungus', 'netherite_scrap'], dead: 'Nether only', facts: '' },
   { id: 'prismarine', name: 'Get prismarine shards', verb: 'kill', target: ['guardian'], yields: ['prismarine_shard'], dead: 'dropped by guardians (none in peaceful)', facts: '' },
   { id: 'end', name: 'Gather End blocks', verb: 'mine', target: ['end_stone'], yields: ['end_stone', 'popped_chorus_fruit', 'shulker_shell'], dead: 'the End only', facts: '' },
+  // (G8's ladder, runs/2026-10-22/ladder/spec.md 3: a rung's needs, on the list only while the rung is chosen or offered)
+  {
+    id: 'cast_obsidian', name: 'Cast obsidian from lava', verb: 'use_on_block', target: ['lava'], state: 'level=0', tool: 'water_bucket', yields: ['obsidian'], rung: 'enchantment', find: ['lava'],
+    facts: 'water poured on a still lava source turns it to obsidian (a water bucket used on the lava, the water picked back up with the empty bucket); obsidian takes a diamond pickaxe to mine; lava lies in the deep mine below y 10; the world does no fire damage, but lava burns items',
+  },
+  {
+    id: 'barter_piglin', name: 'Barter gold with piglins', verb: 'use_on_entity', target: ['piglin'], tool: 'gold_ingot', yields: ['ender_pearl', 'string', 'obsidian', 'crying_obsidian', 'leather', 'gravel'], rung: 'nether',
+    facts: 'a gold ingot thrown to (or used on) an adult piglin is bartered after a few seconds for a random drop (ender pearls, string, obsidian, quartz...); piglins live in the Nether and are calm toward a player wearing gold armour',
+  },
+  { id: 'deep_mine', name: 'The deep mine', verb: 'mine', target: ['deepslate'], yields: ['diamond', 'redstone'], rung: 'diamond', hand: 'a hand build: the deep stair past lava, its holders, teleport home (lessons 100, 101; the foundry\'s mine template cannot dig a usable stair, F282)', facts: '' },
+  { id: 'library_furniture', name: 'Library furniture', verb: 'collect', target: ['bookshelf'], yields: ['bookshelf', 'lectern'], rung: 'letters', hand: 'a hand build: shelves and a lectern in the furnish catalogue (code)', facts: '' },
+  { id: 'enchant', name: 'Enchanting', verb: 'use_on_block', target: ['enchanting_table'], yields: ['enchanted_book'], rung: 'enchantment', hand: 'a hand build: enchanting by a charged command after a live syntax test (lesson 109), and the XP ledger (code)', facts: '' },
+  { id: 'nether_travel', name: 'Nether travel and portals', verb: 'collect', target: ['nether_portal'], yields: ['netherrack', 'quartz', 'glowstone_dust', 'nether_wart'], rung: 'nether', hand: 'a hand build: portal building, walking in the Nether, debris mining (#25: 4-6 sessions)', facts: '' },
+  { id: 'copper_side', name: 'Copper kept from the mine', verb: 'mine', target: ['copper_ore'], yields: ['raw_copper'], rung: 'copper', hand: 'a hand build: the iron mine\'s side-yield into stock (#19, code)', facts: '' },
+  { id: 'machines', name: 'Rails and hoppers', verb: 'collect', target: ['rail'], yields: ['rail', 'hopper'], rung: 'machines', hand: 'a hand build: rail laying and hopper placement by command (code)', facts: '' },
 ];
+
+/** On with MC_LADDER=on: a chosen or offered rung's needs join the list (G8). */
+export const LADDER_ON = /^(on|1|true)$/i.test(process.env.MC_LADDER ?? 'off');
+/** The ladder's rungs (G8, runs/2026-10-22/ladder/spec.md 3). */
+export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade';
+export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade'];
+/** Each rung's needs (have: nothing to build; hand: code built by hand; ticket: the foundry's), for ladder.ts' ballot
+ *  preview and the rung's waiting line. Iron and trade need nothing; leather for the letters rung is the merchant's. */
+export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string }>> = {
+  iron: [],
+  letters: [{ capability: 'library_furniture', how: 'hand', note: 'shelves and a lectern in the furnish catalogue' }],
+  diamond: [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
+  enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
+  nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],
+  copper: [{ capability: 'copper_side', how: 'hand', note: 'copper kept from the iron mine' }],
+  machines: [{ capability: 'machines', how: 'hand', note: 'rails and hoppers laid by command' }],
+  trade: [],
+};
+
+/**
+ * A rung's needs with their status now (have / hand / missing / locked..., from the capability's status in this world),
+ * for ladder.ts: "needs a new skill the foundry must build: cast obsidian". `ctx` the world's skills (as wantedList's).
+ */
+export function rungNeeds(rung: RungId, ctx?: Pick<WantedCtx, 'skills' | 'activitySkills'>): Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string; name: string; status: CapStatus }> {
+  return (RUNG_NEEDS[rung] ?? []).map((n) => {
+    const c = CAPABILITIES.find((x) => x.id === n.capability);
+    const status: CapStatus = n.how === 'hand' ? 'hand' : c && ctx ? statusOf(c, ctx).status : 'missing';
+    return { ...n, name: c?.name ?? n.capability, status };
+  });
+}
+
+/** The ladder's state as wanted.ts reads it (G2's `v.ladder`, village.ts; undefined with MC_LADDER off). */
+const ladderOf = (v: Village) => (v as Village & { ladder?: { current?: RungId; offered?: RungId[] } }).ladder;
 
 /** The verbs foundry_queue.py has a ticket template for (a new skill); a capability with status `skill` takes the
  *  skill-activity template whatever its verb (#91). */
@@ -189,6 +240,8 @@ export interface Wanted {
   /** The share of the rank from the village's demand (#89: the village asking, not the recipe graph). */
   demandShare: number;
   unlocks: string[]; used: string[]; simplest: string[]; yields: string[]; facts: string; avoid?: string[];
+  /** A ladder rung's need (G8): the rung, and whether it is the chosen one (else offered). */
+  ladder?: { rung: RungId; chosen: boolean };
   /** Items members wish for that it opens (#89), most wished first; `activitySkill`: the foundry skill a ticket names. */
   wished: string[]; activitySkill: string; tool?: string; target: string[]; state?: string; find?: string[]; skill?: string;
 }
@@ -207,6 +260,7 @@ export interface WantedCtx {
 /** A capability's status for a village's world (`v`: its innovation record, for a locked activity): fixed reasons first,
  *  then skills and activities. */
 export function statusOf(c: Capability, ctx: Pick<WantedCtx, 'skills' | 'activitySkills'>, v?: Village): { status: CapStatus; reason?: string } {
+  if (c.hand) return { status: 'hand', reason: c.hand };
   if (c.dead) return { status: 'dead', reason: c.dead };
   if (c.user) return { status: 'user', reason: c.user };
   if (c.knowledge) return { status: 'knowledge', reason: c.knowledge };
@@ -287,11 +341,19 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
   for (const h of Object.values(v.homes ?? {})) for (const [k, q] of Object.entries(h.chest?.items ?? {})) held[k] = (held[k] ?? 0) + q;
   const wishes = unmetWishes(v, store);
   const out: Wanted[] = [];
+  const ladder = LADDER_ON ? ladderOf(v) : undefined;
   for (const c of CAPABILITIES) {
+    // (a rung's need only while its rung is chosen or offered, MC_LADDER)
+    const chosen = !!c.rung && ladder?.current === c.rung, offered = !!c.rung && !chosen && !!ladder?.offered?.includes(c.rung);
+    if (c.rung && !chosen && !offered) continue;
     const { status, reason } = statusOf(c, ctx, v);
     const u = unlocks.get(c.id) ?? { items: [], used: [], value: 0, simplest: [] };
     const why: string[] = [];
     let demand = 0;
+    if (chosen || offered) {
+      demand += chosen ? 3 : 1;
+      why.push(chosen ? `the village's chosen rung, the ${c.rung} age, needs it` : `the ${c.rung} age, on the rung ballot, needs it`);
+    }
     const theirs = new Set([...c.yields, ...u.items]);
     const w = Object.entries(lapsed).filter(([k]) => theirs.has(k));
     if (w.length) {
@@ -368,11 +430,12 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     const ticketable = status === 'skill' || (status === 'missing' && TEMPLATES.has(c.verb));
     out.push({
       id: c.id, name: c.name, verb: c.verb, status, why, ...(reason ? { reason } : {}), value: Math.round(u.value * 100) / 100, demand, rank, ticketable, demandShare,
+      ...(c.rung && (chosen || offered) ? { ladder: { rung: c.rung, chosen } } : {}),
       unlocks: u.items, used: u.used, simplest: u.simplest, yields: c.yields, facts: c.facts, ...(c.avoid ? { avoid: c.avoid } : {}), wished, activitySkill: activitySkill(c), ...(c.tool ? { tool: c.tool } : {}), target: c.target, ...(c.state ? { state: c.state } : {}), ...(c.find ? { find: c.find } : {}), skill: capSkill(c),
     });
   }
   // (what the village cannot or should not ticket last, so the top of the list is what a ticket could answer)
-  const tier = (w: Wanted) => (w.status === 'missing' || w.status === 'skill' || w.status === 'locked' ? 0 : w.status === 'knowledge' ? 1 : w.status === 'have' ? 3 : 2);
+  const tier = (w: Wanted) => (w.status === 'missing' || w.status === 'skill' || w.status === 'locked' ? 0 : w.status === 'knowledge' || w.status === 'hand' ? 1 : w.status === 'have' ? 3 : 2);
   return out.sort((x, y) => tier(x) - tier(y) || y.rank - x.rank || y.value - x.value);
 }
 

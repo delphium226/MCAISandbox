@@ -119,6 +119,34 @@ def base_skill(base):
     return None, None
 
 
+def rung_spec(spec, w):
+    """G8: a ladder rung's need is locked by its rung (lock.ts opens it while the village works or has reached the rung),
+    not by research: its research block goes, a `rung` field comes."""
+    lad = w.get("ladder")
+    if not lad:
+        return spec
+    spec.pop("research", None)
+    spec["rung"] = lad["rung"]
+    spec["effect"] = f"{words(w['yields'][0])} for the {lad['rung']} age, the village's {'chosen ' if lad['chosen'] else ''}rung of the ladder"[:160]
+    return spec
+
+
+def rung_ticket(t, w):
+    """The brief and check of a rung-locked ticket: its rung field kept, the agent server started with MC_LADDER."""
+    lad = w.get("ladder")
+    if not lad:
+        return t
+    t["brief"] = (t["brief"]
+                  .replace("Keep its research block as given: it makes the activity a locked innovation entry members unlock by research (tech.ts).",
+                           f"Keep its rung field as given: the activity opens only while the village works or has reached the {lad['rung']} rung of the ladder (lock.ts).")
+                  .replace("once members have researched it", f"while the village works the {lad['rung']} rung of the ladder")
+                  .replace("The foundry starts the agent server with MC_INNOVATE=on before it runs the check.",
+                           "The foundry starts the agent server with MC_LADDER=on before it runs the check."))
+    t["check"]["env"] = {"MC_LADDER": "on"}
+    t["title"] = t["title"].replace("locked until researched", f"locked to the {lad['rung']} rung")
+    return t
+
+
 def goods_for(w, y0):
     """The research's workshop goods: what members wished for that it opens first (#89), then the simplest it opens."""
     order = [i for i in (w.get("wished") or []) if i in (w.get("unlocks") or [])] + [i for i in (w.get("simplest") or []) if i not in (w.get("wished") or [])]
@@ -140,7 +168,7 @@ def skill_ticket_for(w, village, why):
     tool = w.get("tool") or "nothing"
     y0, target0 = w["yields"][0], w["target"][0]
     goods = goods_for(w, y0)
-    if not goods:
+    if not goods and not w.get("ladder"):
         return None, "nothing the workshop could make of its yield"
     also = [f"{c}_wool" for c in ("orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black")] if y0 == "white_wool" else []
     spec = {
@@ -153,6 +181,7 @@ def skill_ticket_for(w, village, why):
             "minutes": 3, "chance": 0.3, "complexity": 4, "capability": cid, "goods": goods,
         },
     }
+    rung_spec(spec, w)
     count_cmd = "count with RCON 'clear Gus #minecraft:wool 0' before and after" if y0.endswith("_wool") else f"count with RCON 'clear Gus minecraft:{y0} 0' before and after"
     fields = dict(
         skill=skill, base=base, base_set=base_set, base_file=base_file, base_mod=pathlib.PurePosixPath(base_file).stem, id=cid, village=village, why=why,
@@ -190,7 +219,7 @@ def skill_ticket_for(w, village, why):
         "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
         "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "demandShare": w.get("demandShare"), "why": w["why"]},
     }
-    return t, None
+    return rung_ticket(t, w), None
 
 
 # The mine template (#91's second): a block sealed underground that a pickaxe breaks for its drop (amethyst clusters in a
@@ -203,7 +232,7 @@ def mine_ticket_for(w, village, why):
     tool = w.get("tool") or "stone_pickaxe"
     y0, target0 = w["yields"][0], w["target"][0]
     goods = goods_for(w, y0)
-    if not goods:
+    if not goods and not w.get("ladder"):
         return None, "nothing the workshop could make of its yield"
     spec = {
         "id": f"lib:{cid}", "name": w["name"][:60], "skill": skill, "count": {"arg": "count", "max": 8},
@@ -214,6 +243,7 @@ def mine_ticket_for(w, village, why):
             "minutes": 3, "chance": 0.3, "complexity": 5, "capability": cid, "goods": goods,
         },
     }
+    rung_spec(spec, w)
     fields = dict(
         skill=skill, id=cid, village=village, why=why, facts=w.get("facts") or "", yields_w=" and ".join(words(y) for y in w["yields"]),
         yield0_w=words(y0), targets_w=" or ".join(plural(t) for t in w["target"]), target0=target0, target0_w=words(target0),
@@ -250,7 +280,7 @@ def mine_ticket_for(w, village, why):
         "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
         "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "demandShare": w.get("demandShare"), "why": w["why"]},
     }
-    return t, None
+    return rung_ticket(t, w), None
 
 
 def ticket_for(w, village, why):
@@ -272,7 +302,7 @@ def block_ticket_for(w, village, why):
     for item in (w.get("simplest") or [])[:2]:
         goods.append({"item": item, "target": 2, "batch": 1, "unit": 1, "words": plural(item),
                       "forWhat": f"{plural(item)} from the village's {words(y0)} (an invention of the village)", "allow": [y0]})
-    if not goods:
+    if not goods and not w.get("ladder"):
         return None, "nothing the workshop could make of its yield (no research goods for the menu's words)"
     tool_used_up = tool in ("glass_bottle", "potion", "wheat_seeds", "bucket")
     research_name = f"harvesting {words(y0)} from {plural(target0)}"[:40]
@@ -288,6 +318,7 @@ def block_ticket_for(w, village, why):
             "minutes": 3, "chance": 0.3, "complexity": 4, "capability": cid, "goods": goods,
         },
     }
+    rung_spec(spec, w)
     refill = "bees refill them over minutes" if target0 in ("bee_nest", "beehive") else "they refill over time"
     fields = dict(
         skill=skill, id=cid, village=village, why=why, facts=w.get("facts") or "", tool_a=("nothing" if tool == "nothing" else words(tool) if tool.endswith("s") else f"a {words(tool)}"),
@@ -324,7 +355,7 @@ def block_ticket_for(w, village, why):
         "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
         "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "why": w["why"]},
     }
-    return t, None
+    return rung_ticket(t, w), None
 
 
 def main():
@@ -392,14 +423,21 @@ def main():
         if not w["ticketable"]:
             return {"have": None, "locked": None,
                     "dead": f"a peaceful overworld cannot give it: {w.get('reason')}", "user": f"the user's call: {w.get('reason')}",
-                    "knowledge": f"a table fix, not a ticket: {w.get('reason')}"}.get(w["status"], f"no ticket template for its verb {w['verb']}")
+                    "knowledge": f"a table fix, not a ticket: {w.get('reason')}",
+                    "hand": f"{w.get('reason') or 'a hand build'}, not a ticket"}.get(w["status"], f"no ticket template for its verb {w['verb']}")
         return failed.get(w["id"])
 
     # The request queue (foundry_requests.py): the wanted list and accepted proposals merged into it, the unbuildable
     # flagged with their reason; the queue's rank picks, not the list's
     reqs = R.load()
     for w in lst:
-        if w["status"] in ("missing", "skill") or (w["status"] in ("dead", "user", "knowledge") and w["demand"] > 0):
+        # (G8: a chosen or offered rung's need comes as the ladder's request, ranked above proposals and the wanted list)
+        if w.get("ladder"):
+            lad = w["ladder"]
+            R.add_source(reqs, w["id"], "ladder", f"rung:{lad['rung']}", score=w["rank"], detail="chosen" if lad["chosen"] else "offered",
+                         title=w["name"], why="; ".join(w["why"])[:300])
+            R.set_blocked(reqs, w["id"], blocked_why(w))
+        elif w["status"] in ("missing", "skill") or (w["status"] in ("dead", "user", "knowledge") and w["demand"] > 0):
             R.add_source(reqs, w["id"], "wanted", village, score=w["rank"], title=w["name"], why="; ".join(w["why"])[:300])
             R.set_blocked(reqs, w["id"], blocked_why(w))
     for x in accepted:
