@@ -794,3 +794,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   `/api/agents/:name/character?since=`, `/api/character/series?village=&since=`), the matrix only on request; the views:
   Members -> Character (absorbing Mind's Persona and Chores' Temperament), affinity in Members -> Social, Society -> People
   and Relations, an Overview mood card, the flags in Run -> Flags; mood's items called feelings.
+- 10-22 (the user's) **Model temperature stays 0.4** (`MC_TEMPERATURE`, default 0.4): charbench's 0.4 against 1.0 on
+  G2a's rebuilt character prompts showed no real difference (valid 120/120 vs 119/120, distinct picks 2.75 vs 2.83, most-
+  weighted pick 0.25 vs 0.26, say-do 0.86 vs 0.87). Temperature is not a character lever (docs/research/character-model-v2.md).
