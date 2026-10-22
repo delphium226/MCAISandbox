@@ -142,6 +142,49 @@ function signpost(w: string): Design {
   ]);
 }
 
+/**
+ * #45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side
+ * of a house's door walkway (the walkway itself left as it is), one design a walkway's direction; a flower ring circles a
+ * green's centre, its four sides open. Planted from flowers members pick (pick_flowers, the planner's FLOWER_ITEMS);
+ * layer 0 keeps the ground, which must be soil (the world's soil test in gardenSpots). Their spots come from gardenSpots,
+ * not smallWorkSpots: they hug a door or a green's centre, where other works keep off.
+ */
+export const GARDENS = /^(on|1|true)$/i.test(process.env.MC_GARDENS ?? 'off');
+/** The flower a garden plants (the commonest near minevale3, yellow; one item a block). */
+export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
+
+/** A 5x2 front garden for a walkway running north-south: two 2x2 beds, the middle column (the walkway) untouched. */
+function gardenNs(_w: string): Design {
+  return design('garden_ns', _w, 'a front garden: flower beds either side of a door walkway', { F: GARDEN_FLOWER }, [
+    ['_____', '_____'],
+    ['FF_FF', 'FF_FF'],
+  ]);
+}
+
+/** The same garden for a walkway running east-west (2 wide, 5 deep). */
+function gardenEw(_w: string): Design {
+  return design('garden_ew', _w, 'a front garden: flower beds either side of a door walkway', { F: GARDEN_FLOWER }, [
+    ['__', '__', '__', '__', '__'],
+    ['FF', 'FF', '__', 'FF', 'FF'],
+  ]);
+}
+
+/** A 5x5 flower ring round a green's centre (its middle 3x3 left as it is, the middle of each side open as a way in). */
+function flowerRing(_w: string): Design {
+  return design('flower_ring', _w, "a flower ring round the green's centre, open on each side", { F: GARDEN_FLOWER }, [
+    ['_____', '_____', '_____', '_____', '_____'],
+    ['FF_FF', 'F___F', '_____', 'F___F', 'FF_FF'],
+  ]);
+}
+
+/** The garden kinds (#45), small works with their own spots (gardenSpots). */
+export const GARDEN_WORKS: SmallWorkKind[] = [
+  { kind: 'garden_ns', words: 'front garden', forWhat: "flowers by a house's door", make: gardenNs },
+  { kind: 'garden_ew', words: 'front garden', forWhat: "flowers by a house's door", make: gardenEw },
+  { kind: 'flower_ring', words: 'flower ring', forWhat: 'flowers round the green', make: flowerRing },
+];
+export const isGarden = (kind: string) => GARDEN_WORKS.some((k) => k.kind === kind);
+
 export const SMALL_WORKS: SmallWorkKind[] = [
   { kind: 'well', words: 'well', forWhat: 'a meeting place in the village', make: well },
   { kind: 'bench', words: 'bench', forWhat: 'somewhere to sit and rest', make: bench },
@@ -151,6 +194,7 @@ export const SMALL_WORKS: SmallWorkKind[] = [
   { kind: 'lamp_posts', words: 'pair of lamp posts', forWhat: 'lighting the way', make: lampPosts },
   { kind: 'gazebo', words: 'gazebo', forWhat: 'shade and gatherings', make: gazebo },
   { kind: 'signpost', words: 'signpost', forWhat: 'showing the way', make: signpost },
+  ...(GARDENS ? GARDEN_WORKS : []),
 ];
 
 export interface SpotInput {
@@ -203,4 +247,55 @@ export function smallWorkSpots(input: SpotInput, w: number, d: number, max = Inf
   });
   out.sort((a, b) => a.dist - b.dist || a.z - b.z || a.x - b.x || a.plot - b.plot);
   return out.slice(0, max).map(({ x, z, y }) => ({ x, z, y }));
+}
+
+/** What gardenSpots reads from the world (#45). */
+export interface GardenInput {
+  /** Each house's door: the door's cell, the outward step (ox, oz: one of them +-1), the ground level outside it. */
+  doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }>;
+  /** Greens with their centre (x, z) and level. */
+  greens: Array<{ x: number; z: number; y: number }>;
+  /** Cells no garden may touch: buildings' own footprints, streets, lamps and signs, farms and slots, the mine, other
+   *  works, reservations, builds laid out... (not the rings and door fronts other works keep off: a garden hugs them). */
+  hard: Area[];
+  /** Whether the ground at (x, z), at the spot's level, is soil a flower stands on (grass, dirt, podzol...). */
+  soil: (x: number, z: number, y: number) => boolean;
+}
+
+/** A garden's place: its kind, build_design's centre (as smallWorkSpots gives it) and the cells it plants. */
+export interface GardenSpot { kind: string; x: number; y: number; z: number; cells: Array<{ x: number; z: number }> }
+
+const inArea = (a: Area, x: number, z: number) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
+
+/**
+ * Where gardens fit (pure, #45): for each door, the beds 1-2 cells either side of its walkway, 1-2 cells out from the
+ * wall (the walkway's own column untouched, kept for the door and the stand cells beside it: lessons 44, 62, 68); for
+ * each green, the ring round its centre. A spot is kept only when every cell it plants is free of the hard areas and on
+ * soil. Each spot's centre is build_design's for its design (x1 + floor(w / 2), z1 + floor(d / 2)).
+ */
+export function gardenSpots(input: GardenInput): GardenSpot[] {
+  const free = (x: number, z: number, y: number) => !input.hard.some((a) => inArea(a, x, z)) && input.soil(x, z, y);
+  const out: GardenSpot[] = [];
+  const plant = (kind: string, d: Design, x1: number, z1: number, y: number) => {
+    const cells: Array<{ x: number; z: number }> = [];
+    const top = d.layers[1];
+    for (let j = 0; j < top.length; j++) for (let i = 0; i < top[j].length; i++) if (top[j][i] === 'F') cells.push({ x: x1 + i, z: z1 + j });
+    if (!cells.every((c) => free(c.x, c.z, y))) return;
+    out.push({ kind, x: x1 + Math.floor(d.width / 2), y, z: z1 + Math.floor(d.depth / 2), cells });
+  };
+  for (const dr of input.doors) {
+    if (Math.abs(dr.ox) + Math.abs(dr.oz) !== 1) continue;
+    // (rows 1 and 2 out from the wall; the walkway is the door's column)
+    if (dr.oz !== 0) {
+      const d = gardenNs('oak');
+      const z1 = dr.oz > 0 ? dr.z + 1 : dr.z - 2;
+      plant('garden_ns', d, dr.x - 2, z1, dr.y);
+    } else {
+      const d = gardenEw('oak');
+      const x1 = dr.ox > 0 ? dr.x + 1 : dr.x - 2;
+      plant('garden_ew', d, x1, dr.z - 2, dr.y);
+    }
+  }
+  for (const g of input.greens) plant('flower_ring', flowerRing('oak'), g.x - 2, g.z - 2, g.y);
+  return out;
 }
