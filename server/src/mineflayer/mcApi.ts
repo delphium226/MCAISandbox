@@ -19,6 +19,7 @@ import { GROW, GROW_FARMS } from '../grow';
 import { APPETITE } from '../appetite';
 import { TEMPERAMENT_MODE, temperamentTable } from '../temperament';
 import { WANTED_TOP } from '../tech';
+import { allProposals, applyVerdict, guardVerdict, proposal, type Verdict } from '../proposals';
 import type { Village } from '../village';
 import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from '../wanted';
 import { MC_SKILLS } from './mcSkills';
@@ -74,7 +75,7 @@ function perf(w: MineflayerWorld) {
 function wantedOf(w: MineflayerWorld, v: Village) {
   return wantedList(v, {
     items: w.registry.itemsArray.map((it) => it.name), plan: (b) => w.materials.plan(b), skills: new Set(Object.keys(MC_SKILLS)),
-    activitySkills: new Set(w.library.specs.map((s) => s.skill)), now: Date.now(),
+    activitySkills: new Set(w.library.specs.map((s) => s.skill)), now: Date.now(), proposals: allProposals(v.name),
   });
 }
 
@@ -149,6 +150,33 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
     const vs = one ? [w.villages.get(one)].filter((v): v is Village => !!v) : [...w.villages.villages.values()].filter((v) => v.complete);
     if (one && !vs.length) return sendJson(res, 404, { error: 'no such village' });
     return sendJson(res, 200, vs.map((v) => ({ village: v.name, at: Date.now(), list: wantedOf(w, v), history: wantedHistory[v.name] ?? null })));
+  }
+  // G5's proposals (#90; proposals.ts, MC_PROPOSALS): the village's list (?village=), and a triage's verdict applied
+  // through code's guard (impossible never accepted, the user's calls deferred, the foundry only for a ticketable
+  // capability); the world reports it to the proposer and its backers on its next sweep
+  if (parts[1] === 'proposals') {
+    if (!parts[2] && req.method === 'GET') return sendJson(res, 200, allProposals(url.searchParams.get('village') ?? undefined));
+    if (parts[2] && parts[3] === 'verdict' && req.method === 'POST') {
+      const p = proposal(decodeURIComponent(parts[2]));
+      if (!p) return sendJson(res, 404, { error: 'no such proposal' });
+      const b = await readJson(req);
+      const decision = b.decision;
+      if (decision !== 'accept' && decision !== 'reject' && decision !== 'defer') return sendJson(res, 400, { error: 'decision must be accept, reject or defer' });
+      if (typeof b.reason !== 'string' || !b.reason.trim()) return sendJson(res, 400, { error: 'a reason the members will read is required' });
+      const pick = <T extends string>(x: unknown, ok: readonly T[]) => (typeof x === 'string' && (ok as readonly string[]).includes(x) ? (x as T) : undefined);
+      const raw: Verdict = {
+        by: 'triage', at: Date.now(), decision, reason: b.reason.trim().slice(0, 300),
+        ...(pick(b.route, ['foundry', 'library', 'catalogue', 'issue', 'config', 'none'] as const) ? { route: pick(b.route, ['foundry', 'library', 'catalogue', 'issue', 'config', 'none'] as const) } : {}),
+        ...(pick(b.size, ['small', 'medium', 'large'] as const) ? { size: pick(b.size, ['small', 'medium', 'large'] as const) } : {}),
+        ...(typeof b.notes === 'string' ? { notes: b.notes.slice(0, 500) } : {}),
+        ...(typeof b.ref === 'string' ? { ref: b.ref.slice(0, 120) } : {}),
+      };
+      const v = guardVerdict(p, raw);
+      applyVerdict(p.id, v);
+      console.log(`[proposal] ${p.village}: ${p.id} ${v.decision}${v.route ? ` (${v.route})` : ''}${v.decision !== raw.decision || v.route !== raw.route ? ` (guarded from ${raw.decision}${raw.route ? ` ${raw.route}` : ''})` : ''}: ${v.reason.slice(0, 120)}`);
+      return sendJson(res, 200, proposal(p.id));
+    }
+    return sendJson(res, 404, { error: 'GET /api/proposals?village=V, POST /api/proposals/:id/verdict' });
   }
   // Phase N's needs (spec_needs_v2): one village's needs with their levels, status and line (?village=), or every village's
   if (parts[1] === 'needs') {

@@ -10,7 +10,8 @@ Usage: python scripts/reset_site.py NAME [--no-start] [--checkpoint CP]
                   servers again. Save once a staged village is complete (stage_village.py ... --mayor --after 1), so a
                   test of the after phase can start from there (stage_village.py ... --resume) instead of building it
                   again. --force replaces an existing CP
-  --checkpoint CP restore from checkpoint CP instead of the snapshot (the site must be the one CP was saved from)
+  --checkpoint CP restore from checkpoint CP instead of the snapshot (the site must be the one CP was saved from); a
+                  checkpoint saved with proposals.json and social.json (#90) puts its villages' records back too
   --list          list the checkpoints
 
 Steps, each printed:
@@ -247,6 +248,57 @@ def restore_atlas(regions, source=T.SNAP):
           f"{'snapshot' if source == T.SNAP else 'checkpoint'} put back")
 
 
+# The world's other per-village records (#90): G5's proposals and G1/G2's members' memory, kept with a checkpoint so a
+# second run continues the first's (G5's run B starts from run A's checkpoint with its proposals and journals)
+RECORDS = ("proposals.json", "social.json")
+
+
+def records_of(name, data, villages):
+    """The parts of a record that belong to `villages` (lower-case names), and the rest."""
+    vs = set(villages)
+    if name == "proposals.json":
+        mine = [p for p in data.get("proposals", []) if str(p.get("village", "")).lower() in vs]
+        rest = [p for p in data.get("proposals", []) if str(p.get("village", "")).lower() not in vs]
+        return {"proposals": mine}, {"proposals": rest}
+    own = lambda k: k.split("|")[0].lower() in vs  # noqa: E731
+    return ({"villages": {k: v for k, v in data.get("villages", {}).items() if k.lower() in vs},
+             "agents": {k: v for k, v in data.get("agents", {}).items() if own(k)}},
+            {"villages": {k: v for k, v in data.get("villages", {}).items() if k.lower() not in vs},
+             "agents": {k: v for k, v in data.get("agents", {}).items() if not own(k)}})
+
+
+def save_records(dest, villages):
+    for name in RECORDS:
+        data = read_json(T.TEST / name, None)
+        if data is None:
+            continue
+        mine, _ = records_of(name, data, villages)
+        out = {"version": data.get("version", 1), **({"next": data.get("next", 1)} if name == "proposals.json" else {}), **mine}
+        write_json(dest / name, out, indent=1)
+        n = len(mine.get("proposals", mine.get("agents", {})))
+        print(f"{name}: {n} {'proposals' if name == 'proposals.json' else 'members'} of the checkpoint's villages saved")
+
+
+def restore_records(source, villages):
+    """From a checkpoint holding them: the records of its villages replace the live ones of those villages; others are
+    kept. A checkpoint without them (older ones) or the snapshot leaves the live files as they are."""
+    for name in RECORDS:
+        saved = read_json(source / name, None) if source != T.SNAP else None
+        if saved is None:
+            continue
+        live = read_json(T.TEST / name, {"version": saved.get("version", 1)})
+        mine, _ = records_of(name, saved, villages)
+        _, rest = records_of(name, live, villages)
+        if name == "proposals.json":
+            out = {"version": 1, "next": max(int(live.get("next", 1)), int(saved.get("next", 1))), "proposals": rest["proposals"] + mine["proposals"]}
+        else:
+            out = {"version": saved.get("version", 1), "villages": {**rest["villages"], **mine["villages"]}, "agents": {**rest["agents"], **mine["agents"]}}
+        if (T.TEST / name).exists():
+            shutil.copy2(T.TEST / name, T.TEST / f"{name}.bak-{datetime.datetime.now():%Y%m%d-%H%M%S}")
+        write_json(T.TEST / name, out, indent=1)
+        print(f"{name}: the checkpoint's {len(mine.get('proposals', mine.get('agents', {})))} put back, {len(rest.get('proposals', rest.get('agents', {})))} of other villages kept")
+
+
 def save_checkpoint(site, regions, name, force):
     """Copy the site's regions as the stopped test world has them, the villages on them and their atlas summaries into
     mc/testcheckpoints/NAME (the servers must be stopped first, so Paper has saved every chunk)."""
@@ -267,6 +319,7 @@ def save_checkpoint(site, regions, name, force):
     villages = [v for v in read_json(T.TEST / "villages.json", {}).get("villages", [])
                 if any(in_regions(a, regions) for a in village_areas(v))]
     write_json(dest / "villages.json", {"villages": villages}, indent=1)
+    save_records(dest, [v["name"].lower() for v in villages])
     atlas = read_json(T.TEST / "atlas.json", {})
     inside = set(regions)
     write_json(dest / "atlas.json", {
@@ -414,6 +467,8 @@ def main():
         restore_files(regions, source)
         restore_villages(regions, source)
         restore_atlas(regions, source)
+        if source != T.SNAP:
+            restore_records(source, [v["name"].lower() for v in read_json(source / "villages.json", {}).get("villages", [])])
     if "--no-start" in opts:
         print(f"{'saved' if save else 'restored'}; not started (--no-start)")
         return

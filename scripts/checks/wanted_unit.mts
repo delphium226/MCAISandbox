@@ -95,6 +95,20 @@ ok(h.samples === 2 && h.top.honeycomb.samples === 2 && h.top.honeycomb.first ===
   ok(!wantedList(v, ctx).find((x) => x.id === 'amethyst')!.why.some((y) => /wish/.test(y)), 'a wish its own chest answers is met');
 }
 
+// #90: G5's proposals naming a capability: +1 an open one, +2 an accepted one, its proposers and backers counted
+{
+  const props = [
+    { by: 'Ada', status: 'open', target: { capability: 'amethyst' }, endorsements: [{ by: 'Ben' }] },
+    { by: 'Clara', status: 'accepted', target: { capability: 'amethyst' }, endorsements: [] },
+    { by: 'Dev', status: 'rejected', target: { capability: 'amethyst' }, endorsements: [] },
+    { by: 'Elena', status: 'open', target: { capability: 'mud' } },
+  ];
+  const l = wantedList(v0, { ...ctx, proposals: props });
+  const am = l.find((x) => x.id === 'amethyst')!;
+  ok(am.demand === by('amethyst').demand + 3 && am.why.some((y) => /3 members proposed or backed it \(2 proposals, 1 accepted\)/.test(y)), `amethyst: an open and an accepted proposal (${am.why.join(' | ')})`);
+  ok(l.find((x) => x.id === 'mud')!.demand === by('mud').demand + 1, 'mud: one open proposal');
+}
+
 // The research spec: valid; broken research blocks named
 ok(validateLibrarySpec(spec as never, { registry: reg, skills: new Set(['fish']) }).length === 0, 'a research spec is valid');
 const bad = validateLibrarySpec({ ...spec, research: { ...spec.research, goods: [], complexity: 99, requires: { nothing_here: 1 } } } as never, { registry: reg, skills: new Set(['fish']) });

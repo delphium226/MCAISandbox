@@ -18,6 +18,10 @@ Usage: python scripts/foundry_queue.py [--api URL | --villages FILE] [--village 
   --land WORLD    a world folder to count the capability's blocks in, within 144 of the storage hut (default: the
                   agent server's own world, from MC_SERVER_DIR, else mc/testworld)
   --write         write the ticket (without it: a dry run that prints what it would write)
+  --capability ID ticket that capability (an accepted proposal routed to the foundry, #90), not the rank's first; the
+                  same skips apply to it
+  --accepted FILE the triage's accepted.json (triage_proposals.mts): the first accepted proposal routed `foundry` whose
+                  capability has no ticket yet, as --capability
 """
 import argparse, json, math, os, pathlib, re, subprocess, sys, time, urllib.request
 
@@ -264,7 +268,18 @@ def main():
     ap.add_argument("--land")
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--capability")
+    ap.add_argument("--accepted")
     a = ap.parse_args()
+    if a.accepted:
+        acc = json.loads(pathlib.Path(a.accepted).read_text(encoding="utf-8"))
+        ticketed = {p.stem for p in TICKETS.glob("*.json")}
+        cands = [x for x in acc if x.get("route") == "foundry" and x.get("capability") and x["capability"] not in ticketed]
+        if not cands:
+            print(f"QUEUE: no accepted proposal routed to the foundry without a ticket in {a.accepted}")
+            return 0
+        a.capability = cands[0]["capability"]
+        print(f"accepted proposal {cands[0].get('id')} ({cands[0].get('by')}: {str(cands[0].get('what'))[:80]}) asks for {a.capability}")
     if not a.villages and not a.api:
         raise SystemExit("give --api URL (or MCAI_API) or --villages FILE")
     got = wanted_from_file(a.villages, a.village) if a.villages else wanted_from_api(a.api.rstrip("/"), a.village)
@@ -292,6 +307,10 @@ def main():
     have = {p.stem for p in TICKETS.glob("*.json")}
     failed = failed_before()
     chosen, skipped = None, []
+    if a.capability:
+        lst = [w for w in lst if w["id"] == a.capability]
+        if not lst:
+            raise SystemExit(f"QUEUE: no capability {a.capability} in the wanted list")
     for w in lst:
         cid = w["id"]
         why_not = None

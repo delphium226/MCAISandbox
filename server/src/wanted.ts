@@ -194,6 +194,8 @@ export interface WantedCtx {
   skills: Set<string>;
   activitySkills: Set<string>;
   now: number;
+  /** G5's proposals of the village (#90; proposals.ts allProposals, passed in: proposals.ts imports this module). */
+  proposals?: Array<{ by: string; status: string; target?: { capability?: string }; endorsements?: Array<{ by: string }> }>;
 }
 
 /** A capability's status for a village's world (`v`: its innovation record, for a locked activity): fixed reasons first,
@@ -328,6 +330,15 @@ export function wantedList(v: Village, ctx: WantedCtx): Wanted[] {
     if (wishers.size) {
       demand += WISH_DEMAND * wishers.size;
       why.push(`${wishers.size} member${wishers.size === 1 ? '' : 's'} wish${wishers.size === 1 ? 'es' : ''} for ${wished.join(', ')} (their life goals)`);
+    }
+    // (#90: members' proposals naming it: +1 an open, endorsed or waiting one, +2 an accepted one; its proposers and
+    // backers counted as members asking)
+    const props = (ctx.proposals ?? []).filter((p) => p.target?.capability === c.id && ['open', 'endorsed', 'triage', 'deferred', 'accepted'].includes(p.status));
+    if (props.length) {
+      const askers = new Set(props.flatMap((p) => [p.by, ...(p.endorsements ?? []).map((e) => e.by)]));
+      const accepted = props.filter((p) => p.status === 'accepted').length;
+      demand += props.length - accepted + 2 * accepted;
+      why.push(`${askers.size} member${askers.size === 1 ? '' : 's'} proposed or backed it (${props.length} proposal${props.length === 1 ? '' : 's'}${accepted ? `, ${accepted} accepted` : ''})`);
     }
     // (goods the village holds idle that the unlocked items would use: raw copper for waxed copper; the commons' and the
     // members' own chests, logs and stone aside; +1 a 64 held, at most 3)

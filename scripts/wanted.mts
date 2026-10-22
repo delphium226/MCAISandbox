@@ -5,6 +5,7 @@
  * Without VILLAGE: every complete village. --json prints the API's shape ([{village, at, list}]).
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import minecraftData from 'minecraft-data';
 
 const args = process.argv.slice(2);
@@ -37,7 +38,10 @@ const ctx = {
   items: reg.itemsArray.map((it) => it.name), plan: (b: Record<string, number>) => m.plan(b), skills: new Set(Object.keys(MC_SKILLS)),
   activitySkills: new Set(lib.specs.map((s) => s.skill)), now: Date.now(),
 };
-const out = pick.map((v) => ({ village: v.name, at: ctx.now, list: wantedList(v as never, ctx) }));
+// (#90: G5's proposals beside the villages file, proposals.json, as the API passes them)
+const propFile = path.join(path.dirname(pos[0]), 'proposals.json');
+const props = fs.existsSync(propFile) ? ((JSON.parse(fs.readFileSync(propFile, 'utf8')) as { proposals?: Array<{ village: string }> }).proposals ?? []) : [];
+const out = pick.map((v) => ({ village: v.name, at: ctx.now, list: wantedList(v as never, { ...ctx, proposals: props.filter((p) => p.village.toLowerCase() === v.name.toLowerCase()) as never }) }));
 if (json) {
   console.log(JSON.stringify(out));
 } else {
