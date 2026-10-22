@@ -40,7 +40,8 @@ the short version; look here for a check script's arguments, a model detail or w
      (Phase X.3's foundry): `C:\Users\rhett\AppData\Roaming\npm\claude` (2.1.301; `claude -p "..."` headless, the
      user's subscription). The foundry's second back-end, the Antigravity CLI: `C:\Users\rhett\AppData\Local\agy\bin\
      agy.exe` (1.4.2, on the user PATH; the user's Google AI Pro login, cached): `agy -p "..." --model
-     gemini-4-argon-medium --output-format json --print-timeout 3m` (`agy models` lists the slugs). Gemini CLI (`gemini`,
+     gemini-3.8-flash-high --output-format json --print-timeout 3m` (`agy models` lists the slugs; the foundry's
+     default since 10-22, the user's: Argon's quota ran out). Gemini CLI (`gemini`,
      still installed) refuses AI Pro accounts since 2026-06-18. **Activities (X.1, s34)**: the families `catalog` (the workshop's goods from the recipe graph:
      `server/src/activities.ts` buildCatalog, ~31 goods beyond the keeps in the village's pinned wood `v.catalogWood`,
      each spec validated; `[catalog]` lines) and `furnish` (code-designed furniture in each house, `streetPlan.ts`

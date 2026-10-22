@@ -1056,9 +1056,9 @@ def main():
     if not a.ticket:
         raise SystemExit(__doc__)
     t = load_ticket(a.ticket)
-    model = a.model or t["model"].get(a.cli) or ("gemini-4-argon-high" if a.cli == "agy" else "claude-opus-5-5")
+    model = a.model or t["model"].get(a.cli) or ("gemini-3.8-flash-high" if a.cli == "agy" else "claude-opus-5-5")
     reviewer = a.reviewer or a.cli
-    review_model = a.review_model or ("gemini-4-argon-high" if reviewer == "agy" else "claude-opus-5-5")
+    review_model = a.review_model or ("gemini-3.8-flash-high" if reviewer == "agy" else "claude-opus-5-5")
     out = ROOT / "runs" / TODAY / "foundry" / t["id"]
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()

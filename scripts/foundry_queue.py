@@ -181,7 +181,7 @@ def skill_ticket_for(w, village, why):
                   "env": {"MC_INNOVATE": "on"}, "log_pass": rf"\[activity\] library: .*lib:{cid}\b"},
         "series": "scripts/foundry/series_base.json",
         "caps": {"minutes": 45, "turns": 500, "rounds": 3},
-        "model": {"agy": "gemini-4-argon-high", "claude": "claude-opus-5-5"},
+        "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
         "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "demandShare": w.get("demandShare"), "why": w["why"]},
     }
     return t, None
@@ -253,7 +253,7 @@ def block_ticket_for(w, village, why):
                   "env": {"MC_INNOVATE": "on"}, "log_pass": rf"\[activity\] library: .*lib:{cid}\b"},
         "series": "scripts/foundry/series_base.json",
         "caps": {"minutes": 45, "turns": 500, "rounds": 3},
-        "model": {"agy": "gemini-4-argon-high", "claude": "claude-opus-5-5"},
+        "model": {"agy": "gemini-3.8-flash-high", "claude": "claude-opus-5-5"},
         "wanted": {"village": village, "rank": w["rank"], "value": w["value"], "demand": w["demand"], "why": w["why"]},
     }
     return t, None

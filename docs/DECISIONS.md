@@ -754,3 +754,7 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   pots: no clay; a departure from E.7's examples); adoption is counted three ways (echo, retained, spontaneous) from
   tagged prompt parts; names only at night, bound to a code-offered place; G3's meetings off in Experiment 3; its sample
   size set from a pilot (8 a side if the base rate is under 8%). Order: after G2 and G3.
+- 10-22 (the user's) **The foundry's agy model is Gemini 3.8 Flash high** for writing and review (`scripts/foundry.py`'s
+  defaults and `foundry_queue.py`'s new tickets), in place of Gemini 4 Argon high: Argon's quota ran out on 10-21 (resets
+  ~10-25; Flash high and low still answer). The five earlier tickets keep their recorded model. Flash has not written a
+  ticket yet: watch its repair rounds and the gates on the first one.
