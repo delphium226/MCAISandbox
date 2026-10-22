@@ -27,7 +27,7 @@
   /* (author display rules such as .chip's beat the browser's own [hidden] rule) */
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header { background: var(--panel); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
   header h1 { font-size: 16px; margin: 0; font-weight: 650; }
   .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .chip b { color: var(--text); font-weight: 600; }
@@ -125,8 +125,6 @@
   canvas.world.dragging { cursor: grabbing; }
   .wm-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px; max-width: 340px; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
   pre.prompt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 11.5px; margin: 4px 0; }
-  /* Simple mode: the village at a glance */
-  body.simple .detailed-only { display: none !important; }
   /* #67: utilisation graphs */
   .util-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
   .util-head .chip.on { border-color: var(--accent); color: var(--accent); }
@@ -136,7 +134,6 @@
   .util-grid { stroke: var(--line); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
   .util-axis { display: flex; justify-content: space-between; }
   .util-line { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
-  body:not(.simple) .simple-only { display: none !important; }
   .progress { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin-top: 12px; }
   .progress i { display: block; height: 100%; background: var(--good); }
   .village { display: grid; gap: 14px; margin-top: 16px; }
@@ -244,6 +241,62 @@
   .rowbtn .nm { font-weight: 650; flex: none; min-width: 64px; }
   .rowbtn .doing { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tabs .fold { margin-left: auto; }
+  /* Tabs within tabs: level 1 the sections (underlined), level 2 a segmented row, level 3 filter chips (.afilter, .tab);
+     every tab is a link (#/village/tasks/failed, #/members/Ada/mind) and keeps its place whether its feature is on or off */
+  nav.l1 { position: sticky; top: 0; z-index: 5; display: flex; gap: 2px; padding: 0 16px; overflow-x: auto; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav.l1 a { display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 14px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 15px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+  nav.l1 a:hover { color: var(--text); }
+  nav.l1 a[aria-current="page"] { color: var(--text); font-weight: 650; border-bottom-color: var(--accent); }
+  .badge { font-size: 11px; font-weight: 650; line-height: 18px; color: var(--bg); background: var(--bad); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+  .badge.warn { background: var(--warn); }
+  .ncnt { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; }
+  .l2:empty { display: none; }
+  .seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .seg a { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 13px; border-radius: 7px; border: 1px solid transparent; color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .seg a:hover { color: var(--text); }
+  .seg a[aria-current="page"] { background: var(--panel); border-color: var(--line); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+  .seg .off { font-size: 10px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .card .seg { margin: 10px 0 12px; }
+  nav.l1 a:focus-visible, .seg a:focus-visible, a.mrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .flexrow { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+  .flexrow > .wide { flex: 999 1 560px; min-width: 0; }
+  .flexrow > .narrow { flex: 1 1 340px; min-width: 0; }
+  .flexrow > .card, .flexrow > .wide > .card { min-width: 0; }
+  #ovMap { flex: 1.6 1 560px; }
+  #ovWho { flex: 1 1 430px; }
+  .offbox { padding: 26px 20px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); }
+  .offbox b { display: block; margin-bottom: 4px; color: var(--text); }
+  .mlist { flex: 1 1 290px; max-width: 360px; padding: 10px 8px; }
+  a.mrow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; color: var(--text); text-decoration: none; min-width: 0; }
+  a.mrow:hover { background: var(--panel-2); }
+  a.mrow[aria-current="page"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  a.mrow .nm { font-weight: 650; flex: none; min-width: 56px; }
+  a.mrow .doing { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
+  .attn { margin: 0; padding: 0; list-style: none; }
+  .attn li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .attn li:last-child { border-bottom: 0; }
+  .attn .kind { flex: none; font-size: 10.5px; font-weight: 650; color: var(--bg); background: var(--warn); border-radius: 4px; padding: 0 6px; }
+  .attn .kind.bad { background: var(--bad); }
+  .attn .kind.info { background: var(--info); }
+  .happened .kind { display: inline-block; width: 58px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .twocol { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 6px 24px; }
+  /* (the map's activity list overlay only on the full screen: the overview shows who is doing what beside it) */
+  #worldmap .card:not(.wm-full):not(:fullscreen) .wm-acts { display: none; }
+  #worldmap h2 { margin-top: 0; }
+  @media (max-width: 700px) {
+    /* (level 1 becomes a bottom bar on a phone) */
+    nav.l1 { position: fixed; top: auto; bottom: 0; left: 0; right: 0; padding: 0; border-bottom: 0; border-top: 1px solid var(--line); }
+    nav.l1 a { flex: 1; justify-content: center; flex-direction: column; gap: 0; min-height: 54px; padding: 0 2px; font-size: 11.5px; border-bottom: 0; border-top: 2px solid transparent; }
+    nav.l1 a[aria-current="page"] { border-top-color: var(--accent); }
+    nav.l1 .badge, nav.l1 .ncnt { font-size: 9.5px; line-height: 14px; padding: 0 4px; }
+    body { padding-bottom: 60px; }
+    .seg { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+    /* (the member chosen first, the list under it; and a header of one or two rows) */
+    .mlist { max-width: none; order: 2; }
+    #mcWatch, #updated { display: none; }
+    header h1 { font-size: 15px; }
+  }
   @media (max-width: 700px) {
     .key-icons, .key-ground { grid-template-columns: 1fr; }
     .vgrid { grid-template-columns: 1fr; }
@@ -263,19 +316,23 @@
 <header>
   <h1>Agent control panel</h1>
   <span class="chip" id="world"><span class="dot"></span> connecting…</span>
-  <span class="chip" id="usage" hidden></span>
-  <span id="models" class="detailed-only"></span>
+  <span id="villagePick"></span>
+  <span class="sub" id="clock"></span>
   <span class="spacer"></span>
-  <span class="chip detailed-only" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
-  <button id="mode" title="Switch between the simple and the detailed view">Detailed view</button>
+  <span class="chip" id="usage" hidden></span>
+  <span class="chip" id="mcWatch" hidden>watch as <input type="text" id="player" placeholder="your player name" aria-label="Your Minecraft player name"></span>
   <button id="pause" title="Stop or resume refreshing">Pause</button>
   <button id="theme" title="Switch light and dark">Theme</button>
-  <span class="chip" id="updated">–</span>
+  <span class="sub" id="updated">–</span>
 </header>
+<nav class="l1" id="l1" aria-label="Panel sections"></nav>
 <main>
   <div id="error"></div>
-  <div class="simple-only" id="simple"></div>
-  <div id="wmSlotSimple">
+  <div class="l2" id="l2"></div>
+  <div id="view"></div>
+  <!-- (the overview's map row stays in the page: the map's canvas keeps its drag and zoom across the 1 s redraws) -->
+  <div class="flexrow" id="ovRow" hidden>
+    <div class="wide" id="ovMap">
     <section id="worldmap" hidden>
       <h2>World map <span class="sub" id="wmInfo" style="text-transform:none;letter-spacing:0"></span></h2>
       <div class="card">
@@ -297,15 +354,10 @@
         </div>
       </div>
     </section>
+    </div>
+    <div class="narrow card" id="ovWho"></div>
   </div>
-  <div class="detailed-only">
-    <h2>Agents <span id="agentCount" class="sub"></span><span id="agentFilter"></span></h2>
-    <div class="grid" id="agents"></div>
-    <div id="agentsFolded"></div>
-    <div id="villagesWrap"></div>
-    <div id="wmSlotDetailed"></div>
-    <div id="feedWrap"></div>
-  </div>
+  <div id="ovBottom"></div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -324,23 +376,54 @@ $('theme').onclick = () => {
   document.documentElement.dataset.theme = next;
   store.set('panel.theme', next);
 };
-// Simple (the village at a glance, the default) or detailed (everything, for debugging); remembered per browser
-let simple = location.hash === '#detailed' ? false : location.hash === '#simple' ? true : store.get('panel.mode', 'simple') === 'simple';
-const applyMode = () => {
-  document.body.classList.toggle('simple', simple);
-  $('mode').textContent = simple ? 'Detailed view' : 'Simple view';
-  $(simple ? 'wmSlotSimple' : 'wmSlotDetailed').appendChild($('worldmap')); // the world map follows the village cards
+// ---- tabs within tabs: the section (level 1), its sub-tab (level 2) and filter chips inside (level 3, openTabs['l3:...']).
+// Every tab has an address (#/village/tasks/failed, #/members/Ada/mind); each section remembers its last sub-tab ----
+const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Members'], ['society', 'Society'], ['economy', 'Economy'], ['run', 'Run']];
+const L2 = {
+  village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['land', 'Land']],
+  members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
+  society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['needs', 'Needs'], ['culture', 'Culture']],
+  economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
+  run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['flags', 'Flags']],
 };
-applyMode();
-const setMode = (s) => {
-  simple = s;
-  store.set('panel.mode', simple ? 'simple' : 'detailed');
-  history.replaceState(null, '', simple ? '#simple' : '#detailed');
-  applyMode();
+const route = (() => {
+  let s = {};
+  try { s = JSON.parse(store.get('panel.route', '{}')) || {}; } catch {}
+  const r = { top: 'overview', sub: { village: 'buildings', members: 'now', society: 'votes', economy: 'market', run: 'busy' }, member: String(s.member || ''), village: String(s.village || '') };
+  if (L1.some(([id]) => id === s.top)) r.top = s.top;
+  for (const [top, subs] of Object.entries(L2)) if (subs.some(([id]) => id === s.sub?.[top])) r.sub[top] = s.sub[top];
+  return r;
+})();
+/** The route from the address; old #simple and #detailed links open the overview and the members. */
+function readHash() {
+  const h = location.hash.replace(/^#\/?/, '');
+  if (!h) return;
+  if (h === 'simple') { route.top = 'overview'; return; }
+  if (h === 'detailed') { route.top = 'members'; return; }
+  const p = h.split('/').map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
+  if (!L1.some(([id]) => id === p[0])) return;
+  route.top = p[0];
+  const ok = (id) => (L2[p[0]] || []).some(([s]) => s === id);
+  if (p[0] === 'members') { if (p[1]) route.member = p[1]; if (ok(p[2])) route.sub.members = p[2]; }
+  else if (ok(p[1])) {
+    route.sub[p[0]] = p[1];
+    if (p[1] === 'tasks' && TASK_FILTERS.some(([id]) => id === p[2])) openTabs['l3:tasks'] = p[2];
+  }
+}
+const saveRoute = () => store.set('panel.route', JSON.stringify(route));
+/** A tab's address: a section (its remembered sub-tab), a sub-tab, or a member's sub-tab. */
+function hrefOf(top, sub, member) {
+  if (top === 'members') return `#/members/${encodeURIComponent(member ?? route.member)}/${sub || route.sub.members}`;
+  return L2[top] ? `#/${top}/${sub || route.sub[top]}` : `#/${top}`;
+}
+/** Fetch what the open tab shows and nothing else (model calls, memory, votes, the member's map). */
+const kick = () => { refreshMaps(); refreshCalls(); refreshExtras(); };
+window.addEventListener('hashchange', () => {
+  readHash(); saveRoute();
   if (lastData) render(lastData);
-  if (!simple) { refreshMaps(); refreshCalls(); refreshExtras(); }
-};
-$('mode').onclick = () => setMode(!simple);
+  window.scrollTo(0, 0);
+  kick();
+});
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
 $('player').value = store.get('panel.player', '');
 $('player').onchange = () => store.set('panel.player', $('player').value.trim());
@@ -400,92 +483,103 @@ function renderRescues(r) {
   return `<dl class="kv"><dt>rescues</dt><dd>${r.walked ?? 0} walked out, ${r.climbed ?? 0} climbed out, <span style="color:${r.teleported ? 'var(--bad)' : 'inherit'}">${r.teleported ?? 0} teleported</span>${r.failed ? `, ${r.failed} failed` : ''}${r.last ? `<div class="sub">${esc(r.last)}</div>` : ''}</dd></dl>`;
 }
 
-// Drill-down tabs (the detailed view): each card shows a summary and a row of tabs; a tab's content is drawn only while
-// it is open (one per card; a second click closes it); remembered per browser
+// Level 3: filter chips inside a tab (a second click keeps the chip; the choice is remembered per browser)
 const openTabs = (() => { try { return JSON.parse(store.get('panel.tabs', '{}')) || {}; } catch { return {}; } })();
-function tabBar(key, items, extra = '') {
-  const cur = openTabs[key];
-  return `<div class="tabs">${items.filter(Boolean).map(([id, label]) =>
-    `<button type="button" class="tab${cur === id ? ' on' : ''}" aria-expanded="${cur === id}" data-tabkey="${esc(key)}" data-tab="${esc(id)}">${label}</button>`).join('')}${extra}</div>`;
+const chipOf = (key, def) => openTabs[key] || def;
+function chipRow(key, def, items, label = 'Filter') {
+  const cur = chipOf(key, def);
+  return `<div class="afilter" role="group" aria-label="${esc(label)}">${items.filter(Boolean).map(([id, text, n]) =>
+    `<button type="button" class="tab${cur === id ? ' on' : ''}" aria-pressed="${cur === id}" data-tabkey="${esc(key)}" data-tab="${esc(id)}" data-keep="1">${text}${n != null ? ` <span class="cnt">${n}</span>` : ''}</button>`).join('')}</div>`;
 }
-const tabOpen = (key) => openTabs[key];
-// Detailed view: a card shows in full when pinned open, or with 8 agents or fewer until it is folded; the others fold to
-// a line each (E.1: 25 full cards were a long scroll, and only open cards fetch their map or model calls)
-const cardPrefs = (() => { try { return JSON.parse(store.get('panel.cards', '{}')) || {}; } catch { return {}; } })();
-const cardOpen = (name, n) => (cardPrefs[name] ? cardPrefs[name] === 'open' : n <= 8);
-/** The agents whose full card is on the page (the activity filter and folding applied). */
-function openCardNames() {
-  const agents = (lastData && lastData.agents) || [];
-  return agents.filter((a) => actShown(a) && cardOpen(a.name, agents.length)).map((a) => a.name);
+/** The member the Members tab shows: the one in the address, else the first (the mayor). */
+function selectedAgent(d = lastData) {
+  const as = (d && d.agents) || [];
+  return as.find((a) => a.name === route.member) || as.slice().sort(byAgent)[0] || null;
+}
+/** What the open member tab needs fetched: its map, memory, votes, a model call. */
+function memberNeeds() {
+  if (route.top !== 'members') return new Set();
+  return new Set({ now: ['map'], mind: ['mind'], social: ['mind', 'votes'], chores: ['mind', 'choice'], model: [chipOf('l3:model', 'thoughts')], log: [] }[route.sub.members] || []);
 }
 
-function renderAgent(a) {
+/** One member: what it is doing, its vitals and actions, then its sub-tabs (Now, Mind, Social, Chores, Model, Log). */
+function memberView(a) {
   const st = a.status || { state: agentState(a), detail: a.brain ? '' : 'no brain: controlled through the API' };
   const color = STATE_COLORS[st.state] || 'var(--idle)';
   const invList = a.inventory || [];
-  const key = `agent:${a.name}`;
-  const k = (s) => `${a.name}:${s}`;
-  const events = (a.events || []).slice(-15).reverse().map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">[${esc(e.type)}]</span> ${esc(e.text)}</li>`).join('');
-  const decisions = (st.recentDecisions || []).slice().reverse().map((d) => `<li>${esc(d)}</li>`).join('');
-  const blocked = (st.blockedCalls || []).map((b) => `<li>${esc(b)}</li>`).join('');
-  const inv = invList.map(([n, c]) => `<span class="tag">${esc(n)} ${c}</span>`).join('') + (a.inventoryKinds > invList.length ? ` <span class="sub">+${a.inventoryKinds - invList.length} more</span>` : '');
-  const r = st.reasoning;
-  const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)${st.models.design ? `, ${esc(st.models.design)} (designer)` : ''}` +
-    (r ? ` · reasoning exec ${esc(r.exec)}, plan ${esc(r.plan)}, design ${esc(r.design)}` : '') : '';
-  const watch = world?.kind === 'minecraft' ? `<button data-act="watch" data-agent="${esc(a.name)}" title="Spectate this agent in the game">Watch</button>` : '';
+  const sub = route.sub.members;
   const s = a.stats || {};
   const n = (x) => s[x] ?? 0;
   const cur = a.currentAction;
   const where = a.position ? `${Math.round(a.position.x)}, ${Math.round(a.position.y)}, ${Math.round(a.position.z)}` : '?';
-  const tab = tabOpen(key);
+  const watch = world?.kind === 'minecraft' ? `<button data-act="watch" data-agent="${esc(a.name)}" title="Spectate this agent in the game">Watch in game</button>` : '';
+  const r = st.reasoning;
+  const models = st.models ? `${esc(st.models.exec)} (executor), ${esc(st.models.plan)} (planner)${st.models.design ? `, ${esc(st.models.design)} (designer)` : ''}` +
+    (r ? ` · reasoning exec ${esc(r.exec)}, plan ${esc(r.plan)}, design ${esc(r.design)}` : '') : '';
+  const mind = mindParts(a);
+  const label = (t, extra = '') => `<div class="label">${t}${extra ? ` <span class="sub">${extra}</span>` : ''}</div>`;
   let body = '';
-  if (tab === 'plan') body = `${a.objective ? `<div class="label">Objective</div><div>${esc(a.objective)}</div>` : ''}
-    ${a.task ? `<div class="label">Task ${esc(a.task.id)} (${esc(a.task.status)})</div><div><b>${esc(a.task.title)}</b>: ${esc(a.task.detail)}</div>` : ''}
-    <div class="label">Plan</div>${renderPlan(a.plan)}
-    ${blocked ? `<div class="label">Blocked calls (failed twice, refused for 5 min)</div><ul class="list mono">${blocked}</ul>` : ''}`;
-  else if (tab === 'brain') body = `<dl class="kv">
-      ${models ? `<dt>models</dt><dd>${models}</dd>` : ''}
-      <dt>state</dt><dd>${esc(st.detail || st.state)}</dd>
-      ${st.lastError ? `<dt>last error</dt><dd>${esc(st.lastError)}</dd>` : ''}
-      <dt>last plan because</dt><dd>${esc(st.lastPlanReason || '–')}${st.lastPlanAt ? ` <span class="sub">(${ago(st.lastPlanAt)} ago)</span>` : ''}</dd>
-      ${st.nextReplanReason ? `<dt>will replan</dt><dd>${esc(st.nextReplanReason)}</dd>` : ''}
-      <dt>failures since plan</dt><dd>${st.failuresSincePlan ?? 0}</dd>
-      ${st.lastProgressAt ? `<dt>last step progress</dt><dd>${ago(st.lastProgressAt)} ago</dd>` : ''}
-      ${st.urgent ? `<dt>urgent</dt><dd>yes (chat or damage to answer)</dd>` : ''}
-      ${a.notes ? `<dt>long-term notes</dt><dd>${esc(a.notes)}</dd>` : ''}
-    </dl>`;
-  else if (tab === 'exec') body = seenBody(fullCall(a.name, 'executor', st.lastExecutorCall));
-  else if (tab === 'planner') body = seenBody(fullCall(a.name, 'planner', st.lastPlannerCall));
-  else if (tab === 'decisions') body = decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>';
-  else if (tab === 'events') body = events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>';
-  else if (tab === 'inv') body = `${a.holding ? `<div class="sub">holding ${esc(a.holding)}</div>` : ''}${inv || '<div class="empty">empty</div>'}`;
-  else if (tab === 'map') body = `<div class="mapwrap">
-      <canvas class="map" width="196" height="196" data-map="${esc(a.name)}" title="Top-down view, north up, about 49 blocks across"></canvas>
-      <div class="legend">
-        <i style="background:#fff;border:1px solid #000"></i><span>${esc(a.name)} (arrow: facing)</span>
-        <i style="background:#e0453a"></i><span>hostile mob</span>
-        <i style="background:#f2c14e"></i><span>animal</span>
-        <i style="background:#39c5d6"></i><span>player or agent</span>
-        <i style="border:2px solid #e14fd8"></i><span>current target</span>
-        <i style="border:2px solid #4cc27f"></i><span>prepared plot</span>
-        <i style="background:rgba(140,90,40,.55);border:1px solid #8c5a28"></i><span>building</span>
-        <i style="border:2px dashed #f39c34"></i><span>ground being worked</span>
-      </div></div>`;
-  else if (tab === 'stats') body = renderStats(a.stats) + renderRescues(a.rescues);
-  else if (tab === 'choice') body = choiceBody(a);
-  else if (tab === 'thoughts') body = thoughtsBody(a);
-  else if (tab === 'mind') body = mindBody(a);
-  else if (tab === 'votes') body = a.village ? votesBody(a.village, a.name) : '<div class="empty">in no village</div>';
-  return `<div class="card dcard">
-    <div class="card-head">
+  if (sub === 'now') {
+    const inv = invList.map(([nm, c]) => `<span class="tag">${esc(nm)} ${c}</span>`).join('') + (a.inventoryKinds > invList.length ? ` <span class="sub">+${a.inventoryKinds - invList.length} more</span>` : '');
+    const blocked = (st.blockedCalls || []).map((b) => `<li>${esc(b)}</li>`).join('');
+    body = `<div class="flexrow"><div class="wide">
+        ${a.today ? `${label('Today\'s intention')}<div>${esc(a.today.text)}</div>` : ''}
+        ${a.objective ? `${label('Objective')}<div>${esc(a.objective)}</div>` : ''}
+        ${a.task ? `${label(`Task ${esc(a.task.id)} (${esc(a.task.status)})`)}<div><b>${esc(a.task.title)}</b>: ${esc(a.task.detail)}</div>` : ''}
+        ${label('Plan')}${renderPlan(a.plan)}
+        ${blocked ? `${label('Blocked calls', '(failed twice, refused for 5 min)')}<ul class="list mono">${blocked}</ul>` : ''}
+        ${label('Inventory', `${a.inventoryKinds ?? 0} kinds`)}${a.holding ? `<div class="sub">holding ${esc(a.holding)}</div>` : ''}${inv || '<div class="empty">empty</div>'}
+      </div>
+      <div class="mapwrap">
+        <canvas class="map" width="196" height="196" data-map="${esc(a.name)}" title="Top-down view, north up, about 49 blocks across"></canvas>
+        <div class="legend">
+          <i style="background:#fff;border:1px solid #000"></i><span>${esc(a.name)} (arrow: facing)</span>
+          <i style="background:#e0453a"></i><span>hostile mob</span>
+          <i style="background:#f2c14e"></i><span>animal</span>
+          <i style="background:#39c5d6"></i><span>player or agent</span>
+          <i style="border:2px solid #e14fd8"></i><span>current target</span>
+          <i style="border:2px solid #4cc27f"></i><span>prepared plot</span>
+          <i style="background:rgba(140,90,40,.55);border:1px solid #8c5a28"></i><span>building</span>
+          <i style="border:2px dashed #f39c34"></i><span>ground being worked</span>
+        </div></div></div>`;
+  } else if (sub === 'mind') body = mind.state || `${mind.persona}${mind.journal || '<div class="empty">no journal (MC_MEMORY off)</div>'}${mind.fields}`;
+  else if (sub === 'social') body = (mind.state || mind.social || '<div class="empty">nothing social recorded (MCAI_SOCIAL off, or nobody met yet)</div>')
+    + (a.village ? `${label('Its ballots')}${votesBody(a.village, a.name)}` : '');
+  else if (sub === 'chores') body = `${label('Its last chore menu')}${choiceBody(a)}${mind.state || `${mind.temper}${mind.chores}`}`;
+  else if (sub === 'model') {
+    const m = chipOf('l3:model', 'thoughts');
+    const decisions = (st.recentDecisions || []).slice().reverse().map((x) => `<li>${esc(x)}</li>`).join('');
+    body = chipRow('l3:model', 'thoughts', [['thoughts', 'Thoughts'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', 'Decisions', (st.recentDecisions || []).length], ['brain', 'Brain']], 'Which model calls')
+      + (m === 'exec' ? seenBody(fullCall(a.name, 'executor', st.lastExecutorCall))
+        : m === 'planner' ? seenBody(fullCall(a.name, 'planner', st.lastPlannerCall))
+        : m === 'decisions' ? (decisions ? `<ul class="list mono">${decisions}</ul>` : '<div class="empty">none yet</div>')
+        : m === 'brain' ? `<dl class="kv">
+            ${models ? `<dt>models</dt><dd>${models}</dd>` : ''}
+            <dt>state</dt><dd>${esc(st.detail || st.state)}</dd>
+            ${st.lastError ? `<dt>last error</dt><dd>${esc(st.lastError)}</dd>` : ''}
+            <dt>last plan because</dt><dd>${esc(st.lastPlanReason || '–')}${st.lastPlanAt ? ` <span class="sub">(${ago(st.lastPlanAt)} ago)</span>` : ''}</dd>
+            ${st.nextReplanReason ? `<dt>will replan</dt><dd>${esc(st.nextReplanReason)}</dd>` : ''}
+            <dt>failures since plan</dt><dd>${st.failuresSincePlan ?? 0}</dd>
+            ${st.lastProgressAt ? `<dt>last step progress</dt><dd>${ago(st.lastProgressAt)} ago</dd>` : ''}
+            ${st.urgent ? '<dt>urgent</dt><dd>yes (chat or damage to answer)</dd>' : ''}
+            ${a.notes ? `<dt>long-term notes</dt><dd>${esc(a.notes)}</dd>` : ''}
+          </dl>`
+        : thoughtsBody(a));
+  } else if (sub === 'log') {
+    const events = (a.events || []).slice(-15).reverse().map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">[${esc(e.type)}]</span> ${esc(e.text)}</li>`).join('');
+    body = `${label('Its last events')}${events ? `<ul class="list">${events}</ul>` : '<div class="empty">none</div>'}${label('Model calls and actions')}${renderStats(a.stats)}${renderRescues(a.rescues)}`;
+  }
+  const segs = L2.members.map(([id, text]) => `<a href="${hrefOf('members', id, a.name)}" data-nav="ms:${id}"${sub === id ? ' aria-current="page"' : ''}>${text}</a>`).join('');
+  return `<div class="card-head">
       <i class="adot" style="background:${agentColor(a.name)}" title="its colour on the maps"></i><span class="name">${esc(a.name)}</span>
       <span class="sub">${esc(a.villageRole || a.role)}${a.village ? ` of ${esc(a.village)}` : ''} · ${esc(a.brain || 'no brain')} · ${esc(a.gamemode)}</span>
-      <span class="spacer"></span>
       <span class="state" style="--c:${color}">${esc(st.state)}</span>${st.since ? `<span class="sub">${ago(st.since)}</span>` : ''}
+      <span class="spacer"></span>
+      <span class="acts">${watch}<button data-act="stop" data-agent="${esc(a.name)}" title="Cancel the current and queued actions">Stop actions</button>
+      <button class="danger" data-act="remove" data-agent="${esc(a.name)}" title="Take the agent out of the world (asks first)">Remove…</button></span>
     </div>
-    <div class="now">
+    <div class="now" style="margin-top:6px">
       <div><b>${esc(a.dead ? 'Dead' : doingWords(a))}</b>${flags(a)}${cur ? ` <span class="mono sub">${esc(cur.type)} ${esc(fmtArgs(cur.args).slice(0, 120))}</span>` : ''}${a.queued ? ` <span class="sub">+${a.queued} queued</span>` : ''}</div>
-      ${a.task ? `<div class="sub">task ${esc(a.task.id)}: ${esc(a.task.title)}</div>` : ''}
       ${choiceLine(a)}
       ${intentLine(a)}
       ${utilLine(a.name)}
@@ -494,24 +588,29 @@ function renderAgent(a) {
     </div>
     ${appetiteBar(a)}
     ${st.lastError ? `<div class="warnbox clamp" title="${esc(st.lastError)}">${esc(st.lastError)}</div>` : ''}
-    <div class="vitals">
-      <span title="health">♥ ${a.health}</span><span title="food">🍗 ${a.food}</span>
+    <div class="vitals" style="margin-top:4px">
+      <span title="health">health ${a.health}</span><span title="food">food ${a.food}</span>
       ${(() => { const p = appetiteOf(a); return p ? `<span title="the village appetite: eats at 12, only food work at 6" style="color:${APPETITE_COLORS[p.state]}">appetite ${p.level.toFixed(1)}/20 ${p.state}, ${plural(p.meals, 'meal')}</span>` : ''; })()}
       <span class="mono" title="position">${where}</span>
       <span title="failures since the last plan"${(st.failuresSincePlan || 0) >= 3 ? ' class="bad"' : ''}>${st.failuresSincePlan ?? 0} fails</span>
-      <span title="executor calls and their average time, ~${n('execOutTokensAvg')} output tokens a turn">exec ${n('execCalls')} × ${Math.round(n('execMsAvg') / 100) / 10}s</span>
       <span title="actions done / failed">${n('actionsDone')} done${n('actionsFailed') ? ` · <span class="bad">${n('actionsFailed')} failed</span>` : ''}</span>
+      ${a.buildSpeed ? `<span>buildSpeed ${esc(a.buildSpeed)}</span>` : ''}
     </div>
-    ${tabBar(key, [['plan', 'Plan'], ['brain', 'Brain'], ['thoughts', 'Thoughts'], ['mind', 'Memory'], ['exec', 'Executor saw'], ['planner', 'Planner saw'], ['decisions', `Decisions <span class="cnt">${(st.recentDecisions || []).length}</span>`],
-      (a.choice || tab === 'choice') && ['choice', 'Choice'], a.village && ['votes', 'Votes'], ['events', 'Events'], ['inv', `Inventory <span class="cnt">${a.inventoryKinds ?? 0}</span>`], ['map', 'Map'], ['stats', 'Stats']],
-      `<button type="button" class="tab fold" data-card="${esc(a.name)}" data-cardto="closed" title="Fold this card to one line">Fold ▴</button>`)}
-    ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
-    <div class="acts">${watch}
-      <button data-act="stop" data-agent="${esc(a.name)}" title="Cancel the current and queued actions">Stop actions</button>
-      ${a.buildSpeed ? `<span class="sub">buildSpeed ${esc(a.buildSpeed)}</span>` : ''}
-      <span class="spacer"></span>
-      <button class="danger" data-act="remove" data-agent="${esc(a.name)}" title="Take the agent out of the world (asks first)">Remove…</button></div>
-  </div>`;
+    <nav class="seg" aria-label="About ${esc(a.name)}">${segs}</nav>
+    <div data-scroll="member:${esc(a.name)}:${esc(sub)}">${body}</div>`;
+}
+/** The Members tab: the list (by activity, with its filter chips) and the member chosen. */
+function membersView(d) {
+  const a = selectedAgent(d);
+  const shown = d.agents.filter(actShown).sort(byAgent);
+  const groups = ACTIVITIES.map(([k, label]) => [label, shown.filter((x) => activityOf(x) === k)]).filter(([, g]) => g.length);
+  const row = (x) => `<a class="mrow" href="${hrefOf('members', null, x.name)}" data-nav="m:${esc(x.name)}"${a && x.name === a.name ? ' aria-current="page"' : ''}>`
+    + `<i class="adot" style="background:${agentColor(x.name)}"></i><span class="nm">${esc(x.name)}</span><span class="doing" title="${esc(x.dead ? 'Dead' : doingWords(x))}">${esc(x.dead ? 'Dead' : doingWords(x))}</span>`
+    + `<span class="state" style="--c:${STATE_COLORS[agentState(x)] || 'var(--idle)'}">${esc(agentState(x))}</span></a>`;
+  const list = groups.length ? groups.map(([label, g]) => `<div class="who-group">${label} <span class="cnt">${g.length}</span></div>${g.map(row).join('')}`).join('')
+    : '<div class="empty">No member is on that activity now.</div>';
+  return `<div class="flexrow"><section class="card mlist" aria-label="Members">${d.agents.length > 1 ? actChips(d.agents, 'members') : ''}${list}</section>
+    <section class="card wide" aria-label="${esc(a ? a.name : 'No member')}">${a ? memberView(a) : '<div class="empty">No agents are running.</div>'}</section></div>`;
 }
 // The last model calls in full (prompt and reply), fetched per agent only while its "saw" tab is open: the overview
 // carries just their time and tokens (E.1). An agent server from before E.1 still sends them whole in the overview.
@@ -522,18 +621,16 @@ function fullCall(name, kind, summary) {
   const f = fullCalls.get(name);
   return (f && f[kind]) || { ...summary, loading: true };
 }
-/** Agents whose open card shows a "saw" tab with only the summary in the overview. */
+/** The member shown, when its open tab shows a "saw" call with only the summary in the overview, or its chore menu. */
 async function refreshCalls() {
-  if (paused || simple || !lastData) return;
-  const open = new Set(openCardNames());
-  const want = lastData.agents.filter((a) => {
-    const tab = openTabs[`agent:${a.name}`];
-    const s = tab === 'exec' ? a.status?.lastExecutorCall : tab === 'planner' ? a.status?.lastPlannerCall : null;
-    return s && s.prompt === undefined && open.has(a.name);
-  });
-  // (A2: the Choice tab's decision, fetched again only when the agent's last decision is another one)
-  const wantChoice = lastData.agents.filter((a) => openTabs[`agent:${a.name}`] === 'choice' && open.has(a.name) && a.choice
-    && fullDecisions.get(a.name)?.key !== choiceKey(a.choice));
+  if (paused || !lastData) return;
+  const need = memberNeeds(), sel = selectedAgent();
+  const want = sel ? [sel].filter((a) => {
+    const s = need.has('exec') ? a.status?.lastExecutorCall : need.has('planner') ? a.status?.lastPlannerCall : null;
+    return s && s.prompt === undefined;
+  }) : [];
+  // (A2: the chore menu's decision, fetched again only when the agent's last decision is another one)
+  const wantChoice = sel && need.has('choice') && sel.choice && fullDecisions.get(sel.name)?.key !== choiceKey(sel.choice) ? [sel] : [];
   if (!want.length && !wantChoice.length) return;
   await Promise.all([...want.map(async (a) => {
     try { fullCalls.set(a.name, await api(`/api/agents/${encodeURIComponent(a.name)}/calls`)); } catch {}
@@ -640,14 +737,6 @@ function choicesChip(v) {
     s.queueWaitP90 ? `wait p90 ${Math.round(s.queueWaitP90 / 100) / 10} s` : ''].filter(Boolean).join('; ');
   return `<span class="chip choices" title="${esc(title)}">chores chosen: ${esc(parts.join(', '))}${esc(bias)}</span>`;
 }
-/** A folded agent: one line that opens its card. */
-function foldedRow(a) {
-  const state = agentState(a);
-  return `<li><button type="button" class="rowbtn" data-card="${esc(a.name)}" data-cardto="open" title="Open ${esc(a.name)}'s card">
-    <i class="adot" style="background:${agentColor(a.name)}"></i><span class="nm">${esc(a.name)}</span>${appetiteBar(a, true)}
-    <span class="state" style="--c:${STATE_COLORS[state] || 'var(--idle)'}">${esc(state)}</span>
-    <span class="doing">${esc(a.dead ? 'Dead' : doingWords(a))}${a.task ? ` <span class="sub">· ${esc(a.task.title)}</span>` : ''}</span>${flags(a)}</button></li>`;
-}
 /** The last model call: the prompt and the answer. */
 function seenBody(c) {
   if (!c) return '<div class="empty">no call yet</div>';
@@ -672,17 +761,21 @@ async function fetchExtra(key, path) {
   return true;
 }
 async function refreshExtras() {
-  if (paused || simple || !lastData) return;
-  const open = new Set(openCardNames());
+  if (paused || !lastData) return;
   const jobs = [];
-  for (const a of lastData.agents || []) {
-    if (!open.has(a.name)) continue;
-    const tab = openTabs[`agent:${a.name}`], q = encodeURIComponent(a.name);
-    if (tab === 'thoughts') jobs.push(fetchExtra(`thoughts:${a.name}`, `/api/agents/${q}/thoughts`));
-    if (tab === 'mind') jobs.push(fetchExtra(`mind:${a.name}`, `/api/agents/${q}/mind`));
-    if (tab === 'votes' && a.village) jobs.push(fetchExtra(`votes:${a.village}`, `/api/votes?village=${encodeURIComponent(a.village)}`));
+  const mind = (name) => fetchExtra(`mind:${name}`, `/api/agents/${encodeURIComponent(name)}/mind`);
+  const votes = (vn) => fetchExtra(`votes:${vn}`, `/api/votes?village=${encodeURIComponent(vn)}`);
+  const need = memberNeeds(), a = selectedAgent();
+  if (a) {
+    if (need.has('thoughts')) jobs.push(fetchExtra(`thoughts:${a.name}`, `/api/agents/${encodeURIComponent(a.name)}/thoughts`));
+    if (need.has('mind')) jobs.push(mind(a.name));
+    if (need.has('votes') && a.village) jobs.push(votes(a.village));
   }
-  for (const v of lastData.villages || []) if (openTabs[`village:${v.name}`] === 'votes') jobs.push(fetchExtra(`votes:${v.name}`, `/api/votes?village=${encodeURIComponent(v.name)}`));
+  // (the village's proposals and rules come with any member's memory view; Run > Flags reads its modes from it too)
+  const v = curVillage(lastData), sub = route.sub[route.top];
+  if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
+  const vm = v && villageMember(v);
+  if (vm && ((route.top === 'society' && (sub === 'proposals' || sub === 'rules')) || (route.top === 'run' && sub === 'flags'))) jobs.push(mind(vm.name));
   if (!jobs.length) return;
   if ((await Promise.all(jobs)).some(Boolean) && lastData) render(lastData);
 }
@@ -738,10 +831,11 @@ function thoughtsBody(a) {
         + det(`thought:sys:${a.name}:${c.at}`, 'its system prompt', `<pre class="prompt" data-scroll="ts:${esc(a.name)}:${c.at}">${esc(c.system)}</pre>`));
     }).join('');
 }
-/** What an agent carries: persona and temperament, the chores it has done, every memory field. */
-function mindBody(a) {
+/** What an agent carries, in the parts the member's tabs show: persona, journal and memory fields (Mind), social (Social),
+ *  temperament and chores (Chores), and the village's proposals and rules (Society); { state } while it is fetched. */
+function mindParts(a) {
   const st = extraState(`mind:${a.name}`);
-  if (st) return st;
+  if (st) return { state: st };
   const d = extraData.get(`mind:${a.name}`).data;
   const t = d.temperament || {};
   const traits = t.vector ? Object.entries(t.vector).map(([k, x]) => `${esc(k)} <b>${x > 0 ? '+' : ''}${Number(x).toFixed(2)}</b>`).join(' · ') : '';
@@ -775,10 +869,14 @@ function mindBody(a) {
   // (G3: the village's rules and laws)
   const ru = d.rules;
   const rulesCard = ru && (ru.inForce.length || ru.laws.length) ? `<div class="label">Rules <span class="sub">(G3; the village's)</span></div>${ru.council ? `<div class="sub">${esc(ru.council)}</div>` : ''}<ul class="list">${ru.inForce.map((r) => `<li class="sub"><b>${esc(r.id)}</b> in force: ${esc(r.text)}${r.votes ? ` <span class="sub">(${r.votes.yes} to ${r.votes.no})</span>` : ''}</li>`).join('')}${ru.laws.map((l) => `<li class="sub"><b>${esc(l.id)}</b> ${esc(l.by)}: ${esc(l.text)} <span class="sub">${esc(l.status)}${l.refused ? ` (${esc(l.refused)})` : ''}, backers ${l.backers}${l.opposers ? `, against ${l.opposers}` : ''}${l.result ? `; voted ${l.result.yes} to ${l.result.no}` : ''}</span></li>`).join('')}</ul>` : '';
-  return `${t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : ''}${journal}${social}${props}${rulesCard}`
-    + `${traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : ''}`
-    + `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`
-    + `<div class="label">Memory <span class="sub">(every field it keeps: plan, notes, site, stats...)</span></div>${fields || '<div class="empty">empty</div>'}`;
+  return {
+    data: d, social, props, rulesCard,
+    persona: t.persona ? `<div class="label">Persona</div><div>${esc(t.persona)}</div>` : '',
+    journal,
+    temper: traits ? `<div class="label">Temperament <span class="sub">(${esc(t.mode)})</span></div><div class="sub">${traits}</div><div class="sub">chore weights: ${weights}</div>` : '',
+    chores: `<div class="label">Chores it has done <span class="sub">(newest first)</span></div>${chores ? `<ul class="list">${chores}</ul>` : '<div class="empty">none yet</div>'}`,
+    fields: det(`mind:fields:${a.name}`, 'Every memory field it keeps (raw: plan, notes, site, stats...)', fields || '<div class="empty">empty</div>'),
+  };
 }
 
 /** The storage hut's table and furnace once they stand (S.5: placed before the hut), for the storage tab's line. */
@@ -823,134 +921,174 @@ function wealthTable(e, limit) {
 }
 /** The flags line: which parts of the economy are on. */
 const econFlags = (f) => [f.own && `own stock (share ${Math.round(f.share * 100)}%)`, f.barter && 'barter', f.special && f.special !== 'off' && `specialists: ${f.special}`, f.sales && `sales (levy ${Math.round(f.levy * 100)}%)`, f.ownFarm && 'own farms', f.innovate && `innovation (royalty ${Math.round(f.royalty * 100)}%)`, f.goals && 'life goals'].filter(Boolean).join(' · ');
-/** The Economy tab's body. */
-function economyBody(v) {
+/** The Economy tabs' parts (the agent server's economyView): wealth, the barter board, research, life goals; '' for one off. */
+function economyParts(v) {
   const e = v.economy;
-  if (!e) return '<div class="empty">The economy is off (MC_OWN, MC_BARTER, MC_INNOVATE, MC_GOALS all off)</div>';
   const t = e.totals;
   const stat = (n, label, title = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span></div>`;
   const b = e.board, inv = e.innovation;
-  const sec = (label, html) => `<div class="section"><div class="label">${label}</div>${html}</div>`;
-  return `<div class="sub">${esc(econFlags(e.flags))}</div>
-    <div class="stats left">${stat(t.worth, 'total worth', "members' own chests at the board's prices")}${stat(t.emeralds, 'emeralds held')}${stat(t.owed, 'goods owed')}${stat(t.gini, 'inequality', 'Gini coefficient of chest worth: 0 all equal, 1 one member holds everything')}${b ? stat(`${b.taken}/${b.posted}`, 'offers taken') : ''}${inv ? stat(inv.unlocked.length, 'inventions') : ''}</div>
-    ${sec(`Members' wealth <span class="cnt">${e.members.length}</span>`, e.members.length ? wealthTable(e) : '<div class="empty">no member has a house of its own yet</div>')}
-    ${b ? sec('Barter board', `<div class="sub">${b.posted} posted, ${b.taken} taken, ${b.lapsed} lapsed; traded ${Object.entries(b.traded || {}).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, q]) => `${esc(words(k))} ${q}`).join(', ') || 'nothing yet'}</div>
+  return {
+    wealth: `<div class="sub">on: ${esc(econFlags(e.flags)) || 'nothing'}</div>
+    <div class="stats left" style="margin:8px 0">${stat(t.worth, 'total worth', "members' own chests at the board's prices")}${stat(t.emeralds, 'emeralds held')}${stat(t.owed, 'goods owed')}${stat(t.gini, 'inequality', 'Gini coefficient of chest worth: 0 all equal, 1 one member holds everything')}${b ? stat(`${b.taken}/${b.posted}`, 'offers taken') : ''}${inv ? stat(inv.unlocked.length, 'inventions') : ''}</div>
+    <div class="label">Members' wealth <span class="cnt">${e.members.length}</span></div>${e.members.length ? `<div style="overflow-x:auto">${wealthTable(e)}</div>` : '<div class="empty">no member has a house of its own yet</div>'}`,
+    board: !b ? '' : `<div class="sub">${b.posted} posted, ${b.taken} taken, ${b.lapsed} lapsed; traded ${Object.entries(b.traded || {}).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, q]) => `${esc(words(k))} ${q}`).join(', ') || 'nothing yet'}</div>
       ${b.prices.length ? `<div class="sub">prices off par: ${b.prices.map((p) => `${esc(words(p.item))} ×${p.factor} (${p.price})`).join(', ')}</div>` : ''}
       ${b.open.length ? `<div class="label">Open offers</div><ul class="list">${b.open.map((o) => `<li><b>${esc(o.by)}</b> offers ${esc(o.text)} <span class="sub">${ago(Date.now() - o.age)} ago</span></li>`).join('')}</ul>` : '<div class="sub">no open offers</div>'}
-      ${b.recent.length ? `<div class="label">Recent trades</div><ul class="list">${b.recent.map((o) => `<li><b>${esc(o.takenBy || '?')}</b> took ${esc(o.by)}'s ${esc(o.text)} <span class="sub">${ago(o.at)} ago</span></li>`).join('')}</ul>` : ''}`) : ''}
-    ${inv ? sec('Inventions', `${inv.unlocked.length ? `<ul class="list">${inv.unlocked.map((u) => `<li><b>${esc(u.name)}</b> <span class="state" style="--c:var(--done)">unlocked</span> <span class="sub">inventor ${esc(u.inventor || '?')}, ${plural(u.researchers, 'researcher')}, ${ago(u.at)} ago</span></li>`).join('')}</ul>` : '<div class="sub">nothing unlocked yet</div>'}
+      ${b.recent.length ? `<div class="label">Recent trades</div><ul class="list">${b.recent.map((o) => `<li><b>${esc(o.takenBy || '?')}</b> took ${esc(o.by)}'s ${esc(o.text)} <span class="sub">${ago(o.at)} ago</span></li>`).join('')}</ul>` : ''}`,
+    research: !inv ? '' : `${inv.unlocked.length ? `<ul class="list">${inv.unlocked.map((u) => `<li><b>${esc(u.name)}</b> <span class="state" style="--c:var(--done)">unlocked</span> <span class="sub">inventor ${esc(u.inventor || '?')}, ${plural(u.researchers, 'researcher')}, ${ago(u.at)} ago</span></li>`).join('')}</ul>` : '<div class="sub">nothing unlocked yet</div>'}
       ${inv.research.length ? `<div class="label">Research under way</div><ul class="list">${inv.research.map((r) => `<li><b>${esc(r.name)}</b> ${r.need ? `${wealthBar(r.points, r.need)} ` : ''}<span class="mono">${r.points}${r.need ? `/${r.need}` : ''} pts</span> <span class="sub">${esc(r.researchers.join(', '))}${r.pledges.length ? `; pledges ${esc(r.pledges.join(', '))}` : ''}</span></li>`).join('')}</ul>` : ''}
-      ${inv.locked.length ? `<div class="sub">not started: ${inv.locked.map((l) => `${esc(l.name)}${l.after.length || l.tools.length ? ` (after ${esc([...l.after, ...l.tools].join(', '))})` : ''}`).join(', ')}</div>` : ''}`) : ''}
-    ${e.goals ? sec('Life goals', `<div class="mats">${e.goals.map((g) => `<span>${goalChip(g.goal)} <b>${g.n}</b></span>`).join('')}</div>`) : ''}`;
-}
-/** The simple view's economy card: totals, the ten richest, inventions and the board in a line each. */
-function economyCard(v) {
-  const e = v.economy;
-  if (!e) return '';
-  const t = e.totals, inv = e.innovation, b = e.board;
-  return `<div class="card"><div class="label">Economy</div>
-    <div class="sub">total worth <b>${t.worth}</b> · ${plural(t.emeralds, 'emerald')} · inequality ${t.gini}${b ? ` · ${b.taken} of ${b.posted} offers taken` : ''}</div>
-    ${e.members.length ? wealthTable(e, 10) : ''}
-    ${inv ? `<div class="sub">inventions: ${inv.unlocked.map((u) => `${esc(u.name)} (${esc(u.inventor || '?')})`).join(', ') || 'none yet'}${inv.research.length ? `; researching ${inv.research.map((r) => `${esc(r.name)} ${r.points}${r.need ? `/${r.need}` : ''}`).join(', ')}` : ''}</div>` : ''}
-    ${e.goals ? `<div class="mats">${e.goals.map((g) => `<span>${goalChip(g.goal)} <b>${g.n}</b></span>`).join('')}</div>` : ''}
-  </div>`;
+      ${inv.locked.length ? `<div class="sub">not started: ${inv.locked.map((l) => `${esc(l.name)}${l.after.length || l.tools.length ? ` (after ${esc([...l.after, ...l.tools].join(', '))})` : ''}`).join(', ')}</div>` : ''}`,
+    goals: e.goals ? `<div class="mats">${e.goals.map((g) => `<span>${goalChip(g.goal)} <b>${g.n}</b></span>`).join('')}</div>` : '',
+  };
 }
 
-function renderVillage(v) {
-  const key = `village:${v.name}`;
-  const tab = tabOpen(key);
+/** The village's state, the same in every tab: growing (complete, a neighbourhood or public work under way), complete,
+ *  building, planning. */
+const villageState = (v) => (v.complete && v.growth?.active ? ['growing', 'var(--acting)'] : v.complete ? ['complete', 'var(--done)']
+  : (v.tasks || []).some((t) => /^Build /.test(t.title)) ? ['building', 'var(--acting)'] : ['planning', 'var(--planning)']);
+/** The village the header names (remembered), else the first one with agents in it. */
+function curVillage(d) {
+  const vs = (d && d.villages) || [];
+  return vs.find((v) => v.name === route.village) || vs.find((v) => d.agents.some((a) => a.village === v.name)) || vs[0] || null;
+}
+/** A member of the village (the mayor first), for the views that come with any member's memory. */
+const villageMember = (v) => (lastData?.agents || []).filter((a) => a.village === v.name).sort(byAgent)[0] || null;
+/** The village's proposals and rules ({proposals, rules}: null when the flag is off), from a member's memory view. */
+function villageMind(v) {
+  const m = v && villageMember(v);
+  return (m && extraData.get(`mind:${m.name}`)?.data) || null;
+}
+const card = (label, html, extra = '') => `<div class="card"${extra}>${label ? `<div class="label">${label}</div>` : ''}${html}</div>`;
+const offBox = (title, text) => `<div class="offbox"><b>${title}</b>${text}</div>`;
+
+/** A Village sub-tab's page. */
+function villageTab(v, tab) {
   const tasks = v.tasks || [];
-  const count = (s) => tasks.filter((t) => t.status === s).length;
-  const builds = tasks.filter((t) => /^Build /.test(t.title));
   const list = (items, f) => (items.length ? `<ul class="list">${items.map((x) => `<li>${f(x)}</li>`).join('')}</ul>` : '<div class="empty">none</div>');
   const area = (x) => `x ${x.x1}..${x.x2}, z ${x.z1}..${x.z2}`;
-  const now = Date.now();
-  const ground = (v.reservations || []).filter((r) => r.until > now);
-  const designs = Object.values(v.designs || {});
   const chests = v.storage?.chests || [];
-  const tech = Object.entries(v.tech || {}).sort((x, y) => (y[1].at || 0) - (x[1].at || 0));
-  let body = '';
+  if (tab === 'buildings') {
+    const builds = buildingStates(v);
+    const types = new Map();
+    for (const [nm, s] of builds) if (s === 'done') { const t = nm.replace(/( \d+)+$/, ''); types.set(t, [...(types.get(t) || []), nm]); }
+    const built = builds.filter(([, s]) => s === 'done').length;
+    const chips = types.size ? `<div class="bchips">${[...types].map(([t, ns]) => `<span class="bchip done" title="${esc(ns.join(', '))}">${esc(t)}${ns.length > 1 ? ` ×${ns.length}` : ''}</span>`).join('')}</div>` : '<div class="empty">nothing built yet</div>';
+    const unbuilt = builds.filter(([, s]) => s !== 'done');
+    const needed = Object.entries((v.needed && v.needed.items) || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+    const names = v.hoodNames || {};
+    const hoods = (v.growth?.past || []).filter((p) => !p.project && names[p.layout]);
+    return `<div class="flexrow"><div class="wide">${card(`Built · ${built}${builds.length ? ` of ${builds.length}` : ''}`, builds.length ? chips : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>')}
+      ${unbuilt.length ? card(`Not built yet · ${unbuilt.length}`, `<ul class="blist">${unbuilt.map(([nm, s, w]) => `<li><span class="bname">${esc(nm)}</span><span class="bstate ${s}">${esc(w)}</span></li>`).join('')}</ul>`) : ''}
+      ${card('Still to gather', needed.length ? `<div class="mats">${needed.map(([nm, q]) => `<span><b>${q}</b> ${esc(words(nm))}</span>`).join('')}</div>` : '<div class="sub">nothing: the storage holds what the buildings still need</div>')}
+      ${card(`Every structure · ${(v.structures || []).length}`, det(`structures:${v.name}`, 'the list, with where each stands and who built it', list(v.structures || [], (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`)))}</div>
+      <div class="narrow">${card('Neighbourhoods · houses', hoods.length ? `<ul class="list">${hoods.map((p) => `<li style="display:flex;justify-content:space-between"><span>${esc(names[p.layout])}</span><span class="mono">${p.built}</span></li>`).join('')}</ul>` : '<div class="empty">none yet</div>')}</div></div>`;
+  }
   if (tab === 'tasks') {
-    const fk = `${key}:filter`, f = openTabs[fk] || 'now';
+    const f = chipOf('l3:tasks', 'now');
     const test = (TASK_FILTERS.find(([id]) => id === f) || TASK_FILTERS[0])[2];
     const shown = tasks.filter(test);
-    body = `<div class="tabs sm">${TASK_FILTERS.map(([id, label, t]) => `<button type="button" class="tab${f === id ? ' on' : ''}" aria-pressed="${f === id}" data-tabkey="${esc(fk)}"data-tab="${id}" data-keep="1">${label} <span class="cnt">${tasks.filter(t).length}</span></button>`).join('')}</div>
-      ${shown.length ? `<table><thead><tr><th>Task</th><th>Status</th><th>Who</th><th>What</th></tr></thead><tbody>${shown.map((t) => `<tr>
+    return card('', `${chipRow('l3:tasks', 'now', TASK_FILTERS.map(([id, label, t]) => [id, label, tasks.filter(t).length]), 'Which tasks')}
+      ${shown.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Task</th><th>Status</th><th>Who</th><th>What</th></tr></thead><tbody>${shown.slice().reverse().slice(0, 300).map((t) => `<tr>
         <td class="mono">${esc(t.id)}${(t.after || []).length ? `<div class="sub">after ${esc(t.after.join(', '))}</div>` : ''}</td>
         <td class="st-${esc(t.status)}">${esc(t.status)}${t.tries ? ` <span class="sub">(${t.tries} tries)</span>` : ''}</td>
         <td>${esc(t.claimedBy || '')}</td>
-        <td><b>${esc(t.title)}</b><div class="sub clamp" title="${esc(t.detail)}">${esc(t.detail)}</div>${t.result ? `<div class="sub clamp" title="${esc(t.result)}">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">no tasks here</div>'}`;
-  } else if (tab === 'buildings') body = list(v.structures || [], (s) => `<b>${esc(s.kind)}</b> <span class="mono">${area(s)}</span> <span class="sub">by ${esc(s.builtBy)}</span>`);
-  else if (tab === 'storage') body = chests.length ? `<div class="sub">${chests.length} chest${chests.length > 1 ? 's' : ''}, seen ${ago(v.storage.updated)} ago${stationsText(v)}</div><ul class="list">${chests.map((c, i) => {
-      const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
-      return `<li><b>chest ${i + 1}</b>${c.group ? ` (${esc(c.group)})` : ''}: ${e.length ? e.map(([nm, q]) => `${q} ${esc(nm)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
-    }).join('')}</ul>` : '<div class="empty">no chest yet</div>';
-  else if (tab === 'plots') body = list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}${p.works ? ' (works)' : ''}${p.parts ? ` (${p.parts.length} parts prepared so far)` : ''}</span>`);
-  else if (tab === 'designs') body = list(designs, (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''));
-  else if (tab === 'ground') body = list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`);
-  else if (tab === 'log') body = list((v.log || []).slice(-25).reverse(), (l) => `<span class="clamp" title="${esc(l)}">${esc(l)}</span>`);
-  else if (tab === 'votes') body = votesBody(v.name);
-  // (s35: members' own small works, open first: who started it, who helped, its steps)
-  else if (tab === 'initiatives') {
-    const its = [...(v.initiatives || [])].sort((x, y) => Number(y.state === 'open') - Number(x.state === 'open') || y.at - x.at);
-    body = list(its, (it) => det(`ini:${v.name}:${it.id}`, `<b>${esc(it.by)}'s ${esc(String(it.kind).replace(/_/g, ' '))}</b> <span class="state" style="--c:${it.state === 'built' ? 'var(--done)' : it.state === 'open' ? 'var(--accent)' : 'var(--muted)'}">${esc(it.state)}</span> <span class="sub">${esc(it.id)}, ${ago(it.at)} ago, crew ${esc(it.crew.join(', '))}${it.end ? `, ${Math.round((it.end - it.at) / 6000) / 10} min` : ''}${it.why && it.state !== 'built' ? `: ${esc(it.why)}` : ''}</span>`,
-      `<div class="sub mono">${it.pending ? 'its green being prepared' : `${it.x},${it.y},${it.z}`} ${esc(it.design)}</div><ul class="list">${(it.steps || []).map((q) => `<li><b>${esc(q.agent)}</b> ${esc(q.what)} <span class="sub">${ago(q.at)} ago</span></li>`).join('') || '<li class="sub">no step yet</li>'}</ul>`));
+        <td><b>${esc(t.title)}</b><div class="sub clamp" title="${esc(t.detail)}">${esc(t.detail)}</div>${t.result ? `<div class="sub clamp" title="${esc(t.result)}">→ ${esc(t.result)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>
+        ${shown.length > 300 ? `<div class="sub">the newest 300 of ${shown.length}</div>` : ''}` : '<div class="empty">no tasks here</div>'}`);
   }
-  // (s41: the merchant's offers with their stock left, and the ledger)
-  else if (tab === 'trade') {
-    const m = v.market;
-    if (!m) body = '<div class="empty">The merchant is off (MC_MERCHANT=off)</div>';
-    else if (!m.here) body = `<div class="empty">No merchant yet: it comes to the first market stall built. Storage holds ${plural(m.emeralds, 'emerald')}.</div>`;
-    else {
-      const { sold, bought } = ledgerTotals(m);
-      body = `<div class="sub">merchant at <span class="mono">${m.x},${m.y},${m.z}</span> in stall ${esc(m.stall)}; ${esc(restockText(m))}; storage ${plural(m.emeralds, 'emerald')}</div>
-        <table><thead><tr><th>Offer</th><th>Price</th><th>Left</th><th>Traded</th></tr></thead><tbody>${(m.offers || []).map((o) => {
-          const l = (m.ledger || {})[o.item];
-          const n = l ? (o.dir === 'buys' ? l.bought : l.sold) : 0;
-          return `<tr><td>${o.dir === 'buys' ? 'buys' : 'sells'} <b>${esc(words(o.item))}</b></td><td class="mono">${esc(offerWords(o))}</td><td>${stockBar(o)}</td><td class="mono">${n || ''}</td></tr>`;
-        }).join('')}</tbody></table>
-        <div class="sub">sold to it: ${sold.length ? sold.map(([n, l]) => `${l.bought} ${esc(words(n))}`).join(', ') : 'nothing'}; bought from it: ${bought.length ? bought.map(([n, l]) => `${l.sold} ${esc(words(n))}`).join(', ') : 'nothing'}</div>`;
-    }
+  if (tab === 'storage') {
+    const sum = {};
+    for (const c of chests) for (const [nm, q] of Object.entries(c.items || {})) sum[nm] = (sum[nm] || 0) + q;
+    const stock = STOCK.map(([group, kinds]) => [group, kinds.map(([label, test]) => [label, Object.entries(sum).filter(([nm]) => test(nm)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0)]).filter(([, ks]) => ks.length);
+    const total = Object.values(sum).reduce((t, q) => t + q, 0);
+    return `${card(`In the storage · ${total} items`, stock.length ? `<div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([nm, q]) => `<span><b>${q}</b> ${nm}</span>`).join('')}</div></div>`).join('')}</div>` : '<div class="empty">nothing stored yet</div>')}
+      ${card('Chest by chest', chests.length ? `<div class="sub">${plural(chests.length, 'chest')}, seen ${ago(v.storage.updated)} ago${stationsText(v)}</div><ul class="list">${chests.map((c, i) => {
+        const e = Object.entries(c.items || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
+        return `<li><b>chest ${i + 1}</b>${c.group ? ` (${esc(c.group)})` : ''}: ${e.length ? e.map(([nm, q]) => `${q} ${esc(nm)}`).join(', ') : '<span class="sub">empty</span>'} <span class="sub mono">${c.x},${c.y},${c.z}</span></li>`;
+      }).join('')}</ul>` : '<div class="empty">no chest yet</div>')}`;
   }
-  // (Phase N: each need's level with marks at LOW 0.25 and HIGH 0.6, its status and line, highest first)
-  else if (tab === 'needs') {
-    const ns = Object.entries(v.needGauges?.kinds || {}).sort((x, y) => y[1].level - x[1].level);
-    body = !ns.length ? `<div class="empty">${v.needGauges ? 'No readings yet (needs are read every 30 s once the village is complete)' : 'Needs are off (MC_NEEDS=off)'}</div>` : `<div class="sub">MC_NEEDS=${esc(v.needGauges.mode)}</div>` + list(ns, ([k, n]) => {
-      const pct = Math.round(Math.max(0, Math.min(1, n.level)) * 100);
-      const bar = `<span style="position:relative;display:inline-block;width:100px;height:8px;vertical-align:middle;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden">`
-        + `<span style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:${n.status === 'low' ? 'var(--accent)' : NEED_COLOURS[n.status] || 'var(--accent)'}"></span>`
-        + `<span style="position:absolute;left:25%;top:0;bottom:0;border-left:1px solid var(--text)"></span><span style="position:absolute;left:60%;top:0;bottom:0;border-left:1px solid var(--text)"></span></span>`;
-      return `<b>${esc(words(k))}</b> ${bar} <span class="mono">${(Number(n.level) || 0).toFixed(2)}</span> <span class="state" style="--c:${NEED_COLOURS[n.status] || 'var(--text)'}">${esc(n.status)}</span>`
-        + `${n.above > 0 ? ` <span class="sub">above LOW for ${n.above} min</span>` : ''}<div class="sub clamp" title="${esc(n.text)}">${esc(n.text)}</div>`;
-    });
-  }
-  // (s43-s44: the economy: members' wealth, the board, inventions, life goals)
-  else if (tab === 'economy') body = economyBody(v);
-  // (#80: the thriving scorecard by hour and its pass mark)
-  else if (tab === 'score') body = scorecardBody(v);
-  // (S.9's tech record: each item the village has made, the first time, newest first; and the works plot's furnaces)
-  else if (tab === 'tech') {
+  if (tab === 'life') return villageLife(v) || '<div class="empty">no farms, pens, lights or growth yet</div>';
+  if (tab === 'tech') {
+    const tech = Object.entries(v.tech || {}).sort((x, y) => (y[1].at || 0) - (x[1].at || 0));
     const wk = (v.layouts || [])[0]?.works;
     const fs = (wk?.furnaces || []).map((f, k) => (f ? `${k + 1} at <span class="mono">${f.x},${f.y},${f.z}</span>` : '')).filter(Boolean);
-    body = `${techTreeSvg(techtrees?.[v.name])}${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([n, t]) => `<b>${esc(words(n))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`;
+    return `${card('', techTreeSvg(techtrees?.[v.name]) || '<div class="empty">no tech tree yet</div>')}
+      ${card(`Made · ${tech.length} kinds`, `${wk ? `<div class="sub">works plot ${esc(wk.state)} <span class="mono">${area(wk)}</span>${fs.length ? `; furnaces ${fs.join('; ')}` : '; no furnace yet'}</div>` : ''}${list(tech, ([nm, t]) => `<b>${esc(words(nm))}</b> <span class="sub">${esc(t.how)} ${t.n}, by ${esc(t.by)}, ${ago(t.at)} ago</span><div class="sub clamp" title="${esc(t.via)}">${esc(t.via)}</div>`)}`)}`;
   }
-  const working = tasks.filter((t) => t.status === 'claimed');
-  const stat = (n, label, cls = '') => `<div class="stat${cls}"><b>${n}</b><span>${label}</span></div>`;
-  return `<div class="card dcard" data-village="${esc(v.name)}">
-    <div class="card-head"><span class="name">${esc(v.name)}</span>
-      <span class="sub">${esc(v.objective || '')}</span><span class="spacer"></span>
-      ${v.complete ? '<span class="state" style="--c:var(--done)">complete</span>' : ''}</div>
-    <div class="stats left">${stat(`${builds.filter((t) => t.status === 'done').length}/${builds.length}`, 'buildings')}${stat(count('open'), 'open')}${stat(count('claimed'), 'claimed')}${stat(count('done'), 'done')}${stat(count('failed'), 'failed', count('failed') ? ' bad' : '')}${stat(chests.length, 'chests')}${v.market ? stat(v.market.emeralds, 'emeralds') : ''}${v.runMs != null ? `<div class="stat" title="How long the village has been running (time with an agent server holding it)"><b>${span(v.runMs)}</b><span>age</span></div>` : ''}</div>
-    ${v.choices ? `<div>${choicesChip(v)}</div>` : ''}
-    ${(() => { const fd = villageFood(v); return fd ? `<div class="sub" title="the village appetite: food in storage in points, meals eaten, members at 6 of 20 or below">food ${esc(foodText(fd))}; ${esc(foodSub(fd))}</div>` : ''; })()}
-    ${working.length ? `<ul class="list now-list">${working.map((t) => `<li><b>${esc(t.claimedBy || '?')}</b> <span class="clamp1">${esc(t.title)}</span></li>`).join('')}</ul>` : ''}
-    ${tabBar(key, [['tasks', `Tasks <span class="cnt">${tasks.length}</span>`], ['buildings', `Buildings <span class="cnt">${(v.structures || []).length}</span>`], ['storage', 'Storage'], ['plots', `Plots <span class="cnt">${(v.plots || []).length}</span>`],
-      ['designs', `Designs <span class="cnt">${designs.length}</span>`], ['ground', `Ground worked <span class="cnt">${ground.length}</span>`],
-      (tech.length || (v.layouts || [])[0]?.works || tab === 'tech') && ['tech', `Tech <span class="cnt">${tech.length}</span>`], ['votes', 'Votes'], ['needs', `Needs${v.needGauges ? ` <span class="cnt">${Object.values(v.needGauges.kinds || {}).filter((n) => n.status !== 'met').length}</span>` : ''}`], (v.initiatives || []).length && ['initiatives', `Initiatives <span class="cnt">${(v.initiatives || []).filter((i) => i.state === 'open').length}/${(v.initiatives || []).length}</span>`], v.market && ['trade', `Trade${v.market.here ? ` <span class="cnt">${Object.values(v.market.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0)}</span>` : ''}`], v.economy && ['economy', `Economy <span class="cnt">${v.economy.members.length}</span>`], scorecard?.[v.name] && ['score', `Scorecard <span class="cnt">${esc(scorecard[v.name].verdict.verdict === 'NO VERDICT' ? '-' : scorecard[v.name].verdict.verdict)}</span>`], ['log', 'Log']])}
-    ${tab ? `<div class="tabbody" data-scroll="${esc(key)}">${body}</div>` : ''}
-  </div>`;
+  if (tab === 'land') {
+    const now = Date.now();
+    const ground = (v.reservations || []).filter((r) => r.until > now);
+    const designs = Object.values(v.designs || {});
+    const which = chipOf('l3:land', 'plots');
+    const body = which === 'designs' ? list(designs, (d) => det(`design:${v.name}:${d.name}`, `<b>${esc(d.name)}</b> ${d.width}x${d.depth}x${d.height}${d.style ? ' <span class="sub">(style)</span>' : ''} <span class="sub">${esc(d.description)}</span>`, d.elevations ? `<pre class="mono" style="font-size:11px;line-height:1.15;margin:4px 0;white-space:pre;overflow-x:auto">${esc(d.elevations)}</pre>` : ''))
+      : which === 'ground' ? list(ground, (r) => `${esc(r.by)}: <span class="mono">${area(r)}</span> <span class="sub">${esc(r.purpose)}</span>`)
+      : list(v.plots || [], (p) => `<span class="mono">${area(p)}, y=${p.y}</span> <span class="sub">by ${esc(p.preparedBy)}${p.annex ? ' (annex)' : ''}${p.works ? ' (works)' : ''}${p.parts ? ` (${p.parts.length} parts prepared so far)` : ''}</span>`);
+    return card('', chipRow('l3:land', 'plots', [['plots', 'Plots', (v.plots || []).length], ['designs', 'Designs', designs.length], ['ground', 'Ground worked', ground.length]], 'Which land') + body);
+  }
+  return '';
 }
 
+/** A Society sub-tab's page: votes, members' own works, proposals, rules, needs, culture. */
+function societyTab(v, tab) {
+  const vm = villageMind(v);
+  if (tab === 'votes') return card('Votes, newest first', votesBody(v.name));
+  if (tab === 'initiatives') {
+    const its = [...(v.initiatives || [])].sort((x, y) => Number(y.state === 'open') - Number(x.state === 'open') || y.at - x.at);
+    if (!its.length) return offBox('No initiatives yet', 'Members\' own small works (a bench, a well, a statue) show here with their crews and steps.');
+    return card(`Members' own works · ${its.filter((i) => i.state === 'open').length} open of ${its.length}`, `<ul class="list">${its.map((it) => `<li>${det(`ini:${v.name}:${it.id}`, `<b>${esc(it.by)}'s ${esc(String(it.kind).replace(/_/g, ' '))}</b> <span class="state" style="--c:${it.state === 'built' ? 'var(--done)' : it.state === 'open' ? 'var(--accent)' : 'var(--muted)'}">${esc(it.state)}</span> <span class="sub">${esc(it.id)}, ${ago(it.at)} ago, crew ${esc(it.crew.join(', '))}${it.end ? `, ${Math.round((it.end - it.at) / 6000) / 10} min` : ''}${it.why && it.state !== 'built' ? `: ${esc(it.why)}` : ''}</span>`,
+      `<div class="sub mono">${it.pending ? 'its green being prepared' : `${it.x},${it.y},${it.z}`} ${esc(it.design)}</div><ul class="list">${(it.steps || []).map((q) => `<li><b>${esc(q.agent)}</b> ${esc(q.what)} <span class="sub">${ago(q.at)} ago</span></li>`).join('') || '<li class="sub">no step yet</li>'}</ul>`)}</li>`).join('')}</ul>`);
+  }
+  if (tab === 'proposals' || tab === 'rules') {
+    const m = villageMember(v);
+    if (!m) return '<div class="empty">no member to ask</div>';
+    const parts = mindParts(m);
+    if (parts.state) return parts.state;
+    if (tab === 'proposals') return parts.data.proposals == null ? offBox('Proposals are off in this run', '<span class="mono">MC_PROPOSALS=off</span>. With it on: what members propose at night, who backs it, the code\'s check and the answer.')
+      : parts.props ? card('', parts.props) : offBox('No proposals yet', 'Members propose at night, on days that gave them a reason.');
+    return parts.data.rules == null ? offBox('Rules and the council are off in this run', '<span class="mono">MC_RULES=off</span>. With them on: the agenda, the dusk ballots and the laws in force.')
+      : parts.rulesCard ? card('', parts.rulesCard) : offBox('No rules yet', 'Laws members propose and back show here, with the council\'s line.');
+  }
+  if (tab === 'needs') {
+    const ns = Object.entries(v.needGauges?.kinds || {}).sort((x, y) => y[1].level - x[1].level);
+    if (!v.needGauges) return offBox('Needs are off in this run', '<span class="mono">MC_NEEDS=off</span>. With it on (show or on): each need\'s level against LOW 0.25 and HIGH 0.6.');
+    if (!ns.length) return offBox('No readings yet', 'Needs are read every 30 s once the village is complete.');
+    return card(`Needs, highest first <span class="sub">MC_NEEDS=${esc(v.needGauges.mode)}; marks at LOW 0.25 and HIGH 0.6</span>`, `<ul class="list">${ns.map(([k, nd]) => {
+      const pct = Math.round(Math.max(0, Math.min(1, nd.level)) * 100);
+      const bar = `<span style="position:relative;display:inline-block;width:100px;height:8px;vertical-align:middle;border-radius:4px;background:var(--panel-2);border:1px solid var(--line);overflow:hidden">`
+        + `<span style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:${nd.status === 'low' ? 'var(--accent)' : NEED_COLOURS[nd.status] || 'var(--accent)'}"></span>`
+        + `<span style="position:absolute;left:25%;top:0;bottom:0;border-left:1px solid var(--text)"></span><span style="position:absolute;left:60%;top:0;bottom:0;border-left:1px solid var(--text)"></span></span>`;
+      return `<li><b>${esc(words(k))}</b> ${bar} <span class="mono">${(Number(nd.level) || 0).toFixed(2)}</span> <span class="state" style="--c:${NEED_COLOURS[nd.status] || 'var(--text)'}">${esc(nd.status)}</span>`
+        + `${nd.above > 0 ? ` <span class="sub">above LOW for ${nd.above} min</span>` : ''}<div class="sub clamp" title="${esc(nd.text)}">${esc(nd.text)}</div></li>`;
+    }).join('')}</ul>`);
+  }
+  if (tab === 'culture') return offBox('Culture is not built yet', 'G4: names, sayings, customs and a chronicle (#31, #34). Its tab is kept here so nothing moves when it arrives.');
+  return '';
+}
+
+/** An Economy sub-tab's page: the merchant, members' wealth, the barter board, research, life goals. */
+function economyTab(v, tab) {
+  const e = v.economy;
+  const econOff = offBox('The economy is off in this run', 'MC_OWN, MC_BARTER, MC_INNOVATE and MC_GOALS are all off.');
+  if (tab === 'market') {
+    const m = v.market;
+    if (!m) return offBox('The merchant is off in this run', '<span class="mono">MC_MERCHANT=off</span>.');
+    if (!m.here) return offBox('No merchant yet', `It comes to the first market stall built. The storage holds ${plural(m.emeralds, 'emerald')}.`);
+    const { sold, bought } = ledgerTotals(m);
+    return card('', `<div class="sub">merchant at <span class="mono">${m.x},${m.y},${m.z}</span> in stall ${esc(m.stall)}; ${esc(restockText(m))}; storage ${plural(m.emeralds, 'emerald')}</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Offer</th><th>Price</th><th>Left</th><th>Traded</th></tr></thead><tbody>${(m.offers || []).map((o) => {
+        const l = (m.ledger || {})[o.item];
+        const nn = l ? (o.dir === 'buys' ? l.bought : l.sold) : 0;
+        return `<tr><td>${o.dir === 'buys' ? 'buys' : 'sells'} <b>${esc(words(o.item))}</b></td><td class="mono">${esc(offerWords(o))}</td><td>${stockBar(o)}</td><td class="mono">${nn || ''}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      <div class="sub">sold to it: ${sold.length ? sold.map(([nm, l]) => `${l.bought} ${esc(words(nm))}`).join(', ') : 'nothing'}; bought from it: ${bought.length ? bought.map(([nm, l]) => `${l.sold} ${esc(words(nm))}`).join(', ') : 'nothing'}</div>`);
+  }
+  if (!e) return econOff;
+  const parts = economyParts(v);
+  if (tab === 'wealth') return card('', parts.wealth);
+  if (tab === 'board') return parts.board ? card('Barter board', parts.board) : offBox('Barter is off in this run', '<span class="mono">MC_BARTER=off</span>.');
+  if (tab === 'research') return parts.research ? card('Inventions', parts.research) : offBox('Innovation is off in this run', '<span class="mono">MC_INNOVATE=off</span>.');
+  if (tab === 'goals') return e.flags.goals && parts.goals ? card('Life goals', parts.goals) : offBox('Life goals are off in this run', '<span class="mono">MC_GOALS=off</span>.');
+  return '';
+}
 // ---- trails: where each agent has been (the page keeps them; the server keeps no history) ----
 const TRAIL_KEEP = 15 * 60000, TRAIL_LENGTHS = [60000, 5 * 60000, 15 * 60000, 0];
 let trailMs = Number(store.get('panel.trail', String(5 * 60000)));
@@ -1503,10 +1641,11 @@ function drawMaps() {
   }
 }
 async function refreshMaps() {
-  if (paused || simple || !lastData) return;
-  // (only the open cards showing their map: an agent server from before E.1 ignores ?agents= and sends every map)
-  const names = openCardNames().filter((n) => openTabs[`agent:${n}`] === 'map');
-  if (!names.length) return;
+  if (paused || !lastData) return;
+  // (only the member shown on its Now tab: an agent server from before E.1 ignores ?agents= and sends every map)
+  const a = selectedAgent();
+  if (!a || !memberNeeds().has('map')) return;
+  const names = [a.name];
   try { lastMaps = await api(`/api/maps?agents=${encodeURIComponent(names.join(','))}`); drawMaps(); } catch {}
 }
 
@@ -1775,11 +1914,17 @@ function marketCard(v) {
 /** What the village does after its buildings: the field, farms, pens, the iron age, lamps and signs. */
 function villageLife(v) {
   const items = [], streets = [];
+  // (fields and farms of a kind over every site in one line: 7 wheat fields read as 7 equal cells)
+  const farms = new Map();
+  const farm = (label, planted, harvests, bread) => {
+    const r = farms.get(label) || { n: 0, planted: 0, harvests: 0, bread: 0 };
+    r.n++; r.planted += planted || 0; r.harvests += harvests || 0; r.bread += bread || 0;
+    farms.set(label, r);
+  };
   (v.layouts || []).forEach((lay, k) => {
   const site = k ? ` (site ${k + 1})` : '';
   const f = lay.farm;
-  if (f) items.push([`Wheat field${site}`, f.planted ? `${f.planted} planted` : 'not planted yet',
-    f.harvests ? `${plural(f.harvests, 'harvest')}${f.bread ? `, ${f.bread} bread baked` : ''}` : '']);
+  if (f) farm('Wheat field', f.planted, f.harvests, f.bread);
   for (const s of lay.slots || []) {
     if (!s.kind) continue;
     if (s.annex) {
@@ -1787,7 +1932,7 @@ function villageLife(v) {
       const animal = s.kind === 'cow' ? 'cow' : 'chicken';
       const extra = [p.born ? `${p.born} born` : '', p.eggs ? `${plural(p.eggs, 'egg')} collected` : '', p.milk ? `${p.milk} milk` : ''].filter(Boolean).join(', ');
       items.push([`${cap(animal)} pen`, s.laying ? 'animals being led in' : p.built ? plural(p.animals || 0, animal) : 'being fenced', extra]);
-    } else items.push([`${cap(words(s.kind))} farm${site}`, `${s.planted || 0} planted`, s.harvests ? plural(s.harvests, 'harvest') : '']);
+    } else farm(`${cap(words(s.kind))} farm`, s.planted, s.harvests, 0);
   }
   // (lamps and signs go to the streets table, a row per site)
   const lamps = lay.lamps?.length ? (lay.lit ? `${lay.lamps.length} lit` : `${lay.lamps.length} planned`) : '–';
@@ -1799,6 +1944,8 @@ function villageLife(v) {
   }
   if (lay.lamps?.length || lay.signs?.length) streets.push([k + 1, lamps, signs]);
   });
+  items.unshift(...[...farms].map(([label, r]) => [r.n > 1 ? `${label}s · ${r.n}` : label, r.planted ? `${r.planted} planted` : 'not planted yet',
+    r.harvests ? `${plural(r.harvests, 'harvest')}${r.bread ? `, ${r.bread} bread baked` : ''}` : '']));
   // (sites in a row with the same lamps and signs share one row: "2-6, each")
   const streetRows = [];
   for (const [n, l, s] of streets) {
@@ -1865,63 +2012,216 @@ function villageLife(v) {
   return `<div class="card"><div class="label">Village life</div>${items.length ? `<dl class="life">${items.map(([k, a, b]) => `<div><dt>${esc(k)}</dt><dd>${esc(a)}${b ? `<span class="sub">${esc(b)}</span>` : ''}</dd></div>`).join('')}</dl>` : ''}`
     + `${table || vote ? `<div class="lifex${items.length ? ' section' : ''}">${table}${vote}</div>` : ''}</div>`;
 }
-function simpleVillage(v, agents) {
+// ---- the Overview: the village at a glance, the world map beside who is doing what, what needs a look, what happened ----
+/** A need's status that asks for a look (answered and met do not). */
+const NEED_TROUBLE = new Set(['ignored', 'blocked', 'no answer']);
+/** The busy share of these members over the utilisation window (null before the first record). */
+function busyShare(names) {
+  if (!util) return null;
+  const rows = names.map((n) => util.agents[n]).filter(Boolean);
+  return rows.length ? utilAvg(utilMean(rows)) : null;
+}
+/** The village's head: name, state, objective, the numbers that matter, progress. */
+function overviewStrip(v, agents) {
   const builds = buildingStates(v);
   const built = builds.filter(([, s]) => s === 'done').length;
-  // (built ones fold into a chip per type, "Small house ×24", their names in its tooltip; the rest keep a line each
-  // saying where they stand)
-  const types = new Map();
-  for (const [n, s] of builds) if (s === 'done') { const t = n.replace(/( \d+)+$/, ''); types.set(t, [...(types.get(t) || []), n]); }
-  const builtChips = types.size ? `<div class="bchips">${[...types].map(([t, ns]) => `<span class="bchip done" title="${esc(ns.join(', '))}">${esc(t)}${ns.length > 1 ? ` ×${ns.length}` : ''}</span>`).join('')}</div>` : '';
-  const unbuilt = builds.filter(([, s]) => s !== 'done');
   const pct = builds.length ? Math.round((built / builds.length) * 100) : 0;
   const tasksDone = v.tasks.filter((t) => t.status === 'done').length;
-  const working = agents.filter((a) => a.currentAction).length;
-  const sum = {};
-  for (const c of v.storage?.chests || []) for (const [n, q] of Object.entries(c.items || {})) sum[n] = (sum[n] || 0) + q;
-  const stock = STOCK.map(([group, kinds]) => [group, kinds.map(([label, test]) => [label, Object.entries(sum).filter(([n]) => test(n)).reduce((t, [, q]) => t + q, 0)]).filter(([, q]) => q > 0)]).filter(([, ks]) => ks.length);
-  // What the village still needs gathered (computed by the agent server, plan step V.3)
-  const needed = Object.entries((v.needed && v.needed.items) || {}).filter(([, q]) => q > 0).sort((x, y) => y[1] - x[1]);
-  // What happened: the village log (tasks and buildings) and chat, newest first
-  const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 4).map((e) => `chat: ${e.text}`);
-  const happened = [...chat, ...(v.log || []).slice(-8).reverse()].slice(0, 8);
-  const state = v.complete && v.growth?.active ? ['growing', 'var(--acting)'] : v.complete ? ['complete', 'var(--done)'] : builds.length ? ['building', 'var(--acting)'] : ['planning', 'var(--planning)'];
-  const stat = (n, label, title = '', extra = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span>${extra}</div>`;
-  // (failed tasks show only in the detailed view's board: a link there, its task list filtered to them)
   const failed = v.tasks.filter((t) => t.status === 'failed').length;
-  const failedLink = failed ? `<a href="#detailed" class="failed" data-failed="${esc(v.name)}" title="Open the detailed view's task list, filtered to the failed tasks">${failed} failed</a>` : '';
-  return `<div class="card vhead">
+  const working = agents.filter((a) => a.currentAction).length;
+  let stored = 0;
+  for (const c of v.storage?.chests || []) for (const q of Object.values(c.items || {})) stored += q;
+  const busy = busyShare(agents.map((a) => a.name));
+  const state = villageState(v);
+  const stat = (n, label, title = '', extra = '') => `<div class="stat"${title ? ` title="${esc(title)}"` : ''}><b>${n}</b><span>${label}</span>${extra}</div>`;
+  const failedLink = failed ? `<a href="#/village/tasks/failed" class="failed" title="Village, Tasks, the failed ones">${failed} failed</a>` : '';
+  return `<div class="card vhead" style="margin-bottom:14px">
       <div class="vtitle"><span class="vname">${esc(v.name)}</span><span class="state big" style="--c:${state[1]}">${state[0]}</span>
-        <div class="sub vobj">${esc(v.objective || 'no objective yet')}</div>${v.choices ? `<div class="vobj">${choicesChip(v)}</div>` : ''}</div>
-      <div class="stats">${stat(builds.length ? `${built}/${builds.length}` : '–', 'buildings')}${stat(`${tasksDone}/${v.tasks.length}`, 'tasks done', '', failedLink)}${stat(`${working}/${agents.length}`, 'agents working')}${stat(Object.values(sum).reduce((t, q) => t + q, 0), 'items stored')}${v.runMs != null ? stat(span(v.runMs), 'age', 'How long the village has been running (time with an agent server holding it)') : ''}</div>
+        <div class="sub vobj">${esc(v.objective || 'no objective yet')}</div></div>
+      <div class="stats">${stat(builds.length ? `${built}/${builds.length}` : '–', 'buildings')}${stat(`${tasksDone}/${v.tasks.length}`, 'tasks done', '', failedLink)}${stat(`${working}/${agents.length}`, 'working now')}${busy != null ? stat(pctText(busy), 'busy, last hour', 'an action running, over the utilisation window (Run, Busy)') : ''}${stat(stored, 'items stored')}${v.runMs != null ? stat(span(v.runMs), 'age', 'How long the village has been running (time with an agent server holding it)') : ''}</div>
       ${builds.length ? `<div class="progress" title="${built} of ${builds.length} built"><i style="width:${pct}%"></i></div>` : ''}
-    </div>
-    <div class="vgrid">
-      <div class="col">
-        <div class="card"><div class="label">Buildings</div>
-          ${builds.length ? builtChips + (unbuilt.length
-            ? `<ul class="blist${builtChips ? ' section' : ''}">${unbuilt.map(([n, s, w]) => `<li><span class="bname">${esc(n)}</span><span class="bstate ${s}">${esc(w)}</span></li>`).join('')}</ul>` : '')
-          : '<div class="empty">Nothing planned yet: the mayor is choosing a site and drawing designs.</div>'}
-          ${needed.length ? `<div class="section"><div class="label">Still to gather</div><div class="mats">${needed.map(([n, q]) => `<span><b>${q}</b> ${esc(words(n))}</span>`).join('')}</div></div>` : ''}
-        </div>
-        ${utilCard(agents.map((a) => a.name))}
-        ${scorecardCard(v)}
-        ${villageLife(v)}
-        ${marketCard(v)}
-        ${economyCard(v)}
-        ${stock.length ? `<div class="card"><div class="label">In the storage</div><div class="stock">${stock.map(([g, ks]) => `<div class="stock-row"><span class="sub">${g}</span><div class="mats">${ks.map(([n, q]) => `<span><b>${q}</b> ${n}</span>`).join('')}</div></div>`).join('')}</div></div>` : ''}
-      </div>
-      <div class="col">
-        <div class="card"><div class="label">Who is doing what</div>${simpleAgents(agents, v.name)}</div>
-        ${happened.length ? `<div class="card"><div class="label">What happened lately</div><ul class="list happened">${happened.map((h) => `<li><span class="clamp" title="${esc(h)}">${esc(h)}</span></li>`).join('')}</ul></div>` : ''}
-      </div>
     </div>`;
 }
-function renderSimple(d) {
-  const inVillage = (v) => d.agents.filter((a) => a.village === v.name);
-  const loose = d.agents.filter((a) => !a.village || !d.villages.some((v) => v.name === a.village));
-  $('simple').innerHTML = (d.villages.length ? d.villages.map((v) => `<section class="village">${simpleVillage(v, inVillage(v))}</section>`).join('') : '')
-    + (loose.length || !d.villages.length ? `<h2>Agents in no village</h2><div class="card">${simpleAgents(loose, '')}</div>` : '');
+/** What needs a look, each with a link to its tab: failed tasks, needs nobody answers, members in trouble, the budget. */
+function attention(d, v) {
+  const out = [];
+  if (v) {
+    for (const t of v.tasks.filter((x) => x.status === 'failed').slice(-3).reverse())
+      out.push(['bad', 'task', `${t.claimedBy ? `${esc(t.claimedBy)}'s ` : ''}<b>${esc(t.title)}</b> failed${t.result ? `: ${esc(t.result)}` : ''}`, '#/village/tasks/failed', 'Village › Tasks']);
+    for (const [k, n] of Object.entries(v.needGauges?.kinds || {}))
+      if (NEED_TROUBLE.has(n.status)) out.push(['', 'need', `${esc(words(k))} ${esc(n.status)}: ${esc(n.text)}`, '#/society/needs', 'Society › Needs']);
+  }
+  for (const a of d.agents.slice().sort(byAgent)) { const f = flags(a); if (f) out.push(['info', 'member', `<b>${esc(a.name)}</b> ${f}`, hrefOf('members', 'now', a.name), 'Members']); }
+  const b = lastUsage?.budget;
+  if (b?.blocked) out.push(['bad', 'budget', 'cloud calls are paused: the hour\'s token budget is spent', '#/run/cost', 'Run › Models and cost']);
+  if (!out.length) return '<div class="empty">Nothing needs a look.</div>';
+  return `<ul class="attn">${out.slice(0, 8).map(([cls, kind, html, href, where]) => `<li><span class="kind ${cls}">${kind}</span><span>${html} <a href="${href}">${where}</a></span></li>`).join('')}</ul>${out.length > 8 ? `<div class="sub">and ${out.length - 8} more</div>` : ''}`;
+}
+/** What happened: chat, then the village log newest first, with the board's "was not needed" lines folded into one. */
+function happenedList(v, agents) {
+  const chat = agents.flatMap((a) => (a.events || []).filter((e) => e.type === 'chat')).sort((x, y) => y.id - x.id).slice(0, 4).map((e) => ['chat', e.text]);
+  const log = (v?.log || []).slice(-40).reverse().map((l) => String(l).replace(/^t\d+ /, ''));
+  const unneeded = log.filter((l) => /was not needed/.test(l)).length;
+  const lines = [...chat, ...log.filter((l) => !/was not needed/.test(l)).slice(0, 8).map((l) => ['village', l])].slice(0, 10);
+  if (unneeded) lines.push(['board', `${plural(unneeded, 'gather task')} closed unneeded lately: the storage already held enough`]);
+  return lines.length ? `<ul class="list happened">${lines.map(([k, h]) => `<li><span class="kind">${k}</span><span class="clamp" title="${esc(h)}">${esc(h)}</span></li>`).join('')}</ul>` : '<div class="empty">nothing yet</div>';
+}
+
+// ---- Run: is the run healthy, and what does it cost ----
+let lastUsage = null, modelsInfo = null;
+/** How the chores were chosen (the line that sat under the village name): by source, fallbacks, position bias, tokens. */
+function choicesView(v) {
+  const s = v.choices;
+  const fails = Object.entries(s.fallback || {}).filter(([, n]) => n > 0);
+  const pos = s.positions || [], exp = s.expected || [];
+  const total = pos.reduce((t, n) => t + (n || 0), 0);
+  const pct = (x) => (total ? `${Math.round((x / total) * 100)}%` : '–');
+  const stat = (n, label) => `<div class="stat"><b>${n}</b><span>${label}</span></div>`;
+  return card('How chores were chosen', `<div class="stats left">${stat(s.model, 'by the model')}${stat(s.fixed, 'fixed order')}${stat(s.only || 0, 'only option')}${stat(s.repeat || 0, 'repeat')}${stat(s.rate || 0, 'rate limit')}${stat(fails.reduce((t, [, n]) => t + n, 0), 'fallback')}${stat(s.drops || 0, 'dropped')}${stat(pct(pos[0] || 0), 'first shown chosen')}${stat(pct(exp[0] || 0), 'by chance')}</div>
+    ${fails.length ? `<div class="sub" style="margin-top:8px">fallbacks: ${esc(fails.map(([k, n]) => `${FALLBACK_WORDS[k] || k} ${n}`).join(', '))}</div>` : ''}
+    ${total ? `<div class="sub">chosen by shown position: ${pos.map((n, i) => `${i + 1}: ${n || 0} (chance ${Math.round((exp[i] || 0) * 10) / 10})`).join(', ')}</div>` : ''}
+    <div class="sub">tokens ${fmtTok(s.promptTokens || 0)} in / ${fmtTok(s.outputTokens || 0)} out${s.msP50 ? `; model answer p50 ${Math.round(s.msP50 / 100) / 10} s` : ''}${s.queueWaitP90 ? `; wait p90 ${Math.round(s.queueWaitP90 / 100) / 10} s` : ''}</div>`);
+}
+/** Tokens, cost and the budget since the agent server started, by model; the models loaded; the reasoning levels. */
+function costView(d) {
+  const u = lastUsage, t = u?.total;
+  const rows = [];
+  if (t) {
+    const h = u.lastHour || {}, b = u.budget || {};
+    rows.push(['since start', `${t.calls || 0} calls, ${fmtTok(t.promptTokens || 0)} in / ${fmtTok(t.outputTokens || 0)} out, ~$${(t.cost ?? 0).toFixed(2)}${t.errors ? `, ${t.errors} errors` : ''}${t.refused ? `, ${t.refused} refused` : ''}${t.withdrawn ? `, ${t.withdrawn} withdrawn` : ''}${u.since ? ` <span class="sub">since ${esc(new Date(u.since).toLocaleString())}</span>` : ''}`]);
+    rows.push(['last hour', `${h.calls || 0} calls, ${fmtTok((h.promptTokens || 0) + (h.outputTokens || 0))} tokens, ~$${(h.cost ?? 0).toFixed(2)}`]);
+    if (b.tokensPerHour) rows.push(['hourly budget', `${fmtTok(b.usedInWindow || 0)} of ${fmtTok(b.tokensPerHour)} (${Math.round((100 * (b.usedInWindow || 0)) / b.tokensPerHour)}%)${b.blocked ? ` · <span class="bad">paused${b.retryAt ? ` until ${new Date(b.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>` : ', not paused'}`]);
+    for (const [m, x] of Object.entries(u.byModel || {})) rows.push([esc(m), `${x?.calls ?? 0} calls, ${fmtTok(x?.promptTokens ?? 0)} in / ${fmtTok(x?.outputTokens ?? 0)} out, ~$${(x?.cost ?? 0).toFixed(3)}${x?.errors ? `, ${x.errors} errors` : ''}`]);
+    if (u.unpriced?.length) rows.push(['unpriced', esc(u.unpriced.join(', '))]);
+  }
+  const m = modelsInfo;
+  rows.push(['Ollama', !m ? 'not asked yet' : !m.ok ? `<span class="bad">${esc(m.error)}</span>` : m.models.length ? m.models.map((x) => x.cloud ? `<b>${esc(x.name)}</b> cloud` : `<b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB${x.vramMB < x.sizeMB ? ' <span class="bad">partly on the CPU: slow</span>' : ''}${x.server && x.server !== '11434' ? ` <span class="sub">:${esc(x.server)}</span>` : ''}`).join(' · ') : 'no local model loaded']);
+  const a = d.agents.find((x) => x.status?.models);
+  if (a) {
+    const r = a.status.reasoning, mm = a.status.models;
+    rows.push(['roles', `${esc(mm.exec)} (executor), ${esc(mm.plan)} (planner)${mm.design ? `, ${esc(mm.design)} (designer)` : ''}${r ? ` · reasoning exec ${esc(r.exec)}, plan ${esc(r.plan)}, design ${esc(r.design)}` : ''} <span class="sub">(${esc(a.name)}'s)</span>`]);
+  }
+  return card('Models and cost', `<dl class="kv">${rows.map(([k, x]) => `<dt>${k}</dt><dd>${x}</dd>`).join('')}</dl>`);
+}
+/** The run's switches as the agent server shows them; the memory view's (social, proposals, rules...) once fetched. */
+function flagsView(d, v) {
+  const e = v?.economy, f = e?.flags || {}, vm = villageMind(v);
+  const onOff = (x) => (x ? 'on' : 'off');
+  const fromMind = (fn) => (vm ? fn(vm) : 'fetching…');
+  const rows = [
+    ['MC_MEMORY, MC_CLOCK', fromMind((x) => (x.journal ? `on${x.clock ? ` (${x.clock})` : ''}` : 'off')), 'journals, intentions, the village day (G1)'],
+    ['MCAI_SOCIAL', fromMind((x) => (x.social ? `${x.social.mode || 'on'}${x.social.acts ? ', acts on' : ''}` : 'off')), 'profiles, roles, inbox, promises (G2)'],
+    ['MC_PROPOSALS', fromMind((x) => onOff(x.proposals != null)), 'members propose improvements (G5)'],
+    ['MC_RULES', fromMind((x) => onOff(x.rules != null)), 'laws, the agenda, dusk ballots (G3)'],
+    ['MCAI_TEMPERAMENT', fromMind((x) => x.temperament?.mode || 'off'), 'personalities in the chore menus'],
+    ['MC_NEEDS', v?.needGauges?.mode || 'off', 'needs read (show) or acted on (on)'],
+    ['MC_VOTE', v?.vote?.mode || 'no vote yet', 'neighbourhood styles and public works'],
+    ['MC_MERCHANT', onOff(v?.market), 'the market stall and its offers'],
+    ['MC_OWN', f.own ? `on (share ${Math.round(f.share * 100)}%)` : 'off', 'members\' own stock'],
+    ['MC_OWN_SALES', f.sales ? `on (levy ${Math.round(f.levy * 100)}%)` : 'off', 'members sell their own goods'],
+    ['MC_BARTER', onOff(f.barter), 'the offer board'],
+    ['MC_SPECIAL', f.special || 'off', 'specialists'],
+    ['MC_OWN_FARM', onOff(f.ownFarm), 'members farm their own plots'],
+    ['MC_INNOVATE', f.innovate ? `on (royalty ${Math.round(f.royalty * 100)}%)` : 'off', 'research and inventions'],
+    ['MC_GOALS', onOff(f.goals), 'life goals'],
+    ['MC_GROW', world ? onOff(world.grow) : '?', 'neighbourhoods and public works after completion'],
+    ['MC_GROW_FARMS', world ? onOff(world.growFarms) : '?', 'farms in each neighbourhood'],
+  ];
+  return card('The run\'s switches', `<div class="sub">as the agent server reports them; a tab whose feature is off says so too</div><div class="twocol" style="margin-top:8px">${rows.map(([n, s, what]) => `<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;border-bottom:1px dashed var(--line)"><span class="mono" style="flex:none;width:150px">${n}</span><b style="flex:none;color:${/^off|^no /.test(s) ? 'var(--muted)' : 'var(--good)'}">${esc(s)}</b><span class="sub">${what}</span></div>`).join('')}</div>`);
+}
+/** A Run sub-tab's page. */
+function runTab(d, v, tab) {
+  if (tab === 'busy') {
+    const names = d.agents.map((a) => a.name);
+    return (utilCard(names) || offBox('No busy record yet', 'The utilisation clock fills a point a minute.'))
+      + card('Each member', `<div class="twocol">${d.agents.slice().sort(byAgent).map((a) => `<div><a href="${hrefOf('members', 'now', a.name)}"><b>${esc(a.name)}</b></a>${utilLine(a.name) || ' <span class="sub">no record</span>'}</div>`).join('')}</div>`);
+  }
+  if (tab === 'scorecard') return v && scorecard?.[v.name] ? scorecardCard(v) + card('By hour', scorecardBody(v)) : offBox('No scorecard yet', 'Samples start with the panel\'s first request once the village is complete.');
+  if (tab === 'choices') return v?.choices ? choicesView(v) : offBox('No chore choices yet', 'Only idle members of a complete village choose their chores.');
+  if (tab === 'cost') return costView(d);
+  if (tab === 'events') {
+    const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 80);
+    return card(`Every member's recent events · ${all.length}`, `<ul class="list feed mono">${all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>'}</ul>`);
+  }
+  if (tab === 'flags') return flagsView(d, v);
+  return '';
+}
+
+// ---- the two levels of tabs and the page ----
+/** Level 1: the six sections, each with what asks for attention. */
+function l1Html(d, v) {
+  const failed = v ? v.tasks.filter((t) => t.status === 'failed').length : 0;
+  const trouble = v ? Object.values(v.needGauges?.kinds || {}).filter((n) => NEED_TROUBLE.has(n.status)).length : 0;
+  const extra = {
+    village: failed ? `<span class="badge">${failed} failed</span>` : '',
+    members: `<span class="ncnt">${d.agents.length}</span>`,
+    society: trouble ? `<span class="badge warn">${plural(trouble, 'need')}</span>` : '',
+  };
+  return L1.map(([id, label]) => `<a href="${hrefOf(id)}" data-nav="${id}"${route.top === id ? ' aria-current="page"' : ''}>${label}${extra[id] || ''}</a>`).join('');
+}
+/** Per sub-tab: a count, an alert, or "off" when its feature is off (the tab stays in its place). */
+function subInfo(top, v) {
+  if (top === 'village') {
+    const builds = buildingStates(v), built = builds.filter(([, s]) => s === 'done').length, failed = v.tasks.filter((t) => t.status === 'failed').length;
+    return { buildings: { count: builds.length ? `${built}/${builds.length}` : null }, tasks: { count: v.tasks.length, alert: failed ? `${failed} failed` : '' },
+      tech: { count: Object.keys(v.tech || {}).length || null }, land: { count: (v.plots || []).length || null } };
+  }
+  if (top === 'society') {
+    const vm = villageMind(v), ns = Object.values(v.needGauges?.kinds || {}), its = v.initiatives || [];
+    const trouble = ns.filter((n) => NEED_TROUBLE.has(n.status)).length, unmet = ns.filter((n) => n.status !== 'met').length;
+    return { initiatives: { count: its.length ? `${its.filter((i) => i.state === 'open').length} open` : null },
+      proposals: { off: vm && vm.proposals == null ? 'off' : '' }, rules: { off: vm && vm.rules == null ? 'off' : '' },
+      needs: { off: v.needGauges ? '' : 'off', count: unmet ? `${unmet} not met` : null, alert: trouble ? String(trouble) : '', warn: true }, culture: { off: 'soon' } };
+  }
+  if (top === 'economy') {
+    const e = v.economy, m = v.market;
+    const traded = m?.here ? Object.values(m.ledger || {}).reduce((t, l) => t + l.bought + l.sold, 0) : 0;
+    return { market: { off: m ? '' : 'off', count: traded ? `${traded} traded` : null }, wealth: { off: e ? '' : 'off' }, board: { off: e?.board ? '' : 'off' },
+      research: { off: e?.innovation ? '' : 'off' }, goals: { off: e?.flags?.goals ? '' : 'off' } };
+  }
+  if (top === 'run') {
+    const sc = v && scorecard?.[v.name], busy = busyShare((lastData?.agents || []).map((a) => a.name));
+    return { busy: { count: busy != null ? pctText(busy) : null }, scorecard: { count: sc && sc.verdict.verdict !== 'NO VERDICT' ? sc.verdict.verdict : null },
+      cost: { count: lastUsage?.total ? `$${(lastUsage.total.cost ?? 0).toFixed(2)}` : null } };
+  }
+  return {};
+}
+/** Level 2: the open section's sub-tabs (Members draws its own beside the member). */
+function l2Html(d, v) {
+  const top = route.top;
+  if (!L2[top] || top === 'members' || (!v && top !== 'run')) return '';
+  const info = subInfo(top, v);
+  return `<nav class="seg" aria-label="${esc(cap(top))}">${L2[top].map(([id, label]) => {
+    const x = info[id] || {};
+    return `<a href="${hrefOf(top, id)}" data-nav="s:${id}"${route.sub[top] === id ? ' aria-current="page"' : ''}>${label}${x.count != null ? ` <span class="ncnt">${esc(x.count)}</span>` : ''}`
+      + `${x.alert ? ` <span class="badge${x.warn ? ' warn' : ''}">${esc(x.alert)}</span>` : ''}${x.off ? ` <span class="off">${x.off}</span>` : ''}</a>`;
+  }).join('')}</nav>${top === 'village' ? `<span class="sub">${esc(v.name)} · ${villageState(v)[0]}</span>` : ''}`;
+}
+/** The open tab's page. */
+function viewHtml(d, v) {
+  const top = route.top, sub = route.sub[top];
+  if (top === 'members') return membersView(d);
+  if (top === 'run') return runTab(d, v, sub);
+  if (!v) return top === 'overview' ? '' : '<div class="offbox"><b>No village yet</b>The mayor has not laid one out.</div>';
+  if (top === 'overview') return overviewStrip(v, d.agents.filter((a) => a.village === v.name));
+  if (top === 'village') return villageTab(v, sub);
+  if (top === 'society') return societyTab(v, sub);
+  if (top === 'economy') return economyTab(v, sub);
+  return '';
+}
+let pickKey = '';
+/** The header's village: a chooser when there are several (redrawn only when they change, so an open list stays open). */
+function drawVillagePick(d) {
+  const v = curVillage(d), names = d.villages.map((x) => x.name);
+  const key = `${names.join('|')}#${v ? v.name : ''}#${v ? villageState(v)[0] : ''}`;
+  if (key === pickKey) return;
+  pickKey = key;
+  const state = v ? ` <span class="state" style="--c:${villageState(v)[1]}">${villageState(v)[0]}</span>` : '';
+  $('villagePick').innerHTML = names.length > 1
+    ? `<label class="chip">village <select id="villageSel" aria-label="Village">${names.map((n) => `<option${v && n === v.name ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${state}</label>`
+    : v ? `<span class="chip"><b>${esc(v.name)}</b>${state}</span>` : '';
+  const sel = $('villageSel');
+  if (sel) sel.onchange = () => { route.village = sel.value; saveRoute(); pickKey = ''; if (lastData) render(lastData); kick(); };
 }
 
 function render(d) {
@@ -1929,10 +2229,10 @@ function render(d) {
   if (String(window.getSelection?.() ?? '')) return;
   const scrolls = [...document.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, el.scrollTop]);
   const f = document.activeElement?.dataset || {};
-  const focus = f.tab ? `button[data-tabkey="${CSS.escape(f.tabkey)}"][data-tab="${CSS.escape(f.tab)}"]`
+  const focus = f.nav ? `a[data-nav="${CSS.escape(f.nav)}"]`
+    : f.tab ? `button[data-tabkey="${CSS.escape(f.tabkey)}"][data-tab="${CSS.escape(f.tab)}"]`
     : f.act ? `button[data-act="${CSS.escape(f.act)}"][data-agent="${CSS.escape(f.agent || '')}"]`
-    : 'actf' in f ? `button[data-actf="${CSS.escape(f.actf)}"][data-scope="${CSS.escape(f.scope || '')}"]`
-    : f.card ? `button[data-card="${CSS.escape(f.card)}"]` : null;
+    : 'actf' in f ? `button[data-actf="${CSS.escape(f.actf)}"][data-scope="${CSS.escape(f.scope || '')}"]` : null;
   // (the window's own scroll as well, and the refocused button without scrolling to it: a tab clicked, then the page
   // scrolled, jumped back to that tab every second, s34)
   const winY = window.scrollY;
@@ -1941,7 +2241,7 @@ function render(d) {
   if (focus) document.querySelector(focus)?.focus({ preventScroll: true });
   if (Math.abs(window.scrollY - winY) > 1) window.scrollTo(0, winY);
 }
-/** Who is doing what, in the world map's corner (each dot the agent's trail colour). */
+/** Who is doing what, in the world map's corner on the full screen (each dot the agent's trail colour). */
 function drawActivity(d) {
   const el = $('wmActs');
   if (!el) return;
@@ -1953,24 +2253,28 @@ function drawActivity(d) {
     : ACTIVITIES.map(([k, label]) => [label, agents.filter((a) => activityOf(a) === k)]).filter(([, g]) => g.length)
       .map(([label, g]) => `<div><b>${label} ${g.length}:</b>${g.map((a) => `<span><i style="background:${agentColor(a.name)}"></i>${esc(shortName(a.name))}</span>`).join('')}</div>`).join('');
 }
+/** Only the open tab is drawn: the header's village and clock, the two tab rows, the page; the overview's map row stays. */
 function renderNow(d) {
   drawActivity(d);
   $('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
-  if (simple) {
-    renderSimple(d);
-    return drawWorld();
-  }
-  $('agentCount').textContent = `(${d.agents.length})`;
-  $('agentFilter').innerHTML = d.agents.length > 1 ? actChips(d.agents, 'detailed') : '';
-  const shown = d.agents.filter(actShown).sort(byAgent);
-  const folded = shown.filter((a) => !cardOpen(a.name, d.agents.length));
-  $('agents').innerHTML = !d.agents.length ? '<div class="empty">No agents are running.</div>'
-    : !shown.length ? '<div class="empty">No agent is on that activity now.</div>'
-    : shown.filter((a) => cardOpen(a.name, d.agents.length)).map(renderAgent).join('');
-  $('agentsFolded').innerHTML = folded.length ? `<div class="card folded"><ul>${folded.map(foldedRow).join('')}</ul></div>` : '';
-  $('villagesWrap').innerHTML = d.villages.length ? `<h2>Villages</h2><div class="grid wide">${d.villages.map(renderVillage).join('')}</div>` : '';
-  const all = d.agents.flatMap((a) => a.events.map((e) => ({ ...e, agent: a.name }))).sort((x, y) => y.id - x.id).slice(0, 60);
-  $('feedWrap').innerHTML = det('feed', `All recent events (${all.length})`, `<div class="card"><ul class="list feed mono">${all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>'}</ul></div>`);
+  drawVillagePick(d);
+  const clock = d.agents.find((a) => a.clock)?.clock;
+  $('clock').textContent = clock ? cap(clock) : '';
+  const v = curVillage(d);
+  $('l1').innerHTML = l1Html(d, v);
+  $('l2').innerHTML = l2Html(d, v);
+  $('view').innerHTML = viewHtml(d, v);
+  const ov = route.top === 'overview';
+  $('ovRow').hidden = !ov;
+  $('ovMap').hidden = $('worldmap').hidden;
+  if (ov) {
+    const inV = v ? d.agents.filter((a) => a.village === v.name) : [];
+    const loose = d.agents.filter((a) => !a.village || !d.villages.some((x) => x.name === a.village));
+    $('ovWho').innerHTML = `<div class="label" style="display:flex;gap:8px"><span>Who is doing what</span><span class="spacer"></span><a href="${hrefOf('members')}" style="text-transform:none;letter-spacing:0">All members</a></div>`
+      + (v ? simpleAgents(inV, v.name) : '') + (loose.length || !v ? `${v ? '<div class="label" style="margin-top:12px">In no village</div>' : ''}${simpleAgents(loose, 'loose')}` : '');
+    $('ovBottom').innerHTML = `<div class="flexrow"><div class="narrow card"><div class="label">Needs a look</div>${attention(d, v)}</div>
+      <div class="narrow card"><div class="label" style="display:flex;gap:8px"><span>What happened</span><span class="spacer"></span><a href="#/run/events" style="text-transform:none;letter-spacing:0">Every event</a></div>${happenedList(v, d.agents)}</div></div>`;
+  } else { $('ovWho').innerHTML = ''; $('ovBottom').innerHTML = ''; }
   drawMaps();
   drawWorld();
 }
@@ -1984,36 +2288,20 @@ document.addEventListener('toggle', (e) => {
 }, true);
 
 document.addEventListener('click', async (e) => {
-  // The simple view's "N failed": the detailed view, the village's task list filtered to the failed tasks, scrolled to
-  const fl = e.target.closest('a[data-failed]');
-  if (fl) {
-    e.preventDefault();
-    const k = `village:${fl.dataset.failed}`;
-    openTabs[k] = 'tasks'; openTabs[`${k}:filter`] = 'failed';
-    store.set('panel.tabs', JSON.stringify(openTabs));
-    setMode(false);
-    document.querySelector(`[data-village="${CSS.escape(fl.dataset.failed)}"]`)?.scrollIntoView({ block: 'start' });
-    return;
-  }
-  // An activity chip (a second click on the chosen one shows all again), or folding and opening a card
-  const af = e.target.closest('button[data-actf]'), cb = e.target.closest('button[data-card]');
-  if (af || cb) {
-    if (af) actFilter = actFilter === af.dataset.actf ? '' : af.dataset.actf;
-    else { cardPrefs[cb.dataset.card] = cb.dataset.cardto; store.set('panel.cards', JSON.stringify(cardPrefs)); }
+  // An activity chip (a second click on the chosen one shows all again)
+  const af = e.target.closest('button[data-actf]');
+  if (af) {
+    actFilter = actFilter === af.dataset.actf ? '' : af.dataset.actf;
     if (lastData) render(lastData);
-    refreshMaps(); refreshCalls(); refreshExtras();
     return;
   }
+  // A level-3 chip inside a tab (Tasks' Now/Open/Done..., Land's, Model's): it stays chosen
   const tb = e.target.closest('button[data-tab]');
   if (tb) {
-    // (a second click closes a card's tab; a filter, data-keep, stays chosen)
-    const k = tb.dataset.tabkey, id = tb.dataset.tab;
-    if (openTabs[k] === id && !tb.dataset.keep) delete openTabs[k]; else openTabs[k] = id;
+    openTabs[tb.dataset.tabkey] = tb.dataset.tab;
     store.set('panel.tabs', JSON.stringify(openTabs));
     if (lastData) render(lastData);
-    if (openTabs[k] === 'map') refreshMaps();
-    if (openTabs[k] === 'exec' || openTabs[k] === 'planner' || openTabs[k] === 'choice') refreshCalls();
-    if (openTabs[k] === 'thoughts' || openTabs[k] === 'mind' || openTabs[k] === 'votes') refreshExtras();
+    kick();
     return;
   }
   const b = e.target.closest('button[data-act]');
@@ -2236,20 +2524,22 @@ async function refresh() {
 
 // Token use since the agent server started (all agents, not per run) and the hourly cloud budget
 function drawUsage(u) {
+  lastUsage = u || null;
   const el = $('usage');
   const t = u?.total;
   if (!t || (t.calls || 0) + (t.errors || 0) + (t.refused || 0) === 0) { el.hidden = true; return; }
   const h = u.lastHour || {};
   const b = u.budget || {};
-  let text = `tokens ${fmtTok((t.promptTokens || 0) + (t.outputTokens || 0))} since start · ${fmtTok((h.promptTokens || 0) + (h.outputTokens || 0))} last hour · ~$${(t.cost ?? 0).toFixed(2)}`;
+  // (the header keeps the cost and the budget; the rest is in Run, Models and cost, and the tooltip)
+  let text = `~$${(t.cost ?? 0).toFixed(2)}`;
   const pct = b.tokensPerHour ? Math.round((100 * (b.usedInWindow || 0)) / b.tokensPerHour) : null;
-  if (pct != null) text += ` · ${pct}% of hourly budget`;
+  if (pct != null) text += ` · ${pct}% of the hour's budget`;
   if (b.blocked && b.retryAt) text += ` · paused until ${new Date(b.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   else if (b.blocked) text += ' · paused';
   el.textContent = text;
   el.style.color = b.blocked ? 'var(--bad)' : pct != null && pct >= 80 ? 'var(--warn)' : '';
-  const lines = Object.entries(u.byModel || {}).map(([m, x]) =>
-    `${m}: ${x?.calls ?? 0} calls, ${fmtTok(x?.promptTokens ?? 0)} in / ${fmtTok(x?.outputTokens ?? 0)} out, ~$${(x?.cost ?? 0).toFixed(3)}`);
+  const lines = [`tokens ${fmtTok((t.promptTokens || 0) + (t.outputTokens || 0))} since start, ${fmtTok((h.promptTokens || 0) + (h.outputTokens || 0))} in the last hour`, ...Object.entries(u.byModel || {}).map(([m, x]) =>
+    `${m}: ${x?.calls ?? 0} calls, ${fmtTok(x?.promptTokens ?? 0)} in / ${fmtTok(x?.outputTokens ?? 0)} out, ~$${(x?.cost ?? 0).toFixed(3)}`)];
   if (u.unpriced?.length) lines.push(`unpriced: ${u.unpriced.join(', ')}`);
   if (u.since) lines.push(`since ${new Date(u.since).toLocaleString()}`);
   el.title = lines.join('\n');
@@ -2269,14 +2559,12 @@ async function refreshHeader() {
   } catch {
     $('world').innerHTML = '<span class="dot" style="background:var(--bad)"></span> agent server not answering';
   }
-  try {
-    const m = await api('/api/models');
-    $('models').innerHTML = m.ok
-      ? (m.models.length ? m.models.map((x) => x.cloud ? `<span class="chip" title="Ollama Cloud"><span class="dot" style="background:var(--good)"></span><b>${esc(x.name)}</b> cloud</span>` : `<span class="chip" title="${x.vramMB < x.sizeMB ? 'partly on the CPU: slow' : 'all in VRAM'}"><span class="dot" style="background:${x.vramMB < x.sizeMB ? 'var(--warn)' : 'var(--good)'}"></span><b>${esc(x.name)}</b> ${(x.vramMB / 1024).toFixed(1)} GB${x.server && x.server !== '11434' ? ` <span class="sub">:${esc(x.server)}</span>` : ''}</span>`).join(' ') + (m.error ? ` <span class="chip" style="color:var(--bad)">${esc(m.error)}</span>` : '') : '<span class="chip">Ollama: no models loaded</span>')
-      : `<span class="chip" style="color:var(--bad)">${esc(m.error)}</span>`;
-  } catch {}
+  // (the models loaded go to Run, Models and cost)
+  try { modelsInfo = await api('/api/models'); } catch {}
 }
 
+readHash();
+saveRoute();
 refreshHeader();
 refresh();
 setInterval(refresh, 2000);

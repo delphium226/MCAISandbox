@@ -903,19 +903,23 @@ village section shows the task board, buildings, plots, designs (each opens to i
 them; `overview()` adds them), the storage contents (chest by chest with each one's
 material group, "chest 1 (logs): 64 oak_log, ...", when the chests are sorted), reservations and the village log.
 
-The page has two views, chosen with `#simple` (the default) or `#detailed` in its address and remembered in
-`localStorage`; both are drawn from the same `/api/overview` and atlas data. The **detailed view** shows each agent and
-village as a short summary card with tabs: an agent's Plan, Brain, Executor saw, Planner saw, Decisions, Events,
-Inventory, Map and Stats; a village's Tasks (filters Now, Open, Done, Failed, All), Buildings, Storage, Plots, Designs,
-Ground and Log. One tab is open per card, a second click closes it, and the choice is remembered; a tab is drawn only
-while open, so `/api/maps` is fetched only while an agent's Map tab is open. The event feed sits behind a toggle, and a
-redraw keeps scroll positions and focus and waits while text is selected. The **simple view** follows a village's whole
-life: a summary strip (state, objective, buildings, tasks done, agents working, items stored), the buildings by
-readable name, "village life" from the village record (the wheat field, farm slots, pens with their animals, young born,
-eggs and milk, iron tools, lamps and signs), storage grouped by use, and who is doing what, with a state pill per agent
-and a plain-words line for every chore skill, beside the recent log.
+The page is **tabs within tabs** (2026-10-22, replacing a simple and a detailed view): six sections (level 1:
+Overview, Village, Members, Society, Economy, Run), each with sub-tabs (level 2, a segmented row), and filter chips inside
+a tab (level 3: a task list's Now, Open, Done, Failed, All; a member's model calls). Every tab has an address
+(`#/village/tasks/failed`, `#/members/Ada/mind`; the old `#simple` and `#detailed` open Overview and Members), each
+section remembers its last sub-tab in `localStorage`, and the header names the village shown (a chooser when there are
+several). All of it is drawn from `/api/overview` and the atlas; only the open tab is drawn on each redraw, and only it
+fetches what it needs: `/api/maps` for a member's Now tab, its calls, decision, thoughts or memory view for the member's
+other tabs, the votes for Society > Votes, and a member's memory view for the village's proposals and rules (the
+agent server sends those with any member's). A feature that is off keeps its tab, marked off, with its flag inside;
+Run > Flags lists the switches. **Overview** follows the village: a summary strip (state, objective, buildings, tasks
+done with a link to the failed ones, members working, busy share, items stored, age), the world map beside who is doing
+what (a state pill per agent and a plain-words line for every chore skill, the idle folded into name chips), what needs
+a look (failed tasks, needs nobody answers, members in trouble, the budget) and what happened (the board's "was not
+needed" lines folded into one). A redraw keeps scroll positions and focus and waits while text is selected; the map's
+row stays in the page so a drag survives the redraws.
 
-In Minecraft, every village (in the simple view too) has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
+In Minecraft, the Overview has a map of the **shared atlas** (`mcAtlas.ts`): one summary per
 chunk any bot has received, shared by every agent and village and saved to `mc/server/atlas.json` at most every 30 s.
 A summary holds the ground's lowest, median and highest height and how flat it is, water and lava columns, log blocks
 by wood kind (and how many stand within 5 blocks of the ground), the surface materials, and a 4x4-block grid of heights

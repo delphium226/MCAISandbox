@@ -60,13 +60,17 @@ models' tools and end in a message saying what happened and what to do next.
 
 ## The control panel
 
-http://127.0.0.1:8766/panel follows everything live without joining the game. The **simple view** follows a village
-through its life: buildings, farms and pens, storage, who is doing what. The **detailed view** has a card per agent and
-village, with tabs for an agent's plan, its **thoughts** (its recent model calls with their reasoning, its answers and
-what it saw), its **memory** (temperament, the chores it has done and how they ended, its memory fields) and its
-**votes**, and a village's tasks, buildings, storage, **votes** (every ballot with its reason), **initiatives** (who
-started what, who joined) and **needs** (each gauge's level and whether anyone is answering it). A world map shows
-everything the bots have seen.
+http://127.0.0.1:8766/panel follows everything live without joining the game, in six tabs, each with its own sub-tabs
+(every one has an address, such as `#/village/tasks/failed` or `#/members/Ada/mind`). **Overview** is the page to leave
+open: the village's numbers, the world map beside who is doing what, what needs a look and what happened. **Village**:
+buildings, tasks, storage, life (farms, pens, lights, growth), the tech tree and the land. **Members**: a list, and one
+member's Now (plan, inventory, its map), Mind (journal, intention, notes), Social, Chores (its last chore menu), Model
+(its **thoughts**, what the executor and planner saw) and Log. **Society**: **votes** (every ballot with its reason),
+**initiatives**, proposals, rules, **needs** and culture. **Economy**: the market, wealth, the board, research, goals.
+**Run**: how busy the members are, the scorecard, how chores were chosen, models and cost, every event, and the run's
+switches. A feature that is off keeps its tab, marked off, with its flag inside.
+
+(The screenshots above and below show the panel before its tabs, 2026-10-22.)
 
 ![The detailed view](docs/images/panel-detailed.png)
 

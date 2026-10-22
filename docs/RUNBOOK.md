@@ -150,8 +150,8 @@ the short version; look here for a check script's arguments, a model detail or w
 - **Utilisation graphs** (#67, s39): the agent server samples who is busy every 5 s (an action running, as
   `autonomy_metrics.py`'s BusyClock counts it) into 1-minute bins, a day kept an agent in memory
   (`server/src/utilisation.ts`); `GET /api/utilisation?bin=MIN&points=N` gives the overall and per-agent shares. The
-  panel's simple view has a "How busy the members are" card per village (last hour, 6 or 24 hours), the detailed view a
-  line in each agent's card. Check: `utilisation_unit.mts`.
+  panel's Run > Busy tab has the members' share (last hour, 6 or 24 hours) and a line per member, as does each member's
+  header in Members. Check: `utilisation_unit.mts`.
 - **Checks:** `scripts/checks/menu_probe.mts [CHECKPOINT_DIR] [--families ...] [--sweeps N] [--idle all|N] [--stand]
   [--verbose]` (offline: each member's menu, the fixed picks, then N sweeps with every action done; `MC_NEEDS=on` also
   prints the needs), `needs_unit.mts`, `housing.mts`, `parts_unit.mts` (all in check:offline). `run_report.py` adds
@@ -195,8 +195,8 @@ the short version; look here for a check script's arguments, a model detail or w
   show or on, levels only at status changes), goods from the STOCK lines, works from builds' ends, and says what it
   lacks (own chests, recipes, roads; busy when a run stopped before its BUSY line, the verdict then uses chore busy).
   The panel: `GET /api/scorecard` (a sample a minute from the agent server's first request, with busy from the
-  utilisation clock), a Scorecard card in the simple view and a Scorecard tab in the detailed view; offline check
-  `runs/2026-10-21/scorecard/panel_harness.mts SIMDIR`. The village card's Tech tab draws the whole tech tree
+  utilisation clock), the panel's Run > Scorecard tab; offline check
+  `runs/2026-10-21/scorecard/panel_harness.mts SIMDIR`. The panel's Village > Tech tab draws the whole tech tree
   (`GET /api/techtree`, `server/src/techTree.ts`: goods made, known and locked and the library's inventions by recipe depth,
   linked by the recipes plans use; `runs/2026-10-21/scorecard/tree_probe.mts VILLAGES.json` prints it). **The baseline** (default and economy flags, 6 hours,
   `--random-tick 3`, 3 seeds): `runs/2026-10-21/scorecard/baseline.sh`; results in F268.
