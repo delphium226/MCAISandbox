@@ -28,6 +28,9 @@ import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, chore
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
+import { IRON_AGE, IRON_MINERS, LADDER, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
+import type { RungId } from '../wanted';
+import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
@@ -59,14 +62,14 @@ import { vanillaJar } from '../vanillaData';
 import { MEMORY, agentMemory, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
-import { ACTS, actsHelp, openRequests, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
+import { ACTS, actsHelp, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
 import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
 import { setProposalCtx } from '../society';
 import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
-import { clockOf, noteAnswer, scrub, toldAnswer } from '../memory';
+import { clockOf, noteAnswer, scrub, toldAnswer, villageMemory } from '../memory';
 import { tellMember } from '../acts';
 import { RULES, breaks, duties, levyRate, noteCompliance, noteTakes, rulesLine } from '../rules';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
@@ -898,6 +901,93 @@ export class MineflayerWorld implements WorldAdapter {
     for (const m of MATERIALS) out[m].want = Math.max(0, out[m].need - out[m].incoming);
     return out;
   }
+
+  /**
+   * G8, MC_IRON_AGE (spec 4.1, draft 2's B1-B3): the iron chain as three kinds of work several members may hold at once:
+   * a trip to the iron level on a leg of its own (up to IRON_MINERS: `irondig:1..3`), raw iron smelted at a free works
+   * furnace (`ironsmelt:k`, the furnace held), and an iron tool forged from stored ingots for a member who asked for it or
+   * whose work needs it and who has none of its own, given to that member (`ironforge:<member>`); the village's own
+   * pickaxe and bucket first when it has none. The chain does not stop at "tools made".
+   */
+  private ironAgeOptions(v: Village, a: BotAgent, busy: Set<string>, store: Counts, now: number, reasons: Partial<Record<ChoiceKind, string>>,
+    add: (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => void, record: (kind: ChoiceKind) => string,
+    lastOf: (kind: ChoiceKind, id?: string) => string, others: (kind: ChoiceKind, id?: string) => string) {
+    const m = v.mine;
+    if (!m || m.level === undefined) {
+      reasons.iron = 'no mine';
+      return;
+    }
+    const tries = m.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000 ? {} : m.ironTries ?? {};
+    const backing = (stage: string) => ((tries as Record<string, number>)[stage] ?? 0) >= 3 || (m.ironLastTry?.stage === stage && now - m.ironLastTry.at < 10 * 60000);
+    const raw = store.raw_iron ?? 0, ingots = store.iron_ingot ?? 0;
+    const why: string[] = [];
+    let added = 0;
+    const slot = Array.from({ length: IRON_MINERS }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
+    if (m.iron?.finished) why.push('iron level finished');
+    else if (slot === undefined) why.push('every leg busy');
+    else if (backing('dig')) why.push('digging backs off');
+    else {
+      added++;
+      add({
+        id: 'iron:dig', kind: 'iron', key: `irondig:${slot}`, excludes: [`irondig:${slot}=`], name: 'Dig for iron in the mine', rank: 700,
+        facts: `${raw} raw iron and ${ingots} iron ingots in storage; the iron level ${m.iron ? `${m.iron.level !== undefined ? `at y ${m.iron.level}, ` : ''}${m.iron.dug} cells dug` : 'not started'}${others('iron', 'iron:dig')}; ${record('iron')}${lastOf('iron', 'iron:dig')}`,
+        effect: `raw iron for the smelters (${raw} in storage)`,
+      }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
+    }
+    const k = this.freeFurnaces(v, busy).find((q) => q >= 1);
+    if (raw < 1) why.push('no raw iron to smelt');
+    else if (k === undefined) why.push('works furnaces busy');
+    else if (backing('smelt')) why.push('smelting backs off');
+    else {
+      added++;
+      const n = Math.min(8, raw);
+      add({
+        id: 'iron:smelt', kind: 'iron', key: `ironsmelt:${k}`, holds: [`furnace:${k}`], excludes: [`ironsmelt:${k}=`, `furnace:${k}=`], name: 'Smelt raw iron into ingots', rank: 701,
+        facts: `${raw} raw iron and ${ingots} iron ingots in storage; at works furnace ${k}${others('iron', 'iron:smelt')}${lastOf('iron', 'iron:smelt')}`,
+        effect: `up to ${n} iron ingots for the smiths`,
+      }, { kind: 'iron', stage: 'smelt', tool: '', iron: raw, k, count: n });
+    }
+    const need = this.forgeNeed(v);
+    const who = (need?.for ?? 'village').toLowerCase();
+    if (!need) why.push('no tool wanted');
+    else if (ingots < FORGE_COST[need.tool]) why.push(`ingots short for ${need.for ? `${need.for}'s` : 'the village\'s'} ${words(need.tool)} (${ingots} of ${FORGE_COST[need.tool]})`);
+    else if (busy.has(`ironforge:${who}`)) why.push('being forged');
+    else if (backing(`forge:${need.tool}`)) why.push('forging backs off');
+    else {
+      added++;
+      add({
+        id: need.for && !need.asked ? `iron:forge:${need.tool}:${need.for}` : `iron:forge:${need.tool}`, kind: 'iron', key: `ironforge:${who}`, excludes: [`ironforge:${who}=`],
+        name: need.for ? `Make an iron tool for ${need.for}: ${words(need.tool)} (${need.why})` : `Make the village ${words(need.tool)} (${need.why})`, rank: 702,
+        facts: `${ingots} iron ingots in storage, ${FORGE_COST[need.tool]} needed${others('iron', `iron:forge:${need.tool}`)}${lastOf('iron')}`,
+        effect: need.for ? `${need.for} gets its own ${words(need.tool)}` : `a ${words(need.tool)} in the village storage`,
+      }, { kind: 'iron', stage: 'forge', tool: need.tool, iron: ingots, ...(need.for ? { for: need.for } : {}) });
+    }
+    if (!added) reasons.iron = why.join('; ');
+  }
+
+  /** G8: who the next iron tool is for: an open request for one first, then members whose work needs it and who have none
+   *  given (miners, farmers, shearers, milkers), then the village's own pickaxe and bucket (as before the iron age). */
+  private forgeNeed(v: Village): { tool: string; for?: string; why: string; asked?: boolean } | null {
+    const given = v.mine?.ironGiven ?? [];
+    const has = (name: string, tool: string) => given.some((g) => g.to === name && g.item === tool);
+    if (ACTS.on) for (const t of FORGE_TOOLS) {
+      const asker = requestersOf(v.name, `iron:forge:${t}`).find((n) => !has(n, t));
+      if (asker) return { tool: t, for: asker, why: 'asked for one', asked: true };
+    }
+    const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name && b.memory.villageRole !== 'mayor');
+    for (const [t, test, why] of FORGE_NEEDS)
+      for (const b of members) {
+        const kinds = this.workKinds.get(b.name.toLowerCase());
+        if (kinds && test(kinds) && !has(b.name, t)) return { tool: t, for: b.name, why };
+      }
+    const made = v.mine?.ironMade ?? [];
+    if (!made.includes('iron_pickaxe')) return { tool: 'iron_pickaxe', why: 'it has none' };
+    if (!made.includes('bucket')) return { tool: 'bucket', why: 'it has none' };
+    return null;
+  }
+
+  /** G8: the kinds of work each member has taken in this process (the forge's "work needs a tool"). */
+  private workKinds = new Map<string, Map<string, number>>();
 
   /** Free furnace keys for a smelting make (D5), in order 1, 2, 3 (the works furnaces recorded), then 0 (the hut's). */
   freeFurnaces(v: Village, busy: Set<string>): number[] {
@@ -2033,11 +2123,14 @@ export class MineflayerWorld implements WorldAdapter {
       ballots, tally: t.tally, winner: t.winner, ...(t.tie ? { tie: t.tie } : {}), closedAt: now,
     };
     v.votes = [...(v.votes ?? []), rec].slice(-20);
-    const g = (v.growth ??= { past: [] });
-    // (X.2: a public work's vote decides the next work, '' for "no new work"; the style vote the next neighbourhood's style)
-    if (r.topic === 'work') g.work = { piece: t.winner === PROJECT_NONE ? '' : t.winner, vote: r.id, at: now };
-    else g.next = { style: t.winner, vote: r.id };
-    const what = r.topic === 'work' ? `public work ${r.k}` : `neighbourhood ${r.k}`;
+    // (X.2: a public work's vote decides the next work, '' for "no new work"; the style vote the next neighbourhood's style;
+    // G8's rung vote the ladder's next rung, set by rungTick)
+    if (r.topic !== 'rung') {
+      const g = (v.growth ??= { past: [] });
+      if (r.topic === 'work') g.work = { piece: t.winner === PROJECT_NONE ? '' : t.winner, vote: r.id, at: now };
+      else g.next = { style: t.winner, vote: r.id };
+    }
+    const what = r.topic === 'work' ? `public work ${r.k}` : r.topic === 'rung' ? 'the next ambition' : `neighbourhood ${r.k}`;
     const name = (id: string) => r.options.find((o) => o.id === id)?.name ?? id;
     for (const b of ballots) console.log(`[ballot] ${v.name}: ${b.agent} -> ${b.choice ? name(b.choice) : `none (${b.why ?? '?'})`} (predicted ${b.predicted ? name(b.predicted) : '-'}${b.position ? `, shown ${b.position} of ${b.shown.length}` : ''}): ${b.reason.replace(/\s+/g, ' ').slice(0, 160)}`);
     const cast = ballots.filter((b) => b.choice), agree = cast.filter((b) => b.choice === b.predicted).length;
@@ -2597,6 +2690,81 @@ export class MineflayerWorld implements WorldAdapter {
     const last = g?.past?.[g.past.length - 1];
     if (last && now - last.end < 60000) return false;
     return this.growClaimers(v).length > 0;
+  }
+
+  /**
+   * G8 (MC_LADDER): the ladder begun on iron once the village is complete; after a rung, at the next dawn (at once without
+   * the clock), a ballot among the rungs whose earlier rungs are reached (vote.ts topic `rung`, 2-4 options with code's
+   * previews; one option is taken without a vote); its winner becomes the current rung.
+   */
+  private rungTick(v: Village, now: number) {
+    const st = ladderOf(v, now);
+    if (!st || st.current) return;
+    const run = this.voting.get(v.name);
+    if (run) {
+      if (run.topic !== 'rung') return;
+      if (!run.done && now - run.started < VOTE_MAX_MS + 35000) return;
+      const w = this.closeVote(v, run, now) as RungId;
+      chooseRung(v, w, run.options.map((o) => o.id as RungId), now);
+      this.ladderNote(v, `the village chose ${RUNG_DEFS[w]?.name ?? w} as its next ambition`);
+      return;
+    }
+    if (!st.reached.length) return;
+    const ck = clockOf(v.name, now);
+    if (ck && ck.phase !== 'dawn') return;
+    const ids = rungOptions(v);
+    if (!ids.length) return;
+    const mode = this.voteMode(v);
+    if (ids.length === 1 || mode === 'off') {
+      chooseRung(v, ids[0], ids, now);
+      this.ladderNote(v, `the village takes up ${RUNG_DEFS[ids[0]].name}${ids.length === 1 ? ', the one open to it' : ''}`);
+      return;
+    }
+    openRungBallot(v, ids);
+    const options: VoteOption[] = ids.map((id) => ({ id, name: RUNG_DEFS[id].name, facts: rungPreview(id, { skills: new Set(Object.keys(MC_SKILLS)), activitySkills: new Set(this.library.specs.map((s) => s.skill)) }), current: false, novel: true, units: 0, volume: 0 }));
+    const k = (v.votes ?? []).filter((x) => x.topic === 'rung').length + 1;
+    const id = `${v.name}-r${k}-${now.toString(36)}`;
+    const voters = this.growMembers(v).filter((a) => a.bot.entity);
+    const r: VoteRun = { id, topic: 'rung', k, options, started: now, mode, done: false, ballots: [], voters: voters.map((a) => a.name), ac: new AbortController() };
+    this.voting.set(v.name, r);
+    this.villages.save();
+    console.log(`[vote] ${v.name}: rung vote ${id} (${mode}, ${voters.length} voters): ${options.map((o) => o.name).join(', ')}`);
+    const predicted = (name: string) => predictedChoice(temperament(name), options, `${id}|${name}`);
+    if (mode === 'predicted') {
+      r.ballots = voters.map((a) => predictedBallot(id, a.name, options, predicted(a.name)));
+      r.done = true;
+      return;
+    }
+    const reqs: BallotRequest[] = [];
+    for (const a of voters) {
+      const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+      if (spec) reqs.push({ voteId: id, agent: a.name, spec, level: REASONING.ballot, options, predicted: predicted(a.name), ctx: this.voterContext(v, a), signal: r.ac.signal, topic: 'rung' });
+    }
+    castAll(id, reqs, BALLOTS_PARALLEL, now + VOTE_MAX_MS, r.ballots).then(() => (r.done = true), (e) => {
+      console.log(`[vote] ${v.name}: rung ballots failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      r.done = true;
+    });
+  }
+
+  /** G8: a stage's or rung's news: the log, the village's notes, its chronicle (the day's facts) and the acts record. */
+  private ladderNews(v: Village, news: LadderNews) {
+    console.log(`[ladder] ${v.name}: ${news.text}`);
+    this.villages.note(v, news.text.replace(/^The village /, 'the village ').replace(/\.$/, ''));
+    const day = clockOf(v.name, Date.now())?.day;
+    const vm = villageMemory(v.name);
+    if (vm && day !== undefined) {
+      const ch = ((vm.social.chronicle as ChronicleEntry[] | undefined) ?? []);
+      const e = ch.find((x) => x.day === day) ?? (ch.push({ day, facts: [] }), ch[ch.length - 1]);
+      e.facts.push(news.text);
+      vm.social.chronicle = ch.slice(-30);
+    }
+    logAct({ type: 'ladder', village: v.name, kind: news.kind, rung: news.rung, stage: news.stage, text: news.text, workers: news.workers, t: Date.now() });
+  }
+
+  private ladderNote(v: Village, text: string) {
+    console.log(`[ladder] ${v.name}: ${text}`);
+    this.villages.note(v, text);
+    this.villages.save();
   }
 
   /** The next public work (as styleFor): a piece, null (none now: "no new work" won lately, or nothing buildable), or
@@ -3835,6 +4003,13 @@ export class MineflayerWorld implements WorldAdapter {
 
   private setChore(v: Village, worker: BotAgent, key: string, status: ActionStatus[], what: string, failed?: (why: string) => void, meta?: ChoiceMeta, holds: string[] = [], opt?: ChoiceOption) {
     const id = worker.name.toLowerCase();
+    // (G8: the kinds of work a member takes, for the forge's recipients: a dig trip, milking and shearing by their ids)
+    if (IRON_AGE && opt) {
+      const wk = opt.id.startsWith('iron:dig') ? 'iron:dig' : /milk/.test(opt.id) ? 'milk' : /shear/.test(opt.id) ? 'shear' : opt.kind;
+      const m = this.workKinds.get(id) ?? new Map<string, number>();
+      m.set(wk, (m.get(wk) ?? 0) + 1);
+      this.workKinds.set(id, m);
+    }
     // (idleWorker never offers an agent holding a chore, so nothing is replaced; if one were, its end is logged)
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
@@ -4011,6 +4186,27 @@ export class MineflayerWorld implements WorldAdapter {
       }
       const paid = payRoyalties(v, made, (m) => !!this.homeOf(v, m));
       for (const [m, got] of Object.entries(paid)) console.log(`[innovate] ${v.name}: ${m} earns a royalty of ${Object.entries(got).map(([n, q]) => `${q} ${n}`).join(', ')} on ${c.agent}'s make`);
+    }
+    // (G8, MC_LADDER: the work done into the ladder's stage: cells and raw iron from a dig trip, ingots from a smelt, a tool
+    // given to a member)
+    if (LADDER && v) {
+      for (const q of c.status) {
+        if (q.state !== 'done' || !q.message) continue;
+        const got: Array<[LadderCounter, number]> = [];
+        if (q.type === 'dig_iron') {
+          const cells = /(\d+) cells dug this trip/.exec(q.message), up = /brought up (\d+) raw iron/.exec(q.message);
+          if (cells) got.push(['cells', Number(cells[1])]);
+          if (up) got.push(['raw_iron', Number(up[1])]);
+        } else if (q.type === 'smelt_iron') {
+          const n = /smelted (\d+) iron_ingot/.exec(q.message);
+          if (n) got.push(['ingots', Number(n[1])]);
+        } else if (q.type === 'make_iron_tool' && /given to [A-Za-z0-9_]+/.test(q.message)) got.push(['tools', 1]);
+        for (const [counter, n] of got) {
+          const news = noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day);
+          if (news) this.ladderNews(v, news);
+        }
+        if (got.length) this.villages.save();
+      }
     }
     // (G1: every chore's end into its member's journal and kind table, grow, eat and tidy too; a contention end is no lesson
     // about the chore; the intent marked ended)
@@ -4373,6 +4569,8 @@ export class MineflayerWorld implements WorldAdapter {
     const items = new Map<string, string>();
     if (CHOOSE.families.has('make')) for (const g of this.goodsFor(v)) items.set(`make:${g.item}`, g.words);
     if (CHOOSE.families.has('gather')) for (const m of MATERIALS) items.set(`gather:${m}`, m);
+    // (G8, MC_IRON_AGE: an iron tool may be asked for; the forge option for the asker carries the request's id)
+    if (IRON_AGE) for (const t of FORGE_TOOLS) items.set(`iron:forge:${t}`, `an iron tool: ${words(t)}`);
     const projects = new Map<string, { words: string; owner: string }>();
     for (const it of (v.initiatives ?? []).filter((i) => i.state === 'open')) projects.set(`help:${it.id}`, { words: SMALL_WORKS.find((k) => k.kind === it.kind)?.words ?? it.kind, owner: it.by });
     const at = new Map<string, { x: number; z: number }>();
@@ -4863,7 +5061,9 @@ export class MineflayerWorld implements WorldAdapter {
     // The iron age: an iron pickaxe once storage holds 3 iron, then a bucket; while short, trips to the iron level (not
     // while milking or the cake hold the buckets: storage reads none then, the fixes review's M1)
     const m = v.mine;
-    if (!m || m.level === undefined) reasons.iron = 'no mine';
+    // (G8, MC_IRON_AGE: dig, smelt and forge as kinds any number may hold, spec 4.1)
+    if (IRON_AGE) this.ironAgeOptions(v, a, busy, store, now, reasons, add, record, lastOf, others);
+    else if (!m || m.level === undefined) reasons.iron = 'no mine';
     else if (excluded(['iron', 'cake', 'penwork'], busy)) reasons.iron = 'busy';
     else {
       const made = m.ironMade ?? [];
@@ -5530,6 +5730,11 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // G2 (MC_SKILL=on, #17): the member's skill at each option's kind
     if (SKILL.on) for (const o of out) if (o.kind !== 'eat') o.sw = skillWeight(skillOf(v.name, a.name, o.kind));
+    // G8 (MC_LADDER): the options that feed the ladder's current stage
+    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id)) {
+      o.vw = VW;
+      o.ladderTag = stageTag(v);
+    }
     // G5 (MC_PROPOSALS): an option an accepted proposal of the member's (or one it backed) brought, once built (verdict.ref)
     if (PROPOSALS_ON) for (const p of allProposals(v.name)) {
       const ref = p.verdict?.decision === 'accept' ? p.verdict.ref : undefined;
@@ -5870,6 +6075,8 @@ export class MineflayerWorld implements WorldAdapter {
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
       // (#79: the member's life goal and its progress, one line)
       ...(GOALS_ON && v.complete ? (() => { this.goalsFor(v); const line = goalLine(v, a.name); return line ? { goal: line.slice(0, 200) } : {}; })() : {}),
+      // (G8: the ladder's progress line, with a stage's news for a village day)
+      ...(LADDER && v.complete ? (() => { ladderOf(v, Date.now()); const line = progressLine(v, Date.now(), MEMORY.dayMs); return line ? { ladder: line } : {}; })() : {}),
       // (N.1: the needs at LOW or above, most acute first)
       ...(NEEDS_MODE === 'on' && (this.needReadings.get(v.name) ?? []).some((r) => r.level >= LOW)
         ? { needs: (this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).sort((x, y) => y.level - x.level).slice(0, 3).map((r) => r.text) } : {}),
@@ -5991,18 +6198,28 @@ export class MineflayerWorld implements WorldAdapter {
         return;
       case 'iron': {
         const stage = d.stage;
-        const status = stage === 'dig'
+        // (G8, MC_IRON_AGE: a full trip, never cut at the first ore; a smelt at its works furnace; a forge from ingots only,
+        // for its recipient)
+        const status = IRON_AGE
+          ? stage === 'dig' ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: 6 })
+            : stage === 'smelt' ? worker.enqueue('smelt_iron', { count: d.count ?? 8, furnace: d.k, chore: true })
+            : worker.enqueue('make_iron_tool', { item: d.tool, smelt: false, ...(d.for ? { for: d.for } : {}), chore: true })
+          : stage === 'dig'
           ? worker.enqueue('dig_iron', { chore: true, minutes: 4, want: Math.max(1, (d.tool === 'bucket' ? 3 : 6) - d.iron) })
           : worker.enqueue('make_iron_tool', { item: stage, chore: true });
         const failed = (why: string) => {
           const mm = v.mine;
           if (!mm || why === 'cancelled') return;
-          mm.ironTries = { ...(mm.ironTries ?? {}), [stage]: (mm.ironTries?.[stage] ?? 0) + 1 };
-          mm.ironLastTry = { at: Date.now(), stage, why: why.slice(0, 200) };
+          // (another miner on the stairs or every leg taken: contention, not this work's failure)
+          if (IRON_AGE && /another worker|miners are on|iron level's stairs/.test(why)) return;
+          const sk = IRON_AGE && stage === 'forge' ? `forge:${d.tool}` : stage;
+          mm.ironTries = { ...(mm.ironTries ?? {}), [sk]: (mm.ironTries?.[sk] ?? 0) + 1 };
+          mm.ironLastTry = { at: Date.now(), stage: sk, why: why.slice(0, 200) };
           this.villages.save();
         };
         this.setChore(v, worker, opt.key, [status], `iron: ${stage}`, failed, meta, opt.holds, opt);
-        console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${d.iron} iron in storage)` : `makes a ${stage}`}`);
+        console.log(`[iron] ${v.name}: ${worker.name} ${stage === 'dig' ? `digs the iron level (${d.iron} iron in storage)` : stage === 'smelt' ? `smelts ${d.count} raw iron at works furnace ${d.k}`
+          : stage === 'forge' ? `forges ${d.tool}${d.for ? ` for ${d.for}` : ' for the village'}` : `makes a ${stage}`}`);
         return;
       }
       case 'explore': {
@@ -6334,6 +6551,8 @@ export class MineflayerWorld implements WorldAdapter {
     if (PROPOSALS_ON) this.proposalSweep(v, now);
     // (character v2: a point per member once a village minute, the matrix every 10)
     if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
+    // (G8: the ladder started, and after a rung the start-of-day ballot on the next)
+    if (LADDER && v.complete) this.rungTick(v, now);
     // (G3: a pending share unanswered for a village day is kept whole, outside the levy's measure)
     if (RULES.on && OWN.on && v.homes) for (const [agent, own] of Object.entries(v.homes)) {
       const kept = lapsePending(own, now, MEMORY.dayMs);
@@ -6942,7 +7161,7 @@ type OptionRun =
   | { kind: 'pen'; j: number; slotKind: string; x: number; y: number; z: number }
   | { kind: 'penwork'; j: number; what: string; skill: string; slotKind: string; animals: number }
   | { kind: 'cake' }
-  | { kind: 'iron'; stage: string; tool: string; iron: number }
+  | { kind: 'iron'; stage: string; tool: string; iron: number; k?: number; count?: number; for?: string }
   | { kind: 'explore'; i: number; x: number; z: number; home: { x: number; z: number } }
   | { kind: 'make'; good: MakeGood; count: number; inputs: Counts; smelts: boolean; k?: number; stock: number }
   | { kind: 'gather'; material: Material; n: number; amount: number; block: string; deposit: string; need: number; incoming: number; for: string[] }
@@ -7065,6 +7284,16 @@ function choreName(key: string, what: string): string {
   if (kind === 'slot' && crop) return `Harvest the ${words(crop)} farm`;
   return what ? what[0].toUpperCase() + what.slice(1) : KIND_WORDS[kind] ?? kind;
 }
+
+/** G8: the iron tools a smith forges, their ingots, and whose work needs each (miners first; spec B3). */
+const FORGE_TOOLS = ['iron_pickaxe', 'iron_hoe', 'shears', 'bucket'];
+const FORGE_COST: Record<string, number> = { iron_pickaxe: 3, iron_hoe: 2, shears: 2, bucket: 3 };
+const FORGE_NEEDS: Array<[string, (k: Map<string, number>) => boolean, string]> = [
+  ['iron_pickaxe', (k) => (k.get('iron:dig') ?? 0) >= 1, 'mines without one'],
+  ['iron_hoe', (k) => (k.get('farm') ?? 0) + (k.get('slot') ?? 0) + (k.get('start') ?? 0) >= 2, 'farms without one'],
+  ['shears', (k) => (k.get('shear') ?? 0) >= 1, 'shears sheep without them'],
+  ['bucket', (k) => (k.get('milk') ?? 0) >= 1, 'milks cows without one'],
+];
 
 /** An option matches a busy key (ChoiceOption.excludes: "x=" exactly, "x" as itself or a prefix of "x:..."). */
 function excluded(excludes: string[], busy: Set<string>): boolean {

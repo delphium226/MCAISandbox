@@ -15,6 +15,7 @@ import { checkAbort, num, reach, wetAt } from './mcUtil';
 // What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
+import { IRON_AGE, IRON_MINERS } from '../ladderFlags';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
@@ -193,11 +194,13 @@ function keptStairs(m: Mine): Array<{ x: number; z: number; y1?: number; y2?: nu
   return [...stairColumns(m).slice(0, -1), ...(m.down ?? []).flatMap((d) => downColumns(m, d).slice(0, d.level !== undefined ? -1 : undefined)),
     // (finished ones too: their first steps stay open at the level's height, the final review)
     ...(m.iron ? iron(m.iron, m.iron.level === undefined) : []),
-    ...(m.iron?.abandoned ?? []).flatMap((d) => iron(d, true))];
+    ...(m.iron?.abandoned ?? []).flatMap((d) => iron(d, true)),
+    // (iron levels finished before, MC_IRON_AGE: the next one's stairs start at their bottom step)
+    ...(m.ironPast ?? []).flatMap((p) => [...iron(p, false), ...(p.abandoned ?? []).flatMap((d) => iron(d, true))])];
 }
 
 /** The iron level's stair columns, from its first step to its last (they run in its own direction, 10-08). */
-function ironColumns(i: IronLevel) {
+function ironColumns(i: Pick<IronLevel, 'x' | 'z' | 'dir' | 'steps'>) {
   return Array.from({ length: i.steps }, (_, k) => ({ x: i.x + i.dir[0] * (k + 1), z: i.z + i.dir[1] * (k + 1) }));
 }
 
@@ -243,26 +246,33 @@ export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
     });
   }
   for (const l of m.legs ?? []) out.push(legBox(l));
-  // The iron level: its stairs (from the step they start beside down to the last) and its tunnels (10-08)
-  const i = m.iron;
-  for (const d of i?.abandoned ?? []) {
-    const cols = [{ x: d.x, z: d.z }, ...ironColumns({ ...i!, ...d })];
-    out.push({
-      x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
-      x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
-      y: d.y - d.steps - 2, y2: d.y + 2,
-    });
+  // The iron level: its stairs (from the step they start beside down to the last) and its tunnels (10-08); then the
+  // levels finished before it (MC_IRON_AGE)
+  for (const i of [m.iron, ...(m.ironPast ?? [])]) {
+    for (const d of i?.abandoned ?? []) {
+      const cols = [{ x: d.x, z: d.z }, ...ironColumns(d)];
+      out.push({
+        x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
+        x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
+        y: d.y - d.steps - 2, y2: d.y + 2,
+      });
+    }
+    if (i && i.steps) {
+      const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+      out.push({
+        x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
+        x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
+        y: i.y - i.steps - 2, y2: i.y + 2,
+      });
+    }
+    for (const l of i?.legs ?? []) out.push(legBox(l));
   }
-  if (i && i.steps) {
-    const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
-    out.push({
-      x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
-      x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
-      y: i.y - i.steps - 2, y2: i.y + 2,
-    });
-  }
-  for (const l of i?.legs ?? []) out.push(legBox(l));
   return out;
+}
+
+/** The iron levels, finished ones first, then the current one (MC_IRON_AGE lays several; without it, at most one). */
+function ironLevels(m: Mine): IronLevel[] {
+  return [...(m.ironPast ?? []), ...(m.iron ? [m.iron] : [])];
 }
 
 /** The six blocks around a cell. */
@@ -352,13 +362,17 @@ function dropOf(name: string): string {
 
 /** Whether the bot stands in the iron level (its stairs or tunnels): a stuck bot there is teleported home (10-08). */
 export function inIronLevel(a: BotAgent): boolean {
-  const i = a.village()?.mine?.iron;
-  if (!i || !i.steps) return false;
+  const m = a.village()?.mine;
+  if (!m) return false;
   const p = a.bot.entity.position.floored();
-  const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
-  const near = cols.some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < i.y && p.y >= i.y - i.steps - 2;
-  const given = (i.abandoned ?? []).some((d) => [{ x: d.x, z: d.z }, ...ironColumns({ ...i, ...d })].some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < d.y && p.y >= d.y - d.steps - 2);
-  return near || given || i.legs.some((l) => { const b = legBox(l); return p.x >= b.x1 && p.x <= b.x2 && p.z >= b.z1 && p.z <= b.z2 && p.y >= b.y && p.y <= b.y2 + 1; });
+  // (any of them: the current one and, with MC_IRON_AGE, the levels finished above it, walked through on the way down)
+  return ironLevels(m).some((i) => {
+    if (!i.steps) return false;
+    const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+    const near = cols.some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < i.y && p.y >= i.y - i.steps - 2;
+    const given = (i.abandoned ?? []).some((d) => [{ x: d.x, z: d.z }, ...ironColumns(d)].some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < d.y && p.y >= d.y - d.steps - 2);
+    return near || given || i.legs.some((l) => { const b = legBox(l); return p.x >= b.x1 && p.x <= b.x2 && p.z >= b.z1 && p.z <= b.z2 && p.y >= b.y && p.y <= b.y2 + 1; });
+  });
 }
 
 /** Whether the bot stands in the mine: in one of its boxes, between the floor and the ceiling. */
@@ -1114,6 +1128,14 @@ const IRON_GOOD_Y = 28;
 const KEEP = /^(?:deepslate_)?(iron|coal)_ore$/;
 /** Villages whose iron level a bot is digging now (one at a time). */
 const ironBusy = new Set<string>();
+/** MC_IRON_AGE: tunnels at most per iron level (room for IRON_MINERS on their own legs), levels at most, how far below
+ *  the last the next one's stairs go, and the lowest y a level's stairs may aim at. */
+const IRON_AGE_LEGS = 9, IRON_LEVELS = 3, IRON_DROP = 12, IRON_FLOOR_Y = 0;
+/** MC_IRON_AGE's locks, each with the time it lapses (a trip's end and its walk up: a holder that never let go frees it
+ *  then): the miners on a village's iron level, the one digging its stairs, and each leg's miner (by the leg's record). */
+type Hold = { name: string; until: number };
+const ironTrips = new Map<string, Map<string, number>>(), ironStairs = new Map<string, Hold>(), ironLegs = new Map<MineLeg, Hold>();
+const HOLD_MS = 5 * 60000;
 
 /**
  * Where the iron stairs start (the design review's H1): from a cell the deepest level has dug, in a direction whose first 4
@@ -1136,14 +1158,24 @@ export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [num
     dug.push(...legAhead(l, !l.end));
   }
   dug.push(...level);
+  return pickIronStart(b, L, level, dug, m.iron?.abandoned ?? [], m.dir, true);
+}
+
+/**
+ * ironStart's choice, given the bottom step `b` of the level the stairs start from (at y L), its cells, the cells the
+ * stairs keep off and the stairs given up before (never started again the same way, nor near where they stopped).
+ * `side`: whether a start beside the bottom step says which side (the cobblestone mine's tunnel is then never turned there).
+ */
+function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x: number; z: number }>, dug: Array<{ x: number; z: number }>,
+  abandoned: NonNullable<IronLevel['abandoned']>, base: [number, number], side: boolean): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
   // (and any stairs given up before, never started again the same way)
-  for (const d of m.iron?.abandoned ?? []) dug.push(...ironColumns({ ...m.iron!, ...d }));
-  const tried = (st: { x: number; z: number }, dir: [number, number]) => (m.iron?.abandoned ?? []).some((d) => d.x === st.x && d.z === st.z && d.dir[0] === dir[0] && d.dir[1] === dir[1]);
+  for (const d of abandoned) dug.push(...ironColumns(d));
+  const tried = (st: { x: number; z: number }, dir: [number, number]) => abandoned.some((d) => d.x === st.x && d.z === st.z && d.dir[0] === dir[0] && d.dir[1] === dir[1]);
   // (nor anywhere near where they stopped: the second and third stairs of VanI3 met the first one's cave, 2 blocks over)
-  const stops = (m.iron?.abandoned ?? []).map((d) => ({ x: d.x + d.dir[0] * Math.max(1, d.steps), z: d.z + d.dir[1] * Math.max(1, d.steps) }));
+  const stops = abandoned.map((d) => ({ x: d.x + d.dir[0] * Math.max(1, d.steps), z: d.z + d.dir[1] * Math.max(1, d.steps) }));
   const offStops = (st: { x: number; z: number }, dir: [number, number]) => Array.from({ length: 45 }, (_, k) => ({ x: st.x + dir[0] * (k + 1), z: st.z + dir[1] * (k + 1) }))
     .every((c) => stops.every((q) => Math.hypot(q.x - c.x, q.z - c.z) >= 8));
-  const [dx, dz] = m.dir;
+  const [dx, dz] = base;
   const dirs: Array<[number, number]> = [[dz, -dx], [-dz, dx], [dx, dz], [-dx, -dz]];
   const starts = level.filter((c, n) => level.findIndex((o) => o.x === c.x && o.z === c.z) === n)
     .sort((p, q) => Math.abs(p.x - b.x) + Math.abs(p.z - b.z) - Math.abs(q.x - b.x) - Math.abs(q.z - b.z));
@@ -1154,8 +1186,117 @@ export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [num
         const c = { x: st.x + dir[0] * k, z: st.z + dir[1] * k };
         return dug.every((d) => (d.x === st.x && d.z === st.z) || Math.abs(d.x - c.x) + Math.abs(d.z - c.z) >= 2);
       });
-      if (clear) return { x: st.x, z: st.z, y: L, dir, ...(st.x === b.x && st.z === b.z && n < 2 ? { side: (n + 1) as 1 | 2 } : {}) };
+      if (clear) return { x: st.x, z: st.z, y: L, dir, ...(side && st.x === b.x && st.z === b.z && n < 2 ? { side: (n + 1) as 1 | 2 } : {}) };
     }
+  return null;
+}
+
+/**
+ * Where the next iron level's stairs start (MC_IRON_AGE): from a cell of the level above (`old`, finished), its stairs'
+ * bottom step first, clear of its stairs and cells as ironStart's are of the mine's. `abandoned`: the new level's stairs
+ * given up so far. Null when none is clear.
+ */
+export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel['abandoned']>): { x: number; z: number; y: number; dir: [number, number] } | null {
+  const b = ironColumns(old).at(-1);
+  if (!b || old.level === undefined) return null;
+  const level: Array<{ x: number; z: number }> = [{ x: b.x, z: b.z }];
+  const dug: Array<{ x: number; z: number }> = [...ironColumns(old)];
+  for (const l of old.legs.filter((q) => q.y === old.level)) {
+    level.push({ x: l.x, z: l.z }, ...legCells(l));
+    dug.push(...legAhead(l, !l.end));
+  }
+  dug.push(...level);
+  return pickIronStart(b, old.level, level, dug, abandoned, old.dir, false);
+}
+
+/** Where the current iron level's stairs start again after some were given up: below the last finished level when there
+ *  is one (MC_IRON_AGE), else beside the mine's deepest level. */
+function ironRestart(m: Mine): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
+  const old = m.ironPast?.at(-1);
+  return old ? ironDeeperStart(old, m.iron?.abandoned ?? []) : ironStart(m);
+}
+
+/**
+ * MC_IRON_AGE: a finished level (its level y known) is archived and the next one laid IRON_DROP below it, its stairs from
+ * a cell of it (ironDeeperStart), while IRON_LEVELS allow and its aim stays at IRON_FLOOR_Y or above. `dug` and `got` run
+ * on (the new level's own cells count from `dugAt`). Returns the new level's note, or '' when none is laid (`finished`
+ * then stays set: the dig option goes).
+ */
+export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel): string {
+  if (!IRON_AGE || !i.finished || i.level === undefined || m.iron !== i) return '';
+  const past = m.ironPast ?? [];
+  const target = i.level - IRON_DROP;
+  if (past.length + 2 > IRON_LEVELS || target < IRON_FLOOR_Y) return '';
+  const s = ironDeeperStart(i, []);
+  if (!s) {
+    reg.note(v, `no clear way down from the iron level at y=${i.level} to another below it`);
+    return '';
+  }
+  m.ironPast = [...past, i];
+  m.iron = { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: i.dug, dugAt: i.dug, got: { ...i.got }, targetY: target };
+  const note = `the next iron level's stairs start at ${s.x},${s.y},${s.z}, going ${compass(s.dir)} down to about y=${target}`;
+  reg.note(v, note);
+  reg.save();
+  return note;
+}
+
+/**
+ * MC_IRON_AGE: the leg of the iron level this miner digs, claimed for it: the one it holds while it goes on; else a leg
+ * going that no other miner holds; else a turn (off an ended leg first, as nextIronLeg, then off one another miner digs:
+ * its full branches are dug, and the turn runs on beyond them) while the level has room (IRON_AGE_LEGS). 'busy' when
+ * every leg going has its miner and no turn can be made; null when every tunnel ended. A leg is advanced only by its
+ * holder, so no two miners dig one cell.
+ */
+export function claimIronLeg(a: { name: string; world: { villages: { note: (v: Village, s: string) => void } } }, v: Village, i: IronLevel, until = Date.now() + HOLD_MS): MineLeg | 'busy' | null {
+  const now = Date.now();
+  const other = (l: MineLeg) => { const h = ironLegs.get(l); return !!h && h.name !== a.name && h.until > now; };
+  const claim = (l: MineLeg) => { ironLegs.set(l, { name: a.name, until: until + HOLD_MS }); return l; };
+  const mine = i.legs.find((l) => ironLegs.get(l)?.name === a.name);
+  if (mine && !mine.end) return mine;
+  if (mine) ironLegs.delete(mine);
+  const going = i.legs.find((l) => !l.end && !other(l));
+  if (going) return claim(going);
+  if (i.legs.length < IRON_AGE_LEGS)
+    for (const ended of [true, false])
+      for (const [n, l] of i.legs.entries()) {
+        if (!!l.end !== ended) continue;
+        for (const side of [1, 2] as const) {
+          if ((l.turned ?? 0) & side) continue;
+          const t = turnFrom(l, side, n === 0);
+          if (!t) continue;
+          l.turned = (l.turned ?? 0) | side;
+          i.legs.push(t);
+          a.world.villages.note(v, `${a.name} turned the iron level ${compass(t.dir)} at ${t.x},${t.y},${t.z}`);
+          return claim(t);
+        }
+      }
+  return i.legs.some((l) => !l.end) ? 'busy' : null;
+}
+
+/** MC_IRON_AGE: every lock a miner holds on a village's iron level let go (its trip, the stairs, its leg). */
+export function releaseIronClaims(village: string, name: string) {
+  ironTrips.get(village)?.delete(name);
+  if (ironStairs.get(village)?.name === name) ironStairs.delete(village);
+  for (const [l, h] of ironLegs) if (h.name === name) ironLegs.delete(l);
+}
+
+/**
+ * MC_IRON_AGE: whether a miner may go down now (null), or why not: IRON_MINERS on the level already, or another digging
+ * its stairs (one at a time: the stairs are one face). Takes the trip's place, and the stairs when it digs them.
+ */
+export function ironGate(village: string, name: string, i: IronLevel, until: number): string | null {
+  const now = Date.now();
+  const trips = ironTrips.get(village) ?? new Map<string, number>();
+  ironTrips.set(village, trips);
+  for (const [n, t] of trips) if (t <= now) trips.delete(n);
+  const others = [...trips.keys()].filter((n) => n !== name).length;
+  if (others >= IRON_MINERS) return `${['no', 'one', 'two', 'three', 'four'][IRON_MINERS] ?? IRON_MINERS} miners are on the iron level already; try again later`;
+  if (i.level === undefined) {
+    const s = ironStairs.get(village);
+    if (s && s.name !== name && s.until > now) return 'another worker is digging the iron level\'s stairs; try again in a few minutes';
+    ironStairs.set(village, { name, until: until + HOLD_MS });
+  }
+  trips.set(name, until + HOLD_MS);
   return null;
 }
 
@@ -1181,14 +1322,16 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
     const last = ironColumns(i).at(-1), y = i.y - i.steps;
     // A level where the stairs stopped: at once when deep enough for iron (y 28 or less), else only when no try is left
     // (VanI4 settled at y 39 on its second try and dug 87 cells past 3 iron ores in the whole stretch)
+    // (a level below another, MC_IRON_AGE: only 6 or more below its aim's level above, three solid layers between them)
+    const good = i.targetY !== undefined ? i.targetY + IRON_DROP - 6 : IRON_GOOD_Y, settleY = i.targetY !== undefined ? good : IRON_SETTLE_Y;
     const tries = (i.abandoned?.length ?? 0) + 1;
-    if (last && (y <= IRON_GOOD_Y || (y <= IRON_SETTLE_Y && tries >= IRON_TRIES))) return level(y, last.x, last.z);
+    if (last && (y <= good || (y <= settleY && tries >= IRON_TRIES))) return level(y, last.x, last.z);
     // Above y 40 (caves and aquifers are common at 36-51, VanI2): these stairs are given up as they are and new ones
     // start elsewhere on the level, away from where these stopped, IRON_TRIES in all
     i.abandoned = [...(i.abandoned ?? []), { x: i.x, z: i.z, y: i.y, dir: i.dir, steps: i.steps, why: short(why) }];
-    const next = i.abandoned.length < IRON_TRIES ? ironStart(m) : null;
+    const next = i.abandoned.length < IRON_TRIES ? ironRestart(m) : null;
     // (no start left: a level at y 40 or less here after all, the diff review's M3)
-    if (!next && last && y <= IRON_SETTLE_Y) {
+    if (!next && last && y <= settleY) {
       i.abandoned.pop();
       return level(y, last.x, last.z);
     }
@@ -1236,9 +1379,9 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
     if (under.boundingBox !== 'block' || wetAt(a, under.position)) return settle(`no floor under ${x},${floor + 1},${z}`);
     i.steps = k;
     reg.save();
-    if (floor + 1 <= IRON_Y && inStone && STONE.has(under.name)) return level(floor + 1, x, z);
+    if (floor + 1 <= (i.targetY ?? IRON_Y) && inStone && STONE.has(under.name)) return level(floor + 1, x, z);
   }
-  return settle(`no stone at y ${IRON_Y} within ${IRON_MAX_STEPS} steps`);
+  return settle(`no stone at y ${i.targetY ?? IRON_Y} within ${IRON_MAX_STEPS} steps`);
 }
 
 /**
@@ -1340,22 +1483,39 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   }
   const i = m.iron;
   if (i.finished) return `the iron level is finished: ${i.finished}`;
-  if (ironBusy.has(v.name)) return 'another worker is digging the iron level';
-  ironBusy.add(v.name);
+  if (IRON_AGE) {
+    // (up to IRON_MINERS at once, each on its own leg; the stairs one at a time)
+    const no = ironGate(v.name, a.name, i, until);
+    if (no) return no;
+  } else {
+    if (ironBusy.has(v.name)) return 'another worker is digging the iron level';
+    ironBusy.add(v.name);
+  }
   const go = (p: Vec3, range: number, ms: number) => walkMine(a, p, range, signal, ms).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
   });
   const top = new Vec3(m.top.x + 0.5, m.level + m.steps - 1, m.top.z + 0.5);
   const carried = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((n, it) => n + it.count, 0);
   const start = carried();
+  // (the levels finished above this one, MC_IRON_AGE: walked through, each from its stairs' top to its bottom step)
+  const above = (() => { const all = ironLevels(m), k = all.indexOf(i); return k >= 0 ? all.slice(0, k) : []; })();
+  // (MC_IRON_AGE's tail on the trip's text: the cells it dug, for the chore's record, and the level it worked)
+  let dugNow = 0, laid = '', endedHere = false;
+  const tail = () => (IRON_AGE ? `; ${dugNow} cells dug this trip${i.level !== undefined ? `; level y=${i.level}` : ''}${laid ? `; ${laid}` : ''}` : '');
   let why = '';
   try {
     if (!inMine(a, m)) await go(top, 1.5, 90000);
+    for (const p of above) {
+      const foot = ironColumns(p).at(-1);
+      await go(new Vec3(p.x + 0.5, p.y, p.z + 0.5), 1.5, 120000);
+      if (foot && p.level !== undefined) await go(new Vec3(foot.x + 0.5, p.level, foot.z + 0.5), 1.5, 120000);
+    }
     await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000);
     if (i.level === undefined) {
       const r = await digIronStairs(a, v, m, i, signal, until);
-      if (r === TIME_UP) return (why = 'the time was up on the iron stairs');
-      if (r) return (why = r === UNLOADED ? 'the iron stairs are not loaded' : `the iron stairs stopped: ${r}`);
+      if (IRON_AGE && i.level !== undefined && ironStairs.get(v.name)?.name === a.name) ironStairs.delete(v.name);
+      if (r === TIME_UP) { why = 'the time was up on the iron stairs'; return why + tail(); }
+      if (r) { why = r === UNLOADED ? 'the iron stairs are not loaded' : `the iron stairs stopped: ${r}`; return why + tail(); }
     }
     const bottom = ironColumns(i).at(-1)!;
     await go(new Vec3(bottom.x + 0.5, i.level!, bottom.z + 0.5), 1.5, 120000);
@@ -1365,9 +1525,12 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       if (carried() >= want) { why = `carrying ${carried()} raw iron`; break; }
       if (Date.now() > until) { why = 'the time was up'; break; }
       if (a.bot.inventory.emptySlotCount() < 4) { why = 'the inventory is nearly full'; break; }
-      if (i.dug >= IRON_CELLS) { i.finished = `${i.dug} tunnel cells dug`; break; }
-      const leg = nextIronLeg(a, v, i);
-      if (!leg) { i.finished = short(`every tunnel ended; the last met ${i.legs.at(-1)?.end ?? 'nothing'}`); break; }
+      // (another miner finished this level meanwhile, MC_IRON_AGE: the next one, if any, is for the next trip)
+      if (IRON_AGE && (m.iron !== i || i.finished)) { why = `another miner finished this iron level (${i.finished ?? 'done'})`; break; }
+      if (i.dug - (i.dugAt ?? 0) >= IRON_CELLS) { i.finished = `${i.dug - (i.dugAt ?? 0)} tunnel cells dug`; endedHere = true; break; }
+      const leg = IRON_AGE ? claimIronLeg(a, v, i, until) : nextIronLeg(a, v, i);
+      if (leg === 'busy') { why = 'every iron tunnel going has its miner and none can turn off yet'; break; }
+      if (!leg) { i.finished = short(`every tunnel ended; the last met ${i.legs.at(-1)?.end ?? 'nothing'}`); endedHere = true; break; }
       const c = tunnelCell(leg, leg.dug);
       if (leg.ended.includes(c.branch)) { leg.dug++; continue; }
       const L = leg.y;
@@ -1390,11 +1553,24 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
           if ((e as Error).message === 'cancelled' || (e as { tool?: boolean }).tool) throw e;
           // The same cell failing on two trips ends its branch or tunnel (the diff review's M3: else every trip stops there)
           const at = `${c.x},${L},${c.z}`;
-          i.stuckAt = { at, n: i.stuckAt?.at === at ? i.stuckAt.n + 1 : 1 };
-          if (i.stuckAt.n >= 2) {
+          const end = () => {
             if (c.branch % 3 === 0) leg.end = short(`${at}: ${(e as Error).message}`);
             else leg.ended.push(c.branch);
-            delete i.stuckAt;
+          };
+          if (IRON_AGE) {
+            // (by place: other miners' failures on their own legs must not reset this one's count)
+            i.stuck ??= {};
+            i.stuck[at] = (i.stuck[at] ?? 0) + 1;
+            if (i.stuck[at] >= 2) {
+              end();
+              delete i.stuck[at];
+            }
+          } else {
+            i.stuckAt = { at, n: i.stuckAt?.at === at ? i.stuckAt.n + 1 : 1 };
+            if (i.stuckAt.n >= 2) {
+              end();
+              delete i.stuckAt;
+            }
           }
           throw e;
         }
@@ -1403,23 +1579,31 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
         // Into the cell's middle: its drops and the ores' (a wall's drop lands about a block off, the diff review's L3)
         await go(new Vec3(c.x + 0.5, L, c.z + 0.5), 0.3, 20000);
         i.dug++;
+        dugNow++;
       }
       leg.dug++;
       reg.save();
     }
-    if (i.finished) reg.note(v, `the iron level is finished: ${i.finished}`);
-    return `${why || i.finished}; ${kept} ores kept from the walls`;
+    if (i.finished && (!IRON_AGE || endedHere)) {
+      reg.note(v, `the iron level is finished: ${i.finished}`);
+      // (MC_IRON_AGE: the next level laid below it at once, so the dig option stays)
+      if (IRON_AGE) laid = layNextIronLevel(reg, v, m, i);
+    }
+    return `${why || i.finished}; ${kept} ores kept from the walls${tail()}`;
   } catch (e) {
     if ((e as Error).message === 'cancelled') throw e;
     why = (e as Error).message;
-    return `stopped: ${why}`;
+    return `stopped: ${why}${tail()}`;
   } finally {
-    ironBusy.delete(v.name);
+    if (IRON_AGE) releaseIronClaims(v.name, a.name);
+    else ironBusy.delete(v.name);
     reg.save();
     // Back up to the top of the mine's stairs (not when stopped: the rescue or the next action takes it from there)
     if (!signal.aborted) {
       const b = ironColumns(i).at(-1);
       if (b && i.level !== undefined) await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000).catch(() => undefined);
+      // (and up through the levels finished above it, MC_IRON_AGE)
+      for (const p of [...above].reverse()) await go(new Vec3(p.x + 0.5, p.y, p.z + 0.5), 1.5, 120000).catch(() => undefined);
       await go(top, 1.5, 120000).catch(() => undefined);
     }
     a.world.villages.note(v, `${a.name}'s iron trip: ${carried() - start} raw iron carried up (${why || 'done'})`);
@@ -1502,6 +1686,15 @@ export function mineLights(m: Mine): MineLightSpot[] {
   for (const l of i?.legs ?? []) {
     tunnels('mine:iron', l);
     own(l);
+  }
+  // (the iron levels finished above it, MC_IRON_AGE: the same part, so torches already up there stay counted as lit)
+  for (const p of m.ironPast ?? []) {
+    const cols = ironColumns(p);
+    for (const n of steps(p.steps)) out.push(across('mine:iron', cols[n - 1].x, p.y - n + 1, cols[n - 1].z, p.dir));
+    for (const l of p.legs) {
+      tunnels('mine:iron', l);
+      own(l);
+    }
   }
   return out;
 }

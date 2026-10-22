@@ -170,6 +170,10 @@
   .lifex { display: flex; flex-wrap: wrap; gap: 14px 24px; }
   .lifex > div { flex: 1 1 220px; min-width: 0; }
   table.streets td { font-variant-numeric: tabular-nums; }
+  /* G8's Ladder view */
+  table.grid { border-collapse: collapse; font-size: 13px; width: 100%; }
+  table.grid th, table.grid td { text-align: left; padding: 3px 10px 3px 0; vertical-align: top; }
+  table.grid th { color: var(--muted); font-weight: 500; }
   .vrow { font-size: 13px; margin-bottom: 6px; }
   .vrow .vtop { display: flex; justify-content: space-between; gap: 8px; }
   .vrow .vtop > span:last-child { font-variant-numeric: tabular-nums; }
@@ -380,7 +384,7 @@ $('theme').onclick = () => {
 // Every tab has an address (#/village/tasks/failed, #/members/Ada/mind); each section remembers its last sub-tab ----
 const L1 = [['overview', 'Overview'], ['village', 'Village'], ['members', 'Members'], ['society', 'Society'], ['economy', 'Economy'], ['run', 'Run']];
 const L2 = {
-  village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['land', 'Land']],
+  village: [['buildings', 'Buildings'], ['tasks', 'Tasks'], ['storage', 'Storage'], ['life', 'Life'], ['tech', 'Tech'], ['ladder', 'Ladder'], ['land', 'Land']],
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
   society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
@@ -778,6 +782,8 @@ async function refreshExtras() {
   // (the village's proposals and rules come with any member's memory view; Run > Flags reads its modes from it too)
   const v = curVillage(lastData), sub = route.sub[route.top];
   if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
+  // (G8: the ladder of ages)
+  if (v && route.top === 'village' && sub === 'ladder') jobs.push(fetchExtra(`ladder:${v.name}`, `/api/ladder?village=${encodeURIComponent(v.name)}`));
   const vm = v && villageMember(v);
   if (vm && ((route.top === 'society' && (sub === 'proposals' || sub === 'rules')) || (route.top === 'run' && sub === 'flags'))) jobs.push(mind(vm.name));
   // (character v2: every member compact for People, the matrix and quartiles for Relations and the Overview's mood card)
@@ -836,6 +842,33 @@ function peopleBody(v) {
     `<table class="streets"><tr><th>member</th><th>strongest traits</th><th>top value</th><th>goal</th><th>energy</th><th>mood</th><th>strongest friend</th></tr>${rows}</table>`);
 }
 /** Society -> Relations: the latest affinity matrix (cells coloured by sign), and the village's mood over time. */
+/** G8's Ladder view: the current rung and stage, every rung's stages with who did their work and when each ended, the
+ *  tools given to members, the iron level, the rung ballots. */
+function ladderBody(v) {
+  const st = extraState(`ladder:${v.name}`);
+  if (st) return st;
+  const d = extraData.get(`ladder:${v.name}`).data;
+  if (!d.on) return offBox('The ladder is off', 'Start the agent server with MC_LADDER=on (and MC_IRON_AGE=on for the iron work) to climb the ladder of ages.');
+  const L = d.ladder;
+  if (!L) return offBox('No ladder yet', 'The ladder begins on the iron age once the village is complete.');
+  const who = (w) => Object.entries(w || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, q]) => `${esc(n)} ${q}`).join(', ') || '<span class="sub">nobody yet</span>';
+  const cur = L.rungs.find((r) => r.current);
+  const sc = cur && cur.stages[L.stage];
+  const bar = sc && sc.target ? `<div style="height:8px;background:var(--line);border-radius:4px;margin:6px 0"><div style="height:8px;width:${Math.round(100 * L.count / sc.target)}%;background:var(--good);border-radius:4px"></div></div>` : '';
+  const head = cur ? `<b>${esc(cur.name)}</b>, stage ${L.stage + 1} of 4: ${esc(sc.words)}${bar}<span class="sub">stage begun ${ago(L.stageStart)} ago</span>`
+    : L.offered.length ? `Choosing the next ambition among ${L.offered.map(esc).join(', ')}` : 'No rung under way';
+  const news = L.news ? `<div class="sub" style="margin-top:6px">${esc(L.news.text)} (${ago(L.news.t)} ago)</div>` : '';
+  const rows = L.rungs.filter((r) => r.current || r.reached || r.stages.some((s) => Object.keys(s.work).length)).map((r) => card(
+    `${esc(r.name)} <span class="sub">${r.reached ? `reached ${ago(r.reached.t)} ago${r.reached.day !== undefined && r.reached.day !== null ? `, day ${r.reached.day}` : ''}` : r.current ? 'under way' : ''}</span>`,
+    `<table class="grid"><tr><th>Stage</th><th>State</th><th>Ended</th><th>Who did the work</th></tr>${r.stages.map((s, i) => `<tr><td>${i + 1}. ${esc(s.words)}</td><td>${s.state}</td><td>${s.ended ? `${ago(s.ended)} ago` : ''}</td><td>${who(s.work)}</td></tr>`).join('')}</table>`)).join('');
+  const later = L.rungs.filter((r) => !r.current && !r.reached).map((r) => `${esc(r.name)}${r.after.length ? ` <span class="sub">(after ${r.after.join(', ')})</span>` : ''}`).join(' · ');
+  const given = d.given.length ? `<table class="grid"><tr><th>Tool</th><th>To</th><th>By</th><th>When</th></tr>${d.given.slice(-20).reverse().map((g) => `<tr><td>${esc(g.item.replace(/_/g, ' '))}</td><td>${esc(g.to)}</td><td>${esc(g.by)}</td><td>${ago(g.at)} ago</td></tr>`).join('')}</table>` : '<span class="sub">none given yet</span>';
+  const iron = d.iron ? `level y ${d.iron.level ?? '?'}, ${d.iron.dug} cells dug in all, ${d.iron.legs} legs${d.iron.finished ? `; finished: ${esc(d.iron.finished)}` : ''}` : 'not started';
+  const ballots = L.ballots.length ? L.ballots.map((b) => `${ago(b.t)} ago: ${esc(b.winner || '?')} won among ${b.options.map(esc).join(', ')}`).join('<br>') : '<span class="sub">none yet</span>';
+  return card('The ladder of ages', head + news) + rows + card('Rungs to come', later || '<span class="sub">none</span>')
+    + card('Iron tools given to members', given) + card('The iron level', iron) + card('Rung ballots', ballots);
+}
+
 function relationsBody(v) {
   const st = extraState(`chars:${v.name}`);
   if (st) return st;
@@ -1113,6 +1146,7 @@ function villageTab(v, tab) {
       }).join('')}</ul>` : '<div class="empty">no chest yet</div>')}`;
   }
   if (tab === 'life') return villageLife(v) || '<div class="empty">no farms, pens, lights or growth yet</div>';
+  if (tab === 'ladder') return ladderBody(v);
   if (tab === 'tech') {
     const tech = Object.entries(v.tech || {}).sort((x, y) => (y[1].at || 0) - (x[1].at || 0));
     const wk = (v.layouts || [])[0]?.works;

@@ -61,8 +61,8 @@ export interface Ballot {
   ms?: number;
 }
 
-/** What a vote decides: the next neighbourhood's style (s33), or the next public work (X.2). */
-export type VoteTopic = 'style' | 'work';
+/** What a vote decides: the next neighbourhood's style (s33), the next public work (X.2), or the ladder's next rung (G8). */
+export type VoteTopic = 'style' | 'work' | 'rung';
 
 export interface VoteRecord {
   id: string;
@@ -146,12 +146,14 @@ const SYSTEM_OF: Record<VoteTopic, string> = {
   style: 'You are a member of a Minecraft village. The village votes on the style of its next neighbourhood of houses; ',
   // (X.2: the members then build the winner together, gathering its materials; "none" leaves them idle)
   work: 'You are a member of a Minecraft village. The village votes on its next public work, a building every member then helps to gather for and build; ',
+  // (G8: the ladder of ages; the winner becomes the village's ambition, worked in four stages)
+  rung: 'You are a member of a Minecraft village. The village votes on its next ambition, the next age it climbs to, worked by every member in four stages; ',
 };
 const SYSTEM_TAIL = 'every member has one vote and the most votes win. Read the options and their facts, think briefly about what you want '
   + 'for the village and for yourself, and call `vote` with a one-sentence reason and the exact name of one option. '
   + 'Never invent an option.';
-const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.' };
-const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '' };
+const QUESTION: Record<VoteTopic, string> = { style: 'The vote: the style of the next neighbourhood.', work: 'The vote: the next public work.', rung: "The vote: the village's next ambition." };
+const CURRENT: Record<VoteTopic, string> = { style: ' (the current style)', work: '', rung: '' };
 const SYSTEM_PERSONA = ' Vote as the person described would.';
 
 export interface VoterContext {

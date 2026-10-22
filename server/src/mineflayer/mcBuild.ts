@@ -29,7 +29,7 @@ import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
-import { STORAGE_SKILLS, holdingStorageTask, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
@@ -45,6 +45,7 @@ import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, rele
 import { postLayout } from '../layout';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
+import { IRON_AGE, OWN_TOOLS } from '../ladderFlags';
 
 type Pos = [number, number, number];
 
@@ -476,7 +477,8 @@ function shortage(a: BotAgent, what: string, need: Counts, inv: Counts, store: C
  *
  * The workshop's make (S.9) passes `stock` (makeHeld's view of the storage: {} once it has withdrawn its inputs itself, so
  * nothing kept is taken) and `furnace`: false for none, or the furnace it holds and smelts at (a works furnace or the
- * hut's, chosen by its own rule). Every other caller passes neither.
+ * hut's, chosen by its own rule). The iron age's forge and smelt_iron (MC_IRON_AGE) pass both too: the storage without
+ * raw iron (the forge, furnace false) or without ingots (the smelting, at its furnace). Every other caller passes neither.
  */
 async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () => Promise<void>, signal: AbortSignal,
   opts: { what?: string; noStockPick?: boolean; surplus?: boolean; stock?: Counts; furnace?: false | { x: number; y: number; z: number } } = {}): Promise<string | null> {
@@ -4468,12 +4470,23 @@ async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: Abor
     pen.milkAt = Date.now();
     a.world.villages.save();
     await syncInventory(a).catch(() => {});
+    // A member's own buckets (MC_OWN_TOOLS) milk first like any carried, are kept by the deposit, and one milked is made up
+    // from an empty bucket in storage when there is one (its milk went in)
+    const own = OWN_TOOLS ? ownTools(v, a.name).bucket ?? 0 : 0;
     for (const item of ['milk_bucket', 'bucket'])
-      if ((await serverCount(a, item)) > 0)
+      if ((await serverCount(a, item)) > (item === 'bucket' ? own : 0))
         await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
           if (e.message === 'cancelled') throw e;
           notes.push(`${item} not deposited: ${e.message.slice(0, 80)}`);
         });
+    if (own) {
+      const short = own - (await serverCount(a, 'bucket').catch(() => own));
+      const spare = storageContents(v).bucket ?? 0;
+      if (short > 0 && spare > 0) await withdrawItems(a, v, { bucket: Math.min(short, spare) }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`own bucket not made up: ${e.message.slice(0, 80)}`);
+      });
+    }
     const out = `milked the cows on annex slot ${j}: ${milked} milk bucket${milked === 1 ? '' : 's'}`;
     a.world.villages.note(v, `${a.name} ${out}`);
     const said = notes.filter(Boolean);
@@ -5017,30 +5030,162 @@ async function digIron(a: BotAgent, args: Record<string, unknown>, signal: Abort
  * An iron tool made from the village's raw iron (the iron age, 10-08; a chore): at the storage hut, raw iron smelted to
  * ingots at its furnace (fuel from storage: F178) and the tool crafted at its table (makeFromStock chains them), then
  * put into storage by name (tools are kept back by "deposit all"), where miners take the best pickaxe from.
+ *
+ * The iron age's forge (MC_IRON_AGE): `smelt: false` crafts from the ingots already in storage only (the smelting is its own
+ * chore, smelt_iron), and `for: NAME` gives the tool to that member, by command, checked on the server; a member who is
+ * not online, or a give that cannot be confirmed, leaves it in storage as before.
  */
 async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('make_iron_tool: not in a village');
   const item = str(args.item, 'item');
   if (!/^(iron_pickaxe|bucket|shears|iron_axe|iron_shovel|iron_hoe)$/.test(item)) throw new Error(`make_iron_tool: not an iron tool: ${item}`);
+  const forge = IRON_AGE && args.smelt === false;
+  const to = IRON_AGE && args.for !== undefined ? str(args.for, 'for') : undefined;
   const h = v.storageHut;
-  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${item}`, task: 'make_iron_tool' };
+  const job: Job = { targets: [], area: h ? { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 } : v.plots[0] ?? { x1: 0, z1: 0, x2: 0, z2: 0 }, y: v.plots[0]?.y ?? 64, free: true, what: `the ${item}${to ? ` for ${to}` : ''}`, task: 'make_iron_tool' };
   await standBy(a, job, signal);
   if (v.storage?.chests.length) await refreshStorage(a, v, signal);
+  // The forge: the ingots counted before anything is done, and no raw iron in the plan's view (neither storage's nor the
+  // smith's own), so nothing is smelted and no furnace is held
+  let need: Counts = {}, opts: Parameters<typeof makeFromStock>[5] = { noStockPick: true, surplus: false };
+  if (forge) {
+    const want = IRON_INGOTS[item];
+    const stored = storageContents(v).iron_ingot ?? 0, held = await serverCount(a, 'iron_ingot');
+    if (stored + held < want) throw new Error(`make_iron_tool: the ${item} needs ${want} iron_ingot, the storage holds ${stored}${held ? ` (and ${held} carried)` : ''}: smelt raw iron first (the iron smelting work)`);
+    const stock = Object.fromEntries(Object.entries(storageContents(v)).filter(([n]) => !RAW_IRON.test(n)));
+    need = await carriedCounts(a, ['raw_iron', 'raw_iron_block']);
+    opts = { ...opts, stock, furnace: false };
+  }
   // (a tool already in storage is not this one: the chore makes one)
-  const made = await makeFromStock(a, {}, { [item]: 1 }, () => standBy(a, job, signal), signal, { noStockPick: true, surplus: false });
+  const made = await makeFromStock(a, need, { [item]: 1 }, () => standBy(a, job, signal), signal, opts);
   if (!made) throw new Error(`make_iron_tool: the ${item} cannot be made from the village storage yet (${Object.entries(storageContents(v)).filter(([n]) => /iron|coal/.test(n)).map(([n, q]) => `${q} ${n}`).join(', ') || 'no iron'})`);
   await syncInventory(a);
   if (!a.bot.inventory.items().some((it) => it.name === item)) throw new Error(`make_iron_tool: ${made}, but no ${item} is carried`);
-  const stored = await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+  const given = to ? await giveTool(a, item, to) : null;
+  const stored = given?.ok ? '' : await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
   // (one entry a tool made: buckets are counted, a cake's milk takes three, pens v2)
   if (v.mine) v.mine.ironMade = [...(v.mine.ironMade ?? []), item];
-  a.world.villages.note(v, `${a.name} made a ${item} from the village's iron`);
+  if (given?.ok && v.mine) v.mine.ironGiven = [...(v.mine.ironGiven ?? []), { item, to: to!, by: a.name, at: Date.now() }];
+  a.world.villages.note(v, given?.ok ? `${a.name} made a ${item} from the village's iron for ${to}` : `${a.name} made a ${item} from the village's iron`);
   a.world.villages.save();
-  return `made a ${item} (${made}); ${stored}`;
+  if (given?.ok) return `made a ${item} (${made}); given to ${to}`;
+  return `made a ${item} (${made}); ${given ? `${given.why}, so it went into storage: ` : ''}${stored}`;
+}
+
+/** The iron ingots each iron tool's recipe takes (the jar's recipes). */
+const IRON_INGOTS: Record<string, number> = { iron_pickaxe: 3, iron_axe: 3, bucket: 3, shears: 2, iron_hoe: 2, iron_shovel: 1 };
+/** Raw iron in any form: kept out of the forge's view of the storage (it smelts nothing). */
+const RAW_IRON = /^(raw_iron|raw_iron_block|iron_ore|deepslate_iron_ore)$/;
+
+/**
+ * One iron tool the smith carries given to a member (the forge's `for`): taken from the smith and given by command, then
+ * counted on the member (lesson 13). Not online, or the member's count not risen: the tool given back to the smith (when
+ * it was taken) for storage. A count that fails after the give is not answered with a second tool.
+ */
+async function giveTool(a: BotAgent, item: string, to: string): Promise<{ ok: boolean; why: string }> {
+  if (to === a.name) return { ok: true, why: '' };
+  const b = a.world.agents.get(to);
+  if (!b?.bot?.entity) return { ok: false, why: `${to} is not online` };
+  const id = `minecraft:${item}`;
+  let before: number;
+  try {
+    before = await a.world.rcon.count(to, id);
+  } catch (e) {
+    return { ok: false, why: `${to}'s ${item} could not be counted (${(e as Error).message.slice(0, 60)})` };
+  }
+  const took = await a.world.rcon.take(a.name, id, 1).catch(() => 0);
+  if (!took) return { ok: false, why: `the ${item} could not be taken from ${a.name} for ${to}` };
+  await a.world.rcon.give(to, id, 1, before).catch(() => '');
+  const now = await a.world.rcon.count(to, id).catch(() => -1);
+  await syncInventory(a).catch(() => undefined);
+  if (now > before) return { ok: true, why: '' };
+  if (now < 0) {
+    console.log(`[forge] ${a.name}: the ${item} given to ${to} could not be counted afterwards; not given again`);
+    return { ok: false, why: `the give to ${to} could not be confirmed` };
+  }
+  await a.world.rcon.give(a.name, id, 1).catch(() => '');
+  await syncInventory(a).catch(() => undefined);
+  return { ok: false, why: `${to} did not receive it` };
+}
+
+/**
+ * Raw iron to ingots (the iron age's smelting, MC_IRON_AGE; a chore): up to 8 raw iron withdrawn from storage and smelted
+ * at works furnace k (1-3, held as make holds it) or the hut's (0), with fuel from storage (makeFromStock, as the forge's
+ * tools were), then the ingots and whatever else was gained put into storage by name, counted on the server.
+ */
+async function smeltIron(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  if (!IRON_AGE) throw new Error('smelt_iron: the iron age is off');
+  const v = a.village();
+  if (!v) throw new Error('smelt_iron: not in a village');
+  const count = Math.min(8, Math.max(1, args.count !== undefined ? Math.floor(num(args.count, 'count')) : 8));
+  const k = args.furnace !== undefined ? Math.floor(num(args.furnace, 'furnace')) : 0;
+  const h = v.storageHut;
+  if (!h || !villageStationCell(v, 'crafting_table') || !villageStationCell(v, 'furnace')) throw new Error("smelt_iron: needs the storage hut with its crafting table and furnace standing");
+  const wk = v.layouts?.[0]?.works;
+  let cell: { x: number; y: number; z: number } | undefined;
+  if (k >= 1) {
+    const f = wk?.furnaces?.[k - 1];
+    if (!f) throw new Error(`smelt_iron: works furnace ${k} is not recorded`);
+    cell = { x: f.x, y: f.y, z: f.z };
+    // (make's rule: only a "failed" answer means gone, its record cleared so its placement is offered again)
+    const r = await a.world.rcon.command(`execute if block ${f.x} ${f.y} ${f.z} minecraft:furnace`).catch(() => '');
+    if (/failed/i.test(r)) {
+      wk!.furnaces![k - 1] = null;
+      a.world.villages.save();
+      console.log(`[works] ${v.name}: furnace ${k} is gone (found by ${a.name}); its record cleared`);
+      throw new Error(`smelt_iron: works furnace ${k} is gone`);
+    }
+  } else cell = villageStationCell(v, 'furnace') ?? undefined;
+  const job: Job = { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: v.plots[0]?.y ?? 64, free: true, what: 'the iron smelting', task: 'smelt_iron' };
+  await standBy(a, job, signal);
+  if (v.storage?.chests.length) await refreshStorage(a, v, signal);
+  const raw = storageContents(v).raw_iron ?? 0;
+  if (!raw) throw new Error('smelt_iron: no raw iron in storage: the miners bring it up');
+  const n = Math.min(count, raw);
+  // What the smelter carries before (the server's counts): its own, netted out of the plan and kept; every gain goes back.
+  // Ingots and iron blocks are out of the plan's view of the storage, so the ingots are smelted, never withdrawn
+  const names = ['iron_ingot', 'raw_iron', 'coal', 'charcoal'];
+  const start = await carriedCounts(a, names);
+  const stock = Object.fromEntries(Object.entries(storageContents(v)).filter(([x]) => !/^iron_(ingot|nugget|block)$/.test(x)));
+  let made: string | null = null;
+  try {
+    made = await makeFromStock(a, { raw_iron: start.raw_iron ?? 0, iron_ingot: start.iron_ingot ?? 0 }, { iron_ingot: n }, () => standBy(a, job, signal), signal,
+      { noStockPick: true, surplus: false, stock, furnace: cell ?? false, what: 'the iron smelting' });
+  } catch (e) {
+    if (/furnace at .* is gone/.test((e as Error).message) && k >= 1 && wk?.furnaces?.[k - 1]) {
+      wk.furnaces[k - 1] = null;
+      a.world.villages.save();
+      console.log(`[works] ${v.name}: furnace ${k} is gone (found by ${a.name}); its record cleared`);
+    }
+    if ((e as Error).message === 'cancelled' || signal.aborted || unmoved(e)) throw e;
+    await gainsBack(a, names, start, signal);
+    throw e;
+  }
+  const back = await gainsBack(a, names, start, signal);
+  if (!made) throw new Error(`smelt_iron: ${n} raw iron could not be smelted from the village storage (${Object.entries(storageContents(v)).filter(([x]) => /iron|coal/.test(x)).map(([x, q]) => `${q} ${x}`).join(', ') || 'no iron'})`);
+  const ingots = back.put.iron_ingot ?? 0;
+  a.world.villages.note(v, `${a.name} smelted ${ingots} iron_ingot${k >= 1 ? ` at works furnace ${k}` : " at the hut's furnace"}`);
+  a.world.villages.save();
+  return `smelted ${ingots} iron_ingot${k >= 1 ? ` at works furnace ${k}` : " at the hut's furnace"} (${made}); ${back.text}`;
+}
+
+/** What was gained of these items since `start` (the server's counts) into storage by name: what went in, and a line. */
+async function gainsBack(a: BotAgent, names: string[], start: Counts, signal: AbortSignal): Promise<{ put: Counts; text: string }> {
+  const now = await carriedCounts(a, names).catch(() => start);
+  const put: Counts = {}, notes: string[] = [];
+  for (const n of names) {
+    const q = (now[n] ?? 0) - (start[n] ?? 0);
+    if (q <= 0) continue;
+    await STORAGE_SKILLS.deposit.run(a, { item: n, count: q, keep_wood: true }, signal).then(() => { put[n] = q; }).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`${q} ${n} not deposited: ${e.message.slice(0, 80)}`);
+    });
+  }
+  return { put, text: [Object.keys(put).length ? `put into storage: ${listCounts(put)}` : 'nothing put into storage', ...notes].join('; ') };
 }
 
 /** A part made once for the village (make_into_storage) and the batch's leftovers that go back into storage by name. */
@@ -6235,7 +6380,9 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   pledge: { run: pledge },
   // (the iron age's, chores too, 10-08)
   dig_iron: { run: digIron },
-  make_iron_tool: { check: (x) => void str(x.item, 'item'), run: makeIronTool },
+  make_iron_tool: { check: (x) => (str(x.item, 'item'), x.for !== undefined && str(x.for, 'for'), undefined), run: makeIronTool },
+  // (G8's iron age, MC_IRON_AGE: raw iron to ingots at a works furnace or the hut's)
+  smelt_iron: { check: (x) => (x.count !== undefined && num(x.count, 'count'), x.furnace !== undefined && num(x.furnace, 'furnace'), undefined), run: smeltIron },
   // (S.3's, not in TOOLS either: code-posted tasks name it, run as written; WorldAdapter.taskSkills)
   make_into_storage: { check: (x) => void str(x.item, 'item'), run: makeIntoStorage },
   // (S.5's, the same: the stations placed before the storage hut)

@@ -120,9 +120,14 @@ export interface Mine {
     dugAt?: number }>;
   /** The iron level (the iron age, 10-08): its own stairs, tunnels and record, never the cobblestone mine's. */
   iron?: IronLevel;
+  /** Iron levels finished before the current one, oldest first (MC_IRON_AGE: each next level is laid 12 below the last,
+   *  three at most); kept for the walk down, the protected ground and the torches. */
+  ironPast?: IronLevel[];
   /** The iron tools made from the village's iron (kept here: the first can be made from stored iron before any trip has
    *  made the iron level's record, VanI7 made a second pickaxe instead of a bucket). */
   ironMade?: string[];
+  /** Iron tools a smith made for a named member and gave it (MC_IRON_AGE; with MC_OWN_TOOLS its deposits keep them). */
+  ironGiven?: Array<{ item: string; to: string; by: string; at: number }>;
   /** Failed iron chores by stage, and the last (a back-off; on the mine, not the iron level: see ironMade). */
   ironTries?: Record<string, number>;
   ironLastTry?: { at: number; stage: string; why: string };
@@ -150,6 +155,11 @@ export interface IronLevel {
   abandoned?: Array<{ x: number; z: number; y: number; dir: [number, number]; steps: number; why: string }>;
   /** The cell the last trip failed at, and how many trips in a row (two end its branch or tunnel). */
   stuckAt?: { at: string; n: number };
+  /** MC_IRON_AGE: the y its stairs dig down to (18 when unset), the cumulative `dug` its own cells count from (`dug` and
+   *  `got` run on over the levels), and failing cells by place (several miners at once: one `stuckAt` would be reset). */
+  targetY?: number;
+  dugAt?: number;
+  stuck?: Record<string, number>;
 }
 
 /**
@@ -437,6 +447,10 @@ export interface LadderState {
   reached: Array<{ rung: string; t: number; day?: number; workers: string[][] }>;
   /** Rung ballots held: when, the options, the winner. */
   ballots: Array<{ t: number; options: string[]; winner?: string }>;
+  /** When each stage ended: `<rung>:<stage>` -> time (the panel's progress over time). */
+  ends?: Record<string, number>;
+  /** The latest stage's or rung's news, shown in the progress line for a village day. */
+  news?: { t: number; text: string };
 }
 
 export interface Village {

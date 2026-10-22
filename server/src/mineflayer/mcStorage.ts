@@ -22,6 +22,7 @@ import { JUNK, TOOL } from './mcBlocks';
 import type { Counts } from './mcMaterials';
 import { MAKE_GOODS } from './mcWorkshop';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory, unmoved } from './mcUtil';
+import { OWN_TOOLS } from '../ladderFlags';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -412,6 +413,14 @@ const carriedNow = (a: BotAgent) => {
   return out;
 };
 
+/** The iron tools a smith gave this member (v.mine.ironGiven, MC_IRON_AGE), by item: its own, which its deposits keep
+ *  with MC_OWN_TOOLS (at most as many as were given; a worn-out one is not replaced from the count). */
+export function ownTools(v: Village, name: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const g of v.mine?.ironGiven ?? []) if (g.to === name) out[g.item] = (out[g.item] ?? 0) + 1;
+  return out;
+}
+
 /** deposit, its puts counted in the agent's flow (what left the inventory went into the commons). */
 async function deposit(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const before = carriedNow(a);
@@ -437,7 +446,12 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
   // `also` (code's only: the workshop's gathering trips, "coal,raw_iron"): items picked up by the way that storage wants,
   // put in by name with the material (a miner kept the coal and raw iron it dug, lesson 112; S.9's review, lens 4 L3)
   const also = new Set(typeof args.also === 'string' ? args.also.split(',').map((s) => s.trim()).filter(Boolean) : []);
-  const m = also.size ? { test: (n: string) => m0.test(n) || also.has(n), label: m0.label } : m0;
+  const m1 = also.size ? { test: (n: string) => m0.test(n) || also.has(n), label: m0.label } : m0;
+  // A member's own tools stay with it (MC_OWN_TOOLS): a deposit by name (the pens' buckets, a smith's new pickaxe) puts in
+  // only what it carries beyond them ("all" keeps every tool already)
+  const keep: Record<string, number> = OWN_TOOLS ? ownTools(v, a.name) : {};
+  const beyond = (n: string, count: number) => Math.max(0, count - (keep[n] ?? 0));
+  const m = Object.keys(keep).length ? { test: (n: string) => m1.test(n) && beyond(n, carriedNow(a)[n] ?? 0) > 0, label: m1.label } : m1;
   // (`ifAny`, code's only: a put-back that is fine with nothing to put back, s41's activities)
   if (args.ifAny === true && !a.bot.inventory.items().some((it) => m.test(it.name))) return `deposited 0 (nothing to put back)`;
   let left = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : Infinity;
@@ -453,6 +467,7 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
   };
   await syncInventory(a);
   let want = carried();
+  if (!want.size && Object.keys(keep).some((n) => m1.test(n) && (carriedNow(a)[n] ?? 0) > 0)) throw new Error(`not carrying ${m.label} beyond your own tools (kept: ${Object.keys(keep).filter((n) => m1.test(n)).join(', ')})`);
   if (!want.size) throw new Error(`not carrying ${m.label} (carrying ${a.bot.inventory.items().map((it) => `${it.count} ${it.name}`).join(', ') || 'nothing'})`);
   const chestId = itemId(a, 'chest')!;
   // Gathered while the plot was prepared (#3): wait while the storage is being set up, until a chest holds something (the
@@ -471,7 +486,7 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
   let stalled = false;
   try {
     // (`keep_wood`, code's only: no chest crafted from the carried wood, S.3)
-    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal, args.keep_wood === true);
+    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal, args.keep_wood === true, keep);
     for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
       checkAbort(signal);
       // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
@@ -496,7 +511,7 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
       const w = await openChest(a, v, c, signal);
       try {
         for (const [type, { name, count }] of want) {
-          const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
+          const n = Math.min(beyond(name, count), left, room(a, w, 0, w.inventoryStart, type));
           if (n <= 0) continue;
           // One item's failure (Mineflayer's view of the slots drifts) does not stop the rest
           try {
@@ -565,7 +580,7 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
  * (empty, no group yet), else a new chest in the next free spot (crafted from wood carried or in storage), else any
  * chest with room. Returns how many of `left` are still to put in.
  */
-async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal, keepWood = false): Promise<number> {
+async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal, keepWood = false, keep: Record<string, number> = {}): Promise<number> {
   const chestId = itemId(a, 'chest')!;
   const chests = () => v.storage?.chests ?? [];
   // A chest holding something but with no group yet (registered by a test, say) takes the group of what it holds most of
@@ -658,7 +673,8 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
           held.set(it.type, e);
         }
         for (const [type, { name, count }] of held) {
-          const n = Math.min(count, left, room(a, w, 0, w.inventoryStart, type));
+          // (a member's own tools stay with it: MC_OWN_TOOLS)
+          const n = Math.min(Math.max(0, count - (keep[name] ?? 0)), left, room(a, w, 0, w.inventoryStart, type));
           if (n <= 0) continue;
           try {
             await abortable(w.deposit(type, null, n), signal);

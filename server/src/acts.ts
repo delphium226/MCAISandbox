@@ -308,6 +308,12 @@ const ALIASES: Record<string, ActType> = { help: 'offer', promise: 'offer', give
 /** The demand members' acts make for an option: its open requests and its open promises (an item a member asked for is
  *  wanted until the request closes, then until the promise that took it up closes: S2's makes failed "at stock" once
  *  accepting closed the request). */
+/** The members whose open requests name this option (G8: a forge option is for its asker). */
+export function requestersOf(village: string, option: string): string[] {
+  if (!ACTS.on) return [];
+  return state(village).requests.filter((r) => r.state === 'open' && r.what.option === option).map((r) => r.from);
+}
+
 export function openRequests(village: string, option: string): number {
   if (!ACTS.on) return 0;
   const st = state(village);

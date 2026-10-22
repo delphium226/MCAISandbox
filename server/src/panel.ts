@@ -51,6 +51,7 @@ import { RULES, laws as lawsOf, rulesInForce } from './rules';
 import { councilLine } from './council';
 import { CHARACTER, glance, identityOf, memberView, seriesView, villageView } from './character';
 import { phaseLine } from './society';
+import { LADDER, ladderView } from './ladder';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -458,6 +459,13 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       // (G5: the village's proposals, newest first)
       proposals: vn && PROPOSALS_ON ? allProposals(vn).slice(-12).reverse().map((p) => ({ id: p.id, by: p.by, kind: p.kind, what: p.what, status: p.status, check: p.check.verdict, backers: p.endorsements.length, against: p.objections.length, verdict: p.verdict ? `${p.verdict.decision}: ${p.verdict.reason}` : '' })) : null,
     }), true;
+  }
+  // G8: the ladder of ages (rungs, the current stage, who did each stage's work, ballots), and the iron work by member
+  if (url.pathname === '/api/ladder') {
+    const vn = url.searchParams.get('village') ?? '';
+    const v = [...w.villages.villages.values()].find((x) => x.name.toLowerCase() === vn.toLowerCase());
+    if (!v) return sendJson(res, 404, { error: `no village ${vn}` }), true;
+    return sendJson(res, 200, { on: LADDER, ladder: ladderView(v), given: v.mine?.ironGiven ?? [], iron: v.mine?.iron ? { level: v.mine.iron.level ?? null, dug: v.mine.iron.dug, legs: v.mine.iron.legs.length, finished: v.mine.iron.finished ?? null } : null }), true;
   }
   // Character v2 (spec 14.2, S2): every member compact, one member in full since T, the village's series since T
   if (url.pathname === '/api/character') {

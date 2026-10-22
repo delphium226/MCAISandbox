@@ -289,6 +289,9 @@ export interface ChoiceOption {
   fw?: number;
   dw?: number;
   cf?: number;
+  /** G8 (MC_LADDER): the weight (ladder.ts' VW) and tag, "[for the iron age]", of an option that feeds the ladder's current stage. */
+  vw?: number;
+  ladderTag?: string;
 }
 
 export interface ChoiceContext {
@@ -325,6 +328,8 @@ export interface ChoiceContext {
   wants?: string;
   /** #79 (MC_GOALS=on): "Your life goal: beauty (3 works of yours stand, ...)." */
   goal?: string;
+  /** G8 (MC_LADDER): the ladder's progress line, "The village's ambition: the iron age, stage 2 of 4: ...". */
+  ladder?: string;
 }
 
 export interface ChoiceMenu {
