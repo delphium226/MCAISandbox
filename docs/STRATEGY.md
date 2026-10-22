@@ -132,3 +132,6 @@ number rather than a goal.
 - 2026-10-21: G1 done (memory and the clock, F272); the simulator's late collapse is harsher than live (LSc1, F271).
 - 2026-10-22 (overnight, Claude's with the user's leave): G6's first loop done; G5 started as a spec plus the parts outside
   G2's files, its menu hooks after G2; #89 (visible demand) continues G6.
+- 2026-10-22: **motivation** added to G2/G3 (the user's): members act but do not drive progress (react to a menu, plan one
+  day, feel no need). A spec for ambitions with milestones, needs that bite, recognition and a village ambition, tested
+  on vs off in 4-6 hour runs by behaviour (`runs/2026-10-22/motivation/`).
