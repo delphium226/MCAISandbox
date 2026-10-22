@@ -62,10 +62,19 @@ function planted(kind: string, x: number, z: number): string[] {
   ok(!!r && r.cells.length === 12 && r.cells.every((c) => Math.max(Math.abs(c.x - 50), Math.abs(c.z - 50)) === 2) && !r.cells.some((c) => (c.x === 50 || c.z === 50)), 'its 12 cells on the 5x5 border, each side\'s middle open');
   ok(!!r && JSON.stringify(planted('flower_ring', r.x, r.z)) === JSON.stringify(r.cells.map(key).sort()), 'build_design plants the ring\'s cells');
 }
+// #46: a tree at each green or plot corner whose 5x5 canopy is clear; a hard cell within 2 drops that corner
+{
+  const t = gardenSpots({ doors: [], greens: [{ x: 10, z: 10, y: 64, x1: 0, z1: 0, x2: 20, z2: 20 }], hard: [{ x1: 17, z1: 17, x2: 17, z2: 17 }], soil: soilAll }).filter((s) => s.kind === 'sapling');
+  ok(t.length === 3 && t.every((s) => s.cells.length === 1 && s.x === s.cells[0].x) && !t.some((s) => s.x === 18 && s.z === 18), `three corner trees, the one by the hard cell dropped (${t.map((s) => `${s.x},${s.z}`).join(' ')})`);
+  ok(gardenSpots({ doors: [], greens: [], plots: [{ x1: 0, z1: 0, x2: 4, z2: 4, y: 64 }], hard: [], soil: soilAll }).length === 0, 'a plot too small for a canopy: none');
+  const d = GARDEN_WORKS.find((k) => k.kind === 'sapling')!.make('birch');
+  ok(d.palette.T === 'birch_sapling[stage=0]' && d.width === 1 && d.depth === 1, 'a birch village plants birch');
+}
+
 // Goals and the flag
-ok(['garden_ns', 'garden_ew', 'flower_ring'].every((k) => BEAUTY_WORKS.has(k) && !STANDING_WORKS.has(k)), 'gardens count toward beauty, not standing');
+ok(['garden_ns', 'garden_ew', 'flower_ring', 'sapling'].every((k) => BEAUTY_WORKS.has(k) && !STANDING_WORKS.has(k)), 'gardens count toward beauty, not standing');
 ok(GARDENS || !SMALL_WORKS.some((k) => GARDEN_WORKS.includes(k)), 'off by default: SMALL_WORKS without the gardens');
-for (const k of GARDEN_WORKS) {
+for (const k of GARDEN_WORKS.filter((x) => x.kind !== 'sapling')) {
   const d = k.make('birch');
   ok(d.palette.F.startsWith('wildflowers') && d.layers[0].every((row) => /^_+$/.test(row)), `${k.kind}: flowers on the ground as it is`);
 }

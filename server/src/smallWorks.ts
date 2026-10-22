@@ -177,11 +177,21 @@ function flowerRing(_w: string): Design {
   ]);
 }
 
-/** The garden kinds (#45), small works with their own spots (gardenSpots). */
+/** #46: a sapling of the village's wood, planted where its canopy has room (a 5x5 clear round it). */
+function sapling(w: string): Design {
+  const kind = w === 'crimson' || w === 'warped' || w === 'bamboo' ? 'oak_sapling' : w === 'mangrove' ? 'mangrove_propagule' : `${w}_sapling`;
+  return design('sapling', w, 'a young tree', { T: kind === 'mangrove_propagule' ? kind : `${kind}[stage=0]` }, [
+    ['_'],
+    ['T'],
+  ]);
+}
+
+/** The garden kinds (#45, #46), small works with their own spots (gardenSpots). */
 export const GARDEN_WORKS: SmallWorkKind[] = [
   { kind: 'garden_ns', words: 'front garden', forWhat: "flowers by a house's door", make: gardenNs },
   { kind: 'garden_ew', words: 'front garden', forWhat: "flowers by a house's door", make: gardenEw },
   { kind: 'flower_ring', words: 'flower ring', forWhat: 'flowers round the green', make: flowerRing },
+  { kind: 'sapling', words: 'young tree', forWhat: 'shade and green for the village', make: sapling },
 ];
 export const isGarden = (kind: string) => GARDEN_WORKS.some((k) => k.kind === kind);
 
@@ -253,8 +263,10 @@ export function smallWorkSpots(input: SpotInput, w: number, d: number, max = Inf
 export interface GardenInput {
   /** Each house's door: the door's cell, the outward step (ox, oz: one of them +-1), the ground level outside it. */
   doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }>;
-  /** Greens with their centre (x, z) and level. */
-  greens: Array<{ x: number; z: number; y: number }>;
+  /** Greens with their centre (x, z) and level, and their area (for #46's corner trees). */
+  greens: Array<{ x: number; z: number; y: number } & Partial<Area>>;
+  /** Prepared building plots (for #46's corner trees; optional). */
+  plots?: Array<Area & { y: number }>;
   /** Cells no garden may touch: buildings' own footprints, streets, lamps and signs, farms and slots, the mine, other
    *  works, reservations, builds laid out... (not the rings and door fronts other works keep off: a garden hugs them). */
   hard: Area[];
@@ -297,5 +309,15 @@ export function gardenSpots(input: GardenInput): GardenSpot[] {
     }
   }
   for (const g of input.greens) plant('flower_ring', flowerRing('oak'), g.x - 2, g.z - 2, g.y);
+  // (#46: a tree at each corner of a green or plot, 2 in from its edges, its 5x5 canopy clear of every hard area)
+  const corners = [...input.greens.filter((g) => g.x1 !== undefined).map((g) => ({ x1: g.x1!, z1: g.z1!, x2: g.x2!, z2: g.z2!, y: g.y })), ...(input.plots ?? [])];
+  for (const a of corners) {
+    if (a.x2 - a.x1 < 6 || a.z2 - a.z1 < 6) continue;
+    for (const [x, z] of [[a.x1 + 2, a.z1 + 2], [a.x2 - 2, a.z1 + 2], [a.x1 + 2, a.z2 - 2], [a.x2 - 2, a.z2 - 2]]) {
+      let clear = input.soil(x, z, a.y);
+      for (let dx = -2; dx <= 2 && clear; dx++) for (let dz = -2; dz <= 2 && clear; dz++) if (input.hard.some((h) => inArea(h, x + dx, z + dz))) clear = false;
+      if (clear) out.push({ kind: 'sapling', x, y: a.y, z, cells: [{ x, z }] });
+    }
+  }
   return out;
 }
