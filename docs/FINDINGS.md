@@ -1570,3 +1570,13 @@ CLAUDE.md when a phase ends.
   holds for G1's notes: in G1a's 148 reflections, 98 note items came as `{content, id}` or `{content, replace}` and
   society.ts' parseReflect dropped them (#90; G2a 16). Parse by shape (the key in words, the first sentence-long value, a
   nested description), keep the raw replies, and count fill against parse.
+- F278 (10-22, g6-loop session, #89 #91) **With members' life-goal wishes as demand, the live wanted list ranks on the
+  village's asking: 78-87% of each top entry's rank, against 0-55% before; the queue then stops for want of templates.**
+  W2 (world 2, mv3_grown25, 30 min, model choices, W0's settings, 4287a68): once goals were drawn the writer ranked
+  honeycomb 7.96-10.96 (locked: 9 members wish for candles, 35 research points, idle copper; 78% demand), wool 7.5 (13
+  members wish for beds, banners, carpets, paintings; 87%), amethyst 6.31 (9 wish for a spyglass; 87%); in W0 the top 3
+  were honeycomb 29%, copper weathering 0%, amethyst 55%. The wishes are code-kept from each member's goal (as needs are),
+  not members' words; barter could not carry them (own chests empty, nothing to pay with). foundry_queue skipped all three
+  (locked; no template for `use_on_entity` or `mine`) and fell through to mud (0 demand), which it could not ticket: the
+  next limit is templates (#91). Busy 37% (W0 39%). Logs: runs/2026-10-22/g6-demand/ (w2/, wanted_W2.json,
+  scorecard_W2.txt).
