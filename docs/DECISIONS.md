@@ -770,3 +770,17 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   validity rule (failed model calls under 5%); own-food eating exempt from bans, tools delivered to their askers; the
   village ambition counted from delivered goods and built parts on land reserved at the start (pledges never reached
   live menus); titles off in Experiment 1 and 3 runs; the build after Experiment 1 and after G3's Experiment 2.
+- 10-22 (character v2 spec, written by the g5-proposals session for the planning session; runs/2026-10-22/character/spec.md,
+  research docs/research/character-model-v2.md) **The user's choices (AskUserQuestion):** redraw all six HEXACO traits
+  for every member (over the recommendation to keep today's five and add honesty-humility and agreeableness); mood as
+  code-summed thoughts with weights and one line; energy with rest at night only; life goals drawn from values (over the
+  recommendation to keep goals from temperament). Persona lines and goals therefore change at v2: findings before it
+  describe the old members, and a checkpoint's stored goals are redrawn at a v2 run's first sweep. **Claude's, after the
+  adversarial check:** the layers beyond temperament multiply into one factor clamped to 0.67-1.5, and with any character
+  flag every option's product is capped at 6.25 and floored at 0.16; roles, titles and achievements only with roles shown
+  (E.8's (e)); `MC_CHARACTER` off = E1's settings (temperament, skill and goals off), on = all three on, expanded by the
+  launcher, contradictions refused; honesty-humility measured against the model's temptation choices, not levered (0
+  broken promises in E1's 106; the levy is a model-only field), agreeableness levers request acceptance; likes deferred;
+  competence and autonomy measures only, belonging folded into extraversion; mood never levers help; values half
+  independent of traits, standing from self-transcendence, self-enhancement-dominant members capped at 25%; measures split
+  by who decided; `character.ts` built offline first, wired after Experiment 1, the motivation build and G3's.
