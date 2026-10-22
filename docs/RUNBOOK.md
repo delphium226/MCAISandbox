@@ -230,6 +230,9 @@ the short version; look here for a check script's arguments, a model detail or w
   candidate into tiered-brain-building (the user's, 10-20); since G6 it needs only the candidate's own files clean in the
   shared checkout and typechecks the main checkout after (`runs/foundry/merges.log`). A ticket's `check.log_pass` is a
   line the agent server's log must hold (the library loading its spec, lesson 151). Auto mode allowed agy's run in G6.
+  A CLI's quota or sign-in error stops the rounds at once (#92; `FATAL_CLI`) and keeps the worktree: finish it with
+  `--gates-only --cli <the other> --written-by "..."` (the commit then names both writers); a second run's round files
+  are numbered after the first's. Check: `python scripts/checks/foundry_cli.py`.
 - **The wanted list and the queue (G6, #73):** `GET /api/wanted?village=V` ranks every capability a peaceful overworld
   allows (`server/src/wanted.ts`: status have / locked / skill / missing / dead / user / knowledge, value from the recipe
   graph, the village's demand terms, `why`); `MC_WANTED=on` also writes `wanted.json` beside villages.json every 5

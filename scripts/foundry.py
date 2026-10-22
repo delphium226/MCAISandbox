@@ -82,6 +82,23 @@ ALLOWED_TEXT = """\
 - python scripts/check_offline.py [NAME ...]                           (the offline checks; or: npm run check:offline)
 - node node_modules/tsx/dist/cli.mjs scripts/checks/NAME.mts [ARGS]    (one offline .mts check)
 Each as one plain command, nothing chained (no ; && | or redirection). Every other command is refused and ends your turn."""
+# A CLI's error that no repair round can get past (#92): its plan's quota or rate limit spent, or its sign-in gone. The
+# foundry stops there and keeps the worktree, for --gates-only with the other CLI
+FATAL_CLI = re.compile(r"quota|usage limit|rate.?limit|limit reached|upgrade your (subscription|plan)|credit balance|"
+                       r"not logged in|log ?in again|please (log|sign) ?in|authenticat|unauthori[sz]ed|invalid api key|401\b", re.I)
+
+
+def fatal_error(result, stderr_text):
+    """The CLI's error text when it is one no repair round can get past (FATAL_CLI), else None."""
+    texts = [str(result.get("error") or ""), str(result.get("result") or "") if result.get("is_error") else "", stderr_text or ""]
+    for t in texts:
+        m = FATAL_CLI.search(t)
+        if m:
+            line = next((l for l in t.splitlines() if FATAL_CLI.search(l)), t)
+            return line.strip()[:240]
+    return None
+
+
 CLAUDE_ALLOW = ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)",
                 "Bash(git show:*)", "Bash(npm run typecheck)", "Bash(npm run check:offline)",
                 "Bash(node node_modules/typescript/bin/tsc:*)", "Bash(node node_modules/tsx/dist/cli.mjs scripts/checks/:*)",
@@ -385,6 +402,11 @@ class Cli:
         self.usage = {"input": 0, "output": 0}
         self.cost = 0.0
         self.calls = []
+        # (#92: a CLI error no repair can get past; and the round files of an earlier run of this ticket today are kept:
+        # this run's rounds are numbered after them)
+        self.fatal = None
+        done = [int(m.group(1)) for f in out.glob("cli-round*.jsonl") if (m := re.fullmatch(r"cli-round(\d+)\.jsonl", f.name))]
+        self.offset = max(done, default=0)
 
     def left_min(self):
         return max(1.0, self.caps["minutes"] - (time.time() - self.started) / 60)
@@ -392,7 +414,7 @@ class Cli:
     def call(self, text):
         """One turn; returns (status, response, denied). Kills the CLI past the time or step caps."""
         self.round += 1
-        n = self.round
+        n = self.round + self.offset
         # The message goes in a file inside the worktree (gitignored runs/): no command-line length limit, and the CLI
         # may read it without asking
         msgfile = self.wt / "runs" / "foundry" / f"message{n}.md"
@@ -415,7 +437,7 @@ class Cli:
                 cmd += ["--resume", self.conv]
             stdin = short
         logf = self.out / f"cli-round{n}.jsonl"
-        log(f"{self.kind} round {n} ({self.model}; {self.left_min():.0f} min and {self.caps['turns'] - self.steps} steps left), log {logf.relative_to(ROOT)}")
+        log(f"{self.kind} round {self.round} ({self.model}; {self.left_min():.0f} min and {self.caps['turns'] - self.steps} steps left), log {logf.relative_to(ROOT)}")
         proc = subprocess.Popen(cmd, cwd=self.wt, env=cli_env(), stdout=subprocess.PIPE, stderr=open(self.out / f"cli-round{n}.err", "w"),
                                 stdin=subprocess.PIPE if stdin else subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
@@ -478,11 +500,20 @@ class Cli:
         response = result.get("response") if self.kind == "agy" else result.get("result")
         status = why or (result.get("status") or result.get("subtype") or f"exit {proc.returncode}")
         denied = result.get("denied_actions") or result.get("permission_denials") or []
-        self.calls.append({"round": n, "status": status, "seconds": round(time.time() - t0), "steps": self.steps,
-                           "denied": denied, "usage": u})
+        try:
+            err_text = (self.out / f"cli-round{n}.err").read_text(encoding="utf-8", errors="replace")[-4000:]
+        except OSError:
+            err_text = ""
+        if status not in ("time cap", "step cap") and not response:
+            self.fatal = fatal_error(result, err_text)
+            if self.fatal:
+                status = "stopped"
+        self.calls.append({"round": self.round, "file": n, "status": status, "seconds": round(time.time() - t0), "steps": self.steps,
+                           "denied": denied, "usage": u, **({"fatal": self.fatal} if self.fatal else {})})
         (self.out / f"cli-round{n}.response.md").write_text(response or "", encoding="utf-8")
-        log(f"{self.kind} round {n}: {status} in {time.time() - t0:.0f} s, {self.steps} steps so far"
-            f"{', denied ' + json.dumps(denied)[:200] if denied else ''}; response {len(response or '')} chars")
+        log(f"{self.kind} round {self.round}: {status} in {time.time() - t0:.0f} s, {self.steps} steps so far"
+            f"{', denied ' + json.dumps(denied)[:200] if denied else ''}; response {len(response or '')} chars"
+            + (f"; the CLI cannot go on: {self.fatal}" if self.fatal else ""))
         return status, response or "", denied
 
 
@@ -490,12 +521,12 @@ def work(cli, first_text, caps):
     """The CLI's turn, resumed after denied commands (agy ends its turn at a denial) while rounds are left.
     Returns whether the CLI ended normally."""
     status, response, denied = cli.call(first_text)
-    while denied and cli.kind == "agy" and cli.round < caps["rounds"] + 3 and status not in ("time cap", "step cap"):
+    while denied and not cli.fatal and cli.kind == "agy" and cli.round < caps["rounds"] + 3 and status not in ("time cap", "step cap"):
         status, response, denied = cli.call(
             "Your last command was refused (not on the allowed list), which ended your turn. Carry on with the task without "
             f"it. The only commands allowed:\n{ALLOWED_TEXT}\nIf you were checking something a command would show, read the "
             "files instead. Finish the task, then end with your summary.")
-    return status not in ("time cap", "step cap")
+    return status not in ("time cap", "step cap") and not cli.fatal
 
 
 # ---------------------------------------------------------------- gates
@@ -814,7 +845,10 @@ def gate_series(t, wt, out, base_data, cp, attempt):
 # ---------------------------------------------------------------- result
 
 def authorship(cli, written_by):
-    """Who wrote the change: this run's CLI rounds, or (a gates-only run) what --written-by says."""
+    """Who wrote the change: --written-by's earlier writer (a gates-only run) and this run's CLI rounds, both when both
+    (#92: a ticket begun by one CLI and repaired by another)."""
+    if cli.round and written_by:
+        return f"Written {written_by}; then {cli.kind} ({cli.model}) in {cli.round} repair rounds, {cli.steps} tool steps"
     if cli.round:
         return f"Written by {cli.kind} ({cli.model}) in {cli.round} rounds, {cli.steps} tool steps"
     return f"Written {written_by or 'before this run (an earlier foundry run of the ticket)'}; this run: the gates only"
@@ -1097,7 +1131,11 @@ def main():
                                                                     "earlier conversation; the foundry's gates have now run on them.\n\n")
                 alive = work(cli, intro + f"The foundry's gate '{name}' failed: {summary}\n\nIts output (last lines):\n\n{detail}\n\n"
                                   "Fix the cause within the ticket's files and rules, then end with your summary.", t["caps"])
-            if not alive:
+            if not alive and cli.fatal:
+                other = "claude" if cli.kind == "agy" else "agy"
+                outcome = (f"the CLI stopped: {cli.fatal} (the worktree {wt.relative_to(ROOT)} is kept: finish it with --gates-only "
+                           f"--cli {other} --written-by \"{cli.kind} ({cli.model}), cut off\")")
+            elif not alive:
                 outcome = f"the CLI hit a cap ({cli.calls[-1]['status']})"
             main_after = git("status", "--porcelain")
             if main_after != main_before:
