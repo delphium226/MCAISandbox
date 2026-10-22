@@ -18,6 +18,7 @@
  *   MC_CHOOSE_HOURLY      model decisions an agent may make an hour, default 30
  *   MC_CHOOSE_MODEL       the model (else MC_EXEC_MODEL, else gpt-oss:120b-cloud); memory.chooseModel per agent
  */
+import { IRON_AGE } from './ladderFlags';
 import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from './world';
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
@@ -822,7 +823,8 @@ export class ChoiceStats {
    */
   banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore' || kind === 'eat') return null;
-    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity';
+    // (G8, MC_IRON_AGE: dig, smelt and forge are separate works; a miner's failures never ban the smiths, staged I3)
+    const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron');
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);
     let own = 0, whole = 0;
     // Per id: any three of its failures within an hour

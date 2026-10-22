@@ -5087,8 +5087,9 @@ const RAW_IRON = /^(raw_iron|raw_iron_block|iron_ore|deepslate_iron_ore)$/;
  * it was taken) for storage. A count that fails after the give is not answered with a second tool.
  */
 async function giveTool(a: BotAgent, item: string, to: string): Promise<{ ok: boolean; why: string }> {
-  if (to === a.name) return { ok: true, why: '' };
-  const b = a.world.agents.get(to);
+  if (to.toLowerCase() === a.name.toLowerCase()) return { ok: true, why: '' };
+  // (the world's agents are keyed by lower-case name: staged I1's "Ada is not online" with Ada in the mine)
+  const b = a.world.agents.get(to.toLowerCase());
   if (!b?.bot?.entity) return { ok: false, why: `${to} is not online` };
   const id = `minecraft:${item}`;
   let before: number;

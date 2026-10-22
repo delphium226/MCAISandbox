@@ -918,7 +918,9 @@ export class MineflayerWorld implements WorldAdapter {
       return;
     }
     const tries = m.ironTries && m.ironLastTry && now - m.ironLastTry.at > 60 * 60000 ? {} : m.ironTries ?? {};
-    const backing = (stage: string) => ((tries as Record<string, number>)[stage] ?? 0) >= 3 || (m.ironLastTry?.stage === stage && now - m.ironLastTry.at < 10 * 60000);
+    // (several members work each kind at once: one member's failure is not the village's; three in a row since the last
+    // success back that kind off 10 minutes, staged I1: one miner without a pickaxe stopped all digging for 25 minutes)
+    const backing = (stage: string) => ((tries as Record<string, number>)[stage] ?? 0) >= 3 && m.ironLastTry?.stage === stage && now - m.ironLastTry.at < 10 * 60000;
     const raw = store.raw_iron ?? 0, ingots = store.iron_ingot ?? 0;
     const why: string[] = [];
     let added = 0;
@@ -934,7 +936,8 @@ export class MineflayerWorld implements WorldAdapter {
         effect: `raw iron for the smelters (${raw} in storage)`,
       }, { kind: 'iron', stage: 'dig', tool: '', iron: raw });
     }
-    const k = this.freeFurnaces(v, busy).find((q) => q >= 1);
+    // (a works furnace first, else the hut's: the workshop's makes held all three works furnaces most of staged I1)
+    const free = this.freeFurnaces(v, busy), k = free.find((q) => q >= 1) ?? free[0];
     if (raw < 1) why.push('no raw iron to smelt');
     else if (k === undefined) why.push('works furnaces busy');
     else if (backing('smelt')) why.push('smelting backs off');
@@ -943,7 +946,7 @@ export class MineflayerWorld implements WorldAdapter {
       const n = Math.min(8, raw);
       add({
         id: 'iron:smelt', kind: 'iron', key: `ironsmelt:${k}`, holds: [`furnace:${k}`], excludes: [`ironsmelt:${k}=`, `furnace:${k}=`], name: 'Smelt raw iron into ingots', rank: 701,
-        facts: `${raw} raw iron and ${ingots} iron ingots in storage; at works furnace ${k}${others('iron', 'iron:smelt')}${lastOf('iron', 'iron:smelt')}`,
+        facts: `${raw} raw iron and ${ingots} iron ingots in storage; at ${k ? `works furnace ${k}` : "the hut's furnace"}${others('iron', 'iron:smelt')}${lastOf('iron', 'iron:smelt')}`,
         effect: `up to ${n} iron ingots for the smiths`,
       }, { kind: 'iron', stage: 'smelt', tool: '', iron: raw, k, count: n });
     }
@@ -4189,6 +4192,11 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (G8, MC_LADDER: the work done into the ladder's stage: cells and raw iron from a dig trip, ingots from a smelt, a tool
     // given to a member)
+    if (IRON_AGE && v?.mine?.ironTries) for (const q of c.status) {
+      // (a success clears its kind's failures in a row, the iron age's back-off)
+      const sk = q.state !== 'done' ? '' : q.type === 'dig_iron' ? 'dig' : q.type === 'smelt_iron' ? 'smelt' : q.type === 'make_iron_tool' ? `forge:${String(q.args?.item ?? '')}` : '';
+      if (sk && v.mine.ironTries[sk]) v.mine.ironTries = { ...v.mine.ironTries, [sk]: 0 };
+    }
     if (LADDER && v) {
       for (const q of c.status) {
         if (q.state !== 'done' || !q.message) continue;
@@ -6211,7 +6219,7 @@ export class MineflayerWorld implements WorldAdapter {
           const mm = v.mine;
           if (!mm || why === 'cancelled') return;
           // (another miner on the stairs or every leg taken: contention, not this work's failure)
-          if (IRON_AGE && /another worker|miners are on|iron level's stairs/.test(why)) return;
+          if (IRON_AGE && IRON_WAIT.test(why)) return;
           const sk = IRON_AGE && stage === 'forge' ? `forge:${d.tool}` : stage;
           mm.ironTries = { ...(mm.ironTries ?? {}), [sk]: (mm.ironTries?.[sk] ?? 0) + 1 };
           mm.ironLastTry = { at: Date.now(), stage: sk, why: why.slice(0, 200) };
@@ -7004,6 +7012,9 @@ export class MineflayerWorld implements WorldAdapter {
   private noteEnd(c: { agent: string; village: string; choice: ChoiceState }, ok: boolean, cut: boolean, contention: boolean, productive: boolean, message: string, known?: number) {
     const kind = c.choice.kind;
     if (!kind || !CHOICE_KINDS.includes(kind)) return;
+    // (G8, MC_IRON_AGE: a miner turned back by another on the stairs or by a full level met contention, not a failure: staged
+    // I3's turned-back trips banned the whole iron kind for an hour after its first two minutes)
+    if (IRON_AGE && kind === 'iron' && IRON_WAIT.test(message)) contention = true;
     const now = Date.now();
     const id = c.choice.option ?? kind;
     const verb = ok ? (productive ? 'done' : 'done, nothing gained') : cut ? 'cut short' : `failed (${message.slice(0, 60)})`;
@@ -7287,6 +7298,8 @@ function choreName(key: string, what: string): string {
 
 /** G8: the iron tools a smith forges, their ingots, and whose work needs each (miners first; spec B3). */
 const FORGE_TOOLS = ['iron_pickaxe', 'iron_hoe', 'shears', 'bucket'];
+/** G8: the iron level's answers that mean another miner is in the way (mcMine's gate, stairs and leg claims). */
+const IRON_WAIT = /another worker is digging|miners are on the iron level|has its miner|another miner finished/;
 const FORGE_COST: Record<string, number> = { iron_pickaxe: 3, iron_hoe: 2, shears: 2, bucket: 3 };
 const FORGE_NEEDS: Array<[string, (k: Map<string, number>) => boolean, string]> = [
   ['iron_pickaxe', (k) => (k.get('iron:dig') ?? 0) >= 1, 'mines without one'],
