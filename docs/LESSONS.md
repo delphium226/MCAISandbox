@@ -640,3 +640,6 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    were refused 265 times in 287, because members ask for what the village has stopped making; making an open request
    (and the promise that took it up) a demand on the make target or gather want brought the option back. Count demand while
    the promise is open, not only the request (S2's makes failed "at stock" once accepting closed it).
+163. **An external CLI's plan is a resource that runs out mid-task** (G6, #92): agy's quota ended a ticket after 3 of 4
+   files and the foundry spent its repair rounds on instant errors. Keep a second back-end able to resume a half-done
+   worktree (`--gates-only --cli claude` finished it in 2 minutes), and read the CLI's error before retrying.

@@ -1607,3 +1607,22 @@ CLAUDE.md when a phase ends.
   promises fixed it (S3: 17 of 17 kept). With the acts paragraph no longer saying "most choices need none", lines said rose
   from 36% to 62% of bench replies; spontaneous requests stayed rare in the bench (2 of 117) and frequent live, where real
   shortages prompt them.
+- F281 (10-22, g6-loop session, #91 #89 #90) **The loop closed on what members asked for: the wool members wished for
+  was ticketed, built, merged, researched, sheared and made into the wished goods in one run.** foundry_queue's
+  skill-activity template (e40dd55) ticketed wool from W2's list (7.5, 87% demand: 13 members wish for banners, paintings,
+  beds, carpets) as `shear_sheep_at` (the existing `shear_sheep` run at the atlas's sheep sightings), locked until
+  researched. agy's plan quota ran out mid-ticket after 3 of 4 files ("resets in 81h"); the Claude Code back-end finished
+  it (`--gates-only --cli claude`: 1 repair round, 2 min, $0.72; review $0.75, 5 low findings); every gate passed (live:
+  2 wool from summoned sheep, 0 of 1,386 cells changed); merged 08891a0. W3 (world 2, mv3_grown25, 90 min, model choices,
+  W2's settings, 3 shears stocked): wool research on 23 menus from minute 2, 7 attempts by 5 members, unlocked at minute
+  ~56 (inventor Jonah); shearing on 68 menus of members from minute 59, taken 12 times by 8 members (5 the model's own
+  picks, 3 fallbacks, 3 only-option, 1 repeat), 47 white wool deposited; the workshop then made the wished goods: 2 white
+  banners, 2 white beds, 3 paintings, 1 white carpet (and from honeycomb, also researched and unlocked in W3: 9 harvests
+  by 6 members, 2 beehives, 2 honeycomb blocks). The wanted list's end: wool and honeycomb `have`, amethyst first (89%
+  demand: 9 wish for a spyglass). Busy 36.2 / 37% by hour (LSc1 35.8 / 24.5). The model took the new options more than in
+  W1 (wool 5 of 12, honeycomb research 5 of 7, against 3 of 13). Beds stay in storage: placing them in houses is the
+  world's (#6, G2-adjacent). Amethyst needs a new skill: live, `collect` dug to a geode's shell and found no path to its
+  clusters (#91). The G5 hooks (d910dbd) checked live on world 2: the proposals route listed a seeded proposal, a verdict
+  routed `foundry` for a capability no ticket can build was guarded to `issue`, the wanted list's demand rose +1 to +2 on
+  acceptance, and a checkpoint kept and restored the village's proposals and 25 members' memory. Logs:
+  runs/2026-10-22/g6-demand/ (w3/, wanted_W3.json, scorecard_W3.txt, foundry_wool*.log), runs/2026-10-22/foundry/wool/.
