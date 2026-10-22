@@ -40,8 +40,8 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 - **How work runs now** (the user's, 10-21): a planning session owns `docs/STRATEGY.md` (the user's five goals, the
   health check, the goal milestones G1-G6, Support and Parked, and the rules for work sessions) and this handover. Work
   sessions are started from it with a brief (briefs in `runs/2026-10-21/planning/`) and end with a report.
-- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`. Pushed up to `08092d8`; **the night's ~27
-  commits (`f757fcb` to `3cac0d0`) are not pushed.** Every new feature is behind a flag, off.
+- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`. The night's commits are pushed up to `82a1d50`
+  (Claude's, the user away, to back them up). Every new feature is behind a flag, off.
 - **Done overnight (10-21/22; decisions recorded in DECISIONS as Claude's, the user away):**
   - **G2 social life** (`6fc532b`, `f757fcb`, `29431f2`, F279-F280): awareness and code-kept profiles, roles, acts and
     promises with one validator, memory quality, the controller's rules, skill from practice. G2a (2 h, 25 members):
@@ -59,7 +59,7 @@ each phase's goal and design, and links to its issues; it no longer carries chec
     backing, the agenda, secret dusk ballots, quota/floor/duty, the levy on own shares; offline only. Left: zone, the
     need vote, a staged check, rulebench (after Experiment 1 frees the cloud slots).
   - **G4 culture**: spec only (`runs/2026-10-21/g4-culture/`, decisions `07ff4a2`).
-- **For the user this morning:** push the night's commits; whether `MC_MEMORY`/`MC_CLOCK` (and G2's flags) go on by
+- **For the user this morning:** whether `MC_MEMORY`/`MC_CLOCK` (and G2's flags) go on by
   default; whether to spend Claude CLI on foundry tickets while agy is out (next wanted: amethyst, which needs a new
   tunnelling skill, #91); G2's Experiment 1 continues through the day on world 1.
 - **Leftovers** (s43's, unchanged): the sim's light parts and new members' appetites at 50; hay bales rarely made;
