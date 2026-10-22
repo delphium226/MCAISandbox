@@ -419,6 +419,15 @@ export function readyForTriage(p: Proposal, top: string[] = []): boolean {
   return !!p.target.capability && top.includes(p.target.capability);
 }
 
+/** Marks an open or endorsed proposal ready for triage (the world, once a village day, by readyForTriage), saved. */
+export function markTriage(id: string): boolean {
+  const p = proposal(id);
+  if (!p || (p.status !== 'open' && p.status !== 'endorsed')) return false;
+  p.status = 'triage';
+  save();
+  return true;
+}
+
 /** A triage's verdict into the store. */
 export function applyVerdict(id: string, v: Verdict): boolean {
   const p = proposal(id);

@@ -61,6 +61,12 @@ import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, r
 import { ACTS, actsHelp, openRequests, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
+import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
+import { setProposalCtx } from '../society';
+import { topWanted, wantedList } from '../wanted';
+import { SELLS } from '../merchant';
+import { clockOf, noteAnswer, toldAnswer } from '../memory';
+import { tellMember } from '../acts';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
@@ -201,6 +207,11 @@ export class MineflayerWorld implements WorldAdapter {
     this.villages = VillageRegistry.forWorld(dataDir);
     // (G1: members' memory, social.json beside villages.json)
     initMemory(dataDir);
+    // (G5, #90, MC_PROPOSALS: members' proposals beside villages.json, and code's check of them from what this world can do)
+    if (PROPOSALS_ON) {
+      initProposals(dataDir);
+      setProposalCtx((village) => this.proposalCtx(village));
+    }
     // (G2: a line a member says shows in the game by tellraw, "Ada says: ...", which matches neither of mineflayer's chat
     // patterns; hearChat also ignores it, so no brain wakes on it: the spec check's H4)
     setSpeaker((_village, agent, text) => {
@@ -5424,6 +5435,13 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // G2 (MC_SKILL=on, #17): the member's skill at each option's kind
     if (SKILL.on) for (const o of out) if (o.kind !== 'eat') o.sw = skillWeight(skillOf(v.name, a.name, o.kind));
+    // G5 (MC_PROPOSALS): an option an accepted proposal of the member's (or one it backed) brought, once built (verdict.ref)
+    if (PROPOSALS_ON) for (const p of allProposals(v.name)) {
+      const ref = p.verdict?.decision === 'accept' ? p.verdict.ref : undefined;
+      if (!ref) continue;
+      const mine = p.by === a.name ? 'you proposed this' : p.endorsements.some((e) => e.by === a.name) ? 'you backed this' : '';
+      if (mine) for (const o of out) if (o.key === ref || o.id === ref) o.mark = `[${mine}]`;
+    }
     // G2 (MC_ACTS=on): an option answering a request to the member or keeping its promise is tagged, and the trim keeps it
     if (ACTS.on) {
       const t = actsTags(v.name, a.name, now);
@@ -5501,6 +5519,69 @@ export class MineflayerWorld implements WorldAdapter {
     const byPhrase = new Map<string, number>();
     for (const c of counts) byPhrase.set(KIND_PHRASE[c.kind] ?? c.kind, (byPhrase.get(KIND_PHRASE[c.kind] ?? c.kind) ?? 0) + c.n);
     return total ? `Your last ${total} chore${total === 1 ? '' : 's'}: ${[...byPhrase.entries()].sort((x, y) => y[1] - x[1]).map(([p, n]) => `${p} ${n}`).join(', ')}` : '';
+  }
+
+  /** G5 (#90): what this village can do, for code's check of a proposal (scripts/proposals_ctx.mts builds the same
+   *  offline): the registry and recipe graph, the skills, the library's activities and what they give, the workshop's
+   *  goods, the inventions' goods, the merchant's wares, and the chores that failed in the last 2 hours. */
+  proposalCtx(village: string): CheckCtx | null {
+    const v = this.villages.get(village);
+    if (!v) return null;
+    const activityGives = new Map<string, string>();
+    for (const sp of this.library.specs) for (const g of sp.gives) if (!activityGives.has(g.item)) activityGives.set(g.item, sp.name);
+    const makeItems = new Map<string, string>();
+    for (const g of this.goodsFor(v)) if (!makeItems.has(g.item)) makeItems.set(g.item, g.words);
+    const inventionItems = new Map<string, string>();
+    for (const e of LIBRARY) for (const g of e.goods) if (!inventionItems.has(g.item)) inventionItems.set(g.item, e.name);
+    const now = Date.now();
+    const fails = new Map<string, { name: string; message: string; n: number }>();
+    for (const a of this.agents.values()) {
+      if (a.village()?.name !== v.name) continue;
+      for (const e of this.choiceStats.agentHistory(v.name, a.name, 30)) {
+        if (e.ok || e.cut || e.at < now - 2 * 3600000) continue;
+        const name = e.line.split(':')[0];
+        const f = fails.get(name) ?? { name, message: e.line.slice(name.length + 1, name.length + 100).trim(), n: 0 };
+        f.n++;
+        fails.set(name, f);
+      }
+    }
+    return {
+      items: new Set(this.registry.itemsArray.map((it) => it.name)), plan: (b) => this.materials.plan(b),
+      skills: new Set([...Object.keys(MC_SKILLS), ...FOUNDRY_SKILLS.map((f) => f.name)]),
+      activitySkills: new Set([...this.library.specs.map((s) => s.skill), ...FOUNDRY_SKILLS.filter((f) => f.activity).map((f) => f.name)]),
+      activityGives, makeItems, inventionItems, merchantSells: new Set(SELLS.map((o) => o.item)), failures: [...fails.values()],
+    };
+  }
+
+  /** G5: the village day whose triage marking is done, by village. */
+  private triageDay = new Map<string, number>();
+
+  /**
+   * G5 (#90, MC_PROPOSALS), each sweep: once a village day, proposals ready for triage (two backers, a failure seen three
+   * times, or a capability in the wanted list's top 3) are marked for it; and every answer (code's at once, triage's when
+   * it lands) reaches its proposer and backers once: pinned in their memory, and a report in their inbox.
+   */
+  private proposalSweep(v: Village, now: number) {
+    const day = clockOf(v.name, now)?.day ?? Math.floor(now / MEMORY.dayMs);
+    const ps = allProposals(v.name);
+    if (this.triageDay.get(v.name) !== day && ps.some((p) => p.status === 'open' || p.status === 'endorsed')) {
+      this.triageDay.set(v.name, day);
+      let top: string[] = [];
+      try {
+        top = topWanted(wantedList(v, { items: this.registry.itemsArray.map((it) => it.name), plan: (b) => this.materials.plan(b), skills: new Set(Object.keys(MC_SKILLS)), activitySkills: new Set(this.library.specs.map((s) => s.skill)), now }));
+      } catch {
+        // (the wanted list is G6's: a failure leaves the top empty)
+      }
+      for (const p of ps) if (readyForTriage(p, top) && markTriage(p.id)) console.log(`[proposal] ${v.name}: ${p.id} (${p.by}: ${p.what.slice(0, 60)}) ready for triage`);
+    }
+    for (const p of ps) {
+      if (!p.verdict) continue;
+      for (const who of [p.by, ...p.endorsements.map((e) => e.by)]) {
+        if (toldAnswer(v.name, who, p.id)) continue;
+        const line = who === p.by ? verdictLine(p) : verdictLine(p).replace(/^Your proposal/, `${p.by}'s proposal you backed,`);
+        if (noteAnswer(v.name, who, p.id, line, now)) tellMember(v.name, who, line, now);
+      }
+    }
   }
 
   /** G2: the village's members present, where they stand and the chore each has under way (social.observe's input). */
@@ -6026,6 +6107,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G2: who sees whom doing what, before anything below may end the sweep early: the spec check's M8)
     if (observing()) observe(v.name, this.presences(v), now);
     if (ACTS.on) actsSweep(v.name, this.actsWorld(v, now), now);
+    if (PROPOSALS_ON) this.proposalSweep(v, now);
     const all = this.heldKeys(v, now, 'sweep');
     // Forgiven after an hour (the readers read the effective value; the old picker wrote these as it looked)
     const ax = v.layouts?.[0]?.annex;

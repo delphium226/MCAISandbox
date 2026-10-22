@@ -277,6 +277,8 @@ export interface ChoiceOption {
   sw?: number;
   /** G2 (MC_ACTS=on): the option answers a request to the member or keeps its promise ("[Ada asked you]"); the trim keeps it. */
   social?: string;
+  /** G5 (MC_PROPOSALS): an accepted proposal of the member's, or one it backed, brought this option ("[you proposed this]"). */
+  mark?: string;
 }
 
 export interface ChoiceContext {

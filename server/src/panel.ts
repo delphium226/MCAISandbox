@@ -46,6 +46,7 @@ import { techTree, type RecipeOf, type TechTree } from './techTree';
 import { MEMORY, agentMemory, liveNotes, membersOf, rosterOf, villageMemory } from './memory';
 import { ACTS, socialView } from './acts';
 import { SOCIAL } from './social';
+import { PROPOSALS_ON, allProposals } from './proposals';
 import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
@@ -446,6 +447,8 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
       // (G2: its inbox, promises and requests, with the settings that made them)
       social: vn ? { mode: SOCIAL.mode, acts: ACTS.on, ...socialView(vn, a.name, Date.now()) } : null,
+      // (G5: the village's proposals, newest first)
+      proposals: vn && PROPOSALS_ON ? allProposals(vn).slice(-12).reverse().map((p) => ({ id: p.id, by: p.by, kind: p.kind, what: p.what, status: p.status, check: p.check.verdict, backers: p.endorsements.length, against: p.objections.length, verdict: p.verdict ? `${p.verdict.decision}: ${p.verdict.reason}` : '' })) : null,
     }), true;
   }
   // G1: a village's members' memory (compact), and their rosters for scripts/respawn_agents.py

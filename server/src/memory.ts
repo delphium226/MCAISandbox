@@ -139,6 +139,8 @@ export interface AgentMemory {
   social: Record<string, unknown>;
   /** #86: why the last note it wanted kept was refused, told once in its next memory section. */
   refused?: string;
+  /** G5 (#90): the answers to its proposals and those it backed, pinned (the last 3), never evicted like notes. */
+  answers?: Array<{ id: string; line: string; at: number }>;
 }
 export interface VillageMemory {
   name: string;
@@ -289,6 +291,21 @@ function ensureAgent(village: string, agent: string): AgentMemory {
     name: agent, village, intents: [], notes: [], nextNote: 1, added: { day: 0, n: 0 }, log: [], days: [], kinds: {}, nightDone: 0, social: {},
   });
 }
+
+/** G5 (#90): an answer to a proposal, pinned in the member's memory (the last 3; once per proposal). False when it was
+ *  there already. */
+export function noteAnswer(village: string, agent: string, id: string, line: string, now = Date.now()): boolean {
+  const a = ensureAgent(village, agent);
+  const list = (a.answers ??= []);
+  if (list.some((x) => x.id === id)) return false;
+  list.push({ id, line: line.slice(0, 220), at: now });
+  if (list.length > 3) list.splice(0, list.length - 3);
+  logAct({ type: 'answer', village, agent, id, line });
+  save();
+  return true;
+}
+/** Whether the member has been told a proposal's answer. */
+export const toldAnswer = (village: string, agent: string, id: string) => !!agentMemory(village, agent)?.answers?.some((x) => x.id === id);
 
 /** G2: a member's social places (social.ts' MemberSocial), created on first use; touchMemory() after a change. */
 export function socialOf(village: string, agent: string): Record<string, unknown> {
@@ -649,6 +666,7 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
     }
   }
   if (v?.days.length && villageLine()) lines.push({ text: `- The village: ${v.days[v.days.length - 1].line}`, items: ['village'] });
+  for (const x of a?.answers ?? []) lines.push({ text: `- ${x.line}`, items: [`answer:${x.id}`], keep: true });
   if (MEMORY.quality && a?.refused) lines.push({ text: `- A note you wanted to keep was not kept: ${a.refused}.`, items: ['refused'], keep: true });
   // (a member with nothing remembered yet still gets the head on its first choice of a day, so the intention is asked)
   if (!lines.length && !dawn) return null;

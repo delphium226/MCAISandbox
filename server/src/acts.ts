@@ -119,6 +119,19 @@ function push(st: ActsState, to: string, item: Omit<InboxItem, 'prio'> & { prio?
 }
 const PRIO: Record<InboxItem['kind'], number> = { report: 2, declined: 2, offer: 3, refused: 4, heard: 5, said: 6 };
 
+/** A report into a member's inbox from elsewhere (G5: a proposal's verdict), shown for ACTS.itemMs. */
+export function tellMember(village: string, to: string, text: string, now = Date.now()): void {
+  if (!ACTS.on) return;
+  push(state(village), to, { t: now, kind: 'report', text });
+  touchMemory();
+}
+
+/** Acts of the member refused since `t` (the refusal notices it was given): G5's reason to propose at night. */
+export function refusedSince(village: string, agent: string, t: number): number {
+  if (!ACTS.on) return 0;
+  return (state(village).inbox[agent] ?? []).filter((i) => i.kind === 'refused' && i.t >= t).length;
+}
+
 // ---------------------------------------------------------------------------------------------
 // What the world tells
 // ---------------------------------------------------------------------------------------------

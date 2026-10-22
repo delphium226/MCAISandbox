@@ -17,6 +17,8 @@ import { callModel, parseSpec, type ModelSpec } from './modelCall';
 import { usage, isCloudModel, REASONING } from './modelUsage';
 import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
+import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
+import { refusedSince } from './acts';
 import {
   FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, villageLineShown, villageMemory,
   type Phase,
@@ -79,7 +81,10 @@ export function tick(now: number, villages: Array<{ name: string; members: Membe
         if (!due || a.nightDone >= c.day) continue;
         const had = a.log.some((e) => e.day === c.day && !e.cut);
         closeAgentDays(village, m.name, c.day);
-        if (had && MEMORY.reflect) void reflect(village, m, c.day, now);
+        if (had && MEMORY.reflect && CHOOSE.mode !== 'scripted') void reflect(village, m, c.day, now);
+        // (G5, the scripted controller: a proposal from a script on a fixed night, so staged runs exercise the store,
+        // triage and the answers without models)
+        if (had && PROPOSALS_ON && CHOOSE.mode === 'scripted') scriptedProposal(village, m.name, c.day);
       }
     } catch (e) {
       console.log(`[clock] ${village}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
@@ -92,6 +97,23 @@ function touched(village: string, agent: string, dayStart: number): Profile[] {
   const ps = Object.values(memberSocial(village, agent).profiles ?? {});
   const deal = (p: Profile) => p.helped + p.helpedBy + p.kept + p.broke + (p.heardKept ?? 0) + (p.heardBroke ?? 0);
   return ps.filter((p) => p.lastMet >= dayStart || deal(p) > 0).sort((x, y) => y.lastMet - x.lastMet || deal(y) - deal(x)).slice(0, 5);
+}
+
+/** G5 (#90): what the village can do, for code's check of a proposal (the world's, registered at its start). */
+let proposalCtx: ((village: string) => CheckCtx | null) | null = null;
+export function setProposalCtx(fn: (village: string) => CheckCtx | null): void {
+  proposalCtx = fn;
+}
+
+/** G5 (MC_PROPOSALS): others' open proposals a member may back, and whether its day gave it a reason to propose (a failed
+ *  chore, a refused request) or to back one. */
+function proposing(village: string, agent: string, day: number, dayMs: number, now: number): { others: Proposal[]; reason: boolean } | null {
+  if (!PROPOSALS_ON) return null;
+  const a = agentMemory(village, agent);
+  const failed = (a?.log ?? []).some((e) => e.day === day && !e.ok && !e.cut);
+  const refused = refusedSince(village, agent, now - dayMs) > 0;
+  const others = allProposals(village).filter((p) => p.by !== agent && (p.status === 'open' || p.status === 'endorsed'));
+  return failed || refused || others.length ? { others, reason: failed || refused } : null;
 }
 
 const REFLECT_SYSTEM = 'You are a member of a Minecraft village. Night has come in the village and you look back on your day. '
@@ -125,6 +147,9 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
     + 'something about the village or another member; not the counts above, which are kept for you), each replacing one of '
     + 'your notes by its id when it corrects or outdates it, your intention for tomorrow in one sentence, and its focus, the kind '
     + `of work you mean to do most: one of ${FOCUS.join(', ')}.`);
+  // (G5, MC_PROPOSALS: the propose field on nights the day gave a reason, others' open proposals to back)
+  const pr = proposing(village, m.name, day, v?.dayMs ?? MEMORY.dayMs, now);
+  if (pr) lines.push(proposeLine(pr.others));
   const tools: ToolDef[] = [{
     name: 'reflect',
     description: 'Keep up to 2 notes and set your intention for tomorrow.',
@@ -156,7 +181,13 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
       required: ['notes', 'intention', 'focus'],
     },
   }];
-  return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools };
+  if (!pr) return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools };
+  const withP = withPropose(tools);
+  if (pr.others.length) {
+    const sch = withP[0].input_schema as { properties: Record<string, unknown> };
+    sch.properties.back = { type: 'array', maxItems: 2, description: "Optional: others' proposals you back (or oppose) because your own day met the same need.", items: { type: 'object', properties: { id: { type: 'string', enum: pr.others.slice(0, 3).map((p) => p.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
+  }
+  return { system: REFLECT_SYSTEM, user: lines.join('\n\n'), tools: withP };
 }
 
 /** The reply's notes and intention, from the reflect call's input (arguments written as strings normalised). With `quality`
@@ -177,7 +208,14 @@ export function parseReflect(input: unknown, quality = false): { notes: Array<{ 
   const keep = quality ? [...(Array.isArray(o.keep) ? o.keep : []), ...(Array.isArray(notes) ? notes : [])]
     .map((n) => (typeof n === 'string' ? n : typeof (n as { text?: unknown })?.text === 'string' ? String((n as { text: string }).text) : ''))
     .map((t) => ID.exec(t)?.[1]?.toLowerCase()).filter((x): x is string => !!x) : [];
-  const list = (Array.isArray(notes) ? notes : []).map((n) => (typeof n === 'string' ? { text: n } : n as { text?: unknown; replaces?: unknown }))
+  // (#90: gpt-oss sends notes as {content, id}, {content, replace}, {id, text}: content and note read as text, replace and an
+  // id as replaces; applyWrites replaces only a live note's id)
+  const asNote = (n: unknown): { text?: unknown; replaces?: unknown } => {
+    if (typeof n === 'string') return { text: n };
+    const r = (n ?? {}) as Record<string, unknown>;
+    return { text: r.text ?? r.content ?? r.note, replaces: r.replaces ?? r.replace ?? r.id };
+  };
+  const list = (Array.isArray(notes) ? notes : []).map(asNote)
     .filter((n) => typeof n?.text === 'string' && n.text.trim() && !(quality && ID.test(n.text)))
     .slice(0, 2).map((n) => ({ text: String(n.text), ...(typeof n.replaces === 'string' && n.replaces ? { replaces: n.replaces } : {}) }));
   const intention = typeof o.intention === 'string' ? o.intention : '';
@@ -206,6 +244,8 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
     if (got?.intention) done.push(...applyWrites(village, m.name, { intention: got.intention, focus: got.focus }, 'night', Date.now(), `night:${day}`));
     // (G2: up to 3 profile edits, the model's only fields in a profile: a feeling and a note of 12 words at most)
     if (SOCIAL.mode === 'on') done.push(...applyProfileEdits(village, m.name, (c?.input ?? null), day));
+    // (G5, MC_PROPOSALS: a proposal into the store, checked by code; backing others' where the member's day touched them)
+    if (PROPOSALS_ON) done.push(...applyProposal(village, m.name, c?.input ?? null, day));
     logAct({ type: 'reflect', village, agent: m.name, day, system: p.system, prompt: p.user, reply: got ?? { text: r.reply.text.slice(0, 400) }, done, ms: r.ms, waitMs: r.waitMs, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
     console.log(`[reflect] ${village}: ${m.name} day ${day}: ${done.join(', ') || 'nothing kept'}${got?.intention ? `; tomorrow: ${got.intention.slice(0, 100)}` : ''}`);
   } catch (e) {
@@ -214,6 +254,70 @@ async function reflect(village: string, m: Member, day: number, now: number): Pr
   } finally {
     reflecting.delete(k);
   }
+}
+
+/** G5's scripted proposals: one member in eight proposes on day 1 (by a hash of its name), one in four backs the first open
+ *  proposal on later nights (its day's touch not required: the plumbing's test). */
+const SCRIPTED = [
+  { kind: 'item', what: 'Make a smithing table for better tools', why: 'our tools wear out' },
+  { kind: 'work', what: 'Build a fishing dock by the water for the fishers', why: 'fishing keeps us fed' },
+  { kind: 'activity', what: 'Let us collect honey from bee nests', why: 'we have no sweet food' },
+];
+function scriptedProposal(village: string, agent: string, day: number): void {
+  const h = [...`${agent}|${day}`].reduce((x, ch) => (Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0), 2166136261);
+  const ctx = proposalCtx?.(village) ?? null;
+  if (!ctx) return;
+  if (day === 1 && h % 8 === 0) {
+    const s = SCRIPTED[h % SCRIPTED.length];
+    const got = addProposal({ village, by: agent, kind: s.kind, what: s.what, why: s.why, day, source: 'scripted' }, ctx);
+    if (got) logAct({ type: 'proposal', village, agent, id: got.id, kind: got.kind, what: got.what, status: got.status, check: got.check.verdict, reason: got.check.reason, day, scripted: true });
+  } else if (day > 1 && h % 4 === 0) {
+    const first = allProposals(village).find((p) => p.by !== agent && (p.status === 'open' || p.status === 'endorsed'));
+    if (first && endorse(first.id, agent)) logAct({ type: 'proposal', village, agent, back: first.id, counted: true, scripted: true });
+  }
+}
+
+/** G5 (#90): the night's proposal and backing from the reflect call's input. A proposal is checked by code (the world's
+ *  context) and stored; backing counts only where the member's own day named the target (an item, the failing chore). */
+export function applyProposal(village: string, agent: string, input: unknown, day: number): string[] {
+  const done: string[] = [];
+  let o = input as Record<string, unknown> | string | null;
+  if (typeof o === 'string') {
+    try { o = JSON.parse(o) as Record<string, unknown>; } catch { return done; }
+  }
+  const p = parsePropose(o);
+  const ctx = proposalCtx?.(village) ?? null;
+  const a = agentMemory(village, agent);
+  const today = (a?.log ?? []).filter((e) => e.day === day);
+  if (p && ctx) {
+    const evidence = p.evidence.map((ref) => ({ ref, text: liveNotes(a).find((n) => n.id === ref)?.text ?? today.find((e) => ref.includes(e.name))?.line ?? '' }));
+    // (the day's failures as evidence of a fix, by code)
+    for (const e of today.filter((x) => !x.ok && !x.cut).slice(0, 3)) evidence.push({ ref: `fail:${e.name}`, text: e.msg ?? '' });
+    const got = addProposal({ village, by: agent, kind: p.kind, what: p.what, why: p.why, evidence, day }, ctx);
+    if (got) {
+      logAct({ type: 'proposal', village, agent, id: got.id, kind: got.kind, what: got.what, why: got.why, status: got.status, check: got.check.verdict, reason: got.check.reason, day });
+      done.push(`proposed ${got.id} (${got.check.verdict})`);
+    }
+  }
+  const backs = o && typeof o === 'object' && Array.isArray((o as Record<string, unknown>).back) ? ((o as Record<string, unknown>).back as unknown[]).slice(0, 2) : [];
+  const words = today.map((e) => `${e.name} ${e.line} ${e.msg ?? ''}`.toLowerCase()).join(' ');
+  for (const b of backs) {
+    const id = typeof b === 'string' ? b : typeof (b as { id?: unknown })?.id === 'string' ? String((b as { id: string }).id) : '';
+    const target = allProposals(village).find((q) => q.id === id);
+    if (!target) continue;
+    const t = target.target;
+    const touched = [...(t.items ?? []).map((x) => x.replace(/_/g, ' ')), t.failure?.toLowerCase(), t.work?.replace(/_/g, ' '), t.capability?.replace(/_/g, ' ')].some((w) => !!w && words.includes(w));
+    if (!touched) {
+      logAct({ type: 'proposal', village, agent, back: id, counted: false, why: 'its day did not touch it' });
+      continue;
+    }
+    const oppose = (b as { oppose?: unknown })?.oppose === true;
+    if (endorse(id, agent, Date.now(), oppose)) {
+      logAct({ type: 'proposal', village, agent, back: id, oppose, counted: true });
+      done.push(`${oppose ? 'opposed' : 'backed'} ${id}`);
+    }
+  }
+  return done;
 }
 
 /** G2: the night's profile edits from the reflect call's input (at most 3; members the member has a profile of). */
