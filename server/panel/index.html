@@ -584,7 +584,7 @@ function memberView(a) {
       ${choiceLine(a)}
       ${intentLine(a)}
       ${utilLine(a.name)}
-      ${a.persona ? `<div class="sub clamp" title="its temperament (A.3p), shown in its chore menus">${esc(a.persona)}</div>` : ''}
+      ${a.persona ? `<div class="sub clamp" title="as its chore menus show it: the identity line with character v2, else its temperament (A.3p)">${esc(a.persona)}</div>` : ''}
       ${wealthLine(a)}
     </div>
     ${appetiteBar(a)}
@@ -607,6 +607,7 @@ function membersView(d) {
   const groups = ACTIVITIES.map(([k, label]) => [label, shown.filter((x) => activityOf(x) === k)]).filter(([, g]) => g.length);
   const row = (x) => `<a class="mrow" href="${hrefOf('members', null, x.name)}" data-nav="m:${esc(x.name)}"${a && x.name === a.name ? ' aria-current="page"' : ''}>`
     + `<i class="adot" style="background:${agentColor(x.name)}"></i><span class="nm">${esc(x.name)}</span><span class="doing" title="${esc(x.dead ? 'Dead' : doingWords(x))}">${esc(x.dead ? 'Dead' : doingWords(x))}</span>`
+    + (x.char ? `<span class="sub" title="mood ${x.char.mood}${x.char.tired ? '; tired' : ''}" style="color:${x.char.mood >= 3 ? 'var(--good)' : x.char.mood <= -3 ? 'var(--warn)' : 'var(--muted)'}">${x.char.mood > 0 ? '+' : ''}${Math.round(x.char.mood)}${x.char.tired ? ' tired' : ''}</span>` : '')
     + `<span class="state" style="--c:${STATE_COLORS[agentState(x)] || 'var(--idle)'}">${esc(agentState(x))}</span></a>`;
   const list = groups.length ? groups.map(([label, g]) => `<div class="who-group">${label} <span class="cnt">${g.length}</span></div>${g.map(row).join('')}`).join('')
     : '<div class="empty">No member is on that activity now.</div>';
@@ -2221,6 +2222,7 @@ function flagsView(d, v) {
     ['MC_PROPOSALS', fromMind((x) => onOff(x.proposals != null)), 'members propose improvements (G5)'],
     ['MC_RULES', fromMind((x) => onOff(x.rules != null)), 'laws, the agenda, dusk ballots (G3)'],
     ['MCAI_TEMPERAMENT', fromMind((x) => x.temperament?.mode || 'off'), 'personalities in the chore menus'],
+    ['MC_CHARACTER', fromMind((x) => (x.character && Object.values(x.character).some(Boolean) ? Object.entries(x.character).filter(([, on]) => on).map(([k]) => k).join(', ') : 'off')), 'character v2\'s layers (traits, values, energy, mood, affinity, identity)'],
     ['MC_NEEDS', v?.needGauges?.mode || 'off', 'needs read (show) or acted on (on)'],
     ['MC_VOTE', v?.vote?.mode || 'no vote yet', 'neighbourhood styles and public works'],
     ['MC_MERCHANT', onOff(v?.market), 'the market stall and its offers'],

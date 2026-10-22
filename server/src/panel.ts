@@ -49,7 +49,7 @@ import { SOCIAL } from './social';
 import { PROPOSALS_ON, allProposals } from './proposals';
 import { RULES, laws as lawsOf, rulesInForce } from './rules';
 import { councilLine } from './council';
-import { memberView, seriesView, villageView } from './character';
+import { CHARACTER, glance, identityOf, memberView, seriesView, villageView } from './character';
 import { phaseLine } from './society';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
@@ -128,7 +128,9 @@ function agentOverview(a: WorldAgent) {
     village: v?.name ?? null,
     villageRole: typeof m.villageRole === 'string' ? m.villageRole : null,
     // (A.3p: the persona line its chore menus show; '' with MCAI_TEMPERAMENT off and no memory.persona)
-    persona: (typeof m.persona === 'string' && m.persona) || personaOf(a.name),
+    // (character v2: the identity line in its place, as the model sees it)
+    persona: (typeof m.persona === 'string' && m.persona) || (v ? identityOf(v.name, a.name) : '') || personaOf(a.name),
+    ...(v && glance(v.name, a.name, Date.now()) ? { char: glance(v.name, a.name, Date.now()) } : {}),
     notes: typeof m.notes === 'string' ? m.notes : null,
     // (G1: what it is doing and why, its intention for the day, the village's clock)
     intent: m.intent ?? null,
@@ -450,6 +452,7 @@ export async function handlePanel(w: WorldAdapter, req: IncomingMessage, res: Se
       journal: vn ? agentMemory(vn, a.name) ?? null : null, clock: vn ? phaseLine(vn) : '',
       // (G2: its inbox, promises and requests, with the settings that made them)
       social: vn ? { mode: SOCIAL.mode, acts: ACTS.on, ...socialView(vn, a.name, Date.now()) } : null,
+      character: { ...CHARACTER },
       // (G3: the village's rules in force, laws proposed, the council's lines)
       rules: vn && RULES.on ? { inForce: rulesInForce(vn).map((r) => ({ id: r.id, text: r.text, votes: r.votedBy })), laws: lawsOf(vn).slice(-10).reverse().map((l) => ({ id: l.id, by: l.by, text: l.text || l.what, status: l.status, backers: l.backers.length, opposers: l.opposers.length, refused: l.refused, result: l.result })), council: councilLine(vn, Date.now()) } : null,
       // (G5: the village's proposals, newest first)

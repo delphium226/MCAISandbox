@@ -542,6 +542,14 @@ export function sample(village: string, members: Array<{ name: string; appetite?
   save();
 }
 
+/** The identity line as last written ('' before the member's first decision with the identity layer on). */
+export const identityOf = (village: string, agent: string) => store.villages[village.toLowerCase()]?.members[agent]?.lines.identity ?? '';
+/** A member at a glance (the members list's marks): mood now and whether it is tired; null with every layer off. */
+export function glance(village: string, agent: string, now: number): { mood: number; tired: boolean } | null {
+  if (!characterAny() || !store.villages[village.toLowerCase()]?.members[agent]) return null;
+  return { mood: moodOf(village, agent, now), tired: ms(village, agent).energy < 0.35 };
+}
+
 /** GET /api/character?village=V: every member compact (traits, values, goal, energy and mood now with the top 2 feelings,
  *  the identity line, the top 3 and bottom 2 affinities), the village's distributions, the flags. */
 export function villageView(village: string, names: string[], goals: Record<string, string>, now: number) {
