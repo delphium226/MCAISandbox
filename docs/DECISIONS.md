@@ -726,3 +726,31 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   (hooks after G2); accepted ones go to `accepted.json` for the foundry's queue (a hook) and to issue drafts, none filed
   automatically. MC_PROPOSALS (off). **Open** (the user's): the five deferred proposals (farm and works radii, plot
   reservations, an automated coop), and whether triage may file issues itself.
+- 10-22 (G3 spec, written by the g5-proposals session for the planning session, #30, #1, #33) **G3's design, Claude's,
+  the user away overnight** (spec only: runs/2026-10-21/g3-rules/spec.md, its adversarial check folded in): the levy is
+  answered on members' own model decisions (a `share` field after sharing chores, amounts only, shuffled; fallbacks never
+  answer it), not by menu variants (own:carry is chosen 1-6 times a run and the fixed pick takes "keep"); a run is valid
+  when failed model calls stay under 5% (E's 5%-fallback rule cannot hold at 25 members: 26-32% today, mostly the rate
+  cap), a departure from E's protocol; Experiment 2's day-2 levy item is code-placed (claim: ratification, as Sid's tax),
+  a departure from E.9, with matched arms (influencers and the announcement in the imposed arm too); village rules are
+  proposals of kind `law` (G5's `rule` stays the user's config requests); quota and floor never block meals, carries or
+  builds; duty is tagged and measured, not forced (a departure from E.6); no meeting walks; one ballot call a member at
+  its own offset over dusk and half the night; the need vote's trigger is `ignored` (a `no answer` need has no answer
+  to vote on). Order: after G2 lands. **Open** (the user's): whether 5 vs 5 is enough for a predicted 0-10 point effect.
+- 10-22 (g6-loop session, #89 #91) **Claude's, the user away overnight (10-21):** (1) #89's demand as members' life-goal
+  wishes kept by code, not barter wants (members' own chests were empty, so offers had nothing to pay with); (2) #91's
+  second template (amethyst) not built: live, `collect` dug to a geode's shell and found no path to the clusters, so it
+  needs a new tunnelling skill, a bigger ticket than a template; (3) the wool ticket finished with the Claude Code back-end
+  (`--cli claude --gates-only`, the user's s33 choice of back-ends) after agy's plan quota ran out mid-ticket ("resets in
+  81h"), keeping agy's three files and letting Claude's repair rounds add the rest.
+- 10-22 (G4 spec, written by the g5-proposals session for the planning session, #31, #34) **G4's design, Claude's, the
+  user away overnight** (spec only: runs/2026-10-21/g4-culture/spec.md, its adversarial check folded in): a seeded
+  saying's token is an invented word found in no prompt or output of G1a, G2a and LSc1 and in no menu template ("light"
+  and "torch" are in 96-98% of decision prompts); customs are added only to decisions that go to the model (never the
+  fixed pick, repeats, rate fallbacks or one-option menus), and Experiment 3's primary is their rate per model decision
+  where shown (E.10's uptake share would sit near the ceiling by chance; a departure from E.10); committed members'
+  sayings are delivered by code (`say` is offered on 1 decision in 3 and dropped when the pick does not run); neutral
+  exposure replays a finished k = 4 run's delivery log; customs are a 32-spot shrine ring and a door lamp post (no flower
+  pots: no clay; a departure from E.7's examples); adoption is counted three ways (echo, retained, spontaneous) from
+  tagged prompt parts; names only at night, bound to a code-offered place; G3's meetings off in Experiment 3; its sample
+  size set from a pilot (8 a side if the base rate is under 8%). Order: after G2 and G3.
