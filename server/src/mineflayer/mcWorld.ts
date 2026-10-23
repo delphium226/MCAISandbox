@@ -2168,7 +2168,8 @@ export class MineflayerWorld implements WorldAdapter {
     // A vote ended or overdue is closed here, whatever its topic: a member joining or leaving mid-vote moves growTick to
     // the other topic's path, which never closed it (the X.2 review's H1)
     const run = this.voting.get(v.name);
-    if (run && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
+    // (not G8's rung vote: rungTick closes it and takes up its winner; closed here, staged I6 voted again every few seconds)
+    if (run && run.topic !== 'rung' && (run.done || now - run.started >= VOTE_MAX_MS + 35000)) this.closeVote(v, run, now);
     // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate; the storage's tidy-up)
     if (NEED_WORKS) this.fieldTick(v, now);
     if (NEED_WORKS) this.tidyTick(v, now);
@@ -2715,6 +2716,9 @@ export class MineflayerWorld implements WorldAdapter {
     if (run) {
       if (run.topic !== 'rung') return;
       if (!run.done && now - run.started < VOTE_MAX_MS + 35000) return;
+      // (no ballot cast, a scripted run's voters or every call failed: the temperament-predicted ballots, not the first option
+      // by default as in staged I6)
+      if (!run.ballots.some((b) => b.choice)) run.ballots = run.voters.map((n) => predictedBallot(run.id, n, run.options, predictedChoice(temperament(n), run.options, `${run.id}|${n}`)));
       const w = this.closeVote(v, run, now) as RungId;
       chooseRung(v, w, run.options.map((o) => o.id as RungId), now);
       this.ladderNote(v, `the village chose ${RUNG_DEFS[w]?.name ?? w} as its next ambition`);
