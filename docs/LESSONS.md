@@ -678,3 +678,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    requests, promises and law votes differed from a mixed one's within 30 minutes. Busy, building and food didn't,
    because every member gets the same work menu. Measure an economic character where it can act: own shares, sales and
    trades took longer than the hour to reach any chest.
+173. **Read the raw model replies before calling a field unused** (g3-rules, F298): Long1's acts log kept only the
+   parsed reply, and 238 laws looked like none. The model-call record has every reply as sent; count the fields there first.
+174. **A ballot with nothing at stake is a rubber stamp** (g3-rules, F299): gpt-oss voted yes on 99% of laws until code
+   showed each voter what the rule would have cost it yesterday; then burdened members voted yes 37%. Give a vote code's
+   facts about the voter's own stake.
+175. **Pilot the measure's spread before sizing an experiment** (g3-rules, F300): Experiment 2 was sized on decision counts,
+   but its measure sat at 99%. A cheap vignette bench on the pilot's own prompts showed the ceiling before 19 hours of runs.

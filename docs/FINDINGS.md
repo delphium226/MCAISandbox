@@ -1873,3 +1873,34 @@ CLAUDE.md when a phase ends.
   There were no queue or withdrawn fallbacks and the gates' waits were 0 ms, so it was pacing, not cloud contention,
   and it was equal in both arms.
   Logs: runs/2026-10-23/monoculture/ (report.md, compare.md).
+- F298 (10-23, g3-rules session, #30) **The law field was never unused: gpt-oss wrote a law on 238 of Long1's 275 nights,
+  every one under its own key ({"dailyToolQuota": "Each member may take..."}), and applyLaws, reading only `law.what`, dropped
+  all 238.** The acts log keeps the parsed reply, so it showed no law at all; the raw replies are in the model-call record
+  (runs/model-calls/2026-10-22-46872.jsonl). What members proposed (code's reading now): "each member puts at least N X into
+  storage a day" 96 (a new type, `contribute`, the user's), take quotas 49, storage floors 22, duties 12, customs 59 (mine
+  scheduling, returning borrowed tools); 4 meal quotas refused. With the reader fixed the rate would be ~22 laws a night;
+  the same rule proposed again now joins the open one (the user's). lawbench on Long1's own night prompts (10 nights x 4
+  samples x 3 conditions, run twice): a law written on 70-88% of nights, read by Long1's code 0%, read now on every night
+  one is written; typed 83-91%; a template of sentences in the prompt narrowed laws to one type (29 of 33), the kinds in
+  prose did not; with 3 open laws shown, members back one on 82-87% of nights and propose a new one on 36-46%.
+  Logs: runs/2026-10-23/g3-rules/ (bench/, spec_addendum.md).
+- F299 (10-23, g3-rules session, #30) **The secret ballot: 13 of 120 ballots parsed (gpt-oss leaves the item out on a
+  one-item ballot, or writes "reason; yes"); 119 after. With nothing at stake gpt-oss votes yes on 99% of laws; with code's
+  stake line ("For you: yesterday you took 12 logs: it would have refused 4") members a rule burdens vote yes 37%, others
+  89%.** rulebench, 12 samples a case, 10 cases: valid 97-99%; yes or no listed first chosen 55% (no bias); a need item's
+  first-shown choice 65% against 33% by chance (about 2x: each member sees its own order, so it adds noise, not a side).
+  Live (G3m1, 25 members, 2 h): 36 laws by 24 members, 75 ballots at 3 councils, yes 66% (contributions 48%, customs 94%,
+  duties 77%); passed "1 item a day into storage" 20-2, a help duty 17-5, two customs 22-2 and 24-1; failed 64 items a day
+  2-21, 5 torches a day 8-15, 1 tool a day 14-10. Ballot reasons cite the member's own stake ("The 64-goods threshold is
+  above what I can consistently produce"; "The minimal 1 good rule is trivial and aligns with my contributions").
+- F300 (10-23, g3-rules session, #30 #33) **Members live under the rules they pass, and the village keeps its work: G3m1
+  (CM1's settings with rules, council and an imposed 20% levy) held busy 42.3 then 39.3% (0.93x) where CM1 fell 40.3 to 28%
+  (0.69x); needs met 0.89 both. Compliance from world evidence: the contribution met on 90% of member-days (a rule members
+  called trivial), the help duty on 64%; the duty's tag taken on 38% of the menus that showed it, the contribution's on 58%.
+  Members who helped a project on days 4-6: 16, 16, 18 of 25 (CM1 13, 9, 13). Experiment 2's measure is at ceiling: the levy
+  paid on 67 of 68 share answers live, and 98-100% of 1,080 vignette answers voted, imposed or as recorded, at shares of
+  1-6 and of 12.** Shares were 1-6 items (about 1 a member-day at MC_OWN's 25%), so the levy of 1 was often "all". The
+  only spread is in leaving more than the levy (P(all) 13-46%). The user's decision: report the ceiling, no live runs.
+  Staged G3s1 (scripted): a log quota of 4 a day took away torch making, so a torch contribution was met on 3 of 75
+  member-days and a lighting duty on 6 of 50: rules members vote for can undercut each other. Cost of G3m1: 1,772 calls,
+  3.1M tokens, ~$0.63. Logs: runs/2026-10-23/g3-rules/ (model/, staged/, bench/, report.md).

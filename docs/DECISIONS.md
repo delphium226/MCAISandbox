@@ -817,3 +817,16 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   decisions are at least 30 s apart, not 90 (CHOOSE.minGapMs). A member inside the gap with nothing of the same kind waits,
   rather than take the fixed pick. Only decided choices open a block: the model's, the scripted controller's, or the fixed
   pick in fixed mode. IM1 had 421 rate fallbacks against 168 model decisions.
+- 10-23 (the user's, G3) **Laws: the same rule proposed again joins the open one; one open law a member; the open laws
+  listed first, most backed first.** Long1's rate with the reader fixed would be ~22 laws a night. A join needs the same
+  type and target with numbers within half again; laws that already have their 2 backers are not listed (the adversarial
+  check's bandwagon point).
+- 10-23 (the user's, G3) **A new rule type, `contribute`**: each member puts at least N of a class (logs, torches, tools,
+  food, stone, any goods, or a list) into storage a day, measured from the server's storage flow per member-day, its options
+  tagged and ranked first until met. Members' commonest law in Long1 (96 of 238).
+- 10-23 (Claude's, G3) **Zones gate new siting only** (growTaken, annexSpot, smallBlocked, plan_layout), not every build
+  claim (village.ts conflictOf): a zone voted on a neighbourhood would otherwise fail its planned houses again and again.
+  **The ballot shows code's stake line** for each member (F299). **The need vote's choices are shown in each member's
+  own order** (position bias 2x, F299).
+- 10-23 (the user's, Experiment 2) **Sized as a vignette bench plus 5 voted vs 5 imposed live runs; then, after the pilot
+  and the bench showed the measure at ceiling (F300), reported as a ceiling with no live runs.**
