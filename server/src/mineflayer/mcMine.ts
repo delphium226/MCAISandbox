@@ -1371,7 +1371,7 @@ function driftLen(i: IronLevel, l: MineLeg): number | undefined {
  * read from the bot's view by state id (cheap: no block objects), kept on the level within the village's range; and
  * sightings in that box no longer iron (dug, by keepOres or a cell) dropped. At most ORE_SEEN, the newest kept.
  */
-function noteIron(a: BotAgent, v: Village, i: IronLevel, x: number, L: number, z: number) {
+export function noteIron(a: BotAgent, v: Village, i: IronLevel, x: number, L: number, z: number) {
   const o = i as OreLevel;
   const reg = a.world.registry.blocksByName;
   const ids = new Set<number>();
@@ -1401,26 +1401,36 @@ function noteIron(a: BotAgent, v: Village, i: IronLevel, x: number, L: number, z
 export function oreDrift(i: IronLevel, dug?: (x: number, z: number) => boolean): { leg: MineLeg; len: number } | null {
   const o = i as OreLevel, L = i.level;
   if (L === undefined || !o.seen?.length) return null;
-  const foot = ironColumns(i).at(-1);
-  const cols: Array<{ x: number; z: number }> = foot ? [{ x: foot.x, z: foot.z }] : [];
-  for (const l of i.legs.filter((q) => q.y === L)) cols.push({ x: l.x, z: l.z }, ...legCells(l));
+  const cols = levelColumns(i);
   const ends = (o.drifts ?? []).filter(([n]) => i.legs[n] && !i.legs[n].end).map(([n, len]) => cellAt(i.legs[n], 'main', len));
   const cands: Array<{ d: number; off: number; x: number; z: number; dir: [number, number] }> = [];
   // (what a drift's cells take: a sighting in line at L-1..L+2, its floor and ceiling too, or beside it at L or L+1)
   const takes = (sy: number, off: number) => (off === 0 && sy >= L - 1 && sy <= L + 2) || (off === 1 && (sy === L || sy === L + 1));
+  // (by lookup, not by scanning the level's cells: the columns a drift to it could start from are at most 2 x 12 x 3 a
+  // sighting, whatever the level's size; IM2's level at 5,226 cells froze the server for 120 s, F293)
   for (const [sx, sy, sz] of o.seen) {
     if (sy < L - 1 || sy > L + 2 || ends.some((e) => Math.abs(e.x - sx) <= 1 && Math.abs(e.z - sz) <= 1)) continue;
-    for (const c of cols) {
-      if (takes(sy, Math.abs(sz - c.z)) && sx !== c.x && Math.abs(sx - c.x) <= ORE_DRIFT) cands.push({ d: Math.abs(sx - c.x), off: Math.abs(sz - c.z), x: c.x, z: c.z, dir: [Math.sign(sx - c.x), 0] });
-      if (takes(sy, Math.abs(sx - c.x)) && sz !== c.z && Math.abs(sz - c.z) <= ORE_DRIFT) cands.push({ d: Math.abs(sz - c.z), off: Math.abs(sx - c.x), x: c.x, z: c.z, dir: [0, Math.sign(sz - c.z)] });
-    }
+    for (let d = 1; d <= ORE_DRIFT; d++)
+      for (const off of [0, -1, 1]) {
+        if (!takes(sy, Math.abs(off))) continue;
+        for (const s of [1, -1]) {
+          const cx = sx - s * d, cz = sz + off;
+          if (cols.has(`${cx},${cz}`)) cands.push({ d, off: Math.abs(off), x: cx, z: cz, dir: [s, 0] });
+          const zx = sx + off, zz = sz - s * d;
+          if (cols.has(`${zx},${zz}`)) cands.push({ d, off: Math.abs(off), x: zx, z: zz, dir: [0, s] });
+        }
+      }
   }
   // (the shortest first, then the one passing nearest: through the ore itself rather than beside it)
   cands.sort((p, q) => p.d - q.d || p.off - q.off);
   const open = new Map<string, boolean>();
+  // (the world asked about 16 start cells at most a call)
   for (const c of cands) {
     const k = `${c.x},${c.z}`;
-    if (dug && !open.has(k)) open.set(k, dug(c.x, c.z));
+    if (dug && !open.has(k)) {
+      if (open.size >= 16) break;
+      open.set(k, dug(c.x, c.z));
+    }
     if (dug && !open.get(k)) continue;
     // (no junction branches: every branch id it could have is ended, so the record's readers see main cells only)
     const ended = Array.from({ length: Math.floor(c.d / MAIN_STEP) + 1 }, (_, s) => [3 * s + 1, 3 * s + 2]).flat();
@@ -1429,8 +1439,23 @@ export function oreDrift(i: IronLevel, dug?: (x: number, z: number) => boolean):
   return null;
 }
 
+/** The level's dug columns as "x,z" (its stairs' bottom step and every leg's cells at its y), kept while the legs are as
+ *  they were (their count and cells done): recomputed only when a leg is added or advances. */
+const columnCache = new WeakMap<IronLevel, { sig: string; cols: Set<string> }>();
+function levelColumns(i: IronLevel): Set<string> {
+  const sig = `${i.level}|${i.steps}|${i.legs.length}|${i.legs.reduce((n, l) => n + l.dug + (l.main ?? 0) * 1000, 0)}`;
+  const had = columnCache.get(i);
+  if (had?.sig === sig) return had.cols;
+  const cols = new Set<string>();
+  const foot = ironColumns(i).at(-1);
+  if (foot) cols.add(`${foot.x},${foot.z}`);
+  for (const l of i.legs) if (l.y === i.level) for (const c of [{ x: l.x, z: l.z }, ...legCells(l)]) cols.add(`${c.x},${c.z}`);
+  columnCache.set(i, { sig, cols });
+  return cols;
+}
+
 /** A drift ended: the sightings beside its line (within a column, at the heights it takes) are not drifted to again. */
-function dropSeen(i: IronLevel, l: MineLeg) {
+export function dropSeen(i: IronLevel, l: MineLeg) {
   const o = i as OreLevel, len = driftLen(i, l) ?? 0;
   const line = Array.from({ length: len + 1 }, (_, k) => cellAt(l, 'main', k));
   const near = ([x, y, z]: [number, number, number]) => y >= l.y - 1 && y <= l.y + 2 && line.some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1);
@@ -1439,7 +1464,7 @@ function dropSeen(i: IronLevel, l: MineLeg) {
 }
 
 /** How many sightings a tunnel from `t` would pass within 2 columns of in its first 24 cells (a turn's score). */
-function oreScore(i: IronLevel, t: MineLeg): number {
+export function oreScore(i: IronLevel, t: MineLeg): number {
   const seen = (i as OreLevel).seen ?? [];
   return seen.filter(([x, y, z]) => y >= t.y - 1 && y <= t.y + 2 && Array.from({ length: 24 }, (_, k) => cellAt(t, 'main', k + 1)).some((c) => Math.abs(c.x - x) <= 2 && Math.abs(c.z - z) <= 2)).length;
 }
@@ -1778,8 +1803,13 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     let kept = 0;
     // (MC_ORE_MINE: a drift starts only from a cell the world shows dug)
     const openCell = (x: number, z: number) => [0, 1].every((dy) => a.bot.blockAt(new Vec3(x, i.level! + dy, z))?.boundingBox === 'empty');
+    let steps = 0;
     while (true) {
       checkAbort(signal);
+      // (MC_IRON_AGE: the loop lets the event loop run every 20 steps, as a step that finds its cell open or its branch ended
+      // goes on without waiting; and a trip takes 5,000 steps at most)
+      if (IRON_AGE && ++steps % 20 === 0) await new Promise((ok) => setImmediate(ok));
+      if (IRON_AGE && steps > 5000) { why = 'the iron level took 5000 steps this trip'; break; }
       if (carried() >= want) { why = `carrying ${carried()} raw iron`; break; }
       if (Date.now() > until) { why = 'the time was up'; break; }
       if (a.bot.inventory.emptySlotCount() < 4) { why = 'the inventory is nearly full'; break; }

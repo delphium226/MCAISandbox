@@ -153,6 +153,8 @@ const shutdown = () => {
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// (a profiling run's clean stop: Windows sends no SIGINT to a detached node, and --cpu-prof writes only at exit)
+if (Number(process.env.MCAI_EXIT_AFTER_MIN) > 0) setTimeout(shutdown, Number(process.env.MCAI_EXIT_AFTER_MIN) * 60000).unref();
 // An exception nobody caught (a library's own tick: mineflayer-pathfinder's placement read an undefined block after a door,
 // F153a, and took every bot down, X2q, s34): logged and survived, unless they come fast (more than 10 in a minute: a
 // state that keeps throwing is not run on; the villages are flushed on the way out)
