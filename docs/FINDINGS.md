@@ -1792,7 +1792,7 @@ CLAUDE.md when a phase ends.
   and kills the job: python and node children live on (the old detach.py: both die). A node that spawns joins a job of
   libuv's own, which is not the app's. stack.py up and down on world 3 worked unchanged (Paper and agent server out of
   the app's job, logs written, ~26 s up).
-- F290 (10-23, g2-social, G8 the iron age after F289's fixes) **With cumulative stages, the forge on free ingots, the
+- F293 (10-23, g2-social, G8 the iron age after F289's fixes) **With cumulative stages, the forge on free ingots, the
   model's 30 s floor and the ore-following mine, the model-driven village reached the iron age at minute 16 and voted for
   letters. The model's share of real choices doubled. The mine gave 28% more iron a cell, and kept going. No specialists
   formed, and a 120 s event-loop freeze at minute 120 ended the run.**
