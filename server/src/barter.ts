@@ -32,8 +32,9 @@ export function boardOf(v: Village): Board {
 /** A good's code value: its food points; a recipe's input its share of the product's (raw fish 0.8 of cooked); else 1. */
 export function baseValue(item: string): number {
   if (FOOD_POINTS[item] !== undefined) return FOOD_POINTS[item];
-  // (an emerald: what the cheapest sale to the merchant gives for one, s43's sales)
-  if (item === 'emerald') return Math.min(...Object.entries(OWN_SALES).map(([n, q]) => q * baseValue(n)));
+  // (an emerald: what the cheapest sale of food or a recipe's input to the merchant gives for one, s43's sales; the
+  // stone, coal and sticks sold since 10-23 are worth 1 each by default and would cheapen it)
+  if (item === 'emerald') return Math.min(...Object.entries(OWN_SALES).filter(([n]) => FOOD_POINTS[n] !== undefined || OWN_RECIPES.some((r) => r.inputs[n])).map(([n, q]) => q * baseValue(n)));
   if (item === 'sugar_cane') return baseValue('sugar');
   for (const r of OWN_RECIPES) {
     const k = r.inputs[item];

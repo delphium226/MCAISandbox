@@ -1,7 +1,7 @@
 /**
  * G3's levy on MC_OWN's shares, offline (spec runs/2026-10-21/g3-rules/spec.md 4, as revised; own.ts): a sharing chore's
  * share pended, not owed (earnShare's fractions and exclusions); the pending total and its age; the levy's amount
- * (rounded, at least 1, at most all); settled as none / levy / all (the most plentiful items left first); a pending share
+ * (rounded, at most all; not at least 1 since 10-23); settled as none / levy / all (the most plentiful items left first); a pending share
  * older than a day lapses to the member whole.
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/own_pending_unit.mts
  */
@@ -33,7 +33,7 @@ const fresh = (): OwnStock => ({ owed: {}, got: {}, used: {} });
 }
 
 // The levy's amount
-ok(levyLeft(10, 0.2) === 2 && levyLeft(3, 0.2) === 1 && levyLeft(0, 0.2) === 0 && levyLeft(5, 0) === 0 && levyLeft(2, 0.5) === 1 && levyLeft(4, 1) === 4, 'levyLeft');
+ok(levyLeft(1, 0.1) === 0 && levyLeft(4, 0.1) === 0 && levyLeft(5, 0.1) === 1 && levyLeft(10, 0.2) === 2 && levyLeft(3, 0.2) === 1 && levyLeft(0, 0.2) === 0 && levyLeft(5, 0) === 0 && levyLeft(2, 0.5) === 1 && levyLeft(4, 1) === 4, 'levyLeft');
 
 // Settled three ways
 {

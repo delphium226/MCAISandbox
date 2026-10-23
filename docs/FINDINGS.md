@@ -1844,3 +1844,14 @@ CLAUDE.md when a phase ends.
     12 exposed. Region diff: nothing changed but cells, ores, fills, torches and dripstone. V1 ended at 7.5 min in a 124 s
     event-loop freeze, the third today with a dig_iron trip running (two before the vein dig existed, #106); the profiled
     PV1 (on, 14 min) had none and the vein dig under 0.1% of CPU. Logs: runs/2026-10-23/ore-veins/ (report.md).
+- F296 (10-23, the economy, offline) **Members' own chests stayed empty in the wealth monoculture (W1, world 5) because
+  the share only ever reached food from a few chores.** In 30+ minutes, 944 choices: make 332, iron 143, help 94, light 78,
+  and only 50 farm/slot/penwork/gather/activity chores, the kinds that share (own.ts SHARED). Of those, only food was
+  shared (OWN_GOODS): gathering trips' logs and stone and iron trips' coal and stone never were. So: 11 shares of 1 item
+  in all, never the 8 owed that offers "Take your share home", so no surplus and no sale (sales need 6-20 of a food); two
+  of six own farms got no seeds and two failed on land. And from day 2 the council's 10% levy took the whole of each
+  share: `levyLeft` left at least 1 item, all of a 1-item share. Fixed behind MC_OWN: iron trips share (their stone and
+  coal, never the iron); the merchant buys members' coal (15), stone (20), granite, andesite, diorite (16), sticks (32),
+  string (20), carrots and potatoes, and those goods are shared; the levy rounds (a 10% levy leaves nothing of a share
+  under 5); an emerald's barter value is still the food sales' 16. `scripts/checks/own_share_unit.mts`; goldens
+  unchanged. The simulator does not model iron trips' stone: needs a live run.

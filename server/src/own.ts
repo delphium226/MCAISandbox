@@ -16,10 +16,12 @@ export const OWN = {
 
 /**
  * Chore kinds whose yield earns a share: those that bring new goods from the world (harvests, eggs and milk, fishing,
- * gathering trips). Not makes (they turn commons goods into others), initiatives, help, growth, works, iron (its iron is
- * the village's tools), lighting or furnishing (the review of the spec).
+ * gathering trips, and iron trips: the stone and coal they bring up, never the iron, which is the village's tools). Not
+ * makes (they turn commons goods into others), initiatives, help, growth, works, lighting or furnishing (the review of
+ * the spec). (Iron trips since the wealth monoculture, 10-23: a third of members' chores were make or iron, and the
+ * share reached 10 fish in 30 minutes across 25 members.)
  */
-export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather']);
+export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather', 'iron']);
 
 /**
  * Specialists (s43, the user's next step: holdings that differ so trades match): MC_SPECIAL=habit,price. `habit`: a member
@@ -54,16 +56,22 @@ export const OWN_RECIPES: Array<{ item: string; inputs: Counts; smelt: boolean }
   { item: 'sugar', inputs: { sugar_cane: 1 }, smelt: false },
 ];
 
-/** What a member's share takes: food and what its own recipes take (fishing's junk and the rest stay the commons'). */
-export const OWN_GOODS = new Set([...Object.keys(FOOD_POINTS), ...OWN_RECIPES.flatMap((r) => Object.keys(r.inputs)), 'sugar_cane']);
-
 /**
  * Members' sales to the merchant (s43, MC_OWN_SALES=on): what it buys from members, items an emerald (vanilla's farmer and
- * fisherman), at most OWN_SALE_LOTS lots of a good a restock across members; the levy (MC_OWN_LEVY, 0.25: DECISIONS 10-20)
- * goes to the village's storage, fractions carried per member.
+ * fisherman; since 10-23 also the mason's stone, the smiths' coal, the fletcher's sticks and string), at most
+ * OWN_SALE_LOTS lots of a good a restock across members; the levy (MC_OWN_LEVY, 0.25: DECISIONS 10-20) goes to the
+ * village's storage, fractions carried per member.
  */
 export const OWN_SALES_ON = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_SALES ?? 'off');
-export const OWN_SALES: Record<string, number> = { pumpkin: 6, wheat: 20, bread: 6, cod: 15, salmon: 13 };
+export const OWN_SALES: Record<string, number> = {
+  pumpkin: 6, wheat: 20, bread: 6, cod: 15, salmon: 13, carrot: 22, potato: 26,
+  coal: 15, stone: 20, granite: 16, andesite: 16, diorite: 16, stick: 32, string: 20,
+};
+
+/** What a member's share takes: food, what its own recipes take, and what the merchant buys from members (a wealth
+ *  member's way to emeralds: the stone and coal of gathering and iron trips); fishing's junk and the rest stay the
+ *  commons'. */
+export const OWN_GOODS = new Set([...Object.keys(FOOD_POINTS), ...OWN_RECIPES.flatMap((r) => Object.keys(r.inputs)), 'sugar_cane', ...Object.keys(OWN_SALES)]);
 export const OWN_SALE_LOTS = 4;
 
 /**
@@ -223,8 +231,9 @@ export function pendingOf(own: OwnStock | undefined): (Pending & { total: number
   return total > 0 ? { ...p, total } : null;
 }
 
-/** What the levy at `rate` (0..1) leaves of a pending total: rounded, at least 1 when both are above 0, at most all. */
-export const levyLeft = (total: number, rate: number) => (total <= 0 || rate <= 0 ? 0 : Math.min(total, Math.max(1, Math.round(total * rate))));
+/** What the levy at `rate` (0..1) leaves of a pending total: rounded, at most all. (Not at least 1 since 10-23: a 10% levy
+ *  took the whole of every 1-item share, all of the wealth monoculture's.) */
+export const levyLeft = (total: number, rate: number) => (total <= 0 || rate <= 0 ? 0 : Math.min(total, Math.round(total * rate)));
 
 /**
  * The member's answer: `none` owes it all, `levy` leaves levyLeft(total, rate) items in the commons (the most plentiful
