@@ -22,6 +22,7 @@
  * billed nothing); one sent with a fallbackMs is cut off at that time from the send (CallFallback), its caller then runs
  * its fixed order. The budget is checked once a slot is taken (a refused call gives it back at once).
  */
+import { LLM_LIMITS } from './llmLimits';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -321,7 +322,9 @@ export class CallGate {
         const r = this.recentKeys.get(key) ?? { maxInFlight: 0, maxQueue: 0 };
         r.maxQueue = Math.max(r.maxQueue, k.queue.length);
         this.recentKeys.set(key, r);
-        timer = setTimeout(() => leave(), Math.max(0, maxWaitMs));
+        // (MC_LLM_LIMITS=off: a call waits for its slot however long; a caller's own signal still withdraws it)
+        const wait = LLM_LIMITS ? maxWaitMs : Infinity;
+        if (Number.isFinite(wait)) timer = setTimeout(() => leave(), Math.max(0, wait));
         if (signal?.aborted) onAbort();
         else signal?.addEventListener('abort', onAbort, { once: true });
       }
@@ -333,7 +336,7 @@ export class CallGate {
     const k = this.state(key), n = this.slotsFor(key);
     for (let i = 0; i < k.queue.length && k.inFlight < n; ) {
       const w = k.queue[i];
-      if (LOW.has(w.priority) && k.low >= n - 1) {
+      if (LLM_LIMITS && LOW.has(w.priority) && k.low >= n - 1) {
         i++;
         continue;
       }

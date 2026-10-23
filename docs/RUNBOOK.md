@@ -343,6 +343,21 @@ the short version; look here for a check script's arguments, a model detail or w
   for gpt-oss; thinking bills as output; costs are a lower bound, errored calls count 0). The hourly budget
   (`MC_TOKEN_BUDGET_HOUR`) pauses cloud calls when spent: agents back off and code-posted work goes on; a 429 or 5xx
   hands a task back instead of failing it.
+- **`MC_LLM_LIMITS=off`** (default on; `server/src/llmLimits.ts`) lifts every limit on how often members call the model,
+  for a run that shows what the model does unthrottled:
+  - the member's minimum gap (`MC_CHOOSE_MIN_GAP_MS`), the hourly cap (`MC_CHOOSE_HOURLY`) and work blocks' 3-in-6-minutes
+    pacing;
+  - the decision queue's give-up to the fixed pick (`MC_CHOOSE_QUEUE_MS`) and the gate's withdrawal (`MC_CHOOSE_WAIT_MS`,
+    and the other call kinds' waits);
+  - the in-flight cap (`MC_CHOOSE_PARALLEL`, every cloud slot);
+  - the hourly token budget (`MC_TOKEN_BUDGET_HOUR`: no pause, no degrade);
+  - acts once in 3 decisions (`MC_ACTS_EVERY`);
+  - the low classes' share of the gate (ballots, reflections, the chronicle).
+
+  Each of those settings still wins where it is set. What stays is the provider's concurrency, `MC_CALL_SLOTS`
+  (`ollama-cloud=3` by default), as a queue, never a fallback, and the spend cap (`MC_SPEND_CAP_USD`). Every 10 minutes
+  a `[models]` line gives the model's share of real choices (model against the fixed picks standing in for one, by
+  why), and model decisions a member-hour. Check: `scripts/checks/llm_limits.mts`.
 - Two RTX 3090s (24 GB each); GPU 1 also drives the display. Ollama (0.34.x) at localhost:11434, models in `F:\AI Models`.
 - Installed: `qwen3:30b-instruct` (MoE, ~19 GB; the executor until A.0; now a fallback), `qwen3.8:27b` (dense, ~22 GB at 8k; the workers'
   planner), `gemma4:31b` (dense, ~21 GB, only ~10 tok/s: the old planner/architect), and cloud models through the

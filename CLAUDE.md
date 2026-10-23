@@ -67,7 +67,7 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
   `MC_CHOOSE=fixed|model`, `MC_CHOICE_FAMILIES` (`initiatives` in the default since s37, `activities` since s42), `MC_MERCHANT=off` (on since s42), `MC_MERCHANT_ORDERS=on` (off), `MC_NEEDS=off|show|on`,
   `MC_HOUSING=off`, `MC_PARTS=off`, `MC_NEED_WORKS=off` (Phase N; needs off by default, housing and parts on since s38,
   need works since s40; RUNBOOK "Phase N and the foundry"), `MCAI_TEMPERAMENT=on|identical|off` (A.3p's personalities, on;
-  `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_REASONING`
+  `GET /api/temperaments`), `MC_VOTE=model|predicted|off` (the neighbourhood style vote; `GET /api/votes`), `MC_TOKEN_BUDGET_HOUR` (2,000,000 cloud tokens), `MC_LLM_LIMITS=off` (lifts every model-call limit, keeping `MC_CALL_SLOTS`' concurrency; `[models]` lines show the share; RUNBOOK), `MC_REASONING`
   (default `exec=medium,plan=low,design=medium`). `GET /api/perf` (event loop, RCON, tick time), `GET /api/usage`,
   `GET /api/block?x=&y=&z=` (`loaded: false` means the chunk is not loaded). The rest: RUNBOOK.
 - Stop: `python mc/rcon.py stop` (saves the world; killing Paper loses up to 5 minutes), `python scripts/ollama_exec.py

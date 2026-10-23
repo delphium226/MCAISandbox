@@ -16,6 +16,7 @@
  *   MC_ACTS_EVERY    3: a member is offered an act at most once in this many model decisions
  *   MC_PROMISE_MIN   15: minutes a promise is due in (divided by MC_TIME_SCALE)
  */
+import { limited } from './llmLimits';
 import type { Commitment } from './social';
 import { SOCIAL, memberSocial, noteHeard, noteKept, setActsOn } from './social';
 import { MEMORY, addNoteCheck, clockOf, contentWords, logAct, membersOf, touchMemory, villageSocialOf } from './memory';
@@ -28,7 +29,7 @@ if (wantActs && SOCIAL.mode === 'legacy') console.warn('[acts] MC_ACTS=on is ign
 
 export const ACTS = {
   on: wantActs && SOCIAL.mode !== 'legacy' && SOCIAL.mode !== 'off',
-  every: Math.max(1, Number(process.env.MC_ACTS_EVERY ?? 3)),
+  every: Math.max(1, limited(process.env.MC_ACTS_EVERY, 3, 1)),
   dueMs: (Number(process.env.MC_PROMISE_MIN ?? 15) * 60000) / scale,
   /** Requests answered or not within this are closed (expired). */
   requestMs: (30 * 60000) / scale,

@@ -25,6 +25,8 @@
 
 /** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts); 'ballot': a member's vote (vote.ts);
  *  'reflect': a member's look back at its day, at the village's night (G1, society.ts). */
+import { LLM_LIMITS } from './llmLimits';
+
 export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 export type ReasoningLevel = 'low' | 'medium' | 'high';
@@ -705,7 +707,8 @@ const PER_AGENT = (() => {
 export const usage = new UsageLedger({
   prices: process.env.MC_TOKEN_PRICES ?? DEFAULT_PRICES,
   // (unset: the limit follows the agents, never below the old default)
-  budgetPerHour: process.env.MC_TOKEN_BUDGET_HOUR === undefined ? undefined : parseBudget(process.env.MC_TOKEN_BUDGET_HOUR),
+  // (MC_LLM_LIMITS=off with no budget set: no hourly budget, no pause and no degrade)
+  budgetPerHour: process.env.MC_TOKEN_BUDGET_HOUR === undefined ? (LLM_LIMITS ? undefined : null) : parseBudget(process.env.MC_TOKEN_BUDGET_HOUR),
   windowMs: Number(process.env.MC_TOKEN_WINDOW_MS) || HOUR,
   agentFloor: Math.max(1, Number(process.env.MC_TOKEN_BUDGET_AGENTS) || 1),
   spendCap: parseSpendCap(process.env.MC_SPEND_CAP_USD),

@@ -18,9 +18,10 @@
  *   MC_CHOOSE_HOURLY      model decisions an agent may make an hour, default 30
  *   MC_CHOOSE_MODEL       the model (else MC_EXEC_MODEL, else gpt-oss:120b-cloud); memory.chooseModel per agent
  */
+import { LLM_LIMITS, cloudSlots, limited } from './llmLimits';
 import { IRON_AGE } from './ladderFlags';
 /** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
-const PACED = /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
+const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
 const PACE_BURST = 3;
 import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from './world';
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
@@ -38,12 +39,13 @@ export const CHOOSE = {
   families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish,initiatives,activities').split(',').map((s) => s.trim()).filter(Boolean)),
   /** 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always
    *  finds a slot free of decisions (C11). */
-  parallel: Number(process.env.MC_CHOOSE_PARALLEL ?? 2),
-  queueMs: Number(process.env.MC_CHOOSE_QUEUE_MS ?? 30000),
-  waitMs: Number(process.env.MC_CHOOSE_WAIT_MS ?? 15000),
+  // (MC_LLM_LIMITS=off: every cloud slot, no give-up in the queue or at the gate; each setting still wins where set)
+  parallel: limited(process.env.MC_CHOOSE_PARALLEL, 2, cloudSlots()),
+  queueMs: limited(process.env.MC_CHOOSE_QUEUE_MS, 30000, Infinity),
+  waitMs: limited(process.env.MC_CHOOSE_WAIT_MS, 15000, Infinity),
   fallbackMs: Number(process.env.MC_CHOOSE_FALLBACK_MS ?? 20000),
-  minGapMs: Number(process.env.MC_CHOOSE_MIN_GAP_MS ?? 90000),
-  perHour: Number(process.env.MC_CHOOSE_HOURLY ?? 30),
+  minGapMs: limited(process.env.MC_CHOOSE_MIN_GAP_MS, 90000, 0),
+  perHour: limited(process.env.MC_CHOOSE_HOURLY, 30, Infinity),
   model: process.env.MC_CHOOSE_MODEL ?? process.env.MC_EXEC_MODEL ?? 'ollama:gpt-oss:120b-cloud',
 };
 
@@ -570,7 +572,8 @@ export class ChooserQueue {
     const e: Entry = { agent, job, onExpire, since: this.now(), state: 'queued' };
     this.queue.push(e);
     // (a timer only for one that has to wait; pump() also expires by `now`, which tests may drive)
-    if (this.running.size >= this.parallel) e.timer = setTimeout(() => this.expire(e), this.queueMs);
+    // (an unlimited queue, MC_LLM_LIMITS=off, sets no timer: setTimeout takes Infinity as 1 ms)
+    if (this.running.size >= this.parallel && Number.isFinite(this.queueMs)) e.timer = setTimeout(() => this.expire(e), this.queueMs);
     this.pump();
   }
 

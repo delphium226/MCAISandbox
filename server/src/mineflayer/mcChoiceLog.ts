@@ -171,6 +171,34 @@ export function choiceId(village: string): string {
   return `${village}#${++seq}`;
 }
 
+/**
+ * The model's share, every 10 minutes (MC_LLM_LIMITS' effect, the user's 10-23): over the last 10 minutes of choices, the
+ * model's decisions against the fixed picks that stood in for one (rate, queue, taken, budget...), and model decisions a
+ * member-hour. One `[models]` line a window; nothing else reads it.
+ */
+const PACE_WINDOW = 10 * 60000;
+let paceStart = 0;
+const paceCounts = new Map<string, number>();
+const paceMembers = new Set<string>();
+function paceNote(rec: ChoiceRecord) {
+  const now = rec.t ?? Date.now();
+  if (!paceStart) paceStart = now;
+  if (now - paceStart >= PACE_WINDOW) {
+    const n = (k: string) => paceCounts.get(k) ?? 0;
+    const model = n('model'), stand = [...paceCounts.entries()].filter(([k]) => k.startsWith('fallback')).reduce((t, [, q]) => t + q, 0);
+    const hours = (now - paceStart) / 3600000;
+    const why = [...paceCounts.entries()].filter(([k]) => k.startsWith('fallback:')).map(([k, q]) => `${k.slice(9)} ${q}`).join(', ');
+    console.log(`[models] last ${Math.round((now - paceStart) / 60000)} min: model ${model} of ${model + stand} real choices (${model + stand ? Math.round((100 * model) / (model + stand)) : 0}%)${why ? `, fixed picks for: ${why}` : ''}; ${paceMembers.size ? (model / paceMembers.size / hours).toFixed(1) : '0'} model decisions a member-hour (${paceMembers.size} members); repeats ${n('repeat')}, only ${n('only')}`);
+    paceStart = now;
+    paceCounts.clear();
+    paceMembers.clear();
+  }
+  const src = rec.source ?? 'fixed';
+  const k = src === 'fallback' ? `fallback:${(rec as { why?: string }).why ?? '?'}` : src;
+  paceCounts.set(k, (paceCounts.get(k) ?? 0) + 1);
+  if (rec.agent) paceMembers.add(rec.agent);
+}
+
 export function logChoice(rec: ChoiceRecord) {
   try {
     // (the console line lists the options by id and leaves the context out: a full one is ~3 KB, A.2)
@@ -178,6 +206,7 @@ export function logChoice(rec: ChoiceRecord) {
     void _ctx;
     console.log(`[choice] ${JSON.stringify({ ...short, options: rec.options.map((o) => o.id) })}`);
     append({ type: 'choice', ...rec });
+    paceNote(rec);
   } catch {
     // (logging must never stop a chore)
   }
