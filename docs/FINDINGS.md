@@ -1783,3 +1783,12 @@ CLAUDE.md when a phase ends.
   shutdown lines, as the app's package was reinstalled (System log 23:48:44). detach.py falls back from
   CREATE_BREAKAWAY_FROM_JOB when the job forbids it, so the servers stay in the app's job. A restart from the same
   snapshot with respawn_agents.py brought all 25 members back with their journals (00:12). Issue #99; lesson 166.
+- F292 (10-23, #99) **The Claude app's job forbids breaking away from the Bash tool's shell, so detach.py now starts
+  through WMI.** Every process a session starts is in the app's job (claude.exe and the CLI are in it; from the PowerShell
+  tool the job allows breakaway, from Bash it does not), so detach.py's CREATE_BREAKAWAY_FROM_JOB fell back and its
+  servers stayed in. Processes started by `Win32_Process.Create` belong to no job and run in the user's session: detach.py
+  has WMI run itself with a spec (command, log, directory, environment), and that one starts the command and returns its
+  PID. `scripts/checks/detach_job.py` starts a child through detach.py from a parent in a kill-on-close job of its own
+  and kills the job: python and node children live on (the old detach.py: both die). A node that spawns joins a job of
+  libuv's own, which is not the app's. stack.py up and down on world 3 worked unchanged (Paper and agent server out of
+  the app's job, logs written, ~26 s up).

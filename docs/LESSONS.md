@@ -654,7 +654,9 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 166. **A long run started from a Claude session dies with the app** (long-run-w4, F291): a desktop app update at
    23:48 killed Paper, the agent server and the run's driver together, although all were started through detach.py:
    they stay in the app's job. Before a run of many hours, ask the user to hold app updates, or start it from outside
-   the app (#99). Recovery: restart from the same code snapshot and `respawn_agents.py` (journals kept).
+   the app (#99). Recovery: restart from the same code snapshot and `respawn_agents.py` (journals kept). Since #99
+   (10-23) detach.py starts through WMI, out of the app's job (F292); the watcher, a session's background task, still
+   dies with the app.
 167. **Stopping a long run's watcher stops the session's eyes** (long-run-w4): the hourly reports ended after the first
    because the watcher was stopped for a restart that was then refused, and never re-armed. Nothing woke the session for
    four hours. Re-arm the watcher in the same turn as any stop, whatever happens to the plan that stopped it.

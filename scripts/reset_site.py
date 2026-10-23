@@ -49,7 +49,14 @@ FLAGS = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess
 
 
 def detached(cmd, **kw):
-    """Popen with FLAGS; without leaving the job when the job does not allow it."""
+    """Started out of the Claude app's job by detach.py (#99: an app update kills the job) when its output goes to a log
+    file (`stdout=open(log)`): a handle with .pid and .poll(). Else Popen with FLAGS, in the job when it does not allow
+    leaving."""
+    out = kw.get("stdout")
+    if getattr(out, "name", None) and kw.get("stderr") == subprocess.STDOUT and set(kw) <= {"cwd", "env", "stdin", "stdout", "stderr"}:
+        import detach  # noqa: E402 (scripts/, beside this file)
+        out.close()
+        return detach.launch(cmd, out.name, cwd=kw.get("cwd"), env=kw.get("env"))
     try:
         return subprocess.Popen(cmd, creationflags=FLAGS, **kw)
     except OSError:

@@ -82,7 +82,12 @@ the short version; look here for a check script's arguments, a model detail or w
 - **Background tasks die with the Claude session and at their time limit** (30 minutes by default): servers and
   watchers started with `run_in_background` stopped when a session restarted (a watcher mid-run on 2026-09-28), and
   Paper was stopped unsaved at the limit (2026-10-01). Servers go through `scripts/detach.py`; watchers of long runs
-  get a `timeout` above their length. At every session start check ports 25565, 8766, 11435, 11436 (and 25566, 8767
+  get a `timeout` above their length. Since #99 (10-23) detach.py, and `reset_site.detached` that stack.py and
+  reset_site.py start servers with, start them through WMI (`Win32_Process.Create`), out of the Claude app's job, which
+  forbids breaking away and is killed by an app update (F291, F292): they outlive the app. The command, log, directory
+  and environment are the caller's; it falls back to a start in the job, with a warning, only when WMI fails. A node
+  server sits in a job of libuv's own (its children die with it), not the app's. Check:
+  `python scripts/checks/detach_job.py` (python and node children outlive a killed job; ~10 s, no world). At every session start check ports 25565, 8766, 11435, 11436 (and 25566, 8767
   for the test world) and restart what is missing.
 - The agent server logs event-loop stalls over 2 s as `[lag] ... blocked for ~N ms; <each agent's action>`. 2-3.5 s
   when bots spawn and during find_site's log scan are normal; a stall over ~30 s makes Paper time out every bot at
