@@ -660,3 +660,13 @@ These cost real debugging time; keep them in mind before changing agent behaviou
 167. **Stopping a long run's watcher stops the session's eyes** (long-run-w4): the hourly reports ended after the first
    because the watcher was stopped for a restart that was then refused, and never re-armed. Nothing woke the session for
    four hours. Re-arm the watcher in the same turn as any stop, whatever happens to the plan that stopped it.
+168. **Gate a long run on a smoke whose model calls succeed** (long-run-w4, F294): Long3 ran 45 minutes with the Ollama
+   app down, every model call "fetch failed" and every choice the fixed pick. Smk2's 48 early failures had been the
+   warning. Count `fetch failed` and `source: model` in the smoke before starting the long run, and check 11434 answers.
+169. **Build a long run's spec from defaults and give each departure a reason** (long-run-w4, F294): Long1-4 copied F268's
+   sim settings, so MC_APPETITE=60 (3.3x the default) starved the village (food met 0.48, 152 hungry). The observation
+   runs measured the setting, not the village.
+170. **A long run's monitoring belongs outside the session** (long-run-w4): Long4's detached loop took every hourly
+   snapshot and the triage through two session restarts, while the reports to the planning session, sent by the
+   session, came late. Write the hourly report to a file the planning session reads. Run triage on a copy of
+   `proposals.json` (the live server overwrites its store) and post verdicts through `POST /api/proposals/:id/verdict`.

@@ -1810,3 +1810,21 @@ CLAUDE.md when a phase ends.
     driver's API read timed out. Likely the ore mine's per-step search: drifts against sightings over 5,226 cells (the risk
     its build named).
   - Logs: runs/2026-10-23/ladder/ (staged/, model/).
+- F294 (10-23, long-run-w4 session, the user's all-features observation run) **With G2's iron fixes and the 30 s model
+  floor, the all-features village holds its work and climbs the ladder. Long1's collapse and starved model choices are
+  gone; what's left is the run spec's appetite, the iron stairs, the forge's message and the unused law field.** Long4:
+  test world 4, 4d8de24, from scratch (L40, 25 members), model choices at 1x, every flag on with MC_ORE_MINE, 159
+  minutes (stopped by the user). Chore busy 55.1 / 49.3 / 48.2% by hour (0.88x; Long1 0.51x by hour 4). The model chose
+  38-39% of chores in hours 0-1 (Long1 8%), with pacing fallbacks down from 20% to 13%. Iron age stages 1-3 (600 cells,
+  30 raw iron, 24 ingots) done, the iron age reached on day 2, and a rung vote for the age of letters (16 of 25), with
+  no progress on letters in the 50 minutes left. Commitments 46 made, 44 kept (Long1 6); requests still all expire (43
+  expired, 8 moot; #98).
+  **What went wrong:** food met 0.57 to 0.48 with 152 hungry and 220 peckish events. MC_APPETITE=60, copied from F268's
+  sim settings, drains 3.3x the default 18. 47 of 52 failed iron trips were refused for the stairs lock (#101). 13
+  forges failed with a message naming only ingots and fuel (#102). 0 laws in ~200 reflections while all 3 proposals were
+  kind "rule" (#30; Long1 the same). 0 barter trades. A member stranded at y 25 had no rescue (#103). Goods per member in
+  storage rose 118 to 479.
+  No freeze: the mine stayed at ~1,150 cells a level (IM2's froze near 5,000, F293). Cost 2,186 calls, 4.0M tokens,
+  ~$0.79; 0 [lag]; [stuck] 8 / 12 / 40.
+  Before it, Long3 ran ~45 minutes with the Ollama app down (645 failed calls, every choice the fixed pick), and Smk2's
+  48 early failures had been the first sign. Logs: runs/2026-10-23/long-run-w4-4/ (report.md, hourly.md, analysis.txt).
