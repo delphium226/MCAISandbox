@@ -1792,3 +1792,21 @@ CLAUDE.md when a phase ends.
   and kills the job: python and node children live on (the old detach.py: both die). A node that spawns joins a job of
   libuv's own, which is not the app's. stack.py up and down on world 3 worked unchanged (Paper and agent server out of
   the app's job, logs written, ~26 s up).
+- F290 (10-23, g2-social, G8 the iron age after F289's fixes) **With cumulative stages, the forge on free ingots, the
+  model's 30 s floor and the ore-following mine, the model-driven village reached the iron age at minute 16 and voted for
+  letters. The model's share of real choices doubled. The mine gave 28% more iron a cell, and kept going. No specialists
+  formed, and a 120 s event-loop freeze at minute 120 ended the run.**
+  - **Staged I6-I7:** iron at minutes 6-8. I6's rung vote looped (growTick closed every finished vote): fixed in 4d8de24,
+    and I7 took up copper from a single vote.
+  - **IM2** (25 members, 1x, model, real ore, the first 2 hours; driver died at 119.9 min): every stage done at 16.4 min,
+    all at once once the tools counted. The rung vote cast 25 of 25 ballots: letters 13, diamond 7, copper 3, machines 2.
+  - **Model share of real choices:** 53% (509 model, 278 rate, 181 taken) against IM1's 24% (168, 421, 118). Of the iron
+    picks, 48 of 202 were the model's, against 8 of 91.
+  - **The mine:** 5,226 cells, 295 raw iron (0.056 a cell against IM1's 0.044), still digging at 2 h (IM1 dry at 46 min).
+  - **Iron work:** 202 iron chores (74 dig, 62 smelt, 66 forge), 47 tools given to 24 members.
+  - **Specialisation:** none. 23 members with 5+ iron chores, 7 of them at 60%+; index 0.011, p 0.30.
+  - **Health:** chore busy 59 -> 53% (IM1 collapsed to 15%). Food met fell 0.81 -> 0.64, with storage food at 0 by the end.
+  - **The freeze:** the event loop was blocked about 120 s (`[lag]`, Tess on a dig trip); Paper dropped every bot and the
+    driver's API read timed out. Likely the ore mine's per-step search: drifts against sightings over 5,226 cells (the risk
+    its build named).
+  - Logs: runs/2026-10-23/ladder/ (staged/, model/).
