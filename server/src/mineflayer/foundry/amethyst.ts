@@ -617,7 +617,11 @@ export const FOUNDRY: FoundrySkill = {
       let lastDz = 0;
 
       // Phase 1: Dig staircase down toward the target depth
+      // (each loop's turn yields to the event loop: a turn whose cells were dug already and whose step is where the bot
+      // stands awaits nothing real, and the loop spun on microtasks for its whole wall time, every bot frozen: 111 and
+      // 113 s, the economy's staged runs, 10-23)
       while (currentPos.y > targetPos.y && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
+        await sleep(20, signal);
         checkAbort(signal);
 
         // If we already have line of sight to a cluster, stop descending
@@ -733,7 +737,10 @@ export const FOUNDRY: FoundrySkill = {
       }
 
       // Phase 2: Once at target depth / beside it, dig straight through what lies between bot and target
+      // (a cell stood on twice means the way goes back and forth: stop)
+      const through = new Set<string>([`${currentPos.x},${currentPos.z}`]);
       while (!hasLineOfSight(a, targetPos) && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
+        await sleep(20, signal);
         checkAbort(signal);
         if (findReachableClusters(a).length > 0) break;
 
@@ -784,6 +791,11 @@ export const FOUNDRY: FoundrySkill = {
 
         const nextX = currentPos.x + chosenDir[0];
         const nextZ = currentPos.z + chosenDir[1];
+        if (through.has(`${nextX},${nextZ}`)) {
+          stopWhy = 'the way through the shell goes back and forth (try another one)';
+          break;
+        }
+        through.add(`${nextX},${nextZ}`);
 
         // Dig straight through what lies ahead (head and feet)
         for (const dy of [2, 1, 0]) {
@@ -811,6 +823,7 @@ export const FOUNDRY: FoundrySkill = {
       let shardsGained = shardsAfter - shardsBefore;
 
       while (shardsGained < want && dugCellsCount < maxDugCells && Date.now() - t0 < maxWallMs) {
+        await sleep(20, signal);
         checkAbort(signal);
         const clusters = findReachableClusters(a);
         if (clusters.length === 0) break;
@@ -914,6 +927,8 @@ export const FOUNDRY: FoundrySkill = {
         };
 
         for (;;) {
+          // (a real yield, as the phases above: a step already taken awaits nothing real)
+          await sleep(20, signal);
           checkAbort(signal);
           const cur = a.bot.entity.position.floored();
           if (atSurface(cur)) {
