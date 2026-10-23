@@ -156,3 +156,6 @@ number rather than a goal.
 - 2026-10-22 (the user's): **G7, talking with the village**, next after G2's character v2; Phase 3's issues unparked.
 - 2026-10-22 (the user's): **the ladder of ages (G8) is the focus**: iron first, then letters, diamond, enchantment and
   the Nether; #19, #21-#25 unparked into it.
+- 2026-10-23 (the user's): **the foundry is parked**; finish the work in progress (G3 rules and Experiment 2, the economy's
+  own shares and own farms, #108 members paying each other, choice pacing, #104 buildings and woods, #106), then
+  **repeat the monoculture experiment** (wealth against mixed, F297) with those in place.
