@@ -1855,3 +1855,21 @@ CLAUDE.md when a phase ends.
   string (20), carrots and potatoes, and those goods are shared; the levy rounds (a 10% levy leaves nothing of a share
   under 5); an emerald's barter value is still the food sales' 16. `scripts/checks/own_share_unit.mts`; goldens
   unchanged. The simulator does not model iron trips' stone: needs a live run.
+- F297 (10-23, monoculture session, the user's experiment) **An all-wealth village talks, asks and votes differently from
+  a mixed one within 30 minutes, but works the same, and can't get rich: in an hour no own share reached a chest.** One
+  pair, 65 minutes of village life each, from scratch side by side (W1: MC_CHARACTER_PRESET=wealth on test world 5; M1
+  mixed on world 3; code 7d89164; Long4's flags with MC_APPETITE=18, MC_NEED_VOTE, MC_LEVY_VOTE=day2).
+  **Clear:** the wealth members' model choices named wealth 69% of the time (M1 13%), profit 31% and the market 17%, and
+  the village or helping 13% (M1 54%). Requests 41 against 91, offers 6 against 16, promises 5 against 18. Laws: 9 of
+  W1's 21 proposals were contribution laws (M1 1 of 17), and W1's council rejected 3 of 6 (deposits of torches and of
+  tools, announcing iron digs; 4-7 yes against 17-20 no), against none of M1's 6. Levy ballots: W1 17 at 10% and 7 at
+  0%, M1 20 at 10%; 10% won in both.
+  **Could be noise:** chore busy 61.0 against 58.1%; buildings (houses 29 / 28, small works 38 / 43, gardens 14 / 19,
+  public works 6 / 5 at minute 60); food (15.0 / 14.7 of 20, none hungry at appetite 18); mood (+5.1 / +8.0); own farms
+  started 10 / 4; [stuck] 60 / 23; the ladder (iron on day 2, then letters in both).
+  **Not measurable:** 25 own chests each but 0 items and 0 emeralds in every one (shares of 1 cod or wheat earned, none
+  carried home), 1 merchant sale each, 0 barter. The model's share fell from 36-37% to 13-17% after 30 minutes in both,
+  mostly `fallback/rate`: the 30-an-hour cap (MC_CHOOSE_HOURLY) is used up within the first hour under the 30 s floor.
+  There were no queue or withdrawn fallbacks and the gates' waits were 0 ms, so it was pacing, not cloud contention,
+  and it was equal in both arms.
+  Logs: runs/2026-10-23/monoculture/ (report.md, compare.md).

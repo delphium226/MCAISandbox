@@ -670,3 +670,11 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    snapshot and the triage through two session restarts, while the reports to the planning session, sent by the
    session, came late. Write the hourly report to a file the planning session reads. Run triage on a copy of
    `proposals.json` (the live server overwrites its store) and post verdicts through `POST /api/proposals/:id/verdict`.
+171. **The hourly cap on model choices limits what a character experiment can show** (monoculture, F297): with the 30 s
+   floor, members use up MC_CHOOSE_HOURLY's 30 model choices within the first hour. From then on the fixed pick runs most
+   chores, and the model's share fell from 36% to 13-17% in both arms. Raise the cap for a character or temperament
+   comparison longer than an hour, or compare model choices only.
+172. **A character shows first in talk and votes, not in work** (monoculture, F297): an all-wealth village's reasons,
+   requests, promises and law votes differed from a mixed one's within 30 minutes. Busy, building and food didn't,
+   because every member gets the same work menu. Measure an economic character where it can act: own shares, sales and
+   trades took longer than the hour to reach any chest.
