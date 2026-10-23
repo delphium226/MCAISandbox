@@ -26,7 +26,7 @@ import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from 
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
 import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
-import { actFields, type ActFields } from './acts';
+import { actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
@@ -240,12 +240,18 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
         ...(ctx.share ? { share: { type: 'string', enum: ctx.share.answers.map((a) => a.text), description: 'How much of your share you leave in the village storage.' } } : {}),
         // (G2, MC_ACTS: one act and one line, flat fields: gpt-oss nests objects and ignores enums, the spec check's H6)
         ...(ctx.acts?.trim() ? {
-          act: { type: 'string', enum: ['none', 'request', 'offer', 'accept', 'decline', 'release', 'report'], description: 'Optional: one act (none by default).' },
+          act: { type: 'string', enum: ['none', 'request', 'offer', 'accept', 'decline', 'release', 'report', ...(payingOn() ? ['pay'] : [])], description: 'Optional: one act (none by default).' },
           act_to: { type: 'string', description: 'The member the act is for or about, or "anyone" for a request.' },
           act_item: { type: 'string', description: 'For a request or an offer: an item from the list.' },
           act_project: { type: 'string', description: 'For a request or an offer: a project from the list.' },
           act_ref: { type: 'string', description: 'For accept, decline, release or report: the id (r3, c2).' },
           act_claim: { type: 'string', enum: ['kept', 'broke'], description: 'For a report.' },
+          // (#108, MC_PAY: a request's price, a wage's steps, the pay act's amount)
+          ...(payingOn() ? {
+            act_price: { type: 'integer', description: 'Optional, for a request: emeralds from your own chest you pay for it (per step on a project).' },
+            act_steps: { type: 'integer', description: 'For a priced request on a project: the steps you pay for (1-4).' },
+            act_amount: { type: 'integer', description: 'For pay: how many emeralds (or of act_item) to give.' },
+          } : {}),
           say: { type: 'string', maxLength: 120, description: 'Optional: one short line said aloud to those near you.' },
         } : {}),
       },

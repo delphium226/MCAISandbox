@@ -70,7 +70,43 @@ export interface Request {
   state: 'open' | 'accepted' | 'expired' | 'moot';
   by?: string;
   declined?: string[];
+  /** #108 (MC_PAY): emeralds offered for the delivery (a wage: per step, `steps` of them), held in pay.ts' contract. */
+  price?: number;
+  steps?: number;
+  contract?: string;
+  /** The test's bounty (MC_PAY_BOUNTY): the village pays, the goods go to storage. */
+  bounty?: boolean;
 }
+
+/**
+ * #108's pay hooks (MC_PAY; pay.ts and the world set them, acts.ts holds no money): a priced request's escrow, the pay act,
+ * a priced promise taken, ended and closed. Unset, nothing here changes.
+ */
+export interface PayHooks {
+  /** A request that passed every other check: hold its price (or draw the test's bounty); a refusal, the contract and
+   *  price, or undefined for an unpriced request. */
+  request(village: string, agent: string, r: Request, f: ActFields, now: number): string | { contract: string; price: number; steps: number; bounty?: boolean } | undefined;
+  /** The pay act: the report for the payer (`ok`), or a refusal. */
+  pay(village: string, agent: string, f: ActFields, now: number): { ok: boolean; text: string };
+  /** A priced request taken up by a promise. */
+  taken(village: string, r: Request, c: { id: string; from: string }, now: number): void;
+  /** A priced promise's chore ended ok and productive: kept now (a wage's step, a bounty), delivering (the goods follow),
+   *  or open (it put none of the goods: no evidence yet). */
+  ended(village: string, r: Request, c: { id: string; from: string; to: string }, e: { option: string; chore: string }, now: number): 'kept' | 'delivering' | 'open';
+  /** A priced request or promise closed otherwise (expired, moot, broken, released): its escrow refunded. */
+  closed(village: string, r: Request, how: string, now: number): void;
+  /** The acts paragraph's payment lines for the member (prices, the guide, its emeralds). */
+  help(village: string, agent: string, now: number): string;
+  /** Whether a fixed pick may accept this priced request (at or above the price guide). */
+  acceptable(village: string, agent: string, r: Request, now: number): boolean;
+}
+let payHooks: PayHooks | null = null;
+export function setPayHooks(h: PayHooks | null): void {
+  payHooks = h;
+}
+const paying = () => !!payHooks;
+/** Whether payments are on (the choose tool's schema adds the pay fields). */
+export const payingOn = paying;
 
 interface InboxItem {
   t: number;
@@ -83,7 +119,7 @@ interface InboxItem {
 interface ActsState {
   next: number;
   requests: Request[];
-  commitments: Array<Commitment & { what: Commitment['what'] & { words: string }; running?: string }>;
+  commitments: Array<Commitment & { what: Commitment['what'] & { words: string }; running?: string; request?: string; delivering?: number }>;
   inbox: Record<string, InboxItem[]>;
   /** Acts used per member, day and type. */
   used: Record<string, number>;
@@ -176,6 +212,9 @@ export function tags(village: string, agent: string, now: number): Map<string, s
     const left = c.due - now;
     out.set(c.what.option ?? '', `[your promise to ${c.to}, ${left > 0 ? `due in ${Math.max(1, minsIn(left))} min` : 'due now'}]`);
   }
+  // (#108: a priced request's tag wins over an unpriced one on the same option)
+  if (paying()) for (const r of st.requests) if (r.state === 'open' && r.price && r.from !== agent && !(r.declined ?? []).includes(agent) && (r.to === agent || r.to === 'anyone') && !out.has(r.what.option))
+    out.set(r.what.option, `[${r.bounty ? 'the village' : r.from} pays ${r.price} emerald${r.price === 1 ? '' : 's'}${r.steps && r.steps > 1 ? ' a step' : ''}]`);
   for (const r of st.requests) if (r.state === 'open' && r.from !== agent && !(r.declined ?? []).includes(agent) && (r.to === agent || r.to === 'anyone') && !out.has(r.what.option))
     out.set(r.what.option, r.to === agent ? `[${r.from} asked you]` : `[${r.from} asked anyone]`);
   return out;
@@ -187,7 +226,10 @@ export function inbox(village: string, agent: string, now: number): string[] {
   const st = state(village);
   const lines: Array<{ prio: number; t: number; text: string }> = [];
   for (const r of st.requests) if (r.state === 'open' && r.from !== agent && !(r.declined ?? []).includes(agent) && (r.to === agent || r.to === 'anyone'))
-    lines.push({ prio: r.to === agent ? 0 : 7, t: r.made, text: `${r.from} asks ${r.to === agent ? 'you' : 'anyone'}: ${r.what.words} (${r.id}, ${ago(now - r.made)})` });
+    lines.push(r.price && paying()
+      // (#108: priced requests above lines heard; the price and where the goods go)
+      ? { prio: r.to === agent ? 0 : 2, t: r.made, text: `${r.bounty ? `The village (for ${r.from})` : r.from} pays ${r.price} emerald${r.price === 1 ? '' : 's'}${r.steps && r.steps > 1 ? ` a step (${r.steps} steps)` : ''} ${r.to === agent ? 'you' : 'anyone'} to ${r.what.words}${r.what.kind === 'item' && !r.bounty ? `, into ${r.from}'s own chest` : ''} (${r.id}, ${ago(now - r.made)})` }
+      : { prio: r.to === agent ? 0 : 7, t: r.made, text: `${r.from} asks ${r.to === agent ? 'you' : 'anyone'}: ${r.what.words} (${r.id}, ${ago(now - r.made)})` });
   for (const c of st.commitments) if (c.state === 'open' && c.from === agent)
     lines.push({ prio: 1, t: c.made, text: `You promised ${c.to}: ${c.what.words}, ${c.due > now ? `due in ${Math.max(1, minsIn(c.due - now))} min` : 'due now'} (${c.id})` });
   for (const i of st.inbox[agent] ?? []) if (now - i.t < ACTS.itemMs) lines.push({ prio: i.prio, t: i.t, text: `${i.text} (${ago(now - i.t)})` });
@@ -216,6 +258,7 @@ export function actsHelp(village: string, agent: string, now: number, w: ActsWor
     `Items (any good the village can make or a raw material; a request makes it wanted): ${items.join(', ') || 'none now'}${w.items.size > items.length ? ', ...' : ''}.${w.projects.size ? ` Projects: ${[...w.projects.entries()].slice(0, 4).map(([o, p]) => `${p.words} (${p.owner}, ${o})`).join('; ')}.` : ''}`,
     `Members near you: ${nearBy.join(', ') || 'nobody'}. Left today: ${left('request')} requests, ${left('offer')} offers, ${left('report')} reports.`,
     'You may also say one short line aloud to those near you (`say`), about your choice or your act.',
+    ...(paying() ? [payHooks!.help(village, agent, now)].filter(Boolean) : []),
   ].join(' ');
 }
 
@@ -230,6 +273,10 @@ export interface ActFields {
   act_project?: string;
   act_ref?: string;
   act_claim?: string;
+  /** #108 (MC_PAY): a request's price (a wage's per step), a wage's steps, the pay act's amount. */
+  act_price?: string;
+  act_steps?: string;
+  act_amount?: string;
   say?: string;
 }
 
@@ -252,6 +299,13 @@ export function actFields(input: unknown): ActFields {
     out.act_claim = str(a.claim ?? a.act_claim);
   } else out.act = str(act);
   for (const k of ['act_to', 'act_item', 'act_project', 'act_ref', 'act_claim'] as const) out[k] ??= str(o[k]);
+  // (#108: the payment fields, read only while payments are on, so the log's fields are as before with MC_PAY off)
+  if (paying()) {
+    const a = (act && typeof act === 'object' ? act : {}) as Record<string, unknown>;
+    out.act_price = str(a.price ?? a.cost ?? a.act_price ?? o.act_price ?? o.price ?? o.cost);
+    out.act_steps = str(a.steps ?? a.act_steps ?? o.act_steps ?? o.steps);
+    out.act_amount = str(a.amount ?? a.count ?? a.act_amount ?? o.act_amount ?? o.amount ?? o.count);
+  }
   const say = str(o.say);
   if (say) out.say = say.replace(/\s+/g, ' ').slice(0, 120);
   for (const k of Object.keys(out) as Array<keyof ActFields>) if (out[k] === undefined) delete out[k];
@@ -324,7 +378,7 @@ export function openRequests(village: string, option: string): number {
 const sig = (agent: string, type: string, to: string, what: string) => `${agent}|${type}|${to}|${what}`;
 
 function commit(st: ActsState, village: string, from: string, to: string, what: What, now: number, how: string, decisionId?: string, chore?: string) {
-  const c = { id: `c${st.next++}`, from, to, what: { kind: what.kind, option: what.option, words: what.words }, made: now, due: now + ACTS.dueMs, state: 'open' as const, ...(chore ? { running: chore } : {}) };
+  const c: ActsState['commitments'][number] = { id: `c${st.next++}`, from, to, what: { kind: what.kind, option: what.option, words: what.words }, made: now, due: now + ACTS.dueMs, state: 'open' as const, ...(chore ? { running: chore } : {}) };
   st.commitments.push(c);
   (st.heard[from] ??= []).push(c.id);
   (st.heard[to] ??= []).push(c.id);
@@ -352,10 +406,18 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
     const r = st.requests.find((q) => q.state === 'open' && q.to === agent && q.from !== agent && q.what.option === mine.option)
       ?? st.requests.find((q) => q.state === 'open' && q.to === 'anyone' && q.from !== agent && q.what.option === mine.option && !(q.declined ?? []).includes(agent));
     if (r && !st.commitments.some((c) => c.state === 'open' && c.from === agent && c.what.option === mine.option)) {
-      r.state = 'accepted';
-      r.by = agent;
+      // (#108: a wage stays open for more helpers until its steps are paid)
+      const wage = paying() && !!r.contract && r.what.kind === 'project';
+      if (!wage) {
+        r.state = 'accepted';
+        r.by = agent;
+      }
       noteFact(village, r.from, agent, 'accepted');
       const c = commit(st, village, agent, r.from, mine, now, `accepted ${r.id}`, chosen.decisionId, chosen.chore);
+      if (paying() && r.contract) {
+        c.request = r.id;
+        payHooks!.taken(village, r, c, now);
+      }
       logAct({ type: 'act', village, agent, act: 'accept', ref: r.id, implied: true, verdict: 'ok', decisionId: chosen.decisionId });
       push(st, r.from, { t: now, kind: 'report', text: `${agent} took up your request: ${r.what.words} (${c.id})` });
       done.push(`accept ${r.id}`);
@@ -363,7 +425,9 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
   }
 
   let act = fields.act?.toLowerCase().trim();
-  if (act && !(ACT_TYPES as readonly string[]).includes(act)) act = (ACT_TYPES as readonly string[]).find((t) => act!.startsWith(t)) ?? ALIASES[act] ?? act;
+  // (#108: pay, and give with a member and an amount, is the pay act while payments are on)
+  if (paying() && act && (/^pay/.test(act) || (/^(give|gift|tip)/.test(act) && fields.act_to && fields.act_amount))) act = 'pay';
+  if (act && !(ACT_TYPES as readonly string[]).includes(act) && act !== 'pay') act = (ACT_TYPES as readonly string[]).find((t) => act!.startsWith(t)) ?? ALIASES[act] ?? act;
   const refuse = (why: string, tell = true, fabricated = false) => {
     logAct({ type: 'act', village, agent, act, ...fields, verdict: 'refused', why, decisionId: chosen.decisionId });
     if (tell) push(st, agent, { t: now, kind: 'refused', text: `Your ${act} was not made: ${why}` });
@@ -374,7 +438,7 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
     if (!offered) {
       logAct({ type: 'act', village, agent, act, ...fields, verdict: 'ignored', why: 'not offered this decision', decisionId: chosen.decisionId });
       done.push(`ignored ${act}`);
-    } else if (!(ACT_TYPES as readonly string[]).includes(act)) refuse(`"${act}" is not an act`, false);
+    } else if (!(ACT_TYPES as readonly string[]).includes(act) && !(act === 'pay' && paying())) refuse(`"${act}" is not an act`, false);
     else if ((ACTS.budget[act] ?? Infinity) <= (st.used[`${agent}|${d}|${act}`] ?? 0)) refuse(`no ${act}s left today`);
     else {
       const to = memberNamed(village, fields.act_to, agent);
@@ -397,10 +461,20 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
           if (v !== true) refuse(v);
           else {
             const r: Request = { id: `r${st.next++}`, from: agent, to, what, made: now, state: 'open' };
-            st.requests.push(r);
-            ok('request', key, { id: r.id, to, option: what.option, words: what.words });
+            // (#108: a price held last, after every other check, so a refusal holds nothing)
+            const priced = paying() ? payHooks!.request(village, agent, r, fields, now) : undefined;
+            if (typeof priced === 'string') refuse(priced);
+            else {
+              if (priced) Object.assign(r, { contract: priced.contract, price: priced.price, ...(priced.steps > 1 ? { steps: priced.steps } : {}), ...(priced.bounty ? { bounty: true } : {}) });
+              st.requests.push(r);
+              ok('request', key, { id: r.id, to, option: what.option, words: what.words, ...(r.price ? { price: r.price, steps: r.steps ?? 1, contract: r.contract } : {}) });
+            }
           }
         }
+      } else if (act === 'pay') {
+        const p = payHooks!.pay(village, agent, fields, now);
+        if (!p.ok) refuse(p.text);
+        else ok('pay', sig(agent, 'pay', fields.act_to ?? '', String(now)), { to: fields.act_to, item: fields.act_item ?? 'emerald', amount: fields.act_amount, text: p.text });
       } else if (act === 'offer' && !ran) {
         logAct({ type: 'act', village, agent, act, ...fields, verdict: 'ignored', why: 'the pick did not run', decisionId: chosen.decisionId });
         done.push('ignored offer: the pick did not run');
@@ -514,7 +588,13 @@ function close(st: ActsState, village: string, c: ActsState['commitments'][numbe
   c.state = s;
   c.closedAt = now;
   c.evidence = evidence;
+  delete c.delivering;
   logAct({ type: 'commitment', op: s, village, id: c.id, from: c.from, to: c.to, option: c.what.option, evidence, late: s === 'kept' && now > c.due });
+  // (#108: a priced promise closed otherwise than kept refunds its contract; a wage's request stays open for others)
+  if (paying() && c.request && s !== 'kept') {
+    const r = st.requests.find((q) => q.id === c.request);
+    if (r?.contract && r.what.kind !== 'project') payHooks!.closed(village, r, `its promise ${c.id} ${s}`, now);
+  }
   if (s === 'kept' || s === 'broken') {
     noteKept(village, c.to, c.from, s === 'kept');
     noteFact(village, c.to, c.from, s === 'kept' ? 'kept' : 'broke');
@@ -537,15 +617,84 @@ export function noteEnd(village: string, agent: string, e: { option: string; cho
   if (!ACTS.on) return;
   const st = state(village);
   let changed = false;
+  // (#108: one paid contract a chore: the oldest priced promise of the option; the others wait for the next chore or
+  // break past due as today)
+  let paidServed = false;
   for (const c of st.commitments) {
-    if (c.state !== 'open' || c.from !== agent || c.what.option !== e.option) continue;
+    if (c.state !== 'open' || c.from !== agent || c.what.option !== e.option || c.delivering) continue;
     // (the chore that was running when the promise was made keeps it too: an offer of the option just chosen)
     const its = c.running === e.chore;
     if (its) delete c.running;
     changed = true;
-    if (e.ok && e.productive && !e.cut && (its || e.started >= c.made - 1000)) close(st, village, c, 'kept', now, `chore ${e.chore} done`);
+    if (!(e.ok && e.productive && !e.cut && (its || e.started >= c.made - 1000))) continue;
+    const r = paying() && c.request ? st.requests.find((q) => q.id === c.request && q.contract) : undefined;
+    if (!r) close(st, village, c, 'kept', now, `chore ${e.chore} done`);
+    else if (!paidServed) {
+      paidServed = true;
+      const how = payHooks!.ended(village, r, c, e, now);
+      if (how === 'kept') close(st, village, c, 'kept', now, `chore ${e.chore} done`);
+      else if (how === 'delivering') {
+        c.delivering = now;
+        push(st, c.to, { t: now, kind: 'report', text: `${c.from} is bringing your ${r.what.words.replace(/^(gather|make) /, '')} (${r.id})` });
+      }
+    }
   }
   if (changed) touchMemory();
+}
+
+/** #108: a priced promise's delivery settled (kept), or short or its payer gone (moot): through close(), so the kept counts,
+ *  facts and affinity stay one path. */
+export function closeCommitment(village: string, id: string, s: 'kept' | 'moot' | 'broken', evidence: string, now = Date.now()): boolean {
+  if (!ACTS.on) return false;
+  const st = state(village);
+  const c = st.commitments.find((x) => x.id === id && x.state === 'open');
+  if (!c) return false;
+  close(st, village, c, s, now, evidence);
+  touchMemory();
+  return true;
+}
+
+/** #108: a request closed by its contract (a wage's steps all paid: accepted; its payer gone: moot). */
+export function closeRequest(village: string, id: string, s: 'accepted' | 'moot', now = Date.now()): boolean {
+  if (!ACTS.on) return false;
+  const r = state(village).requests.find((q) => q.id === id && q.state === 'open');
+  if (!r) return false;
+  r.state = s;
+  logAct({ type: 'request', op: s, village, id: r.id, from: r.from, to: r.to, by: 'contract', t: now });
+  touchMemory();
+  return true;
+}
+
+/** #108: whether a request or a promise is still open, for pay.ts' reconciler at load. */
+export function actOpen(village: string, request?: string, commitment?: string): boolean {
+  const st = state(village);
+  return (!!request && st.requests.some((r) => r.id === request && r.state === 'open')) || (!!commitment && st.commitments.some((c) => c.id === commitment && c.state === 'open'));
+}
+
+/**
+ * #108: a fixed, repeat or only pick of an option a priced request asks for accepts it when the price is at or above the
+ * guide (payHooks.acceptable), apart from handle() so the act cadence (`since`) does not move. Unpriced requests are left
+ * to handle(), as before. Returns the promise's id, if one was made.
+ */
+export function impliedAccept(village: string, agent: string, chosen: Chosen, w: ActsWorld, now: number): string | undefined {
+  if (!ACTS.on || !paying()) return undefined;
+  const st = state(village);
+  const mine = whatOfChosen(w, chosen);
+  if (!mine || st.commitments.some((c) => c.state === 'open' && c.from === agent && c.what.option === mine.option)) return undefined;
+  const r = st.requests.find((q) => q.state === 'open' && q.contract && q.from !== agent && q.what.option === mine.option && (q.to === agent || (q.to === 'anyone' && !(q.declined ?? []).includes(agent))));
+  if (!r || !payHooks!.acceptable(village, agent, r, now)) return undefined;
+  if (r.what.kind !== 'project') {
+    r.state = 'accepted';
+    r.by = agent;
+  }
+  noteFact(village, r.from, agent, 'accepted');
+  const c = commit(st, village, agent, r.from, mine, now, `accepted ${r.id} (a fixed pick)`, chosen.decisionId, chosen.chore);
+  c.request = r.id;
+  payHooks!.taken(village, r, c, now);
+  logAct({ type: 'act', village, agent, act: 'accept', ref: r.id, implied: true, fixed: true, verdict: 'ok', decisionId: chosen.decisionId });
+  push(st, r.from, { t: now, kind: 'report', text: `${agent} took up your request: ${r.what.words} (${c.id})` });
+  touchMemory();
+  return c.id;
 }
 
 /**
@@ -559,7 +708,13 @@ export function sweep(village: string, w: ActsWorld, now: number): void {
   for (const c of st.commitments) {
     if (c.state !== 'open') continue;
     const gone = c.what.kind === 'project' ? !w.projects.has(c.what.option ?? '') : !(w.offered ?? new Set(w.items.keys())).has(c.what.option ?? '');
-    if (gone) {
+    if (c.delivering) {
+      // (#108: the goods are on their way; a delivery that never settles closes moot, its contract refunded)
+      if (now - c.delivering > ACTS.dueMs) {
+        close(st, village, c, 'moot', now, 'the delivery never arrived');
+        changed = true;
+      }
+    } else if (gone) {
       close(st, village, c, 'moot', now, c.what.kind === 'project' ? 'the project closed' : 'nobody can do it now');
       changed = true;
     } else if (now > c.due && !c.running) {
@@ -573,6 +728,8 @@ export function sweep(village: string, w: ActsWorld, now: number): void {
     if (gone || now - r.made > ACTS.requestMs) {
       r.state = gone ? 'moot' : 'expired';
       logAct({ type: 'request', op: r.state, village, id: r.id, from: r.from, to: r.to });
+      // (#108: an untaken priced request, or a wage's unpaid steps, refunded)
+      if (paying() && r.contract) payHooks!.closed(village, r, r.state, now);
       changed = true;
     }
   }
