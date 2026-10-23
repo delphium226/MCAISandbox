@@ -55,7 +55,7 @@ A run with "checkpoint" restores that checkpoint (reset_site.py --checkpoint) an
 starts the servers again). "reset": false runs on the world as the last run left it. Run names are the village names unless
 "village" is given; names must be unique in the spec.
 """
-import datetime, json, os, re, shlex, subprocess, sys, threading, time, urllib.request
+import datetime, json, os, re, shlex, subprocess, sys, threading, time, urllib.error, urllib.request
 
 from run_report import perf_summary
 
@@ -285,11 +285,19 @@ def remove_agents(run):
     m = re.search(r"^RUN village=\S+ agents=(\S+)", open(run["log"], encoding="utf-8", errors="replace").read(), re.M) \
         if os.path.exists(run["log"]) else None
     for n in (m.group(1).split(",") if m else []):
-        try:
-            req = urllib.request.Request(f"http://127.0.0.1:{run['port']}/api/agents/{n}", method="DELETE")
-            urllib.request.urlopen(req, timeout=10).read()
-        except OSError:
-            pass
+        # (a transient connection error, e.g. no free local port, WinError 10048, is tried again a few times, so a
+        # moment's port shortage does not leave an agent behind; a 404 or a server that is gone ends it)
+        for delay in (1, 2, 4, 0):
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{run['port']}/api/agents/{n}", method="DELETE")
+                urllib.request.urlopen(req, timeout=10).read()
+                break
+            except urllib.error.HTTPError:
+                break
+            except OSError:
+                if not delay:
+                    break
+                time.sleep(delay)
     return len(m.group(1).split(",")) if m else 0
 
 

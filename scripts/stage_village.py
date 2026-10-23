@@ -87,7 +87,7 @@ the village is complete; --ripen-fields sets each wheat field ripe once when fir
 to time natural growth); --stock bread:10 stocks food like anything else.
 Workers are left in the world: remove them afterwards (panel or DELETE).
 """
-import argparse, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+import argparse, errno, importlib.util, json, math, os, re, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
 # Chat and model text can hold any character; the Windows console encoding cannot
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -297,25 +297,41 @@ SPAWN_GAP = float(os.environ.get("MCAI_SPAWN_GAP_S", "2.5"))
 def call(path, body=None, method=None):
     req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method=method)
-    # (a connection reset is tried twice more, 2 s apart: one reset each ended A1b1 and A1b3 at 25 bots, 10-12, with the
-    # agent server healthy; likely Windows resetting a reused port beside the server's hundreds of TIME_WAIT sockets)
-    for attempt in range(3):
+    # (a connection reset is tried again: one reset each ended A1b1 and A1b3 at 25 bots, 10-12, with the agent server
+    # healthy; likely Windows resetting a reused port beside the server's hundreds of TIME_WAIT sockets. Since W2, 10-23,
+    # also no free local port (WinError 10048, WSAEADDRINUSE: the run ended with the server healthy) and a refused
+    # connection; backoff 1, 2, 4, 8 then 15 s, about API_RETRY_S (60) in all, so a real outage still fails)
+    waited, delay = 0.0, 1.0
+    while True:
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.loads(r.read() or "null")
         except urllib.error.HTTPError as e:
             return {"error": e.read().decode()[:300], "status": e.code}
         except (ConnectionError, urllib.error.URLError) as e:
-            # (urllib wraps a reset during the send in URLError, A1b3: the request never arrived, so any method is sent
-            # again; a reset raised raw came while reading the answer, after the server acted, so only a GET is; anything
-            # else, e.g. a refused port, is raised)
+            # (urllib wraps an error during the connect or send in URLError, A1b3: the request never arrived, so any
+            # method is sent again; a reset raised raw came while reading the answer, after the server acted, so only a
+            # GET is; anything else is raised)
             wrapped = isinstance(e, urllib.error.URLError)
             cause = e.reason if wrapped else e
-            if attempt == 2 or not isinstance(cause, (ConnectionResetError, ConnectionAbortedError)) \
-                    or (not wrapped and req.get_method() != "GET"):
+            if waited >= API_RETRY_S or not transient(cause) or (not wrapped and req.get_method() != "GET"):
                 raise
-            print(f"[api] {path}: {cause.__class__.__name__}, trying again", flush=True)
-            time.sleep(2)
+            print(f"[api] {path}: {cause.__class__.__name__}{' ' + str(getattr(cause, 'winerror', '') or '') if getattr(cause, 'winerror', None) else ''}, trying again in {delay:g} s", flush=True)
+            time.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 15.0)
+
+
+# How long call() keeps trying a transient connection error before giving up (seconds)
+API_RETRY_S = float(os.environ.get("MCAI_API_RETRY_S", "60"))
+
+
+def transient(cause):
+    """A connection error worth trying again: a reset or abort, a refused connection (the server busy or restarting), or
+    no free local port (WinError 10048 / EADDRINUSE: the client's ephemeral ports used up for a moment)."""
+    if isinstance(cause, (ConnectionResetError, ConnectionAbortedError, ConnectionRefusedError)):
+        return True
+    return isinstance(cause, OSError) and (getattr(cause, "winerror", None) == 10048 or cause.errno in (errno.EADDRINUSE, errno.EADDRNOTAVAIL))
 
 
 def usage_report(since_ms, agents):
