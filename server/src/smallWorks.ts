@@ -6,7 +6,7 @@
  * build_design at the centre returned. With R1 (#104, MC_VANILLA_ALL), vanilla's lamp and decoration pieces join them,
  * read from the jar in the village's wood (VANILLA_WORKS), and its pens and farms make a pool of yard works (YARD_WORKS).
  */
-import { VANILLA_ALL } from './designs';
+import { VANILLA_ALL, rewoodBlock } from './designs';
 import { vanillaJar } from './vanillaData';
 import { VILLAGE_BIOMES, decorToDesign, listDecorPieces, listPieces, pieceToDesign, readPiece, yardToDesign } from './vanillaPieces';
 import type { Area, Design } from './village';
@@ -200,21 +200,9 @@ export const isGarden = (kind: string) => GARDEN_WORKS.some((k) => k.kind === ki
 
 // ---- R1 (#104, MC_VANILLA_ALL): vanilla's lamps and decorations as small works, its pens and farms as yard works ----
 
-const WOODS = /^(stripped_)?(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_([a-z_]+)(\[.*\])?$/;
-
-/** A block of any wood in the wood kind `w` (stairs, fences, logs, stripped wood...); other blocks as they are. */
-function inWoodKind(block: string, w: string): string {
-  const m = WOODS.exec(block);
-  if (!m) return block;
-  const [, stripped = '', , part, states = ''] = m;
-  const nether = w === 'crimson' || w === 'warped';
-  const name = part === 'log' ? logOf(w) : part === 'wood' ? (nether ? `${w}_hyphae` : w === 'bamboo' ? 'bamboo_block' : `${w}_wood`) : `${w}_${part}`;
-  return `${stripped}${name}${states}`;
-}
-
 /** A vanilla piece's design as a small work's kind: its shape and blocks, its wood the village's. */
 function vanillaKind(kind: string, words: string, forWhat: string, biome: string, src: Design): SmallWorkKind {
-  const palette = (w: string) => Object.fromEntries(Object.entries(src.palette).map(([c, b]) => [c, inWoodKind(b, w)]));
+  const palette = (w: string) => Object.fromEntries(Object.entries(src.palette).map(([c, b]) => [c, rewoodBlock(b, w)]));
   return { kind, words, forWhat, biome, make: (w) => design(kind, w, src.description, palette(w), src.layers) };
 }
 
@@ -306,6 +294,17 @@ export const SMALL_WORKS: SmallWorkKind[] = [
   ...(GARDENS ? GARDEN_WORKS : []),
   ...VANILLA_WORKS.filter(crewCanBuild),
 ];
+
+/**
+ * The wood a small work's design is in, by its name ("small_well_spruce" -> "spruce"; the longest kind first, so
+ * "small_lamp_posts_dark_oak" is the lamp posts in dark oak), or undefined for another name. R2 (MC_WOOD_VARIANTS): a work
+ * made in a neighbourhood's wood is gathered and billed in that wood, not the catalogue's.
+ */
+export function smallWorkWood(name: string): string | undefined {
+  const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
+  const k = kinds.find((x) => name.startsWith(`${SMALL_WORK_PREFIX}${x}_`));
+  return k ? name.slice(SMALL_WORK_PREFIX.length + k.length + 1) || undefined : undefined;
+}
 
 export interface SpotInput {
   /** Prepared building plots (not the annex, not the works plot), each at its level. */

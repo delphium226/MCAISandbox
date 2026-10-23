@@ -12,6 +12,7 @@
  *   MC_BALLOTS_PARALLEL  ballots of one vote at once (default 2)
  */
 import { fnv1a, mulberry32, parseChoice, shuffled } from './choose';
+import { VARIANT_WOODS } from './designs';
 import { CallWithdrawn, callModel, type ModelSpec } from './modelCall';
 import { usage, isCloudModel, type ReasoningLevel } from './modelUsage';
 import type { Temperament } from './temperament';
@@ -108,6 +109,37 @@ export function styleOption(biome: string, houses: StyleHouse[], built: number, 
   const facts = `${look.look}; ${houses.length} designs; a house costs ~${units} units${main ? ` (${main})` : ''}; `
     + (built ? `${built} neighbourhood${built === 1 ? '' : 's'} of them here` : 'none built here yet');
   return { id: biome, name: look.name, facts: facts.slice(0, 200), current, novel: !built && !current, units, volume: Math.round(mean((h) => h.volume)) };
+}
+
+/** R2 (MC_WOOD_VARIANTS): a style's id with a wood ("plains@spruce"), and back; a bare biome id has no wood. */
+export const styleId = (biome: string, wood?: string) => (wood ? `${biome}@${wood}` : biome);
+export function parseStyle(id: string): { biome: string; wood?: string } {
+  const [biome, wood] = id.split('@');
+  return wood ? { biome, wood } : { biome };
+}
+
+/**
+ * R2's style options, biome x wood (pure): each option in each wood with 1.5x `need` logs near home (`trees`: grow.ts
+ * treesNear), the current option in the current wood first (still the status quo), then the others in turn, a style at a
+ * time and its woods by most trees, at most `max`. An option in a wood no neighbourhood is in yet (`used`: grow.ts
+ * hoodWoods) is novel. Without a wood that has trees enough, an option is left as it is (in the village's wood).
+ */
+export function woodStyleOptions(options: VoteOption[], trees: Record<string, number>, need: number, used: string[], currentWood?: string, max = 4): VoteOption[] {
+  const woods = VARIANT_WOODS.filter((w) => (trees[w] ?? 0) >= Math.max(1, need) * 1.5).sort((a, b) => (trees[b] ?? 0) - (trees[a] ?? 0));
+  if (!woods.length) return options.slice(0, max);
+  const inWood = (o: VoteOption, w: string): VoteOption => ({
+    ...o, id: styleId(o.id, w), name: `${o.name} in ${w.replace(/_/g, ' ')}`,
+    facts: `in ${w.replace(/_/g, ' ')} (~${trees[w]} logs near home); ${o.facts}`.slice(0, 200),
+    current: o.current && w === (currentWood ?? woods[0]), novel: o.novel || !used.includes(w),
+  });
+  const queues = options.map((o) => {
+    const ws = o.current && currentWood && woods.includes(currentWood) ? [currentWood, ...woods.filter((w) => w !== currentWood)] : woods;
+    return ws.map((w) => inWood(o, w));
+  });
+  const out: VoteOption[] = [];
+  while (out.length < max && queues.some((q) => q.length))
+    for (const q of queues) if (q.length && out.length < max) out.push(q.shift()!);
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------

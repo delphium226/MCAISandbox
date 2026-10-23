@@ -5,7 +5,7 @@
  * neighbourhood's first on (ids are registry-wide and rising), so the claim gates need no new field. No model call decides
  * any of it. World-independent: the world's tick decides (MineflayerWorld.growTick), a chore lays out (lay_out_houses).
  */
-import { HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, isLargeHome } from './designs';
+import { HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, VARIANT_WOODS, WOOD_VARIANTS, baseName, isLargeHome, variantName, variantWood, woodVariant } from './designs';
 import { MINING_HUT, STORAGE_HUT } from './huts';
 import { doorOf, placeFarm, placeLamps, planStreets } from './streetPlan';
 import type { Area, Design, Task, Village } from './village';
@@ -32,7 +32,8 @@ const SMALL_VANILLA = /_small_house_\d+$/;
  * Not the huts ("mining_hut" holds neither "mine" nor anything else the other rule would catch).
  */
 export function isDwelling(name: string): boolean {
-  const n = name.toLowerCase();
+  // (a wood variant is its base design's: "plains_small_house_1@spruce", R2)
+  const n = baseName(name).toLowerCase();
   if (n === STORAGE_HUT || n === MINING_HUT) return false;
   if (VANILLA_PIECE.test(n)) return /_(small|medium|big)_house_\d+$/.test(n);
   return /house|cottage|home|cabin|dwelling|lodge|hut/.test(n) && !/hall|library|meeting|shop|smith|temple|church|tavern|inn|market|barn|storage|workshop|mine|tower/.test(n);
@@ -61,16 +62,19 @@ export function isGrowTask(v: Village, t: Task): boolean {
  * With R1 (VANILLA_ALL): every vanilla dwelling of the library (medium and big houses too), used vanilla dwellings up to
  * 13x13 and HOUSE_UNITS_LARGE, and at most one larger home a batch (plan_layout lays out one building over HOUSE_UNITS a
  * layout).
+ * With R2 (WOOD_VARIANTS) and the neighbourhood's `wood`: each pick is the design's wood variant ("NAME@spruce", copied
+ * into the library), a design and its variants counted together, so shapes still take turns across woods.
  */
-export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[]): string[] {
+export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[], wood?: string): string[] {
   const cands: Design[] = [];
+  // (a design and its wood variants are one candidate: names without "@" are their own base)
   const add = (d: Design) => {
-    if (!cands.some((c) => c.name === d.name)) cands.push(d);
+    if (!cands.some((c) => baseName(c.name) === baseName(d.name))) cands.push(d);
   };
   // (`only`: a voted style's houses and none else, whatever the plan: spec_vote1 2)
   if (only) for (const d of only) add(d);
   // (R1: a vanilla dwelling of any size is a home; larger ones may be up to 13 across and HOUSE_UNITS_LARGE)
-  const vanillaHome = (d: Design) => (VANILLA_ALL ? VANILLA_PIECE.test(d.name) && isDwelling(d.name) : SMALL_VANILLA.test(d.name));
+  const vanillaHome = (d: Design) => (VANILLA_ALL ? VANILLA_PIECE.test(d.name) && isDwelling(d.name) : SMALL_VANILLA.test(baseName(d.name)));
   const roomy = VANILLA_ALL ? (d: Design) => VANILLA_PIECE.test(d.name) : () => false;
   if (lib && v.plan === 'street' && !only) for (const d of lib) if (vanillaHome(d) && (!VANILLA_ALL || (d.width <= 13 && d.depth <= 13))) add(d);
   const used = new Set((v.layouts ?? []).flatMap((l) => l.buildings));
@@ -79,7 +83,10 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
       if (used.has(d.name) && isDwelling(d.name) && d.width <= (roomy(d) ? 13 : 9) && d.depth <= (roomy(d) ? 13 : 9) && (!VANILLA_PIECE.test(d.name) || vanillaHome(d))
         && (!units || units(d) <= (roomy(d) ? HOUSE_UNITS_LARGE : HOUSE_UNITS))) add(d);
   if (!cands.length || n < 1) return [];
-  const built = new Map(cands.map((d) => [d.name, v.tasks.filter((t) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${d.name}"`)).length]));
+  // (R2: builds of a design's variants count as its own)
+  const builds = (d: Design) => v.tasks.filter((t) => /^Build /.test(t.title) && (t.detail.startsWith(`build_design "${d.name}"`)
+    || (WOOD_VARIANTS && (t.detail.startsWith(`build_design "${baseName(d.name)}"`) || t.detail.startsWith(`build_design "${baseName(d.name)}@`))))).length;
+  const built = new Map(cands.map((d) => [d.name, builds(d)]));
   // (R1: which candidates are larger homes, by their bill when the world can say, else by name)
   const big = new Set(VANILLA_ALL ? cands.filter((d) => isLargeHome(d.name, units?.(d))).map((d) => d.name) : []);
   const out: string[] = [];
@@ -92,8 +99,61 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
     built.set(d.name, built.get(d.name)! + 1);
     out.push(d.name);
   }
+  if (WOOD_VARIANTS && wood) {
+    const named = out.map((name) => variantName(name, wood));
+    for (const [i, name] of named.entries()) if (!v.designs[name]) v.designs[name] = woodVariant(cands.find((d) => d.name === out[i])!, wood);
+    return named;
+  }
   for (const name of new Set(out)) if (!v.designs[name]) v.designs[name] = structuredClone(cands.find((d) => d.name === name)!);
   return out;
+}
+
+// ---- R2 (#104, MC_WOOD_VARIANTS): a wood for each neighbourhood -------------------------------------------------------
+
+/** Log blocks within reach by wood kind from the atlas's chunk summaries near home (mcAtlas's `near`: each chunk's `low`,
+ *  logs within 5 blocks of the ground, else all its `logs`). Pure: the world passes the summaries. */
+export function treesNear(chunks: Array<{ logs?: Record<string, number>; low?: Record<string, number> }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of chunks) for (const [w, q] of Object.entries(c.low ?? c.logs ?? {})) out[w] = (out[w] ?? 0) + q;
+  return out;
+}
+
+/** The woods the village's neighbourhoods are in (the first plot's, v.wood, then each growth layout's houses' variant). */
+export function hoodWoods(v: Village): string[] {
+  const out = v.wood ? [v.wood] : [];
+  for (const l of v.layouts ?? []) {
+    if (!l.grow) continue;
+    const w = l.buildings.map(variantWood).find(Boolean);
+    if (w && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+/** The share more logs than a neighbourhood needs that must stand near home for its wood (plan_layout's rule for the
+ *  village's first wood: acacia chosen from 42 logs for ~80 needed sent gatherers 80 blocks away). */
+const HOOD_TREE_MARGIN = 1.5;
+
+/**
+ * The next neighbourhood's wood (R2): among VARIANT_WOODS with at least 1.5x `need` logs near home (`trees`, log blocks
+ * by wood: treesNear), a wood no neighbourhood is in yet first (`used`: hoodWoods), then the most trees, then the list's
+ * order. Null with MC_WOOD_VARIANTS off or no wood with trees enough: the village's own wood, as before.
+ */
+export function hoodWood(trees: Record<string, number>, need: number, used: string[]): string | null {
+  if (!WOOD_VARIANTS) return null;
+  const ok = VARIANT_WOODS.filter((w) => (trees[w] ?? 0) >= Math.max(1, need) * HOOD_TREE_MARGIN);
+  if (!ok.length) return null;
+  return [...ok].sort((a, b) => Number(used.includes(a)) - Number(used.includes(b)) || (trees[b] ?? 0) - (trees[a] ?? 0) || VARIANT_WOODS.indexOf(a) - VARIANT_WOODS.indexOf(b))[0];
+}
+
+/** The wood of the neighbourhood whose plot holds x, z (a growth layout with variant houses), else undefined: a small work
+ *  or lamp there is made in it (R2). */
+export function hoodWoodAt(v: Village, x: number, z: number): string | undefined {
+  for (const l of v.layouts ?? []) {
+    if (!l.grow || x < l.x1 || x > l.x2 || z < l.z1 || z > l.z2) continue;
+    const w = l.buildings.map(variantWood).find(Boolean);
+    if (w) return w;
+  }
+  return undefined;
 }
 
 /**

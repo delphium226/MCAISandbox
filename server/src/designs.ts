@@ -45,16 +45,57 @@ export const HOUSE_UNITS_LARGE = 230;
 const VANILLA_DWELLING = /^(plains|desert|savanna|taiga|snowy)_(small|medium|big)_house_\d+$/;
 /** Whether a design is a larger home (R1): a vanilla dwelling that `units` puts over HOUSE_UNITS, or by its name a medium or
  *  big house when the units are not known. */
-export const isLargeHome = (name: string, units?: number) => VANILLA_DWELLING.test(name) && (units !== undefined ? units > HOUSE_UNITS : /_(medium|big)_house_/.test(name));
+export const isLargeHome = (name: string, units?: number) => VANILLA_DWELLING.test(baseName(name)) && (units !== undefined ? units > HOUSE_UNITS : /_(medium|big)_house_/.test(name));
 /**
  * The budget a design passes the survival checks under, by its name: a landmark's, a vanilla dwelling's
  * HOUSE_UNITS_LARGE with VANILLA_ALL, else a house's. (The world's vanillaLibrary accept should read this in place of
  * its own `isLandmark ? LANDMARK_UNITS : HOUSE_UNITS` for R1's larger homes to reach the library.)
  */
-export const houseBudget = (name: string) => (isLandmark(name) ? LANDMARK_UNITS : VANILLA_ALL && VANILLA_DWELLING.test(name) ? HOUSE_UNITS_LARGE : HOUSE_UNITS);
+export const houseBudget = (name: string) => (isLandmark(name) ? LANDMARK_UNITS : VANILLA_ALL && VANILLA_DWELLING.test(baseName(name)) ? HOUSE_UNITS_LARGE : HOUSE_UNITS);
+/**
+ * #104's R2 (MC_WOOD_VARIANTS=on; off by default): wood variants of a design ("plains_small_house_1@spruce": its shape,
+ * every wooden block in another wood), and a wood for each neighbourhood among those with trees near home (grow.ts
+ * hoodWood), its houses, small works and lamps in it; the style vote's options biome x wood (vote.ts).
+ */
+export const WOOD_VARIANTS = /^(on|1|true)$/i.test(process.env.MC_WOOD_VARIANTS ?? 'off');
+/** The woods a variant may take: refit.ts's list less bamboo (its planks come two a block) and the Nether's (no tree in the
+ *  overworld, and stripped stems and hyphae bill 10-25% more: wood_variants.mts), so a variant's bill stays within 5%. */
+export const VARIANT_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak'];
+/** A design name without its wood variant ("plains_small_house_1@spruce" -> "plains_small_house_1"; a refit's "~t2" kept
+ *  out too: "x@spruce~t2" -> "x"). Names without "@" are returned as they are (no drawn or posted name holds one). */
+export const baseName = (name: string) => { const i = name.indexOf('@'); return i < 0 ? name : name.slice(0, i); };
+/** The wood of a variant's name ("plains_small_house_1@spruce" -> "spruce"), or undefined. */
+export const variantWood = (name: string) => /@([a-z_]+)/.exec(name)?.[1];
+/** A variant's name: the base design's and the wood. */
+export const variantName = (name: string, wood: string) => `${baseName(name)}@${wood}`;
+/** Whether a name is a vanilla piece's by the jar's naming, its wood variants too (lesson 89: key on the name the data
+ *  carries, not on `by`; streetPlan.ts's and the lights' own test is anchored on the bare name). */
+export const isVanillaPieceName = (name: string) => /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(baseName(name));
+
+const WOOD_BLOCK = /^(stripped_)?(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_([a-z_]+)(\[.*\])?$/;
+/** A wooden block in the wood `w` (planks, stairs, fences, doors, logs, stripped wood...); any other block as it is. */
+export function rewoodBlock(block: string, w: string): string {
+  const m = WOOD_BLOCK.exec(block);
+  if (!m) return block;
+  const [, stripped = '', , raw, states = ''] = m;
+  // (a stem is a log, hyphae a wood, a bamboo block a log: one part name across the woods)
+  const part = raw === 'stem' || raw === 'block' ? 'log' : raw === 'hyphae' ? 'wood' : raw;
+  const nether = w === 'crimson' || w === 'warped';
+  const name = part === 'log' ? (nether ? `${w}_stem` : w === 'bamboo' ? 'bamboo_block' : `${w}_log`)
+    : part === 'wood' ? (nether ? `${w}_hyphae` : w === 'bamboo' ? 'bamboo_block' : `${w}_wood`) : `${w}_${part}`;
+  return `${stripped}${name}${states}`;
+}
+
+/** A design's wood variant (R2): the same layers, every wooden block of its palette in `wood`, named "base@wood". */
+export function woodVariant(d: Design, wood: string): Design {
+  const palette = Object.fromEntries(Object.entries(d.palette).map(([c, b]) => [c, rewoodBlock(b, wood)]));
+  const base = baseName(d.name);
+  const description = `${d.description.replace(/ \(in [a-z_]+\)$/, '')} (in ${wood})`;
+  return { ...d, name: variantName(base, wood), description, palette, layers: d.layers.map((l) => [...l]) };
+}
 const LANDMARK_WORDS = /(hall|chapel|church|temple|tower|market|inn|tavern|guildhall|keep|landmark|library|school)$/i;
 /** Whether a design's name names a landmark: a word of it ends in hall, chapel, tower... ("meeting_hall", "watchtower"). */
-export const isLandmark = (name: string) => name.split(/[\s_-]+/).some((w) => LANDMARK_WORDS.test(w));
+export const isLandmark = (name: string) => baseName(name).split(/[\s_-]+/).some((w) => LANDMARK_WORDS.test(w));
 
 /** A block's name without namespace and states. */
 const baseOf = (block: string) => block.replace(/^minecraft:/, '').replace(/\[.*\]$/, '');

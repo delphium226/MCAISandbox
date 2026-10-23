@@ -8,7 +8,7 @@
  */
 import { readNbt, type Nbt } from './nbt';
 import type { Design } from './village';
-import { VANILLA_ALL, isDoor, outsideCells, outwardStep, turnState } from './designs';
+import { VANILLA_ALL, baseName, isDoor, outsideCells, outwardStep, turnState, variantWood, woodVariant } from './designs';
 import { DEFAULT_JAR, listEntries, readEntry, vanillaJar } from './vanillaData';
 
 export { DEFAULT_JAR };
@@ -452,7 +452,7 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
   return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1, lights };
 }
 
-const lightsByName = new Map<string, { key: string; lights: VanillaLight[] } | null>();
+const lightsByName = new Map<string, { key: string; design: Design; lights: VanillaLight[] } | null>();
 const lightsOf = new WeakMap<Design, VanillaLight[] | null>();
 /** A jar read that failed, by jar and name: tried again a minute later, never cached (B.4's review, lens 3 L3). */
 const lightsFailed = new Map<string, number>();
@@ -461,21 +461,23 @@ const designKey = (d: Design) => JSON.stringify([d.layers, Object.entries(d.pale
 
 /**
  * The light cells of the piece a design is named after, cached (B.4); null when no piece has the name or the design's
- * layers and palette differ from the jar's import (a design posted under a vanilla name is not the piece, lesson 89).
+ * layers and palette differ from the jar's import (a design posted under a vanilla name is not the piece, lesson 89). A
+ * wood variant ("NAME@spruce", R2) has its piece's lights when it is that import in the wood.
  * The jar is the world's (vanillaJar: MC_VANILLA_JAR, as the library it was imported from); a read that fails gives null
  * for a minute and is then tried again.
  */
 export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | null {
   if (lightsOf.has(d)) return lightsOf.get(d)!;
-  const k = `${jar}|${d.name}`;
+  const name = baseName(d.name), wood = variantWood(d.name);
+  const k = `${jar}|${name}`;
   if (!lightsByName.has(k)) {
     if (Date.now() - (lightsFailed.get(k) ?? -Infinity) < 60000) return null;
-    let found: { key: string; lights: VanillaLight[] } | null = null;
-    const biome = VILLAGE_BIOMES.find((b) => d.name.startsWith(`${b}_`));
+    let found: { key: string; design: Design; lights: VanillaLight[] } | null = null;
+    const biome = VILLAGE_BIOMES.find((b) => name.startsWith(`${b}_`));
     if (biome)
       try {
         for (const kind of ['houses', 'town_centers'] as const) {
-          const path = listPieces(jar, biome, kind).find((p) => p.split('/').pop() === d.name);
+          const path = listPieces(jar, biome, kind).find((p) => p.split('/').pop() === name);
           if (!path) continue;
           const piece = readPiece(path, jar);
           // (a piece the importer refuses is no design of the library: null, cached; only a read is tried again)
@@ -485,7 +487,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
           } catch {
             imp = null;
           }
-          found = imp ? { key: designKey(imp.design), lights: imp.lights } : null;
+          found = imp ? { key: designKey(imp.design), design: imp.design, lights: imp.lights } : null;
           break;
         }
       } catch (e) {
@@ -497,7 +499,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
     lightsByName.set(k, found);
   }
   const f = lightsByName.get(k);
-  const lights = f && f.key === designKey(d) ? f.lights : null;
+  const lights = f && (wood ? designKey(woodVariant(f.design, wood)) : f.key) === designKey(d) ? f.lights : null;
   lightsOf.set(d, lights);
   return lights;
 }
