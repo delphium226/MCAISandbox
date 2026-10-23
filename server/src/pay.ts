@@ -52,8 +52,10 @@ export interface Contract {
   escrow: number;
   state: ContractState;
   why?: string;
-  /** Goods earmarked in storage for the buyer at the chore's end, and what reached its chest. */
+  /** Goods earmarked for the buyer at the chore's end, and what reached its chest; `inHand`: the part the deliverer
+   *  kept in hand (a full storage refused it), not withdrawn. */
   earmark?: Counts;
+  inHand?: Counts;
   arrived?: Counts;
   /** acts.ts' ids. */
   request?: string;

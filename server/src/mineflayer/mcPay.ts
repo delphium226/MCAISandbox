@@ -11,6 +11,7 @@ import { OWN_SALES } from '../own';
 import { PAY, contractOf, givePurse, guideFor, makePayHooks, payOf, reconcile, setPayWorld, type Contract, type PayEnv } from '../pay';
 import { RULES, levyRate } from '../rules';
 import type { Village } from '../village';
+import { takeRefused } from './mcStorage';
 
 type Counts = Record<string, number>;
 
@@ -85,6 +86,12 @@ export function markAtEnd(v: Village, agent: string, option: string, chore: stri
     const d = q - (grossStart[n] ?? 0);
     if (d > 0 && answers(option, n)) put[n] = d;
   }
+  // (goods a full storage refused are still in hand: put, for the guide and a buyer, not in storage)
+  const hand: Counts = {};
+  for (const [n, q] of Object.entries(takeRefused(agent))) if (q > 0 && answers(option, n)) {
+    hand[n] = q;
+    put[n] = (put[n] ?? 0) + q;
+  }
   if (!sum(put)) return {};
   const k = `${v.name}|${agent}|${option}`;
   const list = puts.get(k) ?? [];
@@ -98,13 +105,16 @@ export function markAtEnd(v: Village, agent: string, option: string, chore: stri
     marks.set(`${v.name}|${agent}|${chore}|seen`, put);
     return {};
   }
-  const out: Counts = {};
+  const out: Counts = {}, inHand: Counts = {};
   let left = 64;
   for (const [n, q] of Object.entries(put)) {
     const t = Math.min(q, left);
     if (t > 0) out[n] = t;
+    const h = Math.min(t, hand[n] ?? 0);
+    if (h > 0) inHand[n] = h;
     left -= t;
   }
+  c.inHand = Object.keys(inHand).length ? inHand : undefined;
   marks.set(`${v.name}|${agent}|${chore}`, out);
   setTimeout(() => {
     marks.delete(`${v.name}|${agent}|${chore}`);
@@ -117,7 +127,10 @@ export function markAtEnd(v: Village, agent: string, option: string, chore: stri
 export function earmarked(v: Village): Counts {
   const out: Counts = {};
   if (!PAY.on) return out;
-  for (const c of payOf(v).contracts) if (c.state === 'delivering') for (const [n, q] of Object.entries(c.earmark ?? {})) out[n] = (out[n] ?? 0) + q;
+  for (const c of payOf(v).contracts) if (c.state === 'delivering') for (const [n, q] of Object.entries(c.earmark ?? {})) {
+    const s = q - (c.inHand?.[n] ?? 0);
+    if (s > 0) out[n] = (out[n] ?? 0) + s;
+  }
   return out;
 }
 

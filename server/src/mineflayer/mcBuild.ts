@@ -4747,10 +4747,12 @@ async function deliverOwn(a: BotAgent, args: Record<string, unknown>, signal: Ab
     throw new Error(`deliver_own: ${k.payer} has no chest of their own any more; the price went back`);
   }
   const want = { ...(k.earmark ?? {}) };
-  await withdrawItems(a, v, want, signal).catch((e: Error) => {
+  // (the part kept in hand, a full storage having refused it, is not withdrawn)
+  const fromStore = Object.fromEntries(Object.entries(want).map(([n, q]) => [n, q - (k.inHand?.[n] ?? 0)]).filter(([, q]) => (q as number) > 0));
+  if (Object.keys(fromStore).length) await withdrawItems(a, v, fromStore, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
   });
-  forgiveDebt(a.name, want);
+  forgiveDebt(a.name, fromStore);
   await toOwnDoor(a, P, signal);
   const arrived: Record<string, number> = {};
   for (const [n, q] of Object.entries(want)) {

@@ -395,6 +395,19 @@ export const storageFlow = (agent: string): Record<string, number> => ({ ...(cre
  *  done: a logs trip by a member who withdrew logs earlier credits 0 in the flow, spec 4). */
 const gross = new Map<string, Record<string, number>>();
 export const storageGross = (agent: string): Record<string, number> => ({ ...(gross.get(agent) ?? {}) });
+/** #108: goods a full storage refused, by agent, since its last chore end read them (takeRefused): a priced request's
+ *  goods made and kept in hand count as put for its buyer (PayS1, 10-23: the storage hut full, both makes refused). */
+const refused = new Map<string, Record<string, number>>();
+export function takeRefused(agent: string): Record<string, number> {
+  const r = refused.get(agent) ?? {};
+  refused.delete(agent);
+  return r;
+}
+function noteRefused(agent: string, items: Array<{ name: string; count: number }>) {
+  const r = refused.get(agent) ?? {};
+  for (const it of items) r[it.name] = (r[it.name] ?? 0) + it.count;
+  refused.set(agent, r);
+}
 /** #108: a delivery's withdrawal of goods earmarked for a buyer is no debt of the deliverer's (its later shares are not
  *  cut for goods it carried to another's chest). */
 export function forgiveDebt(agent: string, c: Record<string, number>): void {
@@ -574,12 +587,19 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
     const carriedNames = [...want.values()].map((r) => r.name);
     const why = notes.length ? ` (${notes.join('; ')})` : '';
     if (chestHelps(carriedNames)) throw new Error(`could not put anything in the storage hut${why}: craft a chest (8 planks) and deposit again`);
-    if (!roomLeft) throw new Error(`${hutFull()}${why}: keep what you carry and use it, or leave storage for later`);
+    if (!roomLeft) {
+      noteRefused(a.name, [...want.values()]);
+      throw new Error(`${hutFull()}${why}: keep what you carry and use it, or leave storage for later`);
+    }
     throw new Error(`could not put anything in the storage hut${why}; it has room: deposit again`);
   }
-  if (!got) throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
+  if (!got) {
+    noteRefused(a.name, [...want.values()]);
+    throw new Error(`storage is full (${n} chest${n === 1 ? '' : 's'}): craft a chest (8 planks) and deposit again; it is put down beside the others`);
+  }
   // (after a stall the rest is not about room: the note says the bot could not get there)
   const rest = left > 0 && !stalled ? [...want.values()] : [];
+  if (rest.length && !roomLeft) noteRefused(a.name, rest);
   const restText = rest.map((r) => `${r.count} ${r.name}`).join(', ');
   return `deposited ${got}${notes.length ? ` (${notes.join('; ')})` : ''}` +
     (rest.length && roomLeft ? `; could not put in ${restText} though there is room${v.storageHut ? '' : ' (another worker at the chest?)'}: deposit again` : '') +
