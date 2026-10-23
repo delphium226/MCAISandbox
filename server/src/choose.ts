@@ -19,6 +19,9 @@
  *   MC_CHOOSE_MODEL       the model (else MC_EXEC_MODEL, else gpt-oss:120b-cloud); memory.chooseModel per agent
  */
 import { IRON_AGE } from './ladderFlags';
+/** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
+const PACED = /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
+const PACE_BURST = 3;
 import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from './world';
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
@@ -854,7 +857,16 @@ export class ChoiceStats {
   }
 
   modelCallsLastHour(agent: string, now: number): number {
-    return (this.calls.get(agent) ?? []).filter((t) => t > now - HOUR && t <= now).length;
+    const c = this.calls.get(agent) ?? [];
+    const hour = c.filter((t) => t > now - HOUR && t <= now).length;
+    // (MC_WORK_BLOCKS: the hour's calls spread evenly, PACE_BURST in any PACE_BURST / perHour of an hour, so a member at the
+    // 30 s floor does not spend its 30 in the first half-hour; read as the cap reached while the window is full. W1/M1, F297:
+    // the model's share fell from ~37% to 13-17% once the hourly caps ran out)
+    if (PACED) {
+      const win = (PACE_BURST * HOUR) / Math.max(1, CHOOSE.perHour);
+      if (c.filter((t) => t > now - win && t <= now).length >= PACE_BURST) return Math.max(hour, CHOOSE.perHour);
+    }
+    return hour;
   }
 
   /** A model decision made (the rate of section 5.1 steps 2-3 counts these). */
