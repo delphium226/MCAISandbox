@@ -8,7 +8,7 @@
  */
 import { readNbt, type Nbt } from './nbt';
 import type { Design } from './village';
-import { isDoor, outsideCells, outwardStep, turnState } from './designs';
+import { VANILLA_ALL, isDoor, outsideCells, outwardStep, turnState } from './designs';
 import { DEFAULT_JAR, listEntries, readEntry, vanillaJar } from './vanillaData';
 
 export { DEFAULT_JAR };
@@ -113,6 +113,8 @@ export function substitute(name: string, biome: string, wood = 'oak'): string {
   if (/^smooth_sandstone_(slab|stairs)$/.test(name)) return name.replace('smooth_', '');
   if (/stained_glass_pane$|^iron_bars$/.test(name)) return 'glass_pane';
   if (/stained_glass$/.test(name)) return 'glass';
+  // Snow blocks need snowballs and ice a silk touch: diorite stands in for both in snowy pieces (R1, the user's choice)
+  if (VANILLA_ALL && /^(snow_block|ice|packed_ice|blue_ice)$/.test(name)) return 'diorite';
   const stone = /^(diorite|granite|andesite|polished_diorite|polished_granite|polished_andesite|mossy_cobblestone)(_slab|_stairs|_wall)?$/.exec(name);
   if (stone) return `cobblestone${stone[2] ?? ''}`;
   if (name === 'bricks') return 'cobblestone';
@@ -182,36 +184,84 @@ export interface ImportedPiece {
 export function pieceToDesign(piece: Piece, biome: string): ImportedPiece {
   const { width: W, height: H, depth: D } = piece;
   const name = piece.path.split('/').pop()!;
-  const entrance = piece.jigsaws.find((j) => j.name === 'minecraft:building_entrance');
+  const entrance = entranceOf(piece);
   if (!entrance || !STEP[entrance.facing]) throw new Error('no entrance jigsaw facing a side');
   const raw = piece.cells.slice();
   for (const j of piece.jigsaws) raw[(j.y * D + j.z) * W + j.x] = j.finalState === 'structure_void' ? null : j.finalState;
   const at = (x: number, y: number, z: number) => (x < 0 || z < 0 || y < 0 || x >= W || z >= D || y >= H ? null : raw[(y * D + z) * W + x]);
   // The entrance door: the lower half nearest the jigsaw, at its level or a little above
   let door: [number, number, number] | null = null, best = Infinity;
+  const doors: Array<{ at: [number, number, number]; dist: number }> = [];
   for (let y = entrance.y; y <= Math.min(H - 1, entrance.y + 3); y++)
     for (let z = 0; z < D; z++)
       for (let x = 0; x < W; x++) {
         const s = at(x, y, z);
         if (!s || !/_door$/.test(base(s)) || props(s).half !== 'lower') continue;
         const dist = Math.abs(x - entrance.x) + Math.abs(z - entrance.z) + (y - entrance.y) * 0.5;
+        doors.push({ at: [x, y, z], dist });
         if (dist < best) [best, door] = [dist, [x, y, z]];
       }
   if (!door) throw new Error('no door');
-  const turns = TURNS[entrance.facing];
-  const { design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
-  const { palette } = design, layersOut = design.layers;
+  try {
+    return importAt(piece, raw, biome, door, entrance.facing, name, false);
+  } catch (e) {
+    if (!VANILLA_ALL || !/does not open south/.test((e as Error).message)) throw e;
+    // R1: the door found opens away from the entrance's side. A ground floor's door comes before a balcony's (the
+    // desert cartographer's upper door was nearer the jigsaw), and a door that opens sideways onto the yard the
+    // entrance leads into (plains weaponsmith, snowy fisher cottage and weapon smith, taiga medium house 1) is the way
+    // in: the design is turned to face it south
+    for (const d of doors.sort((p, q) => p.at[1] - q.at[1] || p.dist - q.dist)) {
+      try {
+        return importAt(piece, raw, biome, d.at, entrance.facing, name, true);
+      } catch {
+        continue;
+      }
+    }
+    throw e;
+  }
+}
+
+/** A piece's entrance jigsaw (with R1, also under the misspelt name the snowy shepherd's house has in the jar). */
+function entranceOf(piece: Piece): Jigsaw | undefined {
+  return piece.jigsaws.find((j) => j.name === 'minecraft:building_entrance' || (VANILLA_ALL && j.name === 'minecraft:buidling_entrance'));
+}
+
+/** Clockwise quarter turns that bring a step out of a door ([dx, dz]) to south. */
+const turnsToSouth = ([dx, dz]: [number, number]) => (dx === 1 ? 1 : dz === -1 ? 2 : dx === -1 ? 3 : 0);
+
+/**
+ * pieceToDesign's cut at a door: its level is layer 1, turned so the entrance faces south. The entrance door must then
+ * open toward the entrance's side (south): otherwise the flood got inside or the door found is not the entrance's. With
+ * `sideways` (R1's fallback), a door of layer 1 that opens out of the building another way is accepted and the design
+ * turned on so that it faces south.
+ */
+function importAt(piece: Piece, raw: Array<string | null>, biome: string, door: [number, number, number], facing: string, name: string, sideways: boolean): ImportedPiece {
+  let turns = TURNS[facing];
+  let { design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
   const notes: string[] = [];
-  // The entrance door must open toward the entrance's side (now south): otherwise the flood got inside or the door
-  // found is not the entrance's
-  const doorCells: Array<[number, number]> = [];
-  layersOut[1]?.forEach((row, j) => [...row].forEach((c, i) => { if (c !== '_' && c !== '.' && isDoor(palette[c])) doorCells.push([i, j]); }));
-  const outsideL1 = layersOut[1] ? outsideCells(layersOut[1]) : new Set<string>();
-  const toSouth = doorCells.filter(([i, j]) => { const s = outwardStep(layersOut[1], i, j, outsideL1); return s && s[0] === 0 && s[1] === 1; });
-  if (!toSouth.length) throw new Error(`the entrance door does not open south (doors in layer 1: ${doorCells.length})`);
-  if (doorCells.length > toSouth.length) notes.push(`${doorCells.length - toSouth.length} other door(s) in layer 1`);
+  const doorsOf = (d: Design) => {
+    const doorCells: Array<[number, number]> = [];
+    d.layers[1]?.forEach((row, j) => [...row].forEach((c, i) => { if (c !== '_' && c !== '.' && isDoor(d.palette[c])) doorCells.push([i, j]); }));
+    const outsideL1 = d.layers[1] ? outsideCells(d.layers[1]) : new Set<string>();
+    const steps = doorCells.map(([i, j]) => outwardStep(d.layers[1], i, j, outsideL1));
+    return { doorCells, steps, toSouth: steps.filter((s) => s && s[0] === 0 && s[1] === 1) };
+  };
+  let found = doorsOf(design);
+  if (!found.toSouth.length && sideways) {
+    const step = found.steps.find((s): s is [number, number] => !!s);
+    if (step) {
+      turns = (turns + turnsToSouth(step)) % 4;
+      ({ design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), its door south`));
+      found = doorsOf(design);
+      notes.push('turned to face its door south (it opens away from the entrance jigsaw)');
+    }
+  }
+  if (!found.toSouth.length) throw new Error(`the entrance door does not open south (doors in layer 1: ${found.doorCells.length})`);
+  if (found.doorCells.length > found.toSouth.length) notes.push(`${found.doorCells.length - found.toSouth.length} other door(s) in layer 1`);
   if (droppedBelow) notes.push(`${droppedBelow} blocks below the floor dropped`);
-  return { design, path: piece.path, biome, front: entrance.facing, droppedBelow, substitutions: subs, notes, lights };
+  // (the side of the piece that ends up south: the entrance's, or the door's when turned to it)
+  const front = Object.keys(TURNS).find((k) => TURNS[k] === turns) ?? facing;
+  return { design, path: piece.path, biome, front, droppedBelow, substitutions: subs, notes, lights };
 }
 
 export interface ImportedCentre {
@@ -263,10 +313,10 @@ export function centreToDesign(piece: Piece, biome: string): ImportedCentre {
  * The conversion shared by houses and town centres: vanilla's blocks (jigsaws already their final state) from piece
  * layer `dy - 1` up as design layers (`dy` is layer 1: a house's door level, a centre's walk level), the ground in layer
  * 0, plants, structure void and air outside (a flood of layer 1 from the edge) or open to the sky as "_", blocks
- * substituted, trimmed, turned `turns` quarter turns clockwise. Returns the trim's corner and size before turning, and
- * vanilla's light cells mapped through the same trim and turns (B.4).
+ * substituted (`sub`: substitute, or R1's own for decorations and yards), trimmed, turned `turns` quarter turns clockwise.
+ * Returns the trim's corner and size before turning, and vanilla's light cells mapped through the same trim and turns (B.4).
  */
-function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: number, turns: number, name: string, description: string) {
+function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: number, turns: number, name: string, description: string, sub: (name: string, biome: string, wood: string) => string = substitute) {
   const { width: W, height: H, depth: D } = piece;
   const at = (x: number, y: number, z: number) => (x < 0 || z < 0 || y < 0 || x >= W || z >= D || y >= H ? null : raw[(y * D + z) * W + x]);
   const y0 = dy - 1; // piece y of design layer 0
@@ -311,7 +361,7 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
           // (snow piled on the ground outside the walls is ground too: snowy pieces)
           else if ((l === 0 && GROUND.test(n)) || (n === 'snow_block' && outside.has(`${x},${z}`))) cell = '_';
           else {
-            let to = substitute(n, biome, wood);
+            let to = sub(n, biome, wood);
             if (/_slab$/.test(to) && p.type === 'double') to = fullBlock(to);
             if (to !== '_' && to !== 'air' && n !== 'air') count(n, to);
             else if (to === 'air') count(n, 'air');
@@ -331,7 +381,7 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
     for (let z = 0; z < D; z++)
       for (let x = 0; x < W; x++) {
         const s = at(x, y, z), n = base(s);
-        if (s && !passable(s) && !GROUND.test(n) && substitute(n, biome, wood) !== 'air') droppedBelow++;
+        if (s && !passable(s) && !GROUND.test(n) && sub(n, biome, wood) !== 'air') droppedBelow++;
       }
   // Air: "_" in the floor layer (no pits), outside the building, or with nothing above it (a fenced yard is open to
   // the sky); "." inside, under a roof
@@ -453,6 +503,80 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
 }
 
 // ---------------------------------------------------------------------------------------------
+// R1 (#104): vanilla's lamps and decorations, and its doorless pieces (pens, farms) as yards
+// ---------------------------------------------------------------------------------------------
+
+/** The lamp and decoration pieces outside the biomes' houses/ folders ("plains/plains_lamp_1", "taiga/taiga_decoration_3"). */
+export function listDecorPieces(jar = DEFAULT_JAR, biome?: string): string[] {
+  return listEntries(PREFIX, jar)
+    .filter((n) => n.endsWith('.nbt'))
+    .map((n) => n.slice(PREFIX.length, -4))
+    .filter((n) => {
+      const [b, piece, more] = n.split('/');
+      return !more && (VILLAGE_BIOMES as readonly string[]).includes(b) && (!biome || b === biome) && /_(lamp|decoration)/.test(piece ?? '');
+    })
+    .sort();
+}
+
+/** A decoration's blocks (R1): its torches and fire kept (a standing lantern becomes a torch: lanterns need iron), hay a
+ *  log of the piece's wood (hay needs wheat), the rest as substitute. */
+const decorSub = (n: string, biome: string, wood: string) =>
+  n === 'torch' || n === 'campfire' ? n : n === 'lantern' ? 'torch' : n === 'hay_block' ? `${wood}_log` : substitute(n, biome, wood);
+
+/**
+ * A lamp or decoration piece as a design (R1): its bottom jigsaw's level (the cell on the street's ground) is layer 1, the
+ * ground layer 0; not turned. A hanging lantern (snowy lamp posts) has nothing under it to stand on, and a wall torch is
+ * no item (a design is billed by its blocks' items): a torch stands on the block either hung from instead, a layer up.
+ */
+export function decorToDesign(piece: Piece, biome: string): Design {
+  const { width: W, height: H, depth: D } = piece;
+  const name = piece.path.split('/').pop()!;
+  const bottom = piece.jigsaws.find((j) => j.name === 'minecraft:bottom' && j.facing === 'down');
+  if (!bottom) throw new Error('no bottom jigsaw facing down');
+  const cells = piece.cells.slice();
+  for (const j of piece.jigsaws) cells[(j.y * D + j.z) * W + j.x] = j.finalState === 'structure_void' ? null : j.finalState;
+  const torches: Array<[number, number, number]> = [];
+  for (let y = 0; y < H; y++)
+    for (let z = 0; z < D; z++)
+      for (let x = 0; x < W; x++) {
+        const s = cells[(y * D + z) * W + x];
+        const hanging = base(s) === 'lantern' && props(s!).hanging === 'true';
+        const wall = base(s) === 'wall_torch' ? STEP[props(s!).facing] : undefined;
+        if (!hanging && !wall) continue;
+        cells[(y * D + z) * W + x] = 'air';
+        // (the block it hangs from: above a lantern; behind a wall torch, which faces away from its wall)
+        const [sx, sy, sz] = hanging ? [x, y + 1, z] : [x - wall![0], y, z - wall![1]];
+        const support = sx >= 0 && sz >= 0 && sx < W && sz < D && sy < H ? cells[(sy * D + sz) * W + sx] : null;
+        if (support && !/^(air|cave_air|structure_void)$/.test(base(support)) && !torches.some(([tx, ty, tz]) => tx === sx && ty === sy + 1 && tz === sz)) torches.push([sx, sy + 1, sz]);
+      }
+  const H2 = Math.max(H, ...torches.map(([, y]) => y + 1));
+  const raw: Array<string | null> = new Array(W * H2 * D).fill(null);
+  cells.forEach((c, k) => (raw[k] = c));
+  for (const [x, y, z] of torches) if (!raw[(y * D + z) * W + x] || base(raw[(y * D + z) * W + x]) === 'air') raw[(y * D + z) * W + x] = 'torch';
+  return convert({ ...piece, height: H2, cells: raw }, raw, biome, bottom.y, 0, name, `vanilla ${name} (${biome}), a street decoration`, decorSub).design;
+}
+
+/** A yard's blocks (R1): soil, farmland, paths, piled snow and a frozen channel left as the ground is (a raised bed keeps
+ *  the plot's own ground: nothing to gather that a village does not), the rest as substitute. */
+const yardSub = (n: string, biome: string, wood: string) => (GROUND.test(n) || /^(dirt_path|snow_block|ice|packed_ice)$/.test(n) ? '_' : substitute(n, biome, wood));
+
+/**
+ * A doorless piece (an animal pen, a farm: pieceToDesign refuses it, "no door") as a yard design (R1): its entrance
+ * jigsaw's level is layer 1 and the ground layer 0, turned so the way in faces south. Throws without an entrance or when
+ * the piece holds a door (a house the importer refused for another reason is no yard).
+ */
+export function yardToDesign(piece: Piece, biome: string): Design {
+  const { width: W, depth: D } = piece;
+  const name = piece.path.split('/').pop()!;
+  const entrance = entranceOf(piece);
+  if (!entrance || !STEP[entrance.facing]) throw new Error('no entrance jigsaw facing a side');
+  if (piece.cells.some((c) => /_door$/.test(base(c)))) throw new Error('it has a door: a house, not a yard');
+  const raw = piece.cells.slice();
+  for (const j of piece.jigsaws) raw[(j.y * D + j.z) * W + j.x] = j.finalState === 'structure_void' ? null : j.finalState;
+  return convert(piece, raw, biome, entrance.y, TURNS[entrance.facing], name, `vanilla ${name} (${biome}), a yard, its way in south`, yardSub).design;
+}
+
+// ---------------------------------------------------------------------------------------------
 // A biome's library: the pieces a village there builds from (V2.3)
 // ---------------------------------------------------------------------------------------------
 
@@ -479,9 +603,11 @@ const libraries = new Map<string, VanillaLibrary>();
 /**
  * A village biome's pieces that pass `accept` (the caller's survival checks: bill, budget, materials), at most `small`
  * small houses, `other` other houses and one landmark (a library or temple), and its first passing meeting point without
- * water. Read from the jar once per biome.
+ * water. Read from the jar once per biome. With R1 (VANILLA_ALL), every dwelling that passes (small, medium and big
+ * houses: the medium and big ones within the larger home's budget the world's `accept` allows) and the other caps as
+ * before (the public works pool has the rest).
  */
-export function vanillaLibrary(biome: string, accept: (d: Design, centre: boolean) => boolean, jar = DEFAULT_JAR, small = 4, other = 2): VanillaLibrary {
+export function vanillaLibrary(biome: string, accept: (d: Design, centre: boolean) => boolean, jar = DEFAULT_JAR, small = VANILLA_ALL ? Infinity : 4, other = 2): VanillaLibrary {
   const key = `${biome}|${jar}`;
   const cached = libraries.get(key);
   if (cached) return cached;
@@ -490,7 +616,7 @@ export function vanillaLibrary(biome: string, accept: (d: Design, centre: boolea
   let smalls = 0, others = 0, landmarks = 0;
   for (const path of listPieces(jar, biome, 'houses')) {
     const name = path.split('/').pop()!;
-    const kind = /small_house/.test(name) ? 'small' : landmark.test(name) ? 'landmark' : 'other';
+    const kind = /small_house/.test(name) || (VANILLA_ALL && /_(medium|big)_house_\d+$/.test(name)) ? 'small' : landmark.test(name) ? 'landmark' : 'other';
     if ((kind === 'small' && smalls >= small) || (kind === 'other' && others >= other) || (kind === 'landmark' && landmarks >= 1)) continue;
     let d: Design;
     try {

@@ -5,7 +5,7 @@
  * neighbourhood's first on (ids are registry-wide and rising), so the claim gates need no new field. No model call decides
  * any of it. World-independent: the world's tick decides (MineflayerWorld.growTick), a chore lays out (lay_out_houses).
  */
-import { HOUSE_UNITS } from './designs';
+import { HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, isLargeHome } from './designs';
 import { MINING_HUT, STORAGE_HUT } from './huts';
 import { doorOf, placeFarm, placeLamps, planStreets } from './streetPlan';
 import type { Area, Design, Task, Village } from './village';
@@ -58,6 +58,9 @@ export function isGrowTask(v: Village, t: Task): boolean {
  * already made), then library order, so siblings take turns. Candidates: the biome's vanilla small houses (a street
  * village whose world has the library; picked ones are copied into the library, nothing is deleted) and the dwellings some
  * layout already used, 9x9 or smaller and within a house's budget (`units`, when the world can say: L6). Empty when none.
+ * With R1 (VANILLA_ALL): every vanilla dwelling of the library (medium and big houses too), used vanilla dwellings up to
+ * 13x13 and HOUSE_UNITS_LARGE, and at most one larger home a batch (plan_layout lays out one building over HOUSE_UNITS a
+ * layout).
  */
 export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[]): string[] {
   const cands: Design[] = [];
@@ -66,17 +69,26 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
   };
   // (`only`: a voted style's houses and none else, whatever the plan: spec_vote1 2)
   if (only) for (const d of only) add(d);
-  if (lib && v.plan === 'street' && !only) for (const d of lib) if (SMALL_VANILLA.test(d.name)) add(d);
+  // (R1: a vanilla dwelling of any size is a home; larger ones may be up to 13 across and HOUSE_UNITS_LARGE)
+  const vanillaHome = (d: Design) => (VANILLA_ALL ? VANILLA_PIECE.test(d.name) && isDwelling(d.name) : SMALL_VANILLA.test(d.name));
+  const roomy = VANILLA_ALL ? (d: Design) => VANILLA_PIECE.test(d.name) : () => false;
+  if (lib && v.plan === 'street' && !only) for (const d of lib) if (vanillaHome(d) && (!VANILLA_ALL || (d.width <= 13 && d.depth <= 13))) add(d);
   const used = new Set((v.layouts ?? []).flatMap((l) => l.buildings));
   if (!only)
     for (const d of Object.values(v.designs))
-      if (used.has(d.name) && isDwelling(d.name) && d.width <= 9 && d.depth <= 9 && (!VANILLA_PIECE.test(d.name) || SMALL_VANILLA.test(d.name))
-        && (!units || units(d) <= HOUSE_UNITS)) add(d);
+      if (used.has(d.name) && isDwelling(d.name) && d.width <= (roomy(d) ? 13 : 9) && d.depth <= (roomy(d) ? 13 : 9) && (!VANILLA_PIECE.test(d.name) || vanillaHome(d))
+        && (!units || units(d) <= (roomy(d) ? HOUSE_UNITS_LARGE : HOUSE_UNITS))) add(d);
   if (!cands.length || n < 1) return [];
   const built = new Map(cands.map((d) => [d.name, v.tasks.filter((t) => /^Build /.test(t.title) && t.detail.startsWith(`build_design "${d.name}"`)).length]));
+  // (R1: which candidates are larger homes, by their bill when the world can say, else by name)
+  const big = new Set(VANILLA_ALL ? cands.filter((d) => isLargeHome(d.name, units?.(d))).map((d) => d.name) : []);
   const out: string[] = [];
+  let bigs = 0;
   for (let i = 0; i < n; i++) {
-    const d = cands.reduce((b, c) => (built.get(c.name)! < built.get(b.name)! ? c : b));
+    const pool = bigs ? cands.filter((c) => !big.has(c.name)) : cands;
+    if (!pool.length) break;
+    const d = pool.reduce((b, c) => (built.get(c.name)! < built.get(b.name)! ? c : b));
+    if (big.has(d.name)) bigs++;
     built.set(d.name, built.get(d.name)! + 1);
     out.push(d.name);
   }
@@ -89,9 +101,11 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
  * lamps or more; else one house fewer (4 small houses need 23: at 19-21 they fit with no lamp cell, the scratch's count).
  * With `slots` 0 or more (s30's food step, D2): every house of `designs` with a wheat field and that many farm slots, by
  * postLayout's own order (the field on the pad, 2 lamps or more keeping off it, the slots off the field, each other and
- * the lamps: runs/2026-10-15/s30/scratch/food_pad.mts), sizes 17 to 33, no house fewer.
+ * the lamps: runs/2026-10-15/s30/scratch/food_pad.mts), sizes 17 to 33, no house fewer. With R1 (VANILLA_ALL) a batch
+ * holding a house wider than 9 (a larger home, 11-13 across) may take a pad up to the ladder's 31.
  */
 export function padFor(designs: Design[], slots = -1): { size: number; n: number } | null {
+  const max = VANILLA_ALL && designs.some((d) => Math.max(d.width, d.depth) > 9) ? LADDER_MAX : 29;
   if (slots >= 0) {
     const n = designs.length;
     if (!n) return null;
@@ -100,7 +114,7 @@ export function padFor(designs: Design[], slots = -1): { size: number; n: number
   }
   for (let n = designs.length; n >= 1; n--) {
     const items = designs.slice(0, n).map((d) => ({ name: d.name, width: d.width, depth: d.depth, ...doorOf(d) }));
-    for (let size = 17; size <= 29; size++) {
+    for (let size = 17; size <= max; size++) {
       const s = planStreets(0, 0, size, null, items);
       if (!s.unplaced.length && placeLamps(s).length >= 2) return { size, n };
     }

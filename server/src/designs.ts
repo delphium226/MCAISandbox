@@ -31,6 +31,27 @@ export const LANDMARK_UNITS = 300;
 export const HOUSE_WALLS = 9;
 export const LANDMARK_WALLS = 11;
 export const MAX_SMELTS = 32;
+/**
+ * #104's R1 (MC_VANILLA_ALL=on; off by default): the jar's village pieces opened up. Every passing vanilla dwelling is
+ * kept (vanillaLibrary), larger homes pass up to HOUSE_UNITS_LARGE (one a neighbourhood: plan_layout's rule for a
+ * building over HOUSE_UNITS), the importer's door fixes and snow's stand-in (vanillaPieces.ts), vanilla's lamps and
+ * decorations as small works and its pens and farms as doorless yard works (smallWorks.ts).
+ */
+export const VANILLA_ALL = /^(on|1|true)$/i.test(process.env.MC_VANILLA_ALL ?? 'off');
+/** A larger home's budget (R1): vanilla's medium and big houses, and its small houses over HOUSE_UNITS (plains 5, taiga 1, 3
+ *  and 5). A bigger house bills more; nothing is discounted. */
+export const HOUSE_UNITS_LARGE = 230;
+/** A vanilla dwelling by its name (grow.ts isDwelling's rule for vanilla pieces). */
+const VANILLA_DWELLING = /^(plains|desert|savanna|taiga|snowy)_(small|medium|big)_house_\d+$/;
+/** Whether a design is a larger home (R1): a vanilla dwelling that `units` puts over HOUSE_UNITS, or by its name a medium or
+ *  big house when the units are not known. */
+export const isLargeHome = (name: string, units?: number) => VANILLA_DWELLING.test(name) && (units !== undefined ? units > HOUSE_UNITS : /_(medium|big)_house_/.test(name));
+/**
+ * The budget a design passes the survival checks under, by its name: a landmark's, a vanilla dwelling's
+ * HOUSE_UNITS_LARGE with VANILLA_ALL, else a house's. (The world's vanillaLibrary accept should read this in place of
+ * its own `isLandmark ? LANDMARK_UNITS : HOUSE_UNITS` for R1's larger homes to reach the library.)
+ */
+export const houseBudget = (name: string) => (isLandmark(name) ? LANDMARK_UNITS : VANILLA_ALL && VANILLA_DWELLING.test(name) ? HOUSE_UNITS_LARGE : HOUSE_UNITS);
 const LANDMARK_WORDS = /(hall|chapel|church|temple|tower|market|inn|tavern|guildhall|keep|landmark|library|school)$/i;
 /** Whether a design's name names a landmark: a word of it ends in hall, chapel, tower... ("meeting_hall", "watchtower"). */
 export const isLandmark = (name: string) => name.split(/[\s_-]+/).some((w) => LANDMARK_WORDS.test(w));

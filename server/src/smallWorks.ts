@@ -3,8 +3,12 @@
  * others helping: a well, a bench, a market stall... Drawn in code (as the huts are) in the village's wood, each at most
  * 7x7 and 5 layers, from logs, cobblestone and sand and what is crafted or smelted of them, so a member's gathering covers
  * it. World-free: the world finds their spots with smallWorkSpots from the areas it keeps free and builds them with
- * build_design at the centre returned.
+ * build_design at the centre returned. With R1 (#104, MC_VANILLA_ALL), vanilla's lamp and decoration pieces join them,
+ * read from the jar in the village's wood (VANILLA_WORKS), and its pens and farms make a pool of yard works (YARD_WORKS).
  */
+import { VANILLA_ALL } from './designs';
+import { vanillaJar } from './vanillaData';
+import { VILLAGE_BIOMES, decorToDesign, listDecorPieces, listPieces, pieceToDesign, readPiece, yardToDesign } from './vanillaPieces';
 import type { Area, Design } from './village';
 
 export interface SmallWorkKind {
@@ -16,6 +20,8 @@ export interface SmallWorkKind {
   forWhat: string;
   /** Its design in a wood kind ("oak", "spruce"...). */
   make: (wood: string) => Design;
+  /** R1's vanilla kinds: the village biome whose piece it is (a menu may keep them to villages of that style). */
+  biome?: string;
 }
 
 /** A design name's prefix for small works. */
@@ -192,6 +198,102 @@ export const GARDEN_WORKS: SmallWorkKind[] = [
 ];
 export const isGarden = (kind: string) => GARDEN_WORKS.some((k) => k.kind === kind);
 
+// ---- R1 (#104, MC_VANILLA_ALL): vanilla's lamps and decorations as small works, its pens and farms as yard works ----
+
+const WOODS = /^(stripped_)?(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_([a-z_]+)(\[.*\])?$/;
+
+/** A block of any wood in the wood kind `w` (stairs, fences, logs, stripped wood...); other blocks as they are. */
+function inWoodKind(block: string, w: string): string {
+  const m = WOODS.exec(block);
+  if (!m) return block;
+  const [, stripped = '', , part, states = ''] = m;
+  const nether = w === 'crimson' || w === 'warped';
+  const name = part === 'log' ? logOf(w) : part === 'wood' ? (nether ? `${w}_hyphae` : w === 'bamboo' ? 'bamboo_block' : `${w}_wood`) : `${w}_${part}`;
+  return `${stripped}${name}${states}`;
+}
+
+/** A vanilla piece's design as a small work's kind: its shape and blocks, its wood the village's. */
+function vanillaKind(kind: string, words: string, forWhat: string, biome: string, src: Design): SmallWorkKind {
+  const palette = (w: string) => Object.fromEntries(Object.entries(src.palette).map(([c, b]) => [c, inWoodKind(b, w)]));
+  return { kind, words, forWhat, biome, make: (w) => design(kind, w, src.description, palette(w), src.layers) };
+}
+
+/** What each lamp and decoration piece is (the menu's words) and what for. */
+const DECOR_WORDS: Record<string, [string, string]> = {
+  plains_lamp_1: ['plains lamp post', 'lighting the street with four torches, as plains villages do'],
+  desert_lamp_1: ['desert lamp post', 'lighting the street from a sandstone post, as desert villages do'],
+  savanna_lamp_post_01: ['savanna torch post', 'lighting the street, as savanna villages do'],
+  snowy_lamp_post_01: ['snowy lamp post with two arms', 'lighting the street, as snowy villages do'],
+  snowy_lamp_post_02: ['snowy lamp post with one arm', 'lighting the street, as snowy villages do'],
+  snowy_lamp_post_03: ['snowy lamp post with four arms', 'lighting a crossing, as snowy villages do'],
+  taiga_lamp_post_1: ['taiga torch post', 'lighting the street from a stone post, as taiga villages do'],
+  taiga_decoration_1: ['trapdoor planter', 'a bed for flowers, as taiga villages have'],
+  taiga_decoration_2: ['stone seat', 'somewhere to sit, as taiga villages have'],
+  taiga_decoration_3: ['stone marker', 'marking the way, as taiga villages do'],
+  taiga_decoration_4: ['stone steps', 'a corner of the village in taiga style'],
+  taiga_decoration_5: ['campfire', 'warmth and a place to gather'],
+  taiga_decoration_6: ['campfire ring', 'warmth and a place to gather, as taiga villages have'],
+};
+
+/** The most a yard may span: a green (15 across) less the ring smallWorkSpots keeps free round a work. */
+export const YARD_MAX = 13;
+/** The fewest blocks a yard keeps (a savanna farm all of soil and water is nothing once its ground is left as it is). */
+const YARD_MIN_BLOCKS = 8;
+
+/**
+ * Blocks an initiative's crew cannot bring yet (it gathers logs, cobblestone and sand): sandstone plans as gathered
+ * sandstone, and a campfire's fuel as coal (mcMaterials). A vanilla kind holding one stays in VANILLA_WORKS, off
+ * SMALL_WORKS, until the world gathers them for initiatives.
+ */
+const CREW_CANNOT = /sandstone|^campfire/;
+export const crewCanBuild = (k: SmallWorkKind) => !Object.values(k.make('oak').palette).some((b) => CREW_CANNOT.test(b));
+
+/** One kind a piece, read from the jar once; none (and a line) when the jar cannot be read. */
+function readKinds(what: string, read: () => SmallWorkKind[]): SmallWorkKind[] {
+  try {
+    return read();
+  } catch (e) {
+    console.warn(`[vanilla] no ${what} from ${vanillaJar()}: ${(e as Error).message.slice(0, 160)}`);
+    return [];
+  }
+}
+
+/** R1: vanilla's 14 lamp and decoration pieces (plains, desert and savanna lamps, three snowy lamps, taiga's lamp and six
+ *  decorations), each in the village's wood; SMALL_WORKS takes those a crew can build (crewCanBuild). */
+export const VANILLA_WORKS: SmallWorkKind[] = !VANILLA_ALL ? [] : readKinds('lamps and decorations', () => listDecorPieces(vanillaJar()).map((path) => {
+  const [biome, name] = path.split('/');
+  const [words, forWhat] = DECOR_WORDS[name] ?? [name.replace(/_\d+$/, '').replace(/_/g, ' '), `a corner of the village in ${biome} style`];
+  return vanillaKind(name, words, forWhat, biome, decorToDesign(readPiece(path, vanillaJar()), biome));
+}));
+
+/**
+ * R1: the animal pens, farms and plains' accessory of the biomes' houses/ folders (the importer refuses them for having no
+ * door), as doorless yard works up to YARD_MAX across, each in the village's wood.
+ * Not on the chore menu: SMALL_WORKS leaves them out (a pool for the world to offer, by the village's style).
+ */
+export const YARD_WORKS: SmallWorkKind[] = !VANILLA_ALL ? [] : readKinds('yards', () => VILLAGE_BIOMES.flatMap((biome) => listPieces(vanillaJar(), biome, 'houses').flatMap((path) => {
+  const piece = readPiece(path, vanillaJar());
+  try {
+    pieceToDesign(piece, biome);
+    return [];
+  } catch (e) {
+    if (!/no door/.test((e as Error).message)) return [];
+  }
+  // (pens, farms and plains' accessory: the doorless temples, forges and market squares are not yards)
+  if (!/animal_pen|farm|accessory/.test(path)) return [];
+  let d: Design;
+  try {
+    d = yardToDesign(piece, biome);
+  } catch {
+    return [];
+  }
+  if (d.width > YARD_MAX || d.depth > YARD_MAX || d.blocks < YARD_MIN_BLOCKS) return [];
+  const name = d.name;
+  const what = name.replace(/_\d+$/, '').replace(/_/g, ' ');
+  const forWhat = /pen/.test(name) ? 'keeping animals in a pen' : /farm/.test(name) ? "growing crops in vanilla's own beds" : `an open-air corner of a ${biome} village`;
+  return [vanillaKind(name, what, forWhat, biome, d)];
+})));
+
 export const SMALL_WORKS: SmallWorkKind[] = [
   { kind: 'well', words: 'well', forWhat: 'a meeting place in the village', make: well },
   { kind: 'bench', words: 'bench', forWhat: 'somewhere to sit and rest', make: bench },
@@ -202,6 +304,7 @@ export const SMALL_WORKS: SmallWorkKind[] = [
   { kind: 'gazebo', words: 'gazebo', forWhat: 'shade and gatherings', make: gazebo },
   { kind: 'signpost', words: 'signpost', forWhat: 'showing the way', make: signpost },
   ...(GARDENS ? GARDEN_WORKS : []),
+  ...VANILLA_WORKS.filter(crewCanBuild),
 ];
 
 export interface SpotInput {
