@@ -21,6 +21,20 @@ const LAYERS = [
   Array(9).fill('PPPPPPP'),
 ];
 
+/**
+ * The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof,
+ * chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the
+ * torches' and the sign's support: a wall torch on a post, the name sign over the entrance on the roof's edge), so members
+ * reach the chests from outside as well as from the aisle (#77: a member walled into a pocket under the hut).
+ */
+export const OPEN_STORAGE = /^(on|1|true)$/i.test(process.env.MC_OPEN_STORAGE ?? 'off');
+const OPEN_LAYERS = [
+  Array(9).fill('CCCCCCC'),
+  ['L.....L', '._._._.', '.......', '._..._.', 'L.T.F.L', '._..._.', '.......', '._..._.', 'L.....L'],
+  ['L.....L', ...Array(3).fill('.......'), 'L.....L', ...Array(3).fill('.......'), 'L.....L'],
+  Array(9).fill('PPPPPPP'),
+];
+
 /** Chest spots in hut cells (x west to east, z north to south), in the order chests are put down: from the door inward. */
 export const STORAGE_HUT_SPOTS: Array<[number, number]> = [[1, 7], [5, 7], [1, 5], [5, 5], [1, 3], [5, 3], [1, 1], [5, 1], [3, 1]];
 
@@ -37,13 +51,14 @@ export const STORAGE_HUT_STATIONS = { crafting_table: [2, 4], furnace: [4, 4] } 
 /** Where to stand to put the first chest down: the aisle cell beside spot 1. */
 export const STORAGE_HUT_STAND: [number, number] = [2, 7];
 
-export function storageHutDesign(): Design {
+export function storageHutDesign(open = OPEN_STORAGE): Design {
   const palette = { C: 'cobblestone', P: 'oak_planks', L: 'oak_log', T: 'crafting_table', F: 'furnace' };
-  const blocks = LAYERS.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
+  const layers = open ? OPEN_LAYERS : LAYERS;
+  const blocks = layers.flat().reduce((s, row) => s + [...row].filter((c) => c !== '.' && c !== '_').length, 0);
   return {
     name: STORAGE_HUT,
-    description: 'the village storage hut, built by code: plan_layout adds it by itself (not a design to build or copy)',
-    palette, layers: LAYERS.map((l) => [...l]), width: 7, depth: 9, height: LAYERS.length, blocks, by: 'code',
+    description: `the village storage hut${open ? ', open-sided' : ''}, built by code: plan_layout adds it by itself (not a design to build or copy)`,
+    palette, layers: layers.map((l) => [...l]), width: 7, depth: 9, height: layers.length, blocks, by: 'code',
   };
 }
 

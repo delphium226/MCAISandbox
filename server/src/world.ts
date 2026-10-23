@@ -375,6 +375,8 @@ export interface ChoiceMeta {
   reaskOf?: string;
   /** The exact user prompt (kept for the panel's drill-down only, not logged). */
   prompt?: string;
+  /** MC_CHOOSE_BACKUP: the first pick, taken, whose second this ran. */
+  backupOf?: string;
 }
 
 export interface ChoiceStatus {

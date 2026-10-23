@@ -20,6 +20,12 @@
  */
 import { LLM_LIMITS, cloudSlots, limited } from './llmLimits';
 import { IRON_AGE } from './ladderFlags';
+/** MC_BAN_SCOPE=member: bans are the failing member's own, short (BAN_MEMBER_MS), never village-wide (F304). */
+/** MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a
+ *  re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model). */
+export const CHOOSE_BACKUP = /^(on|1|true|yes)$/i.test(process.env.MC_CHOOSE_BACKUP ?? '');
+export const BAN_MEMBER = /^member$/i.test(process.env.MC_BAN_SCOPE ?? '');
+const BAN_MEMBER_MS = 20 * 60000 / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
 /** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
 const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
 const PACE_BURST = 3;
@@ -229,6 +235,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
       properties: {
         reason: { type: 'string', maxLength: 200, description: 'Why, in one sentence.' },
         choice: { type: 'string', enum: shown.map((o) => o.name), description: 'The exact name of one option.' },
+        ...(CHOOSE_BACKUP && shown.length > 1 ? { backup: { type: 'string', enum: shown.map((o) => o.name), description: 'Optional: the exact name of a second option, taken if another member has taken your first by then.' } } : {}),
         // (G1: what the model keeps, read from the same call)
         ...(mem ? {
           remember: { type: 'string', maxLength: 160, description: 'Optional: one thing worth remembering on later days (a lesson, a plan, something about the village or a member), in your own words; leave out what this prompt already shows.' },
@@ -404,6 +411,8 @@ export interface ChooseResult {
   acts?: ActFields;
   /** G3: the share's answer (none, levy or all), from a valid reply whose prompt asked it. */
   share?: 'none' | 'levy' | 'all';
+  /** MC_CHOOSE_BACKUP: the second option's id, from a valid reply, when it names one other than the first. */
+  backup?: string;
 }
 
 /** The fallback reason of a failed call (spec 5.1 step 8). */
@@ -528,6 +537,13 @@ export async function choose(req: ChooseRequest): Promise<ChooseResult> {
       const raw = r.reply.calls.length ? JSON.stringify(r.reply.calls) : r.reply.text;
       console.log(`[choose] ${req.agent}: invalid reply (${c.invalid}): ${String(raw).replace(/\s+/g, ' ').slice(0, 200)}`);
       return { ...out, why: 'invalid' };
+    }
+    // (MC_CHOOSE_BACKUP: the second option, by name as the first is matched)
+    if (CHOOSE_BACKUP) {
+      const call = r.reply.calls.find((x) => x.name === 'choose') ?? r.reply.calls[0];
+      const raw = ((call?.input ?? {}) as Record<string, unknown>).backup;
+      const b = typeof raw === 'string' && raw.trim() ? match(raw, shown) : null;
+      if (b && !('invalid' in b) && b.id !== c.id) out.backup = b.id;
     }
     return { ...out, id: c.id, reason: c.reason };
   } catch (err) {
@@ -833,8 +849,15 @@ export class ChoiceStats {
    * parts, unrelated to each other, S.9, B.4). null: not banned; `scope` 'kind' when the kind's ban lasts at least as long
    * as the id's.
    */
-  banned(village: string, kind: ChoiceKind, id: string, now: number): { until: number; scope: 'id' | 'kind' } | null {
+  banned(village: string, kind: ChoiceKind, id: string, now: number, agent?: string): { until: number; scope: 'id' | 'kind' } | null {
     if (kind === 'explore' || kind === 'eat') return null;
+    // (MC_BAN_SCOPE=member, All1's F304: a ban is the failing member's alone, two of its own failures of the option within
+    // BAN_MEMBER_MS, for BAN_MEMBER_MS; never the village's: one member's dig without a pickaxe kept iron off 851 of 908 menus)
+    if (BAN_MEMBER) {
+      if (!agent) return null;
+      const mine = this.list(village).filter((e) => e.agent === agent && e.kind === kind && e.id === id && !e.ok && !e.cut && !e.contention && e.at > now - BAN_MEMBER_MS && e.at <= now).map((e) => e.at).sort((a, b) => a - b);
+      return mine.length >= 2 ? (mine[mine.length - 1] + BAN_MEMBER_MS > now ? { until: mine[mine.length - 1] + BAN_MEMBER_MS, scope: 'id' } : null) : null;
+    }
     // (G8, MC_IRON_AGE: dig, smelt and forge are separate works; a miner's failures never ban the smiths, staged I3)
     const perId = kind === 'make' || kind === 'gather' || kind === 'light' || kind === 'furnish' || kind === 'initiate' || kind === 'help' || kind === 'activity' || (IRON_AGE && kind === 'iron');
     const fails = this.list(village).filter((e) => e.kind === kind && !e.ok && !e.cut && !e.contention && e.at > now - 2 * HOUR && e.at <= now);

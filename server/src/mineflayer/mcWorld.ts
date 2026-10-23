@@ -19,12 +19,12 @@ import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
-import { mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
+import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
-import { CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
@@ -951,7 +951,8 @@ export class MineflayerWorld implements WorldAdapter {
     const why: string[] = [];
     let added = 0;
     const slot = Array.from({ length: IRON_MINERS }, (_, i) => i + 1).find((q) => !busy.has(`irondig:${q}`));
-    if (m.iron?.finished) why.push('iron level finished');
+    // (#113: a level ended with no way down is offered again once its back-off is over: ironDone)
+    if (ironDone(m, now)) why.push('iron level finished');
     else if (slot === undefined) why.push('every leg busy');
     else if (backing('dig')) why.push('digging backs off');
     else {
@@ -4138,6 +4139,7 @@ export class MineflayerWorld implements WorldAdapter {
       ...(!shown && meta?.shown?.length ? { shownIds: meta.shown } : {}),
       ...(meta?.modelChose ? { modelChose: meta.modelChose, modelReason: meta.modelReason ?? '' } : {}),
       ...(meta?.reaskOf ? { reaskOf: meta.reaskOf } : {}),
+      ...(meta?.backupOf ? { backupOf: meta.backupOf } : {}),
       ...(meta?.decisionId && meta.shown?.length ? { seed: `${meta.decisionId}|${worker.name}` } : {}),
       ...(meta?.model ? { model: meta.model } : {}), ...(meta?.latencyMs !== undefined ? { latencyMs: meta.latencyMs } : {}),
       ...(meta?.waitMs !== undefined ? { waitMs: meta.waitMs } : {}), ...(meta?.queueWaitMs !== undefined ? { queueWaitMs: meta.queueWaitMs } : {}),
@@ -4385,6 +4387,8 @@ export class MineflayerWorld implements WorldAdapter {
   private exploreYields = new Map<string, number[]>();
   /** Bans already logged, by "village|id", with their end. */
   private bansLogged = new Map<string, number>();
+  /** MC_BAN_SCOPE=member: a member's missing tool after a failed dig (the fix it is shown), until when. */
+  private needTool = new Map<string, { item: string; until: number }>();
   /** The last [choice-none] line by village: its reasons and when. */
   private noneAt = new Map<string, { sig: string; at: number }>();
   /** The village facts of the latest sweep or menu, by village (C10: one per sweep time). */
@@ -4444,7 +4448,7 @@ export class MineflayerWorld implements WorldAdapter {
    * a fallback) the fresh menu's fixed pick. Inside a sweep the menu is the sweep's (its busy keys); after a reply, an
    * expiry or an API call it holds what heldKeys' async mode holds. Never throws.
    */
-  private runPick(agent: WorldAgent, id: string | null, meta: ChoiceMeta, reask?: (fresh: ChoiceMenu) => boolean): { ok: true; key: string } | { ok: false; why: string } {
+  private runPick(agent: WorldAgent, id: string | null, meta: ChoiceMeta, reask?: (fresh: ChoiceMenu) => boolean, backup?: string): { ok: true; key: string } | { ok: false; why: string } {
     try {
       const a = this.agents.get(agent.name.toLowerCase());
       const v = a?.village();
@@ -4467,6 +4471,14 @@ export class MineflayerWorld implements WorldAdapter {
       // (checked against the guarded options before the trim: one the trim would cut now is still feasible, spec 6)
       let opt = id ? fresh.feasible.find((o) => o.id === id) : undefined;
       let m = meta;
+      // (MC_CHOOSE_BACKUP: a first pick taken meanwhile gives way to the model's own second, before any re-ask)
+      if (id && !opt && backup) {
+        const b = fresh.feasible.find((o) => o.id === backup);
+        if (b) {
+          opt = b;
+          m = { ...meta, reason: `${meta.reason} (its second choice: ${id} was taken)`, backupOf: id };
+        }
+      }
       // (s40, F253: a pick taken meanwhile is asked once more on the fresh menu, the plan's E.4 rule; Night40 lost 103 of
       // 149 model decisions to the fixed pick, several members shown one single-holder option at once)
       if (id && !opt && reask && fresh.menu.options.length > 1 && reask(fresh.menu)) return drop('reask');
@@ -5939,6 +5951,13 @@ export class MineflayerWorld implements WorldAdapter {
         o.cf = characterFactor({ mw, fw, dw });
       }
     }
+    // (MC_BAN_SCOPE=member: a member whose dig failed for want of a pickaxe sees the fix marked: making stone pickaxes, or the
+    // cobblestone for one when that cannot be made)
+    const need = BAN_MEMBER ? this.needTool.get(a.name.toLowerCase()) : undefined;
+    if (need && need.until > now) {
+      const fix = out.find((o) => o.id === 'make:stone_pickaxe') ?? out.find((o) => o.id === 'gather:cobblestone');
+      if (fix) fix.need = fix.id === 'make:stone_pickaxe' ? 'you need a pickaxe to dig for iron' : 'cobblestone for the pickaxe you need to dig for iron';
+    }
     const guarded: Array<{ id: string; why: string }> = guards ? starved.map((o) => ({ id: o.id, why: 'hungry' })) : [];
     let options = out;
     // (`feasible`: guarded but not trimmed; the trim only presents the menu, so a pick it would cut now is still runnable)
@@ -5946,7 +5965,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (guards) {
       options = [];
       for (const o of out) {
-        const ban = this.choiceStats.banned(v.name, o.kind, o.id, now);
+        const ban = this.choiceStats.banned(v.name, o.kind, o.id, now, a.name);
         if (ban) {
           guarded.push({ id: o.id, why: `banned until ${clock(ban.until)}` });
           continue;
@@ -7068,7 +7087,7 @@ export class MineflayerWorld implements WorldAdapter {
           this.submitDecision(v, a, fresh, { decisionId: choiceId(v.name), spec: call.spec }, p.decisionId);
           return true;
         };
-        this.runPick(a, r.id, meta, reask);
+        this.runPick(a, r.id, meta, reask, r.backup);
         // (G3: the share's answer settles the member's pending share, whatever the pick did)
         if (r.share && RULES.on && OWN.on) this.settleShare(v, a.name, r.share, p.decisionId);
         if (ACTS.on && r.id) {
@@ -7205,13 +7224,15 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (every trip that was not cut, failed ones too: spec 7.5's "the last 2 trips found nothing new")
     if (kind === 'explore' && known !== undefined && !cut) this.exploreYields.set(c.village, [...(this.exploreYields.get(c.village) ?? []), known].slice(-10));
+    // (MC_BAN_SCOPE=member: a dig that failed for want of a pickaxe shows its member the fix for 20 minutes)
+    if (BAN_MEMBER && !ok && !cut && kind === 'iron' && /no (stone |iron )?pickaxe/i.test(message)) this.needTool.set(c.agent.toLowerCase(), { item: 'stone_pickaxe', until: now + 20 * 60000 });
     // Bans apply only in model mode (D5): a fixed run logs none
     const agent = this.agents.get(c.agent.toLowerCase());
     if (!ok && !cut && !contention && (agent ? this.chooseMode(agent) : CHOOSE.mode) === 'model') {
-      const ban = this.choiceStats.banned(c.village, kind, id, now);
+      const ban = this.choiceStats.banned(c.village, kind, id, now, c.agent);
       // (a ban of the whole kind is logged once, under the kind's name)
       const name = ban?.scope === 'kind' ? kind : id;
-      const k = `${c.village}|${name}`;
+      const k = `${c.village}|${name}${BAN_MEMBER ? `|${c.agent}` : ''}`;
       if (ban && this.bansLogged.get(k) !== ban.until) {
         this.bansLogged.set(k, ban.until);
         logChoiceBan({ village: c.village, t: now, id: name, scope: ban.scope, until: ban.until, message });

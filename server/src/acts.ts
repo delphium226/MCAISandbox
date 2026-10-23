@@ -194,6 +194,21 @@ export function setSpeaker(fn: (village: string, agent: string, text: string) =>
   speaker = fn;
 }
 
+/** MC_ACT_HINTS=on (#114, All1: 75 requests for axes nobody makes): a refused request is told what is close to it on offer,
+ *  and that a tool nobody makes is not made here. */
+const ACT_HINTS = /^(on|1|true|yes)$/i.test(process.env.MC_ACT_HINTS ?? '');
+const NOT_MADE = /\b(axe|sword|shovel|hoe|pickaxe|helmet|chestplate|boots|leggings|bow)s?\b/;
+export function notOnOffer(w: Pick<ActsWorld, 'items'>, asked: string): string {
+  const words = (t: string) => t.toLowerCase().replace(/[_:]/g, ' ').split(/[^a-z]+/).filter((x) => x.length > 2).map((x) => x.replace(/e?s$/, ''));
+  const want = new Set(words(asked));
+  const items = [...new Set(w.items.values())];
+  const close = items.map((x) => ({ x, n: words(x).filter((t) => want.has(t)).length })).filter((q) => q.n > 0).sort((p, q) => q.n - p.n).map((q) => q.x);
+  const tool = NOT_MADE.exec(asked.toLowerCase())?.[1];
+  const madeTool = tool && items.some((x) => new RegExp(`\\b${tool}`).test(x));
+  const list = (close.length ? close : items).slice(0, 5);
+  return `${tool && !madeTool ? `; nobody makes ${tool}s here` : ''}${list.length ? `; you may ask for ${close.length ? 'e.g.' : 'items such as'} ${list.join(', ')}` : ''}`;
+}
+
 const near = (w: ActsWorld, a: string, range: number) => {
   const p = w.at.get(a);
   if (!p) return [] as string[];
@@ -455,7 +470,7 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
         const what = projectOf(w, fields.act_project) ?? itemOf(w, fields.act_item) ?? projectOf(w, fields.act_item) ?? itemOf(w, fields.act_project);
         const key = what ? sig(agent, 'request', to ?? '', what.option) : '';
         if (!to) refuse(fields.act_to ? `${fields.act_to} is not a member here` : 'a request needs act_to: a member or anyone', false);
-        else if (!what) refuse(`"${fields.act_item ?? fields.act_project ?? ''}" is not an item or project on offer now`, false);
+        else if (!what) refuse(`"${fields.act_item ?? fields.act_project ?? ''}" is not an item or project on offer now${ACT_HINTS ? notOnOffer(w, String(fields.act_item ?? fields.act_project ?? '')) : ''}`, false);
         else if (looped(key)) refuse('you made the same request within the hour');
         else {
           const v = what.kind === 'item' && w.verify ? w.verify({ type: 'stock', option: what.option }) : true;

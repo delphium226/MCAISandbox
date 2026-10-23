@@ -57,6 +57,8 @@ export interface ChoiceRecord {
   modelReason?: string;
   /** A re-ask (s40): the first decision's id, whose pick was taken meanwhile (its record is a 'reask' drop). */
   reaskOf?: string;
+  /** MC_CHOOSE_BACKUP: the taken first pick whose second this is. */
+  backupOf?: string;
   /** `${decisionId}|${agent}`: the shuffle's seed. */
   seed?: string;
   model?: string;

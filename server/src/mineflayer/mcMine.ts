@@ -1122,6 +1122,38 @@ const short = (s: string) => (s.length > 100 ? `${s.slice(0, 97)}...` : s);
 const IRON_Y = 18, IRON_MAX_STEPS = 60, IRON_SETTLE_Y = 40, IRON_LEGS = 6, IRON_CELLS = 320;
 /** Stairs tried at most (minevale3's ground is full of caves at y 40-45: three met them in VanI3). */
 const IRON_TRIES = 5;
+/** MC_IRON_AGE (#113): fresh stairs starts per round (stopped or unreachable ones), and the wait before a level with no
+ *  way down is tried again: All1's first level ended "no way down" with nothing dug, and the iron chain with it. */
+const IRON_AGE_TRIES = 8, IRON_RETRY_MS = 30 * 60000;
+/** A level's MC_IRON_AGE retry: when a level finished with no way down may be tried again, and the stairs given up
+ *  before this round (`abandoned` keeps them all, so no start is tried twice; each round has IRON_AGE_TRIES). */
+type IronRetry = IronLevel & { retryAt?: number; triesFrom?: number };
+/** Stairs starts tried this round. */
+const triesNow = (i: IronLevel) => (i.abandoned?.length ?? 0) - ((i as IronRetry).triesFrom ?? 0);
+const triesMax = () => (IRON_AGE ? IRON_AGE_TRIES : IRON_TRIES);
+
+/**
+ * Whether the iron level is finished for now (mcWorld's menus): `finished`, unless (MC_IRON_AGE) it ended with no way
+ * down and its retry time has come; the next trip then starts a fresh round (ironRetry).
+ */
+export function ironDone(m: Mine | undefined, now = Date.now()): boolean {
+  const i = m?.iron as IronRetry | undefined;
+  return !!i?.finished && !(IRON_AGE && i.retryAt !== undefined && i.retryAt <= now);
+}
+
+/** MC_IRON_AGE: a level finished with no way down whose retry time has come is open again, with a fresh round of starts. */
+export function ironRetry(v: Village, m: Mine, i: IronLevel, reg: { note: (v: Village, s: string) => void; save: () => void }, now = Date.now()) {
+  const r = i as IronRetry;
+  if (!IRON_AGE || !r.finished || r.retryAt === undefined || r.retryAt > now) return;
+  console.log(`[mine] ${v.name}: the iron level (${r.finished}) is tried again after its back-off`);
+  delete r.finished;
+  delete r.retryAt;
+  // (starts no bot got to, with nothing dug, may be reached now: forgotten; stairs dug and given up are kept off)
+  r.abandoned = (r.abandoned ?? []).filter((d) => d.steps > 0);
+  r.triesFrom = r.abandoned.length;
+  reg.note(v, 'the iron stairs are tried again: the land or the members may have changed');
+  reg.save();
+}
 /** Deep enough for iron: stairs stopped at or below this make the level there (iron peaks at 12-27). */
 const IRON_GOOD_Y = 28;
 /** The iron and coal a tunnel keeps from its walls and ceiling. */
@@ -1146,7 +1178,7 @@ const HOLD_MS = 5 * 60000;
  * cobblestone mine). With two or three miners the mine turns tunnels off both sides of the bottom step (VanI1), so any
  * dug cell may be the start: a tunnel's or branch's end going on outward. Null when none is clear.
  */
-export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
+export function ironStart(m: Mine, fits?: StairsFit): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
   const last = m.down?.filter((d) => d.level !== undefined).at(-1);
   const b = last ? downColumns(m, last)[last.steps - 1] : stairColumns(m)[m.steps - 1];
   const L = last ? last.level! : m.level!;
@@ -1160,7 +1192,7 @@ export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [num
     dug.push(...legAhead(l, !l.end));
   }
   dug.push(...level);
-  return pickIronStart(b, L, level, dug, m.iron?.abandoned ?? [], m.dir, true);
+  return pickIronStart(b, L, level, dug, m.iron?.abandoned ?? [], m.dir, true, fits);
 }
 
 /**
@@ -1174,7 +1206,8 @@ function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x:
   for (const d of abandoned) dug.push(...ironColumns(d));
   const tried = (st: { x: number; z: number }, dir: [number, number]) => abandoned.some((d) => d.x === st.x && d.z === st.z && d.dir[0] === dir[0] && d.dir[1] === dir[1]);
   // (nor anywhere near where they stopped: the second and third stairs of VanI3 met the first one's cave, 2 blocks over)
-  const stops = abandoned.map((d) => ({ x: d.x + d.dir[0] * Math.max(1, d.steps), z: d.z + d.dir[1] * Math.max(1, d.steps) }));
+  // (MC_IRON_AGE, #113: a start no bot got to says nothing of the ground beyond it: only that start is not tried again)
+  const stops = abandoned.filter((d) => !(IRON_AGE && /^could not get to/.test(d.why))).map((d) => ({ x: d.x + d.dir[0] * Math.max(1, d.steps), z: d.z + d.dir[1] * Math.max(1, d.steps) }));
   const offStops = (st: { x: number; z: number }, dir: [number, number]) => Array.from({ length: 45 }, (_, k) => ({ x: st.x + dir[0] * (k + 1), z: st.z + dir[1] * (k + 1) }))
     .every((c) => stops.every((q) => Math.hypot(q.x - c.x, q.z - c.z) >= 8));
   const [dx, dz] = base;
@@ -1244,7 +1277,11 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
   const old = m.ironPast?.at(-1);
   // (with a bot, MC_IRON_AGE: only starts the world shows fit, down to the level's aim)
   const fits = a && old?.level !== undefined ? stairsFit(a, old.level, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1) : undefined;
-  return old ? ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined) : ironStart(m);
+  if (old) return ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined);
+  // (the first level, MC_IRON_AGE #113: a dug cell of the mine to start from, its first steps solid; All1's starts lay in
+  // branches passed undug, which no bot could reach)
+  const L = m.down?.filter((d) => d.level !== undefined).at(-1)?.level ?? m.level;
+  return ironStart(m, IRON_AGE && a && L !== undefined ? stairsFit(a, L, 4) : undefined);
 }
 
 /**
@@ -1531,10 +1568,11 @@ export function takeIronStairs(village: string, name: string, until: number): bo
 /**
  * MC_IRON_AGE: the current stairs given up when no bot can get to them (I4: a start in a branch passed undug, four trips
  * stuck beside it): kept as abandoned stairs are, and new ones started elsewhere (ironRestart with the world's test), at
- * once when none of it is dug, else on the second trip that fails; with no start left (IRON_TRIES in all), the level is
- * finished, so the dig option goes. Returns the trip's reason.
+ * once when none of it is dug, else on the second trip that fails; with no start left (IRON_AGE_TRIES a round), the level
+ * is finished, so the dig option goes, until its retry time (IRON_RETRY_MS) starts a fresh round (#113). Returns the
+ * trip's reason.
  */
-function giveUpIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, why: string): string {
+export function giveUpIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, why: string): string {
   const reg = a.world.villages;
   if (i.steps > 0) {
     const key = `stairs ${i.x},${i.z} ${compass(i.dir)}`;
@@ -1543,21 +1581,28 @@ function giveUpIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, why: s
     if (i.stuck[key] < 2) return `${why}; tried again next trip`;
     delete i.stuck[key];
   }
+  const from = `${i.x},${i.y},${i.z}`;
   i.abandoned = [...(i.abandoned ?? []), { x: i.x, z: i.z, y: i.y, dir: i.dir, steps: i.steps, why: short(why) }];
-  const next = i.abandoned.length < IRON_TRIES ? ironRestart(m, a) : null;
+  const next = triesNow(i) < triesMax() ? ironRestart(m, a) : null;
   if (next) {
     Object.assign(i, { x: next.x, z: next.z, y: next.y, dir: next.dir, steps: 0 });
     delete i.stopped;
     const first = m.legs?.find((l) => next.side && l.x === next.x && l.z === next.z && l.y === next.y);
     if (first && next.side) first.turned = (first.turned ?? 0) | next.side;
+    console.log(`[mine] ${v.name}: iron stairs start ${from} given up: ${short(why)}; trying ${next.x},${next.y},${next.z} (${triesNow(i)} of ${triesMax()})`);
     reg.note(v, `the iron stairs could not be reached (${why}); new ones start at ${next.x},${next.y},${next.z}, going ${compass(next.dir)}`);
     reg.save();
     return `${why}; new stairs start at ${next.x},${next.y},${next.z} next trip`;
   }
   i.finished = short(`no way down: ${why}`);
-  reg.note(v, `the iron stairs could not be reached (${why}) and no other start is clear; no way down`);
+  // (MC_IRON_AGE: tried again after a back-off, not ended for good)
+  if (IRON_AGE) {
+    (i as IronRetry).retryAt = Date.now() + IRON_RETRY_MS;
+    console.log(`[mine] ${v.name}: iron stairs start ${from} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${IRON_RETRY_MS / 60000} minutes`);
+  }
+  reg.note(v, `the iron stairs could not be reached (${why}) and no other start is clear; no way down${IRON_AGE ? ` (tried again in ${IRON_RETRY_MS / 60000} minutes)` : ''}`);
   reg.save();
-  return `${why}; no other start is clear: the iron level is finished`;
+  return `${why}; no other start is clear: the iron level is finished${IRON_AGE ? ` for ${IRON_RETRY_MS / 60000} minutes` : ''}`;
 }
 
 /**
@@ -1586,12 +1631,12 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
     // (MC_ORE_MINE's levels keep the level above's y: their aim may lie more or less than IRON_DROP below it)
     const above = (i as OreLevel).aboveY ?? (i.targetY !== undefined ? i.targetY + IRON_DROP : undefined);
     const good = above !== undefined ? above - 6 : IRON_GOOD_Y, settleY = i.targetY !== undefined ? good : IRON_SETTLE_Y;
-    const tries = (i.abandoned?.length ?? 0) + 1;
-    if (last && (y <= good || (y <= settleY && tries >= IRON_TRIES))) return level(y, last.x, last.z);
+    const tries = triesNow(i) + 1;
+    if (last && (y <= good || (y <= settleY && tries >= triesMax()))) return level(y, last.x, last.z);
     // Above y 40 (caves and aquifers are common at 36-51, VanI2): these stairs are given up as they are and new ones
     // start elsewhere on the level, away from where these stopped, IRON_TRIES in all
     i.abandoned = [...(i.abandoned ?? []), { x: i.x, z: i.z, y: i.y, dir: i.dir, steps: i.steps, why: short(why) }];
-    const next = i.abandoned.length < IRON_TRIES ? ironRestart(m, IRON_AGE ? a : undefined) : null;
+    const next = triesNow(i) < triesMax() ? ironRestart(m, IRON_AGE ? a : undefined) : null;
     // (no start left: a level at y 40 or less here after all, the diff review's M3)
     if (!next && last && y <= settleY) {
       i.abandoned.pop();
@@ -1602,11 +1647,18 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
       delete i.stopped;
       const first = m.legs?.find((l) => next.side && l.x === next.x && l.z === next.z && l.y === next.y);
       if (first && next.side) first.turned = (first.turned ?? 0) | next.side;
+      const gone = i.abandoned.at(-1)!;
+      if (IRON_AGE) console.log(`[mine] ${v.name}: iron stairs start ${gone.x},${gone.y},${gone.z} given up: ${short(why)} after ${gone.steps} steps; trying ${next.x},${next.y},${next.z} (${triesNow(i)} of ${triesMax()})`);
       reg.note(v, `the iron stairs stopped at ${i.abandoned.at(-1)!.steps} steps (${why}); new ones start at ${next.x},${next.y},${next.z}, going ${compass(next.dir)}`);
       reg.save();
       return `the stairs met ${why}; new ones start at ${next.x},${next.y},${next.z} next trip`;
     }
     i.finished = short(`no way down: ${why}`);
+    // (MC_IRON_AGE, #113: tried again after a back-off, not ended for good)
+    if (IRON_AGE) {
+      (i as IronRetry).retryAt = Date.now() + IRON_RETRY_MS;
+      console.log(`[mine] ${v.name}: iron stairs start ${i.x},${i.y},${i.z} given up: ${short(why)}; no other start is clear (${triesNow(i)} tried): the level waits ${IRON_RETRY_MS / 60000} minutes`);
+    }
     reg.note(v, `the iron stairs stopped at ${i.steps} steps: ${why}; no way down`);
     reg.save();
     return why;
@@ -1847,6 +1899,7 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     reg.save();
   }
   const i = m.iron;
+  ironRetry(v, m, i, reg);
   if (i.finished) return `the iron level is finished: ${i.finished}`;
   if (IRON_AGE) {
     // (up to IRON_MINERS at once, each on its own leg; the stairs one at a time)

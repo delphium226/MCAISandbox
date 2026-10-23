@@ -89,6 +89,40 @@ if (!ORE) {
     for (const n of ['Ben', 'Cal']) MM.releaseIronClaims('S', n);
   }
 
+  // #113: stairs no bot gets to are given up for fresh starts (dug cells of the mine only), 8 a round, then the level
+  // waits 30 minutes and is tried again, the unreached starts forgotten
+  {
+    const L = 50;
+    const cob: MineLeg = { x: 9, z: 0, y: L, dir: [1, 0], dug: 78, main: 30, br: { 1: 12, 2: 12, 4: 12, 5: 12 }, ended: [] };
+    const air = new Set<string>();
+    for (const c of [{ x: 9, z: 0 }, ...MM.legCells(cob)]) { air.add(`${c.x},${L},${c.z}`); air.add(`${c.x},${L + 1},${c.z}`); }
+    const a = {
+      name: 'Ada', world: { villages: reg },
+      bot: { world: { getColumn: () => null }, blockAt: (p: { x: number; y: number; z: number }) => { const o = air.has(`${p.x},${p.y},${p.z}`); return { name: o ? 'air' : 'stone', boundingBox: o ? 'empty' : 'block', position: p }; } },
+    } as never;
+    const m = { top: { x: 0, z: 0 }, dir: [1, 0], steps: 10, level: L, dug: 78, ended: [], got: {}, hut: { x1: -2, z1: -2, x2: 2, z2: 2 }, legs: [cob] } as unknown as Mine;
+    const s0 = MM.ironStart(m)!;
+    m.iron = { x: s0.x, z: s0.z, y: s0.y, dir: s0.dir, steps: 0, legs: [], dug: 0, got: {} };
+    const i = m.iron;
+    const starts = new Set<string>([`${i.x},${i.z},${i.dir}`]);
+    let n = 0;
+    for (; n < 12 && !i.finished; n++) {
+      MM.giveUpIronStairs(a, v, m, i, `could not get to the iron stairs at ${i.x},${i.y},${i.z}`);
+      if (i.finished) break;
+      ok(air.has(`${i.x},${L},${i.z}`), `fresh start ${n + 1} is a dug cell (${i.x},${i.z})`);
+      ok(!starts.has(`${i.x},${i.z},${i.dir}`), `fresh start ${n + 1} is new (${i.x},${i.z} ${i.dir})`);
+      starts.add(`${i.x},${i.z},${i.dir}`);
+    }
+    ok(i.finished && /no way down/.test(i.finished) && (i.abandoned?.length ?? 0) === 8, `finished after 8 starts (${i.abandoned?.length}: ${i.finished})`);
+    const r = i as IronLevel & { retryAt?: number; triesFrom?: number };
+    ok(r.retryAt !== undefined && Math.abs(r.retryAt - Date.now() - 30 * 60000) < 5000, 'a retry in 30 minutes');
+    ok(MM.ironDone(m) && !MM.ironDone(m, Date.now() + 31 * 60000), 'finished for the menus until the retry time, then offered again');
+    MM.ironRetry(v, m, i, reg, Date.now() + 10 * 60000);
+    ok(!!i.finished, 'no retry before its time');
+    MM.ironRetry(v, m, i, reg, Date.now() + 31 * 60000);
+    ok(!i.finished && r.retryAt === undefined && (i.abandoned ?? []).every((d) => d.steps > 0) && r.triesFrom === (i.abandoned ?? []).length, 'at its time: open again, the unreached starts forgotten, a fresh round');
+  }
+
   // The world's test of a deeper start (I4): a dug cell to start from, no air on the way down
   {
     const old = level({ finished: 'x', dug: 320, legs: [leg(22, 0, 18, [1, 0], 120)] });
