@@ -29,7 +29,7 @@ import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
-import { STORAGE_SKILLS, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
 import { atlasSites } from './mcSiteAtlas';
@@ -38,6 +38,7 @@ import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LO
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
+import { contractOf, deliveryDone, givePurse } from '../pay';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
@@ -4684,8 +4685,11 @@ async function placeOwnChest(a: BotAgent, _args: Record<string, unknown>, signal
     throw new Error(`place_own_chest: the chest did not go down at ${c.x},${c.y},${c.z} (${String(r).slice(0, 80) || 'no reply'}); the logs were given back`);
   }
   own.chest = { x: c.x, y: c.y, z: c.z, items: {} };
+  // (#108, MC_PAY: the purse, once, into the new chest)
+  const purse = givePurse(v, a.name, Date.now());
   a.world.villages.save();
-  console.log(`[own] ${v.name}: ${a.name} put a chest in its house at ${c.x},${c.y},${c.z}${walked ? '' : ' (from where it stood)'}`);
+  if (purse) await writeOwnChest(a, own.chest);
+  console.log(`[own] ${v.name}: ${a.name} put a chest in its house at ${c.x},${c.y},${c.z}${walked ? '' : ' (from where it stood)'}${purse ? ` (its purse: ${own.chest.items.emerald} emeralds)` : ''}`);
   return `put a chest in your house at ${c.x},${c.y},${c.z} (2 ${log} from storage): your own stock goes there`;
 }
 
@@ -4720,6 +4724,49 @@ async function carryHome(a: BotAgent, args: Record<string, unknown>, signal: Abo
   const text = Object.entries(moved).map(([n, q]) => `${q} ${n}`).join(', ');
   console.log(`[own] ${v.name}: ${a.name} carried ${text || 'nothing'} home (owed now ${Object.entries(own.owed).map(([n, q]) => `${q} ${n}`).join(', ') || 'nothing'})`);
   return text ? `carried ${text} home into your own chest` : 'carried nothing home (the commons had none of it after all)';
+}
+
+/**
+ * deliver_own (#108, a chore code queues): the goods earmarked in storage for a priced request, withdrawn (no debt of the
+ * deliverer's), carried to the buyer's door and taken into the buyer's own chest by server count; what the server could
+ * not take is deposited back; the contract settled (pay.ts deliveryDone) for what arrived.
+ */
+async function deliverOwn(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('deliver_own: not in a village');
+  const k = contractOf(v, String(args.contract ?? ''));
+  if (!k || k.state !== 'delivering' || k.payee !== a.name) throw new Error(`deliver_own: no delivery ${String(args.contract ?? '')} of yours`);
+  const buyer = ownOf(v, k.payer).chest;
+  const st = v.structures.find((q) => q.owner === k.payer && isDwelling(q.kind));
+  const P = st ? a.world.decorParts(v).find((q) => q.structure.id === st.id) : undefined;
+  if (!buyer || !P) {
+    deliveryDone(v, k.id, {});
+    throw new Error(`deliver_own: ${k.payer} has no chest of their own any more; the price went back`);
+  }
+  const want = { ...(k.earmark ?? {}) };
+  await withdrawItems(a, v, want, signal).catch((e: Error) => {
+    if (e.message === 'cancelled') throw e;
+  });
+  forgiveDebt(a.name, want);
+  await toOwnDoor(a, P, signal);
+  const arrived: Record<string, number> = {};
+  for (const [n, q] of Object.entries(want)) {
+    const have = await serverCount(a, n);
+    const kk = Math.min(have, q);
+    if (kk <= 0) continue;
+    const took = await a.world.rcon.take(a.name, n, kk, have);
+    if (took <= 0) continue;
+    arrived[n] = took;
+    buyer.items[n] = (buyer.items[n] ?? 0) + took;
+  }
+  a.world.villages.save();
+  await writeOwnChest(a, buyer);
+  // (a partial take's leftovers back into the commons)
+  if (Object.entries(want).some(([n, q]) => (arrived[n] ?? 0) < q)) await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch(() => undefined);
+  const s = deliveryDone(v, k.id, arrived);
+  const text = Object.entries(arrived).map(([n, q]) => `${q} ${n}`).join(', ');
+  console.log(`[pay] ${v.name}: ${a.name} delivered ${text || 'nothing'} to ${k.payer}'s chest (${k.id}): paid ${s?.paid ?? 0}${s?.levy ? `, ${s.levy} levy` : ''}${s?.refunded ? `, ${s.refunded} back` : ''}`);
+  return text ? `delivered ${text} to ${k.payer}'s own chest: paid ${s?.paid ?? 0} emerald${s?.paid === 1 ? '' : 's'}${s?.levy ? ` (${s.levy} to the levy)` : ''}` : `delivered nothing to ${k.payer} (the storage had none of it); the price went back`;
 }
 
 /** eat_own (a chore code queues): a meal from the member's own chest, eaten at its door. */
@@ -6378,6 +6425,7 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   eat_meal: { run: eatMeal },
   place_own_chest: { run: placeOwnChest },
   carry_home: { run: carryHome },
+  deliver_own: { run: deliverOwn },
   eat_own: { run: eatOwn },
   make_own: { run: makeOwn },
   trade_offer: { run: tradeOffer },

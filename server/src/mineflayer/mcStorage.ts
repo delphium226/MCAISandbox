@@ -391,6 +391,17 @@ async function placeClaimed(a: BotAgent, v: Village, signal: AbortSignal, prefer
  */
 const credits = new Map<string, Record<string, number>>(), debts = new Map<string, Record<string, number>>();
 export const storageFlow = (agent: string): Record<string, number> => ({ ...(credits.get(agent) ?? {}) });
+/** #108: every put into the commons, not netted against the agent's takes (a priced request's check that the work was
+ *  done: a logs trip by a member who withdrew logs earlier credits 0 in the flow, spec 4). */
+const gross = new Map<string, Record<string, number>>();
+export const storageGross = (agent: string): Record<string, number> => ({ ...(gross.get(agent) ?? {}) });
+/** #108: a delivery's withdrawal of goods earmarked for a buyer is no debt of the deliverer's (its later shares are not
+ *  cut for goods it carried to another's chest). */
+export function forgiveDebt(agent: string, c: Record<string, number>): void {
+  const dt = debts.get(agent);
+  if (!dt) return;
+  for (const [n, q] of Object.entries(c)) if (q > 0 && dt[n]) dt[n] = Math.max(0, dt[n] - q);
+}
 /** The simulator's modelled actions feed the flow by the commons' change around each (scripts/sim). */
 export const noteFlow = (agent: string, c: Record<string, number>, sign: 1 | -1) => flow(agent, c, sign);
 function flow(agent: string, c: Record<string, number>, sign: 1 | -1) {
@@ -399,6 +410,9 @@ function flow(agent: string, c: Record<string, number>, sign: 1 | -1) {
     if (!(q > 0)) continue;
     if (sign < 0) dt[n] = (dt[n] ?? 0) + q;
     else {
+      const g = gross.get(agent) ?? {};
+      g[n] = (g[n] ?? 0) + q;
+      gross.set(agent, g);
       const owed = Math.min(q, dt[n] ?? 0);
       dt[n] = (dt[n] ?? 0) - owed;
       if (q > owed) cr[n] = (cr[n] ?? 0) + q - owed;

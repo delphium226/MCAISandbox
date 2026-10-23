@@ -453,3 +453,13 @@ export function finishDelivery(env: PayEnv, acts: { closeCommitment(village: str
   env.save();
   return s;
 }
+
+/** The world's env and acts' closers, set once by the world with MC_PAY on (the skills settle deliveries through them). */
+let world: { env: PayEnv; acts: Parameters<typeof finishDelivery>[1] } | null = null;
+export function setPayWorld(env: PayEnv, acts: Parameters<typeof finishDelivery>[1]): void {
+  world = { env, acts };
+}
+/** A delivery's end, from the deliver_own skill: settled, its promise closed, both sides told. */
+export function deliveryDone(v: Village, id: string, arrived: Counts, now = Date.now()) {
+  return world ? finishDelivery(world.env, world.acts, v, id, arrived, now) : null;
+}
