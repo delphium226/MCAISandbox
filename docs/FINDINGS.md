@@ -1936,3 +1936,20 @@ CLAUDE.md when a phase ends.
   a minority of the work. Payments' levy isn't deposited yet; wages and short deliveries never came up. One pair: busy
   (59 against 54%), gardens (33 against 18, reversed from W1/M1), [stuck] (76 against 55) could be noise.
   Logs: runs/2026-10-24/monoculture2/ (report.md, compare.md).
+- F303 (10-23, building-variety, #104's R3) **Members' own houses, measured offline** (`scripts/checks/gen_homes.mts`,
+  commit f119569, MC_GEN_HOMES off).
+  - **Variety:** generator v2 plus houseStyle.ts give 20-24 distinct homes for the 24 workers in each of the five
+    families. Today's growth uses 4 designs.
+  - **Forms over 120 homes:** L 39, T 17, two storeys 36, porch 74, chimney 58, shutters 49. The plains renders are in
+    `runs/2026-10-23/building-variety/renders/sheet.png`.
+  - **The budget shapes the result:**
+    - stone bricks cost a furnace run a block, so even a 7x7 base is about 55 runs, over 32;
+    - a cobblestone roof cut 21 of 24 snowy homes, and desert's sandstone cuts 15 of 24;
+    - two storeys fit 150 units only at 5x7 or 7x5, so one home a neighbourhood may take 230 (the user's choice).
+  - **Conformity is weak:** the most traditional members' houses share 3.9 of 5 looks with their family, the least
+    traditional 3.6.
+  - **Names:** a member's name can carry a word the name rules key on. `home_finn` and `home_quinn` ended in "inn":
+    `isLandmark` took them for landmarks and `isDwelling` refused them. Homes are named by a hash, with the owner in
+    `style.owner`.
+  - **Not yet wired:** the world hooks (pickHouses' owners, homeTick binding, layoutStyle reading a home's family) are
+    patches in the folder; no live run yet.
