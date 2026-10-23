@@ -24,6 +24,9 @@ export const RULES = {
   on: /^(on|1|true|yes)$/i.test(process.env.MC_RULES ?? ''),
   /** A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. */
   levy: Number.isFinite(Number(process.env.MC_LEVY)) && process.env.MC_LEVY ? Math.min(0.5, Math.max(0, Number(process.env.MC_LEVY))) : undefined as number | undefined,
+  /** Experiment 2: a pending share is asked once it holds at least this many items (MC_LEVY_MIN, default 1: G3m1's shares
+   *  were 1-4 items, the levy of 1 the same as all, so every answer paid). */
+  levyMin: Math.max(1, Number(process.env.MC_LEVY_MIN) || 1),
 };
 /** Test hook. */
 export function setRulesSettings(s: Partial<typeof RULES>): void {
@@ -128,7 +131,12 @@ export function ruleText(type: RuleType, p: Record<string, number | string>): st
   switch (type) {
     case 'quota': return `each member takes at most ${p.n} ${p.class} a day from storage`;
     case 'floor': return `storage keeps at least ${p.n} ${String(p.class ?? p.item).replace(/_/g, ' ')}`;
-    case 'contribute': return `each member puts at least ${p.n} ${String(p.class).split('+').join(' or ')} a day into storage`;
+    case 'contribute': {
+      // (one of a class in the singular: "1 torch", "1 item", not "1 goods")
+      const one: Record<string, string> = { torches: 'torch', logs: 'log', tools: 'tool', food: 'food item', stone: 'stone', goods: 'item' };
+      const words = String(p.class).split('+').map((c) => (Number(p.n) === 1 ? one[c] ?? c : c === 'goods' ? 'items' : c));
+      return `each member puts at least ${p.n} ${words.join(' or ')} a day into storage`;
+    }
     case 'duty': return `every member does ${KIND_WORDS[String(p.kind)] ?? p.kind} once a day`;
     case 'levy': return `members leave ${p.rate}% of their share in the village storage`;
     case 'norm': return String(p.text).slice(0, 120);

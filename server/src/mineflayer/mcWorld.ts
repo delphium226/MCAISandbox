@@ -4571,7 +4571,7 @@ export class MineflayerWorld implements WorldAdapter {
     if (RULES.on && OWN.on) {
       const rate = levyRate(v.name);
       const p = rate !== undefined ? pendingOf(v.homes?.[a.name]) : null;
-      if (p && p.total > 0 && rate !== undefined) {
+      if (p && p.total >= RULES.levyMin && rate !== undefined) {
         const l = levyLeft(p.total, rate);
         const answers = shuffled([{ id: 'none' as const, text: `Keep all ${p.total}` }, { id: 'levy' as const, text: `Leave ${l} of ${p.total}` }, { id: 'all' as const, text: `Leave all ${p.total}` }], `${a.name}|${Math.floor(facts.t / 60000)}`);
         ctx.share = { total: p.total, levy: l, answers };
