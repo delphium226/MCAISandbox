@@ -651,3 +651,10 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    0.41 with character on against 0.71 off. By 120 minutes it was 0.32 against 0.28: the contrast reversed. A measure
    built from window pairs has few pairs early on. Report an interim's counts, not its contrasts, or mark them as
    unstable.
+166. **A long run started from a Claude session dies with the app** (long-run-w4, F291): a desktop app update at
+   23:48 killed Paper, the agent server and the run's driver together, although all were started through detach.py:
+   they stay in the app's job. Before a run of many hours, ask the user to hold app updates, or start it from outside
+   the app (#99). Recovery: restart from the same code snapshot and `respawn_agents.py` (journals kept).
+167. **Stopping a long run's watcher stops the session's eyes** (long-run-w4): the hourly reports ended after the first
+   because the watcher was stopped for a restart that was then refused, and never re-armed. Nothing woke the session for
+   four hours. Re-arm the watcher in the same turn as any stop, whatever happens to the plan that stopped it.

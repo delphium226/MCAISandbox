@@ -1755,3 +1755,31 @@ CLAUDE.md when a phase ends.
   - add iron supply beyond four levels, or lower the targets.
 
   Logs: runs/2026-10-22/ladder/ (staged/, model/).
+- F290 (10-22, long-run-w4 session, the user's 10-hour observation run) **With every feature on, food, innovation and
+  the economy reinforce each other, and the iron stall turned into the village's most-backed proposal. Rules and council
+  never fire, requests expire, and quick-next leaves the model only 8% of chores.** Long1: test world 4, dc1dc83, from
+  scratch (L10, 25 members), model choices at 1x, 226 minutes of village life (F291 ended it). Chore busy 44.7 / 37.3 /
+  34.4 / 22.8% by hour (0.51x; the first 30-minute window under half at minute 200). Needs met 0.77 to 0.87 (food 0.73
+  to 0.88, housing 0.67 to 0.88 at 26 houses). Goods per member in storage 36 to 189 (5.3x), kinds 64 to 90. Works 98 /
+  74 / 54 / 44 an hour.
+  **Reinforced:** the iron level's stairs blocked digging (26 failures; the known bug, fixed in 1f587fa). Omar proposed
+  several diggers at once (p1, kind "rule"), it was backed 11 times, and code's check tied it to the failing chore.
+  Pumpkin pies unlocked in hour 0, paid inventors' royalties and fed the village. Nightly intentions converged on own
+  pumpkin farms, so farm and slot work rose while the rest fell. Low energy (0.37) brought rests (21-47 an hour) and
+  recovered it (0.75).
+  **Conflicted:** MC_QUICK_NEXT against the chooser's 90 s gap: of 3,104 decisions, 253 were the model's (8%), 628 fixed
+  picks for pacing, 492 repeats and 1,095 single options (#97). The `propose` field took the rule-like ideas, and the
+  council's `law` field was used 0 times in ~275 reflections: no law, agenda or meeting (#30). Requests reached busy
+  members: 74 made, 73 expired, 1 accepted; 6 commitments in all, all kept (#98). Barter came only once own chests
+  filled (hour 2): 29 offers, 2 taken, 22 lapsed, with food in shared storage for all.
+  **Never fired:** laws and the council; gardens (no garden option in any menu or vote); the ladder past iron (the
+  stall); proposal triage (not run). Innovation stopped after hour 1 (5 unlocks). Need works stopped in hour 2.
+  **Drifted:** say acts 234 to 46 an hour; make choices 419 to 140; mood stayed positive for every member throughout
+  (mean 4-9, never negative). Ballots (~275 an hour) and reflections (75) were most of the model use. 2,657 calls,
+  4.1M tokens, ~$0.86. Load fine: [stuck] 25 / 27 / 22 / 17, [lag] 3 (hour 3). Logs: runs/2026-10-22/long-run-w4/
+  (report.md, analysis.txt, scorecard.txt, hourly.md).
+- F291 (10-22, long-run-w4 session) **A Claude desktop app update kills every process a session started through
+  scripts/detach.py.** Long1's Paper, agent server, run_series.py and stage_village.py died together at 23:48:41, with no
+  shutdown lines, as the app's package was reinstalled (System log 23:48:44). detach.py falls back from
+  CREATE_BREAKAWAY_FROM_JOB when the job forbids it, so the servers stay in the app's job. A restart from the same
+  snapshot with respawn_agents.py brought all 25 members back with their journals (00:12). Issue #99; lesson 166.
