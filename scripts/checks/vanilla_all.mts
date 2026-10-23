@@ -190,7 +190,8 @@ console.log('\n== snowy pieces (snow and ice as diorite with the flag)');
 
 // ---- 4. small works and yards
 console.log('\n== small works and yards');
-const EASY = /^(any:logs|any:cobblestone|.*_(log|stem)|bamboo_block|cobblestone|sand)$/;
+// (sandstone too: the world's initiative crews collect it with MC_VANILLA_ALL)
+const EASY = /^(any:logs|any:cobblestone|.*_(log|stem)|bamboo_block|cobblestone|sand|(red_)?sandstone)$/;
 const fmt = (c: Record<string, number>) => Object.entries(c).sort((a, b) => b[1] - a[1]).map(([n, q]) => `${q} ${n}`).join(', ');
 /** One kind in three woods; `held`: what keeps it off the menu is reported, not failed (crewCanBuild's sandstone and coal). */
 function workCheck(k: (typeof SMALL_WORKS)[number], yard: boolean, held = false): string {
@@ -215,7 +216,7 @@ function workCheck(k: (typeof SMALL_WORKS)[number], yard: boolean, held = false)
     const plan = materials.plan(designBill(d));
     const other = Object.keys(plan.gather).filter((n) => !EASY.test(n));
     if (plan.problems.length) fails.push(`${tag}: ${plan.problems.join('; ')}`);
-    if (other.length) fails.push(`${tag}: gathers ${other.join(', ')} (an initiative gathers logs, cobblestone and sand)`);
+    if (other.length) fails.push(`${tag}: gathers ${other.join(', ')} (an initiative gathers logs, cobblestone, sand and sandstone)`);
     const alien = Object.keys(plan.gather).filter((n) => /_(log|stem)$/.test(n) && n !== `${wood}_log`);
     if (alien.length) fails.push(`${tag}: gathers ${alien.join(', ')} (not ${wood})`);
     const units = Object.values(plan.gather).reduce((s, q) => s + q, 0);

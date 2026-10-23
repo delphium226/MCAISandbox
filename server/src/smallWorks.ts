@@ -229,11 +229,10 @@ export const YARD_MAX = 13;
 const YARD_MIN_BLOCKS = 8;
 
 /**
- * Blocks an initiative's crew cannot bring yet (it gathers logs, cobblestone and sand): sandstone plans as gathered
- * sandstone, and a campfire's fuel as coal (mcMaterials). A vanilla kind holding one stays in VANILLA_WORKS, off
- * SMALL_WORKS, until the world gathers them for initiatives.
+ * Blocks an initiative's crew cannot bring yet (it gathers logs, cobblestone, sand and, with R1, sandstone): a campfire's
+ * fuel plans as coal (mcMaterials). A vanilla kind holding one stays in VANILLA_WORKS, off SMALL_WORKS.
  */
-const CREW_CANNOT = /sandstone|^campfire/;
+const CREW_CANNOT = /^campfire/;
 export const crewCanBuild = (k: SmallWorkKind) => !Object.values(k.make('oak').palette).some((b) => CREW_CANNOT.test(b));
 
 /** One kind a piece, read from the jar once; none (and a line) when the jar cannot be read. */

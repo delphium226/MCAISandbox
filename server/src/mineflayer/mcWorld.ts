@@ -31,7 +31,7 @@ import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEn
 import { IRON_AGE, IRON_MINERS, LADDER, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
-import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, styleOption, tally, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
+import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
 import { label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
@@ -52,7 +52,7 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
-import { GARDENS, SMALL_WORKS, gardenSpots, isGarden, smallWorkSpots, type SmallWorkKind } from '../smallWorks';
+import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
 import { postRefit } from '../layout';
@@ -77,8 +77,8 @@ import { RULES, breaks, contributeTag, duties, levyRate, noteCompliance, notePut
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
-import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
-import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
+import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
+import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -119,7 +119,7 @@ type ChoiceState = {
   make?: { item: string; count: number; smelts: boolean; k?: number };
   gather?: { material: Material; n: number };
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
-  initiative?: { id: string; material: Material | 'flowers' | 'saplings'; n: number };
+  initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -171,6 +171,8 @@ const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wi
 /** #46 (MC_GARDENS): a sapling of the village's wood, from its leaves (they drop saplings by chance: ~20 leaves a trip). */
 // (the collect counts the saplings, not every drop: a leaf drops one 1 time in 20, F287)
 const SAPLING_GATHER = { trip: 2, block: (wood?: string) => `${wood ?? 'oak'}_leaves`, deposit: (wood?: string) => `${wood ?? 'oak'}_sapling` };
+/** R1 (MC_VANILLA_ALL): sandstone for a desert lamp's or yard's crew, collected as it lies. */
+const SANDSTONE_GATHER = { trip: 16, block: () => 'sandstone', deposit: () => 'sandstone' };
 /** A gathering that found none of its material backs it off this long; a second such answer counts toward "unavailable"
  *  only this long after the first (S.9's review, lens 4 M2). */
 const GATHER_NONE_BACK = 30 * 60000;
@@ -303,8 +305,9 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** The first vote's style (spec_vote1 1): a biome's accepted small houses, each with its bill's units, size and gathering. */
   styleHouses(biome: string): Array<StyleHouse & { design: Design }> {
-    const lib = this.vanillaLibrary(biome)?.houses ?? [];
-    return lib.filter((d) => /_small_house_\d+$/.test(d.name)).map((d) => {
+    // (R2: a style voted with its wood, "plains@spruce", is its biome's houses; R1: every dwelling up to 13 across)
+    const lib = this.vanillaLibrary(parseStyle(biome).biome)?.houses ?? [];
+    return lib.filter((d) => (VANILLA_ALL ? isDwelling(d.name) && d.width <= 13 && d.depth <= 13 : /_small_house_\d+$/.test(d.name))).map((d) => {
       const m = this.materialTasks(d, d.name);
       const gather: Record<string, number> = {};
       for (const t of m.tasks ?? []) {
@@ -323,7 +326,7 @@ export class MineflayerWorld implements WorldAdapter {
     const accept = (d: Design, centre: boolean) => {
       if (!validateDesign({ ...d } as unknown as Record<string, unknown>, 'vanilla', { isPlaceable: (b) => this.isPlaceable(b), states: true, requireDoor: !centre }).design) return false;
       const m = this.materialTasks(d, d.name);
-      return !m.problems.length && (m.units ?? 0) <= (isLandmark(d.name) ? LANDMARK_UNITS : HOUSE_UNITS) && (m.smelts ?? 0) <= MAX_SMELTS;
+      return !m.problems.length && (m.units ?? 0) <= houseBudget(d.name) && (m.smelts ?? 0) <= MAX_SMELTS;
     };
     try {
       return vanillaLibrary(villageBiome(biome), accept, vanillaJar());
@@ -1094,7 +1097,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (every spot inside the structure's area, the spec's assertion: one outside would light a neighbour)
         .filter((q) => q.x >= st.x1 && q.x <= st.x2 && q.z >= st.z1 && q.z <= st.z2);
       const spots = lights.map((q) => ({ x: q.x, y: st.y + q.layer, z: q.z, block: q.block, ...(q.facing ? { facing: q.facing } : {}), src: q.src }));
-      const vanilla = d.by === 'vanilla' || /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(d.name);
+      const vanilla = d.by === 'vanilla' || isVanillaPieceName(d.name);
       let label = d.name === STORAGE_HUT ? 'storage hut' : d.name === MINING_HUT ? 'mining hut' : /_meeting_point_/.test(d.name) ? 'meeting point' : signLabel(d.name, vanilla).join(' ').toLowerCase();
       const seen = (labels.get(label) ?? 0) + 1;
       labels.set(label, seen);
@@ -2037,7 +2040,7 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** The style of a layout's houses: the biome all its vanilla small houses share; null when it has none, or drawn or mixed. */
   private layoutStyle(names: string[]): string | null {
-    const b = new Set(names.filter(isDwelling).map((n) => /^(plains|desert|savanna|taiga|snowy)_small_house_\d+$/.exec(n)?.[1] ?? '?'));
+    const b = new Set(names.filter(isDwelling).map((n) => /^(plains|desert|savanna|taiga|snowy)_small_house_\d+$/.exec(baseName(n))?.[1] ?? '?'));
     return b.size === 1 && !b.has('?') ? [...b][0] : null;
   }
 
@@ -2075,7 +2078,25 @@ export class MineflayerWorld implements WorldAdapter {
       }
       out.push(styleOption(b, hs, built(b), false));
     }
-    return out;
+    // (R2, MC_WOOD_VARIANTS: biome x wood, the woods with trees near home)
+    return WOOD_VARIANTS && home ? woodStyleOptions(out, treesNear(this.atlas.near(home.x, home.z, 96)), this.hoodLogs(v, GROW.batch), hoodWoods(v), v.wood) : out;
+  }
+
+  /** R2: the logs `n` houses of the village's library take (its first dwelling's bill), for the woods' tree test. */
+  private hoodLogs(v: Village, n: number): number {
+    const d = (this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? []).find((h) => isDwelling(h.name));
+    return (d ? this.materialTasks(d, d.name).logs ?? 20 : 20) * n;
+  }
+
+  /** R2: the next neighbourhood's wood among those with trees near home (grow.ts hoodWood), else undefined: the village's. */
+  private nextHoodWood(v: Village, n: number): string | undefined {
+    const home = villageHome(v);
+    return WOOD_VARIANTS && home ? hoodWood(treesNear(this.atlas.near(home.x, home.z, 96)), this.hoodLogs(v, n), hoodWoods(v)) ?? undefined : undefined;
+  }
+
+  /** R2: the wood a small work's design is in (its neighbourhood's), else the catalogue's as before. */
+  private workWood(v: Village, design: string): string {
+    return (WOOD_VARIANTS && smallWorkWood(design)) || this.catalogWoodOf(v);
   }
 
   /** What a voter sees of itself and the village (spec 3). */
@@ -2232,7 +2253,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (a style voted in: its houses only, the current one too: as before, a won "current" savanna drew the village's own
     // plains library, Vm; no vote: the picks as before)
     const only = style ? this.styleHouses(style).map((h) => h.design) : undefined;
-    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only);
+    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined);
     const styled = style ? { style } : {};
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
     // else the biome the agent's view has at home: a staged village has no library biome, lens 2 L5), and not once a
@@ -2316,7 +2337,7 @@ export class MineflayerWorld implements WorldAdapter {
     const it = (v.initiatives ?? []).find((i) => i.by === name && i.state === 'open');
     let project: Wants['project'];
     if (it && v.designs[it.design]) {
-      const missing = Object.fromEntries(Object.entries(this.materials.plan(inWood(designBill(v.designs[it.design]), this.catalogWoodOf(v)), it.gathered ?? {}).gather).filter(([, q]) => q > 0));
+      const missing = Object.fromEntries(Object.entries(this.materials.plan(inWood(designBill(v.designs[it.design]), this.workWood(v, it.design)), it.gathered ?? {}).gather).filter(([, q]) => q > 0));
       project = { kind: it.kind.replace(/_/g, ' '), missing };
     }
     return {
@@ -2945,7 +2966,7 @@ export class MineflayerWorld implements WorldAdapter {
       return null;
     }
     const lib = this.vanillaLibrary(v.vanillaBiome ?? 'plains')?.houses ?? null;
-    const pick = pickHouses(v, 1, lib, (d) => this.materialTasks(d, d.name).units ?? 0);
+    const pick = pickHouses(v, 1, lib, (d) => this.materialTasks(d, d.name).units ?? 0, undefined, this.nextHoodWood(v, 1));
     const pad = pick.length ? padFor([v.designs[pick[0]]].filter(Boolean), 2) : null;
     if (!pad) {
       log('no small house design');
@@ -3188,7 +3209,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (f) blocked.push(pad({ x1: Number(f[1]), x2: Number(f[2]), z1: Number(f[3]), z2: Number(f[4]) }, 1));
     }
     for (const i of v.initiatives ?? []) if (i.state === 'open' && !i.pending) {
-      const k = SMALL_WORKS.find((x) => x.kind === i.kind);
+      const k = smallWorkKind(i.kind);
       const d = k ? v.designs[i.design] : undefined;
       const w = d?.width ?? 7, dd = d?.depth ?? 7;
       blocked.push(pad({ x1: i.x - Math.floor(w / 2), z1: i.z - Math.floor(dd / 2), x2: i.x - Math.floor(w / 2) + w - 1, z2: i.z - Math.floor(dd / 2) + dd - 1 }, 2));
@@ -3251,14 +3272,14 @@ export class MineflayerWorld implements WorldAdapter {
     // (built already, before initiativeTick has marked it: no second build onto it, s36)
     const at = it as Partial<Initiative>;
     if (at.x !== undefined && at.z !== undefined && v.structures.some((st) => st.kind === d.name && at.x! >= st.x1 && at.x! <= st.x2 && at.z! >= st.z1 && at.z! <= st.z2)) return null;
-    const wood = this.catalogWoodOf(v);
+    const wood = this.workWood(v, d.name);
     // (against what its crew has gathered, not the spare storage: initiatives gather their own, the user's, s36)
     void spare;
     const gather = this.materials.plan(inWood(designBill(d), wood), (it as Partial<Initiative>).gathered ?? {}).gather;
     const left = Object.entries(gather).filter(([, q]) => q > 0);
     if (!left.length) return [...busy].some((k) => k.startsWith(`initiative:${it.id}:`)) ? null : { what: 'build' };
     if ([1, 2].slice(0, INITIATIVE_GATHERERS).every((n) => busy.has(`initiative:${it.id}:${n}`))) return null;
-    const mat = (n: string): Material | 'flowers' | 'saplings' | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone'
+    const mat = (n: string): Material | 'flowers' | 'saplings' | 'sandstone' | null => (n === 'any:logs' || /_log$/.test(n) ? 'logs' : /^(red_)?sand$/.test(n) ? 'sand' : VANILLA_ALL && /^(red_)?sandstone$/.test(n) ? 'sandstone' : /^(any:)?cobblestone$/.test(n) ? 'cobblestone'
       // (#45, #46, MC_GARDENS: a garden's wildflowers and a corner tree's sapling, gathered by its crew)
       : GARDENS && (n === 'wildflowers' || FLOWER_ITEMS.includes(n)) ? 'flowers' : GARDENS && /_sapling$/.test(n) ? 'saplings' : null);
     for (const [n, q] of left.sort((x, y) => y[1] - x[1])) {
@@ -3266,20 +3287,20 @@ export class MineflayerWorld implements WorldAdapter {
       if (!m) continue;
       if (m === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
       if (m === 'sand' && v.unavailable?.includes('sand')) continue;
-      const spec = m === 'flowers' ? FLOWER_GATHER : m === 'saplings' ? SAPLING_GATHER : GATHER_KINDS[m];
+      const spec = m === 'flowers' ? FLOWER_GATHER : m === 'saplings' ? SAPLING_GATHER : m === 'sandstone' ? SANDSTONE_GATHER : GATHER_KINDS[m];
       // (a sapling trip breaks leaves within reach of the ground until it holds the saplings wanted, at most 2)
       if (m === 'saplings') {
-        const wood = this.catalogWoodOf(v);
+        const wood = this.workWood(v, d.name);
         return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(1, Math.ceil(q))), block: spec.block(wood), deposit: spec.deposit(wood), item: spec.deposit(wood) };
       }
-      return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block(v.wood ?? v.catalogWood), deposit: spec.deposit(v.wood) };
+      return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block((WOOD_VARIANTS && smallWorkWood(d.name)) || (v.wood ?? v.catalogWood)), deposit: spec.deposit(v.wood) };
     }
     return null;
   }
 
   /** One step queued as a chore: a gathering trip into storage, or the build (build_design at its spot). */
   private runInitiativeStep(v: Village, worker: BotAgent, it: Initiative, step: InitiativeStep, opt: ChoiceOption, meta: ChoiceMeta | undefined) {
-    const k = SMALL_WORKS.find((x) => x.kind === it.kind);
+    const k = smallWorkKind(it.kind);
     // (the step's own key held too: an initiator's first step runs under its initiate key, and a help option for the same
     // step must not be offered beside it, in this sweep or later; s36)
     const stepKey = `initiative:${it.id}:${step.what === 'gather' ? 1 : step.what}`;
@@ -3334,7 +3355,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** An initiative ended: the record, a note, a line with its crew. */
   private endInitiative(v: Village, it: Initiative, state: 'built' | 'failed' | 'lapsed', why: string) {
     it.state = state;
-    if (state === 'built') think(v.name, it.by, 'built', `your ${SMALL_WORKS.find((k) => k.kind === it.kind)?.words ?? it.kind} was built`, Date.now());
+    if (state === 'built') think(v.name, it.by, 'built', `your ${smallWorkKind(it.kind)?.words ?? it.kind} was built`, Date.now());
     it.end = Date.now();
     it.why = why;
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
@@ -3624,7 +3645,7 @@ export class MineflayerWorld implements WorldAdapter {
       // (a green ready: the spot on it, s36)
       if (it.pending) {
         const green = v.plots.find((p) => p.green === it.id);
-        const k = SMALL_WORKS.find((x) => x.kind === it.kind);
+        const k = smallWorkKind(it.kind);
         const d = v.designs[it.design];
         if (green && k && d) {
           // (its own green's reservation is not in the way: prepare_green holds it until prepareSite has deposited the
@@ -4150,7 +4171,7 @@ export class MineflayerWorld implements WorldAdapter {
       const vi = ini && n > 0 ? this.villages.villages.get(c.village.toLowerCase()) : undefined;
       const it = vi?.initiatives?.find((i) => i.id === ini!.id);
       if (vi && it && ini) {
-        const item = ini.material === 'logs' ? `${this.catalogWoodOf(vi)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material === 'saplings' ? `${this.catalogWoodOf(vi)}_sapling` : ini.material;
+        const item = ini.material === 'logs' ? `${this.workWood(vi, it.design)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material === 'saplings' ? `${this.workWood(vi, it.design)}_sapling` : ini.material;
         it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + n };
         this.villages.save();
       }
@@ -4637,7 +4658,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G8, MC_IRON_AGE: an iron tool may be asked for; the forge option for the asker carries the request's id)
     if (IRON_AGE) for (const t of FORGE_TOOLS) items.set(`iron:forge:${t}`, `an iron tool: ${words(t)}`);
     const projects = new Map<string, { words: string; owner: string }>();
-    for (const it of (v.initiatives ?? []).filter((i) => i.state === 'open')) projects.set(`help:${it.id}`, { words: SMALL_WORKS.find((k) => k.kind === it.kind)?.words ?? it.kind, owner: it.by });
+    for (const it of (v.initiatives ?? []).filter((i) => i.state === 'open')) projects.set(`help:${it.id}`, { words: smallWorkKind(it.kind)?.words ?? it.kind, owner: it.by });
     const at = new Map<string, { x: number; z: number }>();
     for (const p of this.presences(v)) at.set(p.name, { x: p.x, z: p.z });
     return { items, offered, projects, at, verify: (c) => this.verifyClaim(v.name, c) };
@@ -5604,7 +5625,7 @@ export class MineflayerWorld implements WorldAdapter {
       const open = (v.initiatives ?? []).filter((i) => i.state === 'open');
       const why: string[] = [];
       for (const [r, it] of open.entries()) {
-        const kindOf = SMALL_WORKS.find((k) => k.kind === it.kind);
+        const kindOf = smallWorkKind(it.kind);
         if (!kindOf) continue;
         if ((it.backoff ?? 0) > now) {
           why.push('backing off');
@@ -5636,7 +5657,7 @@ export class MineflayerWorld implements WorldAdapter {
         const wood = this.catalogWoodOf(v);
         // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
         // member's offer changes once one is started)
-        const order = shuffled(SMALL_WORKS, `${a.name}|${v.initiativeN ?? 0}`);
+        const order = shuffled(menuWorks(v.vanillaBiome), `${a.name}|${v.initiativeN ?? 0}`);
         let r = 0;
         const roomless: SmallWorkKind[] = [];
         // (#45: front gardens read alike: one of them a menu)
@@ -5652,18 +5673,20 @@ export class MineflayerWorld implements WorldAdapter {
             continue;
           }
           if (front) frontGarden = true;
-          const d = k.make(wood);
+          // (R2: in the wood of the neighbourhood it stands in)
+          const kw = (WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood;
+          const d = k.make(kw);
           // (only a work whose first step can be taken now: otherwise it would open, sit and lapse; s36)
           if (!this.initiativeStep(v, { id: '_new', design: d.name }, facts.spare(), busy, d)) {
             why.push('nothing to gather for it now');
             continue;
           }
-          const bill = inWood(designBill(d), wood);
+          const bill = inWood(designBill(d), kw);
           const raw = this.materials.plan(bill, {}).gather;
           // (logs of any kind counted with the wood's own: "18 birch_log", not "17 birch_log, 1 logs")
           const sum: Record<string, number> = {};
           for (const [n, q] of Object.entries(raw)) if (q > 0) {
-            const key = n === 'any:logs' ? `${wood}_log` : n.replace(/^any:/, '');
+            const key = n === 'any:logs' ? `${kw}_log` : n.replace(/^any:/, '');
             sum[key] = (sum[key] ?? 0) + q;
           }
           const takes = Object.entries(sum).map(([n, q]) => `${q} ${n}`).join(', ');
@@ -6437,7 +6460,7 @@ export class MineflayerWorld implements WorldAdapter {
       }
       case 'initiate': {
         // The record first, at a spot found again now (the menu's may be taken), then its first step at once (s35)
-        const k = SMALL_WORKS.find((x) => x.kind === d.work);
+        const k = smallWorkKind(d.work);
         const wood = this.catalogWoodOf(v);
         const found = k ? this.smallWorkSpot(v, k, wood, worker.name) : null;
         // (no room on the plots: on a green of its own when offered so and none is being prepared, s36)
@@ -6448,7 +6471,7 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[initiative] ${v.name}: ${worker.name} could not start a ${d.work} (${!k ? 'unknown kind' : !spot ? 'no room left' : 'its own is open'})`);
           return;
         }
-        const design = k.make(wood);
+        const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood);
         // (its first step decided before the record: no initiative opens that nobody can work on, s36)
         const first = this.initiativeStep(v, { id: '_new', design: design.name, pending }, this.makeSpare(v, worker.name), new Set(), design);
         if (!first) {
@@ -7327,7 +7350,7 @@ const GROW_WAIT_MS = 60000, GROW_STUCK_MS = 10 * 60000;
 const GROW_ORPHAN_CHECKS = 4;
 const CHOICE_KINDS: ChoiceKind[] = ['farm', 'slot', 'start', 'annex', 'pen', 'penwork', 'cake', 'iron', 'explore', 'works', 'make', 'gather', 'light', 'furnish', 'initiate', 'help', 'activity', 'own', 'innovate', 'rest'];
 /** An initiative's next step (s35): gathering a material into storage, or building it once the storage covers the bill. */
-type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings'; amount: number; block: string; deposit: string; item?: string } | { what: 'build' } | { what: 'prepare' };
+type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplings' | 'sandstone'; amount: number; block: string; deposit: string; item?: string } | { what: 'build' } | { what: 'prepare' };
 /** A green's side (s36): room for two or three small works with their rings. */
 const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
@@ -7397,9 +7420,9 @@ function depositedItems(message: string, items: string[]): number {
   return n;
 }
 
-function depositedOf(message: string, m: Material | 'flowers' | 'saplings'): number {
+function depositedOf(message: string, m: Material | 'flowers' | 'saplings' | 'sandstone'): number {
   const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
-  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : m === 'saplings' ? '[a-z_]+_sapling' : 'cobblestone';
+  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : m === 'saplings' ? '[a-z_]+_sapling' : m === 'sandstone' ? '(?:red_)?sandstone' : 'cobblestone';
   let n = 0;
   for (const x of head.matchAll(new RegExp(`(\\d+) ${name}\\b`, 'g'))) n += Number(x[1]);
   return n;
