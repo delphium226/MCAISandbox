@@ -689,3 +689,8 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    minted and requests able to carry a price, only 2 emeralds moved between members in 92 minutes. 93 of 108 requests
    were refused because the village had plenty in storage, and members sold the merchant 1 item. Measure what members
    lack before judging an economy feature: a shared storage that covers every need leaves nothing to pay for.
+177. **A single early failure can end a model-driven village's main chain** (all1, F304): one dig failed for want of a
+   pickaxe (cobblestone short), the guard banned iron village-wide for an hour, and the next trip, stuck on the way,
+   marked the iron level finished with nothing dug. The ladder never started and half the village went idle. A village
+   wide guard or a permanent "finished" needs evidence from more than one member or one trip. Check a long run's main
+   chain (iron, the ladder) at its first half-hour, not only at the end.

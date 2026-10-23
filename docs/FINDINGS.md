@@ -1953,3 +1953,23 @@ CLAUDE.md when a phase ends.
     `style.owner`.
   - **Not yet wired:** the world hooks (pickHouses' owners, homeTick binding, layoutStyle reading a home's family) are
     patches in the folder; no live run yet.
+- F304 (10-23, all1 session, the user's run with all the latest code) **With every model-call limit lifted, the model
+  runs three in four real choices for ~$0.6 an hour. The village still collapses at minute 60, on iron and land, not on
+  the model. Generated homes work live (23 built, all different).** All1: test world 5, 56943ab, from scratch, 25 mixed
+  members, 124 minutes; Monoculture 2's flags with MC_LLM_LIMITS=off and MC_GEN_HOMES=on; no spend cap.
+  **Models:** 721 of 1,465 choices (49%; Monoculture 2 16-18%), 54-76% of real choices in the [models] lines.
+  27.5 model decisions per member-hour in the first ten minutes, 8-13 once work ran out. Collisions: 299 fixed picks
+  for a taken pick and 475 re-asks. Gate: reflections waited up to 14 s, decisions ~0, queue max 11. Cost $1.19 for
+  6.3M tokens and 2,964 calls (3 errors).
+  **Village:** busy 61.5% in hour 1, 29.3% in hour 2 (FAIL; the first window under half at minute 60); 14-16 members idle
+  with nothing feasible from minute ~80. Iron never started: one early dig failed for want of a stone pickaxe
+  (cobblestone short), the guard banned iron:dig village-wide for an hour (851 of 908 menus), and then the iron stairs
+  couldn't be reached, so the level was marked finished ("no way down") with 0 cells dug, for good (#113). Own farms ran
+  out of land ("no free 9x9 site within 24 blocks"); growth ended at 28-30 houses for 25 members.
+  **Society:** acts on every decision gave 300 requests, 272 refused, 75 of them for axes not on offer (#114). 771 say
+  acts; 30 commitments, 28 kept; 5 emeralds moved between members. The council passed all 5 laws, and the levy came
+  out at 10% (14 at 10%, 3 at 20%, 1 at 30%, none at 0%).
+  **#104 R3 live:** 23 generated homes, 23 distinct (38 designs drawn, one per member-to-be): L one-storey 6, rectangle
+  one-storey 6, T 4, rectangle two-storey 4, L two-storey 3 (7 two-storey, 30%; F303 offline 30%), all in birch, no
+  overlaps.
+  Logs: runs/2026-10-24/all1/ (report.md, compare.md, scorecard.txt).
