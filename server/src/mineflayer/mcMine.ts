@@ -11,11 +11,11 @@ import { MINING_HUT } from '../huts';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { makePickaxe, mineBlock } from './mcSurvival';
-import { checkAbort, num, reach, wetAt } from './mcUtil';
+import { checkAbort, num, reach, stateAt, wetAt } from './mcUtil';
 // What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
-import { IRON_AGE, IRON_MINERS } from '../ladderFlags';
+import { IRON_AGE, IRON_MINERS, ORE_MINE } from '../ladderFlags';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
@@ -1169,7 +1169,7 @@ export function ironStart(m: Mine): { x: number; z: number; y: number; dir: [num
  * `side`: whether a start beside the bottom step says which side (the cobblestone mine's tunnel is then never turned there).
  */
 function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x: number; z: number }>, dug: Array<{ x: number; z: number }>,
-  abandoned: NonNullable<IronLevel['abandoned']>, base: [number, number], side: boolean, fits?: StairsFit): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
+  abandoned: NonNullable<IronLevel['abandoned']>, base: [number, number], side: boolean, fits?: StairsFit, toward?: { x: number; z: number }): { x: number; z: number; y: number; dir: [number, number]; side?: 1 | 2 } | null {
   // (and any stairs given up before, never started again the same way)
   for (const d of abandoned) dug.push(...ironColumns(d));
   const tried = (st: { x: number; z: number }, dir: [number, number]) => abandoned.some((d) => d.x === st.x && d.z === st.z && d.dir[0] === dir[0] && d.dir[1] === dir[1]);
@@ -1179,10 +1179,13 @@ function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x:
     .every((c) => stops.every((q) => Math.hypot(q.x - c.x, q.z - c.z) >= 8));
   const [dx, dz] = base;
   const dirs: Array<[number, number]> = [[dz, -dx], [-dz, dx], [dx, dz], [-dx, -dz]];
+  // (MC_ORE_MINE's `toward`: nearest that point first, and the directions most toward it)
+  const to = toward ?? b;
   const starts = level.filter((c, n) => level.findIndex((o) => o.x === c.x && o.z === c.z) === n)
-    .sort((p, q) => Math.abs(p.x - b.x) + Math.abs(p.z - b.z) - Math.abs(q.x - b.x) - Math.abs(q.z - b.z));
+    .sort((p, q) => Math.abs(p.x - to.x) + Math.abs(p.z - to.z) - Math.abs(q.x - to.x) - Math.abs(q.z - to.z));
+  const order = (st: { x: number; z: number }) => (toward ? [...dirs.entries()].sort(([, p], [, q]) => (q[0] - p[0]) * (toward.x - st.x) + (q[1] - p[1]) * (toward.z - st.z)) : [...dirs.entries()]);
   for (const st of starts)
-    for (const [n, dir] of dirs.entries()) {
+    for (const [n, dir] of order(st)) {
       if (tried(st, dir) || !offStops(st, dir)) continue;
       const clear = [1, 2, 3, 4].every((k) => {
         const c = { x: st.x + dir[0] * k, z: st.z + dir[1] * k };
@@ -1198,7 +1201,7 @@ function pickIronStart(b: { x: number; z: number }, L: number, level: Array<{ x:
  * bottom step first, clear of its stairs and cells as ironStart's are of the mine's. `abandoned`: the new level's stairs
  * given up so far. Null when none is clear.
  */
-export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel['abandoned']>, fits?: StairsFit): { x: number; z: number; y: number; dir: [number, number] } | null {
+export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel['abandoned']>, fits?: StairsFit, toward?: { x: number; z: number }): { x: number; z: number; y: number; dir: [number, number] } | null {
   const b = ironColumns(old).at(-1);
   if (!b || old.level === undefined) return null;
   const level: Array<{ x: number; z: number }> = [{ x: b.x, z: b.z }];
@@ -1208,7 +1211,7 @@ export function ironDeeperStart(old: IronLevel, abandoned: NonNullable<IronLevel
     dug.push(...legAhead(l, !l.end));
   }
   dug.push(...level);
-  return pickIronStart(b, old.level, level, dug, abandoned, old.dir, false, fits);
+  return pickIronStart(b, old.level, level, dug, abandoned, old.dir, false, fits, toward);
 }
 
 /** Whether stairs may start at a cell going `dir` (the world's view, MC_IRON_AGE's deeper levels). */
@@ -1241,7 +1244,7 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
   const old = m.ironPast?.at(-1);
   // (with a bot, MC_IRON_AGE: only starts the world shows fit, down to the level's aim)
   const fits = a && old?.level !== undefined ? stairsFit(a, old.level, old.level - (m.iron?.targetY ?? old.level - IRON_DROP) + 1) : undefined;
-  return old ? ironDeeperStart(old, m.iron?.abandoned ?? [], fits) : ironStart(m);
+  return old ? ironDeeperStart(old, m.iron?.abandoned ?? [], fits, ORE_ON ? (m.iron as OreLevel | undefined)?.toward : undefined) : ironStart(m);
 }
 
 /**
@@ -1253,16 +1256,21 @@ function ironRestart(m: Mine, a?: BotAgent): { x: number; z: number; y: number; 
 export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; save: () => void }, v: Village, m: Mine, i: IronLevel, a?: BotAgent): string {
   if (!IRON_AGE || !i.finished || i.level === undefined || m.iron !== i) return '';
   const past = m.ironPast ?? [];
-  const target = i.level - IRON_DROP;
-  if (past.length + 2 > IRON_LEVELS || target < IRON_FLOOR_Y) return '';
+  // (MC_ORE_MINE: ORE_DROP below or deeper where the iron seen is thicker, toward it; ORE_LEVELS and ORE_MINE_CELLS in all)
+  const ore = ORE_ON ? (i.dug < ORE_MINE_CELLS ? oreNextLevel(i, a ? a.world.atlas.near(i.x, i.z, 80) : []) : null) : undefined;
+  if (ore === null) return '';
+  const target = ore ? ore.y : i.level - IRON_DROP;
+  if (past.length + 2 > (ore ? ORE_LEVELS : IRON_LEVELS) || target < IRON_FLOOR_Y) return '';
   // (with a bot, the world's test too: stairsFit)
-  const s = ironDeeperStart(i, [], a ? stairsFit(a, i.level, IRON_DROP + 1) : undefined);
+  const s = ironDeeperStart(i, [], a ? stairsFit(a, i.level, i.level - target + 1) : undefined, ore?.toward);
   if (!s) {
     reg.note(v, `no clear way down from the iron level at y=${i.level} to another below it`);
     return '';
   }
   m.ironPast = [...past, i];
   m.iron = { x: s.x, z: s.z, y: s.y, dir: s.dir, steps: 0, legs: [], dug: i.dug, dugAt: i.dug, got: { ...i.got }, targetY: target };
+  // (the iron seen goes on with it: what lies at the new level's height is drifted to there)
+  if (ore) Object.assign(m.iron, { aboveY: i.level, seen: [...((i as OreLevel).seen ?? [])], ...(ore.toward ? { toward: ore.toward } : {}) });
   const note = `the next iron level's stairs start at ${s.x},${s.y},${s.z}, going ${compass(s.dir)} down to about y=${target}`;
   reg.note(v, note);
   reg.save();
@@ -1276,30 +1284,188 @@ export function layNextIronLevel(reg: { note: (v: Village, s: string) => void; s
  * every leg going has its miner and no turn can be made; null when every tunnel ended. A leg is advanced only by its
  * holder, so no two miners dig one cell.
  */
-export function claimIronLeg(a: { name: string; world: { villages: { note: (v: Village, s: string) => void } } }, v: Village, i: IronLevel, until = Date.now() + HOLD_MS): MineLeg | 'busy' | null {
+export function claimIronLeg(a: { name: string; world: { villages: { note: (v: Village, s: string) => void } } }, v: Village, i: IronLevel, until = Date.now() + HOLD_MS,
+  dug?: (x: number, z: number) => boolean): MineLeg | 'busy' | null {
   const now = Date.now();
   const other = (l: MineLeg) => { const h = ironLegs.get(l); return !!h && h.name !== a.name && h.until > now; };
   const claim = (l: MineLeg) => { ironLegs.set(l, { name: a.name, until: until + HOLD_MS }); return l; };
   const mine = i.legs.find((l) => ironLegs.get(l)?.name === a.name);
+  if (ORE_ON) {
+    // (MC_ORE_MINE: a drift to the iron seen before any tunnel's next cell, the miner's own tunnel let go for it; dug
+    // `dug` cells only as starts: a branch passed undug is in the record too, I4)
+    if (mine && !mine.end && isDrift(i, mine)) return mine;
+    const o = i as OreLevel;
+    const d = (o.drifts?.length ?? 0) < ORE_DRIFTS ? oreDrift(i, dug) : null;
+    if (d) {
+      if (mine) ironLegs.delete(mine);
+      i.legs.push(d.leg);
+      o.drifts = [...(o.drifts ?? []), [i.legs.length - 1, d.len]];
+      a.world.villages.note(v, `${a.name} drifts ${compass(d.leg.dir)} from ${d.leg.x},${d.leg.y},${d.leg.z} toward iron seen ${d.len} blocks off`);
+      return claim(d.leg);
+    }
+  }
   if (mine && !mine.end) return mine;
   if (mine) ironLegs.delete(mine);
   const going = i.legs.find((l) => !l.end && !other(l));
   if (going) return claim(going);
-  if (i.legs.length < IRON_AGE_LEGS)
+  // (MC_ORE_MINE: drifts count apart; of the turns possible, the one passing most iron seen, the oldest first on a tie)
+  const tunnels = ORE_ON ? i.legs.filter((l) => !isDrift(i, l)).length : i.legs.length;
+  if (tunnels < IRON_AGE_LEGS) {
+    let best: { l: MineLeg; side: 1 | 2; t: MineLeg; score: number } | null = null;
     for (const ended of [true, false])
       for (const [n, l] of i.legs.entries()) {
-        if (!!l.end !== ended) continue;
+        if (!!l.end !== ended || (ORE_ON && isDrift(i, l))) continue;
         for (const side of [1, 2] as const) {
           if ((l.turned ?? 0) & side) continue;
           const t = turnFrom(l, side, n === 0);
           if (!t) continue;
-          l.turned = (l.turned ?? 0) | side;
-          i.legs.push(t);
-          a.world.villages.note(v, `${a.name} turned the iron level ${compass(t.dir)} at ${t.x},${t.y},${t.z}`);
-          return claim(t);
+          const score = ORE_ON ? oreScore(i, t) : 0;
+          if (!best || score > best.score) best = { l, side, t, score };
+          if (!ORE_ON) break;
         }
+        if (best && !ORE_ON) break;
       }
+    if (best) {
+      const { l, side, t } = best;
+      l.turned = (l.turned ?? 0) | side;
+      i.legs.push(t);
+      a.world.villages.note(v, `${a.name} turned the iron level ${compass(t.dir)} at ${t.x},${t.y},${t.z}`);
+      return claim(t);
+    }
+  }
   return i.legs.some((l) => !l.end) ? 'busy' : null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// MC_ORE_MINE (with MC_IRON_AGE, G8 after IM1): the iron levels follow the iron seen. IM1's four fixed levels (1,919
+// cells, y 28 down to -8) gave 0.044 raw iron a cell and were dug out at minute 46; ore_follow_sim.py puts drifts to the
+// iron seen near the tunnels at about twice the fixed pattern's iron a cell on minevale3's saved land.
+// ---------------------------------------------------------------------------------------------
+
+const ORE_ON = IRON_AGE && ORE_MINE;
+/** Levels at most, the least drop from one to the next (three solid layers between their tunnels), a level's cells, the
+ *  mine's iron cells in all, sightings kept, how far from a dug cell iron is looked for, a drift's longest, drifts a level.
+ *  (Levels 6 apart from y 28 to -8 make seven: 7 x 1,150 cells about fill the 8,000, some 3 hours at IM1's 42 a minute.) */
+const ORE_LEVELS = 10, ORE_DROP = 6, ORE_LEVEL_CELLS = 1150, ORE_MINE_CELLS = 8000, ORE_SEEN = 64, ORE_LOOK = 4, ORE_DRIFT = 12, ORE_DRIFTS = 40;
+/** An iron level's record with MC_ORE_MINE's fields (in villages.json beside the rest): iron ore seen near its tunnels
+ *  [x, y, z], newest last; its drifts [leg index, length]; the level above's y (stairs stop at least ORE_DROP below it);
+ *  where its stairs head (the iron seen there; kept for a restart). */
+type OreLevel = IronLevel & { seen?: Array<[number, number, number]>; drifts?: Array<[number, number]>; aboveY?: number; toward?: { x: number; z: number };
+  /** Sightings a drift passed or ended short of ("x,y,z"), never noted again. */
+  gone?: string[] };
+
+/** Whether a leg of the level is a drift (main cells only, kept per part: `main`, an empty `br`). */
+export function isDrift(i: IronLevel, l: MineLeg): boolean {
+  const k = i.legs.indexOf(l);
+  return !!(i as OreLevel).drifts?.some(([n]) => n === k);
+}
+
+/** A drift's length (undefined for another leg). */
+function driftLen(i: IronLevel, l: MineLeg): number | undefined {
+  const k = i.legs.indexOf(l);
+  return (i as OreLevel).drifts?.find(([n]) => n === k)?.[1];
+}
+
+/**
+ * Iron ore within ORE_LOOK blocks of a cell just dug (x, z at level L: y L-4..L+5, so the levels around it are seen too),
+ * read from the bot's view by state id (cheap: no block objects), kept on the level within the village's range; and
+ * sightings in that box no longer iron (dug, by keepOres or a cell) dropped. At most ORE_SEEN, the newest kept.
+ */
+function noteIron(a: BotAgent, v: Village, i: IronLevel, x: number, L: number, z: number) {
+  const o = i as OreLevel;
+  const reg = a.world.registry.blocksByName;
+  const ids = new Set<number>();
+  for (const n of ['iron_ore', 'deepslate_iron_ore']) { const b = reg[n]; if (b) for (let s = b.minStateId; s <= b.maxStateId; s++) ids.add(s); }
+  const home = villageHome(v);
+  const inBox = (p: [number, number, number]) => Math.abs(p[0] - x) <= ORE_LOOK && Math.abs(p[2] - z) <= ORE_LOOK && p[1] >= L - 4 && p[1] <= L + 5;
+  const seen = (o.seen ?? []).filter((p) => !inBox(p) || ids.has(stateAt(a, p[0], p[1], p[2])) || stateAt(a, p[0], p[1], p[2]) < 0);
+  const have = new Set([...seen.map((p) => p.join(',')), ...(o.gone ?? [])]);
+  for (let dx = -ORE_LOOK; dx <= ORE_LOOK; dx++)
+    for (let dz = -ORE_LOOK; dz <= ORE_LOOK; dz++) {
+      if (home && Math.hypot(x + dx - home.x, z + dz - home.z) > 86) continue;
+      for (let y = L - 4; y <= L + 5; y++) {
+        if (!ids.has(stateAt(a, x + dx, y, z + dz)) || have.has(`${x + dx},${y},${z + dz}`)) continue;
+        seen.push([x + dx, y, z + dz]);
+        have.add(`${x + dx},${y},${z + dz}`);
+      }
+    }
+  o.seen = seen.slice(-ORE_SEEN);
+}
+
+/**
+ * The drift to the iron seen (MC_ORE_MINE): from a dug cell of the level (its stairs' bottom step or a tunnel's cell; `dug`
+ * says whether the world shows it open), straight along x or z, up to ORE_DRIFT cells, to pass a sighting within a column
+ * (the walls a cell's keepOres takes) at a height a tunnel at L takes (L-1..L+2); the shortest first. Sightings a going
+ * drift already heads for are left to it. Null when none.
+ */
+export function oreDrift(i: IronLevel, dug?: (x: number, z: number) => boolean): { leg: MineLeg; len: number } | null {
+  const o = i as OreLevel, L = i.level;
+  if (L === undefined || !o.seen?.length) return null;
+  const foot = ironColumns(i).at(-1);
+  const cols: Array<{ x: number; z: number }> = foot ? [{ x: foot.x, z: foot.z }] : [];
+  for (const l of i.legs.filter((q) => q.y === L)) cols.push({ x: l.x, z: l.z }, ...legCells(l));
+  const ends = (o.drifts ?? []).filter(([n]) => i.legs[n] && !i.legs[n].end).map(([n, len]) => cellAt(i.legs[n], 'main', len));
+  const cands: Array<{ d: number; off: number; x: number; z: number; dir: [number, number] }> = [];
+  // (what a drift's cells take: a sighting in line at L-1..L+2, its floor and ceiling too, or beside it at L or L+1)
+  const takes = (sy: number, off: number) => (off === 0 && sy >= L - 1 && sy <= L + 2) || (off === 1 && (sy === L || sy === L + 1));
+  for (const [sx, sy, sz] of o.seen) {
+    if (sy < L - 1 || sy > L + 2 || ends.some((e) => Math.abs(e.x - sx) <= 1 && Math.abs(e.z - sz) <= 1)) continue;
+    for (const c of cols) {
+      if (takes(sy, Math.abs(sz - c.z)) && sx !== c.x && Math.abs(sx - c.x) <= ORE_DRIFT) cands.push({ d: Math.abs(sx - c.x), off: Math.abs(sz - c.z), x: c.x, z: c.z, dir: [Math.sign(sx - c.x), 0] });
+      if (takes(sy, Math.abs(sx - c.x)) && sz !== c.z && Math.abs(sz - c.z) <= ORE_DRIFT) cands.push({ d: Math.abs(sz - c.z), off: Math.abs(sx - c.x), x: c.x, z: c.z, dir: [0, Math.sign(sz - c.z)] });
+    }
+  }
+  // (the shortest first, then the one passing nearest: through the ore itself rather than beside it)
+  cands.sort((p, q) => p.d - q.d || p.off - q.off);
+  const open = new Map<string, boolean>();
+  for (const c of cands) {
+    const k = `${c.x},${c.z}`;
+    if (dug && !open.has(k)) open.set(k, dug(c.x, c.z));
+    if (dug && !open.get(k)) continue;
+    // (no junction branches: every branch id it could have is ended, so the record's readers see main cells only)
+    const ended = Array.from({ length: Math.floor(c.d / MAIN_STEP) + 1 }, (_, s) => [3 * s + 1, 3 * s + 2]).flat();
+    return { leg: { x: c.x, z: c.z, y: L, dir: c.dir, dug: 0, main: 0, br: {}, ended }, len: c.d };
+  }
+  return null;
+}
+
+/** A drift ended: the sightings beside its line (within a column, at the heights it takes) are not drifted to again. */
+function dropSeen(i: IronLevel, l: MineLeg) {
+  const o = i as OreLevel, len = driftLen(i, l) ?? 0;
+  const line = Array.from({ length: len + 1 }, (_, k) => cellAt(l, 'main', k));
+  const near = ([x, y, z]: [number, number, number]) => y >= l.y - 1 && y <= l.y + 2 && line.some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1);
+  o.gone = [...(o.gone ?? []), ...(o.seen ?? []).filter(near).map((p) => p.join(','))].slice(-128);
+  o.seen = (o.seen ?? []).filter((p) => !near(p));
+}
+
+/** How many sightings a tunnel from `t` would pass within 2 columns of in its first 24 cells (a turn's score). */
+function oreScore(i: IronLevel, t: MineLeg): number {
+  const seen = (i as OreLevel).seen ?? [];
+  return seen.filter(([x, y, z]) => y >= t.y - 1 && y <= t.y + 2 && Array.from({ length: 24 }, (_, k) => cellAt(t, 'main', k + 1)).some((c) => Math.abs(c.x - x) <= 2 && Math.abs(c.z - z) <= 2)).length;
+}
+
+/**
+ * The next level's aim and where it heads (MC_ORE_MINE): ORE_DROP below the level, or deeper (to IRON_FLOOR_Y) where the
+ * iron seen near the tunnels and the atlas' iron (ores laid open in caves, by chunk: count, lowest and highest y) is half
+ * as thick again; `toward`: the middle of that iron, for the stairs' start and direction. Null below the floor.
+ */
+export function oreNextLevel(i: IronLevel, atlas: Array<{ cx: number; cz: number; ores?: Record<string, [number, number, number]> }> = []): { y: number; toward?: { x: number; z: number } } | null {
+  const L = i.level;
+  if (L === undefined || L - ORE_DROP < IRON_FLOOR_Y) return null;
+  const pts: Array<{ x: number; z: number; lo: number; hi: number; n: number }> = [
+    ...((i as OreLevel).seen ?? []).map(([x, y, z]) => ({ x, z, lo: y, hi: y, n: 1 })),
+    ...atlas.filter((c) => c.ores?.iron).map((c) => ({ x: c.cx * 16 + 8, z: c.cz * 16 + 8, lo: c.ores!.iron[1], hi: c.ores!.iron[2], n: c.ores!.iron[0] })),
+  ];
+  // (the share of a sighting's y span a level at y takes: its cells L..L+1, its floor and ceiling L-1 and L+2)
+  const take = (p: { lo: number; hi: number; n: number }, y: number) => p.n * Math.max(0, Math.min(p.hi, y + 2) - Math.max(p.lo, y - 1) + 1) / (p.hi - p.lo + 1);
+  const weight = (y: number) => pts.reduce((s, p) => s + take(p, y), 0);
+  const y0 = L - ORE_DROP;
+  let best = y0;
+  for (let y = y0 - 1; y >= IRON_FLOOR_Y; y--) if (weight(y) > weight(best)) best = y;
+  const y = weight(best) >= 1.5 * weight(y0) + 2 ? best : y0;
+  const at = pts.filter((p) => take(p, y) > 0);
+  const n = at.reduce((s, p) => s + take(p, y), 0);
+  return { y, ...(n > 0 ? { toward: { x: Math.round(at.reduce((s, p) => s + p.x * take(p, y), 0) / n), z: Math.round(at.reduce((s, p) => s + p.z * take(p, y), 0) / n) } } : {}) };
 }
 
 /** MC_IRON_AGE: every lock a miner holds on a village's iron level let go (its trip, the stairs, its leg). */
@@ -1392,7 +1558,9 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
     // A level where the stairs stopped: at once when deep enough for iron (y 28 or less), else only when no try is left
     // (VanI4 settled at y 39 on its second try and dug 87 cells past 3 iron ores in the whole stretch)
     // (a level below another, MC_IRON_AGE: only 6 or more below its aim's level above, three solid layers between them)
-    const good = i.targetY !== undefined ? i.targetY + IRON_DROP - 6 : IRON_GOOD_Y, settleY = i.targetY !== undefined ? good : IRON_SETTLE_Y;
+    // (MC_ORE_MINE's levels keep the level above's y: their aim may lie more or less than IRON_DROP below it)
+    const above = (i as OreLevel).aboveY ?? (i.targetY !== undefined ? i.targetY + IRON_DROP : undefined);
+    const good = above !== undefined ? above - 6 : IRON_GOOD_Y, settleY = i.targetY !== undefined ? good : IRON_SETTLE_Y;
     const tries = (i.abandoned?.length ?? 0) + 1;
     if (last && (y <= good || (y <= settleY && tries >= IRON_TRIES))) return level(y, last.x, last.z);
     // Above y 40 (caves and aquifers are common at 36-51, VanI2): these stairs are given up as they are and new ones
@@ -1608,6 +1776,8 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     const bottom = ironColumns(i).at(-1)!;
     await go(new Vec3(bottom.x + 0.5, i.level!, bottom.z + 0.5), 1.5, 120000);
     let kept = 0;
+    // (MC_ORE_MINE: a drift starts only from a cell the world shows dug)
+    const openCell = (x: number, z: number) => [0, 1].every((dy) => a.bot.blockAt(new Vec3(x, i.level! + dy, z))?.boundingBox === 'empty');
     while (true) {
       checkAbort(signal);
       if (carried() >= want) { why = `carrying ${carried()} raw iron`; break; }
@@ -1615,11 +1785,21 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       if (a.bot.inventory.emptySlotCount() < 4) { why = 'the inventory is nearly full'; break; }
       // (another miner finished this level meanwhile, MC_IRON_AGE: the next one, if any, is for the next trip)
       if (IRON_AGE && (m.iron !== i || i.finished)) { why = `another miner finished this iron level (${i.finished ?? 'done'})`; break; }
-      if (i.dug - (i.dugAt ?? 0) >= (IRON_AGE ? IRON_AGE_CELLS : IRON_CELLS)) { i.finished = `${i.dug - (i.dugAt ?? 0)} tunnel cells dug`; endedHere = true; break; }
-      const leg = IRON_AGE ? claimIronLeg(a, v, i, until) : nextIronLeg(a, v, i);
+      // (MC_ORE_MINE: the mine's iron cells in all bound it; no level follows)
+      if (ORE_ON && i.dug >= ORE_MINE_CELLS) { i.finished = `the mine's ${ORE_MINE_CELLS} iron cells dug`; endedHere = true; break; }
+      if (i.dug - (i.dugAt ?? 0) >= (ORE_ON ? ORE_LEVEL_CELLS : IRON_AGE ? IRON_AGE_CELLS : IRON_CELLS)) { i.finished = `${i.dug - (i.dugAt ?? 0)} tunnel cells dug`; endedHere = true; break; }
+      const leg = IRON_AGE ? claimIronLeg(a, v, i, until, ORE_ON ? openCell : undefined) : nextIronLeg(a, v, i);
       if (leg === 'busy') { why = 'every iron tunnel going has its miner and none can turn off yet'; break; }
       if (!leg) { i.finished = short(`every tunnel ended; the last met ${i.legs.at(-1)?.end ?? 'nothing'}`); endedHere = true; break; }
-      const c = tunnelCell(leg, leg.dug);
+      // (a drift, MC_ORE_MINE: its main cells, up to its length; then the iron it was for is no longer looked for)
+      const len = ORE_ON ? driftLen(i, leg) : undefined;
+      if (len !== undefined && leg.dug >= len) {
+        leg.end = 'the iron seen reached';
+        dropSeen(i, leg);
+        reg.save();
+        continue;
+      }
+      const c = len !== undefined ? { ...cellAt(leg, 'main', leg.dug + 1), from: cellAt(leg, 'main', leg.dug), branch: 0 } : tunnelCell(leg, leg.dug);
       if (leg.ended.includes(c.branch)) { leg.dug++; continue; }
       const L = leg.y;
       const cells = [new Vec3(c.x, L + 1, c.z), new Vec3(c.x, L, c.z)];
@@ -1631,6 +1811,7 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       if (bad) {
         if (c.branch % 3 === 0) leg.end = short(bad);
         else leg.ended.push(c.branch);
+        if (len !== undefined) dropSeen(i, leg);
         reg.save();
         continue;
       }
@@ -1668,8 +1849,11 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
         await go(new Vec3(c.x + 0.5, L, c.z + 0.5), 0.3, 20000);
         i.dug++;
         dugNow++;
+        // (MC_ORE_MINE: the iron within a few blocks noted, for drifts, turns and the next level)
+        if (ORE_ON) noteIron(a, v, i, c.x, L, c.z);
       }
       leg.dug++;
+      if (len !== undefined) leg.main = leg.dug;
       reg.save();
     }
     if (i.finished && (!IRON_AGE || endedHere)) {
@@ -1805,7 +1989,8 @@ export function mineFacesGoing(m: Mine): Array<{ x: number; y: number; z: number
   const i = m.iron;
   if (i && !i.finished) {
     if (i.level === undefined) out.push({ x: i.x + i.dir[0] * (i.steps + 1), y: i.y - i.steps, z: i.z + i.dir[1] * (i.steps + 1) });
-    for (const l of i.legs) if (!l.end) { const c = tunnelCell(l, l.dug); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
+    // (a drift, MC_ORE_MINE, kept per part: its next main cell)
+    for (const l of i.legs) if (!l.end) { const c = l.br ? cellAt(l, 'main', mainOf(l) + 1) : tunnelCell(l, l.dug); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
   }
   return out;
 }

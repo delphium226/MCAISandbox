@@ -7,8 +7,8 @@ lava, on no floor, under no solid ceiling or in a cave ends its branch or tunnel
 (a main tunnel with 12-cell branches every 3 cells, turns off ended tunnels, 9 tunnels and 320 cells a level). The
 ore-following pattern digs the same, but notes iron within 4 blocks of each cell dug (y L-1..L+2, the ores a tunnel at L
 can take) and, before each next cell, digs a short drift (up to 12 cells, straight, from a cell already dug) to the
-nearest one it can pass within a column of. Levels: the fixed four (28, 16, 4, -8), then for the supply estimate levels 6
-apart down to -8, until 6,000 cells.
+nearest one its cells take (in line at L-1..L+2, beside at L or L+1). Levels: the fixed four (28, 16, 4, -8), then for
+the supply estimate MC_ORE_MINE's levels 6 apart down to -8, 1,150 cells each, until 8,000 cells.
 Usage: python scripts/checks/ore_follow_sim.py [WORLD] [X Z] [--rate CELLS_PER_MIN]
        (default mc/testworld, the IM1 mine at -1620,0; 42 cells a minute: IM1's four levels, 1,919 cells in 46 minutes)
 """
@@ -137,7 +137,9 @@ class Sim:
                 for ax in (0, 1):
                     d = (sx - x) if ax == 0 else (sz - z)
                     off = (sz - z) if ax == 0 else (sx - x)
-                    if abs(off) <= 1 and 1 <= abs(d) <= 12 and (best is None or abs(d) < best[0]):
+                    # (what the drift's cells take, as mcMine's oreDrift: in line at L-1..L+2, beside at L or L+1)
+                    takes = (off == 0 and L - 1 <= sy <= L + 2) or (abs(off) == 1 and L <= sy <= L + 1)
+                    if takes and 1 <= abs(d) <= 12 and (best is None or abs(d) < best[0]):
                         best = (abs(d), x, z, ax, 1 if d > 0 else -1)
         if not best: return False
         n, x, z, ax, s = best
@@ -197,7 +199,7 @@ class Sim:
         return self.cells - start
 
 
-def run(follow, levels, cap_total, seed):
+def run(follow, levels, cap_total, seed, cap_level=None):
     rnd = random.Random(seed)
     s = Sim(follow)
     per = []
@@ -206,23 +208,24 @@ def run(follow, levels, cap_total, seed):
         sx, sz = CX + rnd.randint(-12, 12), CZ + rnd.randint(-12, 12)
         d0 = rnd.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
         before = s.iron
-        n = s.level(L, sx, sz, d0, min(320 if not follow else 800, cap_total - s.cells))
+        n = s.level(L, sx, sz, d0, min(cap_level or (320 if not follow else 800), cap_total - s.cells))
         per.append((L, n, s.iron - before))
     return s, per
 
 
 FIXED = [28, 16, 4, -8]
 DEEP = [28, 22, 16, 10, 4, -2, -8]
-print(f'{"pattern":<34} {"cells":>6} {"iron":>5} {"per 1k":>7}  {"drift":>5}  levels (y: cells/iron)')
+print(f'{"pattern":<40} {"cells":>6} {"iron":>5} {"per 1k":>7}  {"drift":>5}  levels (y: cells/iron)')
 rows = {}
-for name, follow, levels, cap in [('fixed, 4 levels (IM1)', False, FIXED, 6000), ('ore-following, same 4 levels', True, FIXED, 6000),
-                                  ('fixed, 7 levels 6 apart', False, DEEP, 6000), ('ore-following, 7 levels, 6,000 cap', True, DEEP, 6000)]:
+for name, follow, levels, cap, lc in [('fixed, 4 levels (IM1)', False, FIXED, 8000, 320), ('fixed, 4 levels, 800 a level', False, FIXED, 8000, 800),
+                                      ('ore-following, same 4 levels', True, FIXED, 8000, 800),
+                                      ('fixed, 7 levels 6 apart, 1,150 each', False, DEEP, 8000, 1150), ('ore-following, 7 levels (MC_ORE_MINE)', True, DEEP, 8000, 1150)]:
     tot = [0, 0, 0]
     for seed in range(6):
-        s, per = run(follow, levels, cap, seed)
+        s, per = run(follow, levels, cap, seed, lc)
         tot[0] += s.cells; tot[1] += s.iron; tot[2] += s.drift_cells
     c, i, d = (t / 6 for t in tot)
     rows[name] = (c, i)
-    print(f'{name:<34} {c:6.0f} {i:5.0f} {1000 * i / max(1, c):7.1f}  {d:5.0f}  ' + ' '.join(f'{L}:{n}/{g}' for L, n, g in per))
+    print(f'{name:<40} {c:6.0f} {i:5.0f} {1000 * i / max(1, c):7.1f}  {d:5.0f}  ' + ' '.join(f'{L}:{n}/{g}' for L, n, g in per))
 for name, (c, i) in rows.items():
     print(f'supply at {RATE:.0f} cells a minute: {name}: {c / RATE / 60:.1f} h, {60 * RATE * i / max(1, c):.0f} raw iron an hour')
