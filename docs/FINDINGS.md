@@ -1914,3 +1914,25 @@ CLAUDE.md when a phase ends.
   from im2_mine with 3 amethyst trips each and no freeze, under scripts/checks/freeze_catch.cjs (the inspector paused on
   any API silence over 5 s; none). Logs: runs/2026-10-23/ore-veins/freeze/.
 
+- F302 (10-23, monoculture session, the user's experiment repeated) **The all-wealth village's council again rejects
+  duties and coordination norms, and a quarter of it again votes for no levy. With own shares working, the wealth drive
+  now shows in own stock (160 shares received against 43). Payments barely moved (1 emerald each), and #104's building
+  variety works live (28-29 distinct house designs a village).** W2 (MC_CHARACTER_PRESET=wealth, test world 5) against
+  M2 (mixed, test world 1), side by side from scratch, 92 minutes each, server 6b2649a (MC_PAY, MC_ORE_VEIN,
+  MC_VANILLA_ALL, MC_WOOD_VARIANTS on W1/M1's spec).
+  **Repeated from F297:** model reasons naming wealth 59% against 11% (emeralds 32%, trade 31%), the village or helping
+  17% against 54%. W2's council passed 1 law of 5 and rejected 4 norms to announce or post iron digs (8-12 yes, 12-16
+  no); M2 passed 4 of 5, rejecting only a 5-minute mine turn limit. Levy ballots at 0%: 6 of 23 against 1 of 22; 10%
+  won in both.
+  **New:** own shares received 160 against 43, own stock 194 against 119 items (Gini 0.54 both); priced requests 7 of
+  47 against 5 of 61, all at 1 emerald; market stalls 15 against 9, front beds 21 against 11.
+  **Didn't repeat:** W1/M1's request and promise gap (47 against 61 requests; 9 against 11 promises). 37 and 56 of the
+  requests were refused because the village had plenty, so there was little to pay for: 2 emeralds moved in all, and
+  members sold the merchant 1 item against its 193 bought.
+  **#104 live:** 28 and 29 distinct house designs, each built once or twice (the old library gave 4 at ~6 each); birch
+  for most neighbourhoods and oak for one or two, no other woods (none near home); 1 medium house in W2, 2 medium and 1
+  big in M2; 23 and 25 work designs; no overlapping builds.
+  **Caveats:** the model chose 16-18% of chores in both arms (work blocks' 3-in-6-minutes pacing), so the preset steered
+  a minority of the work. Payments' levy isn't deposited yet; wages and short deliveries never came up. One pair: busy
+  (59 against 54%), gardens (33 against 18, reversed from W1/M1), [stuck] (76 against 55) could be noise.
+  Logs: runs/2026-10-24/monoculture2/ (report.md, compare.md).

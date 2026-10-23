@@ -685,3 +685,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    facts about the voter's own stake.
 175. **Pilot the measure's spread before sizing an experiment** (g3-rules, F300): Experiment 2 was sized on decision counts,
    but its measure sat at 99%. A cheap vignette bench on the pilot's own prompts showed the ceiling before 19 hours of runs.
+176. **A price system needs scarcity before it carries a market** (monoculture 2, F302): with payments on, purses
+   minted and requests able to carry a price, only 2 emeralds moved between members in 92 minutes. 93 of 108 requests
+   were refused because the village had plenty in storage, and members sold the merchant 1 item. Measure what members
+   lack before judging an economy feature: a shared storage that covers every need leaves nothing to pay for.
