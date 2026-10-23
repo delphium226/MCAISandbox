@@ -1904,3 +1904,13 @@ CLAUDE.md when a phase ends.
   Staged G3s1 (scripted): a log quota of 4 a day took away torch making, so a torch contribution was met on 3 of 75
   member-days and a lighting duty on 6 of 50: rules members vote for can undercut each other. Cost of G3m1: 1,772 calls,
   3.1M tokens, ~$0.63. Logs: runs/2026-10-23/g3-rules/ (model/, staged/, bench/, report.md).
+- F301 (10-23, ore-veins session, #106) **The ~120 s freezes with an iron trip running were harvest_amethyst's loops
+  spinning on microtasks, not the mine.** Each of the three blocks (11:32, P0, V1) came with a member on harvest_amethyst
+  begun before it. Each ended where that skill's wall limit falls (300 s at 1x, 150 s at 2x, from its own start): V1's
+  Wren began 33 s before the block, which lasted 124 s. A turn of its dig loops whose cell was dug already, with the bot
+  on the step, awaits nothing real, so the loop ran until the limit and every bot timed out. dig_iron was only
+  coincident (the miners walking at the time). The uncommitted fix in server/src/mineflayer/foundry/amethyst.ts (another
+  session's, 17:12) yields 20 ms in each of its four loops. F1 (without it), F2 and F3 (with it) ran 25 minutes each
+  from im2_mine with 3 amethyst trips each and no freeze, under scripts/checks/freeze_catch.cjs (the inspector paused on
+  any API silence over 5 s; none). Logs: runs/2026-10-23/ore-veins/freeze/.
+
