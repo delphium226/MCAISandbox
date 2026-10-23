@@ -94,6 +94,23 @@ const WORKERS = 24;
 const MAYOR: Hexaco = { H: 0.3, E: 0, X: 0.5, A: 0.2, C: 0.6, O: 0.1 };
 const ZERO: Hexaco = { H: 0, E: 0, X: 0, A: 0, C: 0, O: 0 };
 
+/**
+ * MC_CHARACTER_PRESET (the user's monoculture experiment, 10-23): every member, the Mayor too, gets one profile instead of
+ * the draws: its traits (with a small seeded jitter, +-0.1, so members are not identical), its values (+-0.05, the preset's
+ * dominant value always first; self-enhancement's 25% cap does not apply) and its life goal. Unset: the draws as before.
+ * `wealth` first; more (beauty, invention...) are entries in PRESETS.
+ */
+export const CHARACTER_PRESET = (process.env.MC_CHARACTER_PRESET ?? '').trim().toLowerCase();
+interface Preset { hex: Record<'H' | 'E' | 'X' | 'A' | 'C' | 'O', number>; values: Record<'openness' | 'conservation' | 'enhancement' | 'transcendence', number>; goal: string }
+const PRESETS: Record<string, Preset> = {
+  // (a wealth-seeker: out for itself, hard-working and steady, a little outgoing for trade, slow to forgive, conventional)
+  wealth: { hex: { H: -0.7, E: -0.3, X: 0.3, A: -0.3, C: 0.7, O: -0.1 }, values: { openness: 0.3, conservation: 0.45, enhancement: 0.9, transcendence: 0.15 }, goal: 'wealth' },
+};
+const PRESET = CHARACTER_PRESET ? PRESETS[CHARACTER_PRESET] : undefined;
+if (CHARACTER_PRESET && !PRESET) throw new Error(`MC_CHARACTER_PRESET=${CHARACTER_PRESET}: no such preset (${Object.keys(PRESETS).join(', ')})`);
+const jitter = (key: string, size: number) => Math.round((mulberry32(fnv1a(key))() * 2 - 1) * size * 100) / 100;
+const clamp1 = (x: number) => Math.max(-1, Math.min(1, x));
+
 /** Workers 1-24's six traits: a Latin hypercube seeded 'character-v2' (each trait's 24 values one per stratum of [-1, 1]). */
 const WORKER_HEX: Hexaco[] = (() => {
   const rnd = mulberry32(fnv1a('character-v2'));
@@ -108,6 +125,7 @@ const WORKER_HEX: Hexaco[] = (() => {
 /** A member's six traits: the Mayor's by hand, workers 1-24 drawn, any other name from a hash of it. */
 export function hexacoOf(name: string): Hexaco {
   const n = name.trim().toLowerCase();
+  if (PRESET) return Object.fromEntries(HEXACO.map((t) => [t, Math.round(clamp1(PRESET.hex[t] + jitter(`preset|${n}|${t}`, 0.1)) * 100) / 100])) as Hexaco;
   if (n === 'mayor') return { ...MAYOR };
   const i = workerNumber(n);
   if (i >= 1 && i <= WORKERS) return { ...WORKER_HEX[i - 1] };
@@ -182,6 +200,7 @@ const VALUE_TABLE: Map<string, Values> = (() => {
 })();
 
 export function valuesOf(name: string): Values {
+  if (PRESET) return Object.fromEntries(VALUES.map((k) => [k, Math.round((PRESET.values[k] + jitter(`preset-values|${name.toLowerCase()}|${k}`, 0.05)) * 100) / 100])) as Values;
   return { ...(VALUE_TABLE.get(name.toLowerCase()) ?? raw(name)) };
 }
 
@@ -231,6 +250,7 @@ const GOAL_TABLE: Map<string, string> = (() => {
 
 /** A member's life goal drawn from its values (the user's choice, 10-22). */
 export function goalFromValues(name: string): string {
+  if (PRESET) return PRESET.goal;
   return GOAL_TABLE.get(name.toLowerCase()) ?? [...GOALS].sort((a, b) => goalScore(b, name) - goalScore(a, name))[0];
 }
 
