@@ -809,3 +809,11 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   topic, not G3's law council; `ladder.ts` holds rungs, prerequisites and typed needs (have, hand build, ticket) and is
   the motivation spec's village-ambition engine; enchantment starts at 8 levels; specialisation over the iron kinds
   judged against a permutation null on model picks.
+- 10-23 (the user's, through the planning session, after IM1/F289) **G8's stages count from the rung's start, not each
+  from its own:** every counter (cells, raw iron, ingots, tools given) runs from the rung's start and the stages end in
+  order, each once its total reaches its target, several at once when the work is already done. This revises draft 2's
+  minor decision. Reason: the village digs, smelts and forges at once. In IM1, 18 tools given and 16 smelts before stages 3
+  and 4 began counted for nothing, and every target was met by minute 46. Also, with MC_WORK_BLOCKS, a member's model
+  decisions are at least 30 s apart, not 90 (CHOOSE.minGapMs). A member inside the gap with nothing of the same kind waits,
+  rather than take the fixed pick. Only decided choices open a block: the model's, the scripted controller's, or the fixed
+  pick in fixed mode. IM1 had 421 rate fallbacks against 168 model decisions.
