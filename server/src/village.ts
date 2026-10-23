@@ -11,6 +11,7 @@ import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
 import type { Side } from './farmSlots';
 import { growing, housesOf } from './grow';
+import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
 import { appetiteOn, stateOf, type Appetite } from './appetite';
 
@@ -1016,6 +1017,8 @@ export class VillageRegistry {
       }
       const builds = v.tasks.filter((t) => /^Build /.test(t.title) && t.status !== 'done' && need.get(t.title.slice(6)));
       const kindOf = (label: string) => v.woodFor?.[label] ?? wood;
+      // (R2, MC_WOOD_VARIANTS: a wood variant's building keeps its neighbourhood's wood: never moved nor sent back)
+      const variant = (t: Task) => WOOD_VARIANTS && !!variantWood(/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? '');
       // (`held`: the lamps' and signs' logs while held too, for the cover itself; the moves count only open ones, above)
       const total = (k: string, held = false) => builds.filter((t) => kindOf(t.title.slice(6)) === k).reduce((s, t) => s + need.get(t.title.slice(6))!, 0) + (k === wood ? (held ? lampLogs : lampOpen) + windowLogs + stations.logs : 0);
       let changed = false;
@@ -1023,7 +1026,7 @@ export class VillageRegistry {
         const label = t.title.slice(6), k = v.woodFor?.[label];
         // (not while any build is under way: its builder holds what it withdrew, and the pool looks short for a while:
         // VanW4's house 3 went back to birch while house 1's builder held the oak)
-        if (k && k !== wood && !v.tasks.some((b) => /^Build /.test(b.title) && b.status === 'claimed') && (pools.get(k) ?? 0) < total(k)) {
+        if (k && k !== wood && !variant(t) && !v.tasks.some((b) => /^Build /.test(b.title) && b.status === 'claimed') && (pools.get(k) ?? 0) < total(k)) {
           delete v.woodFor![label];
           changed = true;
           this.note(v, `${label} goes back to ${wood}: the storage no longer holds its logs in ${k}`);
@@ -1032,7 +1035,7 @@ export class VillageRegistry {
       for (const t of write ? [...builds].reverse() : []) {
         if ((pools.get(wood) ?? 0) >= total(wood)) break;
         const label = t.title.slice(6), n = need.get(label)!;
-        if (t.status === 'claimed' || kindOf(label) !== wood) continue;
+        if (t.status === 'claimed' || kindOf(label) !== wood || variant(t)) continue;
         const k = [...pools].filter(([kind, q]) => kind !== wood && q >= total(kind) + n).sort((x, y) => y[1] - x[1])[0]?.[0];
         if (!k) continue;
         (v.woodFor ??= {})[label] = k;

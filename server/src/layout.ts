@@ -2,7 +2,7 @@
  * plan_layout: lay a village's buildings out on one plot and post every task they need. Code does the geometry and the
  * materials; the mayor (tieredBrain) only names the buildings. Also used by the API (tests start a village at a stage).
  */
-import { HOUSE_UNITS } from './designs';
+import { HOUSE_UNITS, WOOD_VARIANTS, variantWood } from './designs';
 import type { WorldAdapter } from './world';
 import { STATION_NAMES, STATIONS_TASK, areaText, layoutBuildings, overlaps, signCall, villageHome, type Area, type FarmSlot, type Layout, type PlotPart, type Task, type Village } from './village';
 import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type FarmSpot, type PlanItem, type SignSpot, type StreetLayout } from './streetPlan';
@@ -208,9 +208,11 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       const logs = names.filter((n) => n !== centre?.design.name).reduce((s, n) => s + (w.materialTasks!(v.designs[n], n, undefined, ownStations(n), hutWithout(n)).logs ?? 0), 0);
       if ((site.woodLogs ?? 0) >= logs * 1.5) wood = site.wood;
     }
+    // (R2, MC_WOOD_VARIANTS: a wood variant, "NAME@spruce", is billed and built in its own wood, its neighbourhood's)
+    const woodOf = (n: string) => (WOOD_VARIANTS && variantWood(n)) || wood;
     if (economy)
       for (const n of new Set(names)) {
-        const m = w.materialTasks!(v.designs[n], '{label}', wood, ownStations(n), hutWithout(n));
+        const m = w.materialTasks!(v.designs[n], '{label}', woodOf(n), ownStations(n), hutWithout(n));
         if (m.problems.length && n === centre?.design.name) { dropCentre(); continue; }
         if (m.problems.length) return `plan_layout: the "${n}" design cannot be built here (${m.problems.join('; ')}); draw a replacement with other materials under a new name, then call plan_layout with it`;
         materials.set(n, m);
@@ -592,7 +594,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       // building with windows gathers the logs their smelting burns, billed nowhere else: S.3's review)
       const fuel = windows && !fuelBilled && p.name !== STORAGE_HUT && windows.with.includes(v.designs[p.name].name) && windows.logs > 0;
       if (fuel) fuelBilled = true;
-      const own = windows && p.name !== STORAGE_HUT ? w.materialTasks!(v.designs[p.name], '{label}', wood, ownStations(p.name), ['glass', 'glass_pane'], fuel ? { 'any:logs': windows.logs } : {}).tasks : materials.get(p.name)?.tasks ?? [];
+      const own = windows && p.name !== STORAGE_HUT ? w.materialTasks!(v.designs[p.name], '{label}', woodOf(p.name), ownStations(p.name), ['glass', 'glass_pane'], fuel ? { 'any:logs': windows.logs } : {}).tasks : materials.get(p.name)?.tasks ?? [];
       for (const t of own) {
         gather.push(tasks.length);
         const stone = dig !== undefined && /^collect block=cobblestone /.test(t.detail);
@@ -608,6 +610,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       }
       const isHut = p.name === STORAGE_HUT, isMine = p.name === MINING_HUT;
       if (isHut) hutBuild = tasks.length;
+      // (R2: the builder takes the variant's wood, F164's whole building in one kind)
+      const vw = WOOD_VARIANTS ? variantWood(p.name) : undefined;
+      if (vw) (v.woodFor ??= {})[label] = vw;
       const build = tasks.length;
       builds.push(build);
       buildOf.set(`${p.x},${p.z}`, { build, label });
@@ -675,7 +680,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       : [];
     // A neighbourhood of houses gets its name (#10, placeNames.ts), on the third line of each house's sign (the owner's
     // name, N.2, rewrites the first two)
-    const hoodName = nb && placed.length && placed.every(isDwelling) ? nameForNew(v, (v.growth?.past.length ?? 0) + 1, wood ?? v.wood) : undefined;
+    const hoodName = nb && placed.length && placed.every(isDwelling) ? nameForNew(v, (v.growth?.past.length ?? 0) + 1, (WOOD_VARIANTS && placed.map(variantWood).find(Boolean)) || (wood ?? v.wood)) : undefined;
     if (hoodName) for (const s of signs) s.text = [s.text[0], s.text[1] ?? '', hoodName];
     for (const s of signs) {
       const b = buildOf.get(`${s.cx},${s.cz}`);

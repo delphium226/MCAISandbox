@@ -22,7 +22,7 @@ import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, an
 import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import type { MakeGood } from './mcWorkshop';
 import { TEMPERAMENT_MODE, temperament } from '../temperament';
-import { doorOutward, outsideCells, turnState } from '../designs';
+import { WOOD_VARIANTS, doorOutward, outsideCells, turnState, variantWood } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import type { DecorPart, LightPart } from './mcWorld';
@@ -36,7 +36,7 @@ import { atlasSites } from './mcSiteAtlas';
 import { taskCalls } from '../taskBrain';
 import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LOG, waterloggedEmpty } from './mcBlocks';
 import { timeScale } from './mcRules';
-import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
+import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, hoodWoodAt, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
 import { contractOf, deliveryDone, givePurse } from '../pay';
 import { boardOf, offerText, settle } from '../barter';
@@ -2607,7 +2607,9 @@ async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: 
   // job billed one of its own, 8 of the hut's cobblestone and a furnace off the plot)
   if (v.storageHut && !villageStationCell(v, 'furnace')) throw new Error("light_streets: the storage hut's furnace is not there yet");
   const desert = v.vanillaBiome === 'desert';
-  const post = desert ? ['cut_sandstone', 'cut_sandstone'] : [`${v.wood ?? 'oak'}_fence`];
+  // (R2, MC_WOOD_VARIANTS: a neighbourhood's lamp posts in its wood)
+  const hoodWood = WOOD_VARIANTS ? lay.buildings.map(variantWood).find(Boolean) : undefined;
+  const post = desert ? ['cut_sandstone', 'cut_sandstone'] : [`${hoodWood ?? v.wood ?? 'oak'}_fence`];
   const plant = (n: string) => n === 'air' || n === 'cave_air' || (NATURAL.has(n) && !NATURAL_GROUND.has(n) && !LIQUID.has(n));
   // (a post or torch already up counts as free: an earlier try, possibly in another wood when the village's was short)
   const ours = (n: string, i: number) => (i < post.length ? (desert ? n === post[i] : woodPart(n)?.part === 'fence') : n === 'torch');
@@ -2719,7 +2721,8 @@ async function putUpSigns(a: BotAgent, args: Record<string, unknown>, signal: Ab
       continue;
     }
     delete s.never;
-    targets.push({ x: s.x, y, z: s.z, block: `${v.wood ?? 'oak'}_wall_sign[facing=${s.facing}]`, nbt: signNbt(s.text) });
+    // (R2: a sign in its neighbourhood's wood)
+    targets.push({ x: s.x, y, z: s.z, block: `${(WOOD_VARIANTS ? hoodWoodAt(v, s.x, s.z) : undefined) ?? v.wood ?? 'oak'}_wall_sign[facing=${s.facing}]`, nbt: signNbt(s.text) });
   }
   if (!targets.length) {
     a.world.villages.save();

@@ -5,7 +5,7 @@
  * entrance step touching the street, as vanilla's houses join their street pieces). World-independent: plan_layout
  * (layout.ts) posts the work, prepare_site lays the streets as dirt_path.
  */
-import { doorOutward, outsideCells, outwardStep, turnState } from './designs';
+import { doorOutward, isVanillaPieceName, outsideCells, outwardStep, turnState } from './designs';
 import type { Area, Design, Layout } from './village';
 import type { VanillaLight } from './vanillaPieces';
 
@@ -534,7 +534,8 @@ export function placeSigns(places: SignPlace[], lamps: Array<{ x: number; z: num
     if (!hit) return null;
     taken.add(`${hit[0]},${hit[1]}`);
     // (a vanilla piece by its author, or by its jar name: a design posted through the API is recorded as the API's, VanS1)
-    const vanilla = b.p.design.by === 'vanilla' || /^(plains|desert|savanna|snowy|taiga)_[a-z_]+_\d+$/.test(b.p.design.name);
+    // (wood variants too, "NAME@spruce": the jar's name before the "@", lesson 89)
+    const vanilla = b.p.design.by === 'vanilla' || isVanillaPieceName(b.p.design.name);
     return { x: hit[0], z: hit[1], layer: hit[2], facing: FACING[`${ox},${oz}`], text: signLabel(b.p.design.name, vanilla), building: b.p.design.name, cx: b.p.x, cz: b.p.z };
   });
 }

@@ -295,6 +295,16 @@ export const SMALL_WORKS: SmallWorkKind[] = [
   ...VANILLA_WORKS.filter(crewCanBuild),
 ];
 
+/** A small work's kind by its key: the menu's (SMALL_WORKS) or a yard's (R1's YARD_WORKS, empty with the flag off). */
+export const smallWorkKind = (kind: string) => SMALL_WORKS.find((k) => k.kind === kind) ?? YARD_WORKS.find((k) => k.kind === kind);
+
+/** The kinds a village's members may start (R1): with MC_VANILLA_ALL, vanilla's kinds and the yards a crew can build only in
+ *  the village's own style (`biome`: its library's); without, SMALL_WORKS itself. */
+export function menuWorks(biome?: string): SmallWorkKind[] {
+  if (!VANILLA_ALL) return SMALL_WORKS;
+  return [...SMALL_WORKS, ...YARD_WORKS.filter(crewCanBuild)].filter((k) => !k.biome || k.biome === biome);
+}
+
 /**
  * The wood a small work's design is in, by its name ("small_well_spruce" -> "spruce"; the longest kind first, so
  * "small_lamp_posts_dark_oak" is the lamp posts in dark oak), or undefined for another name. R2 (MC_WOOD_VARIANTS): a work
