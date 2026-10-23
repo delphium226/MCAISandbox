@@ -78,6 +78,7 @@ import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, baseName, houseBudget, isLandmark, isVanillaPieceName, validateDesign } from '../designs';
+import { GEN_HOMES, familyKey, homeOwner, isHomeName } from '../houseStyle';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 
@@ -2038,15 +2039,17 @@ export class MineflayerWorld implements WorldAdapter {
     return this.growMembers(v).some((a) => this.chooseMode(a) === 'model') ? 'model' : 'predicted';
   }
 
-  /** The style of a layout's houses: the biome all its vanilla small houses share; null when it has none, or drawn or mixed. */
-  private layoutStyle(names: string[]): string | null {
-    const b = new Set(names.filter(isDwelling).map((n) => /^(plains|desert|savanna|taiga|snowy)_small_house_\d+$/.exec(baseName(n))?.[1] ?? '?'));
+  /** The style of a layout's houses: the biome all its vanilla small houses share (R3: members' own houses their family);
+   *  null when it has none, or drawn or mixed. */
+  private layoutStyle(names: string[], v?: Village): string | null {
+    const b = new Set(names.filter(isDwelling).map((n) => (isHomeName(baseName(n)) ? v?.designs[n]?.style?.family : undefined)
+      ?? /^(plains|desert|savanna|taiga|snowy)_small_house_\d+$/.exec(baseName(n))?.[1] ?? '?'));
     return b.size === 1 && !b.has('?') ? [...b][0] : null;
   }
 
   /** The village's current style: that of its last layout with houses (the critique's M7), null when not one vanilla style. */
   currentStyle(v: Village): string | null {
-    for (const l of [...(v.layouts ?? [])].reverse()) if (l.buildings.some(isDwelling)) return this.layoutStyle(l.buildings);
+    for (const l of [...(v.layouts ?? [])].reverse()) if (l.buildings.some(isDwelling)) return this.layoutStyle(l.buildings, v);
     return null;
   }
 
@@ -2056,7 +2059,7 @@ export class MineflayerWorld implements WorldAdapter {
    * (GROW.batch houses), counted from a member within 32 blocks of home (none there: such styles are left out); at most 4.
    */
   private styleOptions(v: Village, current: string): VoteOption[] {
-    const built = (b: string) => (v.layouts ?? []).filter((l) => this.layoutStyle(l.buildings) === b).length;
+    const built = (b: string) => (v.layouts ?? []).filter((l) => this.layoutStyle(l.buildings, v) === b).length;
     const cur = this.styleHouses(current);
     if (!cur.length) return [];
     const out: VoteOption[] = [styleOption(current, cur, built(current), true)];
@@ -2104,7 +2107,7 @@ export class MineflayerWorld implements WorldAdapter {
     const mine = v.structures.filter((s) => s.builtBy === a.name).length;
     const styles = new Map<string, number>();
     for (const l of v.layouts ?? []) {
-      const s = this.layoutStyle(l.buildings);
+      const s = this.layoutStyle(l.buildings, v);
       if (s) styles.set(s, (styles.get(s) ?? 0) + 1);
     }
     const hoods = [...styles.entries()].map(([s, n]) => `${n} of ${(STYLE_LOOK[s]?.name ?? s).toLowerCase()}`).join(', ');
@@ -2253,7 +2256,13 @@ export class MineflayerWorld implements WorldAdapter {
     // (a style voted in: its houses only, the current one too: as before, a won "current" savanna drew the village's own
     // plains library, Vm; no vote: the picks as before)
     const only = style ? this.styleHouses(style).map((h) => h.design) : undefined;
-    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined);
+    // (R3, MC_GEN_HOMES: the owners-to-be as homeTick will give the houses, the asker first, and the family: the voted
+    // style's biome, else the village's current style)
+    const owners = GEN_HOMES && HOUSING ? this.homeless(v).map((a) => a.name) : [];
+    const asker = v.growth?.request?.by;
+    if (asker && owners.includes(asker)) owners.splice(owners.indexOf(asker), 1), owners.unshift(asker);
+    const own = owners.length ? { owners, family: familyKey(style ? parseStyle(style).biome : this.currentStyle(v) ?? v.vanillaBiome ?? 'plains') } : undefined;
+    const pick = pickHouses(v, n, lib, (d) => this.materialTasks(d, d.name).units ?? 0, only, WOOD_VARIANTS ? (style ? parseStyle(style).wood : undefined) ?? this.nextHoodWood(v, n) : undefined, own);
     const styled = style ? { style } : {};
     // With neighbourhood farms (s30's D2): the pad ladder, fields where the biome allows one (the village's library biome,
     // else the biome the agent's view has at home: a staged village has no library biome, lens 2 L5), and not once a
@@ -2440,8 +2449,15 @@ export class MineflayerWorld implements WorldAdapter {
         const asker = g!.request?.by;
         if (asker && queue.includes(asker)) queue.splice(queue.indexOf(asker), 1), queue.unshift(asker);
         const given: string[] = [];
+        // (R3: a member's own house goes to that member while it has none; the others in queue order)
+        const bound = new Map<string, string>();
+        if (GEN_HOMES)
+          for (const t of builds) {
+            const m = homeOwner(v.designs[/build_design "([^"]+)"/.exec(t.detail)?.[1] ?? '']);
+            if (m && queue.includes(m)) bound.set(t.id, m), queue.splice(queue.indexOf(m), 1);
+          }
         for (const t of builds) {
-          const who = queue.shift();
+          const who = bound.get(t.id) ?? queue.shift();
           if (!who) break;
           t.owner = who;
           given.push(`${who} (${t.id})`);

@@ -6,6 +6,7 @@
  * any of it. World-independent: the world's tick decides (MineflayerWorld.growTick), a chore lays out (lay_out_houses).
  */
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, VANILLA_ALL, VARIANT_WOODS, WOOD_VARIANTS, baseName, isLargeHome, variantName, variantWood, woodVariant } from './designs';
+import { GEN_HOMES, isHomeName, ownHomes } from './houseStyle';
 import { MINING_HUT, STORAGE_HUT } from './huts';
 import { doorOf, placeFarm, placeLamps, planStreets } from './streetPlan';
 import type { Area, Design, Task, Village } from './village';
@@ -64,8 +65,26 @@ export function isGrowTask(v: Village, t: Task): boolean {
  * layout).
  * With R2 (WOOD_VARIANTS) and the neighbourhood's `wood`: each pick is the design's wood variant ("NAME@spruce", copied
  * into the library), a design and its variants counted together, so shapes still take turns across woods.
+ * With R3 (GEN_HOMES, #104) and `own`, the owners-to-be in the order the houses will be given: each owner's own house,
+ * drawn in the neighbourhood's family (houseStyle.ts ownHomes: at most one over HOUSE_UNITS), copied into the library;
+ * an owner whose house cannot fit, or a batch larger than the owners, takes vanilla picks as before (none over
+ * HOUSE_UNITS beside a larger own house: plan_layout lays out one building over it a layout).
  */
-export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[], wood?: string): string[] {
+export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: (d: Design) => number, only?: Design[], wood?: string, own?: { owners: string[]; family?: string }): string[] {
+  if (GEN_HOMES && own?.owners.length && n > 0) {
+    const homes = ownHomes(own.owners.slice(0, n), own.family, { units });
+    // (a home's name is its owner's and family's: drawn again, it replaces the one laid out before, never built)
+    for (const d of homes) v.designs[d.name] = d;
+    const big = !!units && homes.some((d) => units(d) > HOUSE_UNITS);
+    const fill = n > homes.length ? pickHouses(v, n - homes.length, lib, units, only).filter((name) => !big || !units || units(v.designs[name]) <= HOUSE_UNITS) : [];
+    const names = [...homes.map((d) => d.name), ...fill];
+    if (!WOOD_VARIANTS || !wood) return names;
+    return names.map((name) => {
+      const vn = variantName(name, wood);
+      if (!v.designs[vn] || isHomeName(name)) v.designs[vn] = woodVariant(v.designs[name], wood);
+      return vn;
+    });
+  }
   const cands: Design[] = [];
   // (a design and its wood variants are one candidate: names without "@" are their own base)
   const add = (d: Design) => {
@@ -80,7 +99,7 @@ export function pickHouses(v: Village, n: number, lib: Design[] | null, units?: 
   const used = new Set((v.layouts ?? []).flatMap((l) => l.buildings));
   if (!only)
     for (const d of Object.values(v.designs))
-      if (used.has(d.name) && isDwelling(d.name) && d.width <= (roomy(d) ? 13 : 9) && d.depth <= (roomy(d) ? 13 : 9) && (!VANILLA_PIECE.test(d.name) || vanillaHome(d))
+      if (used.has(d.name) && isDwelling(d.name) && !isHomeName(baseName(d.name)) && d.width <= (roomy(d) ? 13 : 9) && d.depth <= (roomy(d) ? 13 : 9) && (!VANILLA_PIECE.test(d.name) || vanillaHome(d))
         && (!units || units(d) <= (roomy(d) ? HOUSE_UNITS_LARGE : HOUSE_UNITS))) add(d);
   if (!cands.length || n < 1) return [];
   // (R2: builds of a design's variants count as its own)
