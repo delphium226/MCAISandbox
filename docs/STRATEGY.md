@@ -159,3 +159,6 @@ number rather than a goal.
 - 2026-10-23 (the user's): **the foundry is parked**; finish the work in progress (G3 rules and Experiment 2, the economy's
   own shares and own farms, #108 members paying each other, choice pacing, #104 buildings and woods, #106), then
   **repeat the monoculture experiment** (wealth against mixed, F297) with those in place.
+- 2026-10-23: **G3 done** (F298-F300; #30, #33 closed): laws read and voted (36 laws, 4 passed, 3 failed on members' own
+  stakes; compliance 90% contribution, 64% help duty). Experiment 2 stopped at a ceiling (the levy paid 98-100% voted or
+  imposed; the user's choice), redesign in #109.
