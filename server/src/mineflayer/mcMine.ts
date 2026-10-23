@@ -1653,7 +1653,7 @@ async function digIronStairs(a: BotAgent, v: Village, m: Mine, i: IronLevel, sig
  * dug 102 cells at y 18 past 3 iron ores in their walls and floors). Each checked as a tunnel cell is (water, lava, air,
  * protected ground; a ceiling over the upper ones), never forced (an ore the pickaxe cannot harvest is left).
  */
-async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, got: Record<string, number>, signal: AbortSignal): Promise<number> {
+async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, got: Record<string, number>, signal: AbortSignal, took?: Vec3[]): Promise<number> {
   const found: Array<{ q: Vec3; from: { x: number; z: number }; floor: boolean }> = [];
   const add = (q: Vec3, from: { x: number; z: number }, floor: boolean) => {
     if (q.y < L - 1 || !KEEP.test(a.bot.blockAt(q)?.name ?? '') || found.some((f) => f.q.equals(q)) || cells.some((c) => c.equals(q))) return;
@@ -1665,7 +1665,6 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
       if (dy < 0 && c.y !== L) continue;
       add(c.offset(dx, dy, dz), { x: c.x, z: c.z }, dy < 0);
     }
-  const rcon = (cmd: string) => a.world.rcon.command(cmd).catch(() => '');
   let kept = 0;
   for (let n = 0; n < found.length && n < 24; n++) {
     const { q, from, floor } = found[n];
@@ -1674,7 +1673,10 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
     if (unsafe(a, v, m, q, !floor && q.y >= L + 1, 'tunnel', from)) continue;
     // (a floor ore only with a cobblestone to fill its hole, and never the cell the bot stands on)
     const feet = a.bot.entity.position.floored();
-    if (floor && (feet.offset(0, -1, 0).equals(q) || !a.bot.inventory.items().some((it) => it.name === 'cobblestone'))) continue;
+    // (MC_ORE_VEIN: any stone carried fills it; deepslate levels give cobbled deepslate, and a trip starts with none: 27 of
+    // the 34 ores left open on im2_mine were in floors)
+    const fill = filler(a);
+    if (floor && (feet.offset(0, -1, 0).equals(q) || !fill)) continue;
     const name = a.bot.blockAt(q)?.name ?? '';
     try {
       await mineBlock(a, q, signal, false, 0, false);
@@ -1682,15 +1684,12 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
       if ((e as Error).message === 'cancelled') throw e;
       continue;
     }
-    // (the charge settled by counting when its answer is lost, E.1: read as none taken it left the hole open)
-    if (floor && (await a.world.rcon.take(a.name, 'cobblestone', 1)) === 1) {
-      if (/Changed/i.test(await rcon(`setblock ${q.x} ${q.y} ${q.z} minecraft:cobblestone`))) a.bot.world.setBlockStateId(q, a.world.registry.blocksByName.cobblestone.defaultState);
-      else await rcon(`give ${a.name} minecraft:cobblestone 1`);
-    }
+    if (floor) await fillHole(a, q, fill!);
     const drop = dropOf(name);
     got[drop] = (got[drop] ?? 0) + 1;
     got[`kept ${name}`] = (got[`kept ${name}`] ?? 0) + 1;
     kept++;
+    took?.push(q);
     // On along the vein (not down out of a floor ore: its hole is filled)
     // (never below the cell's floor: an unfilled hole in the next cell or under the bot ended tunnels, the diff review's M1;
     // and only beside the cell or its approach, where the drop is picked up)
@@ -1702,6 +1701,110 @@ async function keepOres(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numb
       }
   }
   return kept;
+}
+
+/** What a miner fills an ore's hole with: cobblestone; with MC_ORE_VEIN any of the mine's stone it carries. */
+function filler(a: BotAgent): string | undefined {
+  const have = new Set(a.bot.inventory.items().map((it) => it.name));
+  return (ORE_VEIN ? VEIN_FILL : ['cobblestone']).find((n) => have.has(n));
+}
+
+/** An ore's hole filled with a block of `item` the miner carries, charged (settled by counting when its answer is lost,
+ *  E.1: read as none taken it leaves the hole open). */
+async function fillHole(a: BotAgent, q: Vec3, item: string) {
+  if ((await a.world.rcon.take(a.name, item, 1)) !== 1) return;
+  if (/Changed/i.test(await a.world.rcon.command(`setblock ${q.x} ${q.y} ${q.z} minecraft:${item}`).catch(() => ''))) a.bot.world.setBlockStateId(q, a.world.registry.blocksByName[item].defaultState);
+  else await a.world.rcon.command(`give ${a.name} minecraft:${item} 1`).catch(() => '');
+}
+
+// ---------------------------------------------------------------------------------------------
+// MC_ORE_VEIN (with MC_ORE_MINE, #100, 10-23): the rest of each vein a cell lays open, dug out as a player digs it. On
+// im2_mine (5,228 cells) the mine took 278 iron of the 408 in the 65 veins it touched; 96 of the 130 left lay a block or
+// more inside the walls, where keepOres (within a column of the cell) never looks. scripts/checks/vein_sim.py on the same
+// land: 55 raw iron a 1,000 cells today (IM2 live 56), 82 with the veins dug out, for 5% more blocks broken.
+// ---------------------------------------------------------------------------------------------
+
+const ORE_VEIN = ORE_ON && /^(on|1|true|yes)$/i.test(process.env.MC_ORE_VEIN ?? '');
+/** Vein blocks dug at most a cell; blocks looked at at most a cell (the bound on the search, F293); how far from the cell's
+ *  column and below and above its floor (L) a vein is followed; and the stone a hole may be filled with. */
+const VEIN_CAP = 12, VEIN_LOOK = 400, VEIN_SIDE = 3, VEIN_DOWN = 2, VEIN_UP = 4;
+const VEIN_FILL = ['cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite', 'tuff'];
+const AROUND = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dz) => [dx, dy, dz]))).filter(([dx, dy, dz]) => dx || dy || dz);
+
+/**
+ * MC_ORE_VEIN: from inside the cell just dug, the ores of the veins it laid open: those still showing in its walls, floor
+ * and ceiling, and on from each ore taken (keepOres' and these) to the iron and coal touching it, diagonals too, within
+ * VEIN_SIDE columns of the cell and VEIN_DOWN below to VEIN_UP above its floor, within reach of where the miner stands
+ * (no walk). Each checked as keepOres checks its ores (mcMine's protection, water and lava, natural ground; and no
+ * falling block over it); a hole in the layers the tunnels' floors and ceilings are read from (L-1, L+2) is filled with
+ * stone carried, as a floor ore's is, so no later cell finds a hole under or over it (an ore there is left without one);
+ * a drop out of the miner's pickup range is brought to it (an ore inside the wall drops into its own hole). The search
+ * stops at VEIN_CAP taken or VEIN_LOOK blocks looked at. Returns the ores taken.
+ */
+async function digVein(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: number, took: Vec3[], got: Record<string, number>, signal: AbortSignal): Promise<number> {
+  const c = cells[0];
+  const key = (p: Vec3) => `${p.x},${p.y},${p.z}`;
+  const looked = new Set<string>([...cells, ...took].map(key));
+  const eye = a.bot.entity.position.offset(0, 1.62, 0);
+  const under = a.bot.entity.position.floored().offset(0, -1, 0);
+  const left: Record<string, number> = {};
+  const raw = () => a.bot.inventory.items().filter((it) => it.name === 'raw_iron').reduce((s, it) => s + it.count, 0);
+  const raw0 = raw();
+  const leave = (why: string) => void (left[why] = (left[why] ?? 0) + 1);
+  let n = 0;
+  const tryOre = async (q: Vec3): Promise<boolean> => {
+    const b = a.bot.blockAt(q);
+    if (!b || !KEEP.test(b.name)) return false;
+    if (Math.abs(q.x - c.x) > VEIN_SIDE || Math.abs(q.z - c.z) > VEIN_SIDE || q.y < L - 1 - VEIN_DOWN || q.y > L + VEIN_UP) return leave('far'), false;
+    if (q.equals(under) || eye.distanceTo(q.offset(0.5, 0.5, 0.5)) > 4.2) return leave('reach'), false;
+    if (unsafe(a, v, m, q, false, 'tunnel', { x: c.x, z: c.z })) return leave('unsafe'), false;
+    if (FALLING.has(a.bot.blockAt(q.offset(0, 1, 0))?.name ?? '')) return leave('falling'), false;
+    const layer = q.y === L - 1 || q.y === L + 2;
+    const fill = layer ? filler(a) : undefined;
+    if (layer && !fill) return leave('no stone'), false;
+    try {
+      await mineBlock(a, q, signal, false, 0, false);
+    } catch (e) {
+      if ((e as Error).message === 'cancelled') throw e;
+      return leave('dig'), false;
+    }
+    // (the drop brought to the miner, a tick after it appears: inside the wall it lies in its own hole, out of pickup range)
+    await new Promise((ok) => setTimeout(ok, 100));
+    await a.world.rcon.command(`tp @e[type=item,x=${q.x},y=${q.y},z=${q.z},dx=0,dy=0,dz=0] ${a.name}`).catch(() => '');
+    if (fill) await fillHole(a, q, fill);
+    const drop = dropOf(b.name);
+    got[drop] = (got[drop] ?? 0) + 1;
+    got[`vein ${b.name}`] = (got[`vein ${b.name}`] ?? 0) + 1;
+    n++;
+    return true;
+  };
+  const queue: Vec3[] = [...took];
+  // (keepOres' drops not picked up on stepping in, brought here too: about 1 in 4 was left in its hole, check3)
+  for (const q of took) await a.world.rcon.command(`tp @e[type=item,x=${q.x},y=${q.y},z=${q.z},dx=0,dy=0,dz=0] ${a.name}`).catch(() => '');
+  // (what still shows in the cell's walls, floor and ceiling: keepOres leaves what it cannot reach from the cell before)
+  for (const p of cells)
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+      const q = p.offset(dx, dy, dz);
+      if (looked.has(key(q))) continue;
+      looked.add(key(q));
+      checkAbort(signal);
+      if (n < VEIN_CAP && (await tryOre(q))) queue.push(q);
+    }
+  while (queue.length && n < VEIN_CAP && looked.size < VEIN_LOOK) {
+    const p = queue.shift()!;
+    for (const [dx, dy, dz] of AROUND) {
+      const q = p.offset(dx, dy, dz);
+      if (looked.has(key(q))) continue;
+      looked.add(key(q));
+      checkAbort(signal);
+      if (n < VEIN_CAP && (await tryOre(q))) queue.push(q);
+    }
+  }
+  // (a moment for the drops brought here to be picked up: an item waits half a second before it can be)
+  if (n || took.length) await new Promise((ok) => setTimeout(ok, 600));
+  if (n || Object.keys(left).length)
+    console.log(`[vein] ${a.name} at ${c.x},${L},${c.z}: took ${n} more of the veins (${took.length} by the walls; ${raw() - raw0} raw iron picked up meanwhile)${Object.keys(left).length ? `; left ${Object.entries(left).map(([k, x]) => `${x} ${k}`).join(', ')}` : ''}${queue.length ? `; stopped at ${n >= VEIN_CAP ? 'the cap' : 'the search bound'}` : ''}`);
+  return n;
 }
 
 /** The iron level's tunnel to dig on: the one still going, else a turn from one that ended (at most IRON_LEGS). */
@@ -1874,9 +1977,12 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
           throw e;
         }
         // (from where it stands, before stepping in: the cell's floor is in reach and not underfoot)
-        kept += await keepOres(a, v, m, cells, L, i.got, signal);
+        const took: Vec3[] = [];
+        kept += await keepOres(a, v, m, cells, L, i.got, signal, took);
         // Into the cell's middle: its drops and the ores' (a wall's drop lands about a block off, the diff review's L3)
         await go(new Vec3(c.x + 0.5, L, c.z + 0.5), 0.3, 20000);
+        // (MC_ORE_VEIN: then the rest of the veins it laid open, from there)
+        if (ORE_VEIN) kept += await digVein(a, v, m, cells, L, took, i.got, signal);
         i.dug++;
         dugNow++;
         // (MC_ORE_MINE: the iron within a few blocks noted, for drifts, turns and the next level)
