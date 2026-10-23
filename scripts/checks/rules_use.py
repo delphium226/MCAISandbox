@@ -20,6 +20,11 @@ def main():
     laws = [a for a in acts if a.get("type") == "law" and a.get("id") and not a.get("op")]
     ops = Counter((a.get("op"), a.get("counted", True)) for a in acts if a.get("type") == "law" and a.get("op"))
     out.append(f"LAWS proposed {len(laws)} by {len({a['agent'] for a in laws})} members; by type {dict(Counter(a.get('rule') for a in laws))}; refused {sum(1 for a in laws if a.get('status') == 'refused')} {dict(Counter(a.get('refused') for a in laws if a.get('refused')))}")
+    # (10-23: the same rule proposed again joins the open one; a member's second open law is held)
+    joined = [a for a in acts if a.get("type") == "law" and a.get("op") == "joined"]
+    held = [a for a in acts if a.get("type") == "law" and a.get("op") == "held"]
+    nights = [a for a in acts if a.get("type") == "reflect" and not a.get("error") and not a.get("skipped")]
+    out.append(f"NIGHTS {len(nights)} reflections; a law written (new, joined or held) on {len(laws) + len(joined) + len(held)}; joined an open law {len(joined)} {dict(Counter(a.get('id') for a in joined))}; held {len(held)}")
     backing = {(k if c else f"{k} (not counted)"): n for (k, c), n in ops.items()}
     out.append(f"BACKING {backing}")
     for a in laws[:4]:
@@ -28,14 +33,48 @@ def main():
     ballots = [a for a in acts if a.get("type") == "ballot"]
     votes = Counter(v for b in ballots for v in (b.get("votes") or {}).values())
     out.append(f"COUNCIL meetings with an agenda {sum(1 for m in meets if m.get('op') == 'agenda')}; ballots {len(ballots)} (failed or skipped {sum(1 for b in ballots if b.get('error') or b.get('skipped'))}); votes {dict(votes)}; yes share {votes['yes'] / max(1, votes['yes'] + votes['no']):.0%}")
+    # (yes share by rule type: each law's type from its proposal record)
+    ltype = {a["id"]: a.get("rule") for a in laws}
+    by_type = defaultdict(Counter)
+    for b in ballots:
+        for k, v in (b.get("votes") or {}).items():
+            by_type[ltype.get(k, "need" if k.startswith("need:") else "?")][v] += 1
+    out.append("  yes share by type: " + ", ".join(f"{t} {c['yes'] / max(1, c['yes'] + c['no']):.0%} of {c['yes'] + c['no']}" for t, c in by_type.items() if t != "need"))
     for m in [m for m in meets if m.get("op") == "tally"]:
-        res = ", ".join("%s %s %d-%d" % (k, "passed" if r["passed"] else "failed", r["yes"], r["no"]) for k, r in (m.get("result") or {}).items())
+        res = ", ".join(("%s chose %s %s" % (k, r.get("winner") or "none", r.get("counts"))) if "counts" in r else "%s %s %d-%d" % (k, "passed" if r["passed"] else "failed", r["yes"], r["no"]) for k, r in (m.get("result") or {}).items())
         out.append(f"  day {m['day']}: present {m.get('present')}, cast {m.get('cast')}: {res}")
     enacted = [a for a in acts if a.get("type") == "rule" and a.get("op") == "enacted"]
     en = "; ".join("%s %s (%s-%s)" % (a["id"], a.get("text"), a.get("votes", {}).get("yes"), a.get("votes", {}).get("no")) for a in enacted) or "none"
     out.append(f"RULES enacted {len(enacted)}: {en}")
     comp = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "refused"]
     out.append(f"REFUSALS by a rule {len(comp)} ({len({a['agent'] for a in comp})} members): {dict(Counter(a.get('why', '').split(':')[0] for a in comp))}")
+    for a in comp[:3]:
+        out.append(f"  e.g. {a['agent']}: {a.get('option')} refused, {a.get('why')}")
+    nv = [a for a in acts if a.get("type") == "rule" and a.get("op") == "need vote"]
+    if nv:
+        out.append(f"NEED VOTES {len(nv)}: " + "; ".join(f"{a.get('need')}: {a.get('name')} {a.get('counts')}" for a in nv))
+    # Compliance by member-day (code's judgement at the next dawn: a duty's kind done, a contribution's goods put)
+    days = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "day"]
+    for rid in sorted({a["rule"] for a in days}):
+        ds = [a for a in days if a["rule"] == rid]
+        met = sum(1 for a in ds if a.get("met"))
+        text = next((e.get("text") for e in enacted if e.get("id") == rid), rid)
+        by_day = Counter((a["day"], bool(a.get("met"))) for a in ds)
+        per = ", ".join(f"day {d} {by_day[(d, True)]}/{by_day[(d, True)] + by_day[(d, False)]}" for d in sorted({a['day'] for a in ds}))
+        out.append(f"COMPLIANCE {rid} ({text}): met on {met} of {len(ds)} member-days ({met / max(1, len(ds)):.0%}); {per}")
+    # A rule's tag on menus (a duty, a contribution, a need vote's winner): menus that showed one, and choices of it
+    shown, taken = Counter(), Counter()
+    for c in choices:
+        if c.get("type") != "choice":
+            continue
+        opts = c.get("options") or []
+        for t in {o.get("ruleTag") for o in opts if o.get("ruleTag")}:
+            shown[t] += 1
+        pick = next((o for o in opts if o.get("key") == c.get("key")), None)
+        if pick and pick.get("ruleTag"):
+            taken[pick["ruleTag"]] += 1
+    for t in shown:
+        out.append(f"TAG {t}: on {shown[t]} menus, chosen {taken[t]} ({taken[t] / shown[t]:.0%})")
     # The levy: members' answers on their pending shares (lapsed ones apart, outside the measure)
     lv = [a for a in acts if a.get("type") == "compliance" and a.get("op") == "levy"]
     if lv:

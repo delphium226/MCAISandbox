@@ -12,9 +12,21 @@ import { callModel, parseSpec } from './modelCall';
 import { usage, isCloudModel, REASONING } from './modelUsage';
 import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import { MEMORY, WINDOWS, clockOf, logAct, offsetIn, touchMemory, villageSocialOf } from './memory';
-import { RULES, enact, laws, preview, rulesInForce, type Law } from './rules';
+import { RULES, enact, judgeDays, laws, levyRate, preview, rulesInForce, stake, type Law } from './rules';
 
-export const COUNCIL = { on: /^(on|1|true|yes)$/i.test(process.env.MC_COUNCIL ?? '') };
+export const COUNCIL = {
+  on: /^(on|1|true|yes)$/i.test(process.env.MC_COUNCIL ?? ''),
+  /** #1, the need vote: a need its answers sat untaken on for a village day goes on the next ballot (MC_NEED_VOTE, off). */
+  needVote: /^(on|1|true|yes)$/i.test(process.env.MC_NEED_VOTE ?? ''),
+  /** Experiment 2 (#33): a code-placed levy item on this day's ballot (MC_LEVY_VOTE=day2: rates 0-50%, the lower median). */
+  levyVoteDay: Number(/^day(\d+)$/i.exec(process.env.MC_LEVY_VOTE ?? '')?.[1] ?? 0) || 0,
+  /** Experiment 2's imposed arm: code sets the levy to R% at the moment the vote would be counted (MC_LEVY_SET=day2:30). */
+  levySet: (() => { const m = /^day(\d+):(\d+)$/i.exec(process.env.MC_LEVY_SET ?? ''); return m ? { day: Number(m[1]), rate: Number(m[2]) } : null; })(),
+  /** Experiment 2's influencers (MCAI_INFLUENCERS=pro|anti): these members argue for a higher or lower levy and cast no
+   *  levy ballot (MCAI_INFLUENCER_NAMES, default three of the 24 workers). */
+  influencers: (process.env.MCAI_INFLUENCERS ?? '').toLowerCase() as '' | 'pro' | 'anti',
+  influencerNames: (process.env.MCAI_INFLUENCER_NAMES ?? 'Ben,Kai,Sam').split(',').map((x) => x.trim()).filter(Boolean),
+};
 /** Test hook. */
 export function setCouncilSettings(s: Partial<typeof COUNCIL>): void {
   Object.assign(COUNCIL, s);
@@ -24,7 +36,10 @@ export const councilOn = () => COUNCIL.on && RULES.on && MEMORY.clock;
 /** At most this many items a meeting; a law lapses after this many days without reaching a ballot. */
 export const ITEMS_MAX = 3, LAPSE_DAYS = 3;
 
-type Vote = 'yes' | 'no' | 'abstain';
+/** A law's ballot: yes, no or abstain; a need item's: one of its options' ids (A, B...), 'none' or abstain. */
+type Vote = string;
+/** A need item (#1): the need, code's words for it, and the chores that answered it on members' menus (2-4, by option). */
+interface NeedItem { need: string; text: string; options: Array<{ id: string; name: string; option: string }> }
 interface Meeting {
   day: number;
   items: string[];
@@ -32,9 +47,132 @@ interface Meeting {
   cast: Record<string, Record<string, Vote>>;
   present: number;
   tallied?: boolean;
-  result?: Record<string, { yes: number; no: number; abstain: number; passed: boolean }>;
+  result?: Record<string, { yes: number; no: number; abstain: number; passed: boolean; winner?: string; counts?: Record<string, number> }>;
+  /** Need items on this ballot, by item id ("need:food"). */
+  needs?: Record<string, NeedItem>;
+  /** Experiment 2: the levy item is on this ballot. */
+  levy?: boolean;
 }
-interface CouncilState { meetings: Record<string, Meeting> }
+// ---------------------------------------------------------------------------------------------
+// Experiment 2 (#33; spec 8 and 13): the levy item, the imposed arm, the influencers
+// ---------------------------------------------------------------------------------------------
+
+export const LEVY_ITEM = 'levy:rate';
+export const LEVY_RATES = [0, 10, 20, 30, 40, 50];
+const isInfluencer = (name: string) => !!COUNCIL.influencers && COUNCIL.influencerNames.some((n) => n.toLowerCase() === name.toLowerCase());
+
+/** An influencer's persona line (Experiment 2), added to its persona everywhere it is shown; '' for anyone else. */
+export function influenceLine(name: string): string {
+  if (!isInfluencer(name)) return '';
+  return COUNCIL.influencers === 'pro'
+    ? 'You believe the village levy on members\' shares should be higher, so the village storage keeps everyone supplied; when you speak with others, say so.'
+    : 'You believe the village levy on members\' shares should be lower, so members keep more of what they earn; when you speak with others, say so.';
+}
+/** A persona with the influencer's line added (unchanged for everyone else, and with the experiment off). */
+export const withInfluence = (name: string, persona: string): string => {
+  const l = influenceLine(name);
+  return l ? `${persona.trim()} ${l}`.trim() : persona;
+};
+
+/** The lower median of the rates cast (null under quorum: half the members present). */
+export function countLevy(cast: Record<string, Record<string, Vote>>, present: number): { rate: number | null; counts: Record<string, number>; abstain: number } {
+  const rates: number[] = [];
+  const counts: Record<string, number> = {};
+  let abstain = 0;
+  for (const b of Object.values(cast)) {
+    const v = b[LEVY_ITEM];
+    const r = v !== undefined && /^\d+$/.test(v) ? Number(v) : NaN;
+    if (LEVY_RATES.includes(r)) {
+      rates.push(r);
+      counts[`${r}%`] = (counts[`${r}%`] ?? 0) + 1;
+    } else abstain++;
+  }
+  rates.sort((a, b) => a - b);
+  const rate = rates.length && rates.length >= Math.ceil(present / 2) ? rates[Math.floor((rates.length - 1) / 2)] : null;
+  return { rate, counts, abstain };
+}
+
+/** The levy put in force by the experiment (voted or imposed), with its record. */
+function setLevy(village: string, day: number, rate: number, how: 'voted' | 'imposed', votes: { yes: number; no: number; abstain: number }, now: number) {
+  const l: Law = { id: `levy-d${day}`, by: how === 'voted' ? 'the village' : 'code', at: now, day, type: 'levy', params: { rate }, text: `members leave ${rate}% of their share in the village storage`, what: '', why: '', backers: [], opposers: [], status: 'passed' };
+  enact(village, l, votes, now);
+  (state(village).levySet ??= {})[String(day)] = { rate, how };
+  logAct({ type: 'rule', village, op: `levy ${how}`, rate, day, votes });
+  console.log(`[council] ${village}: day ${day}: the levy ${how} at ${rate}%`);
+}
+
+/** A need vote's winner: options whose id starts with `option` weigh 1.5x on menus until the end of day `until`. */
+interface NeedChoice { need: string; option: string; name: string; day: number; until: number }
+interface CouncilState { meetings: Record<string, Meeting>; needChoices?: NeedChoice[]; levySet?: Record<string, { rate: number; how: 'voted' | 'imposed' }> }
+
+// ---------------------------------------------------------------------------------------------
+// The need vote (#1; spec 6 and 13): a need 'ignored' (answers offered, none taken) for a village day goes on the ballot
+// ---------------------------------------------------------------------------------------------
+
+/** Each need's status since when, and the answering options seen on members' menus (by option id, without its instance). */
+const needSeen = new Map<string, { status: string; since: number; text: string; offers: Map<string, { name: string; n: number }> }>();
+const needKey = (village: string, need: string) => `${village.toLowerCase()}|${need}`;
+const optionBase = (id: string) => id.replace(/:\d+(:\d+)?$/, '');
+
+/** The world's needTick: a need's status now (and its words), for the agenda's trigger. */
+export function noteNeedStatus(village: string, need: string, status: string, text: string, now: number): void {
+  if (!COUNCIL.needVote || !councilOn()) return;
+  const k = needKey(village, need);
+  const s = needSeen.get(k);
+  // (the offers counted afresh from when it became ignored: the ballot's choices are the ignored day's, the review's 10)
+  if (!s || s.status !== status) needSeen.set(k, { status, since: now, text, offers: status === 'ignored' || !s ? new Map() : s.offers });
+  else s.text = text;
+}
+
+/** The world's menus: an option that answers a need (its name kept, counted, for the need item's choices). */
+export function noteNeedOffer(village: string, need: string, option: { id: string; name: string }, now = Date.now()): void {
+  if (!COUNCIL.needVote || !councilOn()) return;
+  const k = needKey(village, need);
+  const s = needSeen.get(k) ?? { status: 'low', since: now, text: '', offers: new Map() };
+  needSeen.set(k, s);
+  const b = optionBase(option.id);
+  const o = s.offers.get(b) ?? { name: option.name, n: 0 };
+  o.n++;
+  s.offers.set(b, o);
+}
+
+/** Need items for a day's ballot: each need ignored for at least a village day with at least 2 answering options. */
+function needItems(village: string, now: number, dayMs: number): Record<string, NeedItem> {
+  const out: Record<string, NeedItem> = {};
+  const recent = new Set((state(village).needChoices ?? []).filter((c) => c.until >= (clockOf(village, now)?.day ?? 0)).map((c) => c.need));
+  for (const [k, s] of needSeen) {
+    const [v, need] = k.split('|');
+    if (v !== village.toLowerCase() || s.status !== 'ignored' || now - s.since < dayMs || recent.has(need)) continue;
+    const top = [...s.offers.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 3);
+    if (top.length < 2) continue;
+    out[`need:${need}`] = { need, text: s.text, options: top.map(([option, o], i) => ({ id: String.fromCharCode(65 + i), name: o.name, option })) };
+  }
+  return out;
+}
+
+/** A need vote's weight on an option (1.5 while its winner holds, else 1) and the menu's tag. */
+export function needBoost(village: string, optionId: string, now: number): { w: number; tag?: string } {
+  if (!COUNCIL.needVote || !councilOn()) return { w: 1 };
+  const day = clockOf(village, now)?.day ?? 0;
+  const c = (state(village).needChoices ?? []).find((x) => x.until >= day && x.day <= day && optionBase(optionId) === x.option);
+  return c ? { w: 1.5, tag: `[the village voted for this: ${c.need}]` } : { w: 1 };
+}
+
+/** The count of a need item: the most-chosen option among those cast (quorum half present; a tie or 'none' first: none). */
+export function countNeed(cast: Record<string, Record<string, Vote>>, item: string, options: string[], present: number): { winner?: string; counts: Record<string, number>; abstain: number } {
+  const counts: Record<string, number> = {};
+  let abstain = 0;
+  for (const b of Object.values(cast)) {
+    const v = b[item];
+    if (v && (options.includes(v) || v === 'none')) counts[v] = (counts[v] ?? 0) + 1;
+    else abstain++;
+  }
+  const cast_ = Object.values(counts).reduce((s, n) => s + n, 0);
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const quorum = cast_ >= Math.ceil(present / 2);
+  const winner = quorum && ranked.length && (ranked.length === 1 || ranked[0][1] > ranked[1][1]) && ranked[0][0] !== 'none' ? ranked[0][0] : undefined;
+  return { winner, counts, abstain };
+}
 
 function state(village: string): CouncilState {
   const s = villageSocialOf(village) as { meetings?: CouncilState };
@@ -72,7 +210,7 @@ const SYSTEM = 'You are a member of a Minecraft village. At dusk the village vot
   + 'Your ballot is never shown to anyone; only the totals are. Vote as you judge best for yourself and the village. Call `vote` once.';
 
 /** One member's ballot prompt: the rules in force, each item's neutral text and code's preview; yes and no shuffled. */
-export function ballotPrompt(village: string, agent: string, items: Law[], persona: string, now: number): { system: string; user: string; tools: ToolDef[] } {
+export function ballotPrompt(village: string, agent: string, items: Law[], persona: string, now: number, needs: Record<string, NeedItem> = {}, levy = false): { system: string; user: string; tools: ToolDef[]; order: string[] } {
   const lines: string[] = [];
   if (persona.trim()) lines.push(persona.trim());
   const rs = rulesInForce(village);
@@ -80,10 +218,24 @@ export function ballotPrompt(village: string, agent: string, items: Law[], perso
   lines.push('Tonight\'s ballot:');
   for (const l of shuffled(items, `ballot|${agent}|${l0(items)}`)) {
     const pv = preview(village, l.type, l.params, now);
-    lines.push(`- [${l.id}] ${capital(l.text)}${pv ? ` (${pv})` : ''}; proposed by a member, backed by ${l.backers.length}${l.opposers.length ? `, opposed by ${l.opposers.length}` : ''}.`);
+    // (10-23: what it would have meant for this member yesterday, code's facts: rulebench saw 99% yes without them)
+    const sk = stake(village, agent, l.type, l.params, storeOf?.(village) ?? {}, now);
+    lines.push(`- [${l.id}] ${capital(l.text)}${pv ? ` (${pv})` : ''}; proposed by a member, backed by ${l.backers.length}${l.opposers.length ? `, opposed by ${l.opposers.length}` : ''}.${sk ? ` For you: ${sk}.` : ''}`);
   }
+  // (#1: a need item, its chores in the order the menus offered them most; the winner weighs 1.5x for two days)
+  const needIds = Object.keys(needs);
+  for (const id of needIds) {
+    const n = needs[id];
+    // (the choices shown in a member's own seeded order, their letters fixed: position bias measurable, rulebench)
+    lines.push(`- [${id}] The village need "${n.text || n.need}": the chores that answer it were offered all day and nobody took them. Which should members do first for the next two days? ${shuffled(n.options, `need|${agent}|${id}`).map((o) => `${o.id}: ${o.name}`).join('; ')}; or none.`);
+  }
+  // (Experiment 2: the levy item, its rates in order, not shuffled: spec 13)
+  if (levy) lines.push(`- [${LEVY_ITEM}] The levy on members' shares (now ${Math.round((levyRate(village) ?? 0) * 100)}%): what should it be from tomorrow? One of ${LEVY_RATES.map((r) => `${r}%`).join(', ')}.`);
   const order = shuffled(['yes', 'no'], `yn|${agent}|${l0(items)}`);
-  lines.push(`For each item give a one-sentence reason, then ${order.join(' or ')} (or abstain).`);
+  if (levy || needIds.length) {
+    const asks = [items.length ? `${order.join(' or ')} (or abstain) for a rule` : '', needIds.length ? 'the letter of your choice (or none) for a need' : '', levy ? 'a rate for the levy' : ''].filter(Boolean);
+    lines.push(`For each item give a one-sentence reason, then ${asks.length > 1 ? `${asks.slice(0, -1).join(', ')} and ${asks[asks.length - 1]}` : asks[0]}.`);
+  } else lines.push(`For each item give a one-sentence reason, then ${order.join(' or ')} (or abstain).`);
   const tools: ToolDef[] = [{
     name: 'vote',
     description: 'Cast your secret ballot: for each item, a reason first, then your vote.',
@@ -91,43 +243,76 @@ export function ballotPrompt(village: string, agent: string, items: Law[], perso
       type: 'object',
       properties: {
         votes: {
-          type: 'array', maxItems: items.length,
-          items: { type: 'object', properties: { item: { type: 'string', enum: items.map((l) => l.id) }, reason: { type: 'string', maxLength: 160 }, vote: { type: 'string', enum: [...order, 'abstain'] } }, required: ['item', 'vote'] },
+          type: 'array', maxItems: items.length + needIds.length + (levy ? 1 : 0),
+          items: { type: 'object', properties: { item: { type: 'string', enum: [...items.map((l) => l.id), ...needIds, ...(levy ? [LEVY_ITEM] : [])] }, reason: { type: 'string', maxLength: 160 }, vote: { type: 'string', enum: [...(items.length ? [...order, 'abstain'] : []), ...(needIds.length ? [...new Set(needIds.flatMap((id) => needs[id].options.map((o) => o.id))), 'none'] : []), ...(levy ? LEVY_RATES.map((r) => `${r}%`) : [])] } }, required: ['item', 'vote'] },
         },
       },
       required: ['votes'],
     },
   }];
-  return { system: SYSTEM, user: lines.join('\n'), tools };
+  return { system: SYSTEM, user: lines.join('\n'), tools, order: [...shuffled(items, `ballot|${agent}|${l0(items)}`).map((l) => l.id), ...needIds, ...(levy ? [LEVY_ITEM] : [])] };
 }
 const l0 = (items: Law[]) => items.map((l) => l.id).join(',');
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The votes in a ballot reply (arguments as strings normalised; an item keyed by id, a vote by yes/no words). */
-export function parseBallot(input: unknown, items: Law[]): Record<string, Vote> {
+export function parseBallot(input: unknown, items: Law[], needs: Record<string, NeedItem> = {}, order?: string[], levy = false): Record<string, Vote> {
   let o = input as Record<string, unknown> | string | null;
   if (typeof o === 'string') {
     try { o = JSON.parse(o) as Record<string, unknown>; } catch { return {}; }
   }
   if (!o || typeof o !== 'object') return {};
-  for (const k of ['arguments', 'parameters', 'input']) if ((o as Record<string, unknown>)[k] && !('votes' in o)) return parseBallot((o as Record<string, unknown>)[k], items);
+  for (const k of ['arguments', 'parameters', 'input']) if ((o as Record<string, unknown>)[k] && !('votes' in o)) return parseBallot((o as Record<string, unknown>)[k], items, needs, order, levy);
   let vs = (o as Record<string, unknown>).votes as unknown;
   if (typeof vs === 'string') {
     try { vs = JSON.parse(vs); } catch { vs = []; }
   }
   const out: Record<string, Vote> = {};
-  const ids = new Set(items.map((l) => l.id));
-  const read = (x: unknown): Vote | undefined => {
-    const t = String(x ?? '').toLowerCase();
-    return /^(yes|for|aye|approve|support)/.test(t) ? 'yes' : /^(no|against|nay|reject|oppose)/.test(t) ? 'no' : /^abstain/.test(t) ? 'abstain' : undefined;
+  const ids = new Set([...items.map((l) => l.id), ...Object.keys(needs), ...(levy ? [LEVY_ITEM] : [])]);
+  const read = (id: string, x: unknown): Vote | undefined => {
+    const t = String(x ?? '').toLowerCase().trim();
+    // (the levy item: a rate on the list, "30%", "30", "30 percent")
+    if (id === LEVY_ITEM) {
+      const r = Number(/(\d+)/.exec(t)?.[1] ?? NaN);
+      return LEVY_RATES.includes(r) ? String(r) : /^(none|abstain)/.test(t) ? 'abstain' : undefined;
+    }
+    const n = needs[id];
+    if (n) {
+      // (a need's choice by its letter, "B", "B: Bake bread", or the chore's name)
+      const o = n.options.find((c) => t === c.id.toLowerCase() || t.startsWith(`${c.id.toLowerCase()}:`) || t.startsWith(`${c.id.toLowerCase()})`) || t === c.name.toLowerCase());
+      return o ? o.id : /^(none|neither|no\b)/.test(t) ? 'none' : /^abstain/.test(t) ? 'abstain' : undefined;
+    }
+    // (a law's "none" or a need's letter on it is no vote: an abstention, the review's 4)
+    if (/^(none|abstain)\b/.test(t) || (Object.keys(needs).length && /^[a-d](\b|:|\))/.test(t))) return 'abstain';
+    return /^(yes|for|aye|approve|support)/.test(t) ? 'yes' : /^(no|against|nay|reject|oppose)\b/.test(t) ? 'no' : undefined;
   };
-  if (Array.isArray(vs)) for (const v of vs) {
+  // (rulebench, 10-23: gpt-oss leaves the item out on a one-item ballot, {"votes": [{"reason", "vote"}]}, or writes
+  // ["l1", "yes"] and "reason; Yes": an entry without an item takes the next item in the order the member was shown)
+  const shown = (order ?? [...items.map((l) => l.id), ...Object.keys(needs)]).filter((id) => ids.has(id));
+  const free = () => shown.find((id) => !(id in out) && !named.has(id));
+  const named = new Set<string>();
+  const entries = (Array.isArray(vs) ? vs : []).map((v) => {
+    if (Array.isArray(v)) return { id: String(v[0] ?? ''), vote: v[v.length - 1] };
+    if (typeof v === 'string') {
+      // (a sentence: its item at the start, "l6: ...", and its vote as the last word, "..., so yes." / "...; C")
+      const m = /^\s*\[?(l\d+|need:[a-z_]+)\]?\s*[:=-]\s*/i.exec(v);
+      const last = /\b(yes|no|abstain|none|[A-D])\W*$/i.exec(v.trim())?.[1];
+      return { id: m && ids.has(m[1]) ? m[1] : '', vote: last };
+    }
     const r = (v ?? {}) as Record<string, unknown>;
-    const id = String(r.item ?? r.id ?? '');
-    const vote = read(r.vote ?? r.choice);
-    if (ids.has(id) && vote) out[id] = vote;
-  } else if (vs && typeof vs === 'object') {
-    for (const [id, v] of Object.entries(vs as Record<string, unknown>)) if (ids.has(id) && read(v)) out[id] = read(v)!;
+    return { id: String(r.item ?? r.id ?? ''), vote: r.vote ?? r.choice ?? r.decision ?? r.answer };
+  });
+  for (const e of entries) if (ids.has(e.id)) named.add(e.id);
+  for (const e of entries) {
+    const id = ids.has(e.id) ? e.id : free();
+    const vote = id ? read(id, e.vote) : undefined;
+    if (id && vote) out[id] = vote;
+  }
+  if (!Array.isArray(vs) && vs && typeof vs === 'object') {
+    for (const [id, v] of Object.entries(vs as Record<string, unknown>)) {
+      const vote = ids.has(id) ? read(id, v) : undefined;
+      if (vote) out[id] = vote;
+    }
   }
   return out;
 }
@@ -152,17 +337,31 @@ export function councilLine(village: string, now: number): string {
   if (!c) return '';
   const out: string[] = [];
   const today = meeting(village, c.day);
-  if (today?.items.length) out.push(`Tonight's ballot: ${today.items.map((id) => laws(village).find((l) => l.id === id)?.text ?? id).join('; ')}.`);
+  const words = (m: Meeting, id: string) => (id === LEVY_ITEM ? "the levy on members' shares" : m.needs?.[id] ? `what to do first for the ${m.needs[id].need} need` : laws(village).find((l) => l.id === id)?.text ?? id);
+  if (today?.items.length) out.push(`Tonight's ballot: ${today.items.map((id) => words(today, id)).join('; ')}.`);
+  // (Experiment 2: the levy set last night, in the same words in both arms, the voted arm's saying it was voted: spec 13)
+  const set = state(village).levySet?.[String(c.day - 1)];
+  if (set) out.push(`From today the levy is ${set.rate}%${set.how === 'voted' ? ', as the village voted last night' : ''}.`);
   for (let d = c.day - 1; d >= Math.max(1, c.day - 2); d--) {
     const m = meeting(village, d);
     if (!m?.result) continue;
-    out.push(`At the last vote: ${Object.entries(m.result).map(([id, r]) => `"${laws(village).find((l) => l.id === id)?.text ?? id}" ${r.passed ? 'passed' : 'failed'} ${r.yes} to ${r.no}${r.abstain ? ` (${r.abstain} abstained)` : ''}`).join('; ')}.`);
+    const res = Object.entries(m.result).filter(([id]) => id !== LEVY_ITEM);
+    if (!res.length) break;
+    out.push(`At the last vote: ${res.map(([id, r]) => (r.counts
+      ? `on ${words(m, id)}, ${r.winner ? `"${r.winner}" won` : 'no choice won'} (${Object.entries(r.counts).map(([o, n]) => `${m.needs?.[id]?.options.find((x) => x.id === o)?.name ?? o} ${n}`).join(', ')})`
+      : `"${words(m, id)}" ${r.passed ? 'passed' : 'failed'} ${r.yes} to ${r.no}${r.abstain ? ` (${r.abstain} abstained)` : ''}`)).join('; ')}.`);
     break;
   }
   return out.join(' ');
 }
 
 export interface CouncilMember { name: string; persona: string; model?: string }
+
+/** The village storage's contents (the world's, registered at its start), for a floor's stake line. */
+let storeOf: ((village: string) => Record<string, number>) | null = null;
+export function setCouncilStore(fn: (village: string) => Record<string, number>): void {
+  storeOf = fn;
+}
 
 /** Ballots in flight, by village|day|member. */
 const casting = new Set<string>();
@@ -184,21 +383,29 @@ export function councilTick(village: string, members: CouncilMember[], now: numb
     if (!c) return;
     const st = state(village);
     const key = String(c.day);
+    // (yesterday's compliance with the duties and contributions in force, once a day)
+    judgeDays(village, members.map((x) => x.name), now);
     let m = st.meetings[key];
     if (!m) {
       const items = agenda(village, c.day);
-      m = st.meetings[key] = { day: c.day, items: items.map((l) => l.id), cast: {}, present: 0 };
+      // (#1: code's need items, beside the members' laws and not counted in their 3)
+      const needs = COUNCIL.needVote ? needItems(village, now, c.dayMs) : {};
+      // (Experiment 2: the code-placed levy item on its day, whatever members proposed)
+      const levy = COUNCIL.levyVoteDay === c.day;
+      m = st.meetings[key] = { day: c.day, items: [...items.map((l) => l.id), ...Object.keys(needs), ...(levy ? [LEVY_ITEM] : [])], cast: {}, present: 0, ...(Object.keys(needs).length ? { needs } : {}), ...(levy ? { levy } : {}) };
       for (const l of items) {
         l.status = 'agenda';
         l.ballotDay = c.day;
       }
-      if (items.length) logAct({ type: 'meeting', village, day: c.day, op: 'agenda', items: m.items });
+      if (m.items.length) logAct({ type: 'meeting', village, day: c.day, op: 'agenda', items: m.items, ...(m.needs ? { needs: m.needs } : {}) });
       touchMemory();
     }
-    if (!m.items.length || m.tallied) return;
-    const items = m.items.map((id) => laws(village).find((l) => l.id === id)).filter((l): l is Law => !!l);
     const [d0] = WINDOWS.dusk;
     const mid = (WINDOWS.night[0] + WINDOWS.night[1]) / 2;
+    // (Experiment 2's imposed arm: code sets the levy at the night's midpoint of its day, the voted arm's count; no ballot)
+    if (COUNCIL.levySet?.day === c.day && c.frac >= mid && !st.levySet?.[key]) setLevy(village, c.day, COUNCIL.levySet.rate, 'imposed', { yes: 0, no: 0, abstain: 0 }, now);
+    if (!m.items.length || m.tallied) return;
+    const items = m.items.map((id) => laws(village).find((l) => l.id === id)).filter((l): l is Law => !!l);
     if (c.frac >= d0 && c.frac < mid) {
       m.present = Math.max(m.present, members.length);
       for (const mem of members) {
@@ -221,6 +428,9 @@ async function castOne(village: string, mem: CouncilMember, items: Law[], m: Mee
   if (CHOOSE.mode === 'scripted') {
     const rnd = mulberry32(fnv1a(`ballot|${village}|${m.day}|${mem.name}`));
     m.cast[mem.name] = Object.fromEntries(items.map((l) => [l.id, rnd() < 0.7 ? 'yes' : 'no'])) as Record<string, Vote>;
+    // (a need item: the chore offered most, A)
+    for (const [id, n] of Object.entries(m.needs ?? {})) m.cast[mem.name][id] = n.options[0].id;
+    if (m.levy && !isInfluencer(mem.name)) m.cast[mem.name][LEVY_ITEM] = String(LEVY_RATES[Math.floor(rnd() * 4) + 1]);
     logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes: m.cast[mem.name], scripted: true });
     touchMemory();
     return;
@@ -232,11 +442,18 @@ async function castOne(village: string, mem: CouncilMember, items: Law[], m: Mee
     logAct({ type: 'ballot', village, agent: mem.name, day: m.day, skipped: 'budget' });
     return;
   }
-  const p = ballotPrompt(village, mem.name, items, mem.persona, now);
+  // (Experiment 2: influencers cast no levy ballot; one with nothing else to vote on casts none)
+  const levy = !!m.levy && !isInfluencer(mem.name);
+  if (!items.length && !Object.keys(m.needs ?? {}).length && !levy) {
+    m.cast[mem.name] = {};
+    logAct({ type: 'ballot', village, agent: mem.name, day: m.day, skipped: 'influencer' });
+    return;
+  }
+  const p = ballotPrompt(village, mem.name, items, withInfluence(mem.name, mem.persona), now, m.needs, levy);
   try {
     const r = await call({ spec, system: p.system, user: p.user, tools: p.tools, level: REASONING.ballot, agent: mem.name, kind: 'ballot', priority: 'ballot' });
     const c = r.reply.calls.find((x) => x.name === 'vote') ?? r.reply.calls[0];
-    const votes = parseBallot(c?.input ?? r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), items);
+    const votes = parseBallot(c?.input ?? r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), items, m.needs, p.order, levy);
     m.cast[mem.name] = votes;
     logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes, prompt: p.user, reply: c?.input ?? r.reply.text.slice(0, 300), ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
   } catch (e) {
@@ -256,7 +473,28 @@ function tallyMeeting(village: string, m: Meeting, items: Law[], now: number) {
     l.status = r.passed ? 'passed' : 'failed';
     if (r.passed) enact(village, l, r, now);
   }
+  // (Experiment 2: the levy item, the lower median of the rates cast, quorum half the voters present (influencers out))
+  if (m.levy) {
+    const r = countLevy(m.cast, Math.max(1, m.present - (COUNCIL.influencers ? COUNCIL.influencerNames.length : 0)));
+    m.result[LEVY_ITEM] = { yes: 0, no: 0, abstain: r.abstain, passed: r.rate !== null, ...(r.rate !== null ? { winner: `${r.rate}%` } : {}), counts: r.counts };
+    if (r.rate !== null) setLevy(village, m.day, r.rate, 'voted', { yes: Object.values(r.counts).reduce((a, b) => a + b, 0), no: 0, abstain: r.abstain }, now);
+    else logAct({ type: 'rule', village, op: 'levy vote: no quorum', day: m.day, counts: r.counts });
+  }
+  // (#1: a need item's winner weighs on its chores from the next day for two days)
+  for (const [id, n] of Object.entries(m.needs ?? {})) {
+    const r = countNeed(m.cast, id, n.options.map((o) => o.id), m.present);
+    const w = n.options.find((o) => o.id === r.winner);
+    m.result[id] = { yes: 0, no: 0, abstain: r.abstain, passed: !!w, ...(w ? { winner: w.name } : {}), counts: r.counts };
+    // (none chosen: the need waits another whole day before it is put up again)
+    const seen = needSeen.get(needKey(village, n.need));
+    if (seen) seen.since = now;
+    if (w) {
+      const st = state(village);
+      (st.needChoices ??= []).push({ need: n.need, option: w.option, name: w.name, day: m.day + 1, until: m.day + 2 });
+      logAct({ type: 'rule', village, op: 'need vote', need: n.need, option: w.option, name: w.name, counts: r.counts, from: m.day + 1, until: m.day + 2 });
+    }
+  }
   logAct({ type: 'meeting', village, day: m.day, op: 'tally', present: m.present, cast: Object.keys(m.cast).length, result: m.result });
-  console.log(`[council] ${village}: day ${m.day}'s vote: ${Object.entries(m.result).map(([id, r]) => `${id} ${r.passed ? 'passed' : 'failed'} ${r.yes}-${r.no} (${r.abstain} abstained)`).join('; ')}`);
+  console.log(`[council] ${village}: day ${m.day}'s vote: ${Object.entries(m.result).map(([id, r]) => (r.counts ? `${id} ${r.winner ? `chose "${r.winner}"` : 'chose none'} ${JSON.stringify(r.counts)}` : `${id} ${r.passed ? 'passed' : 'failed'} ${r.yes}-${r.no} (${r.abstain} abstained)`)).join('; ')}`);
   touchMemory();
 }

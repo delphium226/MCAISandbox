@@ -33,20 +33,55 @@ const NAMES = ['Ada', 'Ben', 'Clara', 'Dev', 'Elena', 'Finn', 'Grace', 'Hugo', '
 const V = 'Bench';
 mem.initMemory(null);
 for (const n of NAMES) mem.noteSpawn(V, n, { role: 'worker', brain: 'tiered', memory: {}, reset: true }, 1);
+// (REAL=1, 10-23: each member's own persona from Long1's night prompts, and a stake: the even-numbered members took 12 logs
+// and 6 torches yesterday, put nothing in and tended no pens; the odd ones took 2 logs, put 3 torches and 3 logs in and
+// tended pens; ballots on day 2, so "yesterday" is day 1)
+const REAL = !!process.env.REAL;
+const epoch = mem.villageMemory(V)!.epoch, dayMs = mem.villageMemory(V)!.dayMs;
+const NOW = REAL ? epoch + 1.5 * dayMs : 3;
+const PERSONA = new Map<string, string>();
+if (REAL) {
+  const file = path.join(ROOT, 'runs/model-calls/2026-10-22-46872.jsonl');
+  for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!l.includes('"kind":"reflect"')) continue;
+    const r = JSON.parse(l) as { agent: string; user: string };
+    if (!PERSONA.has(r.agent)) PERSONA.set(r.agent, r.user.split(/\n\nDay \d+ in /)[0]);
+  }
+  const t = epoch + 0.5 * dayMs;
+  NAMES.forEach((n, i) => {
+    if (i % 2 === 0) rules.noteTakes(V, n, { birch_log: 12, torch: 6 }, t);
+    else {
+      rules.noteTakes(V, n, { birch_log: 2 }, t);
+      rules.notePuts(V, n, 'make:torch', { torch: 3 }, t);
+      rules.notePuts(V, n, 'gather:birch_log', { birch_log: 3 }, t);
+      mem.noteEnd(V, n, { kind: 'penwork', option: 'penwork:1:milk', name: 'Tend the pens', ok: true, productive: true, cut: false, minutes: 1, line: 'Tend the pens: done', message: '' }, t);
+    }
+  });
+}
 
 const L = (by: string, what: string) => {
   const l = rules.addLaw(V, by, { what }, 2);
   for (const b of NAMES.filter((x) => x !== by).slice(0, 3)) rules.backLaw(V, l.id, b);
   return l;
 };
-const cases = [
+// (10-23: a village with a green for the zone case)
+rules.setZoneVillages(() => ({ name: V, layouts: [{ x1: 0, z1: 0, x2: 40, z2: 40, buildings: [], green: { x1: 10, z1: 10, x2: 20, z2: 20 } }] }) as never);
+type NeedItems = Parameters<typeof council.ballotPrompt>[5];
+const NEED: NeedItems = { 'need:light': { need: 'light', text: '9 unlit spots in 3 buildings', options: [{ id: 'A', name: 'Light the houses', option: 'light' }, { id: 'B', name: 'Make torches', option: 'make:torch' }, { id: 'C', name: 'Put up street lamps', option: 'light:streets' }] } };
+const cases: Array<{ name: string; items: ReturnType<typeof L>[]; needs?: NeedItems }> = [
   { name: 'quota', items: [L('Ada', 'Each member takes at most 8 logs a day from storage')] },
   { name: 'floor', items: [L('Ben', 'Storage keeps at least 32 bread')] },
   { name: 'duty', items: [L('Clara', 'Every member tends pens once a day')] },
   { name: 'levy', items: [L('Dev', 'A levy of 20% on every share')] },
   { name: 'norm', items: [L('Elena', 'Members greet each other at the storage hut')] },
   { name: 'three', items: [L('Finn', 'Each member takes at most 4 torches a day from storage'), L('Grace', 'Storage keeps at least 16 torch'), L('Hugo', 'Every member lights the village once a day')] },
+  // (10-23: the members' own commonest rule, a zone, and the need vote, alone and beside a law)
+  { name: 'contribute', items: [L('Iris', 'Each member puts at least 2 torches into storage a day')] },
+  { name: 'zone', items: [L('Jonah', 'Nothing new is built on the green')] },
+  { name: 'need', items: [], needs: NEED },
+  { name: 'need+law', items: [L('Kai', 'Each member puts at least 2 logs into storage a day')], needs: NEED },
 ];
+for (const c of cases) for (const l of c.items) if (l.status !== 'open') throw new Error(`case ${c.name}: ${l.what} is ${l.status} (${l.refused})`);
 
 async function pool<T>(jobs: Array<() => Promise<T>>): Promise<T[]> {
   const out: T[] = new Array(jobs.length);
@@ -62,14 +97,16 @@ async function pool<T>(jobs: Array<() => Promise<T>>): Promise<T[]> {
 
 const jobs = cases.flatMap((c) => Array.from({ length: N }, (_, s) => async () => {
   const agent = NAMES[s % NAMES.length];
-  const p = council.ballotPrompt(V, agent, c.items, '', 3);
+  const p = council.ballotPrompt(V, agent, c.items, PERSONA.get(agent) ?? '', NOW, c.needs);
+  const burdened = REAL && NAMES.indexOf(agent) % 2 === 0;
   const firstWord = /then (yes|no) or/.exec(p.user)?.[1];
-  if (DRY) return { case: c.name, agent, dry: true, chars: p.user.length };
+  const firstNeed = /two days\? ([A-D]):/.exec(p.user)?.[1];
+  if (DRY) return { case: c.name, agent, dry: true, chars: p.user.length, prompt: s === 0 ? p.user : undefined };
   try {
     const r = await callModel({ spec, system: p.system, user: p.user, tools: p.tools as never, level: REASONING.ballot, agent, kind: 'ballot', priority: 'ballot', maxWaitMs: 120000, fallbackMs: 120000 });
     const call = r.reply.calls.find((x) => x.name === 'vote') ?? r.reply.calls[0];
-    const votes = council.parseBallot(call?.input ?? r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), c.items);
-    return { case: c.name, agent, votes, valid: c.items.every((l) => votes[l.id]), firstWord, raw: JSON.stringify(call?.input ?? r.reply.text).slice(0, 400) };
+    const votes = council.parseBallot(call?.input ?? r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), c.items, c.needs, p.order);
+    return { case: c.name, agent, votes, valid: [...c.items.map((l) => l.id), ...Object.keys(c.needs ?? {})].every((id) => votes[id]), firstWord, firstNeed, burdened, prompt: s < 2 ? p.user : undefined, raw: JSON.stringify(call?.input ?? r.reply.text).slice(0, 400) };
   } catch (e) {
     return { case: c.name, agent, error: String((e as Error).message).slice(0, 160) };
   }
@@ -80,16 +117,38 @@ const by: Record<string, { yes: number; no: number; abstain: number }> = {};
 let first = 0, decided = 0;
 for (const x of res as Array<{ case: string; votes?: Record<string, string>; firstWord?: string }>) {
   for (const v of Object.values(x.votes ?? {})) {
-    (by[x.case] ??= { yes: 0, no: 0, abstain: 0 })[v as 'yes']++;
+    const b = (by[x.case] ??= { yes: 0, no: 0, abstain: 0 }) as Record<string, number>;
+    b[v] = (b[v] ?? 0) + 1;
     if (v === 'yes' || v === 'no') {
       decided++;
       if (v === x.firstWord) first++;
     }
   }
 }
-const summary = { calls: res.length, valid: `${valid}/${res.length}`, byCase: by, firstListedShare: decided ? Math.round((first / decided) * 100) / 100 : null };
+// (a need item's first-shown choice taken, against a third by chance with three choices)
+let nFirst = 0, nDecided = 0;
+for (const x of res as Array<{ votes?: Record<string, string>; firstNeed?: string }>) {
+  const v = x.votes?.['need:light'];
+  if (v && /^[A-D]$/.test(v)) {
+    nDecided++;
+    if (v === x.firstNeed) nFirst++;
+  }
+}
+// (REAL: the yes share of members a rule burdened yesterday against those it did not, on quota, contribute and duty)
+const stakeYes: Record<string, { yes: number; n: number }> = {};
+for (const x of res as Array<{ case: string; votes?: Record<string, string>; burdened?: boolean }>) {
+  if (!REAL || !['quota', 'contribute', 'duty', 'three'].includes(x.case)) continue;
+  for (const v of Object.values(x.votes ?? {})) {
+    if (v !== 'yes' && v !== 'no') continue;
+    const k = x.burdened ? 'burdened' : 'not burdened';
+    const s = (stakeYes[k] ??= { yes: 0, n: 0 });
+    s.n++;
+    if (v === 'yes') s.yes++;
+  }
+}
+const summary = { real: REAL, stakeYes, calls: res.length, valid: `${valid}/${res.length}`, byCase: by, firstListedShare: decided ? Math.round((first / decided) * 100) / 100 : null, needFirstShownShare: nDecided ? Math.round((nFirst / nDecided) * 100) / 100 : null };
 console.log(JSON.stringify(summary));
-const out = path.join(ROOT, 'runs/2026-10-21/g3-rules/bench', `rulebench-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`);
+const out = path.join(ROOT, 'runs/2026-10-23/g3-rules/bench', `rulebench-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, JSON.stringify({ model: MODEL, summary, res }, null, 1));
 console.log(`written ${out}`);

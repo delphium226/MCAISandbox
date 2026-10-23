@@ -1,0 +1,1434 @@
+[
+{
+"agent": "Omar",
+"law": {
+"dailyGatheringQuota": "Each member must gather at least one stack of a basic resource (wood, stone, or ore) per day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"MiningSchedule": "Only one villager may dig a specific mine level at a time; others must wait their turn to prevent wasted effort."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"dailyTorchContribution": "Each villager must place at least one torch into the communal storage each day to ensure sufficient lighting resources."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"daily_contribution": "Each member must contribute at least one resource (e.g., log, cobblestone, or iron) to a communal project each day."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"dailyToolContribution": "Each member must deposit at least one tool or raw material (e.g., sticks, cobblestone) into village storage each day."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"dailyToolQuota": "Each member may take up to 3 tools from storage per day to ensure everyone has access."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"dailyFoodContribution": "Each villager must place at least one food item into the communal storage each day."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"iron_dig_coordination": "Only one member may dig for iron on a given level at a time; others must assist elsewhere or wait."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"daily_lighting_quota": "Each member must light at least one unlit spot each day."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"dailyToolLog": "Each member must record at least one tool usage per day to monitor storage depletion."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"dailyLightingQuota": "Each villager must place at least one torch in a communal area (e.g., storage hut, mine tunnels, or any public building) each day to maintain village safety."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"toolLog": "Any member taking a tool from communal storage must log the item and return or replace it within two days."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"ToolQuota": "Each member may withdraw only one iron pickaxe from storage per day to preserve mining capability for all."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"log_quota": "Each member may take no more than 8 logs from communal storage per day to ensure sufficient resources for all projects."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"tool_return": "After any digging activity, members must return used tools (pickaxes, shovels) to the storage to keep tools available for all."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"tool_quota": "Each member may take at most one stone pickaxe from storage per day."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"torch_quota": "Each villager must contribute at least 5 torches to communal storage nightly to maintain adequate lighting."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"torch_minimum": "At least 20 torches must remain in village storage each night."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"daily_log_contribution": "Each villager must place at least one log into the communal storage every day."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"iron_quota": "Each member may mine at most 5 iron ore per day from the communal mine."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_contribution": "Each villager must deposit at least one crafted item or raw resource into communal storage each day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyDecorativeContribution": "Each villager must donate at least one decorative block (e.g., polished stone, quartz, glazed terracotta) to the communal aesthetic stash each day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"daily_market_contribution": "Each villager must place at least one crafted item into the market stall inventory before nightfall."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"toolBorrow": "Members must log any tools taken from communal storage and return them by the next day."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"daily_storage_quota": "Each member must deposit at least 10 sticks and 5 cobblestone into communal storage every day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"daily_storage_contribution": "Each villager must place at least one crafted good into communal storage every day to keep trade stock healthy."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"daily_food_quota": "Each villager must deposit at least 2 food items into communal storage each day."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"dailyHelping": "Each villager must assist at least one other member's project each day."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"iron_dig_schedule": "Before any member begins mining iron, they must check the communal iron dig schedule (posted at the town board) and announce their intended shift to avoid overlapping work."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"ToolReturn": "All members must log any tools taken from storage and return them by the end of each day."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"dailyLightingDuty": "Every villager must light at least one dark area (e.g., tunnel, house, or pathway) each day to ensure village safety."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"dailyLightingDuty": "Each villager must place at least one torch in any unlit area of the village per day to maintain safety during night."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"torchQuota": "Each villager must leave at least 10 torches in communal storage at the end of each day to ensure lighting for night projects."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"daily_torch_quota": "Each villager may take up to 8 torches from storage per day; any unused torches must be returned to storage by sunset."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"BirchLogQuota": "Each member may take at most 10 birch logs per day from storage to ensure sufficient resources for communal aesthetic projects."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"torch_quota": "Each villager may take no more than 5 torches per day from the communal storage to ensure lighting resources are preserved."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"Tool Sharing": "Each villager must contribute one usable tool (e.g., pickaxe, axe, shovel) to the communal tool chest daily to ensure everyone has access to necessary equipment."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"daily_log_quota": "Each villager must contribute at least 5 logs to the communal storage each day."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"tool_return": "All members must return any borrowed tools to the communal storage by sunset each day."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"seed_reserve": "The village storage must always retain at least 10 wheat seeds to ensure members can start farms."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"DailyLogContribution": "Each villager must deposit at least one stack of any type of logs into the communal storage every day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyMealBeforeWork": "Every villager must eat a meal from storage before starting any project that will take longer than 1 minute, ensuring energy for quality work."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"miningSchedule": "Each member may take up to 2 iron ores per day and must sign up for a 5‑minute mining slot; no digging outside the slot."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"iron_digging_claim": "Members must announce their intent to mine iron on the communal board with start time and location before beginning; others check the board to prevent overlapping digs."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"daily_lighting": "Each member must place at least 2 torches in any newly mined tunnel before the end of the day to ensure safety."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"mining_schedule": "All miners must record their intended mining start and end times in the communal log each day before mining to avoid overlap."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"dailyLighting": "Every villager must light at least one tunnel or dark area each day and ensure the communal storage contains a minimum of 10 spare torches."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"seed_quota": "At least 5 pumpkin seeds must remain in village storage at all times."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"dailyTorchContribution": "Each villager must place at least one newly crafted torch into the communal storage each day."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"Daily Torch Contribution": "Each villager must place at least one torch into the communal storage each day to ensure sufficient lighting for all projects."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"nightLightingDuty": "Each villager must place at least one torch inside their own house before nightfall to ensure basic illumination for all."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"dailySeedContribution": "Each villager must deposit at least one stack of seeds or food items into the communal storage every day."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"torch_quota": "Each villager must deposit at least one torch into the communal storage each day to maintain adequate lighting for all tunnels and houses."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"dailyLightingContribution": "Each villager must place at least one torch or lantern on a village path or building every day."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"dailyDeposit": "Each member must place at least one crafted item into communal storage every day to keep shared resources stocked."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"daily_torch_quota": "Each villager must contribute at least one torch to the communal storage each day."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"torch_quota": "Each villager may take at most 5 torches from communal storage per day to ensure lighting for all."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"daily_cooperation": "Each villager must assist at least one other member's project each day, contributing any needed item or effort."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"daily_torch_contribution": "Each villager must place at least one torch into the communal storage each day to ensure sufficient lighting for all night shifts."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"daily_tool_contribution": "Each village member must deposit at least one functional tool or 10 raw iron ingots into the communal storage each day."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"daily_contribution": "Each villager must add at least one item to the communal storage before nightfall."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"reservePlotRule": "Members must reserve a 9x9 plot for personal farms before starting any other construction."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_contribution": "Each villager must add at least one item to the communal storage every day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"AestheticContribution": "Each villager must place at least one decorative block (stairs, slabs, fences, etc.) into the communal aesthetic pool every day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"daily_resource_quota": "Each villager must deposit at least one unit of charcoal or wood into communal storage every day to support smelting and tool crafting."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"torchReserve": "Each day after lighting duties, members must ensure at least 10 torches remain in communal storage for mining and decoration."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"tool_storage_rule": "All pickaxes used for mining must be returned to the communal tool chest before the end of each mining shift."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"daily_log_quota": "Each villager must contribute at least 5 logs to communal storage each day to ensure sufficient material for tool and construction projects."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"tool_sharing": "Each villager must place at least one usable tool (pickaxe, axe, or shovel) in the communal tool chest daily to ensure others can continue work without idle time."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"torch_quota": "Each villager must contribute at least one torch to storage daily to ensure sufficient lighting for all."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"iron_smelting_quota": "Any villager who extracts raw iron must smelt at least one ingot from it before the end of the day."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"mineShift": "Only one villager may dig on a given mine level per day; others must wait for the next day."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"ironDiggingCoordination": "Each day, only one villager may actively dig for iron in the main mine; others must either wait their turn or assist with other tasks to prevent idle time."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"birchLogContribution": "Each villager must deposit at least 2 birch logs into communal storage each day."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"torch_quota": "Each villager must contribute at least one torch to the communal storage daily to maintain adequate lighting for the village."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"dailyTorchReserve": "Each villager must ensure at least 20 torches remain in communal storage at the end of each day."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"torch_quota": "Each villager must contribute at least 2 torches to the communal storage daily to ensure sufficient lighting for mining and night duties."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"tool_sharing": "Each villager must contribute at least one stone pickaxe to the communal tool pool before any iron digging is attempted."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"iron_contribution": "Each villager must deposit at least one iron ore into the communal storage each day; excess may be used for personal projects."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"dailyLogDeposit": "Each villager must deposit at least 10 birch logs into communal storage each day to sustain building projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"iron_dig_shift": "Only one villager may work on a given iron shaft at a time; others must wait or use a different shaft."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyMealAfterWork": "Each villager must eat a meal from storage after completing any task that takes more than 5 minutes, to maintain stamina."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"charcoal_reserve": "At least 10 charcoal must remain in village storage at the end of each day to ensure sufficient material for iron smelting."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"minimum_birch_logs_storage": "The village storage must retain at least 10 birch logs at the end of each day to ensure resources for building projects."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"daily_log_contribution": "Each villager must deposit at least one birch log into the communal storage each day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"vein_claim_notice": "Before mining a new ore vein, a member must announce their claim in the village chat and wait 5 minutes for others to coordinate."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"toolChestDeposit": "All pickaxes crafted by any member must be deposited in the communal tool chest by day's end."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"daily_contribution": "Every villager must deposit at least one stack of any resource into the communal storage each day to maintain village supplies."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"preTaskResourceCheck": "Each villager must request any needed tools, logs, or food from neighbors before beginning a new personal project to ensure continuous productivity."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"dailyTorchContribution": "Each villager must place at least one torch into the communal storage each day to ensure sufficient lighting resources."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"Daily Log Quota": "Each villager must contribute at least 5 birch logs to communal storage each day to maintain a steady supply for inventions and community projects."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"log_quota": "Each member may take at most 20 logs from communal storage per day to preserve resources for village projects."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"EveningToolCheck": "Each evening, every villager must check the tool inventory of any miner they interact with and hand over a spare pickaxe if the miner lacks one, to keep iron digging continuous."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"daily_resource_contribution": "Each villager must contribute at least one stack of basic building material (e.g., logs, cobblestone, or sticks) to the communal storage each day to ensure tool and construction projects can proceed without shortages."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"daily_torch_quota": "Each villager must contribute at least one torch to the communal storage each day to ensure lighting projects stay on schedule."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"dailyToolContribution": "Each villager must deposit at least one usable tool (pickaxe, axe, shovel) into the communal storage each day to ensure project readiness."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"daily_contribution": "Every villager must deposit at least one building material (log, stone, or plank) into the communal storage each day to ensure sufficient resources for projects."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"logQuota": "Members must leave at least 5 birch logs in communal storage at the end of each day to ensure resources for tool crafting."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"torch_quota": "Each villager must contribute at least one torch to the communal torch supply each day, ensuring sufficient lighting for mining and night work."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"weekly_tool_contribution": "Each villager must deposit at least one functional tool (pickaxe, axe, or shovel) into the communal tool chest every week to maintain a shared supply for projects."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"dailyLogContribution": "Every villager must deposit at least 5 logs into communal storage each day to ensure enough material for shared projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"daily_torch_contribution": "Each villager must place at least one torch into communal storage every day to ensure sufficient lighting for the village."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"BirchLogQuota": "Each villager may take no more than 3 birch logs from communal storage per day; excess logs must be returned by nightfall."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyFoodContribution": "Every villager must add at least one food item to the communal storage each day."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"daily_lighting_quota": "Each villager must perform at least one lighting task per day to keep the village safe."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"daily_contribution": "Each villager must place at least one log, torch, or tool into the communal storage each day to ensure shared resources."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"dailyLightingDuty": "Each villager must light at least one tunnel segment they work in each day to maintain safety and prevent mining delays."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"daily_tool_deposit": "Each member must deposit any tools they craft or use into the communal tool chest before nightfall."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"dailyResourceContribution": "Each villager must donate at least one tool, log, or stack of food to the communal storage each day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"logQuota": "Each member may take at most 8 birch logs per day from communal storage for personal projects."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"torch_quota": "Each villager may take no more than 8 torches from communal storage per day to ensure night lighting for all."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"charcoal_minimum": {
+"item": "charcoal",
+"minimum": 20,
+"reason": "Prevent lighting delays and maintain morale."
+}
+}
+},
+{
+"agent": "Priya",
+"law": {
+"tool_return": "All members must return any borrowed tools to the communal storage by the end of each village day."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"tool_return": "All borrowed tools must be returned to storage by nightfall each day."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"log_reserve": "Members must leave at least 20 birch logs in communal storage after any gathering activity."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"daily_log_quota": "Each member must contribute at least 2 birch logs to the communal log pool each day to support building and invention projects."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"daily_contribution": "Each villager must deposit at least one stack of logs or torches into communal storage each day."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"torches_storage_quota": "Each day, every member must leave at least 10 torches in the communal storage to ensure sufficient lighting for all projects."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"dailyLogQuota": "Each villager must contribute at least 10 birch logs to communal storage each day to maintain building supplies."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"tool_reserve": "Each member must leave one functional tool of each type (pickaxe, axe, shovel) in the communal tool chest at the end of the day."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"dailyIronContribution": "Each member must deposit at least 10 iron ore into communal storage each day."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"logQuota": "Each villager may take up to 8 birch logs per day from shared storage for personal projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"seedQuota": "Members may not remove more than 5 wheat seeds from storage per day to ensure seed availability for village farms."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_contribution": "Each villager must deposit at least one item of any type into the communal storage each day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"daily_log_quota": "Each member may withdraw no more than 5 logs from storage per day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"daily_wood_quota": "Each villager must contribute at least 5 logs to communal storage each day to maintain building resources."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"wood_storage_quota": "Each villager must deposit at least 5 logs into the communal storage chest each day."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"torch_quota": "Each villager may take no more than 10 torches from communal storage per day to maintain adequate lighting for mines and village paths."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"daily_tool_contribution": "Each member must place at least one crafted tool (pickaxe, axe, shovel, or sword) into communal storage each day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"tool_quota": "Each villager may take no more than 2 logs or 1 axe from storage per day for personal projects."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"log_contribution": "Each villager must donate at least one log to the communal storage daily to ensure material availability for projects."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"resourceRequestRule": "Before starting a personal project, each villager must log a request for needed materials (logs, tools, food) to the resource coordinator (Ada); Ada ensures availability and updates storage."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"log_quota": "Each member may take up to 30 logs per day from storage, but must leave at least 50 logs in communal storage for village projects."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"tool_return_rule": "All used tools must be returned to the communal tool chest by the end of the day."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"torch_quota": "Each villager must contribute at least 5 torches to communal storage daily."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"tool_return": "All borrowed tools must be returned to storage by sunset each day."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"fuelReserve": "Maintain a minimum of 30 units of coal or charcoal in communal storage to ensure smelting tasks never fail due to lack of fuel."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"log_quota": "Each villager must deposit at least one stack of any wood logs into communal storage each day."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"dailyFoodQuota": "Each villager may take no more than 2 meals from storage per day; members must contribute by cooking or farming to replenish the communal food supply."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"daily_log_contribution": "Each villager must deposit at least one log into the communal woodshed storage every day."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"birchLogQuota": "Each member may take up to 5 birch logs per day; storage must retain at least 20 birch logs at all times."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"daily_contribution": "Each member must contribute at least one building material (log, stone, or cobblestone) to a communal project each day."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"dailyMeal": "Each villager must eat one meal from storage each day before starting other chores."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"dailyTorchReserve": "Each member must leave at least 10 torches in communal storage each day to ensure village lighting."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"log_quota": "Each member may take at most 4 birch logs from storage per day to preserve resources for communal projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"dailyFoodQuota": "Each member may take up to 2 meals from storage per day and must contribute at least 3 food items back to storage daily."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"dailyLogQuota": "Each member may withdraw at most 5 birch logs from storage per day to ensure enough for personal builds."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_food_deposit": "Each villager must place at least one cooked food item into the communal storage chest every day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"dailyToolContribution": "Each villager must deposit at least one tool or resource (e.g., axe, pickaxe, logs, torches) into communal storage each day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyLogContribution": "Each village member must donate at least 4 logs to the communal storage every day."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"dailyTorchDeposit": "Each villager must place at least one torch into communal storage every day to ensure sufficient lighting for all."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"storage_access": "Each member must keep a personal food chest within 10 blocks of their home, stocked with at least three meals, to ensure quick access and avoid pathing delays."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"daily_log_quota": "Each member may take no more than 20 birch logs from communal storage per day to preserve forest resources."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"daily_birch_log_quota": "Each villager must deposit at least one birch log into the communal storage each day."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"tool_return_policy": "All borrowed tools must be returned to storage by sunset each day."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"material_reserve": "The storage must maintain a minimum of 12 stone slabs at all times; members must request building materials from storage before using personal inventory to ensure communal projects aren't delayed."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"fuelReserve": "Every villager must maintain a personal reserve of at least 5 units of coal or charcoal at all times to ensure smelting tasks can be completed without interruption."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"dailyFoodContribution": "Each member must add at least one unit of food to the communal storage every day."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"daily_birch_quota": "Each villager must contribute at least 5 birch logs to the communal storage each day."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"dailyLogQuota": "Each villager may take at most 4 birch logs from communal storage per day to ensure enough wood for everyone's projects."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"log_quota": "Each member may take at most 10 logs from storage per day unless they have contributed at least 5 logs to the village that day."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"log_quota": "Each villager must leave at least 20% of the total stored logs untouched each day to ensure resources for communal projects."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"daily_contribution": "Each villager must contribute at least one stack of building material (logs, cobblestone, or planks) to the communal storage each day."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"dailyContribution": "Each member must deposit at least one stack of any building material (logs, stone, or torches) into communal storage each day."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"storageBirchMinimum": "Each member must leave at least 10 birch logs in the communal storage at the end of each day."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"log_quota": "Each villager may withdraw no more than 10 logs from communal storage per day; any excess must be contributed back to maintain building resources."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"daily_log_quota": "Each member must contribute at least 2 birch logs to the communal storage each day to ensure sufficient material for tool and construction projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"dailyMealQuota": "Members may take at most one meal from communal storage per day unless they contributed a food item that day."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_log_quota": "Each villager must deposit at least one log into communal storage each day."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"dailyLogQuota": "Each member may withdraw a maximum of 8 birch logs from storage per day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"dailyLogQuota": "Each villager must deposit at least one stack (64) of logs or cobblestone into the communal storage every day."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"log_quota": "Each member may take at most 8 birch logs per day from the communal storage to ensure sustainable resources for all projects."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"daily_log_contribution": "Each villager must deposit at least 2 logs into the communal storage every day."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"log_quota": "Each villager may withdraw a maximum of 10 birch logs from storage per day to protect the woodshed schedule."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"daily_wood_contribution": "Each villager must deposit at least 2 logs into communal storage every day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"dailyToolContribution": "Each villager must place at least one tool or usable resource into the communal storage each day."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"tool-withdrawal-log": "Every member must log any tool taken from storage and return it by the end of the same day to ensure tool availability for all."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"farmPlotReservation": "Each member must reserve a 9x9 farm plot at least 5 blocks from their house before beginning a new farm project, marking its coordinates in the village log."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"daily_log_quota": "Each member may take at most 8 birch logs from storage per day; any excess must be contributed back to storage within two days."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"daily_torch_quota": "Each member must contribute at least 4 torches to communal storage each day to ensure sufficient village lighting."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"personal_project_quota": "Members may take up to 10 logs and 20 cobblestones per day for personal projects; excess must stay in storage."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"dailyLogQuota": "Each member may take at most 30 birch logs from communal storage per day; a minimum of 50 birch logs must remain in storage."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"saplingPlanting": "Each villager must plant at least one sapling of any tree type each day to maintain a sustainable wood supply."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"daily_help": "Each villager must assist another's project at least once per day."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"dailyLogContribution": "Each villager must deposit at least 2 birch logs into communal storage every day."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"daily_contribution": "Each villager must deposit at least one log or one crafted tool into the communal storage every day."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"log_quota": "Each villager may withdraw a maximum of 10 logs from communal storage per day and must contribute at least 5 logs to storage each week."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"daily_log_contribution": "Every member must place at least one log into communal storage each day to ensure resources for tool making."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"layout_check": "Before attempting to lay out any public house, the member must first verify that a free 22x22 (or appropriate) area exists within 128 blocks of the village center; if none is found, they must either clear space or select an alternative location."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"DailyLogLimit": "Each villager may take no more than 5 birch logs from communal storage per day for charcoal production."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"logQuota": "Each member must deposit at least 5 logs of any type into the communal storage each day."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"daily_log_quota": "Each villager must contribute at least one log to communal storage each day to maintain tool and building material supplies."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"daily_log_quota": "Each villager must deposit at least one birch log into communal storage every day."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"log_quota": "Each villager may withdraw up to 5 birch logs per day from communal storage without permission; any additional logs require approval from the maker."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"minimum_torches": "At least 10 torches must remain in communal storage at the end of each day."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"log_quota": "Members may take up to 8 logs from storage per day; extra logs require a trade or permission."
+}
+},
+{
+"agent": "Dev",
+"law": {
+"dailyLogReserve": "Each villager must leave at least 8 birch logs in the communal storage at the end of each day."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"tool_return": "All borrowed tools must be returned to storage by the end of each day."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"LogSharing": "Members must contribute a minimum of 4 logs to communal storage each day; requests for logs over 6 must be approved by the village elder."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"daily_donation": "Each villager must donate at least one log or stone to the communal storage each day."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"daily_contribution": "Each member must deposit at least 5 logs or equivalent building material into communal storage each day."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"dailyFoodContribution": "Each villager must deposit at least one food item (e.g., eggs, bread, or cooked meat) into the communal storage each day to ensure no one goes hungry."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"daily_log_contribution": "Each villager must deposit at least one log (any type) into communal storage daily to maintain tool resources."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"dailyLogQuota": "Each member may take at most 10 birch logs per day from communal storage unless they are assigned to a building project that requires more."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"BirchLogQuota": "Each villager may take up to 12 birch logs from communal storage per day unless the Maker grants an exception."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"dailyFoodContribution": "Each villager must add at least 2 food items to the communal storage every day to maintain hunger safety."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"log_storage_minimum": "20 logs must remain in communal storage after daily logging."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"dailyBirchReserve": "Members must keep at least 10 birch logs in communal storage each day to ensure tool material availability."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"dailyLogReserve": "Each member must ensure at least 10 birch logs remain in storage at the end of each day."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"tool_quota": "Every miner must receive a stone pickaxe before beginning any mining shift each day."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"log_quota": "Each villager may withdraw no more than 8 birch logs from communal storage per day and must return at least 4 logs after use to maintain supply for projects."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"mealQuota": "Each member may take at most 2 meals from communal storage per day unless their personal food stores are below 4 units."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"dailyLogContribution": "Each villager must contribute at least 5 logs to the communal storage each day to maintain tool and fuel supplies."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"resource_request_logging": "All members must record any request for logs, torches, or tools on the communal board before gathering, to ensure fair distribution and avoid duplicate requests."
+}
+},
+{
+"agent": "Kai",
+"law": {
+"birchLogRequestRule": "Members must complete at least one 'helping others' project' chore each day before withdrawing birch logs from storage."
+}
+},
+{
+"agent": "Omar",
+"law": {
+"log_quota": "Each member may withdraw up to 5 birch logs per day from communal storage; additional logs require approval from the maker."
+}
+},
+{
+"agent": "Xavier",
+"law": {
+"daily_contribution": "Each villager must deposit at least one unit of wood, stone, or ore into the communal storage every day."
+}
+},
+{
+"agent": "Uma",
+"law": {
+"torch_reserve": "Each villager must leave a minimum of 10 torches in communal storage after completing nightly lighting tasks."
+}
+},
+{
+"agent": "Jonah",
+"law": {
+"dailyDeposit": "Each member must contribute at least one crafted good to communal storage each day."
+}
+},
+{
+"agent": "Sam",
+"law": {
+"log_quota": "Each villager may take no more than 8 birch logs per day from storage for tool crafting, ensuring sufficient logs remain for communal projects."
+}
+},
+{
+"agent": "Finn",
+"law": {
+"logRequestLimit": "Members may request up to 4 birch logs per day from storage to ensure fairness."
+}
+},
+{
+"agent": "Grace",
+"law": {
+"ToolReservationRule": "Each villager may reserve only one tool from storage per day; reservations must be logged with the reserving member's name and released by sunset."
+}
+},
+{
+"agent": "Nora",
+"law": {
+"daily_well_contribution": "Each villager must donate at least 5 building blocks (cobblestone, stone, or wood) to communal infrastructure projects such as wells or storage each day."
+}
+},
+{
+"agent": "Iris",
+"law": {
+"dailyLightingDuty": "Each villager must light at least one tunnel segment per day to keep all tunnels safe."
+}
+},
+{
+"agent": "Lena",
+"law": {
+"BirchLogQuota": "Each member may take no more than 10 birch logs from communal storage per day to preserve resources for inventions."
+}
+},
+{
+"agent": "Priya",
+"law": {
+"dailyContribution": "Each villager must place at least one item (tool, log, or torch) into the communal storage before nightfall."
+}
+},
+{
+"agent": "Hugo",
+"law": {
+"daily_food_quota": "Each villager must contribute at least 5 units of edible food to communal storage each day."
+}
+},
+{
+"agent": "Victor",
+"law": {
+"Wood Withdrawal Log": "Every member must record the amount of wood taken from communal storage in the daily log; total daily withdrawals may not exceed 30 logs to preserve resources for village projects."
+}
+},
+{
+"agent": "Wren",
+"law": {
+"tool_quota": "Each member may take at most 2 iron ores per day from the mine to ensure fair distribution."
+}
+},
+{
+"agent": "Elena",
+"law": {
+"daily_birch_log_quota": "Each villager may take up to 8 birch logs per day from the communal woodshed to ensure sufficient supply for shared projects."
+}
+},
+{
+"agent": "Tess",
+"law": {
+"logReserve": "At least 30 logs must remain in communal storage after daily gathering to ensure sufficient resources for mining and building."
+}
+},
+{
+"agent": "Quinn",
+"law": {
+"resourceTradeRule": "When a member assists another, they may request a resource trade of equal or greater value; all trades must be logged in the village ledger."
+}
+},
+{
+"agent": "Ada",
+"law": {
+"dailyLogQuota": "Each member may take no more than 10 birch logs from the communal forest per day to preserve supply for projects."
+}
+},
+{
+"agent": "Rosa",
+"law": {
+"requestCheck": "All members must review and fulfill any urgent resource requests from the storage board before beginning personal projects each day."
+}
+},
+{
+"agent": "Mayor",
+"law": {
+"daily_tool_quota": "Each day, at least one stone pickaxe must be crafted and stored for miners."
+}
+},
+{
+"agent": "Ben",
+"law": {
+"daily_log_quota": "Each villager must deposit at least 2 logs into communal storage each day."
+}
+},
+{
+"agent": "Clara",
+"law": {
+"daily_tool_contribution": "Each villager must donate at least one crafted tool (axe, hoe, shovel, or pickaxe) to the communal storage each day to maintain a shared resource pool."
+}
+},
+{
+"agent": "Milo",
+"law": {
+"log_quota": "Each villager may withdraw up to 5 logs from communal storage per day, and must contribute at least one log back to storage each day."
+}
+}
+]

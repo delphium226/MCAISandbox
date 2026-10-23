@@ -46,6 +46,7 @@ import { postLayout } from '../layout';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { IRON_AGE, OWN_TOOLS } from '../ladderFlags';
+import { zoneBoxes } from '../rules';
 
 type Pos = [number, number, number];
 
@@ -3501,6 +3502,8 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
     // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
     ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - 4) : []),
+    // (G3, MC_RULES: a zone voted free of building; the annex's pens are farms, the works plot a building)
+    ...zoneBoxes(v.name, works ? 'build' : 'farm').map((z) => ({ x1: z.x1, z1: z.z1, x2: z.x2, z2: z.z2 })),
   ];
   // (prepare_annex's survey takes the scan turn as find_site's does, E.1)
   const g = await withScanTurn(signal, () => surveyGround(a, cx, cz, r, taken, signal));
@@ -3728,7 +3731,7 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   const r = reach + Math.ceil(S / 2) + 1;
   const why: Rejections = { wet: 0, steep: 0, occupied: 0, unloaded: 0 };
   // (the survey takes the scan turn as growSite's does, E.1)
-  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, growTaken(a, v, home, r), signal, true));
+  const g = await withScanTurn(signal, () => surveyGround(a, home.x, home.z, r, growTaken(a, v, home, r, 'farm'), signal, true));
   let c: ReturnType<typeof bestSite> = null;
   for (const slope of [2, 4]) {
     for (const k of Object.keys(why) as Array<keyof Rejections>) why[k] = 0;
@@ -3742,7 +3745,7 @@ async function layOutField(a: BotAgent, args: Record<string, unknown>, signal: A
   const farm = placeFarm([], square, { near: hut });
   if (!farm) throw new Error(`lay_out_field: no 5x7 field fits the ${S}x${S} pad at ${areaText(square)}`);
   // (no await from the read to the hold: the village's records may have changed during the survey, D7)
-  const clash = growTaken(a, v, home, r).find((q) => overlaps(square, q));
+  const clash = growTaken(a, v, home, r, 'farm').find((q) => overlaps(square, q));
   if (clash) throw new Error(`lay_out_field: the village changed during the survey (the square at ${areaText(square)} is taken now)`);
   console.log(`[needwork] ${v.name}: ${a.name} prepares a ${S}x${S} field pad at ${areaText(square)}`);
   const held = a.world.villages.reserve(v, { x1: square.x1 - 2, z1: square.z1 - 2, x2: square.x2 + 2, z2: square.z2 + 2 }, a.name, 'lay out a wheat field');
@@ -3802,7 +3805,7 @@ export const growReach = (S: number) => Math.min(GROW.range, VILLAGE_RANGE - Mat
 
 /** The ground growSite keeps off (its doc), read now: built again after the survey to test the square chosen (the village's
  *  records may have changed meanwhile, s30's review). */
-function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: number): Area[] {
+function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: number, use: 'build' | 'farm' = 'build'): Area[] {
   const lay0 = v.layouts?.[0];
   const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
   const all = [...a.world.villages.villages.values()];
@@ -3834,6 +3837,8 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
       const w = d?.width ?? 7, dd = d?.depth ?? 7;
       return pad({ x1: i.x - Math.floor(w / 2), z1: i.z - Math.floor(dd / 2), x2: i.x - Math.floor(w / 2) + w - 1, z2: i.z - Math.floor(dd / 2) + dd - 1 }, 2);
     }),
+    // (G3, MC_RULES: a zone the village voted free of building, or kept for farms when this is no farm)
+    ...zoneBoxes(v.name, use).map((z) => ({ x1: z.x1, z1: z.z1, x2: z.x2, z2: z.z2 })),
   ];
 }
 

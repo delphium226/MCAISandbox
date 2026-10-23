@@ -36,7 +36,15 @@ const ok = (cond: unknown, what: string) => {
 
 // Bands and reading
 ok(rules.validate('quota', { class: 'logs', n: 8 }) === null && rules.validate('quota', { class: 'food', n: 8 })?.includes('never food') && rules.validate('quota', { class: 'logs', n: 99 })?.includes('1 to 64'), 'quota bands');
-ok(rules.validate('levy', { rate: 25 })?.includes('steps of 10') && rules.validate('zone', {}) === 'zones are not built yet', 'levy and zone');
+ok(rules.validate('levy', { rate: 25 })?.includes('steps of 10') && /must name a place/.test(rules.validate('zone', { use: 'nobuild', area: 'the moon' }) ?? ''), 'levy and zone');
+// Zones: read from words, the place found on the village, the boxes and the conflict by use
+const zr = rules.readZone('No new buildings may be built on the north green, so we keep space for festivals.');
+ok(zr?.use === 'nobuild' && zr.area === 'north green', `a zone read (${JSON.stringify(zr)})`);
+ok(rules.readZone('The fields are kept for farming only.')?.use === 'farms' && rules.readZone('Keep the storage hut clear.')?.area === 'storage hut', 'farms only; keep clear');
+ok(rules.readLaw({ what: 'Nothing is built on Oak Row.' }).type === 'zone', 'readLaw takes zones');
+const fakeV = { name: 'Testvale', layouts: [{ x1: 0, z1: 0, x2: 40, z2: 40, buildings: [], green: { x1: 10, z1: 10, x2: 20, z2: 20 } }, { x1: 100, z1: 0, x2: 130, z2: 30, buildings: [], name: 'Oak Row', grow: 1 }, { x1: 60, z1: 60, x2: 70, z2: 70, buildings: [], field: true }], storageHut: { x1: 2, z1: 2, x2: 8, z2: 8, spots: [] } } as never;
+ok(rules.placeArea(fakeV, 'north green')?.name === 'the green' && rules.placeArea(fakeV, 'oak row')?.box.x1 === 100 && rules.placeArea(fakeV, 'the farms')?.name === 'the fields' && rules.placeArea(fakeV, 'the moon') === null, 'places found');
+rules.setZoneVillages((n) => (n === 'Testvale' ? fakeV : undefined));
 const r1 = rules.readLaw({ what: 'Each member takes at most 8 logs a day from storage' });
 ok(r1.type === 'quota' && r1.params.class === 'logs' && r1.params.n === 8, `a quota read from words (${JSON.stringify(r1)})`);
 const r2 = rules.readLaw({ what: 'Storage should always keep at least 32 bread.' });
@@ -67,13 +75,18 @@ rules.backLaw(V, l1.id, 'Ben');
 ok(council.agenda(V, 2).length === 0, 'one backer: not on the agenda');
 rules.backLaw(V, l1.id, 'Clara');
 ok(!rules.backLaw(V, l1.id, 'Clara'), 'once a member');
-const l2 = rules.addLaw(V, 'Ada', { what: 'Storage keeps at least 16 torches' }, at(1, 0.92));
+// (the user's, 10-23: one open law a member; the same rule again joins the open one as a backing)
+const held = rules.addLaw(V, 'Ada', { what: 'Storage keeps at least 16 torches' }, at(1, 0.92));
+ok(held.status === 'refused' && held.id === l1.id && /still waiting/.test(held.refused ?? ''), `a second open law of Ada's held (${held.refused})`);
+const l2 = rules.addLaw(V, 'Elena', { what: 'Storage keeps at least 16 torches' }, at(1, 0.92));
 rules.backLaw(V, l2.id, 'Ben');
-rules.backLaw(V, l2.id, 'Dev');
 const l3 = rules.addLaw(V, 'Ben', { what: 'Every member tends pens once a day' }, at(1, 0.93));
 for (const n of ['Ada', 'Clara', 'Dev']) rules.backLaw(V, l3.id, n);
+const j = rules.addLaw(V, 'Finn', { what: 'Each villager may take up to 12 birch logs from storage per day.' }, at(1, 0.94));
+ok(j.id === l1.id && l1.backers.includes('Finn') && l1.joined?.includes('Finn') && rules.laws(V).filter((l) => l.status === 'open').length === 3, `the same rule joins the open one (${j.id}, ${l1.backers})`);
 const ag = council.agenda(V, 2);
-ok(ag.length === 2 && ag[0].id === l3.id && ag.some((l) => l.id === l1.id) && !ag.some((l) => l.id === l2.id), `ranked by backing; one of Ada's (a quarter) (${ag.map((l) => l.id)})`);
+ok(ag.length === 2 && ag[0].id === l1.id && ag.some((l) => l.id === l3.id) && !ag.some((l) => l.id === l2.id), `ranked by backing; one backer not enough (${ag.map((l) => l.id)})`);
+rules.backLaw(V, l2.id, 'Dev');
 
 // The ballot prompt and parsing
 const bp = council.ballotPrompt(V, 'Dev', ag, '', at(2, 0.8));
@@ -91,7 +104,7 @@ ok(!council.count({ a: { x: 'yes' }, b: { x: 'yes' } }, 'x', 6).passed, 'no quor
 // A whole day 2 on the clock: agenda at dawn, scripted ballots at dusk, the count at mid-night
 const members = names.map((name) => ({ name, persona: '' }));
 council.councilTick(V, members, at(2, 0.05));
-ok(council.meeting(V, 2)?.items.length === 2, 'the agenda set at dawn');
+ok(council.meeting(V, 2)?.items.length === 3, 'the agenda set at dawn (l2 backed twice since)');
 ok(council.councilLine(V, at(2, 0.3)).startsWith("Tonight's ballot:"), 'the dawn line');
 for (const f of [0.76, 0.8, 0.84, 0.88, 0.9]) council.councilTick(V, members, at(2, f));
 await new Promise((r) => setTimeout(r, 20));
@@ -138,6 +151,106 @@ ok(pp.user.includes('your share of them is 10') && !/levy|rule/i.test(pp.user.sp
 const fake = (async () => ({ reply: { calls: [{ name: 'choose', input: { reason: 'r', choice: 'Make x', share: 'Leave 3 of 10' } }], text: '' }, ms: 1, waitMs: 0 })) as never;
 const res = await choose({ agent: 'Ada', spec: { provider: 'ollama', model: 'm' } as never, level: 'low', menu, seed: 's', call: fake });
 ok(res.id === 'make:x' && res.share === 'levy', `the answer read (${res.share})`);
+
+// A zone voted: the green kept free of building; the fields kept for farms
+const zl = rules.addLaw(V, 'Grace', { what: 'Nothing new is built on the green' }, at(5, 0.02));
+ok(zl.status === 'open' && zl.params.place === 'the green' && zl.params.x1 === 10 && zl.text === 'nothing new is built on the green', `a zone law found its place (${zl.text})`);
+ok(rules.addLaw(V, 'Hugo', { what: 'No houses on the moon' }, at(5, 0.02)).status === 'refused', 'an unknown place refused');
+rules.enact(V, { ...zl, status: 'passed' }, { yes: 5, no: 0, abstain: 0 }, at(5, 0.03));
+ok(/the zone rule/.test(rules.zoneConflict(V, { x1: 15, z1: 15, x2: 25, z2: 25 }, 'build') ?? '') && rules.zoneConflict(V, { x1: 21, z1: 21, x2: 25, z2: 25 }, 'build') === null, 'building on the green refused, beside it allowed');
+ok(!!rules.zoneConflict(V, { x1: 15, z1: 15, x2: 16, z2: 16 }, 'farm'), 'kept free: no farm either');
+const fl = rules.addLaw(V, 'Iris', { what: 'The fields are kept for farming.' }, at(5, 0.04));
+rules.enact(V, { ...fl, status: 'passed' }, { yes: 5, no: 0, abstain: 0 }, at(5, 0.05));
+ok(!!rules.zoneConflict(V, { x1: 65, z1: 65, x2: 66, z2: 66 }, 'build') && rules.zoneConflict(V, { x1: 65, z1: 65, x2: 66, z2: 66 }, 'farm') === null, 'kept for farms: farms allowed, building not');
+
+// Long1's shapes (F2xx): the law under its own key, fields only, a sentence, nothing
+ok(rules.lawFrom({ dailyToolQuota: 'Each member may take up to 3 tools from storage per day.' })?.what.startsWith('Each member may take up to 3'), 'a law under its own key');
+ok(/at least 20 charcoal/.test(rules.lawFrom({ charcoal_minimum: { item: 'charcoal', minimum: 20, reason: 'r' } })?.what ?? ''), 'a law in fields');
+ok(rules.lawFrom({ 'each member puts at least 2 birch logs into storage each day': null })?.what.startsWith('each member puts') && rules.lawFrom({ 'storage keeps at least 5 coal': true })?.what === 'storage keeps at least 5 coal', 'the sentence as the key');
+ok(rules.lawFrom({ 'each member does a kind of work once a day': true }) === null, "the prompt's template echoed is none");
+ok(rules.lawFrom('Every villager must light one spot a day.')?.what.startsWith('Every') && rules.lawFrom(null) === null && rules.lawFrom({}) === null && rules.lawFrom('none') === null, 'a sentence; none');
+const rc = rules.readLaw({ what: 'Each villager must deposit at least one stack of any type of logs into the communal storage every day.' });
+ok(rc.type === 'contribute' && rc.params.class === 'logs' && rc.params.n === 64, `a contribution (${JSON.stringify(rc)})`);
+ok(rules.readLaw({ what: 'Each villager must add at least one item to the communal storage before nightfall.' }).params.class === 'goods', 'any goods');
+ok(rules.readLaw({ what: 'Each villager may take no more than 2 meals from storage per day.' }).params.class === 'food' && !!rules.validate('quota', { class: 'food', n: 2 }), 'a meal quota read, refused');
+
+// The contribution: puts by member-day, the options that put the class tagged until met, the day judged
+const cr = rules.enact(V, { id: 'lc', by: 'Ada', at: 0, day: 4, type: 'contribute', params: { class: 'torches', n: 2 }, text: rules.ruleText('contribute', { class: 'torches', n: 2 }), what: '', why: '', backers: [], opposers: [], status: 'passed' } as never, { yes: 5, no: 1, abstain: 0 }, at(5, 0.05));
+ok(cr.text === 'each member puts at least 2 torches a day into storage', cr.text);
+ok(rules.contributeTag(V, 'Ben', 'make:torch', at(5, 0.1)) === null, 'no tag before the option is known to put torches');
+rules.notePuts(V, 'Ada', 'make:torch', { torch: 1 }, at(5, 0.1));
+ok(rules.contributeTag(V, 'Ben', 'make:torch', at(5, 0.2))?.includes('2 torches') && rules.contributeTag(V, 'Ben', 'gather:sand', at(5, 0.2)) === null, 'the option that put torches tagged');
+rules.notePuts(V, 'Ben', 'make:torch', { torch: 3 }, at(5, 0.3));
+ok(rules.contributeTag(V, 'Ben', 'make:torch', at(5, 0.4)) === null, 'met: no tag');
+const before = fs.readFileSync(path.join(dir, 'acts.jsonl'), 'utf8').length;
+rules.judgeDays(V, ['Ada', 'Ben'], at(6, 0.1));
+const judged = fs.readFileSync(path.join(dir, 'acts.jsonl'), 'utf8').slice(before).split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.op === 'day' && r.rule === cr.id);
+ok(judged.length === 2 && judged.find((r) => r.agent === 'Ben')?.met === true && judged.find((r) => r.agent === 'Ada')?.met === false, `day 5 judged (${JSON.stringify(judged.map((r) => [r.agent, r.met]))})`);
+
+// The adversarial check's probes (10-23): no zone in a purpose clause or a path; numbers far apart do not join; a rule in
+// force is not put up again; a law's "none" is an abstention; many classes are a list
+ok(rules.readLaw({ what: 'Each member takes at most 6 logs a day from storage so nothing is built in a rush.' }).type === 'quota', 'a purpose clause is no zone');
+ok(rules.readLaw({ what: 'Each villager must deposit at least 2 torches into storage each day so nothing is built in the dark.' }).type === 'contribute', 'nor here');
+ok(rules.placeArea(fakeV, 'path to the mine') === null && rules.placeArea(fakeV, 'storage hut')?.name === 'the storage hut', 'the whole phrase must be the place');
+const q3 = rules.addLaw(V, 'Jonah', { what: 'Each member may take up to 3 torches from storage per day.' }, at(5, 0.06));
+const q30 = rules.addLaw(V, 'Kai', { what: 'Each member may take up to 30 torches from storage per day.' }, at(5, 0.06));
+const q4 = rules.addLaw(V, 'Lena', { what: 'Each member may take up to 4 torches from storage per day.' }, at(5, 0.06));
+ok(q30.id !== q3.id && q4.id === q3.id && !q3.backers.includes('Kai'), `3 and 30 stay apart, 4 joins 3 (${q3.id} ${q30.id} ${q4.id})`);
+const again = rules.addLaw(V, 'Mia', { what: 'Each member puts at least 2 torches into storage each day' }, at(5, 0.07));
+ok(again.status === 'refused' && /already a village rule/.test(again.refused ?? ''), `a rule in force not put up again (${again.refused})`);
+ok(council.parseBallot({ votes: [{ item: l1.id, vote: 'none' }] }, [l1])[l1.id] === 'abstain', "a law's none is an abstention");
+// (rulebench's shapes: no item on a one-item ballot, a [id, vote] pair, "reason; Yes", and items in the shown order)
+ok(council.parseBallot({ votes: [{ reason: 'r', vote: 'yes' }] }, [l1])[l1.id] === 'yes' && council.parseBallot({ votes: [[l1.id, 'no']] }, [l1])[l1.id] === 'no' && council.parseBallot({ votes: ['Limit logs; Yes'] }, [l1])[l1.id] === 'yes', 'ballots without the item');
+const two = council.parseBallot({ votes: [{ vote: 'no' }, { vote: 'yes' }] }, [l1, l3], {}, [l3.id, l1.id]);
+ok(two[l3.id] === 'no' && two[l1.id] === 'yes', `in the order shown (${JSON.stringify(two)})`);
+const three = council.parseBallot({ votes: [`${l3.id}: Keeps pens tended; yes`, `${l1.id}: Too strict; no`] }, [l1, l3]);
+ok(three[l3.id] === 'yes' && three[l1.id] === 'no' && council.parseBallot({ votes: ['Bread stock helps, so yes.'] }, [l1])[l1.id] === 'yes' && council.parseBallot({ votes: [{ decision: 'no' }] }, [l1])[l1.id] === 'no', 'sentences with the item first, "so yes", a decision key');
+ok(rules.readLaw({ what: 'Each villager must place at least one log or torch into the communal storage each day.' }).params.class === 'logs+torches', 'logs or torches: a list');
+ok(rules.lawFrom('No new buildings on the green.')?.what === 'No new buildings on the green.' && rules.lawFrom({ 'No new law tonight, things are fine': true }) === null, 'a sentence starting No; a key saying none');
+ok(rules.lawFrom({ law_name: 'Torch rule', law_text: 'Each member puts at least 2 torches into storage a day.' })?.what.startsWith('Each member'), 'the longest sentence, not the title');
+
+// The need vote (#1): a need ignored for a day goes on the ballot with its answering chores; the winner weighs 1.5x
+council.setCouncilSettings({ needVote: true });
+council.noteNeedStatus(V, 'light', 'ignored', '9 unlit spots in 3 buildings', at(6, 0.5));
+for (let i = 0; i < 3; i++) council.noteNeedOffer(V, 'light', { id: 'light:1', name: 'Light the houses' });
+council.noteNeedOffer(V, 'light', { id: 'make:torch', name: 'Make torches' });
+council.councilTick(V, members, at(7, 0.6));
+const m7 = council.meeting(V, 7)!;
+ok(m7.items.includes('need:light') && m7.needs?.['need:light'].options.map((o) => o.name).join('|') === 'Light the houses|Make torches', `the need item on the agenda (${m7.items})`);
+const nb = council.ballotPrompt(V, 'Ada', [], '', at(7, 0.8), m7.needs);
+ok(/\[need:light\][^\n]*A: Light the houses; B: Make torches; or none/.test(nb.user) && JSON.stringify(nb.tools).includes('"none"') && !JSON.stringify(nb.tools).includes('"yes"'), 'the need item on the ballot');
+ok(council.parseBallot({ votes: [{ item: 'need:light', vote: 'B: Make torches' }] }, [], m7.needs)['need:light'] === 'B' && council.parseBallot({ votes: [{ item: 'need:light', vote: 'none' }] }, [], m7.needs)['need:light'] === 'none', 'need choices read');
+ok(council.countNeed({ a: { x: 'A' }, b: { x: 'A' }, c: { x: 'B' } }, 'x', ['A', 'B'], 4).winner === 'A' && council.countNeed({ a: { x: 'A' }, b: { x: 'B' } }, 'x', ['A', 'B'], 4).winner === undefined, 'plurality; a tie chooses none');
+for (const f of [0.76, 0.8, 0.84, 0.88, 0.9]) council.councilTick(V, members, at(7, f));
+await new Promise((r) => setTimeout(r, 20));
+council.councilTick(V, members, at(7, 0.93));
+ok(council.meeting(V, 7)?.result?.['need:light']?.winner === 'Light the houses', `the need vote counted (${JSON.stringify(council.meeting(V, 7)?.result?.['need:light'])})`);
+ok(council.needBoost(V, 'light:3', at(8, 0.3)).w === 1.5 && council.needBoost(V, 'make:torch', at(8, 0.3)).w === 1 && council.needBoost(V, 'light:3', at(10, 0.3)).w === 1, 'the winner weighs 1.5x on days 8-9 only');
+ok(/"Light the houses" won/.test(council.councilLine(V, at(8, 0.2))), `the result line (${council.councilLine(V, at(8, 0.2))})`);
+council.setCouncilSettings({ needVote: false });
+
+// Experiment 2 (#33): the levy item (the lower median, influencers out), the imposed arm at the same moment, the dawn line
+ok(council.countLevy({ a: { 'levy:rate': '10' }, b: { 'levy:rate': '30' }, c: { 'levy:rate': '20' }, d: { 'levy:rate': '40' } }, 6).rate === 20 && council.countLevy({ a: { 'levy:rate': '10' } }, 6).rate === null, 'the lower median; quorum');
+council.setCouncilSettings({ influencers: 'pro', influencerNames: ['Ben'] });
+ok(/levy .* should be higher/.test(council.withInfluence('Ben', 'You are Ben.')) && council.withInfluence('Ada', 'You are Ada.') === 'You are Ada.', 'an influencer\'s line, nobody else\'s');
+council.setCouncilSettings({ levyVoteDay: 9 });
+council.councilTick(V, members, at(9, 0.05));
+ok(council.meeting(V, 9)?.items.includes('levy:rate') && council.meeting(V, 9)?.levy === true, 'the levy item on its day');
+const lp = council.ballotPrompt(V, 'Ada', [], '', at(9, 0.8), {}, true);
+ok(/\[levy:rate\] The levy on members' shares \(now \d+%\)[^\n]*0%, 10%, 20%, 30%, 40%, 50%/.test(lp.user) && JSON.stringify(lp.tools).includes('"30%"'), 'the levy on the ballot, rates in order');
+ok(council.parseBallot({ votes: [{ vote: '30 percent' }] }, [], {}, lp.order, true)['levy:rate'] === '30', 'a rate read');
+for (const f of [0.76, 0.8, 0.84, 0.88, 0.9]) council.councilTick(V, members, at(9, f));
+await new Promise((r) => setTimeout(r, 20));
+council.councilTick(V, members, at(9, 0.93));
+const m9 = council.meeting(V, 9)!;
+ok(!('levy:rate' in (m9.cast.Ben ?? {})) && /^\d+%$/.test(String(m9.result?.['levy:rate']?.winner)), `influencers cast no levy ballot; a rate set (${JSON.stringify(m9.result?.['levy:rate'])})`);
+ok(new RegExp(`From today the levy is ${String(m9.result?.['levy:rate']?.winner).replace('%', '')}%, as the village voted last night`).test(council.councilLine(V, at(10, 0.2))) && rules.levyRate(V) === Number(String(m9.result?.['levy:rate']?.winner).replace('%', '')) / 100, `the dawn line; the levy in force (${council.councilLine(V, at(10, 0.2))})`);
+council.setCouncilSettings({ levyVoteDay: 0, levySet: { day: 11, rate: 30 } });
+council.councilTick(V, members, at(11, 0.6));
+ok(rules.levyRate(V) !== 0.3, 'not before the count\'s moment');
+council.councilTick(V, members, at(11, 0.93));
+ok(rules.levyRate(V) === 0.3 && /From today the levy is 30%\.( |$)/.test(council.councilLine(V, at(12, 0.2))), `the imposed arm: set at the same moment, the same words without the vote (${council.councilLine(V, at(12, 0.2))})`);
+council.setCouncilSettings({ levySet: null, influencers: '' });
 
 console.log(`rules_unit: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

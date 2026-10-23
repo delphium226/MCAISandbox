@@ -9,6 +9,7 @@ import { doorOf, placeFarm, placeLamps, placeSigns, planGreen, planStreets, type
 import { isDwelling } from './grow';
 import { refitDesign, TIER_WORDS, type RefitOption } from './refit';
 import { nameForNew } from './placeNames';
+import { zoneConflict } from './rules';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 
 export interface Site {
@@ -332,7 +333,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       lay = best.lay;
     }
     const plot = lay.plot;
-    const why = reg.conflict(v, plot, by);
+    // (G3, MC_RULES: a zone the village voted keeps new plots off it; a field alone may lie in one kept for farms)
+    const why = reg.conflict(v, plot, by) ?? zoneConflict(v.name, plot, raw.length ? 'build' : 'farm');
     if (why) return `plan_layout: the plot at ${areaText(plot)} is not free (${why}); run find_site again for another site`;
     const clash = (v.layouts ?? []).find((l) => overlaps(plot, l, 2));
     if (clash) return `plan_layout: the plot at ${areaText(plot)} overlaps the plot laid out for ${clash.buildings.join(', ')} (${areaText(clash)}); run find_site for a new site (it keeps off laid-out plots), then plan_layout again`;

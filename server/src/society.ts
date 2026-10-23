@@ -19,7 +19,7 @@ import { CHOOSE } from './choose';
 import { SOCIAL, memberSocial, profileLine, roleLine, type Profile } from './social';
 import { PROPOSALS_ON, addProposal, allProposals, endorse, parsePropose, proposeLine, withPropose, type CheckCtx, type Proposal } from './proposals';
 import { refusedSince } from './acts';
-import { addLaw, backLaw, classOf, laws, rulesInForce, type Law } from './rules';
+import { addLaw, backLaw, classOf, lawFrom, laws, putClassOf, rulesInForce, type Law } from './rules';
 import { councilOn, councilTick } from './council';
 import {
   FOCUS, MEMORY, agentMemory, applyWrites, clockOf, closeAgentDays, closeVillageDays, liveNotes, logAct, offsetIn, recordLine, scrub, villageLineShown, villageMemory,
@@ -121,7 +121,9 @@ function proposing(village: string, agent: string, day: number, dayMs: number, n
   return failed || refused || others.length ? { others, reason: failed || refused } : null;
 }
 
-const REFLECT_SYSTEM = 'You are a member of a Minecraft village. Night has come in the village and you look back on your day. '
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const REFLECT_SYSTEM ='You are a member of a Minecraft village. Night has come in the village and you look back on your day. '
   + 'Keep only what will help you choose well on later days, in your own words, and say what you mean to do tomorrow. '
   + 'Call `reflect` once.';
 
@@ -153,18 +155,34 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
     + 'your notes by its id when it corrects or outdates it, your intention for tomorrow in one sentence, and its focus, the kind '
     + `of work you mean to do most: one of ${FOCUS.join(', ')}.`);
   // (G3, MC_COUNCIL: the rules in force, others' open laws to back, and a law of its own)
-  const openLaws = councilOn() ? laws(village).filter((l) => l.by !== m.name && l.status === 'open').slice(-3) : [];
-  if (councilOn()) {
-    const rs = rulesInForce(village);
-    lines.push([
-      rs.length ? `Village rules in force: ${rs.map((r) => r.text).join('; ')}.` : 'The village has no rules yet.',
-      'You may propose one village rule (`law`) if your day showed a need for it: a daily quota on tools, logs or torches taken from storage, a minimum storage keeps of an item, a duty every member does once a day, a levy on members\' shares, or a custom in words. Most nights there is none.',
-      ...(openLaws.length ? [`Rules others proposed (back or oppose up to 2 with \`back_laws\`; a rule with 2 backers goes to the next dusk's secret vote): ${openLaws.map((l) => `[${l.id}] ${l.text}`).join(' ')}`] : []),
-    ].join('\n'));
-  }
+  // (the user's, 10-23: the laws waiting for backing come first, most backed first, so a member backs the rule it means
+  // rather than writing it again; the same rule proposed again joins the open one in code)
+  // (only laws still short of the 2 backers: one that has them is on the next ballot, and more backing only piles on, the
+  // review's 6)
+  const openLaws = councilOn() ? laws(village).filter((l) => l.by !== m.name && l.status === 'open' && !l.backers.includes(m.name) && !l.opposers.includes(m.name) && l.backers.length - l.opposers.length < 2)
+    .sort((x, y) => y.backers.length - x.backers.length || x.at - y.at).slice(0, 3) : [];
+  if (councilOn()) lines.push(lawLines(rulesInForce(village).map((r) => r.text), openLaws));
   // (G5, MC_PROPOSALS: the propose field on nights the day gave a reason, others' open proposals to back)
   const pr = proposing(village, m.name, day, v?.dayMs ?? MEMORY.dayMs, now);
   if (pr) lines.push(proposeLine(pr.others));
+  const tools = reflectTools({ live: live.map((n) => n.id), people: people.map((p) => p.of), openLaws: councilOn() ? openLaws.map((l) => l.id) : null, propose: pr ? pr.others.slice(0, 3).map((p) => p.id) : null });
+  return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools };
+}
+
+/** The night prompt's council paragraph (pure: rulebench puts it into recorded prompts): the rules in force, the open laws
+ *  to back (most backed first) and the invitation to propose one, in the shapes code reads. */
+export function lawLines(inForce: string[], openLaws: Array<Pick<Law, 'id' | 'text' | 'backers'>>): string {
+  return [
+    inForce.length ? `Village rules in force: ${inForce.join('; ')}.` : 'The village has no rules yet.',
+    ...(openLaws.length ? [`Rules members proposed, waiting for backing (back or oppose up to 2 with \`back_laws\`; a rule backed by 2 others goes to the next dusk's secret vote):\n${openLaws.map((l) => `- [${l.id}] ${capital(l.text)} (backed by ${l.backers.length})`).join('\n')}`] : []),
+    // (lawbench, 10-23: a template of sentences narrowed the laws to one type, 29 of 33; the kinds in prose keep their spread)
+    `You may propose one village rule (\`law\`, one sentence) if your day showed a need for it${openLaws.length ? ' and none above says it' : ''}: a daily quota on tools, logs or torches taken from storage, a minimum storage keeps of an item, an amount of something each member puts into storage a day, a duty every member does once a day, a levy on members' shares, a place kept free of building, or a custom in words. Most nights there is none.`,
+  ].join('\n');
+}
+
+/** The reflect tool for a night (pure:rulebench rebuilds it from a recorded prompt): the note ids it may replace or keep,
+ *  the members it may write profiles of, the council's fields (open laws' ids, or null with the council off) and G5's. */
+export function reflectTools(o: { live: string[]; people: string[]; openLaws: string[] | null; propose: string[] | null }): ToolDef[] {
   const tools: ToolDef[] = [{
     name: 'reflect',
     description: 'Keep up to 2 notes and set your intention for tomorrow.',
@@ -177,37 +195,37 @@ export function reflectPrompt(village: string, m: Member, day: number, now: numb
             type: 'object',
             properties: {
               text: { type: 'string', maxLength: 160, description: 'The note, one sentence.' },
-              ...(live.length ? { replaces: { type: 'string', enum: live.map((n) => n.id), description: 'The id of a note this one replaces.' } } : {}),
+              ...(o.live.length ? { replaces: { type: 'string', enum: o.live, description: 'The id of a note this one replaces.' } } : {}),
             },
             required: ['text'],
           },
         },
         // (#86, MC_MEMORY_QUALITY: gpt-oss answered the notes with ids of notes to keep, F273; a place for them)
-        ...(MEMORY.quality && live.length ? { keep: { type: 'array', items: { type: 'string', enum: live.map((n) => n.id) }, description: 'Optional: ids of notes you keep as they are (kept notes need no new text).' } } : {}),
+        ...(MEMORY.quality && o.live.length ? { keep: { type: 'array', items: { type: 'string', enum: o.live }, description: 'Optional: ids of notes you keep as they are (kept notes need no new text).' } } : {}),
         intention: { type: 'string', maxLength: 200, description: 'What you mean to do tomorrow and why, one sentence.' },
         focus: { type: 'string', enum: FOCUS, description: 'The kind of work you mean to do most tomorrow.' },
-        ...(people.length ? {
+        ...(o.people.length ? {
           profiles: {
             type: 'array', maxItems: 3, description: 'Optional: up to 3 members above, how you feel about them and a short note (12 words at most).',
-            items: { type: 'object', properties: { member: { type: 'string', enum: people.map((p) => p.of) }, feel: { type: 'integer', minimum: -2, maximum: 2 }, note: { type: 'string', maxLength: 90 } }, required: ['member'] },
+            items: { type: 'object', properties: { member: { type: 'string', enum: o.people }, feel: { type: 'integer', minimum: -2, maximum: 2 }, note: { type: 'string', maxLength: 90 } }, required: ['member'] },
           },
         } : {}),
       },
       required: ['notes', 'intention', 'focus'],
     },
   }];
-  if (councilOn()) {
+  if (o.openLaws) {
     const sch = tools[0].input_schema as { properties: Record<string, unknown> };
     sch.properties.law = { type: 'object', description: 'Optional, and rare: a village rule you propose.', properties: { what: { type: 'string', maxLength: 140, description: 'The rule, one sentence.' }, why: { type: 'string', maxLength: 200 } }, required: ['what'] };
-    if (openLaws.length) sch.properties.back_laws = { type: 'array', maxItems: 2, items: { type: 'object', properties: { id: { type: 'string', enum: openLaws.map((l) => l.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
+    if (o.openLaws.length) sch.properties.back_laws = { type: 'array', maxItems: 2, items: { type: 'object', properties: { id: { type: 'string', enum: o.openLaws }, oppose: { type: 'boolean' } }, required: ['id'] } };
   }
-  if (!pr) return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools };
+  if (!o.propose) return tools;
   const withP = withPropose(tools);
-  if (pr.others.length) {
+  if (o.propose.length) {
     const sch = withP[0].input_schema as { properties: Record<string, unknown> };
-    sch.properties.back = { type: 'array', maxItems: 2, description: "Optional: others' proposals you back (or oppose) because your own day met the same need.", items: { type: 'object', properties: { id: { type: 'string', enum: pr.others.slice(0, 3).map((p) => p.id) }, oppose: { type: 'boolean' } }, required: ['id'] } };
+    sch.properties.back = { type: 'array', maxItems: 2, description: "Optional: others' proposals you back (or oppose) because your own day met the same need.", items: { type: 'object', properties: { id: { type: 'string', enum: o.propose }, oppose: { type: 'boolean' } }, required: ['id'] } };
   }
-  return { system: REFLECT_SYSTEM, user: scrub(village, m.name, lines.join('\n\n')), tools: withP };
+  return withP;
 }
 
 /** The reply's notes and intention, from the reflect call's input (arguments written as strings normalised). With `quality`
@@ -299,12 +317,22 @@ function scriptedProposal(village: string, agent: string, day: number): void {
   }
 }
 
-/** G3's scripted laws: on night 1 one member in eight (by hash) proposes a log quota; on later nights one in three backs
- *  the first open law (the plumbing's test: the council's agenda, ballot and enforcement without models). */
+/** G3's scripted laws (the plumbing's test without models): on night 1 every member proposes one of four rules by a hash
+ *  of its name, in Long1's words (a quota, a contribution, a duty and a floor), so the same rule proposed again joins the
+ *  open one; on later nights one in three backs the first open law. */
+const SCRIPTED_LAWS = [
+  { dailyLogQuota: 'Each member may take up to 4 logs from storage per day.' },
+  { 'each member puts at least 2 torches into storage each day': true },
+  { what: 'Each villager must light at least one unlit spot each day.' },
+  // (a floor on cobblestone, not torches: a torch floor would take the lighting duty's options away, the review's 7)
+  { stone_minimum: { item: 'cobblestone', minimum: 16 } },
+];
 export function scriptedLaw(village: string, agent: string, day: number, now: number): void {
   const h = [...`law|${agent}|${day}`].reduce((x, ch) => (Math.imul(x ^ ch.charCodeAt(0), 16777619) >>> 0), 2166136261);
-  if (day === 1 && h % 8 === 0) addLaw(village, agent, { what: 'Each member takes at most 8 logs a day from storage', why: 'logs run short' }, now);
-  else if (day >= 1 && h % 3 === 0) {
+  if (day === 1) {
+    const lw = lawFrom(SCRIPTED_LAWS[h % SCRIPTED_LAWS.length]);
+    if (lw) addLaw(village, agent, lw, now);
+  } else if (h % 3 === 0) {
     const first = laws(village).find((l) => l.by !== agent && l.status === 'open');
     if (first) backLaw(village, first.id, agent);
   }
@@ -320,18 +348,20 @@ export function applyLaws(village: string, agent: string, input: unknown, day: n
   }
   if (!o || typeof o !== 'object') return done;
   const rec = o as Record<string, unknown>;
-  let lw = rec.law ?? rec.rule;
-  if (typeof lw === 'string') lw = { what: lw };
-  if (lw && typeof lw === 'object' && String((lw as Record<string, unknown>).what ?? (lw as Record<string, unknown>).text ?? '').trim().length >= 8) {
-    const l = addLaw(village, agent, lw as Record<string, unknown>, now);
-    done.push(`law ${l.id}${l.refused ? ` refused (${l.refused})` : ''}`);
+  // (any shape gpt-oss writes: {what}, a sentence, or the rule under its own key, Long1's 238 of 238; rules.ts lawFrom)
+  const lw = lawFrom(rec.law ?? rec.rule);
+  if (lw) {
+    const l = addLaw(village, agent, lw, now);
+    done.push(`law ${l.id}${l.refused ? ` refused (${l.refused})` : l.by !== agent ? ' joined' : ''}`);
   }
   const a = agentMemory(village, agent);
   const words = (a?.log ?? []).filter((e) => e.day === day).map((e) => `${e.name} ${e.line}`.toLowerCase()).join(' ');
   const touches = (l: Law) => {
     if (l.type === 'quota') return [...words.matchAll(/[a-z_]+/g)].some((w) => classOf(w[0]) === l.params.class) || words.includes(String(l.params.class).replace(/s$/, ''));
-    if (l.type === 'floor') return words.includes(String(l.params.item).replace(/_/g, ' '));
+    if (l.type === 'floor') return l.params.class !== undefined ? [...words.matchAll(/[a-z_]+/g)].some((w) => (putClassOf(w[0]) ?? '') === l.params.class) || words.includes(String(l.params.class).replace(/s$/, '')) : words.includes(String(l.params.item).replace(/_/g, ' '));
     if (l.type === 'duty') return words.includes(String(l.params.kind));
+    // (a contribution: any day that put goods of its class in storage, or any goods; every member's chores touch storage)
+    if (l.type === 'contribute') return l.params.class === 'goods' || [...words.matchAll(/[a-z_]+/g)].some((w) => putClassOf(w[0]) === l.params.class) || words.includes(String(l.params.class).replace(/s$/, ''));
     return String(l.text).toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && words.includes(w)).length >= 2;
   };
   const backs = Array.isArray(rec.back_laws) ? (rec.back_laws as unknown[]).slice(0, 2) : [];

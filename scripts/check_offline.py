@@ -22,7 +22,7 @@ GOLDENS = {
 UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage", "save_debounce", "street_plan",
          "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes",
          "temperament_table", "vote_unit", "activities_unit", "decor_check", "public_works", "small_works",
-         "menu_probe", "needs_unit", "housing", "parts_unit", "needworks_unit", "utilisation_unit", "mine_flow_unit", "merchant_unit", "tech_unit", "goals_unit", "works_grow", "wanted_unit", "own_pending_unit", "flowers_unit", "gardens_unit"]
+         "menu_probe", "needs_unit", "housing", "parts_unit", "needworks_unit", "utilisation_unit", "mine_flow_unit", "merchant_unit", "tech_unit", "goals_unit", "works_grow", "wanted_unit", "own_pending_unit", "flowers_unit", "gardens_unit", "rules_unit", "law_reading"]
 
 
 def commands():

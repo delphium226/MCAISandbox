@@ -71,9 +71,9 @@ import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
 import { clockOf, noteAnswer, scrub, toldAnswer, villageMemory } from '../memory';
 import { tellMember } from '../acts';
-import { RULES, breaks, duties, levyRate, noteCompliance, noteTakes, rulesLine } from '../rules';
+import { RULES, breaks, contributeTag, duties, levyRate, noteCompliance, notePuts, noteTakes, rulesLine, setZoneVillages, zoneBoxes } from '../rules';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
-import { councilLine } from '../council';
+import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
 import { CHARACTER, characterAny, characterFactor, characterRunBegin, goalFromValues, helpWeight, hexacoOf, hexacoWeights, identityLine, initCharacter, moodLine, moodWeight, needsLine, noteDecision, noteLines, noteRest, noteWork, requestWeight, restWeight, sample as characterSample, temperamentWords, think, valuesLine } from '../character';
 import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, isLandmark, validateDesign } from '../designs';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum } from '../grow';
@@ -226,6 +226,15 @@ export class MineflayerWorld implements WorldAdapter {
     if (PROPOSALS_ON) {
       initProposals(dataDir);
       setProposalCtx((village) => this.proposalCtx(village));
+    }
+    // (G3, MC_RULES: a zone law's place found on its village)
+    if (RULES.on) {
+      setZoneVillages((name) => this.villages.villages.get(name.toLowerCase()));
+      // (a floor's stake line on the ballot: what storage holds now)
+      setCouncilStore((name) => {
+        const v = this.villages.villages.get(name.toLowerCase());
+        return v ? storageContents(v) : {};
+      });
     }
     // (G2: a line a member says shows in the game by tellraw, "Ada says: ...", which matches neither of mineflayer's chat
     // patterns; hearChat also ignores it, so no brain wakes on it: the spec check's H4)
@@ -3124,7 +3133,7 @@ export class MineflayerWorld implements WorldAdapter {
     const res = v.reservations.filter((q) => q.until > now);
     const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
       (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`),
-      v.tasks.filter((t) => t.status !== 'done' && /^Build /.test(t.title)).length]);
+      v.tasks.filter((t) => t.status !== 'done' && /^Build /.test(t.title)).length, ...(RULES.on ? [zoneBoxes(v.name, 'build').map((z) => z.text)] : [])]);
     const old = this.smallBlockedCache.get(v.name);
     if (old?.sig === sig) return old;
     const pad = (q: Area, n: number): Area => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
@@ -3159,6 +3168,8 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     for (const q of res) blocked.push(q);
+    // (G3, MC_RULES: a zone voted free of building, or kept for farms: no small work, garden or stall on it)
+    if (RULES.on) for (const z of zoneBoxes(v.name, 'build')) blocked.push({ x1: z.x1, z1: z.z1, x2: z.x2, z2: z.z2 });
     // (a building laid out and not built yet, by its Build task's footprint: an initiative took a public work's spot before
     // its builder reserved it, and both builds failed, s43's Rch4)
     for (const t of v.tasks) {
@@ -3667,6 +3678,8 @@ export class MineflayerWorld implements WorldAdapter {
     for (const o of menu.options) {
       const k = this.needOf(v, o, demand);
       if (k) seen.offered.add(k);
+      // (#1, MC_NEED_VOTE: the chores that answer it, for a need item's choices)
+      if (k) noteNeedOffer(v.name, k, o);
     }
     // (s39: whether a free farm slot could be started, as the menu says: a slot no kind can be found for answers nothing)
     if (NEED_WORKS) this.startSeen.set(v.name, menu.options.some((o) => o.kind === 'start') ? '' : menu.reasons.start ?? '');
@@ -3728,6 +3741,8 @@ export class MineflayerWorld implements WorldAdapter {
         ...(seen && !seen.offered.has(r.kind) && seen.blocked.has(r.kind) ? { blocked: seen.blocked.get(r.kind) } : {}),
       }, answerable);
       states[r.kind] = next;
+      // (#1, MC_NEED_VOTE: the status since when, for the council's agenda)
+      noteNeedStatus(v.name, r.kind, next.status, r.text, now);
       if (prev?.status !== next.status) {
         changed = true;
         console.log(`[need] ${v.name}: ${r.kind} ${prev?.status ?? 'new'} -> ${next.status} (level ${next.level.toFixed(2)}: ${r.text}${next.why ? `; ${next.why}` : ''})`);
@@ -4029,7 +4044,7 @@ export class MineflayerWorld implements WorldAdapter {
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
     const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
-    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on ? { flow: storageFlow(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
     if (opt?.kind === 'explore' && opt.at) {
       try {
         choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
@@ -4066,7 +4081,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -4182,6 +4197,8 @@ export class MineflayerWorld implements WorldAdapter {
         }
       }
     }
+    // (G3, MC_RULES: what the chore put into the commons, net of its takes, for a contribution rule's member-day and tag)
+    if (RULES.on && v && c.choice.flow) notePuts(v.name, c.agent, c.choice.option ?? '', netPut(c.choice.flow, storageFlow(c.agent)), Date.now());
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
@@ -5791,6 +5808,18 @@ export class MineflayerWorld implements WorldAdapter {
           o.ruleTag = '[the duty: once a day]';
           o.rank = 1;
         }
+        // (a contribution not yet met today: the options whose runs have put its class into storage, tagged and first)
+        const ct = !o.ruleTag ? contributeTag(v.name, a.name, o.id, now) : null;
+        if (ct) {
+          o.ruleTag = ct;
+          o.rank = 1;
+        }
+        // (#1, MC_NEED_VOTE: the need vote's winner weighs 1.5x for two days)
+        const nb = needBoost(v.name, o.id, now);
+        if (nb.w !== 1) {
+          o.nw = Math.round((o.nw ?? 1) * nb.w * 100) / 100;
+          o.ruleTag ??= nb.tag;
+        }
       }
     }
     // G2 (MC_ACTS=on): an option answering a request to the member or keeping its promise is tagged, and the trim keeps it
@@ -6087,7 +6116,8 @@ export class MineflayerWorld implements WorldAdapter {
     const pattern = this.patternLine(v, a);
     const char = this.characterLines(v, a, facts.t);
     return {
-      persona: own || char.persona || personaOf(a.name),
+      // (Experiment 2, MCAI_INFLUENCERS: an influencer's line on the levy; unchanged for everyone else)
+      persona: withInfluence(a.name, own || char.persona || personaOf(a.name)),
       ...(char.character ? { character: char.character } : {}),
       ...(pattern ? { pattern } : {}),
       village: village.slice(0, 300), others: others.slice(0, 200),
@@ -6564,7 +6594,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: the village clock's sweep, with the members present)
     if (MEMORY.clock) {
       const members = [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({
-        name: b.name, persona: (typeof b.memory.persona === 'string' && b.memory.persona) || this.characterLines(v, b, now).persona || personaOf(b.name),
+        name: b.name, persona: withInfluence(b.name, (typeof b.memory.persona === 'string' && b.memory.persona) || this.characterLines(v, b, now).persona || personaOf(b.name)),
         model: typeof b.memory.chooseModel === 'string' ? b.memory.chooseModel : typeof b.memory.execModel === 'string' ? b.memory.execModel : undefined,
       }));
       clockTick(now, [{ name: v.name, members }]);
