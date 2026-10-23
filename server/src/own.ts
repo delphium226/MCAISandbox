@@ -83,6 +83,15 @@ export const OWN_FARM = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_FARM 
 export const OWN_FARM_REACH = 24;
 
 /**
+ * How far from its house an own farm's centre may lie: lay_out_field's reach for `own` (mcBuild.ts: its 9x9 pad's corners
+ * within 96 of the storage hut, FIELD_HUT_REACH and FIELD_PAD there). Under 8 none fits, the hut being too far (W1, 10-23:
+ * the option was offered and failed "within 0 blocks").
+ */
+export function ownFieldReach(hut: { x: number; z: number }, home: { x: number; z: number }): number {
+  return Math.min(OWN_FARM_REACH, Math.floor(96 - Math.hypot(hut.x - home.x, hut.z - home.z) - Math.ceil((9 / 2) * Math.SQRT2)));
+}
+
+/**
  * The kinds of own farm (s43, the user's: members choose by price and what they lack): a wheat field, or a farm slot of
  * pumpkins, sugar cane or carrots on the same pad (start_farm from storage); each with its product and the plants it
  * needs in the commons. Hen pens wait for pens beyond the annex.

@@ -307,6 +307,14 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
       if (typeof b.agent === 'string' && b.agent && w.get(b.agent)?.village()?.name !== v.name) return sendJson(res, 400, { error: `agent: ${b.agent} is not a member of ${v.name} in the world` });
       return sendJson(res, 200, { members: w.setAppetite(v, names, level), on: true });
     }
+    // #108's test hook (MC_PAY): an act for a member, {agent, act, act_to, act_item, act_project, act_price, act_steps,
+    // act_amount}, as if it came with a decision: a priced request for a staged run's scripted workers to take up
+    if (v && parts[3] === 'pay' && req.method === 'POST') {
+      const b = await readJson(req);
+      const str = (x: unknown) => (x === undefined || x === null ? undefined : String(x));
+      const fields = Object.fromEntries(['act', 'act_to', 'act_item', 'act_project', 'act_price', 'act_steps', 'act_amount', 'say'].map((k) => [k, str(b[k])]).filter(([, x]) => x !== undefined));
+      return sendJson(res, 200, { done: w.payTest(v, String(b.agent ?? ''), fields) });
+    }
     // The chore menu a village member would choose from now (A.2; pure, nothing written): ?agent=Worker1
     if (v && parts[3] === 'choices' && req.method === 'GET') {
       const a = w.get(url.searchParams.get('agent') ?? '');

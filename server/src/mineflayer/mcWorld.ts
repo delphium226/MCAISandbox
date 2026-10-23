@@ -40,10 +40,12 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, storageContents, storageFlow, storageSlots, storageStrays } from './mcStorage';
+import { PART_RE, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
+import { contractOf, deliveriesOf, deliveryWords, earmarked, markAtEnd, reconcilePay, startPay } from './mcPay';
+import { PAY } from '../pay';
 import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
-import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
+import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, ownFieldReach, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
@@ -62,7 +64,7 @@ import { vanillaJar } from '../vanillaData';
 import { MEMORY, agentMemory, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
-import { ACTS, actsHelp, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
+import { ACTS, actsHelp, actsState, impliedAccept, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
 import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
@@ -106,6 +108,8 @@ type ChoiceState = {
   id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string>;
   /** #68: the member's commons flow (put minus taken) at the start, for its share of the net yield. */
   flow?: Counts;
+  /** #108 (MC_PAY): its gross puts at the start, a priced request's evidence and earmark. */
+  gross?: Counts;
   /** A.2: when it ended (heldKeys' async hold), its decision, the further keys it holds, what it was (kind, option id and
    *  name), and for an explore its ring point with how much of its land the atlas knew at the start. */
   endedAt?: number; decisionId?: string; holds: string[]; kind?: ChoiceKind; option?: string; name?: string;
@@ -242,6 +246,8 @@ export class MineflayerWorld implements WorldAdapter {
       this.spoken.set(`${agent}\u0000${text}`, Date.now());
       void this.rcon.command(`tellraw @a ${JSON.stringify({ text: `${agent} says: ${text}`, color: 'gray' })}`).catch(() => {});
     });
+    // (#108, MC_PAY: members pay each other; pay.ts' hooks into acts.ts, the world's env in mcPay.ts)
+    startPay({ village: (name) => this.villages.villages.get(name.toLowerCase()), save: () => this.villages.save() });
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
     this.villages.onClaim = (v, t) => this.claimed(v, t);
     this.villages.claimLimit = (v, t, _by, cooled) => this.mineClaim(v, t, cooled);
@@ -639,6 +645,8 @@ export class MineflayerWorld implements WorldAdapter {
     const own = agent ? holdKey(v.name, agent) : '';
     const held: Counts = {};
     for (const [k, c] of makeHolds) if (k.startsWith(`${v.name}|`) && k !== own) for (const [n, q] of Object.entries(c)) held[n] = (held[n] ?? 0) + q;
+    // (#108: goods earmarked for a buyer's delivery are nobody else's)
+    for (const [n, q] of Object.entries(earmarked(v))) held[n] = (held[n] ?? 0) + q;
     const out: Counts = {};
     for (const [n, q] of Object.entries(store)) {
       const allowed = !!allow?.includes(n);
@@ -3077,6 +3085,8 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private barterAt = new Map<string, number>();
+  /** #108: villages whose contracts were reconciled since the load. */
+  private payReconciled = new Set<string>();
   /** s43's own farms: members whose house had no room for one, offered none for a while ("village|name"). */
   private ownFarmBack = new Set<string>();
   /** s43's sales: lots of each good members sold this restock, by village (reset at the merchant's restock). */
@@ -4044,7 +4054,7 @@ export class MineflayerWorld implements WorldAdapter {
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
     const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
-    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), ...(PAY.on ? { gross: storageGross(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
     if (opt?.kind === 'explore' && opt.at) {
       try {
         choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
@@ -4198,14 +4208,22 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     // (G3, MC_RULES: what the chore put into the commons, net of its takes, for a contribution rule's member-day and tag)
-    if (RULES.on && v && c.choice.flow) notePuts(v.name, c.agent, c.choice.option ?? '', netPut(c.choice.flow, storageFlow(c.agent)), Date.now());
+    // (#108, MC_PAY: goods put for a buyer's priced request, earmarked for it, come off the net the share and G3's puts are
+    // taken from, once)
+    const mark = PAY.on && v ? markAtEnd(v, c.agent, c.choice.option ?? '', c.choice.id, c.choice.gross, storageGross(c.agent)) : {};
+    const netOf = (flow: Counts) => {
+      const n = netPut(flow, storageFlow(c.agent));
+      for (const [k, q] of Object.entries(mark)) if (n[k]) n[k] = Math.max(0, n[k] - q);
+      return n;
+    };
+    if (RULES.on && v && c.choice.flow) notePuts(v.name, c.agent, c.choice.option ?? '', netOf(c.choice.flow), Date.now());
     // #68: the member's share of the new goods the chore put into the commons, owed until it carries it home (a member
     // with a house of its own; chores that bring goods from the world only, own.ts SHARED)
     if (OWN.on && v && c.choice.flow && SHARED.has(c.choice.kind ?? '') && this.homeOf(v, c.agent)) {
       const ownField = (c.choice.kind === 'farm' || c.choice.kind === 'slot') && (v.layouts ?? [])[Number((c.choice.option ?? '').split(':')[1]) - 1]?.owner === c.agent;
       // (G3: while a levy is in force the share is pending, answered on the member's next model decision)
       const levy = levyRate(v.name);
-      const added = levy !== undefined ? pendShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), Date.now(), ownField ? 1 : undefined) : earnShare(ownOf(v, c.agent), netPut(c.choice.flow, storageFlow(c.agent)), ownField ? 1 : undefined);
+      const added = levy !== undefined ? pendShare(ownOf(v, c.agent), netOf(c.choice.flow), Date.now(), ownField ? 1 : undefined) : earnShare(ownOf(v, c.agent), netOf(c.choice.flow), ownField ? 1 : undefined);
       if (Object.keys(added).length) console.log(`[own] ${v.name}: ${c.agent} earns ${Object.entries(added).map(([n, q]) => `${q} ${n}`).join(', ')} (owed ${Object.entries(ownOf(v, c.agent).owed).map(([n, q]) => `${q} ${n}`).join(', ')})`);
     }
     // (#79: the chore's end into its member's goal counters: its craft, lights, furnishings, help)
@@ -4421,6 +4439,14 @@ export class MineflayerWorld implements WorldAdapter {
       // (a fallback is logged with the fresh menu its fixed pick was made on; the ids shown to the model stay in `shown`)
       if (!m.menu || m.source === 'fallback') m = { ...m, menu: fresh.menu };
       this.runOption(v, a, opt, m);
+      // (#108: a pick that was not the model's own accepts a priced request of its option only at or above the guide)
+      if (PAY.on && m.source !== 'model' && m.source !== 'scripted') {
+        const c = this.chores.get(a.name.toLowerCase());
+        if (c) {
+          const pid = impliedAccept(v.name, a.name, { option: c.choice.option ?? c.key, kind: c.choice.kind ?? '', name: c.choice.name ?? c.what, chore: c.choice.id }, this.actsWorld(v, now), now);
+          if (pid) console.log(`[pay] ${v.name}: ${a.name}'s fixed pick took up a priced request (${pid})`);
+        }
+      }
       return { ok: true, key: opt.key };
     } catch (e) {
       console.log(`[choice-error] ${agent?.name}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
@@ -4754,7 +4780,11 @@ export class MineflayerWorld implements WorldAdapter {
           const holds = own.chest!.items, factor = boardOf(v).factor;
           const kinds = Object.entries(OWN_FARM_KINDS).filter(([, q]) => (spare[q.plant] ?? store[q.plant] ?? 0) >= q.need)
             .map(([kd]) => ({ kd, score: farmKindScore(kd, factor, holds, standing) })).sort((x, y) => y.score - x.score).slice(0, 2);
-          if (st) for (const [i, { kd, score }] of kinds.entries()) add({
+          // (a house too far from the storage hut for any field: no option, and the reason why)
+          const hutAt = v.storageHut ? { x: (v.storageHut.x1 + v.storageHut.x2) / 2, z: (v.storageHut.z1 + v.storageHut.z2) / 2 } : undefined;
+          const far = !!st && !!hutAt && ownFieldReach(hutAt, { x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) }) < 8;
+          if (far) reasons.own ??= 'your house is too far from the storage hut for a farm of your own';
+          if (st && !far) for (const [i, { kd, score }] of kinds.entries()) add({
             id: `own:farm:${kd}`, kind: 'own', key: me, holds: ['ownfarm'], excludes: [`${me}=`, 'ownfarm='], name: `Start a ${words(kd)} farm of your own by your house`, rank: 948 + i,
             at: { x: Math.floor((st.x1 + st.x2) / 2), z: Math.floor((st.z1 + st.z2) / 2) },
             facts: `a 5x7 farm on a 9x9 pad within 24 blocks of your house, planted from the storage's ${words(OWN_FARM_KINDS[kd].plant)}; ${standing[kd] ?? 0} own ${words(kd)} farms stand; its harvests are all yours`,
@@ -4804,6 +4834,19 @@ export class MineflayerWorld implements WorldAdapter {
           }, { kind: 'own', what: 'make', item: r.item, n, fuel });
         });
       }
+    }
+
+    // (#108, MC_PAY: a priced request's goods earmarked for its buyer, carried to the buyer's own chest; ahead of the own
+    // options, as the price is paid only once they arrive)
+    if (PAY.on) for (const k of deliveriesOf(v, a.name).slice(0, 1)) {
+      const me = `own:${a.name.toLowerCase()}`;
+      const home = v.homes?.[k.payer]?.chest;
+      add({
+        id: `own:deliver:${k.id}`, kind: 'own', key: me, excludes: [`${me}=`], name: `Deliver ${deliveryWords(k)} to ${k.payer}'s own chest`, rank: 860,
+        ...(home ? { at: { x: home.x, z: home.z } } : {}),
+        facts: `${k.payer} pays ${k.price} emerald${k.price === 1 ? '' : 's'} once the goods reach their chest (less the levy); held in storage for them${home ? `; ${dist(home.x, home.z)}` : ''}`,
+        effect: `+${k.price} emerald${k.price === 1 ? '' : 's'} to your own chest`,
+      }, { kind: 'own', what: 'deliver', contract: k.id });
     }
 
     // s43's innovation (MC_INNOVATE): experiments on the candidates (the library's entries the village could try now,
@@ -6187,6 +6230,12 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[own] ${v.name}: ${worker.name} goes to make ${d.n} ${d.item} from its own stock`);
           return;
         }
+        if (d.what === 'deliver') {
+          const k = contractOf(v, d.contract);
+          this.setChore(v, worker, opt.key, [worker.enqueue('deliver_own', { contract: d.contract, chore: true })], `deliver to ${k?.payer ?? 'a buyer'}`, undefined, meta, opt.holds, opt);
+          console.log(`[pay] ${v.name}: ${worker.name} goes to deliver ${k ? deliveryWords(k) : 'goods'} to ${k?.payer ?? '?'} (${d.contract})`);
+          return;
+        }
         if (d.what === 'chest') this.setChore(v, worker, opt.key, [worker.enqueue('place_own_chest', { chore: true })], 'put a chest in your own house', undefined, meta, opt.holds, opt);
         else this.setChore(v, worker, opt.key, [worker.enqueue('carry_home', { want: d.want, chore: true })], 'take your share home', undefined, meta, opt.holds, opt);
         console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'chest' ? 'put a chest in its house' : `take ${Object.entries((d as { want: Counts }).want).map(([n, q]) => `${q} ${n}`).join(', ')} home`}`);
@@ -6607,6 +6656,11 @@ export class MineflayerWorld implements WorldAdapter {
     if (characterAny()) characterSample(v.name, [...this.agents.values()].filter((b) => b.village()?.name === v.name).map((b) => ({ name: b.name })), now);
     // (G8: the ladder started, and after a rung the start-of-day ballot on the next)
     if (LADDER && v.complete) this.rungTick(v, now);
+    // (#108: contracts orphaned by a restart refunded, once a village after the load)
+    if (PAY.on && !this.payReconciled.has(v.name)) {
+      this.payReconciled.add(v.name);
+      reconcilePay(v, new Set(Object.keys(v.homes ?? {})), now);
+    }
     // (G3: a pending share unanswered for a village day is kept whole, outside the levy's measure)
     if (RULES.on && OWN.on && v.homes) for (const [agent, own] of Object.entries(v.homes)) {
       const kept = lapsePending(own, now, MEMORY.dayMs);
@@ -6906,6 +6960,20 @@ export class MineflayerWorld implements WorldAdapter {
       this.settleShare(v, a.name, x < 0.3 ? 'none' : x < 0.8 ? 'levy' : 'all', decisionId);
     }
     return { ran: r.ok ? { ok: true, key: r.key } : { ok: false } };
+  }
+
+  /** #108's test hook (POST /api/villages/:v/pay): an act for a member as if it came with a decision whose pick did not
+   *  run (a request, a pay), offered whatever the cadence; what happened. */
+  payTest(v: Village, agent: string, fields: ActFields): string[] {
+    if (!PAY.on) return ['payments are off (MC_PAY)'];
+    const a = this.agents.get(agent.toLowerCase());
+    if (!a || a.village()?.name !== v.name) return [`${agent} is not a member of ${v.name} in the world`];
+    const now = Date.now();
+    actsState(v.name).since[a.name] = ACTS.every;
+    const done = handleActs(v.name, a.name, fields, { option: '', kind: '', name: '', decisionId: `paytest-${now}` }, this.actsWorld(v, now), now, false);
+    console.log(`[pay] ${v.name}: test act for ${a.name}: ${done.join('; ') || 'nothing'}`);
+    this.villages.save();
+    return done;
   }
 
   /** G2: a decision's acts after its pick ran (the chore it started), through acts.ts' validator. */
@@ -7239,6 +7307,7 @@ type OptionRun =
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }
   | { kind: 'own'; what: 'carry'; want: Counts }
+  | { kind: 'own'; what: 'deliver'; contract: string }
   | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }
   | { kind: 'own'; what: 'trade'; offer: string }
   | { kind: 'own'; what: 'sell'; item: string; lots: number }
