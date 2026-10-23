@@ -1828,3 +1828,19 @@ CLAUDE.md when a phase ends.
   ~$0.79; 0 [lag]; [stuck] 8 / 12 / 40.
   Before it, Long3 ran ~45 minutes with the Ollama app down (645 failed calls, every choice the fixed pick), and Smk2's
   48 early failures had been the first sign. Logs: runs/2026-10-23/long-run-w4-4/ (report.md, hourly.md, analysis.txt).
+- F295 (10-23, ore-veins session, #100) **Miners left a third of each vein they touched: the ore inside the walls and in
+  the floors. Digging out the whole vein raises raw iron a cell by about half offline and doubled it in a short staged run.**
+  - **The saved mine** (im2_mine, 5,228 cells; scripts/checks/ore_veins.py, regions against mc/testworld): 278 iron mined
+    of the 408 in the 65 veins it touched (26-connected, mean vein 5.3 blocks, largest 18). Left: 34 exposed (29 in
+    floors: a floor ore needs cobblestone for its hole, and trips start with none; deepslate levels give none), 96 a block
+    or more inside the walls, where keepOres (one column from the cell) never looks.
+  - **Offline** (scripts/checks/vein_sim.py, 6 seeds on the same land): today's rule 55 raw iron a 1,000 cells (IM2 live
+    56), the whole vein dug 82 (+48%) for 5% more blocks broken; a cap of 12 a cell loses nothing; branches 5 apart with
+    the vein dig 116 (#105).
+  - **Built:** MC_ORE_VEIN (with MC_ORE_MINE; off), 247ece1. Live check ore_vein.py (world 4): 23 of 25 planted vein ores
+    by dug cells taken, 36 mined and 36 raw iron brought up (keepOres alone lost about 1 drop in 4).
+  - **Staged from im2_mine** (25 scripted members, 2x): V1 (on) 251 cells, 25 iron (100 a 1,000), 4 veins touched, all
+    wholly taken, 0 exposed left; V0 (off) 1,008 cells, 44 iron (44 a 1,000), 12 veins touched, 27 of their 71 ore left,
+    12 exposed. Region diff: nothing changed but cells, ores, fills, torches and dripstone. V1 ended at 7.5 min in a 124 s
+    event-loop freeze, the third today with a dig_iron trip running (two before the vein dig existed, #106); the profiled
+    PV1 (on, 14 min) had none and the vein dig under 0.1% of CPU. Logs: runs/2026-10-23/ore-veins/ (report.md).

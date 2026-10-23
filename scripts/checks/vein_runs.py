@@ -13,10 +13,8 @@ def iron(cp, village='B25x2'):
     vs = vs if isinstance(vs, list) else vs.get('villages', vs)
     vs = vs if isinstance(vs, list) else list(vs.values())
     m = next(v for v in vs if v['name'] == village)['mine']
-    got = {}
-    for i in [*m.get('ironPast', []), m['iron']]:
-        for k, n in i.get('got', {}).items(): got[k] = got.get(k, 0) + n
-    return m['iron']['dug'], got
+    # (an iron level's `got` and `dug` run on from the level before: the current level's are the mine's in all)
+    return m['iron']['dug'], dict(m['iron'].get('got', {}))
 
 
 start, runs = sys.argv[1], sys.argv[2:]
