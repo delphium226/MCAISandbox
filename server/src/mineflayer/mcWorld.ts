@@ -4589,6 +4589,29 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Decisions waiting for or in a model call, by agent (lower-cased). */
   private pending = new Map<string, PendingChoice>();
+
+  /** MC_CHOICE_HOLDS: the keys the other members' pending decisions in the village hold. */
+  private heldFor(v: Village, a: BotAgent): string[] {
+    const me = a.name.toLowerCase();
+    const out: string[] = [];
+    for (const p of this.pending.values()) if (p.village === v.name && p.id !== me && p.holds) out.push(...p.holds);
+    return out;
+  }
+
+  /** MC_CHOICE_HOLDS: the other members' pending decisions shown a project of their own (each counts as one open). */
+  private heldProjects(v: Village, a: BotAgent): number {
+    if (!CHOICE_HOLDS) return 0;
+    const me = a.name.toLowerCase();
+    let n = 0;
+    for (const p of this.pending.values()) if (p.village === v.name && p.id !== me && p.initiates) n++;
+    return n;
+  }
+
+  /** MC_CHOICE_HOLDS: a pending decision's holds gone (answered, expired or dropped): the next sweep within QUICK_GAP_MS, so a
+   *  member whose menu they emptied chooses soon. */
+  private holdsReleased(p: PendingChoice) {
+    if (CHOICE_HOLDS && p.holds?.length) this.farmCheckAt = Math.min(this.farmCheckAt, Date.now() - 30000 + QUICK_GAP_MS);
+  }
   private chooser = new ChooserQueue({ parallel: CHOOSE.parallel, queueMs: CHOOSE.queueMs });
   private choiceStats = new ChoiceStats();
   /** Each agent's last decision (the panel's drill-down). */
@@ -4858,6 +4881,12 @@ export class MineflayerWorld implements WorldAdapter {
   /** The full menu: options (guarded and trimmed in model mode), the reasons for kinds with none, and the context; beside
    *  it the guarded options before the trim (`feasible`, what a model's pick is checked against). */
   private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[] } {
+    // (#97: the options other members' pending decisions were shown are busy for this one; the sets given stay as they were)
+    const held = CHOICE_HOLDS ? this.heldFor(v, a) : [];
+    if (held.length) {
+      busy = new Set([...busy, ...held]);
+      if (first) first = { ...first, busy: new Set([...first.busy, ...held]) };
+    }
     const r = this.choiceOptions(v, a, busy, guards, facts, first);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
     // (#117: when nothing on the menu feeds the ambition's stage, why not)
@@ -6047,7 +6076,8 @@ export class MineflayerWorld implements WorldAdapter {
       }
       const mineOpen = open.some((i) => i.by === a.name);
       if (mineOpen) why.push('own project open');
-      else if (open.length >= INITIATIVES_MAX) why.push('enough projects open');
+      // (#97: with holds, the projects other members are choosing now count as open)
+      else if (open.length + this.heldProjects(v, a) >= INITIATIVES_MAX) why.push('enough projects open');
       else {
         const wood = this.catalogWoodOf(v);
         // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
@@ -7542,7 +7572,10 @@ export class MineflayerWorld implements WorldAdapter {
    *  caught (D9): a throw logs `[choice-error]` and releases the agent. */
   private submitDecision(v: Village, a: BotAgent, menu: ChoiceMenu, call: { decisionId: string; spec: ModelSpec }, reaskOf?: string) {
     const id = a.name.toLowerCase();
-    const p: PendingChoice = { id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu, ...(reaskOf ? { reaskOf } : {}) };
+    const p: PendingChoice = {
+      id, agent: a, village: v.name, decisionId: call.decisionId, ac: new AbortController(), since: Date.now(), state: 'queued', menu, ...(reaskOf ? { reaskOf } : {}),
+      ...(CHOICE_HOLDS ? { holds: [...new Set(menu.options.flatMap((o) => [o.key, ...o.holds]))], initiates: menu.options.some((o) => o.kind === 'initiate') } : {}),
+    };
     this.pending.set(id, p);
     this.chooser.submit(a.name, async (queueWaitMs) => {
       try {
@@ -7553,6 +7586,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (dropped meanwhile: the drop rule wrote its record; nothing queued, no fallback, C16)
         if (p.ac.signal.aborted || this.pending.get(id) !== p) return;
         this.pending.delete(id);
+        this.holdsReleased(p);
         const meta: ChoiceMeta = {
           source: r.id ? 'model' : 'fallback', ...(r.id ? {} : { why: r.why ?? 'error' }), reason: r.id ? r.reason || '(no reason)' : 'fixed order',
           decisionId: p.decisionId, shown: r.shown, model: label(call.spec), latencyMs: r.latencyMs, waitMs: r.waitMs, queueWaitMs,
@@ -7594,6 +7628,7 @@ export class MineflayerWorld implements WorldAdapter {
       try {
         if (this.pending.get(id) !== p || p.ac.signal.aborted) return;
         this.pending.delete(id);
+        this.holdsReleased(p);
         this.runPick(a, null, { source: 'fallback', why: 'queue', reason: 'fixed order', decisionId: p.decisionId, queueWaitMs: CHOOSE.queueMs, menu });
       } catch (e) {
         this.choiceError(p, e);
@@ -7605,6 +7640,7 @@ export class MineflayerWorld implements WorldAdapter {
     try {
       console.log(`[choice-error] ${p.agent.name}: ${String((e as Error)?.stack ?? e).slice(0, 300)}`);
       if (this.pending.get(p.id) === p) this.pending.delete(p.id);
+      this.holdsReleased(p);
       this.chooser.cancel(p.agent.name);
     } catch {
       // (nothing may escape, D9)
@@ -7615,6 +7651,7 @@ export class MineflayerWorld implements WorldAdapter {
   private dropDecision(p: PendingChoice, why: ChoiceDrop['why']) {
     if (this.pending.get(p.id) !== p) return;
     this.pending.delete(p.id);
+    this.holdsReleased(p);
     p.ac.abort();
     this.chooser.cancel(p.agent.name);
     this.logDrop(p.decisionId, p.agent.name, p.village, why, p.queueWaitMs);
@@ -7772,6 +7809,11 @@ export class MineflayerWorld implements WorldAdapter {
  *  chore's end (at most every QUICK_GAP_MS) instead of at the 30 s cycle, and skips the 10 s member cooling for a chore
  *  whose actions all finished (the cooling is for a stopped or removed agent whose skill's finally still runs). */
 const QUICK_NEXT = /^(on|1|true|yes)$/i.test(process.env.MC_QUICK_NEXT ?? '');
+/** #97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its
+ *  answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts
+ *  as an open project against INITIATIVES_MAX. The counterfactual on All1 and train 1 (runs/2026-10-24/collisions-97):
+ *  56-63% of the model's lost picks were taken in flight by another member, 13-18% lost to the projects' cap. */
+const CHOICE_HOLDS = /^(on|1|true|yes)$/i.test(process.env.MC_CHOICE_HOLDS ?? '');
 const QUICK_GAP_MS = 5000;
 /** A choice commits a member to a block of work (the user's, 10-22): MC_WORK_BLOCKS=on: a model or fixed choice opens a
  *  block of MC_BLOCK_MIN minutes (6, divided by MC_TIME_SCALE) in which the same option runs again with no new decision
@@ -7833,6 +7875,9 @@ interface PendingChoice {
   queueWaitMs?: number;
   /** A re-ask (s40): the first decision's id; its own pick, if taken too, runs the fixed pick. */
   reaskOf?: string;
+  /** MC_CHOICE_HOLDS: the keys its shown options hold for it, and whether one was a project of its own. */
+  holds?: string[];
+  initiates?: boolean;
 }
 
 /** What running an option takes, beside the option's data (kept off the option, which stays plain data). */

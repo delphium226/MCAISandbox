@@ -2082,3 +2082,14 @@ CLAUDE.md when a phase ends.
   [stuck], most in the village mine under the storage hut; one member underground 64 min, #133), so the village pace is
   not the flag's measure. Tagged "not needed now" options were taken 15 times in 201 menus. Letters stayed at stage 0 in
   both (cane 27-29 an hour, #134). Logs: runs/2026-10-24/train1/ (report.md).
+- F313 (10-24, prompt-117 session, #97) **Most of the model's lost picks are races between decisions in flight, and
+  holding a pending decision's shown options would have run 95-99% of answers (model of model+fallback; 83-92% of every
+  answer, drops included) in All1 and train 1, against 71-76% (32-47%).** Counterfactual on the decision logs
+  (runs/2026-10-24/collisions-97/): of All1's 1,513 lost picks (741 empty drops, 475 re-asks, 297 taken fallbacks), 826
+  were taken by another member while the loser was in flight (656 of them by another model decision answering first,
+  p50 1.0 s after the loser asked), 133 more less than 3 s before its ask (after its menu was built), and 396 were
+  projects lost to the 3-open cap when another member started one; train 1's M0 and M1 alike (897 of 1,596 races in M1).
+  Decisions in flight at an ask: p50 2-3, p90 5-7. Holding the makes' capacity too adds 1 point: not built. Built behind
+  MC_CHOICE_HOLDS (off): key holds plus the cap; the bound is optimistic (a prevented loss counts as run) and does not
+  count the calls holds remove. Offline only: on mv3_base25 three decisions in flight cut the others' menus from 8.0 to
+  7.0 options and every project; flag off, every golden unchanged.

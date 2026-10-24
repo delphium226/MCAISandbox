@@ -229,7 +229,12 @@ the short version; look here for a check script's arguments, a model detail or w
   state ("You: no house of your own yet; you carry ...; 3 emeralds; appetite 14 of 20"), basic needs in Maslow's order
   (food, a house, a bed, a chest: the street, the basics and the own chest pinned and tagged `[your basic need: a bed]`),
   the goal's meaning, the short materials and goods made for nothing, one ambition option pinned by the trim and why none
-  when none; run it with `MC_BAN_SCOPE=member` (`scripts/checks/prompt_self.mts`; bench runs/2026-10-24/prompt-117/). The panel shows all of it: the village card's Economy tab and the simple
+  when none; run it with `MC_BAN_SCOPE=member` (`scripts/checks/prompt_self.mts`; bench runs/2026-10-24/prompt-117/).
+  `MC_CHOICE_HOLDS=on` (#97, off): a pending decision holds the options it was shown (keys and further keys) off every
+  other member's menu until it is answered or dropped, its projects count against the 3-open cap, and a sweep follows a
+  release within 5 s; use with `MC_CHOOSE_BACKUP=on` and `MC_BAN_SCOPE=member` (`scripts/checks/choice_holds.mts`;
+  `python runs/2026-10-24/collisions-97/counterfactual.py RUN.choices.jsonl` counts the lost picks a hold would have
+  prevented). The panel shows all of it: the village card's Economy tab and the simple
   view's Economy card (members' wealth, the board, inventions, goals), a wealth line on each agent card;
   `runs/2026-10-21/s44/panel_harness.mts VILLAGES.json [PORT]` serves the page against a sim run's record (the sim now keeps
   its `villages.json` in its out folder). The sim's report adds own, spread, claims, barter, innovation lines;

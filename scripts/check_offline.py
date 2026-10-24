@@ -45,6 +45,8 @@ def commands():
     out["home_basics"] = ([node, TSX, "scripts/checks/home_basics.mts", "im2_mine"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (#117, MC_PROMPT_SELF: the self, needs, scarcity and ambition lines, the pins and tags, on mv3_base25 and im2_mine)
     out["prompt_self"] = ([node, TSX, "scripts/checks/prompt_self.mts"], ["mc/testcheckpoints/mv3_base25/villages.json", "mc/testcheckpoints/im2_mine/villages.json"])
+    # (#97, MC_CHOICE_HOLDS: a pending decision's shown options off the others' menus, the projects' cap, flag on and off)
+    out["choice_holds"] = ([node, TSX, "scripts/checks/choice_holds.mts"], ["mc/testcheckpoints/mv3_base25/villages.json"])
     return out
 
 
