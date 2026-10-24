@@ -34,6 +34,9 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
 
 ## Running and checking
 
+- **Every setting lives in `server/src/settings.ts`** (since f88ccb5, #115): a new `MC_*`/`MCAI_*` setting needs a
+  registry entry, a read through `rawSetting('MC_X')` and a regenerated `docs/SETTINGS.md` (`node
+  node_modules/tsx/dist/cli.mjs scripts/settings_doc.mts`), or `check:offline` fails. `docs/SETTINGS.md` lists them all.
 - `npm run typecheck` is the main check (`npm run check:offline`: it, the two goldens and 15 offline checks in ~35 s);
   there is no test suite, so verify agent changes by running agents (Testing).
   `npm run dev` starts the sandbox game server (8765) and the Vite client (5173).
