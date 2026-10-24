@@ -356,7 +356,8 @@ def list_checkpoints():
     for p in found:
         m = read_json(p, {})
         print(f"{m.get('name')}: site {m.get('site')}, saved {m.get('time')} at {m.get('commit')}; "
-              + ", ".join(f"{v['name']} ({'complete' if v['complete'] else 'not complete'}, {v['tasks']} tasks)" for v in m.get("villages", [])))
+              + ", ".join(f"{v['name']} ({'complete' if v['complete'] else 'not complete'}, {v['tasks']} tasks)" for v in m.get("villages", []))
+              + (f"\n    {m['note']}" if m.get("note") else ""))
 
 
 def start_paper(logdir, stamp):
