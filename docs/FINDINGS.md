@@ -2073,3 +2073,12 @@ CLAUDE.md when a phase ends.
   naming the ambition's work on the menu took 11 of 12 picks to iron and overrode goals and scarcity: dropped (25 members
   at one mine would herd). Built behind MC_PROMPT_SELF (off), flag-off menus, contexts and prompts identical on two
   checkpoints. Logs: runs/2026-10-24/prompt-117/ (spec.md, bench/results.md).
+- F312 (10-24, train1, #121/#117/home basics) **The first test train: storage that grows ends the full hut's failed
+  deposits (10 vs 589 in 30 min), and #117's self lines make a model-choosing member take its basic need (own:basics 33 of
+  35 shown, against 17 of 29 off and 32 of 60 in W4); the home-basics pin is absolute only for scripted choices.**
+  Pair S (staged, im2_mine): yard ready ~1 min after start, 18 barrels, 7 spoil lines; busy fell 56 to 49% because the
+  off run's busy was collecting and making goods it could not store. Pair M (model-driven, 1x, blank land): the flag-on run
+  matched W4 (houses 2->25, beds 23 of 25 by hour 1); the flag-off run grew 13 houses, held back by walk stalls (903
+  [stuck], most in the village mine under the storage hut; one member underground 64 min, #133), so the village pace is
+  not the flag's measure. Tagged "not needed now" options were taken 15 times in 201 menus. Letters stayed at stage 0 in
+  both (cane 27-29 an hour, #134). Logs: runs/2026-10-24/train1/ (report.md).
