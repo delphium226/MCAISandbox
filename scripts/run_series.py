@@ -31,6 +31,8 @@ The spec (every key optional unless said; a run's keys override the spec's, its 
                                          profile with errors (scripts/profile.mts check NAME) stops the series
     "checks": ["make_log"],              follow-up checks (CHECKS below)
     "show": ["FOOD"],                    more line prefixes to print from the stage log
+    "sweep": {"MC_CHARACTER_MIX": ["wealth:100", "drawn:100"]},  on a run: one run per value of one server setting,
+                                         named NAME-<value> (e.g. a culture-mix experiment, #115)
     "runs": [
       {"name": "CP1", "server_env": {"MC_GROW": "0"}, "args": "--after 0.5", "save": "mv3_cp1"},
       {"name": "V1", "checkpoint": "mv3_cp1", "args": "--after 20"},
@@ -181,7 +183,8 @@ def with_profile(spec, run):
     prof = json.load(open(path, encoding="utf-8"))
     out = {k: v for k, v in prof.items() if k not in PROFILE_OWN}
     out.update({k: v for k, v in run.items() if k not in ("server_env", "stage_env", "args")})
-    out["server_env"] = {**{k: env_value(v) for k, v in (prof.get("settings") or {}).items()}, **run.get("server_env", {})}
+    arch = {"MC_CHARACTER_ARCHETYPES": json.dumps(prof["archetypes"])} if prof.get("archetypes") else {}
+    out["server_env"] = {**{k: env_value(v) for k, v in (prof.get("settings") or {}).items()}, **arch, **run.get("server_env", {})}
     out["stage_env"] = {**prof.get("stage_env", {}), **run.get("stage_env", {})}
     out["args"] = as_args(prof.get("args")) + as_args(run.get("args"))
     est = check.get("estimate")
@@ -191,6 +194,24 @@ def with_profile(spec, run):
         est = {**est, "tokensHour": round(est["tokensHour"] * f), "usdHour": round(est["usdHour"] * f, 2)}
     out["_profile"] = {"name": prof["name"], "kind": prof["kind"], "file": os.path.relpath(path, ROOT).replace("\\", "/"),
                        "warnings": check["warnings"], "estimate": est, "schedule": prof.get("schedule", [])}
+    return out
+
+
+def expand_sweeps(runs):
+    """A run with "sweep": {SETTING: [values]} becomes one run per value, named NAME-<value as a name> (#115)."""
+    out = []
+    for r in runs:
+        sw = r.get("sweep")
+        if not sw:
+            out.append(r)
+            continue
+        if len(sw) != 1:
+            raise SystemExit(f"run {r['name']}: a sweep takes one setting")
+        (key, values), = sw.items()
+        for v in values:
+            tag = re.sub(r"[^A-Za-z0-9]+", "-", str(v)).strip("-")
+            out.append({**{k: x for k, x in r.items() if k != "sweep"}, "name": f"{r['name']}-{tag}",
+                        "server_env": {**r.get("server_env", {}), key: env_value(v)}})
     return out
 
 
@@ -204,7 +225,7 @@ def write_profile_json(run, server_env):
     rec = {"name": run["name"], "profile": prof or None, "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "commit": commit,
            "world": run["world"], "port": run["port"], "site": run["site"], "village": run["village"], "checkpoint": run["checkpoint"],
            "stage": run["stage"][1:], "settings": given, "stage_env": run["stage_env"], "errors": eff["errors"],
-           "warnings": eff["warnings"], "effective": eff["effective"], "changes": []}
+           "warnings": eff["warnings"], "effective": eff["effective"], "assignment": eff.get("assignment"), "changes": []}
     with open(os.path.join(run["out"], f"{run['name']}.profile.json"), "w", encoding="utf-8") as f:
         json.dump(rec, f, indent=1)
     for e in eff["errors"]:
@@ -374,6 +395,7 @@ def main():
         raise SystemExit(__doc__)
     spec_path = pos[0]
     spec = json.load(open(spec_path, encoding="utf-8"))
+    spec["runs"] = expand_sweeps(spec.get("runs", []))
     names = [r["name"] for r in spec.get("runs", [])]
     if not names or len(set(n.lower() for n in names)) != len(names):
         raise SystemExit("the spec needs runs with unique names")

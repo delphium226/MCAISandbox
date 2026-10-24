@@ -36,6 +36,10 @@ ok(/needs an "objective"/.test(errs({ kind: 'model', preset: 'watch' })), 'a wat
 ok(/workers/.test(errs({ workers: 30 })), 'too many members');
 ok(/unknown key "foo"/.test(errs({ foo: 1 })), 'an unknown key');
 ok(/under "settings"/.test(errs({ server_env: {} })), 'server_env refused');
+ok(/both set/.test(errs({ settings: { MC_CHARACTER_PRESET: 'wealth', MC_CHARACTER_MIX: 'wealth:100' } })), 'a preset and a mix together');
+ok(/greed/.test(errs({ settings: { MC_CHARACTER_MIX: 'greed:50,wealth:50' } })), 'a mix naming an unknown archetype');
+ok(!errs({ settings: { MC_CHARACTER_MIX: 'farmer:50,wealth:50' }, archetypes: { farmer: { hex: { H: 0, E: 0, X: 0, A: 0, C: 0.5, O: 0 }, values: { openness: 0.2, conservation: 0.8, enhancement: 0.3, transcendence: 0.4 }, goal: 'home' } } }), "a mix naming the profile's own archetype");
+ok(/MC_SKILL/.test(errs({ settings: { MC_CHARACTER: 'on', MC_GOALS: 'on' } })), 'MC_CHARACTER without MC_SKILL');
 const w = checkSettings({ MC_TIME_SCALE: '2', MC_HASTE: '5' }, 'model').warnings;
 ok(w.length === 2 && !checkSettings({ MC_TIME_SCALE: '2', MC_HASTE: '5' }, 'staged').warnings.length, `speed-ups warned in model runs only (${w.length})`);
 const eff = effectiveSettings({ MC_LADDER: 'on' });

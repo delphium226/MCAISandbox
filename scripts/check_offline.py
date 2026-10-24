@@ -53,6 +53,7 @@ def commands():
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])
+    out["character_mix"] = ([node, TSX, "scripts/checks/character_mix.mts"], [])
     return out
 
 

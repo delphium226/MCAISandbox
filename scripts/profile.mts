@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 
-const { checkProfile, checkSettings, effectiveSettings, estimateCost, listProfiles, loadProfile } = await import('../server/src/profiles');
+const { assignmentOf, checkProfile, checkSettings, effectiveSettings, estimateCost, listProfiles, loadProfile } = await import('../server/src/profiles');
 const ROOT = process.cwd();
 const [cmd, arg] = process.argv.slice(2);
 const json = process.argv.includes('--json');
@@ -39,7 +39,14 @@ if (cmd === 'list') {
 } else if (cmd === 'effective') {
   const input = JSON.parse(fs.readFileSync(0, 'utf8')) as { kind?: 'staged' | 'model' | 'checkpoint'; settings?: Record<string, string> };
   const given = Object.fromEntries(Object.entries(input.settings ?? {}).map(([k, v]) => [k, String(v)]));
-  console.log(JSON.stringify({ ...checkSettings(given, input.kind ?? 'staged'), effective: effectiveSettings(given) }));
+  const c = checkSettings(given, input.kind ?? 'staged');
+  let assignment = null;
+  try {
+    assignment = assignmentOf(given);
+  } catch {
+    // (a bad mix is in the check's errors)
+  }
+  console.log(JSON.stringify({ ...c, effective: effectiveSettings(given), assignment }));
 } else {
   console.log('usage: profile.mts list | check NAME|PATH [--json] | effective < {"kind":..., "settings":{...}}');
   process.exit(2);

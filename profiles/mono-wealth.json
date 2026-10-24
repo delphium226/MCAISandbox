@@ -1,0 +1,14 @@
+{
+  "name": "mono-wealth",
+  "describe": "A monoculture of wealth-seekers (the user's 10-23 experiment): every member and the Mayor the wealth archetype, model choices, 1x, 2 h after the build",
+  "kind": "model",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "timeout_min": 170,
+  "checks": ["agent_log"],
+  "args": "--minutes 90 --after 120 --choose model --stock fishing_rod:3",
+  "settings": {"MC_CHARACTER": "on", "MCAI_TEMPERAMENT": "on", "MC_GOALS": "on", "MC_SKILL": "on", "MC_LADDER": "on", "MC_IRON_AGE": "on", "MC_CHARACTER_PRESET": "wealth"}
+}

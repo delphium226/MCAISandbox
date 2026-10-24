@@ -25,36 +25,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workerNumber, workerName } from './agentNames';
 import { KIND_WORDS, logAct } from './memory';
+import { BUILT_IN, assignMix, fnv1a, mixMayor, mulberry32, parseArchetypes, parseMix, shuffled, type Preset } from './archetypes';
 import { rawSetting } from './settings';
-
-// (choose.ts' seeded helpers, copied: choose.ts imports this module, and the draws below run at load)
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function shuffled<T>(xs: T[], seed: string): T[] {
-  const out = [...xs];
-  const rnd = mulberry32(fnv1a(seed));
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
 
 const flag = (v: string | undefined) => /^(on|1|true|yes)$/i.test(v ?? '');
 const CHARACTER_ON = flag(rawSetting('MC_CHARACTER'));
@@ -99,16 +71,41 @@ const ZERO: Hexaco = { H: 0, E: 0, X: 0, A: 0, C: 0, O: 0 };
  * MC_CHARACTER_PRESET (the user's monoculture experiment, 10-23): every member, the Mayor too, gets one profile instead of
  * the draws: its traits (with a small seeded jitter, +-0.1, so members are not identical), its values (+-0.05, the preset's
  * dominant value always first; self-enhancement's 25% cap does not apply) and its life goal. Unset: the draws as before.
- * `wealth` first; more (beauty, invention...) are entries in PRESETS.
+ * #115 (spec 2b): five archetypes (archetypes.ts), and MC_CHARACTER_MIX instead of one: "wealth:40,invention:60" gives
+ * that share of the workers each archetype (`drawn`: today's per-member draws), by largest remainder in an order shuffled
+ * by MC_CHARACTER_SEED, the Mayor the largest share's unless the mix names `mayor:<archetype>`; a name outside the pool
+ * gets one by a hash. MC_CHARACTER_ARCHETYPES (JSON, a profile's "archetypes") adds custom ones.
  */
 export const CHARACTER_PRESET = (rawSetting('MC_CHARACTER_PRESET') ?? '').trim().toLowerCase();
-interface Preset { hex: Record<'H' | 'E' | 'X' | 'A' | 'C' | 'O', number>; values: Record<'openness' | 'conservation' | 'enhancement' | 'transcendence', number>; goal: string }
-const PRESETS: Record<string, Preset> = {
-  // (a wealth-seeker: out for itself, hard-working and steady, a little outgoing for trade, slow to forgive, conventional)
-  wealth: { hex: { H: -0.7, E: -0.3, X: 0.3, A: -0.3, C: 0.7, O: -0.1 }, values: { openness: 0.3, conservation: 0.45, enhancement: 0.9, transcendence: 0.15 }, goal: 'wealth' },
-};
+export const CHARACTER_MIX = (rawSetting('MC_CHARACTER_MIX') ?? '').trim().toLowerCase();
+export const CHARACTER_SEED = (rawSetting('MC_CHARACTER_SEED') ?? 'mix').trim();
+export const PRESETS: Record<string, Preset> = { ...BUILT_IN, ...parseArchetypes(rawSetting('MC_CHARACTER_ARCHETYPES') ?? '') };
+if (CHARACTER_PRESET && CHARACTER_MIX) throw new Error('MC_CHARACTER_PRESET and MC_CHARACTER_MIX are both set: give one (a mix of one archetype is "NAME:100")');
 const PRESET = CHARACTER_PRESET ? PRESETS[CHARACTER_PRESET] : undefined;
 if (CHARACTER_PRESET && !PRESET) throw new Error(`MC_CHARACTER_PRESET=${CHARACTER_PRESET}: no such preset (${Object.keys(PRESETS).join(', ')})`);
+const MIX = CHARACTER_MIX ? parseMix(CHARACTER_MIX, PRESETS) : undefined;
+const MIX_WORKERS = MIX ? assignMix(MIX.shares, WORKERS, CHARACTER_SEED) : [];
+
+/** A member's archetype: the preset's, the mix's (by worker number, the Mayor's, else by a hash of the name), or 'drawn'. */
+export function archetypeOf(name: string): string {
+  if (CHARACTER_PRESET) return CHARACTER_PRESET;
+  if (!MIX) return 'drawn';
+  const n = name.trim().toLowerCase();
+  if (n === 'mayor') return mixMayor(MIX);
+  const i = workerNumber(n);
+  if (i >= 1 && i <= MIX_WORKERS.length) return MIX_WORKERS[i - 1];
+  const total = MIX.shares.reduce((t, [, x]) => t + x, 0);
+  let r = mulberry32(fnv1a(`character-mix|${CHARACTER_SEED}|${n}`))() * total;
+  for (const [k, x] of MIX.shares) if ((r -= x) < 0) return k;
+  return MIX.shares[MIX.shares.length - 1][0];
+}
+/** A member's archetype's profile, or undefined for the draws. */
+const presetOf = (name: string): Preset | undefined => PRESET ?? (MIX ? PRESETS[archetypeOf(name)] : undefined);
+
+/** The Mayor and the 24 workers with their archetypes (the panel's and profile.json's realised assignment). */
+export function characterAssignment(): Record<string, string> {
+  return Object.fromEntries(['Mayor', ...Array.from({ length: WORKERS }, (_, i) => workerName(i + 1))].map((n) => [n, archetypeOf(n)]));
+}
 const jitter = (key: string, size: number) => Math.round((mulberry32(fnv1a(key))() * 2 - 1) * size * 100) / 100;
 const clamp1 = (x: number) => Math.max(-1, Math.min(1, x));
 
@@ -126,7 +123,8 @@ const WORKER_HEX: Hexaco[] = (() => {
 /** A member's six traits: the Mayor's by hand, workers 1-24 drawn, any other name from a hash of it. */
 export function hexacoOf(name: string): Hexaco {
   const n = name.trim().toLowerCase();
-  if (PRESET) return Object.fromEntries(HEXACO.map((t) => [t, Math.round(clamp1(PRESET.hex[t] + jitter(`preset|${n}|${t}`, 0.1)) * 100) / 100])) as Hexaco;
+  const P = presetOf(n);
+  if (P) return Object.fromEntries(HEXACO.map((t) => [t, Math.round(clamp1(P.hex[t] + jitter(`preset|${n}|${t}`, 0.1)) * 100) / 100])) as Hexaco;
   if (n === 'mayor') return { ...MAYOR };
   const i = workerNumber(n);
   if (i >= 1 && i <= WORKERS) return { ...WORKER_HEX[i - 1] };
@@ -201,7 +199,8 @@ const VALUE_TABLE: Map<string, Values> = (() => {
 })();
 
 export function valuesOf(name: string): Values {
-  if (PRESET) return Object.fromEntries(VALUES.map((k) => [k, Math.round((PRESET.values[k] + jitter(`preset-values|${name.toLowerCase()}|${k}`, 0.05)) * 100) / 100])) as Values;
+  const P = presetOf(name);
+  if (P) return Object.fromEntries(VALUES.map((k) => [k, Math.round((P.values[k] + jitter(`preset-values|${name.toLowerCase()}|${k}`, 0.05)) * 100) / 100])) as Values;
   return { ...(VALUE_TABLE.get(name.toLowerCase()) ?? raw(name)) };
 }
 
@@ -251,7 +250,8 @@ const GOAL_TABLE: Map<string, string> = (() => {
 
 /** A member's life goal drawn from its values (the user's choice, 10-22). */
 export function goalFromValues(name: string): string {
-  if (PRESET) return PRESET.goal;
+  const P = presetOf(name);
+  if (P) return P.goal;
   return GOAL_TABLE.get(name.toLowerCase()) ?? [...GOALS].sort((a, b) => goalScore(b, name) - goalScore(a, name))[0];
 }
 

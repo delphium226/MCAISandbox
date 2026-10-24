@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-188 settings.
+191 settings.
 
 ## Game speed
 
@@ -169,8 +169,11 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
 | `MC_AFFINITY` | flag | `off` |  |  | The character model's affinity layer (default: MC_CHARACTER). |
-| `MC_CHARACTER` | flag | `off` |  |  | The character model (HEXACO traits, values, mood, identity) as a whole. |
-| `MC_CHARACTER_PRESET` | string | (unset) |  |  | MC_CHARACTER_PRESET (the user's monoculture experiment, 10-23): every member, the Mayor too, gets one profile instead of the draws: its traits (with a small seeded jitter, +-0.1, so members are not identical), its values (+-0.05, the preset's dominant value always first; self-enhancement's 25%... |
+| `MC_CHARACTER` | flag | `off` |  | `MCAI_TEMPERAMENT`, `MC_SKILL`, `MC_GOALS` | The character model (HEXACO traits, values, mood, identity) as a whole. |
+| `MC_CHARACTER_ARCHETYPES` | string | (unset) |  |  | Custom archetypes as JSON ({name: {hex: {H,E,X,A,C,O: -1..1}, values: {openness, conservation, enhancement, transcendence: 0..1}, goal}}): a profile's "archetypes". |
+| `MC_CHARACTER_MIX` | string | (unset) |  |  | A culture mix of archetypes by share of the workers ("wealth:40,invention:60"; drawn: the per-member draws; mayor:<archetype> names the Mayor's, else the largest share's), by largest remainder. Not with MC_CHARACTER_PRESET. |
+| `MC_CHARACTER_PRESET` | string | (unset) |  |  | A monoculture: every member, the Mayor too, one archetype (wealth, invention, community, tradition, beauty, or a custom one), its traits jittered +-0.1; unset: the draws. Not with MC_CHARACTER_MIX. |
+| `MC_CHARACTER_SEED` | string | `mix` |  |  | The seed that orders which workers get which archetype in a mix: the same seed, the same assignment. |
 | `MC_CLOCK` | flag | `off` |  | `MC_MEMORY` | The village clock in prompts (with MC_MEMORY). |
 | `MC_DAY_MIN` | number | `20` |  |  | A village day (thought durations, decay), as memory.ts' MC_DAY_MIN. |
 | `MC_GAUGES` | flag | `off` |  |  | The character model's gauges layer (default: MC_CHARACTER). |

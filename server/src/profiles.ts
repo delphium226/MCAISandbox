@@ -9,6 +9,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { workerName } from './agentNames';
+import { BUILT_IN, assignMix, mixMayor, parseArchetypes, parseMix, type Preset } from './archetypes';
 import { CALL_KINDS } from './modelUsage';
 import { SETTINGS, settingOf } from './settings';
 
@@ -29,11 +31,13 @@ export interface Profile {
   /** The agent server's settings (MC_*, MCAI_*), as run_series' server_env. */
   settings?: Record<string, string | number | boolean>;
   schedule?: Array<{ at_min: number; set: Record<string, string | number | boolean> }>;
+  /** Custom archetypes beside the built-in ones (archetypes.ts), passed as MC_CHARACTER_ARCHETYPES. */
+  archetypes?: Record<string, Preset>;
   [key: string]: unknown;
 }
 
 /** The keys a profile may hold: its own, then run_series' run keys (its docstring). */
-const OWN_KEYS = ['name', 'describe', 'kind', 'settings', 'schedule'];
+const OWN_KEYS = ['name', 'describe', 'kind', 'settings', 'schedule', 'archetypes'];
 export const RUN_KEYS = ['world', 'site', 'village', 'workers', 'objective', 'minutes', 'checkpoint', 'port', 'preset', 'fast', 'time_scale', 'stage_env', 'args',
   'timeout_min', 'checks', 'show', 'save', 'reset', 'x', 'z', 'planner', 'site_size', 'after', 'replay', 'replay_mode', 'server_env', 'out'];
 const KINDS: ProfileKind[] = ['staged', 'model', 'checkpoint'];
@@ -87,6 +91,15 @@ export function checkSettings(given: Record<string, string>, kind: ProfileKind =
         if (rs?.type === 'flag' ? !flagOn(rv) : !rv) errors.push(`${name} is on but ${r}, which it needs, is ${rv || 'unset'}`);
       }
   }
+  // (#115 2b: the culture: one of preset or mix, every archetype known, custom ones well formed)
+  try {
+    const known = { ...BUILT_IN, ...parseArchetypes(given.MC_CHARACTER_ARCHETYPES ?? '') };
+    if (given.MC_CHARACTER_PRESET && given.MC_CHARACTER_MIX) errors.push('MC_CHARACTER_PRESET and MC_CHARACTER_MIX are both set: give one');
+    if (given.MC_CHARACTER_PRESET && !known[given.MC_CHARACTER_PRESET.trim().toLowerCase()]) errors.push(`MC_CHARACTER_PRESET=${given.MC_CHARACTER_PRESET}: no such archetype (${Object.keys(known).join(', ')})`);
+    if (given.MC_CHARACTER_MIX) parseMix(given.MC_CHARACTER_MIX, known);
+  } catch (e) {
+    errors.push((e as Error).message);
+  }
   if (kind === 'model') {
     const raised = (n: string, base: number) => Number(eff[n] || base) > base;
     if (raised('MC_TIME_SCALE', 1)) warnings.push(`MC_TIME_SCALE=${eff.MC_TIME_SCALE} in a model-driven run (acceptance runs are 1x)`);
@@ -110,7 +123,7 @@ export function checkProfile(p: Profile): Check {
   if (p.preset === 'watch' && typeof p.objective !== 'string') errors.push('a watch run (preset "watch") needs an "objective"');
   if (p.preset === 'watch' && p.kind !== 'model') errors.push('a watch run is model-driven: "kind": "model"');
   if (p.kind === 'checkpoint' && typeof p.checkpoint !== 'string') errors.push('a checkpoint profile needs a "checkpoint"');
-  const given = Object.fromEntries(Object.entries(p.settings ?? {}).map(([k, v]) => [k, envValue(v)]));
+  const given = profileEnv(p);
   const c = checkSettings(given, p.kind);
   errors.push(...c.errors);
   warnings.push(...c.warnings);
@@ -174,4 +187,25 @@ export function estimateCost(root: string, members: number, n = 6): { tokensHour
   const last = found.sort((a, b) => b.t - a.t).slice(0, n);
   const med = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)];
   return { tokensHour: Math.round(med(last.map((r) => r.tok)) * members), usdHour: Math.round(med(last.map((r) => r.usd)) * members * 100) / 100, from: last.length };
+}
+
+/** A profile's agent server settings as the environment takes them: its settings, and its custom archetypes as
+ *  MC_CHARACTER_ARCHETYPES. */
+export function profileEnv(p: Profile): Record<string, string> {
+  const out = Object.fromEntries(Object.entries(p.settings ?? {}).map(([k, v]) => [k, envValue(v)]));
+  if (p.archetypes && Object.keys(p.archetypes).length) out.MC_CHARACTER_ARCHETYPES = JSON.stringify(p.archetypes);
+  return out;
+}
+
+/** The members' archetypes under these settings (character.ts' archetypeOf for the Mayor and the 24 workers), or null
+ *  with no preset or mix: profile.json's realised assignment. */
+export function assignmentOf(given: Record<string, string>): Record<string, string> | null {
+  const preset = (given.MC_CHARACTER_PRESET ?? '').trim().toLowerCase();
+  const mixText = (given.MC_CHARACTER_MIX ?? '').trim().toLowerCase();
+  const names = ['Mayor', ...Array.from({ length: 24 }, (_, i) => workerName(i + 1))];
+  if (preset) return Object.fromEntries(names.map((n) => [n, preset]));
+  if (!mixText) return null;
+  const mix = parseMix(mixText, { ...BUILT_IN, ...parseArchetypes(given.MC_CHARACTER_ARCHETYPES ?? '') });
+  const workers = assignMix(mix.shares, 24, (given.MC_CHARACTER_SEED ?? 'mix').trim());
+  return Object.fromEntries(names.map((n, i) => [n, i === 0 ? mixMayor(mix) : workers[i - 1]]));
 }
