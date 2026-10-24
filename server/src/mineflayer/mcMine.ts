@@ -15,7 +15,7 @@ import { checkAbort, num, reach, stateAt, wetAt } from './mcUtil';
 // What the mine may dig (the ground under a village, never logs or anything built), the stone the stairs end on and the
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
-import { IRON_AGE, IRON_MINERS, ORE_MINE } from '../ladderFlags';
+import { IRON_AGE, IRON_MINERS, IRON_STAIRS2, ORE_MINE } from '../ladderFlags';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
@@ -189,14 +189,26 @@ function downColumns(m: Mine, d: { x: number; z: number; steps: number }) {
 function keptStairs(m: Mine): Array<{ x: number; z: number; y1?: number; y2?: number }> {
   // (the iron level's stairs, given up ones too, only near their own height: they run sideways under the levels, and
   // kept at every height they ended tunnels far above or below them, the diff review's M2)
-  const iron = (d: { x: number; z: number; y: number; dir: [number, number]; steps: number }, last: boolean) =>
-    ironColumns({ ...m.iron!, ...d }).slice(0, last ? undefined : -1).map((c, k) => ({ ...c, y1: d.y - (k + 1), y2: d.y - (k + 1) + 2 }));
+  // (with its second lane, MC_IRON_STAIRS2: step by step beside the first, its last step kept open the same way)
+  const iron = (d: { x: number; z: number; y: number; dir: [number, number]; steps: number } & Lane2, last: boolean) =>
+    [...ironColumns({ ...m.iron!, ...d }).slice(0, last ? undefined : -1).map((c, k) => ({ ...c, y1: d.y - (k + 1), y2: d.y - (k + 1) + 2 })),
+      ...laneColumns(d).slice(0, last || (d.steps2 ?? 0) < d.steps ? undefined : -1).map((c, k) => ({ ...c, y1: d.y - (k + 1), y2: d.y - (k + 1) + 2 }))];
   return [...stairColumns(m).slice(0, -1), ...(m.down ?? []).flatMap((d) => downColumns(m, d).slice(0, d.level !== undefined ? -1 : undefined)),
     // (finished ones too: their first steps stay open at the level's height, the final review)
     ...(m.iron ? iron(m.iron, m.iron.level === undefined) : []),
     ...(m.iron?.abandoned ?? []).flatMap((d) => iron(d, true)),
     // (iron levels finished before, MC_IRON_AGE: the next one's stairs start at their bottom step)
     ...(m.ironPast ?? []).flatMap((p) => [...iron(p, false), ...(p.abandoned ?? []).flatMap((d) => iron(d, true))])];
+}
+
+/** An iron level's second stair lane (MC_IRON_STAIRS2, #101): the side it lies on (a unit step across the stairs), the
+ *  steps it has, and why it stopped short (it is then not dug on: the first lane serves alone). */
+type Lane2 = { lane?: [number, number]; steps2?: number; stopped2?: string };
+/** The second lane's columns, step 1 on (the first lane's columns moved one block to its side); none without one. */
+export function laneColumns(i: Pick<IronLevel, 'x' | 'z' | 'dir' | 'steps'> & Lane2): Array<{ x: number; z: number }> {
+  if (!i.lane || !i.steps2) return [];
+  const [lx, lz] = i.lane;
+  return ironColumns({ ...i, steps: i.steps2 }).map((c) => ({ x: c.x + lx, z: c.z + lz }));
 }
 
 /** The iron level's stair columns, from its first step to its last (they run in its own direction, 10-08). */
@@ -258,7 +270,7 @@ export function mineAreas(m: Mine): Array<Area & { y: number; y2: number }> {
       });
     }
     if (i && i.steps) {
-      const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+      const cols = [{ x: i.x, z: i.z }, ...ironColumns(i), ...laneColumns(i)];
       out.push({
         x1: Math.min(...cols.map((c) => c.x - 1)), z1: Math.min(...cols.map((c) => c.z - 1)),
         x2: Math.max(...cols.map((c) => c.x + 1)), z2: Math.max(...cols.map((c) => c.z + 1)),
@@ -368,7 +380,7 @@ export function inIronLevel(a: BotAgent): boolean {
   // (any of them: the current one and, with MC_IRON_AGE, the levels finished above it, walked through on the way down)
   return ironLevels(m).some((i) => {
     if (!i.steps) return false;
-    const cols = [{ x: i.x, z: i.z }, ...ironColumns(i)];
+    const cols = [{ x: i.x, z: i.z }, ...ironColumns(i), ...laneColumns(i)];
     const near = cols.some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < i.y && p.y >= i.y - i.steps - 2;
     const given = (i.abandoned ?? []).some((d) => [{ x: d.x, z: d.z }, ...ironColumns(d)].some((c) => Math.abs(c.x - p.x) <= 1 && Math.abs(c.z - p.z) <= 1) && p.y < d.y && p.y >= d.y - d.steps - 2);
     return near || given || i.legs.some((l) => { const b = legBox(l); return p.x >= b.x1 && p.x <= b.x2 && p.z >= b.z1 && p.z <= b.z2 && p.y >= b.y && p.y <= b.y2 + 1; });
@@ -1267,8 +1279,78 @@ function stairsFit(a: BotAgent, L: number, steps: number): StairsFit {
       const x = st.x + dx * k, z = st.z + dz * k, f = L - 1 - k;
       for (let dy = 0; dy <= 4; dy++) if (!solid(x, f + dy, z)) return false;
     }
+    // (MC_IRON_STAIRS2: room for the second lane on one side or the other, its cells and ceiling as solid)
+    if (IRON_AGE && IRON_STAIRS2) return laneSides([dx, dz]).some(([lx, lz]) => laneSolid(solid, st, [dx, dz], [lx, lz], L, 1, steps));
     return true;
   };
+}
+
+/** The two sides a second stair lane may lie on, right first. */
+const laneSides = ([dx, dz]: [number, number]): Array<[number, number]> => [[-dz, dx], [dz, -dx]];
+/** Whether a second lane's steps k0..k1 beside stairs from `st` going `dir` at level L are solid ground (floor, three
+ *  cells and the ceiling over them). */
+function laneSolid(solid: (x: number, y: number, z: number) => boolean, st: { x: number; z: number }, [dx, dz]: [number, number], [lx, lz]: [number, number], L: number, k0: number, k1: number): boolean {
+  for (let k = k0; k <= k1; k++) {
+    const x = st.x + dx * k + lx, z = st.z + dz * k + lz, f = L - 1 - k;
+    for (let dy = 0; dy <= 4; dy++) if (!solid(x, f + dy, z)) return false;
+  }
+  return true;
+}
+
+/**
+ * The second stair lane (MC_IRON_STAIRS2, #101), dug beside the first up to its steps: each step's three cells from the
+ * first lane's step above (the start cell for the first), checked as the first lane's are; its side chosen once, where the
+ * ground beside the stairs is solid. Stopped short by anything unsafe (`stopped2`): the first lane then serves alone.
+ * Returns '' when caught up or stopped, TIME_UP or UNLOADED.
+ */
+async function digLane2(a: BotAgent, v: Village, m: Mine, i: IronLevel, signal: AbortSignal, until: number): Promise<string> {
+  const l2 = i as IronLevel & Lane2, reg = a.world.villages;
+  if (l2.stopped2) return '';
+  const [dx, dz] = i.dir;
+  const stop = (why: string) => {
+    if (why === UNLOADED) return why;
+    l2.stopped2 = short(why);
+    console.log(`[mine] ${v.name}: the iron stairs' second lane stops at ${l2.steps2 ?? 0} of ${i.steps} steps: ${l2.stopped2}`);
+    reg.note(v, `the iron stairs' second lane stops at ${l2.steps2 ?? 0} steps: ${l2.stopped2}`);
+    reg.save();
+    return '';
+  };
+  if (!l2.lane) {
+    const solid = (x: number, y: number, z: number) => { const b = a.bot.blockAt(new Vec3(x, y, z)); return !b || (b.boundingBox === 'block' && DIGGABLE.has(b.name) && !FALLING.has(b.name)); };
+    const side = laneSides(i.dir).find((s2) => laneSolid(solid, i, i.dir, s2, i.y, 1, Math.max(1, i.steps)));
+    if (!side) return stop('no solid ground beside the stairs for a second lane');
+    l2.lane = side;
+    l2.steps2 = 0;
+  }
+  const [lx, lz] = l2.lane;
+  for (let k = (l2.steps2 ?? 0) + 1; k <= i.steps; k++) {
+    checkAbort(signal);
+    if (Date.now() > until) return TIME_UP;
+    const ax = i.x + dx * k, az = i.z + dz * k, floor = i.y - 1 - k;
+    // (from the first lane's step above: always dug, as k is at most its steps)
+    const stand = new Vec3(ax - dx + 0.5, floor + 2, az - dz + 0.5);
+    await walkMine(a, stand, 1.2, signal, 60000).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+    });
+    const x = ax + lx, z = az + lz;
+    for (const dy of [3, 2, 1]) {
+      const p = new Vec3(x, floor + dy, z);
+      const why = unsafe(a, v, m, p, false, 'down', { x: x - dx, z: z - dz });
+      if (why) return stop(why);
+      if (dy === 3) {
+        const above = a.bot.blockAt(new Vec3(x, p.y + 1, z));
+        if (!above) return UNLOADED;
+        if (above.boundingBox !== 'block' || FALLING.has(above.name)) return stop(`${above.name} over ${x},${p.y},${z} (no solid ceiling)`);
+      }
+      await digCell(a, m, p, signal, stand, { got: i.got, strict: true });
+    }
+    const under = a.bot.blockAt(new Vec3(x, floor, z));
+    if (!under) return UNLOADED;
+    if (under.boundingBox !== 'block' || wetAt(a, under.position)) return stop(`no floor under ${x},${floor + 1},${z}`);
+    l2.steps2 = k;
+    reg.save();
+  }
+  return '';
 }
 
 /** Where the current iron level's stairs start again after some were given up: below the last finished level when there
@@ -1534,6 +1616,7 @@ export function oreNextLevel(i: IronLevel, atlas: Array<{ cx: number; cz: number
 export function releaseIronClaims(village: string, name: string) {
   ironTrips.get(village)?.delete(name);
   if (ironStairs.get(village)?.name === name) ironStairs.delete(village);
+  if (ironStairs2.get(village)?.name === name) ironStairs2.delete(village);
   for (const [l, h] of ironLegs) if (h.name === name) ironLegs.delete(l);
 }
 
@@ -1551,7 +1634,10 @@ export function ironGate(village: string, name: string, i: IronLevel, until: num
   if (others >= IRON_MINERS) return `${['no', 'one', 'two', 'three', 'four'][IRON_MINERS] ?? IRON_MINERS} miners are on the iron level already; try again later`;
   if (i.level === undefined) {
     const s = ironStairs.get(village);
-    if (s && s.name !== name && s.until > now) return 'another worker is digging the iron level\'s stairs; try again in a few minutes';
+    // (MC_IRON_STAIRS2: a second miner digs the second lane while its lock is free)
+    const s2 = ironStairs2.get(village);
+    const lane2 = IRON_AGE && IRON_STAIRS2 && !(i as Lane2).stopped2 && !(s2 && s2.name !== name && s2.until > now);
+    if (s && s.name !== name && s.until > now && !lane2) return 'another worker is digging the iron level\'s stairs; try again in a few minutes';
   }
   trips.set(name, until + HOLD_MS);
   return null;
@@ -1564,6 +1650,18 @@ export function takeIronStairs(village: string, name: string, until: number): bo
   ironStairs.set(village, { name, until: until + HOLD_MS });
   return true;
 }
+
+/** MC_IRON_STAIRS2: the second stair lane taken by a miner (its own lock: one digger a lane); false when another has it. */
+const ironStairs2 = new Map<string, Hold>();
+export function takeIronLane2(village: string, name: string, until: number): boolean {
+  const s = ironStairs2.get(village);
+  if (s && s.name !== name && s.until > Date.now()) return false;
+  ironStairs2.set(village, { name, until: until + HOLD_MS });
+  return true;
+}
+
+/** Whether a level's second lane still has steps to dig (MC_IRON_STAIRS2). */
+const laneBehind = (i: IronLevel) => IRON_AGE && IRON_STAIRS2 && !(i as Lane2).stopped2 && ((i as Lane2).steps2 ?? 0) < i.steps;
 
 /**
  * MC_IRON_AGE: the current stairs given up when no bot can get to them (I4: a start in a branch passed undug, four trips
@@ -1921,6 +2019,18 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
   let dugNow = 0, laid = '', endedHere = false;
   const tail = () => (IRON_AGE ? `; ${dugNow} cells dug this trip${i.level !== undefined ? `; level y=${i.level}` : ''}${laid ? `; ${laid}` : ''}` : '');
   let why = '';
+  // (MC_IRON_STAIRS2: both lanes dug to the level, and digging the second; null when the trip goes on)
+  const twoLanes = () => IRON_AGE && IRON_STAIRS2 && !!(i as Lane2).lane && (i as Lane2).steps2 === i.steps && i.level !== undefined;
+  const laneTrip = async (): Promise<string | null> => {
+    try {
+      const r2 = await digLane2(a, v, m, i, signal, until);
+      if (r2 === TIME_UP) { why = 'the time was up on the iron stairs\' second lane'; return why + tail(); }
+      if (r2 === UNLOADED) { why = 'the iron stairs\' second lane is not loaded'; return why + tail(); }
+      return null;
+    } finally {
+      if (ironStairs2.get(v.name)?.name === a.name) ironStairs2.delete(v.name);
+    }
+  };
   try {
     if (!inMine(a, m)) await go(top, 1.5, 90000);
     for (const p of above) {
@@ -1936,7 +2046,17 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
         why = giveUpIronStairs(a, v, m, i, `could not get to the iron stairs at ${i.x},${i.y},${i.z} (stuck at ${at.floored()})`);
         return why + tail();
       }
-      if (!takeIronStairs(v.name, a.name, until)) { why = 'another worker is digging the iron level\'s stairs; try again in a few minutes'; return why + tail(); }
+      if (!takeIronStairs(v.name, a.name, until)) {
+        // (MC_IRON_STAIRS2: the second lane is its own face, beside the first, as far as the first has gone)
+        if (laneBehind(i) && takeIronLane2(v.name, a.name, until)) {
+          const r2 = await laneTrip();
+          if (r2 !== null) return r2;
+          why = `the iron stairs' second lane dug to ${(i as Lane2).steps2 ?? 0} of ${i.steps} steps while another digs the first`;
+          return why + tail();
+        }
+        why = 'another worker is digging the iron level\'s stairs; try again in a few minutes';
+        return why + tail();
+      }
     }
     if (i.level === undefined) {
       let r: string;
@@ -1954,7 +2074,15 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
       if (r === TIME_UP) { why = 'the time was up on the iron stairs'; return why + tail(); }
       if (r) { why = r === UNLOADED ? 'the iron stairs are not loaded' : `the iron stairs stopped: ${r}`; return why + tail(); }
     }
+    // (MC_IRON_STAIRS2: the second lane caught up before the tunnels, when no one else digs it)
+    if (laneBehind(i) && takeIronLane2(v.name, a.name, until)) {
+      const r2 = await laneTrip();
+      if (r2 !== null) return r2;
+    }
     const bottom = ironColumns(i).at(-1)!;
+    // (two lanes, MC_IRON_STAIRS2: down the first lane, by its middle step; up the second, below)
+    const mid = twoLanes() ? Math.max(1, Math.floor(i.steps / 2)) : 0;
+    if (mid) await go(new Vec3(i.x + i.dir[0] * mid + 0.5, i.y - mid, i.z + i.dir[1] * mid + 0.5), 1.5, 60000);
     await go(new Vec3(bottom.x + 0.5, i.level!, bottom.z + 0.5), 1.5, 120000);
     let kept = 0;
     // (MC_ORE_MINE: a drift starts only from a cell the world shows dug)
@@ -2062,6 +2190,10 @@ export async function ironTrip(a: BotAgent, v: Village, want: number, signal: Ab
     // Back up to the top of the mine's stairs (not when stopped: the rescue or the next action takes it from there)
     if (!signal.aborted) {
       const b = ironColumns(i).at(-1);
+      if (b && i.level !== undefined && twoLanes()) {
+        const k = Math.max(1, Math.floor(i.steps / 2)), [lx, lz] = (i as Lane2).lane!;
+        await go(new Vec3(i.x + i.dir[0] * k + lx + 0.5, i.y - k, i.z + i.dir[1] * k + lz + 0.5), 1.5, 60000).catch(() => undefined);
+      }
       if (b && i.level !== undefined) await go(new Vec3(i.x + 0.5, i.y, i.z + 0.5), 1.5, 120000).catch(() => undefined);
       // (and up through the levels finished above it, MC_IRON_AGE)
       for (const p of [...above].reverse()) await go(new Vec3(p.x + 0.5, p.y, p.z + 0.5), 1.5, 120000).catch(() => undefined);
@@ -2082,6 +2214,15 @@ export const MINE_SUPPORT: ReadonlySet<string> = new Set(['stone', 'deepslate', 
 /** A torch spot of the mine: its part ("mine:stairs", "mine:<leg>", "mine:down:<k>", "mine:iron"), the head-height cell
  *  and the walls it may hang on, left first (facing away from each; `support` the wall's cell). */
 export interface MineLightSpot { part: string; x: number; y: number; z: number; sides: Array<{ facing: 'north' | 'south' | 'east' | 'west'; support: [number, number, number] }> }
+
+/** The second stair lane's torch spots (MC_IRON_STAIRS2): every 7 steps from step 7 (between the first lane's, 4, 11...),
+ *  on its outer wall only (its inner side is the first lane). */
+function laneLights(i: IronLevel & Lane2): MineLightSpot[] {
+  if (!i.lane) return [];
+  const [lx, lz] = i.lane;
+  const facing = compass([-lx, -lz]) as MineLightSpot['sides'][number]['facing'];
+  return laneColumns(i).flatMap((c, k) => ((k + 1) % 7 === 0 ? [{ part: 'mine:iron', x: c.x, y: i.y - (k + 1) + 1, z: c.z, sides: [{ facing, support: [c.x + lx, i.y - (k + 1) + 1, c.z + lz] as [number, number, number] }] }] : []));
+}
 
 /** A unit's cells that get a torch, of the `dug` done: 4, 11, 18, ..., one on where it falls on a junction's cell (n % 3
  *  == 0: branches go off its sides; no tunnel, branch or turned tunnel digs a wall at any other n, the check's lattice). */
@@ -2143,6 +2284,7 @@ export function mineLights(m: Mine): MineLightSpot[] {
   if (i && i.steps) {
     const cols = ironColumns(i);
     for (const n of steps(i.steps)) out.push(across('mine:iron', cols[n - 1].x, i.y - n + 1, cols[n - 1].z, i.dir));
+    out.push(...laneLights(i));
   }
   for (const l of i?.legs ?? []) {
     tunnels('mine:iron', l);
@@ -2152,6 +2294,7 @@ export function mineLights(m: Mine): MineLightSpot[] {
   for (const p of m.ironPast ?? []) {
     const cols = ironColumns(p);
     for (const n of steps(p.steps)) out.push(across('mine:iron', cols[n - 1].x, p.y - n + 1, cols[n - 1].z, p.dir));
+    out.push(...laneLights(p));
     for (const l of p.legs) {
       tunnels('mine:iron', l);
       own(l);
@@ -2178,6 +2321,9 @@ export function mineFacesGoing(m: Mine): Array<{ x: number; y: number; z: number
   const i = m.iron;
   if (i && !i.finished) {
     if (i.level === undefined) out.push({ x: i.x + i.dir[0] * (i.steps + 1), y: i.y - i.steps, z: i.z + i.dir[1] * (i.steps + 1) });
+    // (the second lane's next step while it is behind the first, MC_IRON_STAIRS2)
+    const l2 = i as IronLevel & Lane2;
+    if (l2.lane && !l2.stopped2 && (l2.steps2 ?? 0) < i.steps) { const k = (l2.steps2 ?? 0) + 1; out.push({ x: i.x + i.dir[0] * k + l2.lane[0], y: i.y - k + 1, z: i.z + i.dir[1] * k + l2.lane[1] }); }
     // (a drift, MC_ORE_MINE, kept per part: its next main cell)
     for (const l of i.legs) if (!l.end) { const c = l.br ? cellAt(l, 'main', mainOf(l) + 1) : tunnelCell(l, l.dug); out.push({ x: c.x, y: l.y + 1, z: c.z }); }
   }

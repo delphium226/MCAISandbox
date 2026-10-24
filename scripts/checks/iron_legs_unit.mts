@@ -243,12 +243,36 @@ if (ORE) {
   const dl = MM.oreDrift(lvl([[25, 18, 6]]))!.leg;
   const md = { ...m, iron: { ...level({ legs: [dl] }), drifts: [[0, 6]] } } as unknown as Mine;
   ok(MM.mineFacesGoing(md).some((f) => f.x === 25 && f.z === 1 && f.y === 19), 'a drift\'s face is its next main cell');
+
+  // MC_IRON_STAIRS2 (#101, in this run too): the second lane's shape, protection, torches and faces, and its own lock
+  {
+    const two = { ...level({ steps: 9, legs: [] }), dir: [0, 1] as [number, number], x: 0, z: 0, y: 40, lane: [1, 0] as [number, number], steps2: 9 } as IronLevel;
+    const cols = MM.laneColumns(two as never);
+    ok(cols.length === 9 && cols.every((c, k) => c.x === 1 && c.z === k + 1), `the second lane: the first's columns one block over (${JSON.stringify(cols.slice(0, 2))})`);
+    const mm = { ...m, iron: two } as Mine;
+    const box = MM.mineAreas(mm).find((b) => b.y2 === 42)!;
+    ok(!!box && box.x1 === -1 && box.x2 === 2, `the stairs' box takes in the second lane and a block around (${box?.x1}..${box?.x2})`);
+    const spots = MM.mineLights(mm).filter((q) => q.x === 1);
+    ok(spots.length === 1 && spots[0].z === 7 && spots[0].sides.length === 1 && spots[0].sides[0].support[0] === 2, `a torch on the second lane's outer wall at step 7 (${JSON.stringify(spots)})`);
+    const behind = { ...two, level: undefined, steps2: 4 } as IronLevel;
+    ok(MM.mineFacesGoing({ ...m, iron: behind } as Mine).some((f) => f.x === 1 && f.z === 5), 'the second lane\'s next step is a face while it is behind');
+    // One digger a lane: the first takes the stairs, a second the other lane, a third waits
+    const until = Date.now() + 60000;
+    const s = level({ level: undefined, legs: [] });
+    ok(MM.ironGate('L', 'Ada', s, until) === null && MM.takeIronStairs('L', 'Ada', until), 'the first digs the first lane');
+    ok(MM.ironGate('L', 'Ben', s, until) === null && MM.takeIronLane2('L', 'Ben', until), 'a second comes in for the second lane');
+    const st = MM.ironGate('L', 'Cal', s, until);
+    ok(!!st && /stairs/.test(st) && !MM.takeIronLane2('L', 'Cal', until), `a third waits: both lanes held (${st})`);
+    MM.releaseIronClaims('L', 'Ben');
+    ok(MM.ironGate('L', 'Cal', s, until) === null && MM.takeIronLane2('L', 'Cal', until), 'the second lane free again for the next');
+    for (const n of ['Ada', 'Cal']) MM.releaseIronClaims('L', n);
+  }
 }
 
-// The ore mine's checks, in a second run with the flag on (the flags are read once, at import)
+// The ore mine's and the two-lane stairs' checks, in a second run with the flags on (the flags are read once, at import)
 if (!ORE) {
   const { spawnSync } = await import('node:child_process');
-  const r = spawnSync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/checks/iron_legs_unit.mts'], { env: { ...process.env, MC_ORE_MINE: 'on' }, encoding: 'utf-8' });
+  const r = spawnSync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/checks/iron_legs_unit.mts'], { env: { ...process.env, MC_ORE_MINE: 'on', MC_IRON_STAIRS2: 'on' }, encoding: 'utf-8' });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   for (const l of out.split('\n')) if (l.startsWith('FAIL')) console.log(`${l} (MC_ORE_MINE)`);
   const n = /: (\d+)\/(\d+) checks/.exec(out);
