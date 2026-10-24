@@ -851,6 +851,15 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   command and counted**, one list element a read (`data get block ... Items[i]`: the whole list's reply is cut short past
   a few stacks); **a bounty's emerald is taken from the commons above the merchant's keep (one of each used sold item
   kept), else minted**.
+- 10-24 (the user's, G8 #21, the letters spec `runs/2026-10-24/letters/spec.md`) **The letters rung as recommended**:
+  its new skills are written by hand behind MC_LETTERS (the foundry stays parked until the enchantment rung's cast
+  obsidian); leather from the merchant plus fishing's trickle (no cows, no culling); the first library is
+  plains_library_2's own 4 shelves and lectern plus the enchanting table's book (16 books: 48 cane, 16 leather); the
+  first cane is bought from the merchant, not searched for.
+- 10-24 (the user's, #5) **A second agent-server process, when needed, is a brain/body split**: one village process keeps
+  all shared state and the model gate and makes every choice; body processes (~12 bots each) run the bots, walks and
+  skills and call the village over a local socket. Not a shared store with locks. Worker threads for pathfinding come
+  first if the event loop is ever the limit; at 25 it is not (0 [lag] lines since 10-23).
 - 10-24 (the user's, home basics `runs/2026-10-24/home-basics/spec.md`, MC_HOME_BASICS) **Every member's house gets a
   bed, a chest and a crafting table early**: three cells per owned dwelling (buildingDecor's `basics`, ahead of the
   furniture), set by command and charged to storage (table 1 log, chest 2 logs, bed 3 wool of one colour + 1 log or a

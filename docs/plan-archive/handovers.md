@@ -3,6 +3,38 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-24 ~09:45 by the planning session, handing over to a fresh planning session because its context
+was full; the strategy is `docs/STRATEGY.md`; the live state (sessions and their ids, what waits on the user) is in
+`runs/2026-10-24/planning/state.md`)
+
+- **How work runs:** the planning session owns `docs/STRATEGY.md` and this handover; work sessions get briefs (in
+  `runs/2026-10-2*/planning/`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder of ages**
+  (iron first, then letters, diamond, enchantment, the Nether). **The foundry is parked** (the user's, 10-23).
+- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`; everything committed is pushed (to
+  e235282). **Uncommitted:** g2-social's #101 two-lane stairs (`server/src/mineflayer/mcMine.ts`,
+  `server/src/ladderFlags.ts`, `scripts/checks/iron_legs_unit.mts`), left for it to finish and commit.
+- **Done on 10-23** (F290-F304, lessons 166-177; reports in `runs/2026-10-23/<session>/`):
+  - Long1-Long4 (10-hour observation runs on world 4) ended early; lessons: an app update killed detached runs (#99
+    fixed: detach.py starts runs outside the app's job), MC_APPETITE 60 starves a village, hourly monitoring must live
+    outside the session (F290, F291, F294);
+  - G3 done: laws reach the council (980a287), F298-F300; Experiment 2 at its ceiling (#109 for 2b);
+  - the iron age's blockers (I1-I7, F293), harvest_amethyst's freezes (#106, a9dec71);
+  - monoculture W1/M1 (F297) and W2/M2 (F302): wealth councils reject duties, about a quarter vote a 0% levy, payments
+    barely used (lesson 176); #108 payments built (MC_PAY), #111 holds what is left;
+  - building variety (#104): the jar's pieces and wood variants (MC_VANILLA_ALL, MC_WOOD_VARIANTS), members' own
+    houses (MC_GEN_HOMES, F303); open-sided storage hut;
+  - MC_LLM_LIMITS=off (0fd305a); All1 (124 min, all features, limits off: F304, the model makes 49% of choices,
+    $1.19 for 2 h) and its four fixes (e235282: #113 iron dead end, member bans, the model's backup choice, #114);
+  - conversations research (#107: news and questions first, then council deliberation; the user's choices 10-23).
+- **In progress:** g2-social, #101 two-lane stairs (`MC_IRON_STAIRS2`, off): staged F1 (before, from a snapshot of
+  e235282) then F2 (flag on) on world 1, judged by turned-away iron trips, [stuck] by depth, stair cells per level and
+  time to open a level; then commit, push (approved) and close #101 if settled.
+- **Open next:** #111 (#108's leftovers), #112 port exhaustion, #109 Experiment 2b, #107 conversations, G7 (talking
+  with the village, after G2), #100/#105 vein mining, #102/#103 iron leftovers. The next model-driven run uses
+  MC_LLM_LIMITS=off with all flags on; nothing scheduled.
+- **The user's open choices:** default flags (memory, clock, social, character, pay, gen homes); when the foundry is
+  unparked (its next ticket: cast obsidian, the enchantment rung).
+
 (written 2026-10-23 ~00:20 by the planning session, at the user's shutdown for the night; the strategy is
 `docs/STRATEGY.md`)
 

@@ -123,7 +123,23 @@ Every work session:
 - commits its own tested files (staging only its own) and asks before pushing;
 - records findings, runs, decisions and lessons in the logs as usual, and its notes in `runs/<date>/<session>/`;
 - ends with a report: commits; the behaviour seen and how it was judged; the health check before and after; findings (F
-  numbers); decisions made and still open; issues closed or filed.
+  numbers); decisions made and still open; issues closed or filed;
+- **watches its own context** (the user's, 10-24): from about 70% of the window it takes no new task and finishes the one
+  it has; at about 85% mid-task it stops at the next safe point (no half-made edit, no run waiting on it), writes a
+  resume note in `runs/<date>/<session>/` and says so in its report, and a fresh session takes over from the note. The
+  planning session checks a session's context (the app's usage tool) when it reports and before giving it new work, and
+  starts the next brief in a fresh session rather than in one past 70%;
+- **leaves live testing to the test train** (the user's, 10-24): a build session stops at the offline ladder
+  (typecheck, `check:offline`, the goldens, a new check for its piece, a bench or `MC_MODEL_REPLAY` if a prompt
+  changed) plus at most one short targeted live check, and only for what needs the real world (walks, digs, placing);
+  it commits with its flag off and reports the flag ready. **The test train** is one test session, started by the
+  planning session once or twice a day or after each step on the busiest files: it gathers every flag built since the
+  last train into one `run_series` spec, splits per-member features by member inside one run (half the members on, by
+  seed) and per-message ones by holdout (as `MC_TALK_HOLDOUT`), pairs village-wide flags on/off with several sharing
+  one pair, runs the pairs on all free test worlds at once from the standard checkpoints (not from scratch), screens
+  ideas in the simulator first, and reports per flag. When a combined run goes wrong, the split, the pairs and the logs
+  point to the flag; a rerun with half the flags settles the rest. The combined model-driven run is the train's big
+  run.
 
 ## How the planning session works
 
@@ -162,3 +178,8 @@ number rather than a goal.
 - 2026-10-23: **G3 done** (F298-F300; #30, #33 closed): laws read and voted (36 laws, 4 passed, 3 failed on members' own
   stakes; compliance 90% contribution, 64% help duty). Experiment 2 stopped at a ceiling (the levy paid 98-100% voted or
   imposed; the user's choice), redesign in #109.
+- 2026-10-24 (the user's): work sessions watch their context: no new task past ~70%, a resume note and a fresh session
+  at ~85% (Rules for work sessions).
+- 2026-10-24 (the user's): **live tests move to a test train**: build sessions stop at offline checks and commit with
+  flags off; one test session runs every new flag together (per-member splits, holdouts, shared on/off pairs, all free
+  worlds, standard checkpoints) once or twice a day (Rules for work sessions).

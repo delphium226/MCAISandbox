@@ -34,37 +34,38 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-24 ~09:45 by the planning session, handing over to a fresh planning session because its context
-was full; the strategy is `docs/STRATEGY.md`; the live state (sessions and their ids, what waits on the user) is in
-`runs/2026-10-24/planning/state.md`)
+(written 2026-10-24 ~16:30 by the planning session local_81ead10e; the strategy is `docs/STRATEGY.md`; the live state
+(sessions and their ids, the queue, what waits on the user) is in `runs/2026-10-24/planning/state.md`)
 
 - **How work runs:** the planning session owns `docs/STRATEGY.md` and this handover; work sessions get briefs (in
-  `runs/2026-10-2*/planning/`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder of ages**
-  (iron first, then letters, diamond, enchantment, the Nether). **The foundry is parked** (the user's, 10-23).
-- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`; everything committed is pushed (to
-  e235282). **Uncommitted:** g2-social's #101 two-lane stairs (`server/src/mineflayer/mcMine.ts`,
-  `server/src/ladderFlags.ts`, `scripts/checks/iron_legs_unit.mts`), left for it to finish and commit.
-- **Done on 10-23** (F290-F304, lessons 166-177; reports in `runs/2026-10-23/<session>/`):
-  - Long1-Long4 (10-hour observation runs on world 4) ended early; lessons: an app update killed detached runs (#99
-    fixed: detach.py starts runs outside the app's job), MC_APPETITE 60 starves a village, hourly monitoring must live
-    outside the session (F290, F291, F294);
-  - G3 done: laws reach the council (980a287), F298-F300; Experiment 2 at its ceiling (#109 for 2b);
-  - the iron age's blockers (I1-I7, F293), harvest_amethyst's freezes (#106, a9dec71);
-  - monoculture W1/M1 (F297) and W2/M2 (F302): wealth councils reject duties, about a quarter vote a 0% levy, payments
-    barely used (lesson 176); #108 payments built (MC_PAY), #111 holds what is left;
-  - building variety (#104): the jar's pieces and wood variants (MC_VANILLA_ALL, MC_WOOD_VARIANTS), members' own
-    houses (MC_GEN_HOMES, F303); open-sided storage hut;
-  - MC_LLM_LIMITS=off (0fd305a); All1 (124 min, all features, limits off: F304, the model makes 49% of choices,
-    $1.19 for 2 h) and its four fixes (e235282: #113 iron dead end, member bans, the model's backup choice, #114);
-  - conversations research (#107: news and questions first, then council deliberation; the user's choices 10-23).
-- **In progress:** g2-social, #101 two-lane stairs (`MC_IRON_STAIRS2`, off): staged F1 (before, from a snapshot of
-  e235282) then F2 (flag on) on world 1, judged by turned-away iron trips, [stuck] by depth, stair cells per level and
-  time to open a level; then commit, push (approved) and close #101 if settled.
-- **Open next:** #111 (#108's leftovers), #112 port exhaustion, #109 Experiment 2b, #107 conversations, G7 (talking
-  with the village, after G2), #100/#105 vein mining, #102/#103 iron leftovers. The next model-driven run uses
-  MC_LLM_LIMITS=off with all flags on; nothing scheduled.
-- **The user's open choices:** default flags (memory, clock, social, character, pay, gen homes); when the foundry is
-  unparked (its next ticket: cast obsidian, the enchantment rung).
+  `runs/2026-10-24/planning/brief_*.md`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder
+  of ages.** The foundry is parked. New rules today (STRATEGY.md): **the context rule** (no new task past ~70% of a
+  session's context; safe stop and resume note at ~85%) and **the test train** (build sessions stop at offline checks
+  and commit with flags off; one test session runs every new flag together once or twice a day).
+- **Where the work lives:** the private repo; pushed to c8cf8f9 (home basics) plus later commits named below.
+- **Done on 10-24** (F305-F309, lesson 178):
+  - **G8's iron rung reached in a model-driven run** (W4, from a blank map, village day 2; stages 600 cells, 30 raw
+    iron, 24 ingots); then the village voted for letters (11 of 25);
+  - #101 two-lane stairs built and parked (aef401f); #100 the vein dig judged model-driven (150cf29, F305); #112 kept
+    connections (b35e0e5); #111 payments' leftovers and #107 news, questions, deliberation (b0b2d2e, F306-F308); #102
+    the forge (55fb96d);
+  - #21 **the letters rung** (6ec32ca, MC_LETTERS; spec `runs/2026-10-24/letters/spec.md`, the user's four choices):
+    reached in a staged run on the im2_room checkpoint at 21.3 min (d5736a1); in W4 it sits at stage 0 (to read);
+  - **home basics** (c8cf8f9, MC_HOME_BASICS, F309): a bed, chest and crafting table in every owned house, pinned as a
+    basic need; live in W1: all 25 houses had all three;
+  - research: all choices to the model (`runs/2026-10-24/llm-autonomy/report.md`: the model is asked on every real
+    decision but only 32% of answers run; the limits are the option space, one-chore horizons and no feedback);
+    idle-time issues consolidated under #131.
+- **In progress:** storage-grows (#121, MC_STORAGE_GROW) in the shared-files lane; observe-run's W4 on world 3 (the
+  user's observation run, every flag on, final report ~18:21).
+- **The shared-files queue** (`mcWorld.ts`, `choose.ts`, `mcBuild.ts`, one writer): #121 -> #97 (taken options) ->
+  #117 (own state, goal meaning, scarcity, the ambition, Maslow's basic needs pinned) -> #122 (gated options) -> #115
+  (run profiles) -> **the combined model-driven run** -> #130/#124 -> #125/#118 -> #119 -> #123, #31. A second lane for
+  work outside those files: #129/#130's offline checks, #124's library. The first test train after #121.
+- **Filed today:** #115, #117-#119, #120-#121, #122-#133 (#131 tracks free time and autonomy; #133 a stuck member
+  stalls the build).
+- **The user's open choices:** default flags (MC_ORE_VEIN recommended on after the combined run); when the foundry is
+  unparked (the enchantment rung).
 
 ## Earlier phases
 
@@ -757,8 +758,12 @@ Design rules on top of Phase A's:
    - a request addressed to an idle agent (at most once in 5 minutes);
    - a human's chat line (code picks 1-3 responders);
    - an agent's name in a line (case-sensitive, agent names only).
+   - a question (`MC_QUESTIONS`, #107, the user's 10-23): it starts the addressee's answer call, depth 1 (an answer
+     cannot ask or tell), a question to "anyone" goes to one answerer chosen by code, answers run in the gate's low
+     class and are billed to the asker.
 
-   Acts per hour can then never exceed decisions per hour, which makes lesson 4's storm impossible by construction.
+   Acts per hour can then never exceed decisions per hour, and answers never exceed questions (themselves acts), which
+   makes lesson 4's storm impossible by construction.
 3. **Facts are global and checked by code. Culture is per agent.** Each agent sees only what it has heard, so convergence on names and sayings has to emerge; code never shows a winner.
 4. **Code labels and measures every outcome:** activity kinds, deposits counted on the server, uses of a cultural item. No model judges an outcome.
 5. **The brain modules stay world-free** (lesson 66: add beside the brain's state, not inside it). The new modules are:
