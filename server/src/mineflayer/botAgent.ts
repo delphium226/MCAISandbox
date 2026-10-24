@@ -17,6 +17,7 @@ import { ContentionError, at, goals, walk } from './mcUtil';
 import { mineAreas } from './mcMine';
 import { rescue } from './mcRescue';
 import { timeScale } from './mcRules';
+import { isPaused } from '../runClock';
 import { WALK_DIG } from './mcBlocks';
 
 const { pathfinder, Movements } = pathfinderPkg;
@@ -541,6 +542,8 @@ export class BotAgent implements WorldAgent {
 
   tick() {
     if (!this.bot.entity) return;
+    // (#115: a paused run starts nothing and thinks nothing; an action under way runs on in the frozen world)
+    if (isPaused()) return;
     this.brain?.tick?.(this);
     this.selfDefence();
     if (this.reflex || this.current || !this.queue.length) return;

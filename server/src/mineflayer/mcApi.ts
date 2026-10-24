@@ -25,6 +25,7 @@ import type { Village } from '../village';
 import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from '../wanted';
 import { MC_SKILLS } from './mcSkills';
 import type { MineflayerWorld } from './mcWorld';
+import { pause, resume, runState } from '../runClock';
 import { rawSetting } from '../settings';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
@@ -140,6 +141,13 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
 
   // Load at a glance (E.1): memory, the event loop, the world tick, RCON and the panel's overview
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
+  // #115: the run's pause: GET its state (pausedMs: time paused so far); POST pause or resume (Paper's ticks frozen with it)
+  if (parts[1] === 'run' && !parts[2] && req.method === 'GET') return sendJson(res, 200, runState());
+  if (parts[1] === 'run' && (parts[2] === 'pause' || parts[2] === 'resume') && req.method === 'POST') {
+    const changed = parts[2] === 'pause' ? pause() : resume();
+    const tick = changed ? await w.rcon.command(parts[2] === 'pause' ? 'tick freeze' : 'tick unfreeze').catch((e: Error) => `rcon: ${e.message}`) : '';
+    return sendJson(res, 200, { ...runState(), changed, tick });
+  }
   // A.3p: every named agent's temperament, kind weights and persona line, and the mode in force
   if (parts[1] === 'temperaments') return sendJson(res, 200, { mode: TEMPERAMENT_MODE, agents: temperamentTable() });
   // The first vote (spec_vote1): every village's votes (?village= one), the tally, each ballot and its reason

@@ -96,6 +96,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
 from agent_names import worker_names  # noqa: E402
 from http_keepalive import urlopen  # noqa: E402 (#112: one kept-alive connection per agent server)
+from run_pause import PauseClock  # noqa: E402 (#115: paused time left out of the clocks)
 from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines, tail_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
@@ -1108,8 +1109,16 @@ def stock_line(v, force=False):
         print(f"STOCK {stamp()} {json.dumps(tot, sort_keys=True)}", flush=True)
 
 
+pauses = PauseClock(API)
 while time.time() - t0 < args.minutes * 60 and reason == "time limit":
     time.sleep(3)
+    # (#115: paused time counts for no clock: the limit, the stall timers)
+    _paused = pauses.step()
+    if _paused:
+        t0 += _paused
+        last_done += _paused
+        for _n in last_ok:
+            last_ok[_n] += _paused
     for n in watched:
         events = call(f"/agents/{n}/events?since={seen[n]}")
         if not isinstance(events, list):
@@ -1903,6 +1912,10 @@ if args.after and reason == "every building is done":
         print(f"AFTER until {','.join(until)} (or {args.after:g} min)", flush=True)
     while time.time() - t2 < args.after * 60:
         time.sleep(3)
+        _paused = pauses.step()
+        if _paused:
+            t2 += _paused
+            last_busy += _paused
         listing = call("/agents")
         clock.sample(listing, "after")
         if isinstance(listing, list):

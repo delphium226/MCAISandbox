@@ -10,7 +10,12 @@ registry `server/src/settings.ts` (#115): a new setting is an entry there, read 
 `kind` (staged, model, checkpoint) and its settings under `settings`. `scripts/profile.mts list`, `check NAME` (errors,
 acceptance warnings, a cloud cost estimate from recent model-driven runs); a run_series run or spec takes `"profile":
 "NAME"` under its own keys, and every run_series run writes `NAME.profile.json` (settings given, every setting's value,
-commit, world) beside its log.
+commit, world) beside its log. Culture: `MC_CHARACTER_MIX=wealth:40,invention:60` (archetypes wealth, invention,
+community, tradition, beauty, `drawn`; seed `MC_CHARACTER_SEED`; custom ones as a profile's `archetypes`), a run_series
+`"sweep": {SETTING: [values]}` for one run per value, `scripts/bench/archetypebench.mts` for an archetype's picks.
+**Run control**: `python scripts/runctl.py status | start PROFILE --world N | pause N | resume N | stop N | serve` (pause
+holds new chores, choices and model calls, freezes Paper's ticks, and the watch scripts leave paused time out;
+`GET /api/run`, `POST /api/run/pause|resume`).
 
 ## Running and checking
 

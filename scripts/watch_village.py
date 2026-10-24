@@ -30,6 +30,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "checks"))
 from agent_names import worker_names  # noqa: E402
 from http_keepalive import urlopen  # noqa: E402 (#112: one kept-alive connection per agent server)
+from run_pause import PauseClock  # noqa: E402 (#115: paused time left out of the clocks)
 from autonomy_metrics import BoardStamps, BusyClock, critical_path_lines  # noqa: E402
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 village, x, z, workers, minutes, objective = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), int(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
@@ -808,8 +809,16 @@ class FoodWatch:
 
 grow = GrowWatch(t0, len(names))
 
+pauses = PauseClock(API)
 while time.time() - t0 < minutes * 60:
     time.sleep(5)
+    # (#115: paused time counts for no clock: the limit, the stall timers)
+    _paused = pauses.step()
+    if _paused:
+        t0 += _paused
+        last_done += _paused
+        for _n in last_ok:
+            last_ok[_n] += _paused
     for n in names:
         try:
             events = call(f"/agents/{n}/events?since={seen[n]}")
@@ -886,6 +895,9 @@ if after and reason == "objective declared complete":
     clock.restart()
     while time.time() - t2 < after * 60:
         time.sleep(5)
+        _paused = pauses.step()
+        if _paused:
+            t2 += _paused
         agents_now = listing()
         clock.sample(agents_now, "after")
         for n in names:

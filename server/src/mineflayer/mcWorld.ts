@@ -56,6 +56,7 @@ import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, v
 import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE } from '../ladderFlags';
+import { isPaused } from '../runClock';
 import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
@@ -1957,7 +1958,8 @@ export class MineflayerWorld implements WorldAdapter {
    */
   private farmChores() {
     const now = Date.now();
-    if (now - this.farmCheckAt < 30000) return;
+    // (#115: a paused run gives no chores and makes no choices)
+    if (isPaused() || now - this.farmCheckAt < 30000) return;
     this.farmCheckAt = now;
     const wheat = this.registry.blocksByName.wheat;
     if (!wheat) return;

@@ -29,6 +29,7 @@ import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolDef } from './world';
 import { usage, isCloudModel, thinkFor, type CallKind, type ReasoningLevel } from './modelUsage';
+import { whilePaused } from './runClock';
 import { rawSetting } from './settings';
 
 export const OLLAMA_URL = rawSetting('MC_OLLAMA_URL') ?? 'http://localhost:11434';
@@ -540,6 +541,8 @@ export async function callModel(req: CallRequest): Promise<{ reply: Reply; ms: n
   if (replay) console.log(`[replay] ${agent} ${kind} #${callNo}: nothing recorded; calling ${label(spec)}`);
   // A refusal comes at once, holding no slot (and once more after the wait: the budget may trip meanwhile)
   if (usage.blocked(spec.model, agent)) usage.check(spec.model, agent, kind);
+  // (#115: a paused run's calls wait here, before taking a slot; calls in flight finish)
+  await whilePaused(req.signal);
   let slot: { release: () => void; waitMs: number };
   try {
     slot = await gate.acquire(gateKey(spec), req.priority, req.maxWaitMs ?? MAX_WAIT_MS[req.priority], req.signal);
