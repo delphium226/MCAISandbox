@@ -320,6 +320,10 @@ export interface ChoiceContext {
   inbox?: string[];
   /** G2 (MC_ACTS=on): the acts on offer this decision (acts.ts actsHelp); with it the tool carries the act and say fields. */
   acts?: string;
+  /** #107 (MC_NEWS, MC_QUESTIONS): news heard and answers to the member's questions, each its own section (acts.ts
+   *  newsLines, answerLines). */
+  news?: string[];
+  answers?: string[];
   /** The agent's last <= 5 chore ends, one line each. */
   outcomes: string[];
   /** N.1 (MC_NEEDS=on): the village's needs at LOW or above, most acute first (<= 3, "31 unlit spots in 6 buildings"). */

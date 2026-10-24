@@ -830,3 +830,24 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   own order** (position bias 2x, F299).
 - 10-23 (the user's, Experiment 2) **Sized as a vignette bench plus 5 voted vs 5 imposed live runs; then, after the pilot
   and the bench showed the measure at ceiling (F300), reported as a ceiling with no live runs.**
+- 10-24 (the user's choice 3 of 10-23, #107) **PLAN's design rule 2 changes: a member's question starts the addressee's
+  own answer call** (MC_QUESTIONS). Its safeguards keep the rule's guarantee against lesson 4's storm without limiting
+  calls: an answer is plain words with no tools, so it can neither ask nor tell (depth 1); a question to anyone goes to one
+  answerer code picks; answers run in the gate's low class and never take the last slot even with MC_LLM_LIMITS=off; the
+  budget turns them off at 85% (after reflections, before acts); they are billed to the asker and count toward no
+  decision gap or cap; they are shown a village day.
+- 10-24 (the user's choice 2 of 10-23, #107) **News passes attributed and unchecked** (MC_NEWS): code tags each line
+  checked, refuted or unchecked for the measures and refuses none of them; a retelling carries its first teller and is
+  not passed on again.
+- 10-24 (Claude's, #107) **News and questions are offered with the acts** (the acts' cadence: every decision under
+  MC_LLM_LIMITS=off), delivered whether or not the pick ran; **the holdout draws per message, seeded by its id**, and an
+  answer is withheld after its call is made (the would-be answer is then known); **the small fixes ride behind their own
+  flag** (MC_ACT_FIXES) so the goldens stay; **the second wording of the news and question lines** (talkbench: news in
+  1-3% of replies with the first, 3-4% unprompted and 12-26% retelling a told shortage with the second).
+- 10-24 (Claude's, #107) **Deliberation's zero-cost form shows a later voter at most 4 earlier reasons an item, the
+  latest 2 of each side**, attributed with the side ("Dev (against): ..."): the ballot stays secret as a tally, the
+  reasons are what members said before voting.
+- 10-24 (Claude's, #111) **The levy owed the commons (payments' and merchant_own's) is written into a storage chest by
+  command and counted**, one list element a read (`data get block ... Items[i]`: the whole list's reply is cut short past
+  a few stacks); **a bounty's emerald is taken from the commons above the merchant's keep (one of each used sold item
+  kept), else minted**.

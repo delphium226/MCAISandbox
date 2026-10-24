@@ -316,6 +316,26 @@ the short version; look here for a check script's arguments, a model detail or w
   prompts byte-identical to G1a's), `prompt_audit.py RUN.acts.jsonl --arm on|off [--roles]`, `spec_index.py` (E.8's
   specialisation index, persistence, and `--arms A=... B=...` the exact permutation contrast),
   `scripts/bench/socialbench.mts` (A acts and requests, B a broken promise's counterfactual, on G1a's real prompts).
+- **Payments (#108, #111; `pay.ts`, `mcPay.ts`; spec `runs/2026-10-23/payments/spec.md`; all off):** `MC_PAY=on` (needs
+  `MC_ACTS` and `MC_OWN`): priced requests (`act_price`, `act_steps` for wages on a project), the `pay` act, a purse of
+  `MC_PURSE` 4, prices 1 to `MC_PAY_MAX` 8, the levy on contracts (`MC_PAY_LEVY=contracts|off`, at G3's voted rate or
+  `MC_LEVY`), the prompt's price guide; `MC_PAY_BOUNTY=0.5` (test only: a 1-emerald bounty on a random half of unpriced
+  requests, from the commons' emeralds above the merchant's keep, else minted). The levy owed (payments' and
+  merchant_own's sales levy) is written into a storage chest by command and counted at each sweep (`storeByCommand`,
+  `levySweep`; `[pay] levy deposited`). Test hook `POST /api/village/V/pay` with an act, or `act: test:state|hold|release|
+  empty` (contracts and projects; deliveries held off menus; an item taken out of storage). Checks `pay_ledger.mts`,
+  `pay_acts.mts`, `pay_store.mts` (the command deposit against a fake server); the staged driver
+  `runs/2026-10-24/g2-talk-pay/pay111_inject.py`; measures `python scripts/pay_use.py VILLAGES_JSON ACTS_JSONL`; bench
+  `scripts/bench/paybench.mts` (priced against unpriced uptake, prices set, on Long4's prompts).
+- **Talk (#107; `acts.ts`, `council.ts`; all off):** `MC_NEWS=on` (a `news` field: delivered within 16 blocks whether or
+  not the pick ran, in a "News you heard" section, passed on once, attributed, tagged checked/refuted/unchecked for the
+  measures only), `MC_QUESTIONS=on` (`question` and `question_to`: starts the addressee's answer call, one code-picked
+  answerer for anyone, kind and priority `answer`: the gate's low class, billed to the asker, no decision counted, off at
+  85% of the hourly budget; answers shown a village day), `MC_DELIBERATE=on` (later voters' ballots show up to 4 earlier
+  reasons, both sides), `MC_TALK_HOLDOUT=0.5` (a seeded half of news items and answers withheld per message, the would-be
+  hearers logged), `MC_ACT_FIXES=on` (a bare "axe" is the best made axe; a fixed or repeat pick accepts an unpriced
+  request). Check `talk_acts.mts`; measures `python scripts/talk_use.py RUN.acts.jsonl`; bench
+  `scripts/bench/talkbench.mts` (a told shortage, and how often news and questions are written, on Long4's prompts).
 
 ## Members' proposals and their triage (G5, goal 3; 2026-10-22)
 

@@ -1988,3 +1988,51 @@ CLAUDE.md when a phase ends.
     from 18 ores; Lena brought up 18. Fixed with a lock on each vein ore being dug.
   - **Not measured:** ore left in the faces. No checkpoint was saved and both worlds have been reset.
   Logs: runs/2026-10-24/finish-100/ (report.md, trips.py).
+- F306 (10-24, g2-talk-pay, #111, paybench on Long4's real prompts) **A price does not draw members to a request: a
+  2-emerald request's option was chosen as often as the same request unpriced (26% against 27% of 258 replies, 53
+  decisions x 5; by decision 11 higher, 13 lower, 29 equal), and the prices gpt-oss sets are 1 emerald.**
+  - Where a reply noticed the money (43 of 265 priced replies name emeralds or pay) it took the job (38 of 43), but the
+    total did not move: members who would take it anyway now give the price as a reason.
+  - Wealth-preset members took the asked option more in both arms (56% and 58%, 5 decisions), not more for the price.
+  - Offered the pay paragraph and a guide (logs about 2, torch and charcoal about 1), members wrote a request in 13 of 120
+    replies and priced 9: eight at 1 emerald and one at 0 (refused), whatever the guide or the item (a stone axe, a
+    fishing rod, a signpost); wealth-preset members priced none of their 2.
+  - So the monoculture rerun with MC_PAY on should expect few and cheap contracts; prices settling per good needs
+    scarcity first (lesson 176). Logs: runs/2026-10-24/g2-talk-pay/paybench1.txt.
+- F307 (10-24, g2-talk-pay, #107, talkbench on Long4's real prompts) **A told shortage barely moves choices, members
+  pass told news on readily, and gpt-oss never asks a question.**
+  - A food shortage told in the news section moved choices toward food from 19% to 22-23% (40 decisions with food among
+    other options, 3-5 samples, three runs): +3 to +8 points where the prompt already said members were hungry, none where
+    it did not. By decision: told higher in 4-7, lower in 4-5, equal in the rest.
+  - With the first wording of the news line members wrote news in 1-3% of replies; with the second (concrete cases to
+    tell) 3-4% unprompted and 12-26% when they had just been told the shortage, nearly all retelling it attributed ("Rosa
+    said the storage has no food left...").
+  - Not one question in 880 replies, with either wording or a concrete field description.
+  - So news will spread a told problem but adds little to the choice it is about, and questions will come only from
+    something other than the decision prompt (a scripted trigger, a failed chore, a night's reflection). Logs:
+    runs/2026-10-24/g2-talk-pay/talkbench1-3.txt.
+- F308 (10-24, g2-talk-pay, #111 and #107 staged, world 2, from ov_v1, 25 scripted members, 2x fast, 25 min after)
+  **Every path fires in a staged run: the levy deposited by command, bounties from the commons, a wage step, a delivery
+  emptied before it ran, news delivered, retold once and held out, questions answered by a model call, and voters shown
+  earlier reasons.**
+  - **Payments (TalkOn):** 18 contracts: a charcoal delivery paid 2; a torch delivery whose 18 torches were taken out of
+    storage by command first refunded `short` (nothing reached the buyer; the deliverer unpaid, the promise moot); a wage
+    on a project paid 1 of its 2 steps before the project closed and refunded the rest; 15 bounties (2 funded from the
+    commons, 13 minted: storage held under the merchant's keep), 12 control requests. The levy owed (one sales levy and 8
+    bounty refunds) was written into storage by command and counted, 9 emeralds; while storage was full it stayed owed
+    and went in later. The emeralds the ledger sees match its rows plus merchant and barter trades.
+  - **The first command deposit failed:** `data get block ... Items` returns the list cut short past a few stacks, so a
+    full chest read as nearly empty (Pay111's emptying took 0 of 33 torches). Read one element at a time (lesson 178).
+  - **Talk (TalkOn):** 25 news items (17 retellings, 14 held out), 17 dropped (13 already passed on once, 4 repeats);
+    3.5 hearers an item; an item reached 7.5 members in 5 minutes, 9.8 in 10. A retelling first matched any two shared
+    words ("short of glass" retold "short of torches"): now 3. 11 questions, all to anyone, to 10 different answerers,
+    each answered once by one call in about 1 s (3 answers held out); answers were plain and sometimes useful ("the sheep
+    have been grazing near the western edge of the wheat fields"). 24 of 25 ballots were shown earlier reasons (10.8
+    lines a ballot).
+  - **Health check (scorecard, 25 min, one run each):** TalkBase (payments and talk off) busy 37%, chore busy 24.5%,
+    6 works, 2 barter, 0 merchant trades; TalkOn busy 44%, chore busy 34.0%, 6 works, 3 barter, 4 merchant trades (the
+    purses bought 23 fishing rods). No verdict under 2 hours.
+  - **Walk stalls:** [stuck] 17 in TalkBase, 72 in Pay111 (payments only), 162 in TalkOn, 159 of them three members:
+    Wren in a 7-deep pit under the storage hut (-1629,59,19), Uma and Clara far west. Not traced to payments or talk;
+    to watch in the combined run (filed as an issue).
+  Logs: runs/2026-10-24/g2-talk-pay/ (report.md, staged/).

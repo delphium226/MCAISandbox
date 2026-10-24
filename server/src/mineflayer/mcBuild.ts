@@ -38,7 +38,7 @@ import { BUILD_ISLOG, LIQUID, NATURAL, NATURAL_GROUND, NON_GROUND, TOOL, TREE_LO
 import { timeScale } from './mcRules';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, hoodWoodAt, housesOf, isDwelling, taskNum, type PadOption } from '../grow';
 import { OWN_FARM_REACH, OWN_RECIPES, OWN_SALES, levySplit, makeInRecord, ownBatch, ownOf } from '../own';
-import { contractOf, deliveryDone, givePurse } from '../pay';
+import { contractOf, deliveryDone, givePurse, oweLevy } from '../pay';
 import { boardOf, offerText, settle } from '../barter';
 import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
@@ -4889,12 +4889,11 @@ async function merchantOwn(a: BotAgent, args: Record<string, unknown>, signal: A
     const { kept, levy } = levySplit(own, lots);
     chest.items.emerald = (chest.items.emerald ?? 0) + kept;
     own.sold = { ...(own.sold ?? {}), [item]: (own.sold?.[item] ?? 0) + lots * per };
+    // (#111: the levy owed the commons, written into storage by command and counted at the next sweep; the give and
+    // deposit it replaced failed silently)
+    oweLevy(v, levy, a.name, Date.now(), `the sales levy on ${lots * per} ${item}`);
     a.world.villages.save();
     await writeOwnChest(a, chest);
-    if (levy) {
-      await a.world.rcon.command(`give ${a.name} minecraft:emerald ${levy}`).catch(() => undefined);
-      await STORAGE_SKILLS.deposit.run(a, { item: 'emerald', count: levy }, signal).catch(() => undefined);
-    }
     console.log(`[own] ${v.name}: ${a.name} sold ${lots * per} ${item} for ${lots} emerald${lots === 1 ? '' : 's'} (${kept} kept, ${levy} levy)`);
     return `sold ${lots * per} ${item} of your own to the merchant for ${lots} emerald${lots === 1 ? '' : 's'}: ${kept} into your own chest, ${levy} to the village's storage as the levy`;
   }

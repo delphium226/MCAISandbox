@@ -42,9 +42,39 @@ export const ACTS = {
 };
 setActsOn(() => ACTS.on);
 
+/**
+ * #107 (the user's choices 10-23; all off): news and questions beside the acts, then council deliberation (council.ts).
+ *   MC_NEWS          a `news` field: what a member saw, delivered to members within 16 blocks whether or not the pick ran,
+ *                    in its own section; heard news passed on once, attributed ("Ada says ..."), unchecked (code tags it
+ *                    checked, refuted or unchecked for the measures only)
+ *   MC_QUESTIONS     a `question` field (and `question_to`): starts the addressee's answer call (the world's answerer), one
+ *                    answerer for "anyone" chosen by code; an answer cannot ask or tell (depth 1); answers kept a village day
+ *   MC_TALK_HOLDOUT  0.5 (on): a random half of news items and answers withheld per message, the would-be hearers logged
+ *   MC_ACT_FIXES     on: bare tool words ("axe") map to a make option of that tool; a fixed or repeat pick of an option an
+ *                    unpriced request asks for accepts it too
+ */
+const flag = (k: string) => /^(on|1|true|yes)$/i.test(process.env[k] ?? '');
+const holdout = (process.env.MC_TALK_HOLDOUT ?? '').trim();
+export const TALK = {
+  news: ACTS.on && flag('MC_NEWS'),
+  questions: ACTS.on && flag('MC_QUESTIONS'),
+  holdout: /^on$/i.test(holdout) ? 0.5 : Math.min(1, Math.max(0, Number(holdout) || 0)),
+  fixes: ACTS.on && flag('MC_ACT_FIXES'),
+  budget: { news: 4, question: 3 } as Record<string, number>,
+  /** News is shown this long; answers a village day. */
+  newsMs: ACTS.itemMs,
+  answerMs: ACTS.dayMs,
+  /** Lines a section shows. */
+  show: 3,
+};
+
 /** Test hook. */
 export function setActsSettings(s: Partial<typeof ACTS>): void {
   Object.assign(ACTS, s);
+}
+/** Test hook (#107). */
+export function setTalkSettings(s: Partial<typeof TALK>): void {
+  Object.assign(TALK, s);
 }
 
 export const ACT_TYPES = ['request', 'offer', 'accept', 'decline', 'release', 'report'] as const;
@@ -132,7 +162,17 @@ interface ActsState {
   since: Record<string, number>;
   /** Fabrications: refused false claims, per member. */
   false: Record<string, number>;
+  /** #107: news each member heard, the questions asked, and the answers each asker got. */
+  news?: Record<string, NewsItem[]>;
+  questions?: Question[];
+  answers?: Record<string, AnswerItem[]>;
 }
+
+/** A news item as a hearer holds it: who told it, who first said it (a retelling's source), the tag code gave it. */
+export interface NewsItem { id: string; t: number; from: string; origin: string; text: string; tag: NewsTag; retold?: boolean }
+export type NewsTag = 'checked' | 'refuted' | 'unchecked';
+export interface Question { id: string; from: string; to: string; anyone?: boolean; text: string; t: number; state: 'asking' | 'answered' | 'failed' | 'withheld'; answer?: string; answeredAt?: number }
+export interface AnswerItem { id: string; t: number; from: string; question: string; text: string; tag: NewsTag }
 
 function state(village: string): ActsState {
   const s = villageSocialOf(village) as { acts?: ActsState };
@@ -186,6 +226,10 @@ export interface ActsWorld {
   at: Map<string, { x: number; z: number }>;
   /** The world's check of a claim (WorldAdapter.verifyClaim): true, false, or a reason it is false. */
   verify?: (claim: { type: 'stock'; option: string }) => true | string;
+  /** #107: code's tag on a news line or an answer (a shortage storage shows, or does not), for the measures only. */
+  checkNews?: (text: string) => NewsTag;
+  /** #107: who answers a question to anyone (the most practised member near the asker), or undefined. */
+  answerer?: (asker: string, text: string) => string | undefined;
 }
 
 let speaker: ((village: string, agent: string, text: string) => void) | null = null;
@@ -275,7 +319,32 @@ export function actsHelp(village: string, agent: string, now: number, w: ActsWor
     `Members near you: ${nearBy.join(', ') || 'nobody'}. Left today: ${left('request')} requests, ${left('offer')} offers, ${left('report')} reports.`,
     'You may also say one short line aloud to those near you (`say`), about your choice or your act.',
     ...(paying() ? [payHooks!.help(village, agent, now)].filter(Boolean) : []),
-  ].join(' ');
+    // (#107: news and questions, each with its own budget)
+    talkHelpText(Math.max(0, TALK.budget.news - (st.used[`${agent}|${d}|news`] ?? 0)), Math.max(0, TALK.budget.question - (st.used[`${agent}|${d}|question`] ?? 0))),
+  ].filter(Boolean).join(' ');
+}
+
+/** #107: the acts paragraph's news and question lines (talkbench's second wording: concrete cases to tell and to ask; the
+ *  first, "you may pass on news ... a shortage, a failure", drew news in 1-3% of replies and no question). */
+export function talkHelpText(newsLeft: number, questionsLeft: number): string {
+  return [
+    TALK.news ? `News (\`news\`): when you know something those near you may not (the storage short of food or a material, a chore that keeps failing and why, where you saw ore, animals or trees, what a member did), tell it in one short line; it reaches them even if your choice is taken. News you heard may be passed on once: say who said it. News left today: ${newsLeft}.` : '',
+    TALK.questions ? `Questions (\`question\`, with \`question_to\`: a member, or anyone): when you need to know something another member may know (where to find a material, why a chore fails, what someone needs), ask it; the answer reaches you within minutes. Questions left today: ${questionsLeft}.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+/** #107: the member's news section (the newest TALK.show items heard within TALK.newsMs), apart from the inbox. */
+export function newsLines(village: string, agent: string, now: number): string[] {
+  if (!TALK.news) return [];
+  return (state(village).news?.[agent] ?? []).filter((n) => now - n.t < TALK.newsMs).sort((x, y) => y.t - x.t).slice(0, TALK.show)
+    .map((n) => `${n.from === n.origin ? `${n.from} says` : `${n.from} says ${n.origin} said`}: "${n.text}" (${ago(now - n.t)})`);
+}
+
+/** #107: the answers to the member's questions (kept a village day), newest first. */
+export function answerLines(village: string, agent: string, now: number): string[] {
+  if (!TALK.questions) return [];
+  return (state(village).answers?.[agent] ?? []).filter((a) => now - a.t < TALK.answerMs).sort((x, y) => y.t - x.t).slice(0, TALK.show)
+    .map((a) => `${a.from} answered your question "${a.question.length > 60 ? `${a.question.slice(0, 57)}...` : a.question}": "${a.text}" (${ago(now - a.t)})`);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -294,6 +363,10 @@ export interface ActFields {
   act_steps?: string;
   act_amount?: string;
   say?: string;
+  /** #107 (MC_NEWS, MC_QUESTIONS): a news line; a question and whom it is for. */
+  news?: string;
+  question?: string;
+  question_to?: string;
 }
 
 /** The act fields of a choose call's input: flat, or an `act` object or JSON string (gpt-oss nests and ignores enums). */
@@ -324,6 +397,13 @@ export function actFields(input: unknown): ActFields {
   }
   const say = str(o.say);
   if (say) out.say = say.replace(/\s+/g, ' ').slice(0, 120);
+  // (#107: read only while their flags are on, so the log's fields are as before with them off)
+  const line = (v: unknown) => str(v)?.replace(/\s+/g, ' ').slice(0, 160);
+  if (TALK.news) out.news = line(o.news);
+  if (TALK.questions) {
+    out.question = line(o.question);
+    out.question_to = str(o.question_to ?? o.ask_to ?? o.question_for);
+  }
   for (const k of Object.keys(out) as Array<keyof ActFields>) if (out[k] === undefined) delete out[k];
   return out;
 }
@@ -348,6 +428,15 @@ function itemOf(w: ActsWorld, raw: string | undefined): What | undefined {
   const f = fold(raw);
   for (const [option, words] of w.items) if (fold(option) === f || fold(words) === f || fold(option.split(':')[1] ?? '') === f || fold(words).replace(/s$/, '') === f.replace(/s$/, ''))
     return { kind: 'item', option, words: `${option.startsWith('make:') ? 'make' : 'gather'} ${words}` };
+  // (#107's fix, MC_ACT_FIXES: a bare tool word, "axe" or "an axe", is the best make option of that tool: Long4's 28
+  // refused requests for "axe" while make:wooden_axe was on offer)
+  const tool = TALK.fixes ? /^(?:an?\s+)?(axe|pickaxe|shovel|hoe|sword|fishing rod)s?$/i.exec(raw.trim())?.[1]?.toLowerCase().replace(' ', '_') : undefined;
+  if (tool) {
+    const RANK = ['iron', 'stone', 'wooden'];
+    const hit = [...w.items.entries()].filter(([o]) => o.startsWith('make:') && new RegExp(`(^|_)${tool}$`).test(o.slice(5)))
+      .sort(([p], [q]) => (RANK.indexOf(p.slice(5).split('_')[0]) + 9) % 9 - (RANK.indexOf(q.slice(5).split('_')[0]) + 9) % 9)[0];
+    if (hit) return { kind: 'item', option: hit[0], words: `make ${hit[1]}` };
+  }
   return undefined;
 }
 function projectOf(w: ActsWorld, raw: string | undefined): What | undefined {
@@ -552,6 +641,9 @@ export function handle(village: string, agent: string, fields: ActFields, chosen
     }
   }
 
+  // (#107: news and a question do not depend on the pick: kept when it did not run)
+  if (TALK.news && fields.news && offered) news(st, village, agent, fields.news, chosen, w, now, done, d);
+  if (TALK.questions && fields.question && offered) question(st, village, agent, fields, chosen, w, now, done, d);
   if (fields.say && offered && ran) say(st, village, agent, fields.say, chosen, fields, w, now, done);
   else if (fields.say && offered) logAct({ type: 'say', village, agent, text: fields.say, dropped: 'the pick did not run', decisionId: chosen.decisionId });
   touchMemory();
@@ -594,6 +686,140 @@ function say(st: ActsState, village: string, agent: string, text: string, chosen
     // (display only)
   }
   done.push('say');
+}
+
+// ---------------------------------------------------------------------------------------------
+// #107: news and questions
+// ---------------------------------------------------------------------------------------------
+
+/** The holdout's draw for one message, seeded by its id (a replayed run withholds the same ones). */
+function withheld(village: string, id: string): boolean {
+  if (!TALK.holdout) return false;
+  let h = 0x811c9dc5;
+  for (const c of `${village}|${id}`) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  return h / 2 ** 32 < TALK.holdout;
+}
+
+/** The news item a line retells: one the member heard sharing 3+ content words and half the shorter's (TalkOn: with 2,
+ *  "the storage is short of glass" retold "... short of torches"). */
+function retellOf(st: ActsState, agent: string, words: Set<string>): NewsItem | undefined {
+  let best: { n: NewsItem; k: number } | undefined;
+  for (const n of st.news?.[agent] ?? []) {
+    const theirs = contentWords(n.text);
+    const k = [...words].filter((x) => theirs.has(x)).length;
+    if (k >= 3 && k >= 0.5 * Math.min(words.size, theirs.size) && (!best || k > best.k)) best = { n, k };
+  }
+  return best?.n;
+}
+
+/**
+ * A news line (MC_NEWS): budget and loop guard, then delivered to members within 16 blocks who have not heard it, in their
+ * news section, attributed; a retelling of news heard carries its first teller, and news retold once is not passed on
+ * again. Code tags it checked, refuted or unchecked (logged; it passes either way, the user's choice 2); the holdout
+ * withholds a random share, logging who would have heard it.
+ */
+function news(st: ActsState, village: string, agent: string, text: string, chosen: Chosen, w: ActsWorld, now: number, done: string[], d: number) {
+  const used = `${agent}|${d}|news`;
+  const words = contentWords(text);
+  const refuse = (why: string) => {
+    logAct({ type: 'news', village, agent, text, dropped: why, decisionId: chosen.decisionId });
+    done.push(`news dropped: ${why}`);
+  };
+  if ((st.used[used] ?? 0) >= TALK.budget.news) return refuse('no news left today');
+  if (words.size < 2) return refuse('too short to say anything');
+  const key = sig(agent, 'news', '', [...words].sort().slice(0, 6).join(','));
+  if (now - (st.recent[key] ?? -Infinity) < 60 * 60000 / scale) return refuse('the same news within the hour');
+  const of = retellOf(st, agent, words);
+  if (of?.retold) return refuse(`passed on once already (${of.origin}'s, through ${of.from})`);
+  st.used[used] = (st.used[used] ?? 0) + 1;
+  st.recent[key] = now;
+  const id = `n${st.next++}`;
+  const origin = of ? of.origin : agent;
+  const tag: NewsTag = w.checkNews?.(text) ?? 'unchecked';
+  // (novelty: not who already holds this news, nor its first teller)
+  const known = (h: string) => (st.news?.[h] ?? []).some((n) => n.id === (of?.id ?? id));
+  const near16 = near(w, agent, 16).filter((h) => h !== origin && !known(h));
+  const out = withheld(village, id);
+  if (!out) for (const h of near16) {
+    const list = ((st.news ??= {})[h] ??= []);
+    list.push({ id: of?.id ?? id, t: now, from: agent, origin, text, tag, ...(of ? { retold: true } : {}) });
+    if (list.length > 12) list.splice(0, list.length - 12);
+  }
+  logAct({ type: 'news', village, agent, id, text, tag, origin, ...(of ? { retellOf: of.id, heardFrom: of.from } : {}), ...(out ? { withheld: near16 } : { hearers: near16 }), decisionId: chosen.decisionId });
+  done.push(out ? 'news withheld' : of ? 'news retold' : 'news');
+}
+
+/** The world's answer call for a question (MC_QUESTIONS): set once by the world; it calls deliverAnswer or failAnswer. */
+let answerHook: ((village: string, q: Question) => void) | null = null;
+export function setAnswerer(fn: ((village: string, q: Question) => void) | null): void {
+  answerHook = fn;
+}
+
+/**
+ * A question (MC_QUESTIONS): to a member named, or to anyone (one answerer code picks near the asker); budget and loop
+ * guard; it starts the addressee's answer call (the world's hook). The holdout draws for the answer's delivery
+ * (deliverAnswer), not here: the answer is still asked, so the would-be answer is known.
+ */
+function question(st: ActsState, village: string, agent: string, f: ActFields, chosen: Chosen, w: ActsWorld, now: number, done: string[], d: number) {
+  const text = f.question!;
+  const used = `${agent}|${d}|question`;
+  const refuse = (why: string) => {
+    logAct({ type: 'question', village, agent, text, to: f.question_to, dropped: why, decisionId: chosen.decisionId });
+    push(st, agent, { t: now, kind: 'refused', text: `Your question was not asked: ${why}` });
+    done.push(`question dropped: ${why}`);
+  };
+  if ((st.used[used] ?? 0) >= TALK.budget.question) return refuse('no questions left today');
+  const named = memberNamed(village, f.question_to ?? 'anyone', agent);
+  if (!named) return refuse(`${f.question_to} is not a member here`);
+  const to = named === 'anyone' ? w.answerer?.(agent, text) : named;
+  if (!to) return refuse('nobody near you to ask');
+  const key = sig(agent, 'question', to, [...contentWords(text)].sort().slice(0, 6).join(','));
+  if (now - (st.recent[key] ?? -Infinity) < 60 * 60000 / scale) return refuse(`you asked ${to} that within the hour`);
+  st.used[used] = (st.used[used] ?? 0) + 1;
+  st.recent[key] = now;
+  const q: Question = { id: `q${st.next++}`, from: agent, to, ...(named === 'anyone' ? { anyone: true } : {}), text, t: now, state: 'asking' };
+  (st.questions ??= []).push(q);
+  if (st.questions.length > 300) st.questions = st.questions.filter((x, i) => x.state === 'asking' || i >= st.questions!.length - 200);
+  logAct({ type: 'question', village, agent, id: q.id, to, anyone: named === 'anyone', text, decisionId: chosen.decisionId });
+  done.push(`question ${q.id} to ${to}`);
+  try {
+    if (answerHook) answerHook(village, q);
+    else failAnswer(village, q.id, 'no answerer in this world');
+  } catch (e) {
+    failAnswer(village, q.id, String((e as Error)?.message ?? e).slice(0, 120));
+  }
+}
+
+/** The answer to a question (the world's answer call): into the asker's answers section unless the holdout withholds it. */
+export function deliverAnswer(village: string, id: string, text: string, tag: NewsTag = 'unchecked', now = Date.now(), ms?: number): boolean {
+  if (!ACTS.on) return false;
+  const st = state(village);
+  const q = st.questions?.find((x) => x.id === id && x.state === 'asking');
+  if (!q) return false;
+  const answer = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const out = withheld(village, id);
+  Object.assign(q, { state: out ? 'withheld' : 'answered', answer, answeredAt: now });
+  if (!out) {
+    const list = ((st.answers ??= {})[q.from] ??= []);
+    list.push({ id, t: now, from: q.to, question: q.text, text: answer, tag });
+    if (list.length > 8) list.splice(0, list.length - 8);
+  }
+  logAct({ type: 'answer', village, id, from: q.to, to: q.from, question: q.text, text: answer, tag, ...(out ? { withheld: true } : {}), ...(ms !== undefined ? { ms } : {}) });
+  touchMemory();
+  return true;
+}
+
+/** A question whose answer call failed (budget, error, the answerer gone): closed, the asker told nothing. */
+export function failAnswer(village: string, id: string, why: string): void {
+  const q = state(village).questions?.find((x) => x.id === id && x.state === 'asking');
+  if (!q) return;
+  q.state = 'failed';
+  logAct({ type: 'answer', village, id, from: q.to, to: q.from, failed: why });
+}
+
+/** The questions open or answered in a village (the panel, the staged check). */
+export function questionsOf(village: string): Question[] {
+  return state(village).questions ?? [];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -693,20 +919,27 @@ export function actOpen(village: string, request?: string, commitment?: string):
  * to handle(), as before. Returns the promise's id, if one was made.
  */
 export function impliedAccept(village: string, agent: string, chosen: Chosen, w: ActsWorld, now: number): string | undefined {
-  if (!ACTS.on || !paying()) return undefined;
+  if (!ACTS.on || (!paying() && !TALK.fixes)) return undefined;
   const st = state(village);
   const mine = whatOfChosen(w, chosen);
   if (!mine || st.commitments.some((c) => c.state === 'open' && c.from === agent && c.what.option === mine.option)) return undefined;
-  const r = st.requests.find((q) => q.state === 'open' && q.contract && q.from !== agent && q.what.option === mine.option && (q.to === agent || (q.to === 'anyone' && !(q.declined ?? []).includes(agent))));
-  if (!r || !payHooks!.acceptable(village, agent, r, now)) return undefined;
-  if (r.what.kind !== 'project') {
+  const open = (q: Request) => q.state === 'open' && q.from !== agent && q.what.option === mine.option && (q.to === agent || (q.to === 'anyone' && !(q.declined ?? []).includes(agent)));
+  // (a priced request at or above the guide first; with MC_ACT_FIXES an unpriced one too: Long4's cooked cod requests
+  // expired while 10 members made cooked cod by fixed and repeat picks. A direct request before the board's.)
+  // (the test's bounty taken by a fixed pick as its control arm's unpriced requests are, MC_ACT_FIXES: spec 9's both arms alike)
+  const priced = paying() ? st.requests.find((q) => open(q) && !!q.contract && ((TALK.fixes && q.bounty) || payHooks!.acceptable(village, agent, q, now))) : undefined;
+  const r = priced ?? (TALK.fixes ? st.requests.filter((q) => open(q) && !q.contract).sort((p, q) => Number(q.to === agent) - Number(p.to === agent))[0] : undefined);
+  if (!r) return undefined;
+  if (r.what.kind !== 'project' || !r.contract) {
     r.state = 'accepted';
     r.by = agent;
   }
   noteFact(village, r.from, agent, 'accepted');
   const c = commit(st, village, agent, r.from, mine, now, `accepted ${r.id} (a fixed pick)`, chosen.decisionId, chosen.chore);
-  c.request = r.id;
-  payHooks!.taken(village, r, c, now);
+  if (r.contract) {
+    c.request = r.id;
+    payHooks!.taken(village, r, c, now);
+  }
   logAct({ type: 'act', village, agent, act: 'accept', ref: r.id, implied: true, fixed: true, verdict: 'ok', decisionId: chosen.decisionId });
   push(st, r.from, { t: now, kind: 'report', text: `${agent} took up your request: ${r.what.words} (${c.id})` });
   touchMemory();

@@ -694,3 +694,7 @@ These cost real debugging time; keep them in mind before changing agent behaviou
    marked the iron level finished with nothing dug. The ladder never started and half the village went idle. A village
    wide guard or a permanent "finished" needs evidence from more than one member or one trip. Check a long run's main
    chain (iron, the ladder) at its first half-hour, not only at the end.
+178. **A server's `data get` reply is cut short past a few stacks** (g2-talk-pay, F308): `data get block X Y Z Items` on a
+   full chest returned the first stack and "...", so a command deposit read a full chest as nearly empty and a staged
+   emptying took 0 of 33 torches. Read a container one element at a time (`Items[i]` until "Found no elements"), and
+   count what moved on the server after every write (`execute if items` sums, or the per-slot read), never from the reply.

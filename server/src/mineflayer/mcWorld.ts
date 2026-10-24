@@ -32,7 +32,7 @@ import { IRON_AGE, IRON_MINERS, LADDER, RUNG_DEFS, VW, chooseRung, feedsStage, l
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
-import { label, parseSpec, type ModelSpec } from '../modelCall';
+import { callModel, label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
@@ -41,8 +41,8 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
-import { contractOf, deliveriesOf, deliveryWords, earmarked, markAtEnd, reconcilePay, startPay } from './mcPay';
-import { PAY } from '../pay';
+import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
+import { PAY, payOf } from '../pay';
 import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
 import { BARTER, available, boardOf, draftOffer, lapse, offerText, surplus, wouldTake } from '../barter';
 import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindScore, ownFieldReach, OWN_RECIPES, OWN_SALES, OWN_SALES_ON, OWN_SALE_LOTS, LEVY, SHARED, SPECIAL, earnShare, netPut, openWants, ownBatch, ownOf, wantsLine, type Wants } from '../own';
@@ -61,10 +61,10 @@ import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type N
 import { UtilClock, type UtilView } from '../utilisation';
 import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
-import { MEMORY, agentMemory, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
+import { MEMORY, agentMemory, contentWords as contentWordsOf, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
-import { ACTS, actsHelp, actsState, impliedAccept, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld } from '../acts';
+import { ACTS, TALK, actsHelp, actsState, answerLines, deliverAnswer, failAnswer, impliedAccept, newsLines, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setAnswerer, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld, type NewsTag, type Question } from '../acts';
 import { CONTROLLER, SCRIPTED_ACTS, intentionFocus } from '../controller';
 import { SKILL, noteSkill, skillLine, skillOf, skillWeight } from '../skill';
 import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, verdictLine, type CheckCtx } from '../proposals';
@@ -250,7 +250,9 @@ export class MineflayerWorld implements WorldAdapter {
       void this.rcon.command(`tellraw @a ${JSON.stringify({ text: `${agent} says: ${text}`, color: 'gray' })}`).catch(() => {});
     });
     // (#108, MC_PAY: members pay each other; pay.ts' hooks into acts.ts, the world's env in mcPay.ts)
-    startPay({ village: (name) => this.villages.villages.get(name.toLowerCase()), save: () => this.villages.save() });
+    startPay(this.payWorld);
+    // (#107, MC_QUESTIONS: a question starts the addressee's answer call)
+    if (TALK.questions) setAnswerer((village, q) => this.answerQuestion(village, q));
     this.villages.refreshNeeds = (v) => this.refreshNeeds(v);
     this.villages.onClaim = (v, t) => this.claimed(v, t);
     this.villages.claimLimit = (v, t, _by, cooled) => this.mineClaim(v, t, cooled);
@@ -3125,6 +3127,16 @@ export class MineflayerWorld implements WorldAdapter {
   private barterAt = new Map<string, number>();
   /** #108: villages whose contracts were reconciled since the load. */
   private payReconciled = new Set<string>();
+  /** #111's staged check: deliveries held off the menus (payTest's test:hold). */
+  private payTestHold = false;
+  /** #108, #111: what payments need of the world (villages, saves, commands, the commons' spare emeralds). */
+  private payWorld: PayWorld = {
+    village: (name) => this.villages.villages.get(name.toLowerCase()),
+    save: () => this.villages.save(),
+    rcon: (cmd) => this.rcon.command(cmd),
+    // (above the merchant's keep, one of each used sold item kept: a bounty never starves the merchant's buys)
+    commonsSpare: (v) => (storageContents(v).emerald ?? 0) - (MERCHANT_ON && v.merchant ? this.emeraldKeep(v, () => 1) : 0),
+  };
   /** s43's own farms: members whose house had no room for one, offered none for a while ("village|name"). */
   private ownFarmBack = new Set<string>();
   /** s43's sales: lots of each good members sold this restock, by village (reset at the merchant's restock). */
@@ -4488,12 +4500,13 @@ export class MineflayerWorld implements WorldAdapter {
       // (a fallback is logged with the fresh menu its fixed pick was made on; the ids shown to the model stay in `shown`)
       if (!m.menu || m.source === 'fallback') m = { ...m, menu: fresh.menu };
       this.runOption(v, a, opt, m);
-      // (#108: a pick that was not the model's own accepts a priced request of its option only at or above the guide)
-      if (PAY.on && m.source !== 'model' && m.source !== 'scripted') {
+      // (#108: a pick that was not the model's own accepts a priced request of its option only at or above the guide; #107's
+      // MC_ACT_FIXES an unpriced one too)
+      if ((PAY.on || TALK.fixes) && m.source !== 'model' && m.source !== 'scripted') {
         const c = this.chores.get(a.name.toLowerCase());
         if (c) {
           const pid = impliedAccept(v.name, a.name, { option: c.choice.option ?? c.key, kind: c.choice.kind ?? '', name: c.choice.name ?? c.what, chore: c.choice.id }, this.actsWorld(v, now), now);
-          if (pid) console.log(`[pay] ${v.name}: ${a.name}'s fixed pick took up a priced request (${pid})`);
+          if (pid) console.log(`[acts] ${v.name}: ${a.name}'s ${m.source} pick took up a request (${pid})`);
         }
       }
       return { ok: true, key: opt.key };
@@ -4659,6 +4672,10 @@ export class MineflayerWorld implements WorldAdapter {
       if (ib.length) ctx.inbox = ib;
       const help = actsHelp(v.name, a.name, facts.t, this.actsWorld(v, facts.t));
       if (help) ctx.acts = help;
+      // (#107: news heard and answers, their own sections)
+      const nw = newsLines(v.name, a.name, facts.t), an = answerLines(v.name, a.name, facts.t);
+      if (nw.length) ctx.news = nw;
+      if (an.length) ctx.answers = an;
     }
     return { menu: { agent: a.name, village: v.name, t: facts.t, options: r.options, guarded: r.guarded, reasons: r.reasons, ctx }, feasible: r.feasible, skips: r.effects.skips };
   }
@@ -4689,7 +4706,81 @@ export class MineflayerWorld implements WorldAdapter {
     for (const it of (v.initiatives ?? []).filter((i) => i.state === 'open')) projects.set(`help:${it.id}`, { words: smallWorkKind(it.kind)?.words ?? it.kind, owner: it.by });
     const at = new Map<string, { x: number; z: number }>();
     for (const p of this.presences(v)) at.set(p.name, { x: p.x, z: p.z });
-    return { items, offered, projects, at, verify: (c) => this.verifyClaim(v.name, c) };
+    return {
+      items, offered, projects, at, verify: (c) => this.verifyClaim(v.name, c),
+      ...(TALK.news || TALK.questions ? { checkNews: (text: string) => this.checkNews(v, text, items), answerer: (asker: string, text: string) => this.answererFor(v, asker, text, at) } : {}),
+    };
+  }
+
+  /**
+   * #107: code's tag on a news line or an answer, for the measures only (it passes whatever the tag): a shortage of an
+   * item the village makes or gathers (no, none, out of, short of, need, ran out) checked when storage holds under a trip
+   * of it and refuted when it holds plenty; hunger checked or refuted by the village's hungry members; else unchecked.
+   */
+  private checkNews(v: Village, text: string, items: Map<string, string>): NewsTag {
+    const t = text.toLowerCase();
+    const short = /\b(no|none|out of|short|shortage|low on|need|needs|ran out|run out|empty|lacks?|missing)\b/.test(t);
+    if (/\b(hungry|starving|no food|out of food|food is (short|low))\b/.test(t)) {
+      const hungry = appetiteOn(v) ? Object.values(v.food?.members ?? {}).filter((e) => e.level <= APPETITE.hungryAt).length : -1;
+      if (hungry >= 0) return hungry > 0 ? 'checked' : 'refuted';
+    }
+    if (!short) return 'unchecked';
+    const store = storageContents(v);
+    for (const [option, words] of items) {
+      const item = option.split(':')[1] ?? '';
+      const names = new Set([words.toLowerCase(), item.replace(/_/g, ' '), item.replace(/_/g, ' ').replace(/s$/, '')]);
+      if (![...names].some((x) => x.length > 2 && t.includes(x.replace(/s$/, '')))) continue;
+      const have = item === 'logs' ? Object.entries(store).filter(([n]) => /_log$/.test(n)).reduce((s, [, q]) => s + q, 0) : store[item] ?? 0;
+      return have < 8 ? 'checked' : 'refuted';
+    }
+    return 'unchecked';
+  }
+
+  /** #107: who answers a question to anyone: the member near the asker (32 blocks) whose role or skill words the question
+   *  names most, then the nearest. */
+  private answererFor(v: Village, asker: string, text: string, at: Map<string, { x: number; z: number }>): string | undefined {
+    const p = at.get(asker);
+    if (!p) return undefined;
+    const words = contentWordsOf(text);
+    const near = [...at.entries()].filter(([n, q]) => n !== asker && Math.hypot(q.x - p.x, q.z - p.z) <= 32).map(([n, q]) => {
+      const role = roleOf(v.name, n)?.kind ?? '';
+      const lines = `${role ? `${role} ${roleNoun(role)}` : ''} ${this.lastModelKind.get(n.toLowerCase()) ?? ''}`;
+      return { n, k: [...contentWordsOf(lines)].filter((x) => words.has(x)).length, d: Math.hypot(at.get(n)!.x - p.x, at.get(n)!.z - p.z) };
+    });
+    return near.sort((x, y) => y.k - x.k || x.d - y.d)[0]?.n;
+  }
+
+  /**
+   * #107 (MC_QUESTIONS): a member's answer to a question, one call: its persona, character, role, skill, the village, what
+   * it remembers and its view of the others, then the question; a reply in words, no tools, so an answer can neither ask
+   * nor tell (depth 1). The gate's low class, billed to the asker, no decision counted for either; off with the budget's
+   * `answers` degrade. The answer is tagged by code like news and delivered (or held out) through acts.ts.
+   */
+  private answerQuestion(villageName: string, q: Question): void {
+    const v = this.villages.villages.get(villageName.toLowerCase());
+    const a = this.agents.get(q.to.toLowerCase());
+    if (!v || !a || a.village()?.name !== v.name) return failAnswer(villageName, q.id, `${q.to} is not in the village`);
+    const spec = parseSpec(typeof a.memory.chooseModel === 'string' ? a.memory.chooseModel : typeof a.memory.execModel === 'string' ? a.memory.execModel : CHOOSE.model);
+    if (!spec) return failAnswer(v.name, q.id, 'no model');
+    if ((isCloudModel(spec.model) && !usage.allows('answers')) || usage.blocked(spec.model, q.from)) return failAnswer(v.name, q.id, 'budget');
+    const now = Date.now();
+    let user: string;
+    try {
+      const ctx = this.choiceContext(v, a, this.sweepFacts(v, now, a));
+      const rc = MEMORY.on ? recall(v.name, a.name, now) : null;
+      user = [ctx.persona, ctx.character, ctx.role, ctx.skill, ctx.village && `Village: ${ctx.village}`, ctx.social || (ctx.others && `Others now: ${ctx.others}`), ctx.needs?.length ? `Village needs: ${ctx.needs.join('; ')}` : '', rc?.text,
+        `${q.from} asks you: "${q.text}"`, 'Answer in one or two short sentences, from what you know; if you do not know, say so.'].filter((x) => x && String(x).trim()).join('\n');
+    } catch (e) {
+      return failAnswer(v.name, q.id, String((e as Error)?.message ?? e).slice(0, 100));
+    }
+    const system = 'You are a member of a Minecraft village. Another member has asked you a question. Answer it plainly and briefly, as yourself, from what you know and remember; do not ask anything back.';
+    callModel({ spec, system, user, tools: [], level: REASONING.answer, agent: q.from, kind: 'answer', priority: 'answer' }).then((r) => {
+      const text = (r.reply.text ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      if (!text) return failAnswer(v.name, q.id, 'an empty reply');
+      const items = this.actsWorld(v, Date.now()).items;
+      const ok = deliverAnswer(v.name, q.id, text, this.checkNews(v, text, items), Date.now(), r.ms);
+      if (ok) console.log(`[talk] ${v.name}: ${q.to} answered ${q.from}'s ${q.id} ("${q.text.slice(0, 60)}"): ${text.replace(/\s+/g, ' ').slice(0, 120)}`);
+    }, (e) => failAnswer(v.name, q.id, String((e as Error)?.message ?? e).slice(0, 120)));
   }
 
   /**
@@ -4887,7 +4978,7 @@ export class MineflayerWorld implements WorldAdapter {
 
     // (#108, MC_PAY: a priced request's goods earmarked for its buyer, carried to the buyer's own chest; ahead of the own
     // options, as the price is paid only once they arrive)
-    if (PAY.on) for (const k of deliveriesOf(v, a.name).slice(0, 1)) {
+    if (PAY.on && !this.payTestHold) for (const k of deliveriesOf(v, a.name).slice(0, 1)) {
       const me = `own:${a.name.toLowerCase()}`;
       const home = v.homes?.[k.payer]?.chest;
       add({
@@ -6719,6 +6810,8 @@ export class MineflayerWorld implements WorldAdapter {
       this.payReconciled.add(v.name);
       reconcilePay(v, new Set(Object.keys(v.homes ?? {})), now);
     }
+    // (#111: the levy owed the commons, payments' and merchant_own's, written into storage by command and counted)
+    if (levyOwed(v) > 0) levySweep(this.payWorld, v);
     // (G3: a pending share unanswered for a village day is kept whole, outside the levy's measure)
     if (RULES.on && OWN.on && v.homes) for (const [agent, own] of Object.entries(v.homes)) {
       const kept = lapsePending(own, now, MEMORY.dayMs);
@@ -6985,7 +7078,8 @@ export class MineflayerWorld implements WorldAdapter {
     const rnd = mulberry32(fnv1a(`${decisionId}|${a.name}`));
     const shown = shuffled(menu.options, `${decisionId}|${a.name}`);
     const p = buildPrompt(menu, shown, MEMORY.on ? { recall: recall(v.name, a.name, now, { lastShown: menu.ctx.outcomes?.length || 5 }), outcomes: lastLines(v.name, a.name, 5) } : undefined);
-    const tagged = menu.options.filter((o) => o.social && /asked/.test(o.social));
+    // (#111: a priced request's tag, "[Ada pays 2 emeralds]", draws the scripted pick as an asking one does)
+    const tagged = menu.options.filter((o) => o.social && /asked|pays \d/.test(o.social));
     const total = menu.options.reduce((t, o) => t + weights(o), 0);
     let pick = tagged.length && rnd() < 0.5 ? tagged[Math.floor(rnd() * tagged.length)] : undefined;
     if (!pick) {
@@ -7006,6 +7100,16 @@ export class MineflayerWorld implements WorldAdapter {
         if (known) Object.assign(fields, { act: 'report', act_to: known[1], act_claim: known[2], act_ref: known[3] });
       }
       fields.say = `I am going to ${pick.name.toLowerCase().replace(/[:(].*$/, '').trim()}.`;
+      // (#107: scripted news, half of it retelling news heard, and now and then a question to anyone: the paths a staged
+      // run exercises; drawn only with the flags on, so the draws above stay as they were)
+      if (TALK.news && rnd() < 0.5) {
+        const heard = (menu.ctx.news ?? []).map((l) => /: "(.+)" \(/.exec(l)?.[1]).filter((x): x is string => !!x);
+        const store = storageContents(v);
+        const low = items.filter((o) => o.startsWith('make:') || o.startsWith('gather:')).map((o) => ({ o, n: store[o.split(':')[1]] ?? 0 })).sort((x, y) => x.n - y.n);
+        if (heard.length && rnd() < 0.4) fields.news = heard[Math.floor(rnd() * heard.length)];
+        else if (low.length) fields.news = `The storage is short of ${w.items.get(low[Math.floor(rnd() * Math.min(5, low.length))].o)} now.`;
+      }
+      if (TALK.questions && rnd() < 0.15) Object.assign(fields, { question: rnd() < 0.5 ? 'Where have you seen iron ore or sheep lately?' : 'What does the village need most right now?', question_to: 'anyone' });
     }
     logAct({ type: 'decision', village: v.name, agent: a.name, decisionId, scripted: true, system: p.system, prompt: p.user, choice: pick.id, ...fields });
     this.choiceStats.noteModel(a.name, now);
@@ -7024,6 +7128,26 @@ export class MineflayerWorld implements WorldAdapter {
    *  run (a request, a pay), offered whatever the cadence; what happened. */
   payTest(v: Village, agent: string, fields: ActFields): string[] {
     if (!PAY.on) return ['payments are off (MC_PAY)'];
+    // (#111's staged checks: test:hold / test:release hold every delivery off the menus, test:empty takes an item out of
+    // storage by command, test:state lists the contracts and the open projects; no member needed)
+    if (fields.act?.startsWith('test:')) {
+      const op = fields.act.slice(5);
+      if (op === 'hold' || op === 'release') this.payTestHold = op === 'hold';
+      if (op === 'empty' && fields.act_item) {
+        const item = fields.act_item, n = storageContents(v)[item] ?? 0;
+        void storeByCommand(this.payWorld.rcon, v, item, -n).then((got) => {
+          console.log(`[pay] ${v.name}: test: ${-got} of ${n} ${item} taken out of storage`);
+          this.villages.save();
+        });
+        return [`emptying ${n} ${item}`];
+      }
+      const now = Date.now();
+      return [
+        ...payOf(v).contracts.map((c) => JSON.stringify({ id: c.id, kind: c.kind, state: c.state, payer: c.payer, payee: c.payee, option: c.option, price: c.price, steps: c.steps, paidSteps: c.paidSteps, escrow: c.escrow, why: c.why, earmark: c.earmark, arrived: c.arrived })),
+        ...[...this.actsWorld(v, now).projects.entries()].map(([o, p]) => JSON.stringify({ project: o, ...p })),
+        JSON.stringify({ hold: this.payTestHold, levyOwed: levyOwed(v) }),
+      ];
+    }
     const a = this.agents.get(agent.toLowerCase());
     if (!a || a.village()?.name !== v.name) return [`${agent} is not a member of ${v.name} in the world`];
     const now = Date.now();

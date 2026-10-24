@@ -17,7 +17,7 @@
  *
  * Shares and degrading (E.0): with two or more agents, one that spends twice its fair share of the hourly budget is
  * refused on its own (exempt names are not); as the whole budget nears, kinds of calls stop in order (allows()): the
- * chronicle at 70%, reflections at 80%, acts at 90%, decisions at 100%, each back on below 80% of its threshold.
+ * chronicle at 70%, reflections at 80%, members' answers at 85%, acts at 90%, decisions at 100%, each back on below 80% of its threshold.
  *
  * The module imports nothing from the project and starts no timers: the budget is evaluated when it is asked about. The
  * spend ledger's file is written by a sink the agent server sets, and its totals are read back by the server (seedSpend).
@@ -27,14 +27,14 @@
  *  'reflect': a member's look back at its day, at the village's night (G1, society.ts). */
 import { LLM_LIMITS } from './llmLimits';
 
-export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect'] as const;
+export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect', 'answer'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 export type ReasoningLevel = 'low' | 'medium' | 'high';
 export type Reasoning = Record<CallKind, ReasoningLevel>;
 
 const LEVELS: readonly string[] = ['low', 'medium', 'high'];
 
-export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium' };
+export const DEFAULT_REASONING: Reasoning = { exec: 'medium', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium', answer: 'low' };
 
 /** Warnings printed once per distinct text (a bad setting would otherwise repeat on every call). */
 const warned = new Set<string>();
@@ -211,10 +211,11 @@ export class SpendCapReached extends BudgetExceeded {
 }
 
 /** What the degrade levels turn off, in order (allows()). */
-export const DEGRADE_ORDER = ['chronicle', 'reflection', 'acts', 'decisions'] as const;
+// (#107: members' answers go off after reflections, before acts)
+export const DEGRADE_ORDER = ['chronicle', 'reflection', 'answers', 'acts', 'decisions'] as const;
 export type DegradeClass = (typeof DEGRADE_ORDER)[number];
 /** The share of the hourly budget at which each goes off. */
-const DEGRADE_AT = [0.7, 0.8, 0.9, 1.0];
+const DEGRADE_AT = [0.7, 0.8, 0.85, 0.9, 1.0];
 
 /** "month=30,programme=60" or a bare number (the month's); null when unset or unreadable (one warning). */
 export function parseSpendCap(s: string | undefined): { month?: number; programme?: number } | null {

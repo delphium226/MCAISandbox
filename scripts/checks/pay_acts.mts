@@ -48,7 +48,7 @@ const env: import('../../server/src/pay').PayEnv = {
   held: () => ({}),
   rate: () => undefined,
   guide: (_v, _a, option) => (option === 'gather:logs' ? 2 : 1),
-  takeCommonsEmerald: () => false,
+  fundBounty: (vv, c, t) => P.bountyFunded(vv, c.id, false, t),
   earmark: () => ({ ...earmarks }),
   dayKey: () => 'd1',
   tell: (_v, to, text) => { told.push(`${to}: ${text}`); },

@@ -33,7 +33,7 @@ import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from 
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
 import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './modelUsage';
 import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
-import { actFields, payingOn, type ActFields } from './acts';
+import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
@@ -217,6 +217,9 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (rc) lines.push(rc.text);
   if (ctx.share) lines.push(`Your last chores brought new goods into the village storage; your share of them is ${ctx.share.total}. Say in \`share\` how much of it you leave in the village storage: ${ctx.share.answers.map((a) => `"${a.text}"`).join(', ')}.`);
   if (ctx.inbox?.length) lines.push(`Your inbox:\n${ctx.inbox.map((l) => `- ${l}`).join('\n')}`);
+  // (#107: news heard and answers to the member's questions, each its own section beside the inbox)
+  if (ctx.news?.length) lines.push(`News you heard:\n${ctx.news.map((l) => `- ${l}`).join('\n')}`);
+  if (ctx.answers?.length) lines.push(`Answers to your questions:\n${ctx.answers.map((l) => `- ${l}`).join('\n')}`);
   if (ctx.acts?.trim()) lines.push(ctx.acts.trim());
   if (rc?.dawn) lines.push(`This is your first choice of village day ${rc.day}: set your intention for today in \`intention\`, and in \`focus\` the kind of work you mean to do most: one of ${FOCUS.join(', ')}.`);
   lines.push('Options (in no particular order):');
@@ -262,6 +265,12 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
             act_amount: { type: 'integer', description: 'For pay: how many emeralds (or of act_item) to give.' },
           } : {}),
           say: { type: 'string', maxLength: 120, description: 'Optional: one short line said aloud to those near you.' },
+          // (#107, MC_NEWS and MC_QUESTIONS)
+          ...(TALK.news ? { news: { type: 'string', maxLength: 160, description: 'Optional: one short line of news for those near you: something you saw or heard they may not know.' } } : {}),
+          ...(TALK.questions ? {
+            question: { type: 'string', maxLength: 160, description: 'Optional: something you want to know that another member may know (where to find a material, why a chore fails, what they need); they answer from what they know.' },
+            question_to: { type: 'string', description: 'For a question: the member you ask, or "anyone".' },
+          } : {}),
         } : {}),
       },
       required: rc?.dawn ? ['reason', 'choice', 'intention', 'focus'] : ['reason', 'choice'],

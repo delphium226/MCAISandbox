@@ -183,11 +183,12 @@ function callsFromText(text: string): ToolCall[] {
  * Who goes first at the gate: a human's reply, then plans and designs, an executor turn after a failure, a decision, an
  * executor turn, and the low classes (which never take the last slot).
  */
-export const PRIORITIES = ['human', 'plan', 'exec_fail', 'decision', 'exec', 'ballot', 'reflection', 'chronicle'] as const;
+export const PRIORITIES = ['human', 'plan', 'exec_fail', 'decision', 'exec', 'answer', 'ballot', 'reflection', 'chronicle'] as const;
 export type CallPriority = (typeof PRIORITIES)[number];
-const LOW = new Set<CallPriority>(['ballot', 'reflection', 'chronicle']);
+// (#107: a member's answer to a question is a low class: never the last slot, behind decisions)
+const LOW = new Set<CallPriority>(['answer', 'ballot', 'reflection', 'chronicle']);
 /** How long a call may wait for a slot before it is withdrawn unsent. */
-export const MAX_WAIT_MS: Record<CallPriority, number> = { human: 60000, plan: 120000, exec_fail: 60000, decision: 60000, exec: 60000, ballot: 120000, reflection: 300000, chronicle: 300000 };
+export const MAX_WAIT_MS: Record<CallPriority, number> = { human: 60000, plan: 120000, exec_fail: 60000, decision: 60000, exec: 60000, answer: 120000, ballot: 120000, reflection: 300000, chronicle: 300000 };
 
 /** A call that waited longer than its maxWaitMs for a slot: never sent, billed nothing. */
 export class CallWithdrawn extends Error {
@@ -336,7 +337,8 @@ export class CallGate {
     const k = this.state(key), n = this.slotsFor(key);
     for (let i = 0; i < k.queue.length && k.inFlight < n; ) {
       const w = k.queue[i];
-      if (LLM_LIMITS && LOW.has(w.priority) && k.low >= n - 1) {
+      // (#107: members' answers never take the last slot, even with the limits off: questions must not starve decisions)
+      if ((LLM_LIMITS || w.priority === 'answer') && LOW.has(w.priority) && k.low >= n - 1) {
         i++;
         continue;
       }

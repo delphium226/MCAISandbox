@@ -64,7 +64,7 @@ export interface Contract {
   t: number;
 }
 
-export type LedgerOp = 'control' | 'minted' | 'escrow' | 'release' | 'levy' | 'refund' | 'gift' | 'gift after work' | 'goods' | 'levy deposited' | 'reconciled';
+export type LedgerOp = 'control' | 'minted' | 'escrow' | 'release' | 'levy' | 'sales levy' | 'refund' | 'gift' | 'gift after work' | 'goods' | 'levy deposited' | 'reconciled';
 export interface LedgerRow { t: number; op: LedgerOp; from?: string; to?: string; n: number; item?: string; contract?: string; why?: string }
 
 interface PayState { contracts: Contract[]; next: number; levyOwed: number; ledger: LedgerRow[]; payDays?: Record<string, number> }
@@ -235,11 +235,34 @@ export function payStep(v: Village, id: string, helper: string, rate: number | u
   return s.kept;
 }
 
-/** The village's top-up for a bounty when the commons cannot spare an emerald (minted and logged, the arms kept random). */
-export function openBounty(v: Village, option: string, request: string, commonsSpare: boolean, now: number): Contract {
+/** A bounty's contract: its emerald from the commons or minted (the arms kept random). `commonsSpare` undefined: the world
+ *  funds it after (an emerald taken from storage by command, checked), and logs which through bountyFunded. */
+export function openBounty(v: Village, option: string, request: string, commonsSpare: boolean | undefined, now: number): Contract {
   const c = openContract(v, { kind: 'bounty', payer: 'village', option, price: 1, request }, now) as Contract;
-  log(payOf(v), { t: now, op: commonsSpare ? 'escrow' : 'minted', from: commonsSpare ? 'the village' : undefined, n: 1, contract: c.id, why: commonsSpare ? 'a bounty from the commons' : 'a bounty minted: the commons could not spare one' });
+  if (commonsSpare !== undefined) bountyFunded(v, c.id, commonsSpare, now);
   return c;
+}
+
+/** How a bounty's emerald came: from the commons (taken out of a storage chest) or minted. */
+export function bountyFunded(v: Village, id: string, fromCommons: boolean, now: number): void {
+  log(payOf(v), { t: now, op: fromCommons ? 'escrow' : 'minted', from: fromCommons ? 'the village' : undefined, n: 1, contract: id, why: fromCommons ? 'a bounty from the commons' : 'a bounty minted: the commons could not spare one' });
+}
+
+/** A levy owed the commons from outside the payments (merchant_own's sales levy), deposited by the world as the
+ *  payments' levy is. */
+export function oweLevy(v: Village, n: number, from: string, now: number, why: string): void {
+  if (n <= 0) return;
+  const p = payOf(v);
+  p.levyOwed += n;
+  log(p, { t: now, op: 'sales levy', from, n, why });
+}
+
+/** The levy's emeralds that reached a storage chest (written and counted by the world). */
+export function levyDeposited(v: Village, n: number, now: number, where?: string): void {
+  if (n <= 0) return;
+  const p = payOf(v);
+  p.levyOwed = Math.max(0, p.levyOwed - n);
+  log(p, { t: now, op: 'levy deposited', n, ...(where ? { why: where } : {}) });
 }
 
 /**
@@ -328,8 +351,11 @@ export interface PayEnv {
   rate(village: string): number | undefined;
   /** About how many emeralds a chore of the option is worth to the member (the price guide), or undefined. */
   guide(v: Village, agent: string, option: string): number | undefined;
-  /** Whether the commons can spare an emerald for a bounty (above the merchant's keep); the world takes it if so. */
-  takeCommonsEmerald(v: Village): boolean;
+  /** The prompt's price guide (spec 8, 12): up to 3 goods the member or the village put lately, about E emeralds a trip. */
+  guideLine?(v: Village, agent: string): Array<{ words: string; n: number }>;
+  /** A bounty's emerald: the world takes one from the commons when it holds one above the merchant's keep, else it is
+   *  minted; either way logged through bountyFunded. */
+  fundBounty(v: Village, c: Contract, now: number): void;
   /** The chore's gross put of the option's goods, earmarked in storage for the contract (at most 64); {} when none. The
    *  world queues the delivery when it returns goods. */
   earmark(v: Village, c: Contract, agent: string, e: { option: string; chore: string }): Counts;
@@ -340,6 +366,8 @@ export interface PayEnv {
 }
 
 const emWord = (n: number) => `${n} emerald${n === 1 ? '' : 's'}`;
+/** The guide's words in the pay paragraph: "Price guide: a trip of logs about 2 emeralds, ... " ('' with none). */
+export const guideText = (g: Array<{ words: string; n: number }>) => (g.length ? `Price guide (what one chore's goods are worth): ${g.map((x) => `${x.words} about ${emWord(x.n)}`).join(', ')}. ` : '');
 let draw = 0x2545f491;
 const rand = () => ((draw = (draw * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
 
@@ -356,7 +384,8 @@ export function makePayHooks(env: PayEnv, acts: { closeRequest(village: string, 
           if (PAY.bounty && r.what.kind === 'item') log(payOf(v), { t: now, op: 'control', n: 0, why: r.id });
           return undefined;
         }
-        const c = openBounty(v, r.what.option, r.id, env.takeCommonsEmerald(v), now);
+        const c = openBounty(v, r.what.option, r.id, undefined, now);
+        env.fundBounty(v, c, now);
         env.save();
         return { contract: c.id, price: 1, steps: 1, bounty: true };
       }
@@ -428,7 +457,7 @@ export function makePayHooks(env: PayEnv, acts: { closeRequest(village: string, 
       return 'A request may carry act_price (whole emeralds from your own chest, 1 to ' + PAY.max + '): code holds it and pays it when the goods reach your own chest, refunded if not; '
         + 'on a project, act_price is per step and act_steps (1-4) the steps, paid to each helper. '
         + 'pay: give a member emeralds or goods from your own chest now (act_to, act_item, act_amount; say why). '
-        + `You hold ${emWord(freeEmeralds(v, agent, env.held(v, agent)))}${held ? ` (${held} held for your requests)` : ''}.`;
+        + `${guideText(env.guideLine?.(v, agent) ?? [])}You hold ${emWord(freeEmeralds(v, agent, env.held(v, agent)))}${held ? ` (${held} held for your requests)` : ''}.`;
     },
     acceptable(village: string, agent: string, r: Req, now: number) {
       void now;

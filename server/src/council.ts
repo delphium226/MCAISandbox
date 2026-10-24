@@ -26,6 +26,9 @@ export const COUNCIL = {
    *  levy ballot (MCAI_INFLUENCER_NAMES, default three of the 24 workers). */
   influencers: (process.env.MCAI_INFLUENCERS ?? '').toLowerCase() as '' | 'pro' | 'anti',
   influencerNames: (process.env.MCAI_INFLUENCER_NAMES ?? 'Ben,Kai,Sam').split(',').map((x) => x.trim()).filter(Boolean),
+  /** #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for
+   *  each item, attributed, both sides when both were given (the staggered offsets order the voters). */
+  deliberate: /^(on|1|true|yes)$/i.test(process.env.MC_DELIBERATE ?? ''),
 };
 /** Test hook. */
 export function setCouncilSettings(s: Partial<typeof COUNCIL>): void {
@@ -52,6 +55,21 @@ interface Meeting {
   needs?: Record<string, NeedItem>;
   /** Experiment 2: the levy item is on this ballot. */
   levy?: boolean;
+  /** #107 (MC_DELIBERATE): the reasons voters gave so far, by item, in the order cast. */
+  said?: Record<string, Array<{ by: string; vote: string; reason: string }>>;
+}
+
+/** #107: what a voter is shown of the reasons given before it, by item: the latest 2 of each side (for, against, other
+ *  choices), at most 4, so a later voter sees both sides when both were given. */
+export function heardReasons(m: Pick<Meeting, 'said'>, agent: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [id, list] of Object.entries(m.said ?? {})) {
+    const sides = new Map<string, Array<{ by: string; vote: string; reason: string }>>();
+    for (const r of list) if (r.by !== agent) sides.set(r.vote, [...(sides.get(r.vote) ?? []), r]);
+    const pick = [...sides.values()].flatMap((rs) => rs.slice(-2)).slice(0, 4);
+    if (pick.length) out[id] = pick.map((r) => `${r.by} (${r.vote === 'yes' ? 'for' : r.vote === 'no' ? 'against' : r.vote}): "${r.reason}"`);
+  }
+  return out;
 }
 // ---------------------------------------------------------------------------------------------
 // Experiment 2 (#33; spec 8 and 13): the levy item, the imposed arm, the influencers
@@ -210,7 +228,7 @@ const SYSTEM = 'You are a member of a Minecraft village. At dusk the village vot
   + 'Your ballot is never shown to anyone; only the totals are. Vote as you judge best for yourself and the village. Call `vote` once.';
 
 /** One member's ballot prompt: the rules in force, each item's neutral text and code's preview; yes and no shuffled. */
-export function ballotPrompt(village: string, agent: string, items: Law[], persona: string, now: number, needs: Record<string, NeedItem> = {}, levy = false): { system: string; user: string; tools: ToolDef[]; order: string[] } {
+export function ballotPrompt(village: string, agent: string, items: Law[], persona: string, now: number, needs: Record<string, NeedItem> = {}, levy = false, heard: Record<string, string[]> = {}): { system: string; user: string; tools: ToolDef[]; order: string[] } {
   const lines: string[] = [];
   if (persona.trim()) lines.push(persona.trim());
   const rs = rulesInForce(village);
@@ -221,6 +239,8 @@ export function ballotPrompt(village: string, agent: string, items: Law[], perso
     // (10-23: what it would have meant for this member yesterday, code's facts: rulebench saw 99% yes without them)
     const sk = stake(village, agent, l.type, l.params, storeOf?.(village) ?? {}, now);
     lines.push(`- [${l.id}] ${capital(l.text)}${pv ? ` (${pv})` : ''}; proposed by a member, backed by ${l.backers.length}${l.opposers.length ? `, opposed by ${l.opposers.length}` : ''}.${sk ? ` For you: ${sk}.` : ''}`);
+    // (#107, MC_DELIBERATE: reasons given before this voter)
+    if (heard[l.id]?.length) lines.push(`  Said before you: ${heard[l.id].join('; ')}`);
   }
   // (#1: a need item, its chores in the order the menus offered them most; the winner weighs 1.5x for two days)
   const needIds = Object.keys(needs);
@@ -228,9 +248,11 @@ export function ballotPrompt(village: string, agent: string, items: Law[], perso
     const n = needs[id];
     // (the choices shown in a member's own seeded order, their letters fixed: position bias measurable, rulebench)
     lines.push(`- [${id}] The village need "${n.text || n.need}": the chores that answer it were offered all day and nobody took them. Which should members do first for the next two days? ${shuffled(n.options, `need|${agent}|${id}`).map((o) => `${o.id}: ${o.name}`).join('; ')}; or none.`);
+    if (heard[id]?.length) lines.push(`  Said before you: ${heard[id].join('; ')}`);
   }
   // (Experiment 2: the levy item, its rates in order, not shuffled: spec 13)
   if (levy) lines.push(`- [${LEVY_ITEM}] The levy on members' shares (now ${Math.round((levyRate(village) ?? 0) * 100)}%): what should it be from tomorrow? One of ${LEVY_RATES.map((r) => `${r}%`).join(', ')}.`);
+  if (levy && heard[LEVY_ITEM]?.length) lines.push(`  Said before you: ${heard[LEVY_ITEM].join('; ')}`);
   const order = shuffled(['yes', 'no'], `yn|${agent}|${l0(items)}`);
   if (levy || needIds.length) {
     const asks = [items.length ? `${order.join(' or ')} (or abstain) for a rule` : '', needIds.length ? 'the letter of your choice (or none) for a need' : '', levy ? 'a rate for the levy' : ''].filter(Boolean);
@@ -431,7 +453,10 @@ async function castOne(village: string, mem: CouncilMember, items: Law[], m: Mee
     // (a need item: the chore offered most, A)
     for (const [id, n] of Object.entries(m.needs ?? {})) m.cast[mem.name][id] = n.options[0].id;
     if (m.levy && !isInfluencer(mem.name)) m.cast[mem.name][LEVY_ITEM] = String(LEVY_RATES[Math.floor(rnd() * 4) + 1]);
-    logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes: m.cast[mem.name], scripted: true });
+    // (#107: the scripted voter is shown the reasons before it and gives its own, for the staged check)
+    const heard = COUNCIL.deliberate ? heardReasons(m, mem.name) : {};
+    if (COUNCIL.deliberate) noteSaid(m, mem.name, Object.entries(m.cast[mem.name]).map(([item, vote]) => ({ item, vote, reason: `${mem.name}'s scripted reason, ${vote}` })));
+    logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes: m.cast[mem.name], scripted: true, ...(COUNCIL.deliberate ? { heard: Object.values(heard).reduce((t, x) => t + x.length, 0) } : {}) });
     touchMemory();
     return;
   }
@@ -449,18 +474,45 @@ async function castOne(village: string, mem: CouncilMember, items: Law[], m: Mee
     logAct({ type: 'ballot', village, agent: mem.name, day: m.day, skipped: 'influencer' });
     return;
   }
-  const p = ballotPrompt(village, mem.name, items, withInfluence(mem.name, mem.persona), now, m.needs, levy);
+  const heard = COUNCIL.deliberate ? heardReasons(m, mem.name) : {};
+  const p = ballotPrompt(village, mem.name, items, withInfluence(mem.name, mem.persona), now, m.needs, levy, heard);
   try {
     const r = await call({ spec, system: p.system, user: p.user, tools: p.tools, level: REASONING.ballot, agent: mem.name, kind: 'ballot', priority: 'ballot' });
     const c = r.reply.calls.find((x) => x.name === 'vote') ?? r.reply.calls[0];
     const votes = parseBallot(c?.input ?? r.reply.text.slice(r.reply.text.indexOf('{'), r.reply.text.lastIndexOf('}') + 1), items, m.needs, p.order, levy);
     m.cast[mem.name] = votes;
-    logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes, prompt: p.user, reply: c?.input ?? r.reply.text.slice(0, 300), ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
+    // (#107: the reasons it gave, shown to the voters after it)
+    if (COUNCIL.deliberate) noteSaid(m, mem.name, reasonsOf(c?.input).map((x) => ({ ...x, vote: votes[x.item] ?? '' })).filter((x) => x.vote && x.vote !== 'abstain'));
+    logAct({ type: 'ballot', village, agent: mem.name, day: m.day, votes, ...(COUNCIL.deliberate ? { heard: Object.values(heard).reduce((t, x) => t + x.length, 0) } : {}), prompt: p.user, reply: c?.input ?? r.reply.text.slice(0, 300), ms: r.ms, promptTokens: r.reply.promptTokens, outputTokens: r.reply.outputTokens });
   } catch (e) {
     m.cast[mem.name] = {};
     logAct({ type: 'ballot', village, agent: mem.name, day: m.day, error: String((e as Error)?.message ?? e).slice(0, 160) });
   }
   touchMemory();
+}
+
+/** #107: a ballot reply's reasons by item (the vote tool's votes[].reason), whatever the shape gpt-oss wrapped it in. */
+function reasonsOf(input: unknown): Array<{ item: string; reason: string }> {
+  let o = input as Record<string, unknown> | string | null;
+  if (typeof o === 'string') {
+    try { o = JSON.parse(o) as Record<string, unknown>; } catch { return []; }
+  }
+  if (!o || typeof o !== 'object') return [];
+  for (const k of ['arguments', 'parameters', 'input']) if (o[k] && !('votes' in o)) return reasonsOf(o[k]);
+  let vs = o.votes as unknown;
+  if (typeof vs === 'string') {
+    try { vs = JSON.parse(vs); } catch { vs = []; }
+  }
+  const out: Array<{ item: string; reason: string }> = [];
+  for (const x of Array.isArray(vs) ? vs : []) {
+    const r = x as { item?: unknown; reason?: unknown };
+    if (typeof r?.item === 'string' && typeof r.reason === 'string' && r.reason.trim()) out.push({ item: r.item, reason: r.reason.replace(/\s+/g, ' ').trim().slice(0, 160) });
+  }
+  return out;
+}
+
+function noteSaid(m: Meeting, by: string, rs: Array<{ item: string; vote: string; reason: string }>) {
+  for (const r of rs) ((m.said ??= {})[r.item] ??= []).push({ by, vote: r.vote, reason: r.reason });
 }
 
 function tallyMeeting(village: string, m: Meeting, items: Law[], now: number) {

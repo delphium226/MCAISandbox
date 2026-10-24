@@ -29,7 +29,7 @@ console.warn = (...a: unknown[]) => void warns.push(a.join(' '));
 const quietLog = (...a: unknown[]) => void logs.push(a.join(' '));
 
 // --- parseReasoning
-eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium' }, 'reasoning from a string');
+eq(parseReasoning('exec=high,plan=low'), { exec: 'high', plan: 'low', design: 'medium', choose: 'low', ballot: 'low', reflect: 'medium', answer: 'low' }, 'reasoning from a string');
 eq(parseReasoning('choose=medium'), { ...DEFAULT_REASONING, choose: 'medium' }, 'the choose kind (A.2)');
 eq(parseReasoning({ design: 'high' }), { ...DEFAULT_REASONING, design: 'high' }, 'reasoning from an object');
 eq(parseReasoning(undefined), DEFAULT_REASONING, 'reasoning unset');
@@ -316,15 +316,16 @@ console.log = quietLog;
   t += 1000;
   D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
   eq(all(), [false, false, false, true], '90%: acts off');
+  ok(!D.allows('answers' as never), '90%: answers off (85%)');
   t += 1000;
   D.record({ model: cloud, agent: 'A', kind: 'exec', promptTokens: 100, outputTokens: 0, ms: 1 });
   eq(all(), [false, false, false, false], '100%: decisions off');
-  eq(D.summary().budget.degradeLevel, 4, 'level 4');
+  eq(D.summary().budget.degradeLevel, 5, 'level 5');
   // The 700 leaves: 300 (30%): below 0.8 x 70% = 56%, so everything back on
   t = 40_000_000 + 60_001;
   eq(all(), [true, true, true, true], 'all back on at 30%');
   const dg = D.summary().budget.degradations;
-  eq(dg.map((x) => [x.level, x.off]), [[1, true], [2, true], [3, true], [4, true], [0, false]], 'every transition kept');
+  eq(dg.map((x) => [x.level, x.off]), [[1, true], [2, true], [4, true], [5, true], [0, false]], 'every transition kept');
   ok(logs.some((l) => l.includes('[usage] degrade 1: chronicle off at 700 of 1,000')), 'the degrade line');
   // hysteresis: at 65% after the chronicle went off at 70%, it stays off (back on below 56%)
   t = 41_000_000;
