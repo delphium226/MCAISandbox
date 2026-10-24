@@ -47,7 +47,7 @@ import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, rele
 import { postLayout } from '../layout';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
-import { IRON_AGE, LETTERS, OWN_TOOLS } from '../ladderFlags';
+import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { zoneBoxes } from '../rules';
 
 type Pos = [number, number, number];
@@ -3507,7 +3507,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
     await standBy(a, { targets: [], area, y: hutLevel(v, k, plot.y), free: true, what: `the ${slot.kind} farm`, task: `harvest_slot layout=${k} slot=${j}` }, signal);
     await roomForLoot(a, 'harvest_slot', signal);
     const notes: string[] = [];
-    let taken = 0, replanted = -1;
+    let taken = 0, replanted = -1, topUp = 0;
     // (the village's food ledger, s30: what the harvest leaves carried, counted on the server; only where it keeps one)
     const produce = appetiteOn(v) ? [...new Set([spec.take, spec.item, spec.fruit === 'melon' ? 'melon_slice' : spec.fruit ?? '', slot.kind === 'beetroots' ? 'beetroot' : ''].filter(Boolean))] : [];
     const before = produce.length ? await carriedCounts(a, produce).catch(() => null) : null;
@@ -3548,8 +3548,10 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
             await rcon(`setblock ${x} ${yy} ${z} minecraft:air`);
           }
       // (#21, MC_LETTERS: the slot's empty cane cells replanted from what was cut, one cane a cell charged and confirmed, so
-      // a farm started with a few stalks grows to the slot's 14; spec 9 S6)
-      if (LETTERS && taken) {
+      // a farm started with a few stalks grows to the slot's 14; spec 9 S6. #134, MC_LETTERS_PACE: and from storage while
+      // the cane slots are short of 14 stalks, cut or not: the merchant's cane fills the slot in a visit, not 74 minutes)
+      topUp = LETTERS_PACE ? a.world.caneTopUp(v, slot) : 0;
+      if (LETTERS && (taken || topUp)) {
         const have = new Set((slot.cells ?? []).map(([x, z]) => `${x},${z}`));
         const empty: Array<[number, number]> = [];
         for (const [x, z] of slotPlan(slot, 'sugar_cane').cells) {
@@ -3559,10 +3561,18 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
         let charged = 0;
         if (empty.length) {
           try {
+            const cut = Math.min(empty.length, await serverCount(a, 'sugar_cane'), taken);
+            const want = Math.min(empty.length - cut, topUp);
+            if (want > 0)
+              await withdrawItems(a, v, { sugar_cane: want }, signal).catch((e: Error) => {
+                if (e.message === 'cancelled') throw e;
+                notes.push(`no cane from storage: ${e.message.slice(0, 100)}`);
+              });
             const held = await serverCount(a, 'sugar_cane');
-            const n = Math.min(empty.length, held, taken);
+            const n = Math.min(empty.length, held, cut + Math.max(0, want));
             charged = n ? await a.world.rcon.take(a.name, 'sugar_cane', n, held) : 0;
           } catch (e) {
+            if ((e as Error).message === 'cancelled') throw e;
             notes.push(`not replanted: ${(e as Error).message.slice(0, 100)}`);
           }
         }
@@ -3580,7 +3590,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
         replanted = grown.length;
       }
     }
-    if (!taken) {
+    if (!taken && !(topUp && replanted > 0)) {
       record(false, 'nothing ripe');
       return `nothing ripe on the ${slot.kind} farm at ${areaText(slot)}`;
     }
@@ -3590,7 +3600,8 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
     }
     const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
-      notes.push(`not deposited: ${e.message.slice(0, 120)}`);
+      // (#134: a top-up that planted all it cut and withdrew has nothing to put back)
+      if (!(topUp && /not carrying anything/.test(e.message))) notes.push(`not deposited: ${e.message.slice(0, 120)}`);
       return '';
     });
     slot.harvests = (slot.harvests ?? 0) + 1;

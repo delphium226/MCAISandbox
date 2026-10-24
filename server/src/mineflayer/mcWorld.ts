@@ -55,6 +55,7 @@ import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
+import { LETTERS_PACE } from '../ladderFlags';
 import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
@@ -2007,6 +2008,7 @@ export class MineflayerWorld implements WorldAdapter {
       }
       // (before the sweep, which leaves members to the growth's chore and tasks, s30)
       try {
+        if (LETTERS_PACE && MERCHANT_ON && v.complete) this.postStall(v);
         if (v.initiatives?.length) this.initiativeTick(v);
       } catch (e) {
         console.error(`[initiative] ${v.name}: check failed:`, e);
@@ -3460,7 +3462,7 @@ export class MineflayerWorld implements WorldAdapter {
   /** An initiative ended: the record, a note, a line with its crew. */
   private endInitiative(v: Village, it: Initiative, state: 'built' | 'failed' | 'lapsed', why: string) {
     it.state = state;
-    if (state === 'built') think(v.name, it.by, 'built', `your ${smallWorkKind(it.kind)?.words ?? it.kind} was built`, Date.now());
+    if (state === 'built' && it.by !== STALL_BY) think(v.name, it.by, 'built', `your ${smallWorkKind(it.kind)?.words ?? it.kind} was built`, Date.now());
     it.end = Date.now();
     it.why = why;
     this.villages.note(v, `${it.by}'s ${it.kind} (${it.id}) ${state}: ${why}; crew ${it.crew.join(', ')}`);
@@ -3723,12 +3725,63 @@ export class MineflayerWorld implements WorldAdapter {
     if (item === 'leather') {
       // (the cane farm's seed first: im2_mine's 5 emeralds spent on leather would leave the start a cane short)
       if (!farmed && (store.sugar_cane ?? 0) < SLOT_KINDS.sugar_cane.count) return store.leather ?? 0;
+      // (#134, MC_LETTERS_PACE: the cane slots' stalks before leather too, while storage holds less cane than they lack)
+      if (LETTERS_PACE && farmed && (store.sugar_cane ?? 0) < CANE_FULL - this.caneStalks(v)) return store.leather ?? 0;
       const st = v.ladder!;
       const counted = st.totals?.leather ?? 0, books = st.totals?.books ?? 0;
       return st.stage <= 1 ? (store.leather ?? 0) + Math.max(0, LETTERS_BOOKS - counted) : Math.max(0, LETTERS_BOOKS - books);
     }
-    if (item === 'sugar_cane') return farmed ? 0 : SLOT_KINDS.sugar_cane.count;
+    // (#134, MC_LETTERS_PACE: until the cane slots hold a slot's 14 stalks, the stalks still to plant; a start's 14 before)
+    if (item === 'sugar_cane') return LETTERS_PACE ? (farmed ? Math.max(0, CANE_FULL - this.caneStalks(v)) : CANE_FULL) : farmed ? 0 : SLOT_KINDS.sugar_cane.count;
     return undefined;
+  }
+
+  /** #134: the cane stalks the village's cane slots hold (their planted cells), all slots together. */
+  caneStalks(v: Village): number {
+    let n = 0;
+    for (const l of v.layouts ?? []) for (const q of l.slots ?? []) if (q.kind === 'sugar_cane' && !q.laying) n += q.cells?.length ?? q.planted ?? 0;
+    return n;
+  }
+
+  /**
+   * #134 (MC_LETTERS_PACE): the cane a visit to a cane slot plants from storage now: while letters is current and the cane
+   * slots hold fewer than CANE_FULL stalks in all, up to the slot's empty cells and the shortfall, from what storage holds;
+   * 0 otherwise. The harvest skill withdraws it (mcBuild.ts harvestSlot); the menu offers a visit on it with nothing ripe.
+   */
+  caneTopUp(v: Village, slot: { kind?: string; laying?: unknown; cells?: Array<[number, number]>; planted?: number }): number {
+    if (!LETTERS_PACE || !lettersCurrent(v) || slot.kind !== 'sugar_cane' || slot.laying) return 0;
+    const empty = CANE_FULL - (slot.cells?.length ?? slot.planted ?? 0);
+    const short = CANE_FULL - this.caneStalks(v);
+    return Math.max(0, Math.min(empty, short, storageContents(v).sugar_cane ?? 0));
+  }
+
+  /** #134: when each village's posted market stall was last looked at (once a minute). */
+  private stallAt = new Map<string, number>();
+
+  /**
+   * #134 (MC_LETTERS_PACE, with MC_MERCHANT): once the village is complete, its first market stall is posted as a village
+   * work (an initiative of the village's, its steps ranked high on every member's menu) instead of waiting on a member's
+   * own (W4's came at minute ~96, the merchant at ~106). One a village, open or built; posted again if it fails or lapses.
+   */
+  private postStall(v: Village) {
+    const now = Date.now();
+    if ((this.stallAt.get(v.name) ?? 0) > now) return;
+    this.stallAt.set(v.name, now + 60000);
+    if (v.merchant || !v.storageHut || !CHOOSE.families.has('initiatives')) return;
+    if ((v.initiatives ?? []).some((i) => i.kind === 'market_stall' && (i.state === 'open' || i.state === 'built'))) return;
+    const k = smallWorkKind('market_stall');
+    if (!k) return;
+    const wood = this.catalogWoodOf(v);
+    const spot = this.smallWorkSpot(v, k, wood, STALL_BY);
+    if (!spot) return console.log(`[initiative] ${v.name}: no spot for the village's market stall yet`);
+    const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood);
+    if (!this.initiativeStep(v, { id: '_new', design: design.name }, this.makeSpare(v, STALL_BY), new Set(), design)) return console.log(`[initiative] ${v.name}: the village's market stall waits (nothing to gather for it now)`);
+    if (!v.designs[design.name]) v.designs[design.name] = design;
+    const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: STALL_BY, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: now, state: 'open', crew: [], steps: [] };
+    v.initiatives = [...(v.initiatives ?? []), it];
+    this.villages.note(v, `The village posts a market stall at ${spot.x},${spot.z} (${it.id}): a merchant comes to the first one built`);
+    this.villages.save();
+    console.log(`[initiative] ${v.name}: the village posts ${it.id}, a ${k.words} (${design.name}) at ${spot.x},${spot.y},${spot.z}`);
   }
 
   /** A built structure's placement: the Build task that put it here, its centre and quarter turns (L4: rotate is in
@@ -4766,7 +4819,10 @@ export class MineflayerWorld implements WorldAdapter {
             if (st < 0) return null;
             if (is(st, spec.fruit ?? 'sugar_cane')) ripe++;
           }
-        return ripe < 2 || (spec.ripe !== undefined && ripe < 0.75 * of) ? null : { ripe, of };
+        // (#134, MC_LETTERS_PACE: a cane slot short of stalks with cane in storage is worth a visit, ripe or not)
+        const topUp = this.caneTopUp(v, slot);
+        if (topUp && (ripe >= 2 || topUp >= Math.min(2, CANE_FULL - (slot.cells?.length ?? 0)))) return { ripe, of, topUp };
+        return ripe < 2 || (spec.ripe !== undefined && ripe < 0.75 * of) ? null : { ripe, of, topUp: 0 };
       }),
       // Sightings a start may go for, by kind (searched from collect's home, judged by collect's filter; bad sightings
       // are the slots', left to the menu)
@@ -5310,8 +5366,8 @@ export class MineflayerWorld implements WorldAdapter {
         add({
           id: `slot:${k}:${j}`, kind: 'slot', key: `slot:${k}:${j}`, excludes, name: `Harvest the ${words(slot.kind)} farm${lay.grow ? ` of neighbourhood ${lay.grow}` : layouts.length > 1 && k > 1 ? ' of the second plot' : ''}${(lay.slots ?? []).filter((s) => s.kind === slot.kind).length > 1 ? ` on slot ${numberWord(j)}` : ''}`,
           rank: 100 + 10 * k + j, at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
-          facts: `${f.ripe} ripe; ${dist((slot.x1 + slot.x2) / 2, (slot.z1 + slot.z2) / 2)}; ${record('slot')}${others('slot')}${lastOf('slot')}`,
-          effect: `about ${f.ripe} ${words(slot.kind)}`,
+          facts: `${f.ripe} ripe${f.topUp ? `; ${slot.cells?.length ?? 0} of ${CANE_FULL} stalks planted, ${f.topUp} more to plant from storage` : ''}; ${dist((slot.x1 + slot.x2) / 2, (slot.z1 + slot.z2) / 2)}; ${record('slot')}${others('slot')}${lastOf('slot')}`,
+          effect: f.topUp ? `${f.ripe ? `about ${f.ripe} ${words(slot.kind)} and ` : ''}a fuller cane farm (+${f.topUp} stalks)` : `about ${f.ripe} ${words(slot.kind)}`,
         }, { kind: 'slot', k, j, ripe: f.ripe, slotKind: slot.kind });
       }
 
@@ -5975,6 +6031,7 @@ export class MineflayerWorld implements WorldAdapter {
           continue;
         }
         const mine = it.by === a.name;
+        const posted = it.by === STALL_BY;
         const id = `help:${it.id}`;
         const key = step.what === 'gather' ? `initiative:${it.id}:${[1, 2].find((n) => !busy.has(`initiative:${it.id}:${n}`)) ?? 1}` : `initiative:${it.id}:${step.what}`;
         const crew = it.crew.filter((n) => n !== a.name);
@@ -5982,9 +6039,9 @@ export class MineflayerWorld implements WorldAdapter {
         const where = it.pending ? 'no spot yet: a green near the village first' : `at ${it.x},${it.z}`;
         add({
           id, kind: 'help', key, excludes: [`${key}=`, ...(step.what === 'gather' ? [`initiative:${it.id}:build=`] : [`initiative:${it.id}:`])],
-          name: mine ? `Continue your ${kindOf.words}: ${short}` : anon ? `Help build the ${kindOf.words} at ${it.pending ? 'a new green' : `${it.x},${it.z}`}: ${short}` : `Help ${it.by} build a ${kindOf.words}: ${short}`,
-          rank: 1050 + r, at: { x: it.x, y: it.y, z: it.z },
-          facts: `${mine ? 'your own project' : anon ? "a member's project" : `${it.by}'s project`}, started ${ago(now - it.at)}; ${anon ? '' : `${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; `}${where}${step.what === 'gather' ? `; ${step.material} still to gather for it` : step.what === 'build' ? '; its materials are gathered' : ''}`,
+          name: mine ? `Continue your ${kindOf.words}: ${short}` : posted ? `Help build the village's ${kindOf.words} at ${it.x},${it.z}: ${short}` : anon ? `Help build the ${kindOf.words} at ${it.pending ? 'a new green' : `${it.x},${it.z}`}: ${short}` : `Help ${it.by} build a ${kindOf.words}: ${short}`,
+          rank: (posted ? 150 : 1050) + r, at: { x: it.x, y: it.y, z: it.z },
+          facts: `${mine ? 'your own project' : posted ? 'the village\'s project: a merchant comes to the first market stall built' : anon ? "a member's project" : `${it.by}'s project`}, started ${ago(now - it.at)}; ${anon ? '' : `${crew.length ? `helping: ${crew.slice(0, 4).join(', ')}${crew.length > 4 ? ` and ${crew.length - 4} more` : ''}` : 'nobody helping yet'}; ${it.steps.length} steps taken; `}${where}${step.what === 'gather' ? `; ${step.material} still to gather for it` : step.what === 'build' ? '; its materials are gathered' : ''}`,
           effect: step.what === 'build' ? `a ${kindOf.words} stands in the village: ${kindOf.forWhat}` : step.what === 'prepare' ? `level ground for the ${kindOf.words} and later small works` : `+${step.amount} ${step.material} toward the ${kindOf.words} (${kindOf.forWhat})`,
         }, { kind: 'help', id: it.id, step });
       }
@@ -7734,7 +7791,7 @@ interface Facts {
   startHome: { x: number; z: number } | null;
   exploreHome: { x: number; z: number } | null;
   field: (k: string) => { ripe: number; grown: number; plot: { y: number } } | null;
-  slot: (kj: string) => { ripe: number; of: number } | null;
+  slot: (kj: string) => { ripe: number; of: number; topUp: number } | null;
   sightings: (kind: string) => Array<[number, number, number, number]>;
   animals: (kind: string) => Array<{ x: number; y: number; z: number }>;
   eggs: (j: string) => boolean;
@@ -7835,6 +7892,9 @@ const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
 interface VoteRun { id: string; topic: VoteTopic; k: number; options: VoteOption[]; started: number; mode: VoteMode; done: boolean; ballots: Ballot[]; voters: string[]; ac: AbortController }
 
+/** #134: a cane slot's stalks when full (farmSlots.ts slotPlan: two columns of 7), and who a posted market stall is by. */
+const CANE_FULL = 14;
+const STALL_BY = 'the village';
 /** X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
 const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
