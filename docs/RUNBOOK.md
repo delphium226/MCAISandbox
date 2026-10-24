@@ -135,7 +135,7 @@ the short version; look here for a check script's arguments, a model detail or w
   the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
   `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
   idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
-- **Storage that grows** (#121, `MC_STORAGE_GROW=on`, off; spec `runs/2026-10-24/storage-grows/spec.md`): a deposit keeps
+- **Storage that grows** (#121, `MC_STORAGE_GROW`, on by default since 10-24, `=off` turns it off; spec `runs/2026-10-24/storage-grows/spec.md`): a deposit keeps
   at most `MC_STORAGE_CAP` of each bulk stone kind (default `cobblestone:1024,stone:256`, "stone" each other bulk kind;
   `off` no cap) and the rest goes on the spoil heap (cleared by command, not credited; `[storage] spoil:`); and when the
   hut has at most 2 free spots and 75% of its slots used, an idle fed member prepares a **storage yard** (`prepare_storage_yard`,
@@ -220,7 +220,7 @@ the short version; look here for a check script's arguments, a model detail or w
   `MC_TECH_UNLOCKED=hay+lantern` starts with some; s44's research points, prerequisites and royalties: `MC_TECH_MADE=iron_pickaxe`
   counts tools as made for the tree (the sim has no iron), `MC_TECH_ROYALTY` 0.1; `scripts/checks/tech_unit.mts`). `MC_GOALS=on` (s44, goals.ts: life goals, `[goal]` lines;
   `MC_GOALS_ONLY=beauty,...` narrows the draw; `scripts/checks/goals_unit.mts`; the sim's report adds a line a goal: picks
-  on it against other members' and progress). `MC_PROMPT_SELF=on` (#117, promptSelf.ts, off): the choice prompt's own
+  on it against other members' and progress). `MC_PROMPT_SELF` (#117, promptSelf.ts, on by default since 10-24; `=off` turns it off): the choice prompt's own
   state ("You: no house of your own yet; you carry ...; 3 emeralds; appetite 14 of 20"), basic needs in Maslow's order
   (food, a house, a bed, a chest: the street, the basics and the own chest pinned and tagged `[your basic need: a bed]`),
   the goal's meaning, the short materials and goods made for nothing, one ambition option pinned by the trim and why none

@@ -20,7 +20,8 @@ import { storageContents, withdrawItems } from './mcStorage';
 import { ContentionError, goals, syncInventory, unmoved, walk } from './mcUtil';
 import { FOUNDRY as WOOL } from './foundry/wool';
 
-export const HOME_BASICS = { on: /^(on|1|true)$/i.test(process.env.MC_HOME_BASICS ?? 'off') };
+/** MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. */
+export const HOME_BASICS = { on: !/^(off|0|false|no)$/i.test(process.env.MC_HOME_BASICS ?? 'on') };
 
 export type BasicsPiece = 'table' | 'chest' | 'bed';
 /** The order a chore places them in: the cheapest first, so a house short of wool still gets its table and chest. */

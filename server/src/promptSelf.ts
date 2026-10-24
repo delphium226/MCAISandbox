@@ -1,5 +1,5 @@
 /**
- * #117 (MC_PROMPT_SELF=on, off by default; spec runs/2026-10-24/prompt-117/spec.md): what a member's choice prompt says
+ * #117 (MC_PROMPT_SELF, on by default since 10-24, the user's after test train 1; off turns it off; spec runs/2026-10-24/prompt-117/spec.md): what a member's choice prompt says
  * about the member itself, beside the village. Its own state (its house and what the house lacks, what it carries, its
  * emeralds, its appetite), its basic needs in Maslow's order (the user's: food, a house, a bed, a chest), what is short
  * and what is made for nothing yet, and why nothing on its menu feeds the ambition when nothing does. The goal's
@@ -8,7 +8,7 @@
  */
 type Counts = Record<string, number>;
 
-export const PROMPT_SELF = /^(on|1|true|yes)$/i.test(process.env.MC_PROMPT_SELF ?? '');
+export const PROMPT_SELF = !/^(off|0|false|no)$/i.test(process.env.MC_PROMPT_SELF ?? 'on');
 
 /** The member's own house as the prompt names it: none, one under construction, or one standing with what it has and lacks. */
 export type HouseFacts = { state: 'none' } | { state: 'building' } | { state: 'standing'; label: string; has: string[]; lacks: string[] };

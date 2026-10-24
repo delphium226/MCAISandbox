@@ -64,10 +64,10 @@ export function storageHutDesign(open = OPEN_STORAGE): Design {
 }
 
 /**
- * MC_STORAGE_GROW=on (#121; off by default): storage that grows. A deposit keeps at most a cap of each bulk stone kind
+ * MC_STORAGE_GROW (#121; on by default since 10-24, the user's after test train 1; off turns it off): storage that grows. A deposit keeps at most a cap of each bulk stone kind
  * (the rest goes on the spoil heap), and a storage yard is prepared beside the village once the hut is nearly full.
  */
-export const STORAGE_GROW = /^(on|1|true)$/i.test(process.env.MC_STORAGE_GROW ?? 'off');
+export const STORAGE_GROW = !/^(off|0|false|no)$/i.test(process.env.MC_STORAGE_GROW ?? 'on');
 
 /**
  * The storage yard's barrel spots (#121), for a yard on side `side` of the plot (the annex's 13x9 geometry: 13 along the
