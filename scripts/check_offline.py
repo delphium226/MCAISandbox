@@ -23,7 +23,7 @@ UNITS = ["board_version", "call_gate", "chat_route", "choose_unit", "model_usage
          "light_check", "workshop_check", "gen_designs", "pf_share", "at_goal", "huts_box", "vanilla_tags", "vanilla_recipes",
          "temperament_table", "vote_unit", "activities_unit", "decor_check", "public_works", "small_works",
          "menu_probe", "needs_unit", "housing", "parts_unit", "needworks_unit", "utilisation_unit", "mine_flow_unit", "merchant_unit", "tech_unit", "goals_unit", "works_grow", "wanted_unit", "own_pending_unit", "own_share_unit", "pay_ledger", "pay_acts", "pay_store", "talk_acts", "flowers_unit", "gardens_unit", "rules_unit", "law_reading",
-         "ladder_unit", "iron_legs_unit", "character_preset", "vanilla_all", "model_pace", "llm_limits", "fixes_all1", "wood_variants", "gen_homes", "open_hut", "make_short"]
+         "ladder_unit", "ladder_letters", "iron_legs_unit", "character_preset", "vanilla_all", "model_pace", "llm_limits", "fixes_all1", "wood_variants", "gen_homes", "open_hut", "make_short"]
 
 
 def commands():
@@ -38,6 +38,9 @@ def commands():
         out[name] = ([sys.executable, f"scripts/checks/{name}.py"], [])
     # (s42: the village simulator, 20 simulated minutes on mv3_grown25: no error, every member picking)
     out["village_sim"] = ([node, TSX, "scripts/sim/village_sim.mts", "--minutes", "20"], ["mc/testcheckpoints/mv3_grown25/villages.json"])
+    # (#21: the letters rung's goods, keeps and trades, and the library's cells, on the im2_mine checkpoint)
+    for name in ("letters_make", "library_shelves"):
+        out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     return out
 
 

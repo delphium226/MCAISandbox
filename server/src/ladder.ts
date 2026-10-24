@@ -9,19 +9,20 @@
  */
 import type { LadderState, Village } from './village';
 import { rungNeeds, type RungId } from './wanted';
-import { LADDER } from './ladderFlags';
+import { LADDER, LETTERS } from './ladderFlags';
 
-export { IRON_AGE, IRON_MINERS, LADDER, OWN_TOOLS } from './ladderFlags';
+export { IRON_AGE, IRON_MINERS, LADDER, LETTERS, OWN_TOOLS } from './ladderFlags';
 
-/** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members. */
-export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools';
+/** What a stage counts: cells dug at the iron levels, raw iron brought up, ingots smelted, tools given to members; for
+ *  letters (MC_LETTERS) sugar cane harvested, leather bought or caught, books bound and library pieces shelved. */
+export type Counter = 'cells' | 'raw_iron' | 'ingots' | 'tools' | 'cane' | 'leather' | 'books' | 'shelved';
 
 export interface StageDef {
   /** The stage in words, with {n} and {t} for the count and the target where it is counted. */
   words: string;
   counter?: Counter;
   target?: number;
-  /** Option ids that feed it (tagged "[for <rung>]" with vw). */
+  /** Option ids that feed it (tagged "[for <rung>]" with vw), or the option's feed alias (feedsStage). */
   feeds?: RegExp;
 }
 
@@ -40,7 +41,12 @@ export interface RungDef {
 /** The option weight for work that feeds the current stage (inside the character factor's clamp where that is on). */
 export const VW = 1.3;
 
-/** The rungs (spec section 3, sized by draft 2's B1 for iron). Only iron's stages are counted by code so far. */
+/** The letters rung's targets (runs/2026-10-24/letters/spec.md, the user's 10-24: plains_library_2's 4 shelves and its
+ *  lectern, and the enchanting table's book: 16 books, 48 cane, 16 leather). */
+export const LETTERS_BOOKS = 16, LETTERS_PIECES = 5, LETTERS_SHELVES = 4;
+
+/** The rungs (spec section 3, sized by draft 2's B1 for iron). Iron's stages are counted by code, and letters' with
+ *  MC_LETTERS. */
 export const RUNG_DEFS: Record<RungId, RungDef> = {
   iron: {
     id: 'iron', name: 'the iron age', what: 'iron mining, smelting and iron tools for members', after: [], time: 'about 2-3 hours',
@@ -53,7 +59,16 @@ export const RUNG_DEFS: Record<RungId, RungDef> = {
   },
   letters: {
     id: 'letters', name: 'the age of letters', what: 'paper, books and a library', after: ['iron'], time: 'about 2-3 hours',
-    stages: [{ words: 'a sugar cane farm' }, { words: '27 paper' }, { words: '9 books (leather bought from the merchant)' }, { words: 'a library: 3 bookshelves and a lectern' }],
+    // (the feeds test the option's id or its alias: a cane slot's harvest is `slot:K:J` whatever it grows, so the world
+    // passes `slot:sugar_cane`; the merchant's buy names the item it would buy, `activity:lib:buy:leather`)
+    stages: LETTERS
+      ? [
+        { words: '{n} of {t} sugar cane harvested for paper', counter: 'cane', target: 3 * LETTERS_BOOKS, feeds: /^(start:sugar_cane|slot:sugar_cane|activity:lib:buy:sugar_cane)$/ },
+        { words: '{n} of {t} leather brought in', counter: 'leather', target: LETTERS_BOOKS, feeds: /^(activity:lib:buy:leather|activity:lib:sell|activity:lib:fish)$/ },
+        { words: '{n} of {t} books bound', counter: 'books', target: LETTERS_BOOKS, feeds: /^make:book$/ },
+        { words: '{n} of {t} pieces placed in the library (4 bookshelves and a lectern)', counter: 'shelved', target: LETTERS_PIECES, feeds: /^(make:bookshelf|make:lectern|shelve(:.*)?)$/ },
+      ]
+      : [{ words: 'a sugar cane farm' }, { words: '27 paper' }, { words: '9 books (leather bought from the merchant)' }, { words: 'a library: 3 bookshelves and a lectern' }],
   },
   diamond: {
     id: 'diamond', name: 'the diamond age', what: 'a deep mine past lava, diamonds and a diamond pickaxe', after: ['iron'], time: 'about 3-4 hours',
@@ -164,11 +179,52 @@ export function noteLadder(v: Village, counter: Counter, member: string, n: numb
   return out;
 }
 
-/** Whether an option feeds the current stage (it gets the tag and `vw`). */
-export function feedsStage(v: Village, optionId: string): boolean {
+/** Whether an option feeds the current stage (it gets the tag and `vw`): its id, or the alias the world gives it from
+ *  what it runs (a cane slot's harvest, the item a trade would buy). */
+export function feedsStage(v: Village, optionId: string, alias?: string): boolean {
   const st = LADDER ? v.ladder : undefined;
   const sd = st?.current ? RUNG_DEFS[st.current as RungId]?.stages[st.stage] : undefined;
-  return !!sd?.feeds?.test(optionId);
+  return !!sd?.feeds && (sd.feeds.test(optionId) || (!!alias && sd.feeds.test(alias)));
+}
+
+/** A rung's counted total since it began (0 when it is not current). */
+export function rungTotal(v: Village, rung: RungId, counter: Counter): number {
+  const st = LADDER ? v.ladder : undefined;
+  return st?.current === rung ? st.totals?.[counter] ?? 0 : 0;
+}
+
+/** Whether letters is the current rung (MC_LETTERS and MC_LADDER on). */
+export const lettersCurrent = (v: Village): boolean => LETTERS && LADDER && v.ladder?.current === 'letters';
+/** Whether the village has reached letters. */
+export const lettersReached = (v: Village): boolean => LETTERS && LADDER && !!v.ladder?.reached.some((r) => r.rung === 'letters');
+
+/**
+ * The letters counters from a chore step's message (spec section 9, B3; ladder_unit.mts has each message): cane from a
+ * cane slot's harvest that went into storage, net of the cells it replanted; leather from a trade's purchase or a fishing
+ * trip's catch; books from a make's puts. The library's pieces are the shelving's own count (`shelved N of M`, new
+ * pieces only). [] with MC_LETTERS off.
+ */
+export function lettersCounts(type: string, message: string): Array<[Counter, number]> {
+  if (!LETTERS) return [];
+  const out: Array<[Counter, number]> = [];
+  if (type === 'harvest_slot') {
+    const m = /^harvested (\d+) sugar_cane\b.*?\((\d+) replanted\)/.exec(message);
+    if (m && /into the village storage/.test(message)) out.push(['cane', Math.max(0, Number(m[1]) - Number(m[2]))]);
+  } else if (type === 'trade') {
+    const m = /\bbought (\d+) leather\b/.exec(message);
+    if (m) out.push(['leather', Number(m[1])]);
+  } else if (type === 'fish') {
+    const m = /\b(\d+) leather(?![_a-z])/.exec(message);
+    if (m) out.push(['leather', Number(m[1])]);
+  } else if (type === 'make') {
+    // (the good made comes first; leftovers after it, "put into storage: 1 bookshelf, 2 book", are not books bound)
+    const m = /put into storage: (\d+) book\b/.exec(message);
+    if (m) out.push(['books', Number(m[1])]);
+  } else if (type === 'shelve_library') {
+    const m = /^shelved (\d+) of \d+/.exec(message);
+    if (m) out.push(['shelved', Number(m[1])]);
+  }
+  return out.filter(([, n]) => n > 0);
 }
 
 /** The tag on an option that feeds the current stage. */

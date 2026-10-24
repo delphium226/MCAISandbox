@@ -17,6 +17,7 @@ import { Vec3 } from 'vec3';
 import type { Area, Design, Reservation, Structure, Village } from '../village';
 import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMineFace } from './mcMine';
 import { teleportHome } from './mcRescue';
+import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
 import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
@@ -46,7 +47,7 @@ import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, rele
 import { postLayout } from '../layout';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
-import { IRON_AGE, OWN_TOOLS } from '../ladderFlags';
+import { IRON_AGE, LETTERS, OWN_TOOLS } from '../ladderFlags';
 import { zoneBoxes } from '../rules';
 
 type Pos = [number, number, number];
@@ -3420,7 +3421,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
     await standBy(a, { targets: [], area, y: hutLevel(v, k, plot.y), free: true, what: `the ${slot.kind} farm`, task: `harvest_slot layout=${k} slot=${j}` }, signal);
     await roomForLoot(a, 'harvest_slot', signal);
     const notes: string[] = [];
-    let taken = 0;
+    let taken = 0, replanted = -1;
     // (the village's food ledger, s30: what the harvest leaves carried, counted on the server; only where it keeps one)
     const produce = appetiteOn(v) ? [...new Set([spec.take, spec.item, spec.fruit === 'melon' ? 'melon_slice' : spec.fruit ?? '', slot.kind === 'beetroots' ? 'beetroot' : ''].filter(Boolean))] : [];
     const before = produce.length ? await carriedCounts(a, produce).catch(() => null) : null;
@@ -3460,6 +3461,38 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
             if (/Dropped/i.test(await rcon(`loot give ${a.name} mine ${x} ${yy} ${z}`))) taken++;
             await rcon(`setblock ${x} ${yy} ${z} minecraft:air`);
           }
+      // (#21, MC_LETTERS: the slot's empty cane cells replanted from what was cut, one cane a cell charged and confirmed, so
+      // a farm started with a few stalks grows to the slot's 14; spec 9 S6)
+      if (LETTERS && taken) {
+        const have = new Set((slot.cells ?? []).map(([x, z]) => `${x},${z}`));
+        const empty: Array<[number, number]> = [];
+        for (const [x, z] of slotPlan(slot, 'sugar_cane').cells) {
+          if (have.has(`${x},${z}`) || !(await there(x, y, z, 'air'))) continue;
+          if ((await there(x, y - 1, z, 'dirt')) || (await there(x, y - 1, z, 'grass_block')) || (await there(x, y - 1, z, 'sand'))) empty.push([x, z]);
+        }
+        let charged = 0;
+        if (empty.length) {
+          try {
+            const held = await serverCount(a, 'sugar_cane');
+            const n = Math.min(empty.length, held, taken);
+            charged = n ? await a.world.rcon.take(a.name, 'sugar_cane', n, held) : 0;
+          } catch (e) {
+            notes.push(`not replanted: ${(e as Error).message.slice(0, 100)}`);
+          }
+        }
+        const grown: Array<[number, number]> = [];
+        for (const [x, z] of empty.slice(0, charged)) {
+          await rcon(`setblock ${x} ${y} ${z} minecraft:sugar_cane`);
+          if (await there(x, y, z, 'sugar_cane')) grown.push([x, z]);
+        }
+        // (a cell that would not take its cane: the cane goes back to the cutter, deposited with the rest)
+        if (charged > grown.length) await a.world.rcon.give(a.name, 'sugar_cane', charged - grown.length).catch(() => false);
+        if (grown.length) {
+          slot.cells = [...(slot.cells ?? []), ...grown];
+          slot.planted = slot.cells.length;
+        }
+        replanted = grown.length;
+      }
     }
     if (!taken) {
       record(false, 'nothing ripe');
@@ -3475,7 +3508,7 @@ async function harvestSlot(a: BotAgent, args: Record<string, unknown>, signal: A
       return '';
     });
     slot.harvests = (slot.harvests ?? 0) + 1;
-    const out = `harvested ${taken} ${slot.kind} at ${areaText(slot)}${stored ? ' into the village storage' : ''}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    const out = `harvested ${taken} ${slot.kind}${replanted >= 0 ? ` (${replanted} replanted)` : ''} at ${areaText(slot)}${stored ? ' into the village storage' : ''}${notes.length ? ` (${notes.join('; ')})` : ''}`;
     record(true);
     a.world.villages.note(v, `${a.name} ${out}`);
     return out;
@@ -6081,6 +6114,139 @@ async function putUpTorches(a: BotAgent, args: Record<string, unknown>, signal: 
 const decorRuns = new Map<string, symbol>();
 
 /**
+ * shelve_library (#21, MC_LETTERS; a chore, not in TOOLS): the age of letters' last stage, the library's 4 bookshelves and
+ * its lectern from the village storage into the cells the jar's piece gives them (the world's libraryPlan: the first
+ * plains library, mcLibrary.ts libraryCells), by command and charged one piece at a time, shelves first, the lectern
+ * last. At the storage hut the pieces the open cells take are withdrawn (those carried first); from beside the library's
+ * door each cell is judged on the server before it is set: a shelf's cell must hold planks (the import's, any wood: the
+ * builder swaps it; the planks are not refunded) and the lectern's be air with no entity in it (lesson 44, as a condition
+ * of the command); a bookshelf or lectern already there is recorded done, anything else makes the cell never. Set, then
+ * confirmed a second later by `execute if block` (lessons 29, 80); a piece not standing is given back. Recorded on the
+ * village (v.library); what it carries after goes back by name (lesson 112). "shelved N of M": N new pieces, the ladder's
+ * count (ladder.ts lettersCounts).
+ */
+async function shelveLibrarySkill(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  if (!v) throw new Error('shelve_library: not in a village');
+  const h = v.storageHut;
+  if (!v.complete || !v.storage?.chests.length || !h) throw new Error('shelve_library: the library is shelved once the village is complete, with its storage hut and chests');
+  const L = a.world.libraryPlan(v);
+  if (!L) throw new Error('shelve_library: the village has no library with shelf cells');
+  const t0 = Date.now();
+  const r0 = libraryOf(v);
+  const rec: LibraryRecord = { structure: L.structure.id, done: [...(r0?.done ?? [])], shelves: r0?.shelves ?? 0, lectern: !!r0?.lectern, ...(r0?.never?.length ? { never: [...r0.never] } : {}) };
+  const save = () => {
+    setLibrary(v, rec);
+    a.world.villages.save();
+  };
+  const ITEM = { shelf: 'bookshelf', lectern: 'lectern' } as const;
+  const count = async (n: string) => a.world.rcon.count(a.name, n);
+  const passed = async (c: string) => /passed/i.test(await a.world.rcon.command(c).catch(() => ''));
+  let placed = 0, found = 0, never = 0, given = 0;
+  const notes: string[] = [];
+  try {
+    // 0. Out of the deep first (lesson 101)
+    const plotY = v.plots[0]?.y ?? a.bot.entity.position.y;
+    if (inIronLevel(a) || a.bot.entity.position.y < plotY - 4) await teleportHome(a, signal);
+    // 1. At the storage hut: the pieces the open cells take, beyond those carried
+    const open = L.open;
+    const wantOf = { bookshelf: open.filter((c) => c.part === 'shelf').length, lectern: open.some((c) => c.part === 'lectern') ? 1 : 0 };
+    const store = storageContents(v);
+    const need: Counts = {};
+    for (const n of ['bookshelf', 'lectern'] as const) {
+      const q = Math.min(wantOf[n] - (await count(n)), store[n] ?? 0);
+      if (q > 0) need[n] = q;
+    }
+    if (Object.keys(need).length) {
+      await standBy(a, { targets: [], area: { x1: h.x1, z1: h.z1, x2: h.x2, z2: h.z2 }, y: plotY, free: true, what: `the ${L.label}'s shelves`, task: 'shelve_library' }, signal);
+      await withdrawItems(a, v, need, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`withdraw: ${e.message.slice(0, 100)}`);
+      });
+    }
+    const have = { bookshelf: await count('bookshelf'), lectern: await count('lectern') };
+    if (!have.bookshelf && !have.lectern) return `shelved 0 of ${L.cells.length} pieces in the ${L.label} (no bookshelf or lectern in storage${notes.length ? `; ${notes.join('; ')}` : ''}; no progress)`;
+    // 2. Beside the library's door (never from inside)
+    const st = L.structure;
+    const spot = doorStand(a, { part: st.id, label: L.label, kind: 'building', structure: st, place: L.place, spots: [], unlit: 0, growing: false });
+    if (spot) await walk(a, new goals.GoalNear(spot.x, spot.y, spot.z, 1), `the ${L.label}'s door`, signal, 90000, { scaffold: false }).catch((e: Error) => {
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
+      notes.push('the walk to the door failed');
+    });
+    // 3. Each open cell, shelves first, the lectern last
+    const pace = 1000 / (Math.max(0.25, Math.min(20, Number(a.memory.buildSpeed) || 1)) * 10 * timeScale());
+    const set: LibraryCell[] = [];
+    const neverSet = new Set(rec.never ?? []);
+    for (const c of open) {
+      checkAbort(signal);
+      const k = cellKey(c), item = ITEM[c.part];
+      const block = c.part === 'lectern' ? `lectern[facing=${c.facing ?? 'north'}]` : 'bookshelf';
+      if (await passed(`execute if block ${c.x} ${c.y} ${c.z} minecraft:${item}`)) {
+        rec.done.push(k);
+        if (c.part === 'shelf') rec.shelves++;
+        else rec.lectern = true;
+        found++;
+        continue;
+      }
+      const ready = c.part === 'shelf' ? await passed(`execute if block ${c.x} ${c.y} ${c.z} #minecraft:planks`) : await passed(`execute if block ${c.x} ${c.y} ${c.z} minecraft:air`);
+      if (!ready) {
+        // (not loaded: no answer either way, tried again later)
+        if (!(await passed(`execute if loaded ${c.x} ${c.y} ${c.z}`))) continue;
+        neverSet.add(k);
+        never++;
+        continue;
+      }
+      if (!(have[item] > 0)) continue;
+      const n = await a.world.rcon.take(a.name, item, 1, have[item]);
+      if (n < 1) {
+        have[item] = await count(item);
+        continue;
+      }
+      have[item] -= n;
+      const r = await a.world.rcon.command(`execute unless entity @e[type=!item,x=${c.x},y=${c.y},z=${c.z},dx=0,dy=0,dz=0] run setblock ${c.x} ${c.y} ${c.z} minecraft:${block}`).catch(() => null);
+      if (r !== null && !/Changed the block/i.test(r)) {
+        await a.world.rcon.give(a.name, item, 1, have[item]).catch(() => '');
+        have[item] += 1;
+        given++;
+        continue;
+      }
+      set.push(c);
+      await sleep(pace, signal);
+    }
+    // 4. Confirmed a second later on the server
+    if (set.length) await sleep(1000, signal);
+    for (const c of set) {
+      const item = ITEM[c.part];
+      if (await passed(`execute if block ${c.x} ${c.y} ${c.z} minecraft:${item}`)) {
+        rec.done.push(cellKey(c));
+        if (c.part === 'shelf') rec.shelves++;
+        else rec.lectern = true;
+        placed++;
+      } else {
+        await a.world.rcon.give(a.name, item, 1).catch(() => '');
+        given++;
+      }
+    }
+    if (neverSet.size) rec.never = [...neverSet];
+    save();
+    // 5. What it still carries goes back by name
+    await STORAGE_SKILLS.deposit.run(a, { item: 'bookshelf', also: 'lectern', ifAny: true }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      notes.push(`not put back: ${e.message.slice(0, 80)}`);
+    });
+    const left = L.cells.length - rec.done.length;
+    const what = set.filter((c) => rec.done.includes(cellKey(c))).map((c) => `${ITEM[c.part]} at ${c.x},${c.y},${c.z}`);
+    const out = `shelved ${placed} of ${L.cells.length} pieces in the ${L.label}${what.length ? ` (${what.join(', ')})` : ''}; ${left ? `${left} to go` : 'the library is shelved'}${found ? `; ${found} found in place` : ''}${never ? `; ${never} cells taken by something else` : ''}${given ? `; ${given} given back` : ''}${notes.length ? `; ${notes.join('; ')}` : ''}${!placed && !found && !never ? '; no progress' : ''}`;
+    if (placed) a.world.villages.note(v, `${a.name} ${out}`);
+    console.log(`[shelve] ${a.name} ${v.name} ${L.structure.id}: placed=${placed} found=${found} never=${never} given=${given} left=${left} sec=${((Date.now() - t0) / 1000).toFixed(0)}`);
+    return out;
+  } catch (e) {
+    save();
+    throw e;
+  }
+}
+
+/**
  * furnish part= count= (X.1; a chore, not in TOOLS): furniture from the village storage into a building's open spots (the
  * world's decorParts: buildingDecor's cells inside the structure's box, off its torch spots and signs), by command and
  * charged one piece at a time. At the storage hut: the recorded spots checked again in the bot's view, the first `count`
@@ -6477,5 +6643,6 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (B.4's, a chore too: torches from storage into a building or a part of the mine)
   put_up_torches: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: partsBack(putUpTorches) },
   furnish: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: furnishSkill },
+  shelve_library: { check: () => undefined, run: shelveLibrarySkill },
 };
 

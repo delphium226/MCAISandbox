@@ -218,8 +218,11 @@ export const FOUNDRY: FoundrySkill = {
           return { why: 'no merchant' };
         }
         const spare = ctx.spare && typeof ctx.spare === 'object' ? ctx.spare : {};
+        // (#21, MC_LETTERS: the world's keeps while a rung wants a sold good, so sales cover the leather still to buy)
+        const worldKeep = (item: string): number | undefined => (typeof world.tradeKeep === 'function' ? world.tradeKeep(v, item) : undefined);
+        const keep = (item: string) => worldKeep(item) ?? keepOf(item);
         if (ctx.spec === 'lib:sell') {
-          const p = world.merchantPick(v, 'buys', spare, () => 0);
+          const p = world.merchantPick(v, 'buys', spare, (item: string) => worldKeep(item) ?? 0);
           if ('why' in p) return p;
           const o = p.offer;
           const n = o.n * p.times;
@@ -232,7 +235,7 @@ export const FOUNDRY: FoundrySkill = {
           };
         }
         if (ctx.spec === 'lib:buy') {
-          const p = world.merchantPick(v, 'sells', spare, keepOf);
+          const p = world.merchantPick(v, 'sells', spare, keep);
           if ('why' in p) return p;
           const o = p.offer;
           const n = o.n * p.times;
@@ -242,7 +245,7 @@ export const FOUNDRY: FoundrySkill = {
             const cnt = c?.items?.[o.item];
             if (typeof cnt === 'number' && Number.isFinite(cnt)) stored += cnt;
           }
-          const k = keepOf(o.item);
+          const k = keep(o.item);
           return {
             args: { item: o.item, dir: 'buy', times: p.times },
             needs: { emerald: e },

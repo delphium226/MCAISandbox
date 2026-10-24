@@ -11,6 +11,9 @@ export const ORE_MINE = flag('MC_ORE_MINE');
 /** MC_IRON_STAIRS2 (with MC_IRON_AGE, #101): each iron level's stairs get a second lane beside the first, dug by a second
  *  miner (a lock per lane) or on a later trip; miners walk down one lane and up the other. */
 export const IRON_STAIRS2 = flag('MC_IRON_STAIRS2');
+/** MC_LETTERS (with MC_LADDER, #21): the age of letters' four counted stages (cane, leather, books, the library), the
+ *  rung's make goods, the merchant's leather and sugar cane, the cane harvest's replanting and the library's shelving. */
+export const LETTERS = flag('MC_LETTERS');
 /** MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. */
 export const OWN_TOOLS = flag('MC_OWN_TOOLS');
 /** Up to this many miners at once on the iron level, each on its own leg (spec B2). */

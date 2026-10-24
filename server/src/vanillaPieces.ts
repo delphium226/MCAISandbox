@@ -159,6 +159,13 @@ const STEP: Record<string, [number, number]> = { north: [0, -1], east: [1, 0], s
  */
 export interface VanillaLight { layer: number; i: number; j: number; block: 'wall_torch' | 'torch'; facing?: 'north' | 'south' | 'east' | 'west' }
 
+/**
+ * #21 (MC_LETTERS): one of vanilla's bookshelf or lectern cells in a piece, in the design's grid as a light's (after the
+ * trim and the turns), the lectern with its facing turned. The import puts the piece's planks in a shelf's cell and air in
+ * the lectern's (substitute, DECOR); the library's shelving sets them back.
+ */
+export interface VanillaShelf { layer: number; i: number; j: number; block: 'bookshelf' | 'lectern'; facing?: 'north' | 'south' | 'east' | 'west' }
+
 export interface ImportedPiece {
   design: Design;
   path: string;
@@ -172,6 +179,8 @@ export interface ImportedPiece {
   notes: string[];
   /** Vanilla's light cells inside the design's grid (B.4). */
   lights: VanillaLight[];
+  /** Vanilla's bookshelf and lectern cells inside the design's grid (#21). */
+  shelves?: VanillaShelf[];
 }
 
 /**
@@ -237,7 +246,7 @@ const turnsToSouth = ([dx, dz]: [number, number]) => (dx === 1 ? 1 : dz === -1 ?
  */
 function importAt(piece: Piece, raw: Array<string | null>, biome: string, door: [number, number, number], facing: string, name: string, sideways: boolean): ImportedPiece {
   let turns = TURNS[facing];
-  let { design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
+  let { design, droppedBelow, subs, lights, shelves } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), entrance south`);
   const notes: string[] = [];
   const doorsOf = (d: Design) => {
     const doorCells: Array<[number, number]> = [];
@@ -251,7 +260,7 @@ function importAt(piece: Piece, raw: Array<string | null>, biome: string, door: 
     const step = found.steps.find((s): s is [number, number] => !!s);
     if (step) {
       turns = (turns + turnsToSouth(step)) % 4;
-      ({ design, droppedBelow, subs, lights } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), its door south`));
+      ({ design, droppedBelow, subs, lights, shelves } = convert(piece, raw, biome, door[1], turns, name, `vanilla ${name} (${biome}), its door south`));
       found = doorsOf(design);
       notes.push('turned to face its door south (it opens away from the entrance jigsaw)');
     }
@@ -261,7 +270,7 @@ function importAt(piece: Piece, raw: Array<string | null>, biome: string, door: 
   if (droppedBelow) notes.push(`${droppedBelow} blocks below the floor dropped`);
   // (the side of the piece that ends up south: the entrance's, or the door's when turned to it)
   const front = Object.keys(TURNS).find((k) => TURNS[k] === turns) ?? facing;
-  return { design, path: piece.path, biome, front, droppedBelow, substitutions: subs, notes, lights };
+  return { design, path: piece.path, biome, front, droppedBelow, substitutions: subs, notes, lights, shelves };
 }
 
 export interface ImportedCentre {
@@ -278,6 +287,8 @@ export interface ImportedCentre {
   substitutions: Record<string, number>;
   /** Vanilla's light cells inside the design's grid (B.4). */
   lights: VanillaLight[];
+  /** Vanilla's bookshelf and lectern cells inside the design's grid (#21). */
+  shelves?: VanillaShelf[];
 }
 
 /**
@@ -427,6 +438,18 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
         if (block === 'wall_torch' && !facing) continue;
         lights.push({ layer: l, i, j, block, ...(facing ? { facing } : {}) });
       }
+  // (#21: the bookshelves and lecterns, through the same trim and turns; a lectern's facing turned as a wall torch's)
+  const shelves: VanillaShelf[] = [];
+  for (let l = 1; l <= top; l++)
+    for (let z = z1; z <= z2; z++)
+      for (let x = x1; x <= x2; x++) {
+        const s = at(x, y0 + l, z), n = base(s);
+        if (n !== 'bookshelf' && n !== 'lectern') continue;
+        let [i, j, ww, dd] = [x - x1, z - z1, w, d];
+        for (let r = 0; r < turns; r++) [i, j, ww, dd] = [dd - 1 - j, i, dd, ww];
+        const facing = n === 'lectern' ? /facing=([a-z]+)/.exec(turnState(`lectern[facing=${props(s!).facing ?? 'north'}]`, turns))?.[1] as VanillaShelf['facing'] : undefined;
+        shelves.push({ layer: l, i, j, block: n, ...(facing ? { facing } : {}) });
+      }
 
   // Turned clockwise until the entrance faces south (as build_design turns: column u = depth-1-row, row v = column)
   for (let r = 0; r < turns; r++) {
@@ -449,10 +472,10 @@ function convert(piece: Piece, raw: Array<string | null>, biome: string, dy: num
   }).join('')));
   const blocks = layersOut.reduce((t, layer) => t + layer.reduce((u, row) => u + [...row].filter((c) => c !== '_' && c !== '.').length, 0), 0);
   const design: Design = { name, description, palette, layers: layersOut, width: w, depth: d, height: layersOut.length, blocks, by: 'vanilla' };
-  return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1, lights };
+  return { design, droppedBelow, subs, x1, z1, w0: x2 - x1 + 1, d0: z2 - z1 + 1, lights, shelves };
 }
 
-const lightsByName = new Map<string, { key: string; design: Design; lights: VanillaLight[] } | null>();
+const lightsByName = new Map<string, { key: string; design: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null>();
 const lightsOf = new WeakMap<Design, VanillaLight[] | null>();
 /** A jar read that failed, by jar and name: tried again a minute later, never cached (B.4's review, lens 3 L3). */
 const lightsFailed = new Map<string, number>();
@@ -472,7 +495,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
   const k = `${jar}|${name}`;
   if (!lightsByName.has(k)) {
     if (Date.now() - (lightsFailed.get(k) ?? -Infinity) < 60000) return null;
-    let found: { key: string; design: Design; lights: VanillaLight[] } | null = null;
+    let found: { key: string; design: Design; lights: VanillaLight[]; shelves: VanillaShelf[] } | null = null;
     const biome = VILLAGE_BIOMES.find((b) => name.startsWith(`${b}_`));
     if (biome)
       try {
@@ -487,7 +510,7 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
           } catch {
             imp = null;
           }
-          found = imp ? { key: designKey(imp.design), design: imp.design, lights: imp.lights } : null;
+          found = imp ? { key: designKey(imp.design), design: imp.design, lights: imp.lights, shelves: imp.shelves ?? [] } : null;
           break;
         }
       } catch (e) {
@@ -502,6 +525,16 @@ export function vanillaLights(d: Design, jar = vanillaJar()): VanillaLight[] | n
   const lights = f && (wood ? designKey(woodVariant(f.design, wood)) : f.key) === designKey(d) ? f.lights : null;
   lightsOf.set(d, lights);
   return lights;
+}
+
+/**
+ * #21 (MC_LETTERS): a design's vanilla bookshelf and lectern cells (plains_library_2: 4 shelves and a lectern), read as
+ * vanillaLights reads its lights (the same piece, cache and checks: the design must be the jar's import, or its wood
+ * variant); null when it is not a vanilla house piece or the jar cannot be read, [] for a piece with none.
+ */
+export function vanillaShelves(d: Design, jar = vanillaJar()): VanillaShelf[] | null {
+  if (vanillaLights(d, jar) === null) return null;
+  return lightsByName.get(`${jar}|${baseName(d.name)}`)?.shelves ?? null;
 }
 
 // ---------------------------------------------------------------------------------------------

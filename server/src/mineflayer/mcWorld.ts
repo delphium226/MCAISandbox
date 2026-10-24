@@ -11,6 +11,7 @@ import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, C
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
 import { MC_SKILLS } from './mcSkills';
+import { cellKey, libraryCells, libraryLeft, libraryOf, type LibraryCell } from './mcLibrary';
 import { FOUNDRY_SKILLS } from './foundry/list';
 import { TOOL } from './mcBlocks';
 import { LIBRARY_KEEP, loadLibrary, type LibrarySpec } from '../library';
@@ -21,14 +22,14 @@ import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
 import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
-import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
+import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
 import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
-import { IRON_AGE, IRON_MINERS, LADDER, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
+import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feedsStage, ladderOf, lettersCounts, lettersCurrent, lettersReached, LETTERS_BOOKS, noteLadder, openRungBallot, progressLine, rungOptions, rungPreview, stageTag, type Counter as LadderCounter, type LadderNews } from '../ladder';
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
@@ -49,7 +50,7 @@ import { CLAIM_AFTER, CLAIM_LAPSE_MS, OWN, OWN_FARM, OWN_FARM_KINDS, farmKindSco
 import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
-import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, villageBiome } from '../vanillaPieces';
+import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
 import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
@@ -657,7 +658,8 @@ export class MineflayerWorld implements WorldAdapter {
     for (const [n, q] of Object.entries(store)) {
       const allowed = !!allow?.includes(n);
       if ((MAKE_NEVER.has(n) && !allowed) || n === except) continue;
-      const keep = n === 'cobblestone' ? MAKE_KEEP.cobblestone : n === 'coal' ? MAKE_KEEP.coal : allowed ? this.foodKeep(v, n, store) : 0;
+      const keep = (n === 'cobblestone' ? MAKE_KEEP.cobblestone : n === 'coal' ? MAKE_KEEP.coal : allowed && !(except === 'book' && n === 'sugar_cane') ? this.foodKeep(v, n, store) : 0)
+        + (LETTERS ? this.lettersKeep(v, n, except) : 0);
       const s = q - (reserve[n] ?? 0) - keep - (held[n] ?? 0);
       if (s > 0) out[n] = s;
     }
@@ -679,7 +681,8 @@ export class MineflayerWorld implements WorldAdapter {
   private foodKeep(v: Village, item: string, store: Counts): number {
     if (item === 'wheat') return wheatKeep(v);
     if (item === 'egg') return (store.brown_egg ?? 0) + (store.blue_egg ?? 0) > 0 ? 0 : 1;
-    if (item === 'sugar_cane') return 2;
+    // (#21, MC_LETTERS: the cane the books still to bind take comes before the cake's and the pie's, spec 9 S2)
+    if (item === 'sugar_cane') return 2 + (lettersCurrent(v) ? 3 * this.booksLeft(v) : 0);
     if (item === 'sugar') return Math.max(0, 2 - (store.sugar_cane ?? 0));
     if (item === 'pumpkin') return (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => !q.annex && !q.kind)) ? 2 : 0;
     return 0;
@@ -691,7 +694,12 @@ export class MineflayerWorld implements WorldAdapter {
   goodsFor(v: Village): MakeGood[] {
     const base = appetiteOn(v) ? [...MAKE_GOODS, ...FOOD_GOODS] : MAKE_GOODS;
     const c = CHOOSE.families.has('catalog') ? this.catalog(v) : null;
-    const goods = c ? c.goods.filter((g) => !g.food || appetiteOn(v)) : base;
+    let goods = c ? c.goods.filter((g) => !g.food || appetiteOn(v)) : base;
+    // (#21, MC_LETTERS: the rung's books, shelves and lectern while letters is current, wood goods in the catalogue's wood)
+    if (lettersCurrent(v)) {
+      const wood = this.catalogWoodOf(v);
+      goods = [...goods.filter((g) => !LETTERS_GOODS.some((q) => q.item === g.item)), ...LETTERS_GOODS.map((g) => (g.item === 'book' ? g : { ...g, wood }))];
+    }
     // (s43's innovation: the goods of the techniques the village unlocked, in place of a good of the same item)
     if (!INNOVATE) return goods;
     const tech = techGoods(v);
@@ -1084,18 +1092,7 @@ export class MineflayerWorld implements WorldAdapter {
     for (const st of v.structures) {
       const d = v.designs[st.kind];
       if (!d) continue;
-      // (the Build task that put it here: its centre and quarter turns, L4: rotate is in degrees)
-      let place: SignPlace | null = null;
-      for (const t of v.tasks) {
-        const mm = t.status === 'done' ? /^build_design "([^"]+)" x=(-?\d+) z=(-?\d+)(?: rotate=(-?\d+))?/.exec(t.detail) : null;
-        if (!mm || mm[1] !== st.kind) continue;
-        const rot = ((Math.round(Number(mm[4] ?? 0) / 90) % 4) + 4) % 4;
-        const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
-        const x = Number(mm[2]), z = Number(mm[3]);
-        if (x - Math.floor(W / 2) !== st.x1 || z - Math.floor(D / 2) !== st.z1) continue;
-        place = { design: d, x, z, rot, ...(/_meeting_point_/.test(d.name) ? { noSign: true } : {}) };
-        break;
-      }
+      const place = this.structurePlace(v, st, d);
       if (!place) continue;
       const lights = buildingLights(place, { vanilla: vanillaLights(d), signs, lamps, facades: LIGHT_FACADES })
         // (every spot inside the structure's area, the spec's assertion: one outside would light a neighbour)
@@ -1171,11 +1168,48 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   private baseTarget(v: Village, g: MakeGood): number {
+    if (g.rung === 'letters') return this.lettersTarget(v, g.item);
     // (food, s30's D13: bread two a member, pies one for two, where the village keeps an appetite; none otherwise)
     // (s39 tier 1, MC_NEED_WORKS: three and one a member while the food flow is short)
     if (g.food) return !appetiteOn(v) ? 0 : foodTarget(g.item === 'bread' ? 'bread' : 'pumpkin_pie', this.growMembers(v).length, NEED_WORKS && !!v.foodFlow?.short);
     if (g.item !== 'torch' || !CHOOSE.families.has('light')) return g.target;
     return Math.max(g.target, Math.min(TORCH_DEMAND_CAP, this.torchDemand(v)) + TORCH_RESERVE);
+  }
+
+  /** #21: the books the letters rung still wants bound (16 less those counted; 0 when letters is not current). */
+  private booksLeft(v: Village): number {
+    return lettersCurrent(v) ? Math.max(0, LETTERS_BOOKS - (v.ladder?.totals?.books ?? 0)) : 0;
+  }
+
+  /**
+   * #21 (MC_LETTERS, spec 9 S4): a rung good's target in storage, as the stock plus what is still wanted, so a make's want
+   * (target less stock and makes under way) is what the library needs: books, 16 less those bound; bookshelves, the
+   * library's shelves and lectern still to place less the shelves and lecterns stored; the lectern, one once a shelf
+   * beyond the 4 the shelving takes is stored and none is placed.
+   */
+  private lettersTarget(v: Village, item: string): number {
+    if (!lettersCurrent(v)) return 0;
+    const store = storageContents(v);
+    const left = libraryLeft(v);
+    const shelves = store.bookshelf ?? 0, lecterns = store.lectern ?? 0;
+    if (item === 'book') return (store.book ?? 0) + this.booksLeft(v);
+    if (item === 'bookshelf') return shelves + Math.max(0, left.shelves + left.lectern - shelves - lecterns);
+    if (item === 'lectern') return left.lectern && !lecterns && shelves > left.shelves ? 1 : lecterns;
+    return 0;
+  }
+
+  /**
+   * #21 (MC_LETTERS, spec 9 S4): what other makes leave of the rung's goods and inputs: the shelves the shelving still
+   * places (the lectern takes only a fifth), the enchanting table's book once 15 are bound (and after the rung), the
+   * leather the books still to bind take (but to the book make itself).
+   */
+  private lettersKeep(v: Village, item: string, except?: string): number {
+    if (item === 'bookshelf' && lettersCurrent(v)) return libraryLeft(v).shelves;
+    if (item === 'book') return lettersReached(v) || (lettersCurrent(v) && (v.ladder?.totals?.books ?? 0) >= LETTERS_BOOKS - 1) ? 1 : 0;
+    if (item === 'leather' && except !== 'book') return this.booksLeft(v);
+    // (the cane farm's start first: staged L5s' first book took 6 of the 8 bought for it)
+    if (item === 'sugar_cane' && except === 'book') return this.tradeKeep(v, 'sugar_cane') ?? 0;
+    return 0;
   }
 
   /** s41: a library activity's keep (its gives together): the spec's own, else two a member for food while the village
@@ -3493,7 +3527,9 @@ export class MineflayerWorld implements WorldAdapter {
           m.uses = [];
           this.ownSold.delete(v.name);
           m.restockAt = Date.now() + this.restockMs();
-          for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
+          // (#21, MC_LETTERS: the whole list again, so a saved merchant gains the offers appended since it was summoned)
+          if (LETTERS) for (const c of offersCommands(sel.replace(']', ',limit=1]'), m.uses)) await this.rcon.command(c);
+          else for (const [i] of OFFERS.entries()) await this.rcon.command(`data modify entity ${sel.replace(']', ',limit=1]')} Offers.Recipes[${i}].uses set value 0`);
           this.villages.save();
           console.log(`[merchant] ${v.name}: restocked (next in ${Math.round(this.restockMs() / 60000)} min)`);
         }
@@ -3523,7 +3559,7 @@ export class MineflayerWorld implements WorldAdapter {
     const level = levelOf(m.xp ?? 0);
     const open = orders.filter((o) => o.state === 'open');
     const bought = new Set(OFFERS.filter((o) => o.dir === 'buys').map((o) => o.item));
-    const cands = this.goodsFor(v).filter((g) => !g.food && !bought.has(g.item) && !open.some((o) => o.item === g.item))
+    const cands = this.goodsFor(v).filter((g) => !g.food && !g.rung && !bought.has(g.item) && !open.some((o) => o.item === g.item))
       .map((g) => ({ g, n: g.batch * ORDER_SIZE, raw: this.orderRaw(g.item, g.batch * ORDER_SIZE) })).filter((c) => c.raw > 0 && c.raw <= ORDER_RAW_CAP[level] * ORDER_SIZE);
     for (let k = open.length; k < ordersOpen(level) && cands.length; k++) {
       const c = stablePick(cands, `${v.name}|${(m.orderN ?? 0) + 1}`)!;
@@ -3633,6 +3669,72 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /**
+   * #21 (MC_LETTERS, spec 9 S1): what storage keeps of a good the merchant sells while letters is current, for the trade
+   * skill's buys and sales (emeraldKeep): leather, until stage 2 is counted the leather it still wants on top of what
+   * storage holds, then what the books still to bind take; sugar cane, a start's 6 while no slot farms cane. Undefined
+   * otherwise (the trade's own keeps).
+   */
+  tradeKeep(v: Village, item: string): number | undefined {
+    if (!lettersCurrent(v)) return undefined;
+    const store = storageContents(v);
+    const farmed = (v.layouts ?? []).some((l) => (l.slots ?? []).some((q) => q.kind === 'sugar_cane'));
+    if (item === 'leather') {
+      // (the cane farm's seed first: im2_mine's 5 emeralds spent on leather would leave the start a cane short)
+      if (!farmed && (store.sugar_cane ?? 0) < SLOT_KINDS.sugar_cane.count) return store.leather ?? 0;
+      const st = v.ladder!;
+      const counted = st.totals?.leather ?? 0, books = st.totals?.books ?? 0;
+      return st.stage <= 1 ? (store.leather ?? 0) + Math.max(0, LETTERS_BOOKS - counted) : Math.max(0, LETTERS_BOOKS - books);
+    }
+    if (item === 'sugar_cane') return farmed ? 0 : SLOT_KINDS.sugar_cane.count;
+    return undefined;
+  }
+
+  /** A built structure's placement: the Build task that put it here, its centre and quarter turns (L4: rotate is in
+   *  degrees), matched by its corner; null when no done task placed it. */
+  private structurePlace(v: Village, st: Village['structures'][number], d: Design): SignPlace | null {
+    for (const t of v.tasks) {
+      const mm = t.status === 'done' ? /^build_design "([^"]+)" x=(-?\d+) z=(-?\d+)(?: rotate=(-?\d+))?/.exec(t.detail) : null;
+      if (!mm || mm[1] !== st.kind) continue;
+      const rot = ((Math.round(Number(mm[4] ?? 0) / 90) % 4) + 4) % 4;
+      const W = rot % 2 ? d.depth : d.width, D = rot % 2 ? d.width : d.depth;
+      const x = Number(mm[2]), z = Number(mm[3]);
+      if (x - Math.floor(W / 2) !== st.x1 || z - Math.floor(D / 2) !== st.z1) continue;
+      return { design: d, x, z, rot, ...(/_meeting_point_/.test(d.name) ? { noSign: true } : {}) };
+    }
+    return null;
+  }
+
+  /**
+   * #21 (MC_LETTERS, spec 9 S3): the library the letters rung shelves and its cells: the one recorded (v.library), else
+   * the first-built plains_library_2, else the first built structure with vanilla shelf cells; its 4 shelf cells and its
+   * lectern's (mcLibrary.ts libraryCells), those not done or never still open. Null when the village has none.
+   */
+  libraryPlan(v: Village): { structure: Village['structures'][number]; place: SignPlace; label: string; cells: LibraryCell[]; open: LibraryCell[] } | null {
+    const r = libraryOf(v);
+    const sts = r ? v.structures.filter((q) => q.id === r.structure) : [...v.structures.filter((q) => q.kind === 'plains_library_2'), ...v.structures.filter((q) => q.kind !== 'plains_library_2')];
+    for (const st of sts) {
+      const d = v.designs[st.kind];
+      const shelves = d ? vanillaShelves(d) : null;
+      if (!d || !shelves?.some((c) => c.block === 'bookshelf')) continue;
+      const place = this.structurePlace(v, st, d);
+      if (!place) continue;
+      const cells = libraryCells(place, shelves, st.y);
+      const shut = new Set([...(r?.done ?? []), ...(r?.never ?? [])]);
+      return { structure: st, place, label: signLabel(d.name, true).join(' ').toLowerCase() || 'library', cells, open: cells.filter((c) => !shut.has(cellKey(c))) };
+    }
+    return null;
+  }
+
+  /** An option's feed alias for the ladder (ladder.ts feedsStage): what it runs where its id does not say, a slot's crop
+   *  (`slot:sugar_cane`), a start's, the item a trade would buy (`activity:lib:buy:leather`). */
+  private feedAlias(o: ChoiceOption): string | undefined {
+    const d = OPTION_RUN.get(o);
+    if (d?.kind === 'slot' || d?.kind === 'start') return `${d.kind}:${d.slotKind}`;
+    if (d?.kind === 'activity' && d.spec.id === 'lib:buy' && typeof d.args.item === 'string') return `${o.id}:${d.args.item}`;
+    return undefined;
+  }
+
+  /**
    * The merchant's goods something in the village uses now (F259: lib:buy spent every emerald on string, bones, gunpowder,
    * slime balls and an ender pearl nothing used): the library activities' needs (fishing's rod) and the houses' open
    * furniture. Bills of builds and the workshop's goods take only easy materials, so they add none today.
@@ -3640,6 +3742,8 @@ export class MineflayerWorld implements WorldAdapter {
   merchantUses(v: Village): Set<string> {
     const out = new Set<string>();
     for (const sp of this.library.specs) for (const n of Object.keys(sp.needs ?? {})) out.add(n);
+    // (#21, MC_LETTERS: leather while the rung's books want it, cane while no slot farms it, spec 9 B1)
+    if (lettersCurrent(v)) for (const n of ['leather', 'sugar_cane']) if ((this.tradeKeep(v, n) ?? 0) > 0) out.add(n);
     try {
       if (CHOOSE.families.has('furnish')) for (const n of Object.keys(this.decorDemand(v))) out.add(n);
     } catch {
@@ -4310,6 +4414,9 @@ export class MineflayerWorld implements WorldAdapter {
           const n = /smelted (\d+) iron_ingot/.exec(q.message);
           if (n) got.push(['ingots', Number(n[1])]);
         } else if (q.type === 'make_iron_tool' && /given to [A-Za-z0-9_]+/.test(q.message)) got.push(['tools', 1]);
+        // (#21, MC_LETTERS: cane harvested, leather bought or caught once the activity's deposit landed, books made, pieces
+        // shelved)
+        else if (LETTERS && (q.type !== 'trade' && q.type !== 'fish' || (act && c.status[act.depAt]?.state === 'done'))) got.push(...lettersCounts(q.type, q.message));
         for (const [counter, n] of got) {
           for (const news of noteLadder(v, counter, c.agent, n, Date.now(), clockOf(v.name, Date.now())?.day)) this.ladderNews(v, news);
         }
@@ -5146,7 +5253,9 @@ export class MineflayerWorld implements WorldAdapter {
         if (here.has(kind)) continue;
         // (a kind another start holds: not walked, not skipped)
         if (startInst && busy.has(`farmkind:${kind}`)) continue;
-        if (farmed.has(kind)) {
+        // (#21, MC_LETTERS: the age of letters' first cane farm from storage, the merchant's cane, spec 9 B1)
+        const seed = kind === 'sugar_cane' && !farmed.has(kind) && lettersCurrent(v);
+        if (farmed.has(kind) || seed) {
           // Farmed elsewhere: from storage when it holds a start's worth (its harvests are the stock), never from a sighting
           const spec = SLOT_KINDS[kind];
           const stock = store[spec.take] ?? 0;
@@ -5158,11 +5267,12 @@ export class MineflayerWorld implements WorldAdapter {
           add({
             id: `start:${kind}`, kind: 'start', key, holds: startInst ? [`farmkind:${kind}`] : [], excludes, name: `Start a ${words(kind)} farm`, rank: 200 + s,
             ...(fs ? { at: { x: Math.floor((fs.x1 + fs.x2) / 2), z: Math.floor((fs.z1 + fs.z2) / 2) } } : {}),
-            facts: `from storage (${stock} ${words(spec.take)} there; the village farms ${words(kind)} on another slot); ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${others('start')}`,
+            facts: `from storage (${stock} ${words(spec.take)} there; ${seed ? 'bought from the merchant for the age of letters' : `the village farms ${words(kind)} on another slot`}); ${freeSlots.length} free slot${freeSlots.length === 1 ? '' : 's'}; ${record('start')}${others('start')}`,
             effect: `a ${words(kind)} farm to harvest${layouts[free.k - 1]?.grow ? ` in neighbourhood ${layouts[free.k - 1].grow}` : ''}`,
           }, { kind: 'start', k: free.k, j: free.j, slotKind: kind, x: 0, y: 0, z: 0, store: true });
           continue;
         }
+        if (seed) continue;
         if ((this.slotSkip.get(skip) ?? 0) > now || !home) continue;
         const ok = facts.ok();
         const seen = facts.sightings(kind)
@@ -5467,7 +5577,7 @@ export class MineflayerWorld implements WorldAdapter {
       // (with lighting on, torches by their demand's target, L10: both reads)
       // (food goods only where the village keeps an appetite, ranked by D13: after the cake, before it while food is short)
       const goods = this.goodsFor(v);
-      const order = goods.map((g, i) => ({ g, i, target: this.makeTarget(v, g) })).map(({ g, i, target }) => ({ g, i, target, d: Math.max(0, target - (store[g.item] ?? 0) - goingOf(g.item)) / target })).sort((p, q) => q.d - p.d || p.i - q.i);
+      const order = goods.map((g, i) => ({ g, i, target: this.makeTarget(v, g) })).map(({ g, i, target }) => ({ g, i, target, d: Math.max(0, target - (store[g.item] ?? 0) - goingOf(g.item)) / Math.max(1, target) })).sort((p, q) => q.d - p.d || p.i - q.i);
       const why = new Set<string>();
       let atStock = 0;
       // (food goods present: by the flag, the catalogue's goods outnumber the keeps without any, the critique's 12)
@@ -5637,6 +5747,25 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'furnish', part: P.part, n, items, open: P.open.length, label: P.label });
       }
       if (!out.some((o) => o.kind === 'furnish')) reasons.furnish = ['furniture short', 'backing off', 'busy', "others' houses"].find((w) => why.includes(w)) ?? 'nothing to furnish';
+    }
+
+    // #21 (MC_LETTERS): the library's shelves and lectern from storage into its cells, while letters is current (a furnishing,
+    // ranked beside the furnish options); offered once a piece the open cells take is stored, the lectern only with no shelf
+    // cell open (the shelving's order)
+    if (lettersCurrent(v)) {
+      const id = 'shelve:library';
+      const L = this.libraryPlan(v);
+      const shelvesOpen = L ? L.open.filter((c) => c.part === 'shelf').length : 0, lecternOpen = !!L?.open.some((c) => c.part === 'lectern');
+      const n = Math.min(shelvesOpen, store.bookshelf ?? 0) + (lecternOpen && !shelvesOpen && (store.lectern ?? 0) > 0 ? 1 : 0);
+      if (L && n > 0 && !excluded([`${id}=`], busy)) {
+        const door = placedDoor(L.place);
+        add({
+          id, kind: 'furnish', key: id, excludes: [`${id}=`], name: `Shelve the ${L.label}`, rank: 995,
+          ...(door ? { at: { x: door.x, y: L.structure.y + 1, z: door.z } } : {}),
+          facts: `${L.cells.length - L.open.length} of ${L.cells.length} pieces placed (4 bookshelves and a lectern); places ${n} now, ${store.bookshelf ?? 0} bookshelves and ${store.lectern ?? 0} lecterns in storage; ${record('furnish')}${others('furnish', id)}${lastOf('furnish', id)}`,
+          effect: `+${n} piece${n === 1 ? '' : 's'} in the ${L.label}: the age of letters' library`,
+        }, { kind: 'shelve', n });
+      }
     }
 
     // s41: the library's activities (a foundry skill run from a server/library spec): one option a spec whose needs are
@@ -5955,7 +6084,7 @@ export class MineflayerWorld implements WorldAdapter {
     // G2 (MC_SKILL=on, #17): the member's skill at each option's kind
     if (SKILL.on) for (const o of out) if (o.kind !== 'eat') o.sw = skillWeight(skillOf(v.name, a.name, o.kind));
     // G8 (MC_LADDER): the options that feed the ladder's current stage
-    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id)) {
+    if (LADDER && v.ladder?.current) for (const o of out) if (feedsStage(v, o.id, this.feedAlias(o))) {
       o.vw = VW;
       o.ladderTag = stageTag(v);
     }
@@ -6650,6 +6779,13 @@ export class MineflayerWorld implements WorldAdapter {
         // Its furniture earmarked until it withdraws it (D6), set after the chore as a make's inputs
         holdsSet(holdKey(v.name, worker.name), d.items);
         console.log(`[furnish] ${v.name}: ${worker.name} furnishes ${d.part} (${d.label}): ${d.n} of ${d.open} open spots, takes ${countsList(d.items)}`);
+        return;
+      }
+      case 'shelve': {
+        // (#21: the shelving withdraws its own pieces at the hut and puts back what it did not set)
+        const status = worker.enqueue('shelve_library', { chore: true });
+        this.setChore(v, worker, opt.key, [status], 'shelve the library', undefined, meta, opt.holds, opt);
+        console.log(`[shelve] ${v.name}: ${worker.name} shelves the library (${d.n} pieces)`);
         return;
       }
       case 'activity': {
@@ -7485,6 +7621,7 @@ type OptionRun =
   | { kind: 'works'; stage: 'furnace'; k: number }
   | { kind: 'light'; part: string; n: number; unlit: number; label: string }
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
+  | { kind: 'shelve'; n: number }
   | { kind: 'initiate'; work: string; green?: boolean }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'grow'; houseless: number }

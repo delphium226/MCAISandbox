@@ -6,6 +6,7 @@
  * arbitrage check; the world summons it, restocks it and charges trades (mcWorld.ts, the trade skill).
  */
 import type { Counts } from './mineflayer/mcMaterials';
+import { LETTERS } from './ladderFlags';
 
 /** On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. */
 export const MERCHANT_ON = (process.env.MC_MERCHANT ?? 'on') === 'on';
@@ -45,6 +46,12 @@ export const SELLS: MerchantOffer[] = [
   // (the fishing activity's rod: the workshop's goods take only easy materials, so the merchant sells rods themselves;
   // they wear out, so they are bought again)
   { item: 'fishing_rod', n: 1, emeralds: 2, stock: 2, dir: 'sells' },
+  // (#21, MC_LETTERS: the age of letters' leather, the user's 10-22 and 10-24, 12 a restock; and the first cane farm's
+  // seed, bought only while no slot farms cane. Appended last so a saved merchant's uses keep their indices)
+  ...(LETTERS ? [
+    { item: 'leather', n: 2, emeralds: 1, stock: 6, dir: 'sells' as const },
+    { item: 'sugar_cane', n: 4, emeralds: 1, stock: 4, dir: 'sells' as const },
+  ] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];

@@ -26,7 +26,8 @@ for (const o of [...OFFERS]) {
   ok(Number.isInteger(o.emeralds) && o.emeralds >= 1 && o.emeralds <= 64, `${o.item}: emeralds ${o.emeralds} in 1..64`);
   ok(Number.isInteger(o.stock) && o.stock >= 1, `${o.item}: stock ${o.stock}`);
 }
-for (const o of SELLS) ok(!!UNOBTAINABLE[o.item] || o.item === 'ink_sac' || o.item === 'fishing_rod', `${o.item} is something a peaceful world lacks (UNOBTAINABLE), rare inland, or made of it (a rod: string)`);
+// (#21, MC_LETTERS: leather and sugar cane are scarce near the villages, measured: one cow and no cane within 160)
+for (const o of SELLS) ok(!!UNOBTAINABLE[o.item] || o.item === 'ink_sac' || o.item === 'fishing_rod' || (process.env.MC_LETTERS === 'on' && (o.item === 'leather' || o.item === 'sugar_cane')), `${o.item} is something a peaceful world lacks (UNOBTAINABLE), rare inland, scarce here (letters), or made of it (a rod: string)`);
 for (const o of BUYS) ok(!UNOBTAINABLE[o.item], `${o.item} (bought) is obtainable here`);
 ok(new Set(OFFERS.map((o) => `${o.dir}:${o.item}`)).size === OFFERS.length, 'no offer twice');
 // (with the merchant off, sold items stay unobtainable; MC_MERCHANT is read at load: this run's value, on by default since s42)

@@ -714,6 +714,8 @@ const YIELD: Record<string, (m: string) => number | null> = {
   eat_meal: counted(/^ate (\d+) [a-z_]+/),
   // X.1's furnishing: "furnished 3 of 4 spots in the house (...)" | "furnished 0 of 2 ..." (only skips)
   furnish: counted(/^furnished (\d+)/),
+  // #21's library: "shelved 2 of 5 pieces in the library (...); 3 to go" | "shelved 0 of 5 ..."
+  shelve_library: counted(/^shelved (\d+)/),
 };
 
 /** Items a skill's carried gain is judged by when its message gives no count. */

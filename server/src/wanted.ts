@@ -12,6 +12,7 @@
  */
 import { FOOD_POINTS } from './appetite';
 import { boardOf } from './barter';
+import { LETTERS } from './ladderFlags';
 import { goalsOf } from './goals';
 import { BUYS, SELLS } from './merchant';
 import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
@@ -141,7 +142,8 @@ export const RUNG_DEPTH: Record<RungId, number> = { iron: 0, letters: 1, diamond
  *  preview and the rung's waiting line. Iron and trade need nothing; leather for the letters rung is the merchant's. */
 export const RUNG_NEEDS: Record<RungId, Array<{ capability: string; how: 'have' | 'hand' | 'ticket'; note: string }>> = {
   iron: [],
-  letters: [{ capability: 'library_furniture', how: 'hand', note: 'shelves and a lectern in the furnish catalogue' }],
+  // (MC_LETTERS: the books, shelves, lectern and shelving are built, #21)
+  letters: LETTERS ? [] : [{ capability: 'library_furniture', how: 'hand', note: 'shelves and a lectern in the furnish catalogue' }],
   diamond: [{ capability: 'deep_mine', how: 'hand', note: 'the deep stair past lava, its holders, teleport home' }],
   enchantment: [{ capability: 'cast_obsidian', how: 'ticket', note: 'water poured on lava for obsidian' }, { capability: 'enchant', how: 'hand', note: 'enchanting by a charged command, the XP ledger' }],
   nether: [{ capability: 'nether_travel', how: 'hand', note: 'portals, walking in the Nether, debris mining' }, { capability: 'barter_piglin', how: 'ticket', note: 'gold bartered with piglins' }],

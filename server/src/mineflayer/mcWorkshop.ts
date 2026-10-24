@@ -24,7 +24,22 @@ export interface MakeGood { item: string; target: number; batch: number; unit: n
   wood?: string;
   /** s44's innovation: a pumpkin carved with shears (no recipe in the data): its inputs the pumpkins, shears in storage;
    *  the make carves by command. */
-  carve?: true }
+  carve?: true;
+  /** G8's rung goods (#21): made for the ladder's current rung, targets from its stages (the world's makeTarget), never a
+   *  merchant order. */
+  rung?: 'letters' }
+
+/**
+ * #21 (MC_LETTERS): the age of letters' goods, while letters is the current rung (spec 9 S4): books for the library (cane
+ * made into paper at the table in the same make), bookshelves for its 4 shelf cells and the lectern's, the lectern. Their
+ * targets are the world's; the wood goods take the village's catalogue wood, the lectern its slabs as the barrel does
+ * (the planner took cherry slabs otherwise, spec 1.3).
+ */
+export const LETTERS_GOODS: MakeGood[] = [
+  { item: 'book', target: 0, batch: 4, unit: 1, words: 'books', forWhat: 'books for the library\'s shelves and lectern (the age of letters)', allow: ['sugar_cane'], rung: 'letters' },
+  { item: 'bookshelf', target: 0, batch: 1, unit: 1, words: 'bookshelves', forWhat: 'shelves for the library (the age of letters)', rung: 'letters' },
+  { item: 'lectern', target: 0, batch: 1, unit: 1, words: 'a lectern', forWhat: 'the library\'s lectern (the age of letters)', variant: 'slabs', rung: 'letters' },
+];
 
 /** The goods, in this order on ties (spec 4.4; mud bricks, chests and the stone axe, shovel and sword cut, D11). */
 export const MAKE_GOODS: MakeGood[] = [
@@ -193,9 +208,11 @@ function recipes(registry: Registry, item: string): Array<{ ins: Counts; out: nu
 
 /** The variant recipe made of one wood kind only (`oak` takes oak_planks and oak_slab, never dark_oak's). */
 function kindRecipe(registry: Registry, item: string, kind: string): { ins: Counts; out: number } | undefined {
+  const own = (n: string) => n === `${kind}_planks` || n === `${kind}_slab`;
+  // (the wood in one kind, beside other ingredients that are no wood: the lectern's bookshelf, #21)
   return recipes(registry, item).find((r) => {
     const names = Object.keys(r.ins);
-    return names.length > 0 && names.every((n) => n === `${kind}_planks` || n === `${kind}_slab`);
+    return names.some(own) && names.every((n) => own(n) || !/_(planks|slab|log|wood)$/.test(n));
   });
 }
 
