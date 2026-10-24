@@ -28,7 +28,7 @@ import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
-import { WOODS, chargedItem, describeWork, gatherTasks, woodName, woodPart, type Counts } from './mcMaterials';
+import { WOODS, chargedItem, describeWork, gatherTasks, label, woodName, woodPart, type Counts, type Materials } from './mcMaterials';
 import { STORAGE_SKILLS, forgiveDebt, holdingStorageTask, ownTools, partsForFuel, refreshStorage, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, STATION_REACH, holdVillageFurnace, placeStation, recordStation, stationNear, stationSpot, stationsReady, villageStation, villageStationCell } from './mcSurvival';
 import { ContentionError, at, checkAbort, goals, nearestBlocks, num, onVillageGround, reach, sleep, standableY, stateAt, str, syncInventory, unmoved, walk } from './mcUtil';
@@ -511,6 +511,28 @@ async function makeFromStock(a: BotAgent, need: Counts, short: Counts, back: () 
   }
 }
 
+/** What a make has to work with: the carried and stored items, less what the job keeps (`need`). */
+export function onHand(carried: Counts, store: Counts, need: Counts): Counts {
+  const other: Counts = { ...carried };
+  for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
+  for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
+  return other;
+}
+
+/**
+ * Why a make from stock made nothing, for the model (#102; lessons s2, 127): the inputs short and the chain that makes
+ * the items from what is on hand ("short of 1 logs (any kind); to make it: gather 1 logs (any kind); craft 4 planks (any
+ * kind), 4 stick, 1 iron_pickaxe"), or that they are already in hand. `have` as makeHeld counts it (onHand).
+ */
+export function makeShortfall(materials: Materials, short: Counts, have: Counts): string {
+  const plan = materials.plan(short, have);
+  const list = (c: Counts) => Object.entries(c).map(([n, q]) => `${q} ${label(n)}`).join(', ');
+  if (plan.problems.length) return `it cannot be had: ${plan.problems.join('; ')}`;
+  if (Object.keys(plan.gather).length) return `short of ${list(plan.gather)}; to make it: ${describeWork(plan)}`;
+  if (!plan.steps.length) return `${list(plan.fromStock)} already in hand, so nothing was made`;
+  return `the inputs are on hand (${describeWork(plan)}), but nothing was made`;
+}
+
 /** Panes, glass, doors, slabs and stairs made in batches: what a build leaves over goes into storage (S.3). */
 const SURPLUS_PART = /^glass(_pane)?$|_(door|slab|stairs)$/;
 
@@ -521,9 +543,7 @@ async function makeHeld(a: BotAgent, v: Village | undefined, need: Counts, short
   const store = opts.stock ?? (v ? storageContents(v) : {});
   const carried = inventoryCounts(a);
   // What is on hand beyond the building's own blocks (the cobblestone carried for the floor is not furnace material)
-  const other: Counts = { ...carried };
-  for (const [n, q] of Object.entries(store)) other[n] = (other[n] ?? 0) + q;
-  for (const [n, q] of Object.entries(need)) other[n] = Math.max(0, (other[n] ?? 0) - q);
+  const other = onHand(carried, store, need);
   // (the village's station, standing or still to be put in its hut cell by the craft or smelt itself, S.5: billed by
   // its own task, never by this job)
   const home = (n: StationName) => !!villageStation(a, n) || !!stationNear(a, n);
@@ -5113,13 +5133,18 @@ async function makeIronTool(a: BotAgent, args: Record<string, unknown>, signal: 
     need = await carriedCounts(a, ['raw_iron', 'raw_iron_block']);
     opts = { ...opts, stock, furnace: false };
   }
-  // (a tool already in storage is not this one: the chore makes one)
+  // (a tool already in storage is not this one: the chore makes one; nor is one the smith carries, kept out of the plan:
+  // each of Long4's 13 "cannot be made" forges was by a member carrying the tool it forged, which the plan counted as the
+  // one to make, #102)
+  const own = (await carriedCounts(a, [item]))[item] ?? 0;
+  if (own) need = { ...need, [item]: (need[item] ?? 0) + own };
   const made = await makeFromStock(a, need, { [item]: 1 }, () => standBy(a, job, signal), signal, opts);
-  if (!made) throw new Error(`make_iron_tool: the ${item} cannot be made from the village storage yet (${Object.entries(storageContents(v)).filter(([n]) => /iron|coal/.test(n)).map(([n, q]) => `${q} ${n}`).join(', ') || 'no iron'})`);
+  if (!made) throw new Error(`make_iron_tool: the ${item} cannot be made from the village storage yet: ${makeShortfall(a.world.materials, { [item]: 1 }, onHand(inventoryCounts(a), opts.stock ?? storageContents(v), need))}`);
   await syncInventory(a);
-  if (!a.bot.inventory.items().some((it) => it.name === item)) throw new Error(`make_iron_tool: ${made}, but no ${item} is carried`);
+  if (a.bot.inventory.items().filter((it) => it.name === item).reduce((s, it) => s + it.count, 0) <= own) throw new Error(`make_iron_tool: ${made}, but no new ${item} is carried`);
   const given = to ? await giveTool(a, item, to) : null;
-  const stored = given?.ok ? '' : await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+  // (the one made: the smith's own stay with it)
+  const stored = given?.ok ? '' : await STORAGE_SKILLS.deposit.run(a, { item, count: 1 }, signal).catch((e: Error) => {
     if (e.message === 'cancelled') throw e;
     return `not deposited: ${e.message.slice(0, 100)}`;
   });
@@ -5223,7 +5248,7 @@ async function smeltIron(a: BotAgent, args: Record<string, unknown>, signal: Abo
     throw e;
   }
   const back = await gainsBack(a, names, start, signal);
-  if (!made) throw new Error(`smelt_iron: ${n} raw iron could not be smelted from the village storage (${Object.entries(storageContents(v)).filter(([x]) => /iron|coal/.test(x)).map(([x, q]) => `${q} ${x}`).join(', ') || 'no iron'})`);
+  if (!made) throw new Error(`smelt_iron: ${n} raw iron could not be smelted from the village storage: ${makeShortfall(a.world.materials, { iron_ingot: n }, onHand(inventoryCounts(a), stock, { raw_iron: start.raw_iron ?? 0, iron_ingot: start.iron_ingot ?? 0 }))}`);
   const ingots = back.put.iron_ingot ?? 0;
   a.world.villages.note(v, `${a.name} smelted ${ingots} iron_ingot${k >= 1 ? ` at works furnace ${k}` : " at the hut's furnace"}`);
   a.world.villages.save();
