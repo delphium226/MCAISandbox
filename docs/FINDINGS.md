@@ -1973,3 +1973,18 @@ CLAUDE.md when a phase ends.
   one-storey 6, T 4, rectangle two-storey 4, L two-storey 3 (7 two-storey, 30%; F303 offline 30%), all in birch, no
   overlaps.
   Logs: runs/2026-10-24/all1/ (report.md, compare.md, scorecard.txt).
+- F305 (10-24, finish-100 session, #100) **The vein dig holds in model-driven runs: 83 raw iron a 1,000 cells against 46
+  without it, and 45% more iron a minute of digging, with no freezes.** Monoculture 2's W2 and M2 (92 minutes each,
+  MC_ORE_VEIN on) against W1 and M1 (the same setup without it).
+  - **Cells:** 5,935 cells gave 493 raw iron, against 5,332 cells and 247 raw iron. F295's staged run gave 100 against
+    44; the offline estimate was +48%.
+  - **The cost:** the tunnel goes ~19% slower (13.3 cells a dig-minute against 16.4), but iron a dig-minute rises (1.10
+    against 0.76).
+  - **The [vein] lines:** 95 of them, 397 vein ores taken beyond the 315 by the walls, 8 cells at the 12-ore cap. Left:
+    52 out of reach, 39 beyond the box, 18 unsafe, 2 under a falling block, and 1 for want of stone (F295 left 29 floor
+    ores for want of cobblestone).
+  - **Freezes and tools:** event loop max 0.6 s, no RCON timeouts; pickaxes made 0.23 a trip-minute against 0.29.
+  - **One fault:** two miners in one open cell (tunnels cross) dug and counted the same vein. Wren brought up 0 raw iron
+    from 18 ores; Lena brought up 18. Fixed with a lock on each vein ore being dug.
+  - **Not measured:** ore left in the faces. No checkpoint was saved and both worlds have been reset.
+  Logs: runs/2026-10-24/finish-100/ (report.md, trips.py).

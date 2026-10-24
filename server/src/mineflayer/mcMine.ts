@@ -1880,6 +1880,9 @@ const ORE_VEIN = ORE_ON && /^(on|1|true|yes)$/i.test(process.env.MC_ORE_VEIN ?? 
 const VEIN_CAP = 12, VEIN_LOOK = 400, VEIN_SIDE = 3, VEIN_DOWN = 2, VEIN_UP = 4;
 const VEIN_FILL = ['cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite', 'tuff'];
 const AROUND = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dz) => [dx, dy, dz]))).filter(([dx, dy, dz]) => dx || dy || dz);
+/** The vein ores being dug now, by any miner: two miners in one open cell (where tunnels cross) dug and counted the same
+ *  vein, and the second's drops went to the first (W2, 10-23: Wren and Lena at -1578,28,6, 11 each; Wren brought up 0). */
+const veinDigging = new Set<string>();
 
 /**
  * MC_ORE_VEIN: from inside the cell just dug, the ores of the veins it laid open: those still showing in its walls, floor
@@ -1912,11 +1915,16 @@ async function digVein(a: BotAgent, v: Village, m: Mine, cells: Vec3[], L: numbe
     const layer = q.y === L - 1 || q.y === L + 2;
     const fill = layer ? filler(a) : undefined;
     if (layer && !fill) return leave('no stone'), false;
+    if (veinDigging.has(key(q))) return leave('another miner'), false;
+    veinDigging.add(key(q));
     try {
-      await mineBlock(a, q, signal, false, 0, false);
+      // (already gone: another miner's, or keepOres' on the way)
+      if ((await mineBlock(a, q, signal, false, 0, false)).startsWith('nothing to mine')) return false;
     } catch (e) {
       if ((e as Error).message === 'cancelled') throw e;
       return leave('dig'), false;
+    } finally {
+      veinDigging.delete(key(q));
     }
     // (the drop brought to the miner, a tick after it appears: inside the wall it lies in its own hole, out of pickup range)
     await new Promise((ok) => setTimeout(ok, 100));
