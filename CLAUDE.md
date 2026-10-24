@@ -87,7 +87,8 @@ issues live there (moved with their numbers); the public `origin` stays as it wa
 
 ## Conventions
 
-- Work on the feature branch `tiered-brain-building`; commit only when asked or clearly agreed, and ask before pushing.
+- Work on the feature branch `tiered-brain-building`; commit only when asked or clearly agreed. **Push tested commits to
+  `private` (`tiered-brain-building`) without asking** (the user's, 2026-10-24); never push `main` or the public `origin`.
   Commit messages end with the `Co-Authored-By` line the harness specifies. Commit `package-lock.json` with dependency
   changes.
   Foundry candidates that pass every gate merge into the branch without asking (`foundry.py --merge`, or

@@ -88,7 +88,9 @@ offline checks, a staged run, then a model-driven run at 25 (lesson 124).
    Each rung's new skills come through the foundry and the innovation library's prerequisites (`tech.ts`), and each
    needs different specialists, the condition for roles to form. Peaceful mode rules out blazes and endermen, so no
    brewing and no End (to verify in game). Done for a rung when a model-driven village votes for it, works its four
-   stages and reaches it.
+   stages and reaches it. **Iron reached** (10-24, W4: model-driven from a blank map, ~31 min after completion);
+   **letters** built by hand (6ec32ca), voted by W4's village (11 of 25) and reached in a staged run, but at 1x its cane
+   stage stalled at 37 of 48 in ~100 min.
 
 **Why this order:** memory is goal 4 itself, and every behaviour in goal 2 needs agents that remember: profiles,
 promises, reputations, rules and customs all live in memory. G5 and G6 can run beside G1-G4 where their files do not
@@ -120,7 +122,8 @@ Every work session:
   `python scripts/stack.py status` and the agent counts before any reset;
 - puts design choices that are the user's to the user, as before;
 - runs the health check before and after any change to members' behaviour;
-- commits its own tested files (staging only its own) and asks before pushing;
+- commits its own tested files (staging only its own) and pushes them to the private remote's `tiered-brain-building`
+  without asking (the user's, 10-24; never `main`, never the public `origin`);
 - records findings, runs, decisions and lessons in the logs as usual, and its notes in `runs/<date>/<session>/`;
 - ends with a report: commits; the behaviour seen and how it was judged; the health check before and after; findings (F
   numbers); decisions made and still open; issues closed or filed;
@@ -183,3 +186,5 @@ number rather than a goal.
 - 2026-10-24 (the user's): **live tests move to a test train**: build sessions stop at offline checks and commit with
   flags off; one test session runs every new flag together (per-member splits, holdouts, shared on/off pairs, all free
   worlds, standard checkpoints) once or twice a day (Rules for work sessions).
+- 2026-10-24: **G8's iron rung reached** in a model-driven run (W4, `runs/2026-10-24/watch-all/report.md`); letters
+  voted next and built, its cane pace at 1x the open problem.
