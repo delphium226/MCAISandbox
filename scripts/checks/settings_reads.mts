@@ -38,11 +38,12 @@ for (const f of files) {
   const src = fs.readFileSync(f, 'utf8');
   const rel = path.relative(SRC, f).replace(/\\/g, '/');
   for (const m of src.matchAll(/process\.env(\.(MC|MCAI)_[A-Z0-9_]+|\[)/g)) ok(false, `${rel}: a read outside the registry (${m[0]})`);
-  for (const m of src.matchAll(/\b(?:rawSetting|flag|layer)\('((?:MC|MCAI)_[A-Z0-9_]+)'\)(\s*\?\?\s*('([^']*)'|(-?[\d.]+)))?/g)) {
+  // (a number fallback may be a product, "2 * 60000", or spaced with _, "150_000"; one followed by more arithmetic is not taken)
+  for (const m of src.matchAll(/\b(?:rawSetting|flag|layer)\('((?:MC|MCAI)_[A-Z0-9_]+)'\)(\s*\?\?\s*('([^']*)'|(-?[\d_.]+(?:\s*\*\s*[\d_.]+)*)(?=\s*[),;])))?/g)) {
     named.add(m[1]);
     ok(reg.has(m[1]), `${rel}: ${m[1]} is in the registry`);
     if (m[2] !== undefined) {
-      const v = m[4] ?? m[5];
+      const v = m[4] ?? String(m[5].split('*').reduce((a, x) => a * Number(x.trim().replace(/_/g, '')), 1));
       if (!fallbacks.has(m[1])) fallbacks.set(m[1], new Set());
       fallbacks.get(m[1])!.add(v);
     }

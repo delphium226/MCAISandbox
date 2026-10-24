@@ -1,0 +1,14 @@
+{
+  "name": "overnight-cheap",
+  "describe": "A long model-driven run on a small budget: 8 members and the Mayor, low reasoning, 600k cloud tokens an hour, 6 hours after the build",
+  "kind": "model",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 8,
+  "fast": false,
+  "time_scale": null,
+  "timeout_min": 480,
+  "checks": ["agent_log"],
+  "args": "--minutes 90 --after 360 --choose model",
+  "settings": {"MC_TOKEN_BUDGET_HOUR": "600000", "MC_REASONING": "exec=low,plan=low,design=low,choose=low", "MC_LADDER": "on", "MC_IRON_AGE": "on"}
+}

@@ -1,0 +1,13 @@
+{
+  "name": "acceptance",
+  "describe": "A model-driven acceptance run at 1x with today's defaults: 24 members and the Mayor from a blank site, 2 hours",
+  "kind": "model",
+  "site": "minevale3",
+  "preset": "watch",
+  "workers": 24,
+  "fast": false,
+  "objective": "Build a small village: a few houses, a storage hut and a meeting place for all of us",
+  "minutes": 120,
+  "after": 60,
+  "settings": {}
+}

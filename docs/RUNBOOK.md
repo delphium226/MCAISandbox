@@ -6,6 +6,11 @@ the short version; look here for a check script's arguments, a model detail or w
 **Every setting** (`MC_*`, `MCAI_*`: type, default, group, what it requires) is in `docs/SETTINGS.md`, generated from the
 registry `server/src/settings.ts` (#115): a new setting is an entry there, read through `rawSetting()`, then
 `node node_modules/tsx/dist/cli.mjs scripts/settings_doc.mts` (check:offline fails on a stray read or a stale table).
+**Run profiles** (`profiles/*.json`; your own in `profiles/local/`, gitignored): a run_series run with a name, `describe`,
+`kind` (staged, model, checkpoint) and its settings under `settings`. `scripts/profile.mts list`, `check NAME` (errors,
+acceptance warnings, a cloud cost estimate from recent model-driven runs); a run_series run or spec takes `"profile":
+"NAME"` under its own keys, and every run_series run writes `NAME.profile.json` (settings given, every setting's value,
+commit, world) beside its log.
 
 ## Running and checking
 

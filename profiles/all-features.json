@@ -1,0 +1,24 @@
+{
+  "name": "all-features",
+  "describe": "All1's run (the user's, 10-23): every feature of the time on, mixed characters, 25 members, model choices, 1x, no model-call limits",
+  "kind": "model",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 24,
+  "fast": false,
+  "time_scale": null,
+  "timeout_min": 170,
+  "checks": ["agent_log"],
+  "args": "--minutes 90 --after 120 --choose model --stock fishing_rod:3",
+  "settings": {
+    "MC_NEEDS": "on", "MC_APPETITE": "18", "MC_NEED_HOLD_MIN": "2", "MC_NEED_FIELD_COOLDOWN_MIN": "5", "MC_VILLAGE_RANGE": "144",
+    "MC_MEMORY": "on", "MC_CLOCK": "on", "MC_MEMORY_QUALITY": "on", "MCAI_SOCIAL": "on", "MCAI_SOCIAL_ROLES": "show", "MC_ACTS": "on",
+    "MC_CONTROLLER": "on", "MC_CHARACTER": "on", "MCAI_TEMPERAMENT": "on", "MC_SKILL": "on", "MC_GOALS": "on", "MC_PROPOSALS": "on",
+    "MC_RULES": "on", "MC_COUNCIL": "on", "MC_OWN": "on", "MC_BARTER": "on", "MC_SPECIAL": "claim", "MC_OWN_SALES": "on",
+    "MC_OWN_FARM": "on", "MC_MERCHANT": "on", "MC_MERCHANT_ORDERS": "on", "MC_INNOVATE": "on", "MC_WANTED": "on", "MC_WORKS_GROW": "on",
+    "MC_WORKS_REPEAT": "on", "MC_GROW_FARMS": "1", "MC_NEED_FARMSTEAD": "on", "MC_GARDENS": "on", "MC_QUICK_NEXT": "on",
+    "MC_WORK_BLOCKS": "on", "MC_LADDER": "on", "MC_IRON_AGE": "on", "MC_OWN_TOOLS": "on", "MC_ORE_MINE": "on", "MC_NEED_VOTE": "on",
+    "MC_LEVY_VOTE": "day2", "MC_VANILLA_ALL": "on", "MC_WOOD_VARIANTS": "on", "MC_PAY": "on", "MC_ORE_VEIN": "on",
+    "MC_LLM_LIMITS": "off", "MC_GEN_HOMES": "on"
+  }
+}

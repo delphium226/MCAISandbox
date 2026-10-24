@@ -26,6 +26,9 @@ The spec (every key optional unless said; a run's keys override the spec's, its 
     "stage_env": {"MCAI_STALL_MIN": "8"},  stage_village.py's environment
     "args": "--after 45 --choose fixed", stage_village.py arguments (a string, split on spaces, or a list)
     "timeout_min": 60,                   per run, stage_village.py's wall-clock limit
+    "profile": "staged-fast",            a run profile (profiles/NAME.json or profiles/local/, #115): its keys go under the
+                                         spec's and the run's own ("settings" as server_env, its "args" before theirs); a
+                                         profile with errors (scripts/profile.mts check NAME) stops the series
     "checks": ["make_log"],              follow-up checks (CHECKS below)
     "show": ["FOOD"],                    more line prefixes to print from the stage log
     "runs": [
@@ -148,6 +151,66 @@ def as_args(v):
     return shlex.split(v, posix=False) if isinstance(v, str) else list(v or [])
 
 
+PROFILE_OWN = ("name", "describe", "kind", "settings", "schedule")
+
+
+def node_json(args, stdin=None):
+    """A scripts/*.mts tool's JSON answer."""
+    r = subprocess.run(["node", "node_modules/tsx/dist/cli.mjs", *args], cwd=ROOT, input=stdin, capture_output=True, text=True,
+                       encoding="utf-8")
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise SystemExit(f"{' '.join(args)} failed: {(r.stderr or r.stdout).strip()[-400:]}")
+
+
+def env_value(v):
+    return ("on" if v else "off") if isinstance(v, bool) else str(v)
+
+
+def with_profile(spec, run):
+    """The run with its profile's keys under its own (the run's "profile", else the spec's), and the profile's record."""
+    name = run.get("profile", spec.get("profile"))
+    if not name:
+        return run
+    check = node_json(["scripts/profile.mts", "check", name, "--json"])
+    if check["errors"]:
+        raise SystemExit(f"run {run['name']}: profile {name} has errors:\n  " + "\n  ".join(check["errors"]))
+    path = next((f for f in (os.path.join(ROOT, "profiles", f"{name}.json"), os.path.join(ROOT, "profiles", "local", f"{name}.json"))
+                 if os.path.exists(f)), name)
+    prof = json.load(open(path, encoding="utf-8"))
+    out = {k: v for k, v in prof.items() if k not in PROFILE_OWN}
+    out.update({k: v for k, v in run.items() if k not in ("server_env", "stage_env", "args")})
+    out["server_env"] = {**{k: env_value(v) for k, v in (prof.get("settings") or {}).items()}, **run.get("server_env", {})}
+    out["stage_env"] = {**prof.get("stage_env", {}), **run.get("stage_env", {})}
+    out["args"] = as_args(prof.get("args")) + as_args(run.get("args"))
+    est = check.get("estimate")
+    if est and "workers" in run:
+        # (the estimate is for the profile's members: a run's own count scales it)
+        f = (int(run["workers"]) + 1) / (check.get("members") or 1)
+        est = {**est, "tokensHour": round(est["tokensHour"] * f), "usdHour": round(est["usdHour"] * f, 2)}
+    out["_profile"] = {"name": prof["name"], "kind": prof["kind"], "file": os.path.relpath(path, ROOT).replace("\\", "/"),
+                       "warnings": check["warnings"], "estimate": est, "schedule": prof.get("schedule", [])}
+    return out
+
+
+def write_profile_json(run, server_env):
+    """NAME.profile.json beside the run's log (#115): what it ran with, every setting's value, the commit, the world."""
+    given = {k: v for k, v in run["server_env"].items()}
+    prof = run.get("profile") or {}
+    eff = node_json(["scripts/profile.mts", "effective"], json.dumps({"kind": prof.get("kind", "model" if run["watch"] else "staged"),
+                                                                       "settings": given}))
+    commit = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    rec = {"name": run["name"], "profile": prof or None, "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "commit": commit,
+           "world": run["world"], "port": run["port"], "site": run["site"], "village": run["village"], "checkpoint": run["checkpoint"],
+           "stage": run["stage"][1:], "settings": given, "stage_env": run["stage_env"], "errors": eff["errors"],
+           "warnings": eff["warnings"], "effective": eff["effective"], "changes": []}
+    with open(os.path.join(run["out"], f"{run['name']}.profile.json"), "w", encoding="utf-8") as f:
+        json.dump(rec, f, indent=1)
+    for e in eff["errors"]:
+        print(f"    setting: {e}", flush=True)
+
+
 def resolve(spec, run, out_default):
     """One run's settings: the spec's with the run's over them."""
     get = lambda k, d=None: run.get(k, spec.get(k, d))
@@ -214,6 +277,7 @@ def resolve(spec, run, out_default):
         "stage": [PY, "scripts/watch_village.py" if watch else "scripts/stage_village.py", village] + args,
         "timeout": float(get("timeout_min", float(get("minutes", 20)) + float(get("after", 0) or 0) + 15 if watch else 60)) * 60,
         "checks": checks, "show": tuple(SHOW) + tuple(get("show", [])),
+        "profile": run.get("_profile"),
         "log": os.path.join(out, f"{run['name']}.log"), "reset_log": os.path.join(out, f"reset_{run['name']}.log"),
     }
 
@@ -318,7 +382,7 @@ def main():
         if n not in names:
             raise SystemExit(f"no run {n} in {spec_path}: there are {', '.join(names)}")
     today = f"runs/{datetime.date.today():%Y-%m-%d}"
-    runs = [resolve(spec, r, today) for r in spec["runs"] if not pick or r["name"] in pick]
+    runs = [resolve(spec, with_profile(spec, r), today) for r in spec["runs"] if not pick or r["name"] in pick]
 
     if "--detach" in flags:
         out = runs[0]["out"]
@@ -344,6 +408,12 @@ def main():
         print(f"=== {run['name']} {time.strftime('%H:%M:%S')}: world {run['world']}, port {run['port']}, server {json.dumps(run['server_env'])}"
               + (f", from checkpoint {run['checkpoint']}" if run["checkpoint"] else "")
               + (f", saving as {run['save']}" if run["save"] else ""), flush=True)
+        if run["profile"]:
+            p = run["profile"]
+            est = p.get("estimate")
+            print(f"    profile {p['name']} ({p['kind']}, {p['file']})" + (f"; ~${est['usdHour']:.2f} an hour" if est else ""), flush=True)
+            for w in p["warnings"]:
+                print(f"    warning: {w}", flush=True)
         if "--dry-run" in flags:
             print(f"    reset: {' '.join(reset) if run['reset'] else '(none)'}\n    stage: {' '.join(run['stage'][1:])}"
                   f"\n    stage env: {json.dumps(run['stage_env'])}; timeout {run['timeout'] / 60:g} min; checks {run['checks']}", flush=True)
@@ -352,6 +422,7 @@ def main():
             continue
         row = {"name": run["name"], "minutes": 0.0, "stopped": "-", "code": "-"}
         results.append(row)
+        write_profile_json(run, server_env)
         if run["village"] == FROM_CP:
             meta = os.path.join(ROOT, "mc", "testcheckpoints", run["checkpoint"], "checkpoint.json")
             done = [v["name"] for v in (json.load(open(meta, encoding="utf-8")) if os.path.exists(meta) else {}).get("villages", [])

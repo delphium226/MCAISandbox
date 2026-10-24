@@ -1,0 +1,11 @@
+{
+  "name": "staged-fast",
+  "describe": "Scripted workers on the test world's usual site, fast (3x below 12 workers, haste 5, random ticks 30): the staged run of CLAUDE.md's ladder",
+  "kind": "staged",
+  "site": "minevale3",
+  "preset": "s0",
+  "workers": 2,
+  "fast": true,
+  "args": "--after 10",
+  "settings": {"MC_CHOOSE": "scripted"}
+}

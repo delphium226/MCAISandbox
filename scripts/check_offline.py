@@ -52,6 +52,7 @@ def commands():
     # (#115: the settings registry against the server's reads, and docs/SETTINGS.md up to date)
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
+    out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])
     return out
 
 

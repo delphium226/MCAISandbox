@@ -39,7 +39,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_SPEND_CAP_USD` | string | (unset) |  |  | A spend cap in dollars for paid model calls. |
 | `MC_SPEND_PROGRAMME_START` | string | (unset) |  |  | When the spend cap started counting (a date). |
 | `MC_TEMPERATURE` | string | (unset) |  |  | Models' temperature (unset: each provider's default). |
-| `MC_TOKEN_BUDGET_AGENT_HOUR` | number | `150` |  |  | Cloud tokens an agent an hour, for the budget that follows the agents. |
+| `MC_TOKEN_BUDGET_AGENT_HOUR` | number | `150000` |  |  | Cloud tokens an agent an hour, for the budget that follows the agents. |
 | `MC_TOKEN_BUDGET_AGENTS` | string | (unset) |  |  | The least agent count the hourly budget scales by. |
 | `MC_TOKEN_BUDGET_HOUR` | string | (unset) |  |  | Cloud tokens an hour for all calls (2,000,000; unset: it follows the agents). |
 | `MC_TOKEN_PRICES` | string | (unset) |  |  | Token prices per model, for the cost lines. |
@@ -61,7 +61,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CHOOSE_MIN_GAP_MS` | string | (unset) |  |  | The least time between two model choices of a member. |
 | `MC_CHOOSE_PARALLEL` | string | (unset) |  |  | 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always finds a slot free of decisions (C11). (MC_LLM_LIMITS=off: every cloud slot, no give-up in the queue or at the gate; each setting still wins where set) |
 | `MC_CHOOSE_QUEUE_MS` | string | (unset) |  |  | How long a choice may wait in the queue for a model slot. |
-| `MC_CHOOSE_QUOTA_BACKOFF_MS` | number | `5` |  |  | How long decisions leave a model alone after the provider refused for its quota (Ollama 429). |
+| `MC_CHOOSE_QUOTA_BACKOFF_MS` | number | `300000` |  |  | How long decisions leave a model alone after the provider refused for its quota (Ollama 429). |
 | `MC_CHOOSE_WAIT_MS` | string | (unset) |  |  | How long a member waits for its choice before the fixed pick. |
 | `MC_CONTROLLER` | flag | `off` |  |  | The controller: intents weigh the fixed and scripted picks. |
 | `MC_DECLINE_MS` | number | `90000` |  |  | A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). |
@@ -89,7 +89,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_OPEN_STORAGE` | flag | `off` |  |  | The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches' and the sign's support: a wall torch on a post, the... |
 | `MC_PAD_HALO` | string | `off` |  |  | #136: blended pad edges and cave sealing in prepare_site. |
 | `MC_PAD_PER_BUILDING` | flag | `off` |  |  | MC_PAD_PER_BUILDING=on (#84 C1; off by default): a village's first street plan is not levelled as one plot but laid out on pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended into the ground (prepare_site layout=N pad=K;... |
-| `MC_PROJECT_REST_MS` | number | `2` |  |  | How long public works rest after "no new work" wins. |
+| `MC_PROJECT_REST_MS` | number | `120000` |  |  | How long public works rest after "no new work" wins. |
 | `MC_PROJECTS` | flag | `on` |  |  | X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). |
 | `MC_QUARTER` | number | `3` |  |  | X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). |
 | `MC_REFIT_FIRST` | flag | `off` |  |  | Refits offered before new public works. |
@@ -157,7 +157,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_RULES` | flag | `off` |  |  | Village rules (laws read by members). |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |
-| `MC_VOTE_MAX_MS` | number | `4` |  |  | A vote is tallied once every ballot is in or after this long (abstentions for the rest). |
+| `MC_VOTE_MAX_MS` | number | `240000` |  |  | A vote is tallied once every ballot is in or after this long (abstentions for the rest). |
 | `MCAI_INFLUENCER_NAMES` | string | `Ben,Kai,Sam` |  |  | Experiment 2's influencers, by name (with MCAI_INFLUENCERS). |
 | `MCAI_INFLUENCERS` | string | (unset) |  |  | Experiment 2's influencers (MCAI_INFLUENCERS=pro\|anti): these members argue for a higher or lower levy and cast no levy ballot (MCAI_INFLUENCER_NAMES, default three of the 24 workers). |
 | `MCAI_SOCIAL` | string | `legacy` |  |  | The social layer: legacy, on, or off (talk, requests, relationships). |
@@ -227,15 +227,15 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | --- | --- | --- | --- | --- | --- |
 | `MC_AGENT_BRAIN` | string | `worker` |  |  | The sandbox: those agents' brain (worker, companion, idle or llm). |
 | `MC_AGENTS` | number | `0` |  |  | The sandbox: autonomous worker agents spawned at start. |
-| `MC_API_HOST` | number | `127.0.0.1` |  |  | The agent server's API address (0.0.0.0 for the LAN). |
+| `MC_API_HOST` | string | `127.0.0.1` |  |  | The agent server's API address (0.0.0.0 for the LAN). |
 | `MC_API_PORT` | number | `8766` |  |  | The agent server's API and panel port. |
-| `MC_HOST` | number | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
+| `MC_HOST` | string | `127.0.0.1` |  |  | The Minecraft server Mineflayer connects to. |
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
 | `MC_RCON_TIMEOUT_MS` | number | `15000` |  |  | How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill. |
 | `MC_SEED` | string | (unset) |  |  | The sandbox: the world's seed (a number or any text; unset: random). |
 | `MC_SERVER_DIR` | string | (unset) |  |  | The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json |
-| `MC_VERSION` | number | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
+| `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |
 | `MC_VIEW_DISTANCE` | number | `10` |  |  | The sandbox: the players' view distance in chunks. |
 | `MC_WORLD` | string | `world` |  |  | The sandbox: the world's folder name under server/worlds. |
 | `MCAI_ACTS_LOG` | string | (unset) |  |  | Where the acts log goes (default: beside the choice log). |
