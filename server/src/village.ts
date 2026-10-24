@@ -38,6 +38,12 @@ export interface Plot extends Area {
   green?: string;
   /** A field work's pad (s40, lay_out_field): holds one wheat field, nothing to build on. */
   field?: boolean;
+  /**
+   * MC_PAD_PER_BUILDING (#84 C1): `pads` on the layout-wide record of a village laid out on pads (its y the home level,
+   * the storage hut's pad's; `parts` lists the pads prepared, and stays); `pad` on each pad's own record, at its own level.
+   */
+  pads?: boolean;
+  pad?: boolean;
 }
 
 /** A part of a layout's plot prepared by one agent (S.6), with its margins [north, south, west, east]: 2 on the plot's edge, 0 inside. */
@@ -51,7 +57,11 @@ export const partClaim = (p: PlotPart): Area => ({ x1: p.x1 - p.m[2], z1: p.z1 -
  */
 export function preparedAt(v: Village, area: Area): Plot | undefined {
   const inside = (p: Area, x: number, z: number) => x >= p.x1 && x <= p.x2 && z >= p.z1 && z <= p.z2;
-  return v.plots.find((p) => {
+  // (on a village laid out on pads, #84 C1: the smallest that holds it, the pad's own record at the pad's level before
+  // the layout-wide one at the home level; elsewhere the first, as ever)
+  const size = (p: Area) => (p.x2 - p.x1 + 1) * (p.z2 - p.z1 + 1);
+  const plots = v.plots.some((p) => p.pads) ? [...v.plots].sort((p, q) => Number(!!p.pads) - Number(!!q.pads) || size(p) - size(q)) : v.plots;
+  return plots.find((p) => {
     if (area.x1 < p.x1 || area.x2 > p.x2 || area.z1 < p.z1 || area.z2 > p.z2) return false;
     if (!p.parts) return true;
     for (let x = area.x1; x <= area.x2; x++)
@@ -516,6 +526,9 @@ export interface Village {
     /** The plot prepared in parts (S.6): each part's rectangle and margins (prepare_site layout=N part=K, K from 1), and the
      *  one level for all of them, written by the first part to work it out; `seamsBad` while the last seam check failed. */
     parts?: PlotPart[]; y?: number; seamsBad?: boolean;
+    /** MC_PAD_PER_BUILDING (#84 C1): the pads instead of parts (prepare_site layout=N pad=K, K from 1), each a footprint and
+     *  its 1-block ring (a building) or a field's ring, with its own level, all worked out by the first pad prepared. */
+    pads?: Array<Area & { what: string; kind: 'building' | 'field'; y?: number }>;
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
     farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
       /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */
@@ -1340,10 +1353,13 @@ export class VillageRegistry {
     if (v.wood) lines.push(`Wood: the village gathers and builds in ${v.wood} (designs in other woods are built in it)`);
     // (not the annex or the works plot: they are for the pens, 10-09, and the workshop's furnaces, S.9; nor a green, the
     // initiatives' small works, s36)
-    const plots = v.plots.filter((p) => !p.annex && !p.works && !p.green);
+    // (nor each pad of a village laid out on pads, #84 C1: its layout-wide record stands for them)
+    const plots = v.plots.filter((p) => !p.annex && !p.works && !p.green && !p.pad);
     // (a plot prepared in parts, S.6: how many are done; lessons 32 and 57)
     const partsOf = (p: Plot) => (v.layouts ?? []).find((l) => l.x1 === p.x1 && l.z1 === p.z1 && l.x2 === p.x2 && l.z2 === p.z2)?.parts?.length;
-    if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}${p.parts ? ` (parts ${p.parts.length} of ${partsOf(p) ?? '?'} prepared)` : ''}`));
+    if (plots.length) lines.push('Prepared plots (level ground; build inside them):', ...plots.map((p) => p.pads
+      ? `- ${p.id}: ${areaText(p)}, laid out on pads (each building on level ground of its own; home level y=${p.y})`
+      : `- ${p.id}: ${areaText(p)}, ground y=${p.y}, by ${p.preparedBy}${p.parts ? ` (parts ${p.parts.length} of ${partsOf(p) ?? '?'} prepared)` : ''}`));
     const built = compact ? v.structures.filter((s) => s.kind !== 'storage') : v.structures;
     if (built.length) lines.push('Buildings (do not overlap them):', ...built.map((s) => `- ${s.kind} at ${areaText(s)}${compact ? '' : ` by ${s.builtBy}`}`));
     if (v.unplaced?.length) lines.push(`Not laid out yet (no room on the first site; they need a second site, then plan_layout): ${v.unplaced.join(', ')}`);

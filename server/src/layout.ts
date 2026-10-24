@@ -31,6 +31,12 @@ const SEED_KEEP = 8;
 /** How far from the storage hut a neighbourhood's field and slot cells may lie (s30's check M5: crops grew while a bot was
  *  within ~115 blocks of their chunk's centre, not from ~120, and the village's bots spend most of their time at the hut). */
 const FIELD_REACH = 96;
+/**
+ * MC_PAD_PER_BUILDING=on (#84 C1; off by default): a village's first street plan is not levelled as one plot but laid out on
+ * pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended
+ * into the ground (prepare_site layout=N pad=K; runs/2026-10-24/layout-measure/spec_c.md).
+ */
+export const PAD_PER_BUILDING = /^(on|1|true)$/i.test(process.env.MC_PAD_PER_BUILDING ?? 'off');
 
 /** A part of the plot as plan_layout posts it (S.6): its rectangle, margins, and what it holds (for its task's title). */
 export type PrepPart = PlotPart & { what: string };
@@ -363,7 +369,23 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // The plot in parts (S.6): the huts' ground first, the rest posted after the storage hut (lesson 91: the mine starts
     // before the levelling); a village from before, a later plot or the sandbox are prepared whole
     const crew = workers ?? w.memberCount?.(v) ?? 0;
-    const split = withHut && w.preparesParts && laid && mining ? prepParts(plot, laid, mining, back, crew) : null;
+    // (MC_PAD_PER_BUILDING, #84 C1: a street plan's buildings and fields on pads of their own instead)
+    const onPads = PAD_PER_BUILDING && !!street && withHut && !!w.preparesParts && !!laid && !!mining;
+    const padRing = (q: Area) => ({ x1: q.x1 - 1, z1: q.z1 - 1, x2: q.x2 + 1, z2: q.z2 + 1 });
+    const pads: NonNullable<NonNullable<Village['layouts']>[number]['pads']> | null = onPads
+      ? [...lay.places].sort((p, q) => (q.name === STORAGE_HUT ? 1 : 0) - (p.name === STORAGE_HUT ? 1 : 0) || (q.name === MINING_HUT ? 1 : 0) - (p.name === MINING_HUT ? 1 : 0))
+        .map((p) => ({ ...padRing(p), what: p.name, kind: 'building' as const }))
+      : null;
+    // (each pad's task index, by its rectangle: a building waits for its own pad)
+    const padTask = new Map<string, number>();
+    const padKey = (q: Area) => `${q.x1},${q.z1}`;
+    const postPad = (k: number) => {
+      const q = pads![k - 1];
+      padTask.set(padKey(q), tasks.length);
+      tasks.push({ title: `Prepare the pad for ${q.kind === 'field' ? `the ${q.what}` : q.what}`,
+        detail: `prepare_site layout=${nth} pad=${k} (the ${q.kind === 'field' ? q.what : `${q.what}'s footprint and a ring round it`} at its own level, blended into the ground)`, after: [] });
+    };
+    const split = !onPads && withHut && w.preparesParts && laid && mining ? prepParts(plot, laid, mining, back, crew) : null;
     const parts = split && 'parts' in split ? split.parts : null;
     const cellsOf = (a: Area) => (a.x2 - a.x1 + 1) * (a.z2 - a.z1 + 1);
     if (split && 'why' in split) console.log(`[parts] the plot of ${v.name} is prepared whole: ${split.why}`);
@@ -376,7 +398,15 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       tasks.push({ title: `Prepare the village plot, part ${k} of ${parts!.length} (${q.what})`,
         detail: `prepare_site x=${q.x1 + Math.floor(wd / 2)} z=${q.z1 + Math.floor(dp / 2)} width=${wd} depth=${dp} layout=${nth} part=${k} (to the plot's one level${streets ? '; its streets laid as dirt_path' : ''})`, after: [] });
     };
-    if (parts) {
+    if (pads) {
+      // The huts' pads first (the storage hut's sets the home level), the rest after the storage hut's build
+      for (let k = 1; k <= 2; k++) {
+        hutParts.push(tasks.length);
+        postPad(k);
+      }
+      allParts.push(...hutParts);
+      reg.note(v, `code laid the village out on ${pads.length} pads (each building at its own level): the huts' first, the rest after the storage hut`);
+    } else if (parts) {
       const huts = (split as { huts: number }).huts;
       for (let k = 1; k <= huts; k++) {
         hutParts.push(tasks.length);
@@ -395,10 +425,20 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const storagePart = hutParts[0];
     // The rest of the plot, posted right after the storage hut's build (claimed in posting order: two workers start the mine
     // before the levelling); everything else on the plot waits for every part
-    let restPosted = !parts;
+    let restPosted = !(parts || pads);
     const postRest = () => {
-      if (restPosted || !parts) return;
+      if (restPosted || !(parts || pads)) return;
       restPosted = true;
+      if (pads) {
+        // (the wheat field's pad too, placed after the split)
+        if (farm && !pads.some((q) => q.kind === 'field')) pads.push({ ...padRing(farm), what: 'wheat field', kind: 'field' });
+        for (let k = 3; k <= pads.length; k++) {
+          allParts.push(tasks.length);
+          postPad(k);
+        }
+        return;
+      }
+      if (!parts) return;
       for (let k = hutParts.length + 1; k <= parts.length; k++) {
         allParts.push(tasks.length);
         partTask(k);
@@ -622,7 +662,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       tasks.push({
         title: `Build ${label}`,
         detail: `build_design "${p.name}" x=${p.x} z=${p.z}${(isMine ? mineTurn * 90 : p.rotate ?? 0) ? ` rotate=${isMine ? mineTurn * 90 : p.rotate}` : ''} (on the village plot; footprint x ${p.x1}..${p.x2}, z ${p.z1}..${p.z2})${economy ? '; it takes the materials from the village storage and crafts planks, doors and glass from what is there' : ''}${isHut ? '; it is built around the storage chests already standing in it' : ''}`,
-        after: [...(isHut || isMine ? hutParts : allParts), ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && g !== undefined ? [g] : []),
+        after: [...(pads ? [padTask.get(padKey(padRing(p)))!] : isHut || isMine ? hutParts : allParts), ...((isHut || isMine) && storage !== undefined ? [storage] : []), ...gather, ...(!isHut && !isMine && g !== undefined ? [g] : []),
           ...(glazed ? [...windowSand, ...(partsTask !== undefined ? [partsTask] : [])] : [])],
       });
       if (isMine) {
@@ -667,6 +707,12 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
         if (!s || (nb && fromHut(s) > FIELD_REACH)) break;
         slots.push(s);
       }
+      // (on pads, #84 C1: each slot on a pad of its own, prepared once the rest are; nothing waits for them but the slot's chores)
+      if (pads)
+        for (const q of slots) {
+          pads.push({ ...padRing(q), what: `${q.kind ?? 'farm'} slot`, kind: 'field' });
+          postPad(pads.length);
+        }
       if (slots.length) reg.note(v, `${slots.length} farm slot${slots.length > 1 ? 's' : ''} kept free at ${slots.map((q) => areaText(q)).join(' and ')}`);
     }
     // A name sign beside each building's door (the user's, 10-08: "Library", "House", "Storage"...), on every kind of
@@ -706,7 +752,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const left = nb ? [] : [...(v.unplaced?.length ? v.unplaced : names)];
     if (!nb) for (const n of placed) left.splice(left.indexOf(n), 1);
     v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
-      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(hoodName ? { name: hoodName } : {}), ...(farmWhy ? { farmWhy } : {}) }];
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(pads ? { pads } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(hoodName ? { name: hoodName } : {}), ...(farmWhy ? { farmWhy } : {}) }];
     if (!nb) v.unplaced = left;
     reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ` as a new neighbourhood${hoodName ? `, ${hoodName}` : ''}` : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();

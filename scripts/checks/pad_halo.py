@@ -20,14 +20,23 @@ SOFT = ('leaves', '_log', '_wood', 'short_grass', 'tall_grass', 'fern', 'flower'
         'bee_nest', 'eyeblossom', 'moss_carpet', 'cactus', 'carpet', 'pale_hanging_moss')
 
 
+NATURAL = {'grass_block', 'dirt', 'coarse_dirt', 'podzol', 'rooted_dirt', 'mud', 'clay', 'moss_block', 'dirt_path', 'stone',
+           'andesite', 'diorite', 'granite', 'tuff', 'deepslate', 'calcite', 'sand', 'red_sand', 'gravel', 'sandstone',
+           'red_sandstone', 'terracotta', 'snow_block', 'mycelium', 'water', 'coal_ore', 'iron_ore', 'copper_ore', 'cobblestone'}
+built = set()
+
+
 def top(w, x, z, hi=160, lo=-20):
-    """The column's ground top (plants, leaves and logs skipped; water's top counts), or None for a chunk never saved."""
+    """The column's ground top (plants, leaves and logs skipped; water's top counts), or None for a chunk never saved.
+    A column topped by anything not natural ground (a lamp, a sign, a field, a fence) is noted in `built` and passed over."""
     for y in range(hi, lo, -1):
         n = w.block(x, y, z)
         if n is None:
             return None
         if n in AIR or (n != 'grass_block' and any(s in n for s in SOFT)):
             continue
+        if n not in NATURAL and not n.endswith('_terracotta'):
+            built.add((x, z))
         return y
     return lo
 
@@ -70,7 +79,7 @@ def main():
     shown = []
     for (x, z) in ring:
         for n in ((x + 1, z), (x, z + 1)):
-            if n not in cells or any(a <= q[0] <= c and b <= q[1] <= d for q in ((x, z), n) for a, b, c, d in skip) or None in (now[(x, z)], now[n], was[(x, z)], was[n]):
+            if n not in cells or (x, z) in built or n in built or any(a <= q[0] <= c and b <= q[1] <= d for q in ((x, z), n) for a, b, c, d in skip) or None in (now[(x, z)], now[n], was[(x, z)], was[n]):
                 continue
             a, b = abs(now[(x, z)] - now[n]), abs(was[(x, z)] - was[n])
             steps['now2'] += a > 1; steps['was2'] += b > 1; steps['now3'] += a > 2; steps['was3'] += b > 2

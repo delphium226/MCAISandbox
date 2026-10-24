@@ -135,6 +135,15 @@ the short version; look here for a check script's arguments, a model detail or w
   the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
   `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
   idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
+- **Per-building pads** (#84 C1, `MC_PAD_PER_BUILDING=on`, off by default; spec and review
+  `runs/2026-10-24/layout-measure/spec_c.md`): a village's first street plan is laid out on pads. Each building, the
+  wheat field and each farm slot gets its footprint and a 1-block ring at its own level, with a halo of `MC_PAD_HALO`'s
+  width (3 by default), via `prepare_site layout=N pad=K`.
+  - **Levels:** set by the first pad call. Home is the storage hut pad's median; each other pad stays within -3..+6 of
+    home and within its gap + 1 of its neighbours (`[prepare] ... pad levels`).
+  - **No graded streets** (C2). Rows layouts and neighbourhoods are unchanged.
+  - **Checks:** `scripts/checks/pads_plan.mts`; per pad, `pad_halo.py`. Pad villages are not modelled by the
+    simulator: keep the flag off there.
 - **Pad edges blended** (#136, `MC_PAD_HALO=on|N`, off by default): prepare_site blends each outer margin into the ground,
   a slope of at most 1 out to N blocks (5 when `on`, at most 8), skipping any village's ground, the mine, built columns,
   other members' claims, fills deeper than N and cuts deeper than 8; and seals cave air within 3 under every cut column

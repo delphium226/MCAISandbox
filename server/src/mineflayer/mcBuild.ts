@@ -1754,13 +1754,19 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
   const ofLay = layN !== undefined ? v?.layouts?.[layN - 1] : undefined;
   const part = partK !== undefined ? ofLay?.parts?.[partK - 1] : undefined;
   if (partK !== undefined && !part) throw new Error(`prepare_site: ${ofLay ? `layout ${layN} has no part ${partK}` : `no layout ${layN ?? '(layout= missing)'} in your village`}; prepare the plot its task names`);
+  // One pad of a village laid out on pads (#84 C1, MC_PAD_PER_BUILDING: layout=N pad=K): a building's or a field's ground
+  // at its own level, no margin (the pad holds the footprint's ring), blended into the ground all round
+  const padK = args.pad !== undefined ? int(args, 'pad') : undefined;
+  const pad = padK !== undefined ? ofLay?.pads?.[padK - 1] : undefined;
+  if (padK !== undefined && !pad) throw new Error(`prepare_site: ${ofLay ? `layout ${layN} has no pad ${padK}` : `no layout ${layN ?? '(layout= missing)'} in your village`}; prepare the pad its task names`);
+  const box = part ?? pad;
   const last = a.memory.lastSite as { x: number; z: number } | undefined;
-  const w = part ? part.x2 - part.x1 + 1 : size(args, 'width', 9, 3, 40), d = part ? part.z2 - part.z1 + 1 : size(args, 'depth', 9, 3, 40), m = size(args, 'margin', 2, 0, 4);
-  const cx = part ? part.x1 + Math.floor(w / 2) : args.x !== undefined ? int(args, 'x') : last?.x ?? Math.floor(p.x);
-  const cz = part ? part.z1 + Math.floor(d / 2) : args.z !== undefined ? int(args, 'z') : last?.z ?? Math.floor(p.z);
+  const w = box ? box.x2 - box.x1 + 1 : size(args, 'width', 9, 3, 40), d = box ? box.z2 - box.z1 + 1 : size(args, 'depth', 9, 3, 40), m = size(args, 'margin', 2, 0, 4);
+  const cx = box ? box.x1 + Math.floor(w / 2) : args.x !== undefined ? int(args, 'x') : last?.x ?? Math.floor(p.x);
+  const cz = box ? box.z1 + Math.floor(d / 2) : args.z !== undefined ? int(args, 'z') : last?.z ?? Math.floor(p.z);
   const x0 = cx - Math.floor(w / 2), z0 = cz - Math.floor(d / 2), x1 = x0 + w - 1, z1 = z0 + d - 1;
   // Margins north, south, west, east
-  const [mN, mS, mW, mE] = part ? part.m : [m, m, m, m];
+  const [mN, mS, mW, mE] = part ? part.m : pad ? [0, 0, 0, 0] : [m, m, m, m];
   const surf = new Map<string, Surface>();
   const scan = () => {
     surf.clear();
@@ -1796,8 +1802,74 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
   // Level: the most common ground height on the plot itself (least digging and filling), unless given; a part's is the
   // whole layout's (today's rule over the layout), worked out by the first part from a full scan and read by the others
   // (a part never takes another level than its layout's once there is one)
-  let y = part && lay?.y !== undefined ? lay.y : args.y !== undefined ? int(args, 'y') : lay?.y ?? (lay ? v?.plots.find(sameAsLay)?.y : undefined) ?? NaN;
+  // (on pads, #84 C1: a pad's own level; another call inside a village laid out on pads, as readySite's "prepare first",
+  // takes the level of the pad under its middle, never the home level, else its own mode)
+  const padUnder = !box && lay?.pads ? lay.pads.find((q) => cx >= q.x1 && cx <= q.x2 && cz >= q.z1 && cz <= q.z2) : undefined;
+  let y = pad ? pad.y ?? NaN : lay?.pads && !part ? (args.y !== undefined ? int(args, 'y') : padUnder?.y ?? NaN)
+    : part && lay?.y !== undefined ? lay.y : args.y !== undefined ? int(args, 'y') : lay?.y ?? (lay ? v?.plots.find(sameAsLay)?.y : undefined) ?? NaN;
   if (part && lay && lay.y === undefined && !Number.isNaN(y)) lay.y = y;
+  if (Number.isNaN(y) && pad && lay?.pads) {
+    // Every pad's level at once, by the first pad prepared (two workers take the huts' pads together): the storage hut's
+    // pad's median ground is the home level; each other pad its own median, within -3..+6 of home (the out-of-the-deep
+    // checks read home - 4), and within its gap + 1 of every pad levelled before it, nearest the storage hut first, so a
+    // slope of 1 can join any two (the spec's review, M1)
+    const pads = lay.pads;
+    const heights = () => {
+      const py = Math.floor(a.bot.entity.position.y);
+      const out: number[][] = [];
+      for (const q of pads) {
+        const hs: number[] = [];
+        for (let x = q.x1; x <= q.x2; x++)
+          for (let z = q.z1; z <= q.z2; z++) {
+            const c = surfaceAt(a, x, z, py);
+            if (!c) return null;
+            if (!c.liquid) hs.push(c.y);
+          }
+        out.push(hs.sort((u, t) => u - t));
+      }
+      return out;
+    };
+    let hs = heights();
+    if (!hs) {
+      const mx = Math.floor((lay.x1 + lay.x2) / 2), mz = Math.floor((lay.z1 + lay.z2) / 2);
+      turn.release();
+      await walk(a, new goals.GoalNearXZ(mx, mz, 3), `the plot's middle at ${mx},${mz}`, signal, 90000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      await a.bot.waitForChunksToLoad().catch(() => {});
+      await turn.take(signal);
+      checkAbort(signal);
+      if (!scan()) throw new Error(`part of the area is not loaded; walk closer to x=${cx} z=${cz} first`);
+      hs = pad.y === undefined ? heights() : [];
+      if (!hs) throw new Error(`part of the village plot is not loaded; walk closer to x=${mx} z=${mz} first`);
+    }
+    if (pad.y === undefined) {
+      const median = (k: number) => (hs![k].length ? hs![k][Math.floor(hs![k].length / 2)] : undefined);
+      const home = median(0);
+      if (home === undefined) throw new Error("the storage hut's pad is all water; this village cannot be laid out on pads here");
+      const gap = (p: Area, q: Area) => Math.max(0, Math.max(q.x1 - p.x2, p.x1 - q.x2, q.z1 - p.z2, p.z1 - q.z2) - 1);
+      const mid = (q: Area) => [(q.x1 + q.x2) / 2, (q.z1 + q.z2) / 2];
+      const [hx, hz] = mid(pads[0]);
+      const order = pads.map((_, k) => k).slice(1).sort((i, j) => Math.hypot(mid(pads[i])[0] - hx, mid(pads[i])[1] - hz) - Math.hypot(mid(pads[j])[0] - hx, mid(pads[j])[1] - hz));
+      pads[0].y = home;
+      const done = [0];
+      for (const k of order) {
+        let lo = home - 3, hi = home + 6;
+        for (const j of done) {
+          const g = gap(pads[k], pads[j]) + 1;
+          lo = Math.max(lo, pads[j].y! - g);
+          hi = Math.min(hi, pads[j].y! + g);
+        }
+        const want = median(k) ?? home;
+        pads[k].y = lo <= hi ? Math.max(lo, Math.min(hi, want)) : Math.round((lo + hi) / 2);
+        done.push(k);
+      }
+      lay.y = home;
+      a.world.villages.save();
+      console.log(`[prepare] ${a.name} pad levels for layout ${layN}: home y=${home}; ${pads.map((q, k) => `${k + 1} ${q.what} ${q.y}${median(k) !== q.y ? ` (ground ${median(k) ?? 'water'})` : ''}`).join(', ')}`);
+    }
+    y = pad.y!;
+  }
   if (Number.isNaN(y) && part && lay) {
     const layoutCounts = () => {
       const counts = new Map<number, number>();
@@ -1950,10 +2022,12 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
   // halo keeps off any village's ground (plots, layouts and buildings at any height: lessons 30, 102), the mine (F131),
   // anything built and another member's claim, and a part fells only its own (S.6); a column needing more fill than the
   // halo is wide (a drop, F83) or more than 8 of cut is left as it is
-  const [hN, hS, hW, hE] = [mN, mS, mW, mE].map((q) => (PAD_HALO && q > 0 ? PAD_HALO : 0));
+  // (a pad's halo, #84 C1, all round it whatever MC_PAD_HALO says: 3 blocks unless that sets a width)
+  const haloW = pad ? PAD_HALO || 3 : PAD_HALO;
+  const [hN, hS, hW, hE] = pad ? [haloW, haloW, haloW, haloW] : [mN, mS, mW, mE].map((q) => (PAD_HALO && q > 0 ? PAD_HALO : 0));
   const haloCols = new Set<string>();
   let haloN = 0, sealed = 0;
-  if (PAD_HALO) {
+  if (haloW) {
     const ax1 = x0 - mW, ax2 = x1 + mE, az1 = z0 - mN, az2 = z1 + mS;
     // Every column worked, with its new top and its ground before (for the seal)
     const worked = new Map<string, { t: number; g: number }>();
@@ -1961,7 +2035,13 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
       for (let z = az1; z <= az2; z++) if (!kept.has(`${x},${z}`)) worked.set(`${x},${z}`, { t: y, g: surf.get(`${x},${z}`)!.y });
     const py = Math.floor(a.bot.entity.position.y);
     const reg = a.world.villages;
-    const free = (x: number, z: number) => ours(x, z) && !onVillageGround(a, x, z) && !mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2)
+    // (a pad's halo inside its own layout: not onVillageGround, which counts the whole layout at any height, but off every
+    // other pad, prepared or not, and 2 round any building: the spec's review, B1)
+    const onPadGround = (x: number, z: number) => !!pad && !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2;
+    const otherPad = (x: number, z: number) => !!lay?.pads?.some((q) => q !== pad && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
+    const nearBuilding = (x: number, z: number) => builtCells.some((s) => x >= s.x1 - 2 && x <= s.x2 + 2 && z >= s.z1 - 2 && z <= s.z2 + 2);
+    const free = (x: number, z: number) => ours(x, z) && (onPadGround(x, z) ? !otherPad(x, z) && !nearBuilding(x, z) : !onVillageGround(a, x, z))
+      && !mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2)
       && !(v && reg.conflictOf(v, { x1: x, z1: z, x2: x, z2: z }, a.name, false));
     const isAir = (n: string | null) => n === 'air' || n === 'cave_air';
     for (let x = ax1 - hW; x <= ax2 + hE; x++)
@@ -1971,7 +2051,8 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
         const c = surfaceAt(a, x, z, py);
         if (!c || c.liquid) continue;
         const g = c.y, t = Math.max(y - dist, Math.min(y + dist, g));
-        if (t === g || t - g > PAD_HALO || g - t > 8 || !free(x, z)) continue;
+        // (a fill over 6 is a drop, left as it is: F83; a pad's 3-block halo still fills the first blocks of a 5-step bank)
+        if (t === g || t - g > Math.max(haloW, 6) || g - t > 8 || !free(x, z)) continue;
         const cut: number[] = [];
         for (let yy = t + 1; yy <= Math.max(t, g) + 32; yy++) {
           const n = blockName(a, x, yy, z) ?? 'air';
@@ -2031,7 +2112,7 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
     const n = blockName(a, tx, ty, tz);
     if (n && isLog(n) && n !== 'mushroom_stem') logs[n] = (logs[n] ?? 0) + 1;
   }
-  const claim = { area: { x1: x0 - mW, z1: z0 - mN, x2: x1 + mE, z2: z1 + mS }, purpose: part ? `prepare part ${partK} of the village plot` : 'prepare a plot', avoidStructures: false };
+  const claim = { area: { x1: x0 - mW, z1: z0 - mN, x2: x1 + mE, z2: z1 + mS }, purpose: part ? `prepare part ${partK} of the village plot` : pad ? `prepare the pad for ${pad.what}` : 'prepare a plot', avoidStructures: false };
   turn.release();
   let summary = await runJob(a, { targets, area: plot, y, free: true, claim }, signal, felled);
   if (a.gamemode !== 'creative' && Object.keys(logs).length) {
@@ -2088,7 +2169,21 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
   let completes = false;
   if (v) {
     const reg = a.world.villages;
-    if (part && lay?.parts) {
+    if (pad && lay) {
+      // On pads (#84 C1): the layout-wide record first in the plots (plots[0], the village's plot to everything that reads
+      // it), at the home level, listing the pads prepared as its `parts` (kept: what reads parts sees only those as
+      // prepared, the spec's review B2); then the pad's own record at its own level (preparedAt finds it first)
+      let rec = v.plots.find((q) => q.pads && sameAsLay(q));
+      if (!rec) {
+        rec = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2, y: lay.y ?? y, id: a.world.villages.id('plot'), preparedBy: a.name, parts: [], pads: true };
+        v.plots.unshift(rec);
+      }
+      if (!rec.parts!.some(same)) rec.parts!.push({ x1: x0, z1: z0, x2: x1, z2: z1 });
+      const i = v.plots.findIndex((q) => q.pad && same(q));
+      if (i >= 0) v.plots[i] = { ...v.plots[i], ...plot, preparedBy: a.name };
+      else v.plots.push({ ...plot, id: a.world.villages.id('plot'), preparedBy: a.name, pad: true });
+      a.world.villages.note(v, `${a.name} prepared the pad for ${pad.what} at ${areaText(plot)}, level y=${y} (${rec.parts!.length} of ${lay.pads!.length} pads done)`);
+    } else if (part && lay?.parts) {
       // One plot record for the layout (S.6), from the first part done: the whole layout at its one level, listing the parts
       // done so far, so plots[0] is the village's plot to everything that reads it; "prepared" readers ask preparedAt
       const total = lay.parts.length;
@@ -2119,13 +2214,13 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
     // them while its task is open, so no chest goes on ground still to be levelled (lesson 33); every other part, and any
     // call once the storage stands, deposits them (about 300 logs were stranded with the preparers otherwise). Not the
     // annex or the works plot: their own jobs deposit them
-    if (a.gamemode !== 'creative' && args.annex !== true && args.works !== true && (felledLogs || part)) {
+    if (a.gamemode !== 'creative' && args.annex !== true && args.works !== true && (felledLogs || part || pad)) {
       const hut = v.storageHut;
-      const holdsHut = !part || !hut || (hut.x1 >= x0 && hut.x2 <= x1 && hut.z1 >= z0 && hut.z2 <= z1);
+      const holdsHut = !(part || pad) || !hut || (hut.x1 >= x0 && hut.x2 <= x1 && hut.z1 >= z0 && hut.z2 <= z1);
       const set = holdsHut ? await storageFromFelled(a, signal) : '';
       // (and a part run again after a failed check, which fells nothing more: the logs given the first time)
       const n = set ? 0 : felledLogs || (await logsCarried(a));
-      summary += n ? await depositFelled(a, v, n, part ? `part ${partK}` : 'the plot', !holdsHut, signal) : set;
+      summary += n ? await depositFelled(a, v, n, part ? `part ${partK}` : pad ? `the pad for ${pad.what}` : 'the plot', !holdsHut, signal) : set;
     }
     // The part that completes the record checks the seams between the parts (C7) before the plot counts as whole (after its
     // logs are in: a failed check runs the part again, which fells nothing more)
@@ -2136,8 +2231,8 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
       reg.save();
     }
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
-  const margin = part ? `margins ${mN}/${mS}/${mW}/${mE} north/south/west/east` : `a ${m}-block margin`;
-  return `${part ? `part ${partK} of ${lay!.parts!.length} of the village plot ready` : 'plot ready'}: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus ${margin})${haloN ? `, its edge blended into the ground over ${haloN} columns` : ''}${sealed ? `, ${sealed} cave cells sealed` : ''}${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${mineCols ? `; left ${mineCols} columns over the mine as they are` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
+  const margin = part ? `margins ${mN}/${mS}/${mW}/${mE} north/south/west/east` : pad ? `no margin: the pad holds the footprint's ring` : `a ${m}-block margin`;
+  return `${part ? `part ${partK} of ${lay!.parts!.length} of the village plot ready` : pad ? `the pad for ${pad.what} ready` : 'plot ready'}: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus ${margin})${haloN ? `, its edge blended into the ground over ${haloN} columns` : ''}${sealed ? `, ${sealed} cave cells sealed` : ''}${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${mineCols ? `; left ${mineCols} columns over the mine as they are` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
 }
 
 /**
@@ -2345,7 +2440,10 @@ async function storageFromFelled(a: BotAgent, signal: AbortSignal): Promise<stri
 function readySite(a: BotAgent, area: Area, height: number, what: string, leave?: { cells: Set<string>; chests: Set<string> }): number {
   const w = area.x2 - area.x1 + 1, d = area.z2 - area.z1 + 1;
   const cx = area.x1 + Math.floor(w / 2), cz = area.z1 + Math.floor(d / 2);
-  const prep = `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
+  // (on pads, #84 C1: the pad under it prepared again, at its own level, not a plot round it at the home level: M7)
+  const lays = a.village()?.layouts ?? [];
+  const padAt = lays.flatMap((l, n) => (l.pads ?? []).map((q, k) => ({ q, n: n + 1, k: k + 1 }))).find(({ q }) => cx >= q.x1 && cx <= q.x2 && cz >= q.z1 && cz <= q.z2);
+  const prep = padAt ? `run prepare_site layout=${padAt.n} pad=${padAt.k} first` : `run prepare_site x=${cx} z=${cz} width=${w + 2} depth=${d + 2} first`;
   const there = a.village()?.structures.find((st) => overlaps(area, st) && !(st.kind === 'storage' && leave?.chests.has(`${st.x1},${st.z1}`)));
   if (there) {
     const same = there.kind === what.replace(/"/g, '') ? ' (the same design: if building it here was your task, it is already done)' : '';
@@ -2724,8 +2822,10 @@ async function lightStreets(a: BotAgent, args: Record<string, unknown>, signal: 
   const skipped: string[] = [];
   let y0 = 0;
   for (const l of lay.lamps) {
-    // (its part prepared, on a plot prepared in parts: S.6)
-    const plot = preparedAt(v, { x1: l.x, z1: l.z, x2: l.x, z2: l.z });
+    // (its part prepared, on a plot prepared in parts: S.6; on pads, #84 C1, a lamp stands off every pad, on the ground
+    // as it is: its level is the ground's there)
+    const ground = lay.pads ? surfaceAt(a, l.x, l.z, Math.floor(a.bot.entity.position.y)) : null;
+    const plot = preparedAt(v, { x1: l.x, z1: l.z, x2: l.x, z2: l.z }) ?? (ground && !ground.liquid ? { y: ground.y } : undefined);
     if (!plot) {
       skipped.push(`${l.x},${l.z} (not on a prepared plot)`);
       continue;
@@ -3090,7 +3190,8 @@ async function harvestFarm(a: BotAgent, args: Record<string, unknown>, signal: A
   const k = Math.floor(num(args.layout, 'layout'));
   const farm = v.layouts?.[k - 1]?.farm;
   if (!farm) throw new Error(`harvest_farm: layout ${k} has no farm`);
-  const plot = v.plots.find((p) => farm.x1 >= p.x1 && farm.x2 <= p.x2 && farm.z1 >= p.z1 && farm.z2 <= p.z2);
+  // (preparedAt: on pads, #84 C1, the field's own pad and level, as tend_farm reads it)
+  const plot = preparedAt(v, farm);
   if (!plot) throw new Error(`harvest_farm: the farm at ${areaText(farm)} is not on a prepared plot`);
   const key = `${v.name}:${k}`;
   if (harvesting.has(key)) throw new Error(`harvest_farm: the farm at ${areaText(farm)} is being harvested already`);
@@ -3224,7 +3325,8 @@ function slotOf(a: BotAgent, args: Record<string, unknown>, what: string) {
   const k = Math.floor(num(args.layout, 'layout')), j = Math.floor(num(args.slot, 'slot'));
   const slot = v.layouts?.[k - 1]?.slots?.[j - 1];
   if (!slot) throw new Error(`${what}: layout ${k} has no farm slot ${j}`);
-  const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+  // (preparedAt: on pads, #84 C1, the slot's own pad and level)
+  const plot = preparedAt(v, slot);
   if (!plot) throw new Error(`${what}: farm slot ${j} at ${areaText(slot)} is not on a prepared plot`);
   return { v, k, j, slot, plot, key: `${v.name}:${k}:${j}` };
 }
