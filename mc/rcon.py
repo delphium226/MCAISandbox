@@ -5,7 +5,7 @@ Usage: python mc/rcon.py "command" ["command" ...]    e.g. python mc/rcon.py "li
 MC_SERVER_DIR picks the server folder (absolute or relative to the repository; default mc/server), e.g.
 MC_SERVER_DIR=mc/testserver python mc/rcon.py "list" for the test world (plan step T.2).
 """
-import os, pathlib, socket, struct, sys
+import os, pathlib, select, socket, struct, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -31,12 +31,27 @@ class Rcon:
             raise SystemExit("RCON login failed")
 
     def send(self, kind, body):
+        self.post(kind, body)
+        return self.reply()
+
+    def post(self, kind, body):
         self.id += 1
         data = struct.pack("<ii", self.id, kind) + body.encode() + b"\0\0"
         self.s.sendall(struct.pack("<i", len(data)) + data)
+
+    def reply(self):
         size = struct.unpack("<i", self._read(4))[0]
         rid, _ = struct.unpack("<ii", self._read(8))
         return rid, self._read(size - 8)[:-2].decode(errors="replace")
+
+    def closed(self):
+        """True when the server has closed its end (a restart, a timeout): nothing sent now would arrive."""
+        try:
+            if not select.select([self.s], [], [], 0)[0]:
+                return False
+            return self.s.recv(1, socket.MSG_PEEK) == b""
+        except OSError:
+            return True
 
     def _read(self, n):
         out = b""
@@ -49,6 +64,37 @@ class Rcon:
 
     def command(self, cmd):
         return self.send(2, cmd)[1]
+
+    def close(self):
+        try:
+            self.s.close()
+        except OSError:
+            pass
+
+
+# One connection per server folder for a script's whole life (#112: a connection per command, or a process running this
+# file per command, left hundreds of sockets in TIME_WAIT and helped run the machine out of ephemeral ports)
+_shared = {}
+
+
+def command(cmd, path=None):
+    """`cmd` over this process's kept connection to the server in `path` (default as settings()), opened on first use and
+    again when the server has closed it (a restart). An error while sending or reading raises and drops the connection:
+    the command may have run, so it is never sent twice; the next call connects afresh."""
+    key = str(server_dir(path))
+    r = _shared.get(key)
+    if r is not None and r.closed():
+        r.close()
+        r = None
+    if r is None:
+        r = _shared[key] = Rcon(path)
+    try:
+        r.post(2, cmd)
+        return r.reply()[1]
+    except OSError:
+        r.close()
+        _shared.pop(key, None)
+        raise
 
 
 if __name__ == "__main__":

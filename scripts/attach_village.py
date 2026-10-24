@@ -4,6 +4,7 @@ Written when a session restart killed watch_village.py mid-run (Accept4).
 """
 import json, sys, time, urllib.request
 from agent_names import worker_names
+from http_keepalive import urlopen  # (#112: one kept-alive connection per agent server)
 
 API = "http://127.0.0.1:8766/api"
 V, OFFSET = sys.argv[1], float(sys.argv[2])
@@ -11,7 +12,7 @@ NAMES, STALL, LIMIT = ["Mayor"] + worker_names(2), 5, 90
 
 
 def call(path):
-    with urllib.request.urlopen(API + path, timeout=30) as r:
+    with urlopen(API + path, timeout=30) as r:
         return json.loads(r.read() or b"{}")
 
 

@@ -95,6 +95,7 @@ API = os.environ.get("MCAI_API", "http://127.0.0.1:8766/api")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "checks"))
 from agent_names import worker_names  # noqa: E402
+from http_keepalive import urlopen  # noqa: E402 (#112: one kept-alive connection per agent server)
 from autonomy_metrics import BoardStamps, BusyClock, MineStats, critical_path_lines, tail_lines  # noqa: E402
 
 # A small, cheap building: cobblestone floor, oak plank walls and roof, oak log corners, a door and two windows
@@ -279,7 +280,7 @@ if args.site:
     # The village records (API) and the RCON commands (server folder) must reach the same world
     props = os.path.join(ROOT, os.environ["MC_SERVER_DIR"], "server.properties")
     kv = dict(l.split("=", 1) for l in open(props).read().splitlines() if "=" in l and not l.startswith("#"))
-    with urllib.request.urlopen(API + "/status", timeout=10) as r:
+    with urlopen(API + "/status", timeout=10) as r:
         served = json.loads(r.read()).get("server", "")
     if not served.endswith(f":{kv.get('server-port', '25565')}"):
         raise SystemExit(f"the agent server at {API} plays on {served}, but {props} says server-port={kv.get('server-port')}: not one world")
@@ -304,7 +305,7 @@ def call(path, body=None, method=None):
     waited, delay = 0.0, 1.0
     while True:
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with urlopen(req, timeout=30) as r:
                 return json.loads(r.read() or "null")
         except urllib.error.HTTPError as e:
             return {"error": e.read().decode()[:300], "status": e.code}
@@ -378,26 +379,27 @@ def usage_lines(u, agents):
     return out
 
 
+_rcon_mod = None
+
+
 def rcon(cmd):
-    return subprocess.run([sys.executable, os.path.join(ROOT, "mc", "rcon.py"), cmd], capture_output=True, text=True).stdout.strip()
-
-
-_rc = None
-
-
-def rcon_fast(cmd):
-    """One RCON connection kept open, for the spawn's many block tests (rcon() starts a process per command)."""
-    global _rc
+    """A command over the script's one kept RCON connection (mc/rcon.py's command(); #112: a process and a connection per
+    command left hundreds of sockets in TIME_WAIT). '' when it fails, as the per-command process gave; the next command
+    connects afresh."""
+    global _rcon_mod
     try:
-        if _rc is None:
+        if _rcon_mod is None:
             spec = importlib.util.spec_from_file_location("mc_rcon", os.path.join(ROOT, "mc", "rcon.py"))
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _rc = mod.Rcon()
-        return _rc.command(cmd)
-    except Exception:
-        _rc = None
-        return rcon(cmd)
+            _rcon_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_rcon_mod)
+        return _rcon_mod.command(cmd).strip()
+    except Exception as e:
+        print(f"[rcon] {cmd[:60]}: {e.__class__.__name__} {e}", flush=True)
+        return ""
+
+
+# (one connection for the spawn's many block tests; since #112 every command shares it)
+rcon_fast = rcon
 
 
 def ring_points(area, count, out=4):
@@ -502,13 +504,9 @@ def check_spawn(n, spot):
 def bring_player(agent):
     """If the watching player (MCAI_PLAYER, default SausageOfDoom4) is in the game, teleport them to the agent."""
     player = os.environ.get("MCAI_PLAYER", "SausageOfDoom4")
-    rc = [sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mc", "rcon.py")]
-    try:
-        online = subprocess.run(rc + ["list"], capture_output=True, text=True, timeout=10).stdout
-        if player and player in online:
-            print(subprocess.run(rc + [f"tp {player} {agent}"], capture_output=True, text=True, timeout=10).stdout.strip(), flush=True)
-    except Exception as e:
-        print(f"could not bring {player} to {agent}: {e}", flush=True)
+    online = rcon("list")
+    if player and player in online:
+        print(rcon(f"tp {player} {agent}"), flush=True)
 
 
 def find_land(x, z, size):
@@ -521,8 +519,8 @@ def find_land(x, z, size):
         time.sleep(8)
         call("/agents/Mayor/act", {"action": "find_site", "size": size})
         # find_site takes a few seconds, more when it walks farther out (to atlas candidates: up to 300 blocks, step 2.3)
-        for _ in range(300):
-            time.sleep(1)
+        for _ in range(150):
+            time.sleep(2)
             if [e for e in call("/agents/Mayor/events?since=0") if e["type"] in ("action_done", "action_failed")]:
                 break
         site = call("/agents/Mayor/memory").get("lastSite")

@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "mc"))
 import testserver as T  # noqa: E402
 from rcon import Rcon  # noqa: E402
 import reset_site as R  # noqa: E402 (scripts/, beside this file: detached, wait_until, listening_pids)
+from http_keepalive import urlopen  # noqa: E402 (#112: one kept-alive connection per agent server)
 
 ROUTES = "qwen3:30b-instruct=http://127.0.0.1:11435,qwen3.8:27b=http://127.0.0.1:11436"
 WORLDS = {
@@ -39,7 +40,7 @@ def api(w, path, body=None):
     req = urllib.request.Request(f"http://127.0.0.1:{w['api']}/api{path}", method="POST" if body is not None else "GET",
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=5) as r:
+    with urlopen(req, timeout=5) as r:
         return json.loads(r.read() or "null")
 
 

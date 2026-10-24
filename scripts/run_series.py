@@ -58,6 +58,7 @@ starts the servers again). "reset": false runs on the world as the last run left
 import datetime, json, os, re, shlex, subprocess, sys, threading, time, urllib.error, urllib.request
 
 from run_report import perf_summary
+from http_keepalive import urlopen  # (#112: one kept-alive connection per agent server)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 PY = sys.executable
@@ -266,7 +267,7 @@ class PerfSampler(threading.Thread):
             while not self.halt.wait(10):
                 row = {}
                 try:
-                    row = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.r['port']}/api/perf", timeout=5).read())
+                    row = json.loads(urlopen(f"http://127.0.0.1:{self.r['port']}/api/perf", timeout=5).read())
                 except (OSError, ValueError):
                     continue
                 try:
@@ -290,7 +291,7 @@ def remove_agents(run):
         for delay in (1, 2, 4, 0):
             try:
                 req = urllib.request.Request(f"http://127.0.0.1:{run['port']}/api/agents/{n}", method="DELETE")
-                urllib.request.urlopen(req, timeout=10).read()
+                urlopen(req, timeout=10).read()
                 break
             except urllib.error.HTTPError:
                 break

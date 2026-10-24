@@ -8,6 +8,7 @@ Stops early on the target, after 6 failures in a row, when the executor keeps re
 has been obtained for 4 minutes. The agent is removed at the end.
 """
 import json, os, sys, time, urllib.error, urllib.request
+from http_keepalive import urlopen  # #112: one kept-alive connection per agent server
 
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")
 name = sys.argv[1]
@@ -23,7 +24,7 @@ spec = {**spec, **extra, "memory": {**spec["memory"], **extra.get("memory", {})}
 def call(path, body=None, method=None):
     req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method=method)
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urlopen(req, timeout=60) as r:
         return json.loads(r.read() or "null")
 
 

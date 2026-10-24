@@ -6,6 +6,7 @@ Stops early when EXPECTED_BUILDS build/build_box/build_design actions have succe
 executor keeps retrying calls that are blocked.
 """
 import json, os, subprocess, sys, time, urllib.error, urllib.request
+from http_keepalive import urlopen  # #112: one kept-alive connection per agent server
 
 API = os.environ.get("MCAI_API", "http://localhost:8765/api")  # real Minecraft: http://localhost:8766/api
 spec = json.loads(sys.argv[1])
@@ -17,7 +18,7 @@ name = spec["name"]
 def call(path, body=None, method=None):
     req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"}, method=method)
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with urlopen(req, timeout=30) as r:
         return json.loads(r.read() or "null")
 
 

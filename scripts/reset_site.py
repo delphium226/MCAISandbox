@@ -36,6 +36,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "mc"))
 import testserver as T  # noqa: E402
 from rcon import Rcon  # noqa: E402
+from http_keepalive import urlopen  # noqa: E402 (#112: one kept-alive connection per agent server)
 
 API = os.environ.get("MCAI_API", f"http://127.0.0.1:{T.API_PORT}/api")
 # Saved states of sites (--save), each a folder laid out like the snapshot: world/<DIM>/<kind>/..., villages.json,
@@ -93,7 +94,7 @@ def listening_pids(port):
 
 
 def call(path):
-    with urllib.request.urlopen(API + path, timeout=5) as r:
+    with urlopen(API + path, timeout=5) as r:
         return json.loads(r.read() or "null")
 
 
@@ -107,7 +108,7 @@ def stop_agents():
     # villages.json is saved debounced (E.0) and taskkill /F runs no exit handler: written now first
     try:
         req = urllib.request.Request(API + "/villages/flush", data=b"{}", method="POST")
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urlopen(req, timeout=10) as r:
             r.read()
     except (OSError, urllib.error.URLError) as e:
         print(f"agent server on {API_PORT}: villages not flushed ({e})")
