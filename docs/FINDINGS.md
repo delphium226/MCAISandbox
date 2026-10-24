@@ -2102,3 +2102,13 @@ CLAUDE.md when a phase ends.
   menu. Bench on five such late All1 menus (6 samples each): gated options in the filler's place 30 of 30 (cobblestone 20,
   logs 6, a project 4); beside the filler only 9 of 30, filler 21 ("furniture for the houses later" reads as work). Check
   on im2_mine set up for it: 24 of 25 menus gated; flag off, goldens unchanged. Logs: runs/2026-10-24/policy-122/.
+- F315 (10-24, train2, #134/#136) **The second test train: letters pace brings the age of letters in at 1x (stage 1 61
+  minutes after the vote, the rung at 76, against 99 and 101 without), and the pad halo leaves a sloped plot's edge as
+  the ground was (2 steps over 1 against 24, no cave air under the cut against 22 cells).** Letters pace: the market
+  stall posted and built 3 minutes after completion (18 without), the merchant 4 minutes after (19), 16 cane bought the
+  minute of the vote and both cane slots planted from storage (6 + 6, twice), ~47 cane an hour to stage 1 (~29 without);
+  leather and books were made ahead in both. Pad halo (minevale3's sloped s0 plot, staged): growth plots blended over
+  5-58 columns with 10 cave cells sealed, at 43% more blocks cleared a plot; stalls 4 vs 10. With storage grow, home
+  basics and prompt self on by default both model runs housed all 25 and had beds for 21 and 24 by hour 1. Members
+  trapped underground (#133) were teleported 4 times in L1, two on the way back from the amethyst geode under the
+  village. Logs: runs/2026-10-24/train2/ (report.md).
