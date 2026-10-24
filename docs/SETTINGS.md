@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-191 settings.
+192 settings.
 
 ## Game speed
 
@@ -236,6 +236,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PORT` | number | `25565` |  |  | The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765). |
 | `MC_PVP` | string | `true` |  |  | The sandbox: true lets players hurt each other. |
 | `MC_RCON_TIMEOUT_MS` | number | `15000` |  |  | How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill. |
+| `MC_SCHEDULE` | string | (unset) |  |  | Scheduled live setting changes, a profile's "schedule" as JSON ([{at_min, set: {NAME: value}}]): applied at those run minutes from the agent server's start, paused time left out. |
 | `MC_SEED` | string | (unset) |  |  | The sandbox: the world's seed (a number or any text; unset: random). |
 | `MC_SERVER_DIR` | string | (unset) |  |  | The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json |
 | `MC_VERSION` | string | `26.1` |  |  | The Minecraft version Mineflayer speaks. |

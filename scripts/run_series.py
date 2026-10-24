@@ -184,6 +184,8 @@ def with_profile(spec, run):
     out = {k: v for k, v in prof.items() if k not in PROFILE_OWN}
     out.update({k: v for k, v in run.items() if k not in ("server_env", "stage_env", "args")})
     arch = {"MC_CHARACTER_ARCHETYPES": json.dumps(prof["archetypes"])} if prof.get("archetypes") else {}
+    if prof.get("schedule"):
+        arch["MC_SCHEDULE"] = json.dumps(prof["schedule"])
     out["server_env"] = {**{k: env_value(v) for k, v in (prof.get("settings") or {}).items()}, **arch, **run.get("server_env", {})}
     out["stage_env"] = {**prof.get("stage_env", {}), **run.get("stage_env", {})}
     out["args"] = as_args(prof.get("args")) + as_args(run.get("args"))

@@ -21,6 +21,7 @@ import { Rcon } from './rcon';
 import { gate } from '../modelCall';
 import { monthKey, usage } from '../modelUsage';
 import { rawSetting } from '../settings';
+import { startSchedule } from '../schedule';
 
 // (MCAI_ROOT: the repo, when this runs from a code snapshot elsewhere, scripts/snapshot_code.py)
 const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -143,6 +144,8 @@ http
     handleMcApi(world, req, res, url).catch((e: unknown) => sendJson(res, 500, { error: (e as Error).message }));
   })
   .listen(API_PORT, API_HOST, () => console.log(`MCAI agents for Minecraft ${VERSION} at ${HOST}:${PORT}; agent API on http://${API_HOST === '127.0.0.1' ? 'localhost' : API_HOST}:${API_PORT}/api`));
+// (#115: a profile's scheduled setting changes, counted from here)
+startSchedule();
 
 const shutdown = () => {
   for (const a of [...world.agents.values()]) world.remove(a.name);

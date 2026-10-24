@@ -48,6 +48,10 @@ def agent_log_counts(log):
             sum(" gathers " in l or " builds " in l or " prepares a green " in l for l in ini))
         r["initiatives built / failed / lapsed"] = "%d / %d / %d" % (ends["built"], ends["failed"], ends["lapsed"])
         r["initiatives could not start"] = sum(" could not start " in l for l in ini)
+    # (#115: settings changed during the run, by the panel, the API or a profile's schedule)
+    changes = re.findall(r"\[setting\] (MC_\w+|MCAI_\w+) (.*?) -> (.*?) \(by ([^)]*)\)", text)
+    if changes:
+        r["setting changes"] = "; ".join(f"{n} {a}->{b} ({by})" for n, a, b, by in changes)[:200]
     # (N.1's needs: status changes and the last status of each need)
     need = re.findall(r"\[need\] \S+: (\w+) \S+ -> ([a-z ]+) \(", text)
     if need:

@@ -105,6 +105,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'A monoculture: every member, the Mayor too, one archetype (wealth, invention, community, tradition, beauty, or a custom one), its traits jittered +-0.1; unset: the draws. Not with MC_CHARACTER_MIX.' },
   { name: 'MC_CHARACTER_MIX', type: 'string', default: '', group: 'character', live: false, read: 'character.ts',
     describe: 'A culture mix of archetypes by share of the workers ("wealth:40,invention:60"; drawn: the per-member draws; mayor:<archetype> names the Mayor\'s, else the largest share\'s), by largest remainder. Not with MC_CHARACTER_PRESET.' },
+  { name: 'MC_SCHEDULE', type: 'string', default: '', group: 'server', live: false, read: 'schedule.ts',
+    describe: 'Scheduled live setting changes, a profile\'s "schedule" as JSON ([{at_min, set: {NAME: value}}]): applied at those run minutes from the agent server\'s start, paused time left out.' },
   { name: 'MC_CHARACTER_SEED', type: 'string', default: 'mix', group: 'character', live: false, read: 'character.ts',
     describe: 'The seed that orders which workers get which archetype in a mix: the same seed, the same assignment.' },
   { name: 'MC_CHARACTER_ARCHETYPES', type: 'string', default: '', group: 'character', live: false, read: 'character.ts',

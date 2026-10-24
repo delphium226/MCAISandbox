@@ -194,6 +194,7 @@ export function estimateCost(root: string, members: number, n = 6): { tokensHour
 export function profileEnv(p: Profile): Record<string, string> {
   const out = Object.fromEntries(Object.entries(p.settings ?? {}).map(([k, v]) => [k, envValue(v)]));
   if (p.archetypes && Object.keys(p.archetypes).length) out.MC_CHARACTER_ARCHETYPES = JSON.stringify(p.archetypes);
+  if (p.schedule?.length) out.MC_SCHEDULE = JSON.stringify(p.schedule);
   return out;
 }
 

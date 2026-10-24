@@ -15,7 +15,10 @@ community, tradition, beauty, `drawn`; seed `MC_CHARACTER_SEED`; custom ones as 
 `"sweep": {SETTING: [values]}` for one run per value, `scripts/bench/archetypebench.mts` for an archetype's picks.
 **Run control**: `python scripts/runctl.py status | start PROFILE --world N | pause N | resume N | stop N | serve` (pause
 holds new chores, choices and model calls, freezes Paper's ticks, and the watch scripts leave paused time out;
-`GET /api/run`, `POST /api/run/pause|resume`).
+`GET /api/run`, `POST /api/run/pause|resume`). **Live settings**: the panel's Run > Settings tab or `POST /api/settings {name, value}`
+change the settings marked live in docs/SETTINGS.md during a run (logged `[setting] NAME old -> new (by ...)`;
+`run_report.py` lists them); a profile's `"schedule": [{"at_min": 30, "set": {"MC_CHOOSE": "model"}}]` applies them at
+run minutes from the agent server's start, paused time left out.
 
 ## Running and checking
 
