@@ -47,6 +47,8 @@ def commands():
     out["prompt_self"] = ([node, TSX, "scripts/checks/prompt_self.mts"], ["mc/testcheckpoints/mv3_base25/villages.json", "mc/testcheckpoints/im2_mine/villages.json"])
     # (#97, MC_CHOICE_HOLDS: a pending decision's shown options off the others' menus, the projects' cap, flag on and off)
     out["choice_holds"] = ([node, TSX, "scripts/checks/choice_holds.mts"], ["mc/testcheckpoints/mv3_base25/villages.json"])
+    # (#122, MC_POLICY_OPTIONS: the gated options on a filler-only menu of im2_mine set up for it, flag on and off)
+    out["policy_options"] = ([node, TSX, "scripts/checks/policy_options.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     return out
 
 

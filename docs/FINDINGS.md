@@ -2093,3 +2093,12 @@ CLAUDE.md when a phase ends.
   MC_CHOICE_HOLDS (off): key holds plus the cap; the bound is optimistic (a prevented loss counts as run) and does not
   count the calls holds remove. Offline only: on mv3_base25 three decisions in flight cut the others' menus from 8.0 to
   7.0 options and every project; flag off, every golden unchanged.
+- F314 (10-24, prompt-117 session, #122) **Two policy gates stood behind nearly every idle member in All1, and the
+  model takes the gated options when they replace the filler but not beside it.** Of 3,193 idle-member entries with
+  nothing feasible, 3,022 named "gather: nothing wanted" and 2,812 "initiate: enough projects open"; after minute 80, 104
+  of 148 makes were filler (effect "later" or the torch reserve) and 106 menus held only makes. Built behind
+  MC_POLICY_OPTIONS (off): on an empty or filler-only menu, a material nothing wants gathered anyway (under 192 in storage)
+  and another project past the cap (under 6), tagged "[past a village limit]" with plain facts, and the filler off the
+  menu. Bench on five such late All1 menus (6 samples each): gated options in the filler's place 30 of 30 (cobblestone 20,
+  logs 6, a project 4); beside the filler only 9 of 30, filler 21 ("furniture for the houses later" reads as work). Check
+  on im2_mine set up for it: 24 of 25 menus gated; flag off, goldens unchanged. Logs: runs/2026-10-24/policy-122/.

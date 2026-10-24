@@ -5086,6 +5086,9 @@ export class MineflayerWorld implements WorldAdapter {
       const p = a.bot.entity?.position;
       return p ? `${Math.round(Math.hypot(p.x - x, p.z - z))} blocks from you` : '';
     };
+    // (#122: the gated options added, and the reason each kind's gate gives when they are taken off again)
+    const gated = new Set<ChoiceOption>();
+    const gateWhy: Partial<Record<ChoiceKind, string>> = {};
     const add = (o: Omit<ChoiceOption, 'holds'> & { holds?: string[] }, data: OptionRun) => {
       const opt: ChoiceOption = { holds: [], ...o, facts: o.facts.slice(0, 240) };
       OPTION_RUN.set(opt, data);
@@ -5813,51 +5816,67 @@ export class MineflayerWorld implements WorldAdapter {
       const why: string[] = [];
       for (const [r, { m }] of order.entries()) {
         const w = want[m], spec = GATHER_KINDS[m];
-        if (w.want <= 0) continue;
+        const stored = m === 'logs' ? (v.wood ? store[`${v.wood}_log`] ?? 0 : Object.entries(store).filter(([x]) => /_log$/.test(x)).reduce((s, [, q]) => s + q, 0)) : store[m] ?? 0;
+        // (#122: nothing wants it: gathered anyway as a gated option, while storage holds little of it; its stops are not
+        // the gather's reasons)
+        const anyway = w.want <= 0;
+        if (anyway && !(POLICY_OPTIONS && stored < GATHER_ANYWAY_MAX)) continue;
+        const note = (x: string) => {
+          if (!anyway) why.push(x);
+        };
         const held = [...busy].filter((key) => key.startsWith(`gather:${m}:`)).length;
-        let trip = Math.min(spec.trip, w.want), extra = '';
+        let trip = anyway ? spec.trip : Math.min(spec.trip, w.want), extra = '';
         if (m === 'sand' && v.unavailable?.includes('sand')) {
-          why.push('no sand near');
+          note('no sand near');
           continue;
         }
         if ((this.gatherBack.get(`${v.name}:${m}`) ?? 0) > now) {
-          why.push('backing off');
+          note('backing off');
           continue;
         }
         if (spec.atOnce === 'faces') {
           // (S.2's gate: a queued or walking miner holds no face yet, so the trips under way count against the faces; and
           // not the stairs down once the iron level exists, the check's M2 and L12)
           if (!mineCanGive(v, 'cobblestone')) {
-            why.push('no mine');
+            note('no mine');
             continue;
           }
           const f = this.faces(v);
           const free = Math.max(0, f.faces - (v.mine?.iron ? f.down : 0) - Math.max(f.held, going.filter((x) => x.material === m).length));
           if (free <= 0) {
-            why.push('mine busy');
+            note('mine busy');
             continue;
           }
           extra = `; the mine has ${free} free face${free === 1 ? '' : 's'}`;
         } else if (held >= spec.atOnce) {
-          why.push('busy');
+          note('busy');
           continue;
         }
         if (m === 'logs') {
           const left = GATHER_LOGS_HOUR - logsHour - w.incoming;
           if (left <= 0) {
-            why.push('logs capped');
+            note('logs capped');
             continue;
           }
           trip = Math.min(trip, left);
         }
         if (w.incoming > 0 && trip < GATHER_MIN_TRIP[m]) {
-          why.push('trip too small');
+          note('trip too small');
           continue;
         }
         let n = 1;
         while (busy.has(`gather:${m}:${n}`)) n++;
-        const stored = m === 'logs' ? (v.wood ? store[`${v.wood}_log`] ?? 0 : Object.entries(store).filter(([x]) => /_log$/.test(x)).reduce((s, [, q]) => s + q, 0)) : store[m] ?? 0;
         const goods = w.for.slice(0, 4).join(', ') || 'the workshop';
+        if (anyway) {
+          add({
+            id: `gather:${m}`, kind: 'gather', key: `gather:${m}:${n}`, excludes: [`gather:${m}:${n}=`], name: `${spec.words.replace('for the workshop', 'for the storage')} (nothing wants it now)`, rank: 1300 + r, mark: PAST_TAG,
+            facts: `${m}: ${spec.forWhat}; storage holds ${stored}; nothing the workshop makes wants more now, so it keeps for later work${extra}`,
+            effect: `+${trip} ${m} into the village storage`,
+          }, { kind: 'gather', material: m, n, amount: trip, block: spec.block(v.wood ?? (family('catalog') ? v.catalogWood : undefined)), deposit: spec.deposit(v.wood), need: 0, incoming: w.incoming, for: [] });
+          gated.add(out[out.length - 1]);
+          gateWhy.gather = 'nothing wanted';
+          continue;
+        }
         add({
           id: `gather:${m}`, kind: 'gather', key: `gather:${m}:${n}`, excludes: [`gather:${m}:${n}=`], name: spec.words, rank: 950 + r,
           facts: `${m}: ${spec.forWhat}; storage holds ${stored}, the workshop wants ${w.need} (${goods}); ${w.incoming} on the way${extra}`,
@@ -6075,9 +6094,12 @@ export class MineflayerWorld implements WorldAdapter {
         }, { kind: 'help', id: it.id, step });
       }
       const mineOpen = open.some((i) => i.by === a.name);
-      if (mineOpen) why.push('own project open');
       // (#97: with holds, the projects other members are choosing now count as open)
-      else if (open.length + this.heldProjects(v, a) >= INITIATIVES_MAX) why.push('enough projects open');
+      const openN = open.length + this.heldProjects(v, a);
+      // (#122: past the cap, under twice it, a member's projects are gated options)
+      const past = POLICY_OPTIONS && openN >= INITIATIVES_MAX && openN < 2 * INITIATIVES_MAX;
+      if (mineOpen) why.push('own project open');
+      else if (openN >= INITIATIVES_MAX && !past) why.push('enough projects open');
       else {
         const wood = this.catalogWoodOf(v);
         // (two kinds a member, seeded by its name and how many initiatives the village has had: members differ, and a
@@ -6115,19 +6137,25 @@ export class MineflayerWorld implements WorldAdapter {
             sum[key] = (sum[key] ?? 0) + q;
           }
           const takes = Object.entries(sum).map(([n, q]) => `${q} ${n}`).join(', ');
+          const alone = open.filter((i) => !i.crew.some((n) => n !== i.by)).length;
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
-            name: `Start building a ${k.words} (your own project)`, rank: 1100 + r, at: spot,
-            facts: `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
+            name: past ? `Start another project: a ${k.words} (your own)` : `Start building a ${k.words} (your own project)`, rank: (past ? 1350 : 1100) + r, at: spot, ...(past ? { mark: PAST_TAG } : {}),
+            facts: past ? `${open.length} projects open${openN > open.length ? ` and ${openN - open.length} being chosen by others now` : ' already'}, past the usual ${INITIATIVES_MAX} (${alone} with nobody helping): another splits the helpers; a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps`
+              : `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
             effect: `your own ${k.words} in the village: ${k.forWhat}`,
           }, { kind: 'initiate', work: k.kind });
+          if (past) {
+            gated.add(out[out.length - 1]);
+            gateWhy.initiate = 'enough projects open';
+          }
           r++;
         }
         // (no room on the plots for a kind: started on a green of its own, one green prepared at a time and at most
         // GREENS_MAX a village, s36)
         const greens = v.plots.filter((p) => p.green).length;
         const greensMax = Math.max(1, Math.ceil(this.growMembers(v).length / GREENS_PER));
-        if (!r && roomless.length && !open.some((i) => i.pending) && greens < greensMax) {
+        if (!r && !past && roomless.length && !open.some((i) => i.pending) && greens < greensMax) {
           const k = roomless[0];
           const d = k.make(wood);
           add({
@@ -6145,6 +6173,15 @@ export class MineflayerWorld implements WorldAdapter {
       if (!out.some((o) => o.kind === 'initiate')) reasons.initiate = why.find((w) => w !== 'busy' && w !== 'backing off') ?? 'no room';
     }
 
+    // #122: the gated options stay only on a menu with nothing but filler makes (a meal aside), and the filler leaves it;
+    // otherwise they go and their kinds keep the gate's reason
+    if (gated.size) {
+      const fillerOnly = out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
+      for (let i = out.length - 1; i >= 0; i--) if (fillerOnly ? isFiller(out[i]) : gated.has(out[i])) out.splice(i, 1);
+      if (!fillerOnly) {
+        for (const [k, w] of Object.entries(gateWhy) as Array<[ChoiceKind, string]>) if (!out.some((o) => o.kind === k)) reasons[k] = w;
+      } else if (!out.some((o) => o.kind === 'make')) reasons.make ??= 'filler left for the gated options';
+    }
     // A.3p: the temperament's weight on every option (both modes; the fixed pick and the trim read it), from the kind and
     // sociability's pull toward the kinds other members are on now
     if (TEMPERAMENT_MODE !== 'off') {
@@ -7814,6 +7851,16 @@ const QUICK_NEXT = /^(on|1|true|yes)$/i.test(process.env.MC_QUICK_NEXT ?? '');
  *  as an open project against INITIATIVES_MAX. The counterfactual on All1 and train 1 (runs/2026-10-24/collisions-97):
  *  56-63% of the model's lost picks were taken in flight by another member, 13-18% lost to the projects' cap. */
 const CHOICE_HOLDS = /^(on|1|true|yes)$/i.test(process.env.MC_CHOICE_HOLDS ?? '');
+/** #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options
+ *  with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the
+ *  village's cap (under twice it); the filler makes leave such a menu (spec runs/2026-10-24/policy-122). */
+const POLICY_OPTIONS = /^(on|1|true|yes)$/i.test(process.env.MC_POLICY_OPTIONS ?? '');
+const GATHER_ANYWAY_MAX = 192;
+const PAST_TAG = '[past a village limit]';
+/** A make of a good nothing uses now: its effect says it is for later, nothing places it, or it is the torch reserve (All1
+ *  after minute 80: 104 of 148 makes). */
+const FILLER_EFFECT = /\blater\b|nothing places it yet|the reserve kept beyond/;
+const isFiller = (o: ChoiceOption) => o.kind === 'make' && FILLER_EFFECT.test(o.effect);
 const QUICK_GAP_MS = 5000;
 /** A choice commits a member to a block of work (the user's, 10-22): MC_WORK_BLOCKS=on: a model or fixed choice opens a
  *  block of MC_BLOCK_MIN minutes (6, divided by MC_TIME_SCALE) in which the same option runs again with no new decision
