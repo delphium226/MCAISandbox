@@ -3,6 +3,33 @@
 The "Next session starts with" notes of earlier sessions, newest first, moved here from `docs/PLAN.md` on
 2026-10-15. PLAN.md keeps only the latest one.
 
+(written 2026-10-23 ~00:20 by the planning session, at the user's shutdown for the night; the strategy is
+`docs/STRATEGY.md`)
+
+- **How work runs:** the planning session owns `docs/STRATEGY.md` and this handover; work sessions get briefs (in
+  `runs/2026-10-2*/planning/`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder of ages**
+  (iron first, then letters, diamond, enchantment, the Nether).
+- **Where the work lives:** the private repo `delphium226/MCAISandbox-dev`; everything committed is pushed. **Uncommitted
+  at the close:** the g2-social session's in-progress fixes (`server/src/ladder.ts`, `mcWorld.ts`, `village.ts`,
+  `scripts/checks/ladder_unit.mts`), left for it to finish and commit.
+- **Done on 10-22** (findings F268-F289; reports in `runs/2026-10-22/<session>/`):
+  - character v2 (six layers, `MC_CHARACTER`; CM1/CM0, F286: identifiable members, specialisation above chance for the
+    first time); temperature stays 0.4; quick-next and work blocks (F287) and the sweep's fairness (F288);
+  - G6: flowers (F285), #93, gardens (#45, #46: flower rings, front beds, saplings; `MC_GARDENS`), the foundry request
+    queue (`scripts/foundry/requests.json`, the panel's Foundry view), the ladder's side, #96 (merged through the new
+    Claude Opus 5.5 medium fallback, $5.37 + ~$3 reviews); Flash high is the foundry's default;
+  - G8: the ladder spec (`runs/2026-10-22/ladder/`), the iron age built (`MC_LADDER`, `MC_IRON_AGE`, `MC_OWN_TOOLS`) and
+    staged (I1-I5); IM1 model-driven did not reach iron (F289: the mine ran dry at 85 raw iron, stages counted from
+    their own starts, half the forges failed, rate fallbacks made 83 of 91 iron picks).
+- **In progress (g2-social, offline only, no runs):** stages counted from the rung's start, the forge only on free
+  ingots, an ore-following mine, and the rate rule that crowds out model choices.
+- **Long1** (10-hour observation run, every feature on, world 4, code dc1dc83, session "1-hour model-driven run..."):
+  ran from 19:56 to ~23:48 (village life minute 226), then its servers died; hourly notes stopped after the first.
+  Its session is to report the cause and write up the 3h46m. Not restarted (the user's: no new runs).
+- **The user's open choices:** default flags (memory, clock, social, character); when to restart model-driven runs;
+  the foundry's next ticket (cast obsidian, the enchantment rung).
+- **Stack at the close:** everything stopped (world 4 stopped cleanly by the planning session).
+
 (written 2026-10-22 ~04:00 by the planning session, overnight with the user's leave to decide; the strategy is
 `docs/STRATEGY.md`)
 
