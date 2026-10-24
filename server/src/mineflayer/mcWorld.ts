@@ -4822,7 +4822,7 @@ export class MineflayerWorld implements WorldAdapter {
         const spec = slot?.kind ? SLOT_KINDS[slot.kind] : undefined;
         if (!slot || !spec || slot.laying || !slot.planted || slotBusy.has(`${v.name}:${k}:${j}`)) return null;
         if (slot.lastHarvest && !slot.lastHarvest.ok && t - slot.lastHarvest.at < (slot.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) return null;
-        const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+        const plot = preparedAt(v, slot);
         if (!plot) return null;
         const y = plot.y + 1;
         let ripe = 0, of = 0;
@@ -7143,7 +7143,7 @@ export class MineflayerWorld implements WorldAdapter {
         // (not while a pen's lure runs: pumpkin and melon seeds tempt chickens too, the pen review's L3)
         if (!spec || slot.laying || !slot.planted || slotBusy.has(`${v.name}:${k}:${j}`) || busy.has(`slot:${k}:${j}`) || busy.has('pen')) continue;
         if (slot.lastHarvest && !slot.lastHarvest.ok && now - slot.lastHarvest.at < (slot.lastHarvest.why === 'nothing ripe' ? 2 : 10) * 60000) continue;
-        const plot = v.plots.find((p) => slot.x1 >= p.x1 && slot.x2 <= p.x2 && slot.z1 >= p.z1 && slot.z2 <= p.z2);
+        const plot = preparedAt(v, slot);
         if (!plot) continue;
         const y = plot.y + 1;
         let ripe = 0, of = 0, unloaded = false;
