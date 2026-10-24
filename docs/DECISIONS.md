@@ -867,3 +867,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   storage, else made from 2 of its iron first; 3 wool of one colour sheared at the atlas's sheep). **With MC_OWN off the
   chest is a plain chest**; with it on, it is the member's own chest (any own chest placed before counts). #81 (shears
   wanted) closes into this; #6 stays parked, re-scoped to the day's rhythm.
+- 10-24 (the user's, after test train 1, F312) **MC_STORAGE_GROW, MC_HOME_BASICS and MC_PROMPT_SELF on by default**
+  (d9f9815; `=off` turns each off). **The shared-files queue:** #134's fix (cane buying, the early market stall), #136
+  (the pad halo), #97, #122, #84's per-building layout step (a), #115, the combined model-driven run, then #84 (b), (c).
