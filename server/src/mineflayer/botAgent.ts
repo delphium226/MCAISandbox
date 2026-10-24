@@ -233,7 +233,8 @@ export class BotAgent implements WorldAgent {
         if (f && y !== undefined && (!p || Math.max(f.x1 - p.x, p.x - f.x2, f.z1 - p.z, p.z - f.z2) < 160)) boxes.push({ x1: f.x1, z1: f.z1, x2: f.x2, z2: f.z2, y });
         // (and each farm slot once it holds a kind: opportunistic farming, 10-08)
         for (const q of l.slots ?? []) {
-          const qy = q.kind ? v.plots.find((r) => r.x1 <= q.x2 && r.x2 >= q.x1 && r.z1 <= q.z2 && r.z2 >= q.z1)?.y : undefined;
+          // (on pads, #84 C1: the slot's own pad and level, not the layout-wide record's home level)
+          const qy = !q.kind ? undefined : v.plots.some((r) => r.pads) ? preparedAt(v, q)?.y : v.plots.find((r) => r.x1 <= q.x2 && r.x2 >= q.x1 && r.z1 <= q.z2 && r.z2 >= q.z1)?.y;
           if (qy !== undefined && (!p || Math.max(q.x1 - p.x, p.x - q.x2, q.z1 - p.z, p.z - q.z2) < 160)) boxes.push({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: qy });
         }
       }
