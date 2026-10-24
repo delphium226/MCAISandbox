@@ -8,7 +8,7 @@
  */
 import type { ChoiceKind } from './world';
 import type { Village } from './village';
-import { rawSetting } from './settings';
+import { onSetting, rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
@@ -32,6 +32,10 @@ export const APPETITE = {
   hungryAt: 6,
   eaters: 4,
 };
+// (#115: the drain changed during a run; a village with no food kept stays without appetite)
+onSetting('MC_APPETITE', (v) => {
+  APPETITE.rate = rateOf(v);
+});
 
 /** Food points (D10): minecraft-data's foods, and the cake (a block: 7 slices of 2). Eggs, milk, sugar and pumpkins are
  *  ingredients, not food. */

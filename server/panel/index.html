@@ -388,7 +388,7 @@ const L2 = {
   members: [['now', 'Now'], ['mind', 'Mind'], ['social', 'Social'], ['character', 'Character'], ['chores', 'Chores'], ['model', 'Model'], ['log', 'Log']],
   society: [['votes', 'Votes'], ['initiatives', 'Initiatives'], ['proposals', 'Proposals'], ['rules', 'Rules'], ['people', 'People'], ['relations', 'Relations'], ['needs', 'Needs'], ['culture', 'Culture']],
   economy: [['market', 'Market'], ['wealth', 'Wealth'], ['board', 'Board'], ['research', 'Research'], ['goals', 'Goals']],
-  run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['foundry', 'Foundry'], ['flags', 'Flags']],
+  run: [['busy', 'Busy'], ['scorecard', 'Scorecard'], ['choices', 'Choices'], ['cost', 'Models and cost'], ['events', 'Events'], ['foundry', 'Foundry'], ['flags', 'Flags'], ['settings', 'Settings']],
 };
 const route = (() => {
   let s = {};
@@ -783,6 +783,8 @@ async function refreshExtras() {
   const v = curVillage(lastData), sub = route.sub[route.top];
   if (v && route.top === 'society' && sub === 'votes') jobs.push(votes(v.name));
   // (G8: the ladder of ages)
+  // (#115: every setting, the run's changes and its pause)
+  if (route.top === 'run' && sub === 'settings') jobs.push(fetchExtra('settings', '/api/settings'), fetchExtra('runclock', '/api/run'));
   if (v && route.top === 'village' && sub === 'ladder') jobs.push(fetchExtra(`ladder:${v.name}`, `/api/ladder?village=${encodeURIComponent(v.name)}`));
   const vm = v && villageMember(v);
   if (vm && ((route.top === 'society' && (sub === 'proposals' || sub === 'rules')) || (route.top === 'run' && sub === 'flags'))) jobs.push(mind(vm.name));
@@ -2272,6 +2274,27 @@ function flagsView(d, v) {
   ];
   return card('The run\'s switches', `<div class="sub">as the agent server reports them; a tab whose feature is off says so too</div><div class="twocol" style="margin-top:8px">${rows.map(([n, s, what]) => `<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;border-bottom:1px dashed var(--line)"><span class="mono" style="flex:none;width:150px">${n}</span><b style="flex:none;color:${/^off|^no /.test(s) ? 'var(--muted)' : 'var(--good)'}">${esc(s)}</b><span class="sub">${what}</span></div>`).join('')}</div>`);
 }
+/** #115: every setting by group (live ones editable, start-only ones need a restart), the run's changes, and its pause. */
+const SETTING_GROUPS = [['speed', 'Game speed'], ['models', 'Models and budget'], ['choices', 'Choices and pacing'], ['building', 'Building'], ['economy', 'Economy and storage'], ['social', 'Social'], ['character', 'Memory and character'], ['ladder', 'The ladder of ages'], ['needs', 'Needs and food'], ['server', 'Server and run'], ['debug', 'Debug']];
+let settingsFilter = '';
+function settingsView() {
+  const sd = extraData.get('settings')?.data, rc = extraData.get('runclock')?.data;
+  if (!sd) return offBox('Fetching the settings', 'GET /api/settings (an agent server from before #115 has none).');
+  const q = settingsFilter.toLowerCase();
+  const shown = sd.settings.filter((x) => !q || x.name.toLowerCase().includes(q) || x.describe.toLowerCase().includes(q));
+  const pauseCard = card(`The run ${rc?.paused ? '<b style="color:var(--bad)">paused</b>' : 'running'}`,
+    `<div class="sub">${rc ? `paused ${(rc.pausedMs / 60000).toFixed(1)} min in all; while paused members start nothing, no chores or choices are given, model calls wait and Paper's ticks are frozen` : 'no run clock on this agent server'}</div>
+    <div style="margin-top:6px">${rc ? `<button type="button" data-runctl="${rc.paused ? 'resume' : 'pause'}">${rc.paused ? 'Resume' : 'Pause'}</button>` : ''}</div>`);
+  const changes = sd.changes?.length ? card(`Changes this run · ${sd.changes.length}`, `<ul class="list mono">${sd.changes.slice().reverse().map((c) => `<li><span class="sub">${new Date(c.at).toLocaleTimeString()}</span> <b>${esc(c.name)}</b> ${esc(c.from ?? '(unset)')} → ${esc(c.to || '(unset)')} <span class="sub">by ${esc(c.by)}</span></li>`).join('')}</ul>`) : '';
+  const row = (x) => `<tr${x.live ? '' : ' style="opacity:.75"'}><td class="mono" title="${esc(x.read)}">${esc(x.name)}${x.changed ? ' <span class="cnt">changed</span>' : ''}</td>
+    <td class="mono">${x.live ? `<input data-setting="${esc(x.name)}" value="${esc(x.value)}" placeholder="${esc(x.default || '(unset)')}" style="width:12em"> <button type="button" data-setset="${esc(x.name)}">Set</button>` : `${esc(x.value || '')}${x.value ? '' : `<span class="sub">${esc(x.default || '(unset)')}</span>`}`}</td>
+    <td class="sub">${x.live ? 'live' : 'restart needed'}${x.requires?.length ? `; needs ${esc(x.requires.join(', '))}` : ''}</td><td class="sub">${esc(x.describe)}</td></tr>`;
+  const groups = SETTING_GROUPS.map(([g, title]) => {
+    const rows = shown.filter((x) => x.group === g);
+    return rows.length ? card(`${title} · ${rows.length}`, `<table><thead><tr><th>Setting</th><th>Value</th><th></th><th>What it does</th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`) : '';
+  }).join('');
+  return pauseCard + changes + card('Find a setting', `<input id="settingsFind" value="${esc(settingsFilter)}" placeholder="name or words" style="width:20em"> <span class="sub">${shown.length} of ${sd.settings.length}; values in grey are defaults (unset); docs/SETTINGS.md has the same table</span>`) + groups;
+}
 /** A Run sub-tab's page. */
 function runTab(d, v, tab) {
   if (tab === 'busy') {
@@ -2287,6 +2310,7 @@ function runTab(d, v, tab) {
     return card(`Every member's recent events · ${all.length}`, `<ul class="list feed mono">${all.length ? all.map((e) => `<li class="ev-${esc(e.type)}"><span class="sub">tick ${e.tick}</span><b>${esc(e.agent)}</b><span>${esc(e.type)}</span><span>${esc(e.text)}</span></li>`).join('') : '<li class="empty">none</li>'}</ul>`);
   }
   if (tab === 'flags') return flagsView(d, v);
+  if (tab === 'settings') return settingsView();
   if (tab === 'foundry') return foundryView();
   return '';
 }
@@ -2402,6 +2426,8 @@ function drawVillagePick(d) {
 function render(d) {
   lastData = d;
   if (String(window.getSelection?.() ?? '')) return;
+  // (#115: not while a setting is being typed in Run > Settings)
+  if (document.activeElement?.matches?.('input[data-setting], #settingsFind')) return;
   const scrolls = [...document.querySelectorAll('[data-scroll]')].map((el) => [el.dataset.scroll, el.scrollTop]);
   const f = document.activeElement?.dataset || {};
   const focus = f.nav ? `a[data-nav="${CSS.escape(f.nav)}"]`
@@ -2462,7 +2488,33 @@ document.addEventListener('toggle', (e) => {
   store.set('panel.open', JSON.stringify([...openDetails]));
 }, true);
 
+// #115: Run > Settings' find box (on change: Enter or leaving it)
+document.addEventListener('change', (e) => {
+  if (e.target?.id !== 'settingsFind') return;
+  settingsFilter = e.target.value.trim();
+  if (lastData) render(lastData);
+});
 document.addEventListener('click', async (e) => {
+  // #115: a live setting set, or the run paused and resumed, from Run > Settings
+  const ss = e.target.closest('button[data-setset]');
+  if (ss) {
+    const name = ss.dataset.setset, input = document.querySelector(`input[data-setting="${CSS.escape(name)}"]`);
+    try {
+      await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, value: input ? input.value : '', by: 'panel' }) });
+    } catch (err) {
+      alert(`${name}: ${(err && err.message) || err}`);
+    }
+    extraData.delete('settings');
+    kick();
+    return;
+  }
+  const rcb = e.target.closest('button[data-runctl]');
+  if (rcb) {
+    await api(`/api/run/${rcb.dataset.runctl}`, { method: 'POST' }).catch((err) => alert(String((err && err.message) || err)));
+    extraData.delete('runclock');
+    kick();
+    return;
+  }
   // An activity chip (a second click on the chosen one shows all again)
   const af = e.target.closest('button[data-actf]');
   if (af) {

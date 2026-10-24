@@ -55,6 +55,7 @@ def commands():
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])
     out["character_mix"] = ([node, TSX, "scripts/checks/character_mix.mts"], [])
     out["run_pause"] = ([node, TSX, "scripts/checks/run_pause.mts"], [])
+    out["live_settings"] = ([node, TSX, "scripts/checks/live_settings.mts"], [])
     return out
 
 

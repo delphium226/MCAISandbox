@@ -26,7 +26,7 @@
 /** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts); 'ballot': a member's vote (vote.ts);
  *  'reflect': a member's look back at its day, at the village's night (G1, society.ts). */
 import { LLM_LIMITS } from './llmLimits';
-import { rawSetting } from './settings';
+import { onSetting, rawSetting } from './settings';
 
 export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect', 'answer'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
@@ -70,6 +70,15 @@ export function parseReasoning(s: unknown, base: Reasoning = DEFAULT_REASONING):
 }
 
 export const REASONING: Reasoning = parseReasoning(rawSetting('MC_REASONING'));
+// (#115: a live change; an entry the parse would ignore refuses the change)
+onSetting('MC_REASONING', (v) => {
+  const bad = (v ?? '').split(',').map((p) => p.trim()).filter(Boolean).filter((p) => {
+    const [k, l] = p.split('=').map((q) => q.trim());
+    return !(CALL_KINDS as readonly string[]).includes(k) || !LEVELS.includes((l ?? '').toLowerCase());
+  });
+  if (bad.length) throw new Error(`not understood: ${bad.join(', ')} (kinds ${CALL_KINDS.join(', ')}; levels ${LEVELS.join(', ')})`);
+  Object.assign(REASONING, parseReasoning(v));
+});
 
 const bare = (model: string) => model.replace(/^(ollama|anthropic):/, '');
 
@@ -369,6 +378,13 @@ export class UsageLedger {
     this.maxRecords = opts.maxRecords ?? 100_000;
     this.caps = opts.spendCap ?? null;
     this.programmeStart = opts.programmeStart ?? 0;
+  }
+
+  /** #115: the hourly budget back to following the agents (MC_TOKEN_BUDGET_HOUR unset during a run). */
+  followAgents(): void {
+    this.auto = true;
+    this.limit = this.autoLimit();
+    this.evaluate();
   }
 
   private autoLimit(): number {
@@ -716,3 +732,5 @@ export const usage = new UsageLedger({
   spendCap: parseSpendCap(rawSetting('MC_SPEND_CAP_USD')),
   programmeStart: rawSetting('MC_SPEND_PROGRAMME_START') ? Date.parse(rawSetting('MC_SPEND_PROGRAMME_START')!) || 0 : 0,
 });
+// (#115: the hourly budget changed during a run: as at the start, unset following the agents)
+onSetting('MC_TOKEN_BUDGET_HOUR', (v) => (v === undefined || v === '' ? (LLM_LIMITS ? usage.followAgents() : usage.setBudget(null)) : usage.setBudget(parseBudget(v))));

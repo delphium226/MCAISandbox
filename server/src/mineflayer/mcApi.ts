@@ -26,7 +26,7 @@ import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from 
 import { MC_SKILLS } from './mcSkills';
 import type { MineflayerWorld } from './mcWorld';
 import { pause, resume, runState } from '../runClock';
-import { rawSetting } from '../settings';
+import { SETTING_CHANGES, rawSetting, setSetting, settingsNow } from '../settings';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
@@ -141,6 +141,13 @@ export async function handleMcApi(w: MineflayerWorld, req: IncomingMessage, res:
 
   // Load at a glance (E.1): memory, the event loop, the world tick, RCON and the panel's overview
   if (parts[1] === 'perf') return sendJson(res, 200, perf(w));
+  // #115: the settings (every one with its value; live ones may change: POST {name, value, by?}) and the run's changes
+  if (parts[1] === 'settings' && req.method === 'GET') return sendJson(res, 200, { settings: settingsNow(), changes: SETTING_CHANGES });
+  if (parts[1] === 'settings' && req.method === 'POST') {
+    const body = await readJson(req);
+    const r = setSetting(String(body.name ?? ''), String(body.value ?? ''), String(body.by ?? 'api').slice(0, 20));
+    return sendJson(res, r.ok ? 200 : 400, r);
+  }
   // #115: the run's pause: GET its state (pausedMs: time paused so far); POST pause or resume (Paper's ticks frozen with it)
   if (parts[1] === 'run' && !parts[2] && req.method === 'GET') return sendJson(res, 200, runState());
   if (parts[1] === 'run' && (parts[2] === 'pause' || parts[2] === 'resume') && req.method === 'POST') {

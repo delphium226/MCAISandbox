@@ -36,7 +36,7 @@ import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Re
 import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 import { PROMPT_SELF, basicTag } from './promptSelf';
-import { rawSetting } from './settings';
+import { onSetting, rawSetting } from './settings';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
@@ -56,6 +56,10 @@ export const CHOOSE = {
   perHour: limited(rawSetting('MC_CHOOSE_HOURLY'), 30, Infinity),
   model: rawSetting('MC_CHOOSE_MODEL') ?? rawSetting('MC_EXEC_MODEL') ?? 'ollama:gpt-oss:120b-cloud',
 };
+// (#115: who picks, changed during a run: read at each use)
+onSetting('MC_CHOOSE', (v) => {
+  CHOOSE.mode = (v || 'fixed') as typeof CHOOSE.mode;
+});
 
 // ---------------------------------------------------------------------------------------------
 // The menu as the model sees it

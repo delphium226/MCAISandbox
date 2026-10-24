@@ -86,7 +86,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, ba
 import { GEN_HOMES, familyKey, homeOwner, isHomeName } from '../houseStyle';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
-import { rawSetting } from '../settings';
+import { onSetting, rawSetting } from '../settings';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -8036,7 +8036,11 @@ export function storageDue(v: Village, st: { used: number; cap: number }, free: 
 /** The storage's tidy-up (s40): strays filling this many slots, at most every TIDY_MS. */
 const TIDY_SLOTS = 6, TIDY_MS = 10 * 60000;
 /** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */
-const NEEDS_MODE: 'off' | 'show' | 'on' = rawSetting('MC_NEEDS') === 'show' || rawSetting('MC_NEEDS') === 'on' ? (rawSetting('MC_NEEDS') as 'show' | 'on') : 'off';
+let NEEDS_MODE: 'off' | 'show' | 'on' = rawSetting('MC_NEEDS') === 'show' || rawSetting('MC_NEEDS') === 'on' ? (rawSetting('MC_NEEDS') as 'show' | 'on') : 'off';
+// (#115: needs measured, shown or on the menus, changed during a run)
+onSetting('MC_NEEDS', (v) => {
+  NEEDS_MODE = v === 'show' || v === 'on' ? v : 'off';
+});
 /** How often a village's needs are read. */
 const NEED_TICK_MS = 30000;
 

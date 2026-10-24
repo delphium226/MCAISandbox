@@ -77,7 +77,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The agent server\'s API address (0.0.0.0 for the LAN).' },
   { name: 'MC_API_PORT', type: 'number', default: '8766', group: 'server', live: false, read: 'mineflayer/index.ts',
     describe: 'The agent server\'s API and panel port.' },
-  { name: 'MC_APPETITE', type: 'string', default: '', group: 'needs', live: false, read: 'appetite.ts',
+  { name: 'MC_APPETITE', type: 'string', default: '', group: 'needs', live: true, read: 'appetite.ts',
     describe: 'Appetite: off, or the food points drained a busy game-hour (18 typical).' },
   { name: 'MC_APPETITE_IDLE', type: 'number', default: '0.25', group: 'needs', live: false, read: 'appetite.ts',
     describe: 'The share of the appetite drain while idle.' },
@@ -115,7 +115,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: '#97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its answer runs or it is dropped, so no other member\'s menu offers them meanwhile; one shown a project of its own counts as an open project against INITIATIVES_MAX. The...' },
   { name: 'MC_CHOICE_INSTANCES', type: 'string', default: 'explore,start', group: 'choices', live: false, read: 'choose.ts',
     describe: 'Option kinds offered as several instances on one menu.' },
-  { name: 'MC_CHOOSE', type: 'string', default: 'fixed', group: 'choices', live: false, values: ['fixed', 'model', 'scripted'], read: 'choose.ts',
+  { name: 'MC_CHOOSE', type: 'string', default: 'fixed', group: 'choices', live: true, values: ['fixed', 'model', 'scripted'], read: 'choose.ts',
     describe: 'Who picks after-completion chores: fixed (code), model, or scripted (staged runs).' },
   { name: 'MC_CHOOSE_BACKUP', type: 'flag', default: 'off', group: 'choices', live: false, read: 'choose.ts',
     describe: 'MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model).' },
@@ -251,7 +251,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'exact: replay only word-for-word prompts (else by sequence).' },
   { name: 'MC_MOOD', type: 'flag', default: 'off', group: 'character', live: false, read: 'character.ts',
     describe: 'The character model\'s mood layer (default: MC_CHARACTER).' },
-  { name: 'MC_NEEDS', type: 'string', default: '', group: 'needs', live: false, values: ['off', 'show', 'on'], read: 'mineflayer/mcWorld.ts',
+  { name: 'MC_NEEDS', type: 'string', default: '', group: 'needs', live: true, values: ['off', 'show', 'on'], read: 'mineflayer/mcWorld.ts',
     describe: 'N.1\'s needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus).' },
   { name: 'MC_NEED_COOLDOWN_MIN', type: 'number', default: '90', group: 'needs', live: false, read: 'needWorks.ts',
     describe: 'Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest).' },
@@ -337,7 +337,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Paper\'s random tick speed (crops grow faster; staged tests only).' },
   { name: 'MC_RCON_TIMEOUT_MS', type: 'number', default: '15000', group: 'server', live: false, read: 'mineflayer/rcon.ts',
     describe: 'How long a command\'s reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it, for good. Long enough for the longest /fill.' },
-  { name: 'MC_REASONING', type: 'string', default: '', group: 'models', live: false, read: 'modelUsage.ts',
+  { name: 'MC_REASONING', type: 'string', default: '', group: 'models', live: true, read: 'modelUsage.ts',
     describe: 'Reasoning level per call kind (exec=medium,plan=low,design=medium).' },
   { name: 'MC_REFIT_FIRST', type: 'flag', default: 'off', group: 'building', live: false, read: 'mineflayer/mcWorld.ts',
     describe: 'Refits offered before new public works.' },
@@ -375,15 +375,15 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The inventors\' royalty (s44, the user\'s): this share of every batch the workshop makes of an unlocked entry\'s goods.' },
   { name: 'MC_TECH_UNLOCKED', type: 'string', default: '', group: 'economy', live: false, read: 'tech.ts',
     describe: '(MC_TECH_UNLOCKED=hay,campfire: entries a village starts with, for experiments)' },
-  { name: 'MC_TEMPERATURE', type: 'string', default: '', group: 'models', live: false, read: 'modelCall.ts',
-    describe: 'Models\' temperature (unset: each provider\'s default).' },
+  { name: 'MC_TEMPERATURE', type: 'number', default: '', group: 'models', live: true, read: 'modelCall.ts',
+    describe: 'Ollama models\' sampling temperature for every call (0-2; unset: 0.4).' },
   { name: 'MC_TIME_SCALE', type: 'number', default: '1', group: 'speed', live: false, notIn: ['acceptance'], read: 'acts.ts, character.ts, choose.ts, memory.ts, mineflayer/mcRules.ts, mineflayer/mcWorld.ts',
     describe: 'Game speed: Paper\'s tick rate and the after phase\'s clocks (2 for staged runs; never acceptance runs).' },
   { name: 'MC_TOKEN_BUDGET_AGENTS', type: 'string', default: '', group: 'models', live: false, read: 'modelUsage.ts',
     describe: 'The least agent count the hourly budget scales by.' },
   { name: 'MC_TOKEN_BUDGET_AGENT_HOUR', type: 'number', default: '150000', group: 'models', live: false, read: 'modelUsage.ts',
     describe: 'Cloud tokens an agent an hour, for the budget that follows the agents.' },
-  { name: 'MC_TOKEN_BUDGET_HOUR', type: 'string', default: '', group: 'models', live: false, read: 'modelUsage.ts',
+  { name: 'MC_TOKEN_BUDGET_HOUR', type: 'string', default: '', group: 'models', live: true, read: 'modelUsage.ts',
     describe: 'Cloud tokens an hour for all calls (2,000,000; unset: it follows the agents).' },
   { name: 'MC_TOKEN_PRICES', type: 'string', default: '', group: 'models', live: false, read: 'modelUsage.ts',
     describe: 'Token prices per model, for the cost lines.' },
@@ -417,19 +417,68 @@ export const SETTINGS: readonly Setting[] = [
 
 const BY_NAME = new Map(SETTINGS.map((s) => [s.name, s]));
 const warned = new Set<string>();
+/** #115 step 4: values set during the run (live settings only), over the environment's. */
+const LIVE = new Map<string, string>();
+const HOOKS = new Map<string, Array<(value: string | undefined) => void>>();
+/** Every change made during the run, in order (the panel's change list; profile.json's "changes"). */
+export const SETTING_CHANGES: Array<{ at: number; name: string; from: string | undefined; to: string; by: string }> = [];
 
 /** A setting's entry, or undefined for a name the registry does not hold. */
 export const settingOf = (name: string): Setting | undefined => BY_NAME.get(name);
 
 /**
- * A setting's raw value, as process.env gives it (undefined when unset): read at the moment of the call, so a check that
- * sets process.env before importing a module sees its value as before. A name the registry lacks is read too, with one
- * warning (settings_reads.mts keeps that from happening).
+ * A setting's raw value, as process.env gives it (undefined when unset), or the value a live change set: read at the
+ * moment of the call, so a check that sets process.env before importing a module sees its value as before. A name the
+ * registry lacks is read too, with one warning (settings_reads.mts keeps that from happening).
  */
 export function rawSetting(name: string): string | undefined {
   if (!BY_NAME.has(name) && !warned.has(name)) {
     warned.add(name);
     console.warn(`[setting] ${name} is not in the settings registry (server/src/settings.ts)`);
   }
-  return process.env[name];
+  return LIVE.has(name) ? LIVE.get(name) : process.env[name];
 }
+
+/** A module that keeps a live setting in a constant registers how to apply a change (called after the value is set). */
+export function onSetting(name: string, apply: (value: string | undefined) => void): void {
+  HOOKS.set(name, [...(HOOKS.get(name) ?? []), apply]);
+}
+
+/** Why a value does not fit a setting's type or list, or null. */
+export function valueFault(s: Setting, value: string): string | null {
+  const v = value.trim();
+  if (v === '') return null;
+  if (s.type === 'flag' && !/^(on|off|1|0|true|false|yes|no)$/i.test(v)) return `${s.name}: a flag takes on or off`;
+  if (s.type === 'number' && !Number.isFinite(Number(v))) return `${s.name}: not a number`;
+  if (s.values && !s.values.includes(v.toLowerCase())) return `${s.name}: takes ${s.values.join(', ')}`;
+  return null;
+}
+
+/**
+ * A live setting changed during the run (#115 step 4): checked, set, applied by its modules' hooks (a hook that throws
+ * puts the old value back), logged as `[setting] NAME old -> new (by ...)` and added to the change list.
+ */
+export function setSetting(name: string, value: string, by: string): { ok: true; from: string | undefined; to: string } | { ok: false; error: string } {
+  const s = BY_NAME.get(name);
+  if (!s) return { ok: false, error: `unknown setting ${name}` };
+  if (!s.live) return { ok: false, error: `${name} cannot change during a run (start-only: restart needed)` };
+  const fault = valueFault(s, value);
+  if (fault) return { ok: false, error: fault };
+  const from = rawSetting(name);
+  const had = LIVE.has(name), before = LIVE.get(name);
+  LIVE.set(name, value.trim());
+  try {
+    for (const apply of HOOKS.get(name) ?? []) apply(value.trim());
+  } catch (e) {
+    if (had) LIVE.set(name, before!);
+    else LIVE.delete(name);
+    for (const apply of HOOKS.get(name) ?? []) apply(from);
+    return { ok: false, error: `${name}: ${(e as Error).message}` };
+  }
+  SETTING_CHANGES.push({ at: Date.now(), name, from, to: value.trim(), by });
+  console.log(`[setting] ${name} ${from ?? '(unset)'} -> ${value.trim() || '(unset)'} (by ${by})`);
+  return { ok: true, from, to: value.trim() };
+}
+
+/** Every setting with its current value and whether a live change set it (the panel's Settings tab). */
+export const settingsNow = () => SETTINGS.map((s) => ({ ...s, value: rawSetting(s.name) ?? '', changed: LIVE.has(s.name) }));

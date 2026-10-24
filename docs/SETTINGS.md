@@ -35,13 +35,13 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_OLLAMA_URL` | string | `http://localhost:11434` |  |  | The Ollama app's address. |
 | `MC_PLAN_INTERVAL_MS` | number | `180000` |  |  | The workers' planner's least interval between plans. |
 | `MC_PLAN_MODEL` | string | (unset) |  |  | The workers' planner's model (default: the executors'). |
-| `MC_REASONING` | string | (unset) |  |  | Reasoning level per call kind (exec=medium,plan=low,design=medium). |
+| `MC_REASONING` | string | (unset) | yes |  | Reasoning level per call kind (exec=medium,plan=low,design=medium). |
 | `MC_SPEND_CAP_USD` | string | (unset) |  |  | A spend cap in dollars for paid model calls. |
 | `MC_SPEND_PROGRAMME_START` | string | (unset) |  |  | When the spend cap started counting (a date). |
-| `MC_TEMPERATURE` | string | (unset) |  |  | Models' temperature (unset: each provider's default). |
+| `MC_TEMPERATURE` | number | (unset) | yes |  | Ollama models' sampling temperature for every call (0-2; unset: 0.4). |
 | `MC_TOKEN_BUDGET_AGENT_HOUR` | number | `150000` |  |  | Cloud tokens an agent an hour, for the budget that follows the agents. |
 | `MC_TOKEN_BUDGET_AGENTS` | string | (unset) |  |  | The least agent count the hourly budget scales by. |
-| `MC_TOKEN_BUDGET_HOUR` | string | (unset) |  |  | Cloud tokens an hour for all calls (2,000,000; unset: it follows the agents). |
+| `MC_TOKEN_BUDGET_HOUR` | string | (unset) | yes |  | Cloud tokens an hour for all calls (2,000,000; unset: it follows the agents). |
 | `MC_TOKEN_PRICES` | string | (unset) |  |  | Token prices per model, for the cost lines. |
 | `MC_TOKEN_WINDOW_MS` | string | (unset) |  |  | The token budget's window. |
 
@@ -54,7 +54,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_CHOICE_FAMILIES` | string | `make,gather,works,light,catalog,furnish,initiatives,activities` |  |  | Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). |
 | `MC_CHOICE_HOLDS` | flag | `off` |  |  | #97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts as an open project against INITIATIVES_MAX. The... |
 | `MC_CHOICE_INSTANCES` | string | `explore,start` |  |  | Option kinds offered as several instances on one menu. |
-| `MC_CHOOSE` | string | `fixed` |  |  | Who picks after-completion chores: fixed (code), model, or scripted (staged runs). |
+| `MC_CHOOSE` | string | `fixed` | yes |  | Who picks after-completion chores: fixed (code), model, or scripted (staged runs). |
 | `MC_CHOOSE_BACKUP` | flag | `off` |  |  | MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model). |
 | `MC_CHOOSE_FALLBACK_MS` | number | `20000` |  |  | A choice call is cut off this long after its send (then the fixed pick). |
 | `MC_CHOOSE_HOURLY` | string | (unset) |  |  | Model choices a member may make in an hour. |
@@ -213,7 +213,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
-| `MC_APPETITE` | string | (unset) |  |  | Appetite: off, or the food points drained a busy game-hour (18 typical). |
+| `MC_APPETITE` | string | (unset) | yes |  | Appetite: off, or the food points drained a busy game-hour (18 typical). |
 | `MC_APPETITE_IDLE` | number | `0.25` |  |  | The share of the appetite drain while idle. |
 | `MC_APPETITE_START` | number | `20` |  |  | Food points a member starts with (0-20). |
 | `MC_HOME_BASICS` | flag | `on` |  |  | MC_HOME_BASICS: on by default since 10-24 (the user's, after test train 1); off turns it off. |
@@ -222,7 +222,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_NEED_FIELD_COOLDOWN_MIN` | number | `45` |  |  | Game minutes after a field work is laid out before another (s40: a crop cycle to its first harvest is ~40). |
 | `MC_NEED_HOLD_MIN` | number | `30` |  |  | Game minutes the flow must stay short before the farmstead is offered (MC_NEED_HOLD_MIN shortens it for tests). |
 | `MC_NEED_WORKS` | flag | `on` |  |  | MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). |
-| `MC_NEEDS` | string | (unset) |  |  | N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). |
+| `MC_NEEDS` | string | (unset) | yes |  | N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). |
 
 ## Server and run
 
