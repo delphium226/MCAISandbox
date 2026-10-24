@@ -2036,3 +2036,16 @@ CLAUDE.md when a phase ends.
     Wren in a 7-deep pit under the storage hut (-1629,59,19), Uma and Clara far west. Not traced to payments or talk;
     to watch in the combined run (filed as an issue).
   Logs: runs/2026-10-24/g2-talk-pay/ (report.md, staged/).
+- F309 (10-24, home-basics session) **Home basics (MC_HOME_BASICS): every member's house got a crafting table and a chest
+  in its first minutes, and 15 of 25 a bed by minute 10; the rest of the beds waited on sheep.** Measured first
+  (im2_mine, ov_v0): 25 owned houses (plains small houses, a 3x3 inside), 25 chests (MC_OWN's), 0 beds, 0 tables: a
+  3x3 inside gets one furniture spot (a chair) and the jar's beds, chests and tables are stripped at import.
+  buildingDecor's `basics` picks a bed, a chest and a table first (25 of 25 owned houses fit all three; 360 of 452 jar
+  house turns). Staged from im2_mine, 24 scripted members, 30 min after: HB0 (off) 0/25/0 (bed/chest/table); HB1 (on,
+  first code) 2/25/17, two bugs and a rank: sheared wool counted only when white, a bed's cells holding an own chest
+  placed by the old rule (4 houses), the option at rank 945 cut from most menus (Ben's on 5 of 43); HB2 (fixed, rank 5)
+  15/25/25, all 15 complete by minute 10. The 10 short: the one sheep cluster sheared out (4 trips ended with 1-2 wool)
+  and 26 "another agent took the wool" retries on wool storage listed but did not hold (the full hut, #120). Busy 40%
+  against HB0's 39% (by 10 min 42/35/42 against 49/46/20); [stuck] 71 against 32 (the walks to the sheep, ~90 blocks).
+  The pin (basic needs taken after a meal by every picker, kept on the model's menu) is checked offline only.
+  Logs: runs/2026-10-24/home-basics/ (spec.md, judge_HB*.txt, staged/).

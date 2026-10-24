@@ -851,3 +851,10 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   command and counted**, one list element a read (`data get block ... Items[i]`: the whole list's reply is cut short past
   a few stacks); **a bounty's emerald is taken from the commons above the merchant's keep (one of each used sold item
   kept), else minted**.
+- 10-24 (the user's, home basics `runs/2026-10-24/home-basics/spec.md`, MC_HOME_BASICS) **Every member's house gets a
+  bed, a chest and a crafting table early**: three cells per owned dwelling (buildingDecor's `basics`, ahead of the
+  furniture), set by command and charged to storage (table 1 log, chest 2 logs, bed 3 wool of one colour + 1 log or a
+  stored bed). **The bed's wool**: when storage has none, the owner's own chore "Shear wool for your bed" (shears from
+  storage, else made from 2 of its iron first; 3 wool of one colour sheared at the atlas's sheep). **With MC_OWN off the
+  chest is a plain chest**; with it on, it is the member's own chest (any own chest placed before counts). #81 (shears
+  wanted) closes into this; #6 stays parked, re-scoped to the day's rhythm.

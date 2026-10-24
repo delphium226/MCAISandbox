@@ -201,7 +201,8 @@ export interface OptionFacts { work?: string; helpKind?: string; mine?: boolean;
 export function serves(goal: Goal, o: ChoiceOption, f: OptionFacts, craft?: string): boolean {
   switch (goal) {
     case 'wealth':
-      return (o.kind === 'own' && f.own !== 'pledge') || o.kind === 'slot' || o.kind === 'penwork';
+      // (MC_HOME_BASICS' basics and shearing for the bed are the home's, not wealth)
+      return (o.kind === 'own' && f.own !== 'pledge' && f.own !== 'basics' && f.own !== 'shear') || o.kind === 'slot' || o.kind === 'penwork';
     case 'invention':
       return o.kind === 'innovate' || (o.kind === 'own' && f.own === 'pledge') || o.kind === 'activity';
     case 'mastery':
@@ -209,7 +210,7 @@ export function serves(goal: Goal, o: ChoiceOption, f: OptionFacts, craft?: stri
     case 'standing':
       return (o.kind === 'help' && !f.mine) || (o.kind === 'initiate' && !!f.work && STANDING_WORKS.has(f.work));
     case 'home':
-      return (o.kind === 'furnish' && /your own house/.test(o.name)) || (o.kind === 'own' && (f.own === 'chest' || f.own === 'farm'));
+      return (o.kind === 'furnish' && /your own house/.test(o.name)) || (o.kind === 'own' && (f.own === 'chest' || f.own === 'farm' || f.own === 'basics' || f.own === 'shear'));
     case 'beauty':
       return o.kind === 'light' || o.kind === 'furnish' || (o.kind === 'initiate' && !!f.work && BEAUTY_WORKS.has(f.work))
         || (o.kind === 'help' && !!f.helpKind && BEAUTY_WORKS.has(f.helpKind)) || (o.kind === 'make' && !!f.good && DECOR_GOODS.has(f.good));

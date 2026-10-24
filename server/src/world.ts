@@ -279,6 +279,10 @@ export interface ChoiceOption {
   social?: string;
   /** G5 (MC_PROPOSALS): an accepted proposal of the member's, or one it backed, brought this option ("[you proposed this]"). */
   mark?: string;
+  /** MC_HOME_BASICS: a basic need of the member's own house (its bed, chest and table, the wool for the bed): pinned on
+   *  the model's menu, taken after a meal and before anything else by the fixed pick, the scripted draw and a repeat,
+   *  and it ends a work block ("[a basic need: your own house]"). */
+  basic?: boolean;
   /** G3 (MC_RULES): what it takes from the village storage (the quota and floor rules read it; never shown). */
   takes?: Record<string, number>;
   /** G3 (MC_RULES): a duty's tag, "[the duty: once a day]". */

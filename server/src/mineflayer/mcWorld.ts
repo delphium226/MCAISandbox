@@ -25,7 +25,7 @@ import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurna
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
-import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
+import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
 import { GOALS_ON, ensureGoals, goalLine, goalScore, goalWeight, goalsOf, noteEnd as goalNoteEnd, serves, topCraft, type Goals, type OptionFacts } from '../goals';
@@ -42,6 +42,7 @@ import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
 import { PART_RE, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
+import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
 import { INNOVATE, LIBRARY, attemptPoints, candidates, chanceFor, needOf, payRoyalties, pointsIn, ROYALTY, ptsText, techGoods, techOf, techOwnRecipes } from '../tech';
@@ -51,7 +52,7 @@ import type { WorldRulesStatus } from './mcRules';
 import type { Rcon } from './rcon';
 import { Atlas } from './mcAtlas';
 import { VILLAGE_BIOMES, listPieces, pieceToDesign, readPiece, vanillaLibrary, vanillaLights, vanillaShelves, villageBiome } from '../vanillaPieces';
-import { buildingDecor, buildingLights, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
+import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, type DecorSpot, type LightSpot, type SignPlace, type SignSpot } from '../streetPlan';
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
@@ -153,6 +154,8 @@ export type DecorPart = {
   spots: Array<DecorSpot & { y: number }>; open: Array<DecorSpot & { y: number }>;
   /** #68 (MC_OWN): the cell for its owner's chest (one more spot by buildingDecor's rule, facing away from its wall). */
   chest?: { x: number; y: number; z: number; facing: string };
+  /** MC_HOME_BASICS: an owned dwelling's bed, chest and crafting table cells (buildingDecor's `basics`, inside the box). */
+  basics?: BasicsCells;
 };
 
 /** Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. */
@@ -773,14 +776,25 @@ export class MineflayerWorld implements WorldAdapter {
       const st = P.structure!, place = P.place!;
       const lights: LightSpot[] = P.spots.map((q) => ({ x: q.x, layer: q.y - st.y, z: q.z, block: q.block, ...(q.facing ? { facing: q.facing as LightSpot['facing'] } : {}), src: q.src ?? 'code', inside: true }));
       const chest: { spot?: { x: number; z: number; facing: SignSpot['facing'] } } | undefined = OWN.on ? {} : undefined;
-      const spots = buildingDecor(place, wood, { lights, signs, ...(chest ? { chest } : {}) })
+      // (MC_HOME_BASICS: an owned dwelling's bed, chest and table come first; its owner's chest is the basics' chest)
+      const ownChest = st.owner ? v.homes?.[st.owner]?.chest : undefined;
+      const hb: { out?: HomeBasics; chestAt?: { x: number; z: number } } | undefined = HOME_BASICS.on && st.owner && isDwelling(st.kind) ? { ...(ownChest && ownChest.y === st.y + 1 ? { chestAt: { x: ownChest.x, z: ownChest.z } } : {}) } : undefined;
+      const spots = buildingDecor(place, wood, { lights, signs, ...(hb ? { basics: hb } : chest ? { chest } : {}) })
         .filter((q) => q.x >= st.x1 && q.x <= st.x2 && q.z >= st.z1 && q.z <= st.z2 && q.layer >= 1 && q.layer < place.design.height && (!q.also || q.also.layer < place.design.height))
         .map((q) => ({ ...q, y: st.y + q.layer }));
-      if (!spots.length) continue;
+      const inBox = (q: { x: number; z: number }) => q.x >= st.x1 && q.x <= st.x2 && q.z >= st.z1 && q.z <= st.z2;
+      const b = hb?.out;
+      const basics: BasicsCells | undefined = b && (b.bed || b.chest || b.table) ? {
+        ...(b.bed && inBox(b.bed) && inBox(b.bed.foot) ? { bed: { ...b.bed, y: st.y + 1 } } : {}),
+        ...(b.chest && inBox(b.chest) ? { chest: { ...b.chest, y: st.y + 1 } } : {}),
+        ...(b.table && inBox(b.table) ? { table: { ...b.table, y: st.y + 1 } } : {}),
+      } : undefined;
+      if (chest && basics?.chest) chest.spot = { x: basics.chest.x, z: basics.chest.z, facing: basics.chest.facing as SignSpot['facing'] };
+      if (!spots.length && !basics) continue;
       const r = v.decor?.[P.part];
       const open = spots.filter((q) => !r?.done.includes(`${q.x},${q.y},${q.z}`) && !r?.never?.includes(`${q.x},${q.y},${q.z}`));
       const own = chest?.spot && chest.spot.x >= st.x1 && chest.spot.x <= st.x2 && chest.spot.z >= st.z1 && chest.spot.z <= st.z2 ? { x: chest.spot.x, y: st.y + 1, z: chest.spot.z, facing: chest.spot.facing } : undefined;
-      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}) });
+      parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}) });
     }
     parts.sort((p, q) => q.open.length - p.open.length);
     this.decorCache.set(v.name, { sig, parts });
@@ -4960,6 +4974,42 @@ export class MineflayerWorld implements WorldAdapter {
       out.push(opt);
     };
 
+    // MC_HOME_BASICS: the member's own house gets a crafting table, a chest and a bed (spec runs/2026-10-24/home-basics),
+    // early: ranked after a meal and growth, before the harvests (at 945 it fell off most menus, HB1; the chest is the
+    // basics' chest); a bed short of wool: shear for it first (the
+    // user's A(2), 10-24: shears from storage, or made from its iron)
+    if (HOME_BASICS.on && !busy.has(`own:${a.name.toLowerCase()}`)) {
+      const me = `own:${a.name.toLowerCase()}`;
+      const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
+      const P = st ? this.decorParts(v).find((q) => q.structure.id === st.id) : undefined;
+      const left = st && P?.basics ? basicsLeft(v, st.id, P.basics, !!v.homes?.[a.name]?.chest) : [];
+      if (st && P?.basics && left.length) {
+        const inv = (n: string) => a.bot.inventory?.items().filter((i) => i.name === n).reduce((t, i) => t + i.count, 0) ?? 0;
+        const wool = woolInHand(a);
+        const pool = wool && wool.n >= 3 ? { ...store, [wool.item]: (store[wool.item] ?? 0) + wool.n } : store;
+        const short = left.map((q) => [q, basicsCost(q, pool)] as const).filter(([, c]) => 'short' in c);
+        const at = P.basics.table ?? P.basics.chest ?? P.basics.bed!;
+        if (short.length < left.length) add({
+          id: 'own:basics', kind: 'own', key: me, excludes: [`${me}=`], name: 'Set up your own house', rank: 5, basic: true,
+          at: { x: at.x, z: at.z },
+          facts: `${basicsFacts(st.kind, left, short.map(([q, c]) => `${q}: ${(c as { short: string }).short}`))}; ${dist(at.x, at.z)}`,
+          effect: 'a crafting table to craft at, a chest and a bed in your own house',
+        }, { kind: 'own', what: 'basics' });
+        else if (left.includes('bed')) {
+          const shears = inv('shears') > 0 || (store.shears ?? 0) > 0;
+          const sheep = sheepPlace(a, v);
+          if (typeof sheep === 'string') reasons.own ??= `no wool for your bed: ${sheep}`;
+          else if (!shears && (store.iron_ingot ?? 0) < 2 && (store.raw_iron ?? 0) < 2) reasons.own ??= 'no wool for your bed and no shears or 2 iron for a pair';
+          else add({
+            id: 'own:shear', kind: 'own', key: me, holds: [], excludes: [`${me}=`], name: 'Shear wool for your bed', rank: 8, basic: true,
+            at: { x: sheep.x, z: sheep.z },
+            facts: `your ${words(st.kind)} has no bed and storage has no wool; 3 wool from the sheep at ${sheep.x},${sheep.z}${shears ? '' : ', shears made from 2 iron first'}; ${dist(sheep.x, sheep.z)}`,
+            effect: 'wool for a bed in your own house, then the bed',
+          }, { kind: 'own', what: 'shear', make: !shears });
+        } else reasons.own ??= `storage is short for your house: ${short.map(([q, c]) => `${q}: ${(c as { short: string }).short}`).join('; ')}`;
+      }
+    }
+
     // #68 (MC_OWN): a chest in the member's own house, then its share carried home once 8 items are owed (ahead of the
     // makes from 32: a claimant busy on its plot never got to it, s43) (or any food
     // while its own chest holds under 2 meals), as far as the commons can spare them (makeSpare, less the meals others
@@ -4970,13 +5020,13 @@ export class MineflayerWorld implements WorldAdapter {
       const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
       const P = st ? this.decorParts(v).find((q) => q.structure.id === st.id) : undefined;
       if (!own?.chest) {
-        if (P?.chest) add({
+        if (P?.chest && !HOME_BASICS.on) add({
           id: 'own:chest', kind: 'own', key: me, excludes: [`${me}=`], name: 'Put a chest in your own house', rank: 940,
           at: { x: P.chest.x, z: P.chest.z },
           facts: `your ${words(st!.kind)} has no chest; one takes 2 logs from storage; ${dist(P.chest.x, P.chest.z)}`,
           effect: 'a chest of your own: your share of what you bring in goes there',
         }, { kind: 'own', what: 'chest' });
-        else reasons.own ??= 'no cell for a chest';
+        else reasons.own ??= HOME_BASICS.on ? 'your chest comes with your house\'s basics' : 'no cell for a chest';
       } else {
         const owed = own.owed;
         const total = Object.values(owed).reduce((t, q) => t + q, 0);
@@ -6514,6 +6564,21 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[pay] ${v.name}: ${worker.name} goes to deliver ${k ? deliveryWords(k) : 'goods'} to ${k?.payer ?? '?'} (${d.contract})`);
           return;
         }
+        if (d.what === 'basics') {
+          this.setChore(v, worker, opt.key, [worker.enqueue('home_basics', { chore: true })], 'set up your own house', undefined, meta, opt.holds, opt);
+          console.log(`[home] ${v.name}: ${worker.name} goes to set up its house`);
+          return;
+        }
+        if (d.what === 'shear') {
+          const ids = [
+            ...(d.make ? [worker.enqueue('make_iron_tool', { item: 'shears', chore: true })] : []),
+            worker.enqueue('shear_for_bed', { chore: true }),
+            worker.enqueue('home_basics', { chore: true }),
+          ];
+          this.setChore(v, worker, opt.key, ids, 'shear wool for your bed', undefined, meta, opt.holds, opt);
+          console.log(`[home] ${v.name}: ${worker.name} goes to shear wool for its bed${d.make ? ' (shears made first)' : ''}`);
+          return;
+        }
         if (d.what === 'chest') this.setChore(v, worker, opt.key, [worker.enqueue('place_own_chest', { chore: true })], 'put a chest in your own house', undefined, meta, opt.holds, opt);
         else this.setChore(v, worker, opt.key, [worker.enqueue('carry_home', { want: d.want, chore: true })], 'take your share home', undefined, meta, opt.holds, opt);
         console.log(`[own] ${v.name}: ${worker.name} goes to ${d.what === 'chest' ? 'put a chest in its house' : `take ${Object.entries((d as { want: Counts }).want).map(([n, q]) => `${q} ${n}`).join(', ')} home`}`);
@@ -7065,7 +7130,7 @@ export class MineflayerWorld implements WorldAdapter {
         if (blk) {
           const again = menu.options.find((o) => o.id === blk.option);
           const hungry = blk.option.split(':')[0] !== 'eat' && menu.options.some((o) => o.kind === 'eat') && this.hungerOf(v, a) === 'hungry';
-          if (blk.until <= now || !again || hungry) this.blocks.delete(a.name.toLowerCase());
+          if (blk.until <= now || !again || hungry || !!basicOf(menu)) this.blocks.delete(a.name.toLowerCase());
           else {
             const r = this.runChoice(a, again.id, { source: 'repeat', reason: 'work block', menu });
             if (r.ok) {
@@ -7193,6 +7258,9 @@ export class MineflayerWorld implements WorldAdapter {
       const kind = this.lastModelKind.get(id);
       // (character v2's B1: a repeat honours the options' weights when a layer is on, else the lowest rank as before)
       const same = kind ? menu.options.filter((o) => o.kind === kind).sort((p, q) => (characterAny() ? weights(q) - weights(p) : 0) || p.rank - q.rank)[0] : undefined;
+      // (MC_HOME_BASICS: a basic need of the member's own house before the repeat)
+      const basic = basicOf(menu);
+      if (basic) return run(basic.id, { source: 'repeat', reason: 'a basic need' });
       if (!same && WORK_BLOCKS) return { ran: { ok: false } };
       return same ? run(same.id, { source: 'repeat', reason: 'fixed order' }) : run(null, { source: 'fallback', why: 'rate', reason: 'fixed order' });
     }
@@ -7217,7 +7285,8 @@ export class MineflayerWorld implements WorldAdapter {
     // (#111: a priced request's tag, "[Ada pays 2 emeralds]", draws the scripted pick as an asking one does)
     const tagged = menu.options.filter((o) => o.social && /asked|pays \d/.test(o.social));
     const total = menu.options.reduce((t, o) => t + weights(o), 0);
-    let pick = tagged.length && rnd() < 0.5 ? tagged[Math.floor(rnd() * tagged.length)] : undefined;
+    // (MC_HOME_BASICS: a basic need of the member's own house is taken, as the fixed pick takes it)
+    let pick = basicOf(menu) ?? (tagged.length && rnd() < 0.5 ? tagged[Math.floor(rnd() * tagged.length)] : undefined);
     if (!pick) {
       let x = rnd() * total;
       for (const o of menu.options) if ((x -= weights(o)) <= 0 && !pick) pick = o;
@@ -7627,6 +7696,8 @@ type OptionRun =
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }
+  | { kind: 'own'; what: 'basics' }
+  | { kind: 'own'; what: 'shear'; make: boolean }
   | { kind: 'own'; what: 'carry'; want: Counts }
   | { kind: 'own'; what: 'deliver'; contract: string }
   | { kind: 'own'; what: 'make'; item: string; n: number; fuel: Counts }

@@ -67,10 +67,11 @@ const byRank = (a: ChoiceOption, b: ChoiceOption) => a.rank - b.rank;
  * 8 older options at the same lp (S.9's review, lens 2 M1).
  */
 export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
-  // (G2: an option answering a request or keeping a promise keeps its place, beyond the per-kind limit)
-  const pinned = options.filter((o) => o.social);
+  // (G2: an option answering a request or keeping a promise keeps its place, beyond the per-kind limit; MC_HOME_BASICS:
+  // so does a basic need of the member's own house)
+  const pinned = options.filter((o) => o.social || o.basic);
   if (pinned.length) {
-    const rest = trimMenu(options.filter((o) => !o.social));
+    const rest = trimMenu(options.filter((o) => !o.social && !o.basic));
     return [...pinned.slice(0, MENU_MAX), ...rest.slice(0, Math.max(0, MENU_MAX - pinned.length))].sort(byRank);
   }
   const perKind = new Map<string, number>();
@@ -93,6 +94,12 @@ export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
   const firsts = order.filter((o) => (o.tw ?? 1) * (o.gw ?? 1) >= DISLIKED && !seen.has(o.kind) && seen.add(o.kind));
   const best = [...firsts, ...order.filter((o) => !firsts.includes(o))].slice(0, MENU_MAX);
   return best.sort(byRank);
+}
+
+/** MC_HOME_BASICS: the menu's basic need of the member's own house (the lowest rank of them), unless a meal comes first. */
+export function basicOf(menu: ChoiceMenu): ChoiceOption | undefined {
+  if (menu.options.some((o) => o.kind === 'eat')) return undefined;
+  return menu.options.filter((o) => o.basic).sort(byRank)[0];
 }
 
 /** FNV-1a, 32 bits. */
@@ -155,7 +162,11 @@ const ENJOYED = 1.6, DULL = 0.63;
 export function fixedPick(menu: ChoiceMenu): ChoiceOption | undefined {
   let best: ChoiceOption | undefined;
   for (const o of menu.options) if (!best || o.rank < best.rank) best = o;
-  if (!best || best.kind === 'eat' || !menu.options.some(weighted)) return best;
+  if (!best || best.kind === 'eat') return best;
+  // (MC_HOME_BASICS: a basic need of the member's own house next, before any weight: a goal's option escaped the decay)
+  const basic = basicOf(menu);
+  if (basic) return basic;
+  if (!menu.options.some(weighted)) return best;
   const place = new Map<string, number>();
   for (const o of [...menu.options].sort(byRank)) if (!place.has(o.kind)) place.set(o.kind, place.size);
   // (N.1: a need's weight beside the temperament's)
@@ -189,7 +200,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '');
+  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ' [a basic need: your own house]' : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);

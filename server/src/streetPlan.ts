@@ -677,6 +677,14 @@ export function buildingLights(p: SignPlace, opts: { vanilla?: VanillaLight[] | 
  *  holds it at the building's turn and the item it takes; a table's plate on top in `also`. */
 export interface DecorSpot { x: number; layer: number; z: number; block: string; item: string; also?: { layer: number; block: string; item: string } }
 
+/** A house's home basics (MC_HOME_BASICS, layer 1): a bed (its head's cell, `facing` the way foot to head, the headboard
+ *  on a wall), a chest facing away from its wall and a crafting table; a piece left out where the house has no cell. */
+export interface HomeBasics {
+  bed?: { x: number; z: number; facing: SignSpot['facing']; foot: { x: number; z: number } };
+  chest?: { x: number; z: number; facing: SignSpot['facing'] };
+  table?: { x: number; z: number };
+}
+
 
 /**
  * A placed house's furniture spots (X.1, code-designed from goods the site can supply): layer 1 inside cells (".") with
@@ -691,8 +699,14 @@ export interface DecorSpot { x: number; layer: number; z: number; block: string;
  * stair's tall back is on its `facing` side, as holdsTorch reads it), a smoker and a furnace face away from it, a
  * grindstone runs along it. The caller skips the huts and town centres. Pure (scripts/checks/decor_check.mts checks it at
  * four turns over the vanilla houses).
+ * With `basics` (MC_HOME_BASICS) a bed, a chest and a crafting table come first, in `basics.out`, by the same rules: the
+ * bed's two cells (its head against a wall, the foot any free cell beside it) farthest from the entrance, then the chest's
+ * and the table's cell each farthest from those chosen; the furniture follows, farthest from them, off their cells
+ * (scripts/checks/home_basics.mts). `chest` is then not used: the owner's chest is the basics' chest. `basics.chestAt`, a
+ * chest already standing inside (an own chest placed by the older rule), is taken as the chest, first, so the bed and
+ * the table keep off its cell (HB1: four beds' cells held such a chest).
  */
-export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: LightSpot[]; signs?: SignSpot[]; chest?: { spot?: { x: number; z: number; facing: SignSpot['facing'] } } } = {}): DecorSpot[] {
+export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: LightSpot[]; signs?: SignSpot[]; chest?: { spot?: { x: number; z: number; facing: SignSpot['facing'] } }; basics?: { out?: HomeBasics; chestAt?: { x: number; z: number; facing?: SignSpot['facing'] } } } = {}): DecorSpot[] {
   const g = placedGrid(p), d = p.design, rot = ((p.rot % 4) + 4) % 4;
   // (worked out in the design's own cells, so distances and ties are the same at every turn; turned at the end)
   const cell = (l: number, i: number, j: number) => {
@@ -745,10 +759,87 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
   const chosen: Array<(typeof cands)[number]> = [];
   const dist2 = (a: { i: number; j: number }, b: { i: number; j: number }) => (a.i - b.i) ** 2 + (a.j - b.j) ** 2;
   const tried = new Set<string>();
+  const cutOff = () => { const after = reach(used); return [...before].some((k) => !used.has(k) && !after.has(k)); };
+  const turned = (f: SignSpot['facing']) => { let g = f; for (let r = 0; r < rot; r++) g = CLOCKWISE[g]; return g; };
+  // (MC_HOME_BASICS: the bed, the chest and the table first; their cells taken and the furniture's distances from them)
+  const homeCells: Array<{ i: number; j: number }> = [];
+  if (opts.basics) {
+    const hb: HomeBasics = {};
+    const from0 = [{ i: door[0], j: door[1] }];
+    const far = (c: { i: number; j: number }, from: Array<{ i: number; j: number }>) => Math.min(...from.map((f) => dist2(c, f)));
+    const at0 = opts.basics.chestAt;
+    if (at0)
+      for (let j = 0; j < d.depth && !hb.chest; j++)
+        for (let i = 0; i < d.width; i++) {
+          const w = world(i, j);
+          if (w.x !== at0.x || w.z !== at0.z || !free(i, j)) continue;
+          used.add(`${i},${j}`);
+          homeCells.push({ i, j });
+          hb.chest = { ...w, facing: at0.facing ?? 'north' };
+          break;
+        }
+    // The bed: a head cell with a wall behind it (in the head's own direction), the foot the cell before it, free too
+    let bed: { head: (typeof cands)[number]; foot: { i: number; j: number }; f: SignSpot['facing']; d: number } | null = null;
+    for (const c of cands)
+      for (const f of DIRS) {
+        const [a, b] = STEPS[f];
+        if (!holdsSign(cell(1, c.i + a, c.j + b)) || !holdsSign(cell(2, c.i + a, c.j + b))) continue;
+        const foot = { i: c.i - a, j: c.j - b };
+        if (used.has(`${c.i},${c.j}`) || used.has(`${foot.i},${foot.j}`)) continue;
+        if (!free(foot.i, foot.j) || cell(2, foot.i, foot.j) !== '.' || cell(0, foot.i, foot.j) === '.' || near.has(`${foot.i},${foot.j}`)) continue;
+        const fw = world(foot.i, foot.j);
+        if (taken.has(`${fw.x},${fw.z}`)) continue;
+        const d = Math.min(far(c, from0), far(foot, from0));
+        if (bed && d <= bed.d) continue;
+        used.add(`${c.i},${c.j}`);
+        used.add(`${foot.i},${foot.j}`);
+        if (!cutOff()) bed = { head: c, foot, f, d };
+        used.delete(`${c.i},${c.j}`);
+        used.delete(`${foot.i},${foot.j}`);
+      }
+    if (bed) {
+      used.add(`${bed.head.i},${bed.head.j}`);
+      used.add(`${bed.foot.i},${bed.foot.j}`);
+      homeCells.push(bed.head, bed.foot);
+      hb.bed = { ...world(bed.head.i, bed.head.j), facing: turned(bed.f), foot: world(bed.foot.i, bed.foot.j) };
+    }
+    // (a small house's last resort for the chest and the table: a wall cell beside the entrance's inside cell or a door,
+    // never one of those cells; the reach rule still holds. plains_small_house_2 and _4 have three cells off the ring)
+    const inCell = `${door[0] - out[0]},${door[1] - out[1]}`;
+    const close: typeof cands = [];
+    for (let j = 0; j < d.depth; j++)
+      for (let i = 0; i < d.width; i++) {
+        if (!near.has(`${i},${j}`) || `${i},${j}` === inCell || !free(i, j) || cell(2, i, j) !== '.' || cell(0, i, j) === '.') continue;
+        const w = world(i, j);
+        if (taken.has(`${w.x},${w.z}`)) continue;
+        const wall = DIRS.find((f) => { const [a, b] = STEPS[f]; return holdsSign(cell(1, i + a, j + b)) && holdsSign(cell(2, i + a, j + b)); });
+        if (wall) close.push({ i, j, wall });
+      }
+    // The chest, then the table: a wall cell farthest from the entrance and the cells chosen
+    for (const piece of ['chest', 'table'] as const) {
+      if (piece === 'chest' && hb.chest) continue;
+      const from = homeCells.length ? homeCells : from0;
+      const rank = (list: typeof cands) => list.filter((c) => !used.has(`${c.i},${c.j}`)).map((c) => ({ c, d: far(c, from) })).sort((x, y) => y.d - x.d);
+      // (a stable sort keeps the piece's order on ties, as the furniture's strict >)
+      const order = [...rank(cands), ...rank(close)];
+      for (const { c } of order) {
+        used.add(`${c.i},${c.j}`);
+        if (cutOff()) { used.delete(`${c.i},${c.j}`); continue; }
+        homeCells.push(c);
+        tried.add(`${c.i},${c.j}`);
+        if (piece === 'chest') hb.chest = { ...world(c.i, c.j), facing: turned(CLOCKWISE[CLOCKWISE[c.wall]]) };
+        else hb.table = world(c.i, c.j);
+        break;
+      }
+    }
+    for (const c of homeCells) tried.add(`${c.i},${c.j}`);
+    opts.basics.out = hb;
+  }
+  const withChest = opts.chest && !opts.basics;
   // (#68: one more spot by the same rule, after the furniture's, for its owner's chest; the furniture's are the same with
   // or without it, the choice being greedy)
-  while (chosen.length < want + (opts.chest ? 1 : 0)) {
-    const from = chosen.length ? chosen : [{ i: door[0], j: door[1] }];
+  while (chosen.length < want + (withChest ? 1 : 0)) {
+    const from = chosen.length ? [...homeCells, ...chosen] : homeCells.length ? homeCells : [{ i: door[0], j: door[1] }];
     let best: (typeof cands)[number] | null = null, bestD = -1;
     // (a strict > keeps the first in the piece's order on ties)
     for (const c of cands) {
@@ -764,7 +855,7 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
     chosen.push(best);
   }
   const PIECES = ['chair', 'table', 'crafting_table', 'barrel', 'grindstone', 'composter'] as const;
-  if (opts.chest && chosen.length > want) {
+  if (opts.chest && withChest && chosen.length > want) {
     const c = chosen.pop()!;
     let wall = c.wall;
     for (let r = 0; r < rot; r++) wall = CLOCKWISE[wall];
