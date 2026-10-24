@@ -35,6 +35,7 @@ import { usage, BudgetExceeded, isCloudModel, type ReasoningLevel } from './mode
 import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Recall } from './memory';
 import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
+import { PROMPT_SELF, basicTag } from './promptSelf';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
@@ -66,12 +67,15 @@ const byRank = (a: ChoiceOption, b: ChoiceOption) => a.rank - b.rank;
  * rank asc), the rest of the room by lp desc then rank asc. A plain lp cut hid every workshop option (ranks 850+) behind
  * 8 older options at the same lp (S.9's review, lens 2 M1).
  */
-export function trimMenu(options: ChoiceOption[]): ChoiceOption[] {
+export function trimMenu(options: ChoiceOption[], ambition = PROMPT_SELF): ChoiceOption[] {
   // (G2: an option answering a request or keeping a promise keeps its place, beyond the per-kind limit; MC_HOME_BASICS:
   // so does a basic need of the member's own house)
-  const pinned = options.filter((o) => o.social || o.basic);
+  // (#117, MC_PROMPT_SELF: and one option for the village's ambition, its best by weight, unless a pinned one feeds it)
+  const amb = ambition && !options.some((o) => (o.social || o.basic) && o.vw)
+    ? options.filter((o) => o.vw && !o.social && !o.basic).sort((a, b) => (b.lp ?? 1) * weights(b) - (a.lp ?? 1) * weights(a) || byRank(a, b))[0] : undefined;
+  const pinned = options.filter((o) => o.social || o.basic || o === amb);
   if (pinned.length) {
-    const rest = trimMenu(options.filter((o) => !o.social && !o.basic));
+    const rest = trimMenu(options.filter((o) => !pinned.includes(o)), false);
     return [...pinned.slice(0, MENU_MAX), ...rest.slice(0, Math.max(0, MENU_MAX - pinned.length))].sort(byRank);
   }
   const perKind = new Map<string, number>();
@@ -200,7 +204,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ' [a basic need: your own house]' : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '');
+  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -212,6 +216,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   const lines: string[] = [];
   if (ctx.persona?.trim()) lines.push(ctx.persona.trim());
   if (ctx.character?.trim()) lines.push(ctx.character.trim());
+  // (#117, MC_PROMPT_SELF: the member's own state and unmet basic needs)
+  if (ctx.self?.trim()) lines.push(ctx.self.trim());
   if (ctx.pattern?.trim()) lines.push(ctx.pattern.trim());
   if (ctx.role?.trim()) lines.push(ctx.role.trim());
   if (ctx.skill?.trim()) lines.push(ctx.skill.trim());
@@ -220,6 +226,7 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.others?.trim()) lines.push(labelled('Others now', ctx.others.trim()));
   if (ctx.social?.trim()) lines.push(ctx.social.trim());
   if (ctx.needs?.length) lines.push(`Village needs: ${ctx.needs.join('; ')}`);
+  if (ctx.scarcity?.trim()) lines.push(ctx.scarcity.trim());
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
   if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
   if (ctx.ladder?.trim()) lines.push(ctx.ladder.trim());

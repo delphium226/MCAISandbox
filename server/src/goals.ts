@@ -220,8 +220,20 @@ export function serves(goal: Goal, o: ChoiceOption, f: OptionFacts, craft?: stri
 /** The goal's weight for a member at `score`: 1.6 x (1 + 0.25 x (1 - score)), to 2 decimals. */
 export const goalWeight = (score: number) => Math.round(GOAL_WEIGHT * (1 + 0.25 * (1 - Math.max(0, Math.min(1, score)))) * 100) / 100;
 
-/** The goal's line for the menu and the prompt ("Your life goal: beauty (3 works of yours stand, ...)."). */
-export function goalLine(v: Village, name: string): string {
+/** #117 (MC_PROMPT_SELF): what each goal means, in the terms serves() and progress() count it ("standing maybe wants to
+ *  stand?", All1). */
+export const GOAL_MEANING: Record<Goal, string> = {
+  wealth: 'wealth is riches of your own: emeralds and goods in your own chest; it grows with the harvests of your own farm and pens and your share of what you bring in.',
+  invention: 'invention is new things for the village: it grows with each experiment you make, each pledge toward a new good and each new activity you take up.',
+  mastery: 'mastery is being the best at one craft: the craft you have done most (5 times makes it yours); it grows each time you do it again and with your share of all the village does of it.',
+  standing: "standing is the respect you earn by doing for others: it grows with each help you give on another member's project and each public work of yours (a well, a market stall, a woodshed, a signpost) that gets built.",
+  home: 'home is a house that is truly yours: it grows as you furnish it and give it a bed, a table, a chest and a farm of your own.',
+  beauty: 'beauty is the look of the village: it grows with each light you put up, each spot you furnish and each beautiful work of yours (a statue, a gazebo, lamp posts, a bench, a flower bed or ring, a young tree) that gets built.',
+};
+
+/** The goal's line for the menu and the prompt ("Your life goal: beauty (3 works of yours stand, ...)."); with `meaning`
+ *  (#117) the goal's sentence after it. */
+export function goalLine(v: Village, name: string, meaning = false): string {
   const goal = goalsOf(v)?.of[name];
-  return goal ? `Your life goal: ${goal} (${progress(v, name, goal).text}).` : '';
+  return goal ? `Your life goal: ${goal} (${progress(v, name, goal).text}).${meaning ? ` Your goal: ${GOAL_MEANING[goal]}` : ''}` : '';
 }

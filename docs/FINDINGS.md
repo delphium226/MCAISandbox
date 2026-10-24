@@ -2062,3 +2062,14 @@ CLAUDE.md when a phase ends.
   world 1, 15 min after): the yard ready within ~2 minutes, 10 barrels in it, 9 spoil events; failed deposits by 5-min bin
   2/3/1 (none "full") against HB0's 88/63/204 (309 "full") with the same settings; [stuck] 19, [lag] 0.
   Logs: runs/2026-10-24/storage-grows/ (spec.md, staged/, try1-2 the failed tries).
+- F311 (10-24, prompt-117, #117) **The choice prompt lacked the member's own state, and naming its unmet basic need is
+  what moves the choice: with it the house, bed or basics option was taken 18 of 18 times when shown (9 of 18 as recorded).**
+  choicebench on five real All1 decisions (gpt-oss low, 6 samples a variant): the self line alone ("You: no house of your
+  own yet; ... 0 emeralds") moved a houseless member to iron for trade (2 of 12 took the street); with "Your basic needs
+  first: you have no house yet" and the `[your basic need: a house]` tag, 12 of 12. Goal meaning fixed the misreading
+  ("standing ... no help on others' projects" became "earning respect by helping") without moving Elena's pick to a
+  standing work (1 of 6). "[nothing uses it yet]" on ladders and barrels changed nothing (5 of 6 ladders: "for the deep
+  mine, the iron age"); "[not needed now: nothing in the village uses it yet]" halved it, and with the rest 0 of 6. A line
+  naming the ambition's work on the menu took 11 of 12 picks to iron and overrode goals and scarcity: dropped (25 members
+  at one mine would herd). Built behind MC_PROMPT_SELF (off), flag-off menus, contexts and prompts identical on two
+  checkpoints. Logs: runs/2026-10-24/prompt-117/ (spec.md, bench/results.md).

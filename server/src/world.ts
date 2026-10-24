@@ -283,6 +283,8 @@ export interface ChoiceOption {
    *  the model's menu, taken after a meal and before anything else by the fixed pick, the scripted draw and a repeat,
    *  and it ends a work block ("[a basic need: your own house]"). */
   basic?: boolean;
+  /** #117 (MC_PROMPT_SELF): the basic need it meets ("a house", "a bed", "a chest"), its tag "[your basic need: a bed]". */
+  basicNeed?: string;
   /** G3 (MC_RULES): what it takes from the village storage (the quota and floor rules read it; never shown). */
   takes?: Record<string, number>;
   /** G3 (MC_RULES): a duty's tag, "[the duty: once a day]". */
@@ -338,6 +340,10 @@ export interface ChoiceContext {
   goal?: string;
   /** G8 (MC_LADDER): the ladder's progress line, "The village's ambition: the iron age, stage 2 of 4: ...". */
   ladder?: string;
+  /** #117 (MC_PROMPT_SELF): the member's own state and its unmet basic needs ("You: no house of your own yet; ..."). */
+  self?: string;
+  /** #117 (MC_PROMPT_SELF): what is short and what is made for nothing yet. */
+  scarcity?: string;
 }
 
 export interface ChoiceMenu {

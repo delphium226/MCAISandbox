@@ -43,6 +43,8 @@ def commands():
         out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (MC_HOME_BASICS: a bed, a chest and a table for every owned house of im2_mine, and the jar's houses' cells)
     out["home_basics"] = ([node, TSX, "scripts/checks/home_basics.mts", "im2_mine"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (#117, MC_PROMPT_SELF: the self, needs, scarcity and ambition lines, the pins and tags, on mv3_base25 and im2_mine)
+    out["prompt_self"] = ([node, TSX, "scripts/checks/prompt_self.mts"], ["mc/testcheckpoints/mv3_base25/villages.json", "mc/testcheckpoints/im2_mine/villages.json"])
     return out
 
 

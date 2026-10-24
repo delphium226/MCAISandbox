@@ -25,6 +25,7 @@ import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurna
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
+import { PROMPT_SELF, UNUSED_GOOD, UNUSED_TAG, ambitionGap, feedKinds, needsLine as basicNeedsLine, scarcityLine, selfLine, type HouseFacts, type SelfFacts } from '../promptSelf';
 import { BAN_MEMBER, CHOOSE, ChoiceStats, ChooserQueue, DISLIKED, basicOf, buildPrompt, choose, choreProductive, fixedPick, fnv1a, mulberry32, shuffled, trimMenu, weighted, weights } from '../choose';
 import { workerNumber } from '../agentNames';
 import { KIND_PHRASE, TEMPERAMENT_MODE, activeKinds, kindWeights, optionWeight, personaOf, temperament, vectorOf } from '../temperament';
@@ -167,6 +168,8 @@ type MakePlan = { count: number; bill: Counts; inputs: Counts; smelts: boolean; 
 type GatherWanted = Record<Material, { need: number; incoming: number; want: number; for: string[] }>;
 /** Gathering's materials in their table order (ties of the menu's order). */
 const MATERIALS: Material[] = ['sand', 'logs', 'cobblestone'];
+/** #117: a good made for later that nothing in the village uses yet (barrels go to the storage yard with MC_STORAGE_GROW). */
+const unusedGood = (g: MakeGood) => UNUSED_GOOD.test(g.forWhat) && !(STORAGE_GROW && g.item === 'barrel');
 /** The smallest trip a further gatherer is sent for while some of the material is already on the way (no walk for one
  *  log; with nothing incoming any want goes, so the last few still come). */
 const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobblestone: 8 };
@@ -4284,7 +4287,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.vw !== undefined ? { vw: o.vw, ladderTag: o.ladderTag } : {}), ...(o.basic ? { basic: true, ...(o.basicNeed ? { basicNeed: o.basicNeed } : {}) } : {}), ...(o.mark ? { mark: o.mark } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -4801,6 +4804,11 @@ export class MineflayerWorld implements WorldAdapter {
   private menu(v: Village, a: BotAgent, busy: Set<string>, guards: boolean, facts: Facts, first?: SweepCtx['first']): { menu: ChoiceMenu; feasible: ChoiceOption[]; skips: string[] } {
     const r = this.choiceOptions(v, a, busy, guards, facts, first);
     const ctx = this.choiceContext(v, a, facts, r.options.map((o) => o.kind));
+    // (#117: when nothing on the menu feeds the ambition's stage, why not)
+    if (PROMPT_SELF && ctx.ladder && !r.options.some((o) => o.vw)) {
+      const gap = this.ambitionWhyNot(v, r.guarded, r.reasons);
+      if (gap) ctx.ladder = `${ctx.ladder} ${gap}`.slice(0, 420);
+    }
     // (G3: a pending share under a levy, asked by amounts only, the answers shuffled per member and moment)
     if (RULES.on && OWN.on) {
       const rate = levyRate(v.name);
@@ -5016,6 +5024,8 @@ export class MineflayerWorld implements WorldAdapter {
         const at = P.basics.table ?? P.basics.chest ?? P.basics.bed!;
         if (short.length < left.length) add({
           id: 'own:basics', kind: 'own', key: me, excludes: [`${me}=`], name: 'Set up your own house', rank: 5, basic: true,
+          // (#117: the tag names the need it meets, the bed first)
+          ...(PROMPT_SELF ? { basicNeed: left.includes('bed') ? 'a bed' : left.includes('chest') ? 'a chest' : 'a crafting table' } : {}),
           at: { x: at.x, z: at.z },
           facts: `${basicsFacts(st.kind, left, short.map(([q, c]) => `${q}: ${(c as { short: string }).short}`))}; ${dist(at.x, at.z)}`,
           effect: 'a crafting table to craft at, a chest and a bed in your own house',
@@ -5027,6 +5037,7 @@ export class MineflayerWorld implements WorldAdapter {
           else if (!shears && (store.iron_ingot ?? 0) < 2 && (store.raw_iron ?? 0) < 2) reasons.own ??= 'no wool for your bed and no shears or 2 iron for a pair';
           else add({
             id: 'own:shear', kind: 'own', key: me, holds: [], excludes: [`${me}=`], name: 'Shear wool for your bed', rank: 8, basic: true,
+            ...(PROMPT_SELF ? { basicNeed: 'a bed' } : {}),
             at: { x: sheep.x, z: sheep.z },
             facts: `your ${words(st.kind)} has no bed and storage has no wool; 3 wool from the sheep at ${sheep.x},${sheep.z}${shears ? '' : ', shears made from 2 iron first'}; ${dist(sheep.x, sheep.z)}`,
             effect: 'wool for a bed in your own house, then the bed',
@@ -5047,6 +5058,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (!own?.chest) {
         if (P?.chest && !HOME_BASICS.on) add({
           id: 'own:chest', kind: 'own', key: me, excludes: [`${me}=`], name: 'Put a chest in your own house', rank: 940,
+          // (#117: a chest of its own is a basic need, pinned and taken before the weights)
+          ...(PROMPT_SELF ? { basic: true, basicNeed: 'a chest' } : {}),
           at: { x: P.chest.x, z: P.chest.z },
           facts: `your ${words(st!.kind)} has no chest; one takes 2 logs from storage; ${dist(P.chest.x, P.chest.z)}`,
           effect: 'a chest of your own: your share of what you bring in goes there',
@@ -5935,6 +5948,8 @@ export class MineflayerWorld implements WorldAdapter {
         const without = this.homeless(v).length, M = this.growMembers(v).length, more = Math.min(GROW.batch, without) - 1;
         add({
           id: 'grow:street', kind: 'grow', key: 'grow', excludes: ['grow='], rank: 1,
+          // (#117: a house of its own is the first basic need after food)
+          ...(PROMPT_SELF ? { basic: true, basicNeed: 'a house' } : {}),
           name: `Start a street of houses: your own${more > 0 ? ` and up to ${more} more for members without one` : ''} (your own project)`,
           facts: `you have no house; ${without} of ${M} members have none; a small street near the village, built from the task board by the village's workers with you; your name goes on your house's sign`,
           effect: `a house of your own${more > 0 ? ` and homes for ${more} other${more > 1 ? 's' : ''}` : ''}`,
@@ -6169,6 +6184,12 @@ export class MineflayerWorld implements WorldAdapter {
       if (!ref) continue;
       const mine = p.by === a.name ? 'you proposed this' : p.endorsements.some((e) => e.by === a.name) ? 'you backed this' : '';
       if (mine) for (const o of out) if (o.key === ref || o.id === ref) o.mark = `[${mine}]`;
+    }
+    // #117 (MC_PROMPT_SELF): a good made for later that nothing in the village uses yet says so (barrels have the storage
+    // yard with MC_STORAGE_GROW)
+    if (PROMPT_SELF) for (const o of out) {
+      const d = OPTION_RUN.get(o);
+      if (d?.kind === 'make' && unusedGood(d.good)) o.mark ??= UNUSED_TAG;
     }
     // G3 (MC_RULES): options whose takes from storage break a quota or a floor leave the menu, the rule named (logged once
     // a member, option and hour); a duty's options are tagged and ranked first until the member has done it today
@@ -6474,6 +6495,59 @@ export class MineflayerWorld implements WorldAdapter {
     return { persona: scrub(v.name, a.name, persona), character };
   }
 
+  /** #117 (MC_PROMPT_SELF): the member's own state for its prompt: its house (standing, being built or none) and what the
+   *  house has and lacks of its basics, what it carries, its emeralds (MC_OWN), its appetite (an appetite). */
+  private selfFacts(v: Village, a: BotAgent): SelfFacts {
+    const st = v.structures.find((q) => q.owner === a.name && isDwelling(q.kind));
+    const own = v.homes?.[a.name];
+    let house: HouseFacts;
+    if (!st) house = { state: this.homeOf(v, a.name) ? 'building' : 'none' };
+    else {
+      const P = HOME_BASICS.on ? this.decorParts(v).find((q) => q.structure.id === st.id) : undefined;
+      const piece = (p: string) => (p === 'table' ? 'crafting table' : p);
+      let has: string[], lacks: string[];
+      if (P?.basics) {
+        const left = basicsLeft(v, st.id, P.basics, !!own?.chest);
+        has = (['chest', 'table', 'bed'] as const).filter((p) => !left.includes(p)).map((p) => `a ${piece(p)}`);
+        lacks = left.map(piece);
+      } else {
+        has = own?.chest ? ['a chest of your own'] : [];
+        lacks = OWN.on && !own?.chest ? ['chest'] : [];
+      }
+      house = { state: 'standing', label: `the ${words(st.kind)} at ${Math.round((st.x1 + st.x2) / 2)},${Math.round((st.z1 + st.z2) / 2)}`, has, lacks };
+    }
+    const carry: Counts = {};
+    for (const i of a.bot.inventory?.items() ?? []) carry[i.name] = (carry[i.name] ?? 0) + i.count;
+    const ap = appetiteOn(v) ? v.food?.members[a.name] : undefined;
+    return {
+      house, carry, bedPossible: HOME_BASICS.on, chestPossible: HOME_BASICS.on || OWN.on,
+      ...(OWN.on ? { emeralds: (own?.chest?.items.emerald ?? 0) + (carry.emerald ?? 0) } : {}),
+      ...(ap ? { appetite: ap.level, hungry: stateOf(ap.level) !== 'fed' } : {}),
+    };
+  }
+
+  /** #117: what the workshop is short of (gathering's demand against storage) and the goods made for nothing yet. */
+  private scarcityText(v: Village, facts: Facts): string {
+    const s = facts.store;
+    const short = CHOOSE.families.has('gather') ? (() => {
+      const want = facts.gather();
+      return MATERIALS.map((m) => ({ item: m, wanted: want[m].need, stored: m === 'logs' ? (v.wood ? s[`${v.wood}_log`] ?? 0 : Object.entries(s).filter(([x]) => /_log$/.test(x)).reduce((t, [, q]) => t + q, 0)) : s[m] ?? 0 }));
+    })() : [];
+    const unused = CHOOSE.families.has('make') ? this.goodsFor(v).filter(unusedGood).map((g) => g.words) : [];
+    return scarcityLine(short, unused);
+  }
+
+  /** #117: why nothing on the menu feeds the ambition's current stage: its options held back (a ban, a recent failure) or
+   *  the reasons its kinds have none ('' when the stage has no feeding work yet). */
+  private ambitionWhyNot(v: Village, guarded: Array<{ id: string; why: string }>, reasons: Partial<Record<string, string>>): string {
+    const st = LADDER ? v.ladder : undefined;
+    const sd = st?.current ? RUNG_DEFS[st.current as keyof typeof RUNG_DEFS]?.stages[st.stage] : undefined;
+    if (!sd?.feeds) return '';
+    const held = guarded.filter((g) => g.why !== 'trimmed' && feedsStage(v, g.id)).map((g) => `${KIND_WORDS[g.id.split(':')[0]] ?? g.id}: ${/^banned/.test(g.why) ? 'held back after a failure' : g.why}`);
+    const none = feedKinds(sd.feeds).filter((k) => reasons[k]).map((k) => `${KIND_WORDS[k] ?? k}: ${reasons[k]}`);
+    return ambitionGap([...new Set([...held, ...none])]);
+  }
+
   /** The prompt's context (pure): the village at a glance, the others' chores, the agent's last outcomes. */
   private choiceContext(v: Village, a: BotAgent, facts: Facts, menuKinds: string[] = []): ChoiceContext {
     const s = facts.store;
@@ -6522,7 +6596,13 @@ export class MineflayerWorld implements WorldAdapter {
       // (#69: the member's own wants, one line)
       ...(OWN.on ? (() => { const w = this.wantsOf(v, a.name); const line = w ? wantsLine(w) : ''; return line ? { wants: line.slice(0, 240) } : {}; })() : {}),
       // (#79: the member's life goal and its progress, one line)
-      ...(GOALS_ON && v.complete ? (() => { this.goalsFor(v); const line = goalLine(v, a.name); return line ? { goal: line.slice(0, 200) } : {}; })() : {}),
+      ...(GOALS_ON && v.complete ? (() => { this.goalsFor(v); const line = goalLine(v, a.name, PROMPT_SELF); return line ? { goal: line.slice(0, PROMPT_SELF ? 460 : 200) } : {}; })() : {}),
+      // (#117: the member's own state and basic needs; what is short and what is made for nothing)
+      ...(PROMPT_SELF ? (() => {
+        const d = this.selfFacts(v, a);
+        const sc = this.scarcityText(v, facts);
+        return { self: [selfLine(d), basicNeedsLine(d)].filter(Boolean).join(' '), ...(sc ? { scarcity: sc } : {}) };
+      })() : {}),
       // (G8: the ladder's progress line, with a stage's news for a village day)
       ...(LADDER && v.complete ? (() => { ladderOf(v, Date.now()); const line = progressLine(v, Date.now(), MEMORY.dayMs); return line ? { ladder: line } : {}; })() : {}),
       // (N.1: the needs at LOW or above, most acute first)

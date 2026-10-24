@@ -220,7 +220,11 @@ the short version; look here for a check script's arguments, a model detail or w
   `MC_TECH_UNLOCKED=hay+lantern` starts with some; s44's research points, prerequisites and royalties: `MC_TECH_MADE=iron_pickaxe`
   counts tools as made for the tree (the sim has no iron), `MC_TECH_ROYALTY` 0.1; `scripts/checks/tech_unit.mts`). `MC_GOALS=on` (s44, goals.ts: life goals, `[goal]` lines;
   `MC_GOALS_ONLY=beauty,...` narrows the draw; `scripts/checks/goals_unit.mts`; the sim's report adds a line a goal: picks
-  on it against other members' and progress). The panel shows all of it: the village card's Economy tab and the simple
+  on it against other members' and progress). `MC_PROMPT_SELF=on` (#117, promptSelf.ts, off): the choice prompt's own
+  state ("You: no house of your own yet; you carry ...; 3 emeralds; appetite 14 of 20"), basic needs in Maslow's order
+  (food, a house, a bed, a chest: the street, the basics and the own chest pinned and tagged `[your basic need: a bed]`),
+  the goal's meaning, the short materials and goods made for nothing, one ambition option pinned by the trim and why none
+  when none; run it with `MC_BAN_SCOPE=member` (`scripts/checks/prompt_self.mts`; bench runs/2026-10-24/prompt-117/). The panel shows all of it: the village card's Economy tab and the simple
   view's Economy card (members' wealth, the board, inventions, goals), a wealth line on each agent card;
   `runs/2026-10-21/s44/panel_harness.mts VILLAGES.json [PORT]` serves the page against a sim run's record (the sim now keeps
   its `villages.json` in its out folder). The sim's report adds own, spread, claims, barter, innovation lines;
