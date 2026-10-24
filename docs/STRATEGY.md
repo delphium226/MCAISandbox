@@ -89,8 +89,8 @@ offline checks, a staged run, then a model-driven run at 25 (lesson 124).
    needs different specialists, the condition for roles to form. Peaceful mode rules out blazes and endermen, so no
    brewing and no End (to verify in game). Done for a rung when a model-driven village votes for it, works its four
    stages and reaches it. **Iron reached** (10-24, W4: model-driven from a blank map, ~31 min after completion);
-   **letters** built by hand (6ec32ca), voted by W4's village (11 of 25) and reached in a staged run, but at 1x its cane
-   stage stalled at 37 of 48 in ~100 min.
+   **letters reached** (10-24/25, test train 2's L1: model-driven from a blank map at 1x, voted at +34 min, reached at
+   vote +76 with `MC_LETTERS_PACE`; 886af89, F315); the village then voted for trade.
 
 **Why this order:** memory is goal 4 itself, and every behaviour in goal 2 needs agents that remember: profiles,
 promises, reputations, rules and customs all live in memory. G5 and G6 can run beside G1-G4 where their files do not
@@ -188,3 +188,4 @@ number rather than a goal.
   worlds, standard checkpoints) once or twice a day (Rules for work sessions).
 - 2026-10-24: **G8's iron rung reached** in a model-driven run (W4, `runs/2026-10-24/watch-all/report.md`); letters
   voted next and built, its cane pace at 1x the open problem.
+- 2026-10-25: **G8's letters rung reached** model-driven (test train 2, F315); the next vote chose the trade branch.
