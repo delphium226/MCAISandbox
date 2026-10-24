@@ -85,6 +85,7 @@ import { HOUSE_UNITS, LANDMARK_UNITS, MAX_SMELTS, VANILLA_ALL, WOOD_VARIANTS, ba
 import { GEN_HOMES, familyKey, homeOwner, isHomeName } from '../houseStyle';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
+import { rawSetting } from '../settings';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -161,7 +162,7 @@ export type DecorPart = {
 };
 
 /** Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. */
-const LIGHT_FACADES = process.env.MC_LIGHT_FACADES !== '0';
+const LIGHT_FACADES = rawSetting('MC_LIGHT_FACADES') !== '0';
 
 /** One good's plan for the workshop now (makePlan): the batch it makes, or why none. */
 type MakePlan = { count: number; bill: Counts; inputs: Counts; smelts: boolean; craft?: { item: string; count: number; wood: string } } | { why: string };
@@ -7845,16 +7846,16 @@ export class MineflayerWorld implements WorldAdapter {
 /** The wait between chores (the user's, 10-22): MC_QUICK_NEXT=on runs the village's check within a few seconds of a
  *  chore's end (at most every QUICK_GAP_MS) instead of at the 30 s cycle, and skips the 10 s member cooling for a chore
  *  whose actions all finished (the cooling is for a stopped or removed agent whose skill's finally still runs). */
-const QUICK_NEXT = /^(on|1|true|yes)$/i.test(process.env.MC_QUICK_NEXT ?? '');
+const QUICK_NEXT = /^(on|1|true|yes)$/i.test(rawSetting('MC_QUICK_NEXT') ?? '');
 /** #97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its
  *  answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts
  *  as an open project against INITIATIVES_MAX. The counterfactual on All1 and train 1 (runs/2026-10-24/collisions-97):
  *  56-63% of the model's lost picks were taken in flight by another member, 13-18% lost to the projects' cap. */
-const CHOICE_HOLDS = /^(on|1|true|yes)$/i.test(process.env.MC_CHOICE_HOLDS ?? '');
+const CHOICE_HOLDS = /^(on|1|true|yes)$/i.test(rawSetting('MC_CHOICE_HOLDS') ?? '');
 /** #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options
  *  with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the
  *  village's cap (under twice it); the filler makes leave such a menu (spec runs/2026-10-24/policy-122). */
-const POLICY_OPTIONS = /^(on|1|true|yes)$/i.test(process.env.MC_POLICY_OPTIONS ?? '');
+const POLICY_OPTIONS = /^(on|1|true|yes)$/i.test(rawSetting('MC_POLICY_OPTIONS') ?? '');
 const GATHER_ANYWAY_MAX = 192;
 const PAST_TAG = '[past a village limit]';
 /** A make of a good nothing uses now: its effect says it is for later, nothing places it, or it is the torch reserve (All1
@@ -7865,8 +7866,8 @@ const QUICK_GAP_MS = 5000;
 /** A choice commits a member to a block of work (the user's, 10-22): MC_WORK_BLOCKS=on: a model or fixed choice opens a
  *  block of MC_BLOCK_MIN minutes (6, divided by MC_TIME_SCALE) in which the same option runs again with no new decision
  *  while it is on the member's menu; a failure, a chore that gained nothing, or hunger ends it early. */
-const WORK_BLOCKS = /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
-const BLOCK_MS = (Number(process.env.MC_BLOCK_MIN ?? 6) * 60000) / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
+const WORK_BLOCKS = /^(on|1|true|yes)$/i.test(rawSetting('MC_WORK_BLOCKS') ?? '');
+const BLOCK_MS = (Number(rawSetting('MC_BLOCK_MIN') ?? 6) * 60000) / Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** With work blocks, an agent's model decisions at least this far apart (CHOOSE.minGapMs' 90 s otherwise). */
 const BLOCK_GAP_MS = 30000;
 
@@ -7978,7 +7979,7 @@ type InitiativeStep = { what: 'gather'; material: Material | 'flowers' | 'saplin
 const GREEN_SIZE = 15;
 /** Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER
  *  for experiments, s43). */
-const GREENS_PER = Number(process.env.MC_GREENS_PER) || 5;
+const GREENS_PER = Number(rawSetting('MC_GREENS_PER')) || 5;
 /** Ring point i's direction (0 east, clockwise: z grows to the south). */
 const DIRECTIONS = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'];
 /** A vote under way (spec_vote1): its ballots come in as the calls end. */
@@ -7989,29 +7990,29 @@ const CANE_FULL = 14;
 const STALL_BY = 'the village';
 /** X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo
  *  option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). */
-const PROJECTS_ON = !/^(off|0|false)$/i.test(process.env.MC_PROJECTS ?? 'on');
+const PROJECTS_ON = !/^(off|0|false)$/i.test(rawSetting('MC_PROJECTS') ?? 'on');
 /** #75: public works may repeat a piece once the unbuilt ones run out (off by default, s43). */
-const WORKS_REPEAT = /^(on|1|true)$/i.test(process.env.MC_WORKS_REPEAT ?? 'off');
+const WORKS_REPEAT = /^(on|1|true)$/i.test(rawSetting('MC_WORKS_REPEAT') ?? 'off');
 /** #75: works that grow with the village (off by default): standing buildings refitted a tier on their own cells (refit.ts),
  *  offered in the public-work vote where new works leave slots (runs/2026-10-21/works-grow/design.md). */
-const WORKS_GROW = /^(on|1|true)$/i.test(process.env.MC_WORKS_GROW ?? 'off');
-const REFIT_FIRST = /^(on|1|true)$/i.test(process.env.MC_REFIT_FIRST ?? 'off');
+const WORKS_GROW = /^(on|1|true)$/i.test(rawSetting('MC_WORKS_GROW') ?? 'off');
+const REFIT_FIRST = /^(on|1|true)$/i.test(rawSetting('MC_REFIT_FIRST') ?? 'off');
 /** How far a public work's uncommon materials are looked for (96, not the village range: at 144 the atlas saw sandstone
  *  that collect never reached, and a savanna quarter waited an hour for it, s43's Rch6). */
 const WORK_MATERIAL_RANGE = 96;
 /** Menu reasons that do not block a need (needNote): another member is on it, this member only, or it is under way. */
 const NOT_BLOCKING = new Set(['busy', 'hungry', 'has a house', 'a street is asked for', 'a layout is being built', 'a vote is under way']);
 const PROJECT_FARMSTEAD = 'farmstead';
-const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number(process.env.MC_PROJECT_REST_MS ?? 2 * 60000);
+const PROJECT_NONE = 'none', PROJECT_HOUSES = 'houses', PROJECT_REST_MS = Number(rawSetting('MC_PROJECT_REST_MS') ?? 2 * 60000);
 /** s35: initiatives open at once in a village (MC_INITIATIVES; 0: none), gatherers on one initiative at once, and how
  *  long one waits with no step taken before it lapses. */
 /** N.2 (s37): a street of houses asked for and not laid out within this long is dropped (H4); a member's own house is
  *  left to it this long once its Build task can be claimed (H7); public works wait this long after the last street while
  *  members have no house; another member's house is its own to furnish and light this long, then anyone may help (H8). */
 const HOME_REQUEST_MS = 15 * 60000, OWNER_FIRST_MS = 3 * 60000, HOME_FIRST_MS = 10 * 60000, OWN_DECOR_MS = 10 * 60000;
-const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
+const INITIATIVES_MAX = Number(rawSetting('MC_INITIATIVES') ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
 /** MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). */
-const INITIATIVE_STORE = !/^(off|0|false)$/i.test(process.env.MC_INITIATIVE_STORE ?? 'on');
+const INITIATIVE_STORE = !/^(off|0|false)$/i.test(rawSetting('MC_INITIATIVE_STORE') ?? 'on');
 /** #121: the storage yard is due at this share of the storage's slots used, with at most STORE_FREE spots free. */
 const STORE_AT = 0.75, STORE_FREE = 2;
 
@@ -8033,17 +8034,17 @@ export function storageDue(v: Village, st: { used: number; cap: number }, free: 
 /** The storage's tidy-up (s40): strays filling this many slots, at most every TIDY_MS. */
 const TIDY_SLOTS = 6, TIDY_MS = 10 * 60000;
 /** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */
-const NEEDS_MODE: 'off' | 'show' | 'on' = process.env.MC_NEEDS === 'show' || process.env.MC_NEEDS === 'on' ? process.env.MC_NEEDS : 'off';
+const NEEDS_MODE: 'off' | 'show' | 'on' = rawSetting('MC_NEEDS') === 'show' || rawSetting('MC_NEEDS') === 'on' ? (rawSetting('MC_NEEDS') as 'show' | 'on') : 'off';
 /** How often a village's needs are read. */
 const NEED_TICK_MS = 30000;
 
 /** X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). */
-const QUARTER = Math.max(1, Number(process.env.MC_QUARTER ?? 3));
+const QUARTER = Math.max(1, Number(rawSetting('MC_QUARTER') ?? 3));
 /** A non-dwelling piece's kind ("plains_tool_smith_1" -> "tool_smith"): one of a kind on a ballot and in a quarter. */
 const workKind = (name: string) => name.replace(/^(plains|desert|savanna|snowy|taiga)_/, '').replace(/_\d+$/, '').replace(/_(house|shop)$/, '').replace(/s$/, '');
 
 /** A.3p: how long a disliked option waits for a member who likes it before anyone takes it (MC_DECLINE_MS). */
-const DECLINE_MS = Number(process.env.MC_DECLINE_MS ?? 90000);
+const DECLINE_MS = Number(rawSetting('MC_DECLINE_MS') ?? 90000);
 
 const KIND_WORDS: Record<string, string> = { farm: 'harvesting', slot: 'harvesting', start: 'starting farms', annex: 'preparing the annex', pen: 'leading animals', penwork: 'tending pens', cake: 'baking', iron: 'iron work', explore: 'exploring',
   works: 'preparing the works', make: 'making goods', gather: 'gathering for the workshop', light: 'lighting', furnish: 'furnishing', initiate: 'starting projects', help: 'helping with projects', grow: 'laying out houses', eat: 'eating', tidy: 'tidying the storage', activity: 'the new crafts' };

@@ -13,10 +13,11 @@ import { CAPABILITIES, statusOf, type Capability, type CapStatus } from './wante
 import { SMALL_WORKS } from './smallWorks';
 import type { MaterialPlan } from './mineflayer/mcMaterials';
 import type { ToolDef } from './world';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
-export const PROPOSALS_ON = /^(on|1|true)$/i.test(process.env.MC_PROPOSALS ?? 'off');
+export const PROPOSALS_ON = /^(on|1|true)$/i.test(rawSetting('MC_PROPOSALS') ?? 'off');
 
 // ---------------------------------------------------------------------------------------------
 // The shapes

@@ -7,11 +7,12 @@
  */
 import type { Counts } from './mineflayer/mcMaterials';
 import { LETTERS } from './ladderFlags';
+import { rawSetting } from './settings';
 
 /** On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. */
-export const MERCHANT_ON = (process.env.MC_MERCHANT ?? 'on') === 'on';
+export const MERCHANT_ON = (rawSetting('MC_MERCHANT') ?? 'on') === 'on';
 /** Minutes between restocks (wall minutes times MC_TIME_SCALE, as the other after-phase clocks). */
-export const MERCHANT_RESTOCK_MIN = Number(process.env.MC_MERCHANT_RESTOCK ?? 20);
+export const MERCHANT_RESTOCK_MIN = Number(rawSetting('MC_MERCHANT_RESTOCK') ?? 20);
 /** The merchant's entity tag, and a village's own. */
 export const MERCHANT_TAG = 'mcai_merchant';
 export const villageTag = (village: string) => `mcai_v_${village.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
@@ -63,7 +64,7 @@ export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];
  * merchant's level (vanilla's five), which allows dearer orders and more of them at once. Off by default
  * (MC_MERCHANT_ORDERS=on).
  */
-export const ORDERS_ON = (process.env.MC_MERCHANT_ORDERS ?? 'off') === 'on';
+export const ORDERS_ON = (rawSetting('MC_MERCHANT_ORDERS') ?? 'off') === 'on';
 export interface MerchantOrder { id: string; item: string; n: number; emeralds: number; raw: number; at: number; restocks: number; state: 'open' | 'filled' | 'expired'; by?: string; end?: number }
 /** Emeralds traded to reach each level (1-5). */
 export const LEVEL_XP = [0, 10, 40, 100, 200];
@@ -73,7 +74,7 @@ export const ORDER_RAW_CAP = [0, 16, 32, 64, 128, Infinity];
 export const ordersOpen = (level: number) => 1 + Math.floor(level / 2);
 export const ORDER_EXPIRE_RESTOCKS = 3;
 /** An order's count in the good's batches (MC_MERCHANT_ORDER_SIZE, 1). */
-export const ORDER_SIZE = Math.max(1, Number(process.env.MC_MERCHANT_ORDER_SIZE ?? 1) || 1);
+export const ORDER_SIZE = Math.max(1, Number(rawSetting('MC_MERCHANT_ORDER_SIZE') ?? 1) || 1);
 /** An order's pay: its raw materials at the logs' price (16 an emerald) and half again for the work, at least 1. */
 export const orderPay = (raw: number) => Math.max(1, Math.round((1.5 * raw) / 16));
 /** A stable pick among candidates (FNV-1a of the seed): the same village and order number give the same order. */

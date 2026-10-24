@@ -12,6 +12,7 @@ import { PAY, bountyFunded, contractOf, givePurse, guideFor, levyDeposited, make
 import { RULES, levyRate } from '../rules';
 import type { Village } from '../village';
 import { takeRefused } from './mcStorage';
+import { rawSetting } from '../settings';
 
 type Counts = Record<string, number>;
 
@@ -43,7 +44,7 @@ export function startPay(w: PayWorld): void {
   const env: PayEnv = {
     village: (n) => w.village(n),
     held: (v, agent) => held(boardOf(v), agent),
-    rate: (village) => (RULES.on ? levyRate(village) : Number(process.env.MC_LEVY) || undefined),
+    rate: (village) => (RULES.on ? levyRate(village) : Number(rawSetting('MC_LEVY')) || undefined),
     guide: (v, agent, option) => guideOf(v.name, agent, option),
     guideLine: (v, agent) => guideLines(v.name, agent),
     // (spec 9: from the commons' emeralds above the merchant's keep, taken by command and counted; else minted)

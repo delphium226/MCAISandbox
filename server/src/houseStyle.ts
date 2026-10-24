@@ -10,8 +10,9 @@ import { V2_LIMITS, generateDesign, type BuildingStyle } from './buildingGen';
 import { goalFromValues, hexacoOf, hexacoWeights, valuesOf, VALUES, type Value } from './character';
 import { HOUSE_UNITS, HOUSE_UNITS_LARGE, MAX_SMELTS } from './designs';
 import type { Design } from './village';
+import { rawSetting } from './settings';
 
-export const GEN_HOMES = /^(on|1|true)$/i.test(process.env.MC_GEN_HOMES ?? 'off');
+export const GEN_HOMES = /^(on|1|true)$/i.test(rawSetting('MC_GEN_HOMES') ?? 'off');
 
 /** A neighbourhood's look, after vanilla's village of its biome. */
 export interface Family {

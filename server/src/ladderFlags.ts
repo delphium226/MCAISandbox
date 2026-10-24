@@ -1,5 +1,6 @@
 /** G8's flags (ladder.ts), apart so the mine and build skills can read them without ladder.ts' imports. */
-const flag = (name: string) => /^(on|1|true|yes)$/i.test(process.env[name] ?? '');
+import { rawSetting } from './settings';
+const flag = (name: string) => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? '');
 /** MC_LADDER: the ladder's state, the progress line, the stage tags and the rung ballot (wanted.ts reads the same). */
 export const LADDER = flag('MC_LADDER');
 /** MC_IRON_AGE: the widened iron chain (dig on up to 3 legs, smelt at the works furnaces, forge for a named member,

@@ -6,9 +6,10 @@
  * meaning is goals.ts' GOAL_MEANING; the pins and tags are choose.ts'. World-free: the world (mcWorld.ts) gathers the
  * facts and calls these; scripts/checks/prompt_self.mts checks them.
  */
+import { rawSetting } from './settings';
 type Counts = Record<string, number>;
 
-export const PROMPT_SELF = !/^(off|0|false|no)$/i.test(process.env.MC_PROMPT_SELF ?? 'on');
+export const PROMPT_SELF = !/^(off|0|false|no)$/i.test(rawSetting('MC_PROMPT_SELF') ?? 'on');
 
 /** The member's own house as the prompt names it: none, one under construction, or one standing with what it has and lacks. */
 export type HouseFacts = { state: 'none' } | { state: 'building' } | { state: 'standing'; label: string; has: string[]; lacks: string[] };

@@ -18,14 +18,15 @@
 import { KIND_WORDS, MEMORY, logAct, membersOf, setScrubber, setVillageLineShown, socialOf, touchMemory } from './memory';
 import { NAME_POOL } from './agentNames';
 import { noteFact, think } from './character';
+import { rawSetting } from './settings';
 
 const MODES = ['legacy', 'on', 'noblock', 'countsonly', 'off'] as const;
 export type SocialMode = (typeof MODES)[number];
 
-const rawMode = (process.env.MCAI_SOCIAL ?? 'legacy').trim().toLowerCase();
+const rawMode = (rawSetting('MCAI_SOCIAL') ?? 'legacy').trim().toLowerCase();
 export const SOCIAL = {
   mode: ((MODES as readonly string[]).includes(rawMode) ? rawMode : 'legacy') as SocialMode,
-  roles: /^show$/i.test(process.env.MCAI_SOCIAL_ROLES ?? ''),
+  roles: /^show$/i.test(rawSetting('MCAI_SOCIAL_ROLES') ?? ''),
 };
 if (!(MODES as readonly string[]).includes(rawMode)) console.warn(`[social] MCAI_SOCIAL=${rawMode} is not one of ${MODES.join(', ')}: legacy`);
 if (SOCIAL.mode !== 'legacy' && SOCIAL.mode !== 'noblock' && !MEMORY.on) console.warn(`[social] MCAI_SOCIAL=${SOCIAL.mode} without MC_MEMORY=on: profiles are kept but not cleared at a run's start`);

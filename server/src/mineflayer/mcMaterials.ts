@@ -12,6 +12,7 @@
 import type minecraftData from 'minecraft-data';
 import type { Design } from '../village';
 import { hasJar, itemTag, listEntries, readJson, vanillaJar } from '../vanillaData';
+import { rawSetting } from '../settings';
 
 type Registry = ReturnType<typeof minecraftData>;
 export type Counts = Record<string, number>;
@@ -51,7 +52,7 @@ const GATHER = new Set(['coal', 'raw_iron', 'raw_copper', 'raw_gold', 'white_woo
   // (10-22, the flowers knowledge gap: what collect and the farms give that dyes are made of; the cactus smelts to green dye)
   ...FLOWER_ITEMS, 'cactus', 'beetroot',
   // (#104, MC_VANILLA_ALL: diorite, the snowy pieces' stand-in for snow and ice, mined as it lies, not made from quartz)
-  ...(/^(on|1|true|yes)$/i.test(process.env.MC_VANILLA_ALL ?? '') ? ['diorite'] : [])]);
+  ...(/^(on|1|true|yes)$/i.test(rawSetting('MC_VANILLA_ALL') ?? '') ? ['diorite'] : [])]);
 
 /** Gathered items that take finding (ores underground, animals): charcoal from logs beats coal ore, for example. */
 const GATHER_COST: Record<string, number> = { coal: 2, raw_iron: 3, raw_copper: 3, raw_gold: 4, leather: 3, white_wool: 2, clay_ball: 2, sugar_cane: 2, vine: 2, cod: 3, salmon: 3,
@@ -65,7 +66,7 @@ const gatherCost = (name: string) => GATHER_COST[name] ?? (/^stripped_/.test(nam
  * for 10 minutes, Accept5), so a village design should not need it.
  */
 const EASY_GATHER_BASE = /^(any:logs|any:cobblestone|.*_(log|stem)|cobblestone|stone|sand|red_sand|sandstone|red_sandstone|dirt|gravel|(.*_)?terracotta)$/;
-const EASY_GATHER = /^(on|1|true|yes)$/i.test(process.env.MC_VANILLA_ALL ?? '') ? new RegExp(EASY_GATHER_BASE.source.replace('|dirt|', '|dirt|diorite|')) : EASY_GATHER_BASE;
+const EASY_GATHER = /^(on|1|true|yes)$/i.test(rawSetting('MC_VANILLA_ALL') ?? '') ? new RegExp(EASY_GATHER_BASE.source.replace('|dirt|', '|dirt|diorite|')) : EASY_GATHER_BASE;
 export const hardToGather = (gather: Counts) => Object.keys(gather).filter((n) => !EASY_GATHER.test(n));
 
 /** Not obtainable in a peaceful overworld: Nether blocks and hostile-mob drops (also the activity validator's, activities.ts). */

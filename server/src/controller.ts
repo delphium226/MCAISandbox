@@ -11,13 +11,14 @@
  *   MC_SCRIPTED_ACTS  0.3: with MC_CHOOSE=scripted, the chance a scripted decision carries an act and a line
  */
 import { MEMORY, agentMemory, clockOf } from './memory';
+import { rawSetting } from './settings';
 
 export const CONTROLLER = {
-  on: /^(on|1|true|yes)$/i.test(process.env.MC_CONTROLLER ?? ''),
-  intentWeight: Number(process.env.MC_INTENT_WEIGHT ?? 1.3),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_CONTROLLER') ?? ''),
+  intentWeight: Number(rawSetting('MC_INTENT_WEIGHT') ?? 1.3),
 };
 
-export const SCRIPTED_ACTS = Number(process.env.MC_SCRIPTED_ACTS ?? 0.3);
+export const SCRIPTED_ACTS = Number(rawSetting('MC_SCRIPTED_ACTS') ?? 0.3);
 
 /** Test hook. */
 export function setControllerSettings(s: Partial<typeof CONTROLLER>): void {

@@ -17,16 +17,17 @@ import { KIND_WORDS, agentMemory, clockOf, logAct, touchMemory, villageSocialOf 
 import { FOOD_POINTS } from './appetite';
 import type { Rule } from './social';
 import type { Village } from './village';
+import { rawSetting } from './settings';
 
 const isFood = (item: string) => item in FOOD_POINTS;
 
 export const RULES = {
-  on: /^(on|1|true|yes)$/i.test(process.env.MC_RULES ?? ''),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_RULES') ?? ''),
   /** A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. */
-  levy: Number.isFinite(Number(process.env.MC_LEVY)) && process.env.MC_LEVY ? Math.min(0.5, Math.max(0, Number(process.env.MC_LEVY))) : undefined as number | undefined,
+  levy: Number.isFinite(Number(rawSetting('MC_LEVY'))) && rawSetting('MC_LEVY') ? Math.min(0.5, Math.max(0, Number(rawSetting('MC_LEVY')))) : undefined as number | undefined,
   /** Experiment 2: a pending share is asked once it holds at least this many items (MC_LEVY_MIN, default 1: G3m1's shares
    *  were 1-4 items, the levy of 1 the same as all, so every answer paid). */
-  levyMin: Math.max(1, Number(process.env.MC_LEVY_MIN) || 1),
+  levyMin: Math.max(1, Number(rawSetting('MC_LEVY_MIN')) || 1),
 };
 /** Test hook. */
 export function setRulesSettings(s: Partial<typeof RULES>): void {

@@ -13,22 +13,23 @@ import { usage, isCloudModel, REASONING } from './modelUsage';
 import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import { MEMORY, WINDOWS, clockOf, logAct, offsetIn, touchMemory, villageSocialOf } from './memory';
 import { RULES, enact, judgeDays, laws, levyRate, preview, rulesInForce, stake, type Law } from './rules';
+import { rawSetting } from './settings';
 
 export const COUNCIL = {
-  on: /^(on|1|true|yes)$/i.test(process.env.MC_COUNCIL ?? ''),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_COUNCIL') ?? ''),
   /** #1, the need vote: a need its answers sat untaken on for a village day goes on the next ballot (MC_NEED_VOTE, off). */
-  needVote: /^(on|1|true|yes)$/i.test(process.env.MC_NEED_VOTE ?? ''),
+  needVote: /^(on|1|true|yes)$/i.test(rawSetting('MC_NEED_VOTE') ?? ''),
   /** Experiment 2 (#33): a code-placed levy item on this day's ballot (MC_LEVY_VOTE=day2: rates 0-50%, the lower median). */
-  levyVoteDay: Number(/^day(\d+)$/i.exec(process.env.MC_LEVY_VOTE ?? '')?.[1] ?? 0) || 0,
+  levyVoteDay: Number(/^day(\d+)$/i.exec(rawSetting('MC_LEVY_VOTE') ?? '')?.[1] ?? 0) || 0,
   /** Experiment 2's imposed arm: code sets the levy to R% at the moment the vote would be counted (MC_LEVY_SET=day2:30). */
-  levySet: (() => { const m = /^day(\d+):(\d+)$/i.exec(process.env.MC_LEVY_SET ?? ''); return m ? { day: Number(m[1]), rate: Number(m[2]) } : null; })(),
+  levySet: (() => { const m = /^day(\d+):(\d+)$/i.exec(rawSetting('MC_LEVY_SET') ?? ''); return m ? { day: Number(m[1]), rate: Number(m[2]) } : null; })(),
   /** Experiment 2's influencers (MCAI_INFLUENCERS=pro|anti): these members argue for a higher or lower levy and cast no
    *  levy ballot (MCAI_INFLUENCER_NAMES, default three of the 24 workers). */
-  influencers: (process.env.MCAI_INFLUENCERS ?? '').toLowerCase() as '' | 'pro' | 'anti',
-  influencerNames: (process.env.MCAI_INFLUENCER_NAMES ?? 'Ben,Kai,Sam').split(',').map((x) => x.trim()).filter(Boolean),
+  influencers: (rawSetting('MCAI_INFLUENCERS') ?? '').toLowerCase() as '' | 'pro' | 'anti',
+  influencerNames: (rawSetting('MCAI_INFLUENCER_NAMES') ?? 'Ben,Kai,Sam').split(',').map((x) => x.trim()).filter(Boolean),
   /** #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for
    *  each item, attributed, both sides when both were given (the staggered offsets order the voters). */
-  deliberate: /^(on|1|true|yes)$/i.test(process.env.MC_DELIBERATE ?? ''),
+  deliberate: /^(on|1|true|yes)$/i.test(rawSetting('MC_DELIBERATE') ?? ''),
 };
 /** Test hook. */
 export function setCouncilSettings(s: Partial<typeof COUNCIL>): void {

@@ -25,6 +25,7 @@ import type { Village } from '../village';
 import { WANTED_ON, recordTop, topWanted, wantedList, type WantedHistory } from '../wanted';
 import { MC_SKILLS } from './mcSkills';
 import type { MineflayerWorld } from './mcWorld';
+import { rawSetting } from '../settings';
 
 // GET /api/perf's figures (E.1: [lag] shows only stalls over 2 s): the event loop's delay, sampled every 10 ms and started
 // over every minute, reported over that minute and the one before it (a stall recorded just before a restart would be
@@ -73,7 +74,7 @@ function perf(w: MineflayerWorld) {
 }
 
 /** The repo (MCAI_ROOT when this runs from a code snapshot, as index.ts reads it). */
-const REPO = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const REPO = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /** G6's wanted list for a village (wanted.ts): the world's registry, recipe plan, skills and the library's activities. */
 function wantedOf(w: MineflayerWorld, v: Village) {

@@ -17,18 +17,19 @@ import { CallWithdrawn, callModel, type ModelSpec } from './modelCall';
 import { usage, isCloudModel, type ReasoningLevel } from './modelUsage';
 import type { Temperament } from './temperament';
 import type { ChoiceOption, ToolDef } from './world';
+import { rawSetting } from './settings';
 
 export type VoteMode = 'model' | 'predicted' | 'off';
-const rawVote = (process.env.MC_VOTE ?? '').trim().toLowerCase();
+const rawVote = (rawSetting('MC_VOTE') ?? '').trim().toLowerCase();
 /** The setting, if given; else the world decides per village (model when its members choose chores by model, the
  *  critique's M3: the chore mode is per agent, memory.choose). */
 export const VOTE_SETTING: VoteMode | null = rawVote === 'model' || rawVote === 'predicted' || rawVote === 'off' ? rawVote : null;
 /** Ballots of one vote at once (the gate's low class has 2 of the 3 cloud slots at most: the critique's M2). */
-export const BALLOTS_PARALLEL = Number(process.env.MC_BALLOTS_PARALLEL ?? 2);
+export const BALLOTS_PARALLEL = Number(rawSetting('MC_BALLOTS_PARALLEL') ?? 2);
 /** A vote is tallied once every ballot is in or after this long (abstentions for the rest). */
-export const VOTE_MAX_MS = Number(process.env.MC_VOTE_MAX_MS ?? 4 * 60000);
+export const VOTE_MAX_MS = Number(rawSetting('MC_VOTE_MAX_MS') ?? 4 * 60000);
 /** A ballot's call is cut off this long after its send. */
-const BALLOT_FALLBACK_MS = Number(process.env.MC_BALLOT_FALLBACK_MS ?? 30000);
+const BALLOT_FALLBACK_MS = Number(rawSetting('MC_BALLOT_FALLBACK_MS') ?? 30000);
 
 /** One option on a ballot. The features are code's, for the predicted ballot (never shown). */
 export interface VoteOption {

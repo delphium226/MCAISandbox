@@ -14,6 +14,7 @@ import { growing, housesOf } from './grow';
 import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
 import { appetiteOn, stateOf, type Appetite } from './appetite';
+import { rawSetting } from './settings';
 
 export interface Area {
   x1: number;
@@ -649,7 +650,7 @@ export interface OwnStock { chest?: { x: number; y: number; z: number; items: Re
 
 /** How far a village's mayor and its site searches may go from home (MC_VILLAGE_RANGE; 144 since s43: the land within 96
  * ran out at ~40 minutes, F262, and at 144 a 90-minute village stayed busy, F263). */
-export const VILLAGE_RANGE = Number(process.env.MC_VILLAGE_RANGE) || 144;
+export const VILLAGE_RANGE = Number(rawSetting('MC_VILLAGE_RANGE')) || 144;
 /** How far a farm slot's start (a chore once the village stands) may walk for its first plants, and exploring may go. */
 export const FARM_TRIP_RANGE = Math.max(160, VILLAGE_RANGE);
 /**

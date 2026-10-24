@@ -15,11 +15,12 @@ import { ownOf } from './own';
 import type { MaterialPlan } from './mineflayer/mcMaterials';
 import type { MakeGood } from './mineflayer/mcWorkshop';
 import type { Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** On with MC_INNOVATE=on. */
-export const INNOVATE = /^(on|1|true)$/i.test(process.env.MC_INNOVATE ?? 'off');
+export const INNOVATE = /^(on|1|true)$/i.test(rawSetting('MC_INNOVATE') ?? 'off');
 
 /**
  * An entry: the goods it adds, what the village must hold first, one attempt's materials (`success`: taken only when the
@@ -130,7 +131,7 @@ export interface Tech { unlocked: string[]; at: Record<string, number>; inventor
 export function techOf(v: Village): Tech {
   const x = v as Village & { innovation?: Tech };
   // (MC_TECH_UNLOCKED=hay,campfire: entries a village starts with, for experiments)
-  const t = (x.innovation ??= { unlocked: (process.env.MC_TECH_UNLOCKED ?? '').split(/[,;+]/).filter((id) => LIBRARY.some((e) => e.id === id)), at: {}, inventor: {}, tries: {}, pledges: {}, failed: {} } as Tech);
+  const t = (x.innovation ??= { unlocked: (rawSetting('MC_TECH_UNLOCKED') ?? '').split(/[,;+]/).filter((id) => LIBRARY.some((e) => e.id === id)), at: {}, inventor: {}, tries: {}, pledges: {}, failed: {} } as Tech);
   // (v2's fields on a v1 record)
   t.attempts ??= {};
   t.points ??= {};
@@ -297,7 +298,7 @@ export interface Candidate { e: LibraryEntry; rank: number; why: string[]; deman
  */
 export function candidates(v: Village, store: Counts, wants: Counts, held: Counts, now: number, made: string[] = []): Candidate[] {
   const t = techOf(v);
-  const tools = new Set([...made, ...(process.env.MC_TECH_MADE ?? '').split(/[,;+]/).filter(Boolean)]);
+  const tools = new Set([...made, ...(rawSetting('MC_TECH_MADE') ?? '').split(/[,;+]/).filter(Boolean)]);
   const out: Candidate[] = [];
   void now;
   for (const e of LIBRARY) {
@@ -353,7 +354,7 @@ export const royaltyGood = (item: string) => {
 };
 
 /** The inventors' royalty (s44, the user's): this share of every batch the workshop makes of an unlocked entry's goods. */
-export const ROYALTY = Math.min(1, Math.max(0, Number(process.env.MC_TECH_ROYALTY ?? 0.1)));
+export const ROYALTY = Math.min(1, Math.max(0, Number(rawSetting('MC_TECH_ROYALTY') ?? 0.1)));
 
 /**
  * The royalty on goods the workshop put into the commons (`made`, by item): for each final good of an unlocked entry, ROYALTY of

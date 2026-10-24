@@ -10,6 +10,7 @@ import { VANILLA_ALL, rewoodBlock } from './designs';
 import { vanillaJar } from './vanillaData';
 import { VILLAGE_BIOMES, decorToDesign, listDecorPieces, listPieces, pieceToDesign, readPiece, yardToDesign } from './vanillaPieces';
 import type { Area, Design } from './village';
+import { rawSetting } from './settings';
 
 export interface SmallWorkKind {
   /** The kind's key, in the design's name (small_<kind>_<wood>). */
@@ -155,7 +156,7 @@ function signpost(w: string): Design {
  * layer 0 keeps the ground, which must be soil (the world's soil test in gardenSpots). Their spots come from gardenSpots,
  * not smallWorkSpots: they hug a door or a green's centre, where other works keep off.
  */
-export const GARDENS = /^(on|1|true)$/i.test(process.env.MC_GARDENS ?? 'off');
+export const GARDENS = /^(on|1|true)$/i.test(rawSetting('MC_GARDENS') ?? 'off');
 /** The flower a garden plants (the commonest near minevale3, yellow; one item a block). */
 export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
 

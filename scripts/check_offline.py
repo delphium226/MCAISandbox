@@ -49,6 +49,9 @@ def commands():
     out["choice_holds"] = ([node, TSX, "scripts/checks/choice_holds.mts"], ["mc/testcheckpoints/mv3_base25/villages.json"])
     # (#122, MC_POLICY_OPTIONS: the gated options on a filler-only menu of im2_mine set up for it, flag on and off)
     out["policy_options"] = ([node, TSX, "scripts/checks/policy_options.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (#115: the settings registry against the server's reads, and docs/SETTINGS.md up to date)
+    out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
+    out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     return out
 
 

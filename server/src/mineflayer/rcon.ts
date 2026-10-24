@@ -3,10 +3,11 @@
  * (set game modes, teleport, op agents, run build commands). Commands run one at a time, in order.
  */
 import net from 'node:net';
+import { rawSetting } from '../settings';
 
 // How long a command's reply may take (E.1): one lost reply used to hold the single chain, and every agent behind it,
 // for good. Long enough for the longest /fill.
-const TIMEOUT_MS = Number(process.env.MC_RCON_TIMEOUT_MS ?? 15000) || 15000;
+const TIMEOUT_MS = Number(rawSetting('MC_RCON_TIMEOUT_MS') ?? 15000) || 15000;
 
 /** A command (or the connection) got no answer within MC_RCON_TIMEOUT_MS; whether the server ran it is unknown. */
 export class RconTimeout extends Error {

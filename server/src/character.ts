@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { workerNumber, workerName } from './agentNames';
 import { KIND_WORDS, logAct } from './memory';
+import { rawSetting } from './settings';
 
 // (choose.ts' seeded helpers, copied: choose.ts imports this module, and the draws below run at load)
 function fnv1a(s: string): number {
@@ -56,8 +57,8 @@ function shuffled<T>(xs: T[], seed: string): T[] {
 }
 
 const flag = (v: string | undefined) => /^(on|1|true|yes)$/i.test(v ?? '');
-const CHARACTER_ON = flag(process.env.MC_CHARACTER);
-const layer = (name: string) => (process.env[name] === undefined || process.env[name] === '' ? CHARACTER_ON : flag(process.env[name]));
+const CHARACTER_ON = flag(rawSetting('MC_CHARACTER'));
+const layer = (name: string) => (rawSetting(name) === undefined || rawSetting(name) === '' ? CHARACTER_ON : flag(rawSetting(name)));
 
 export const CHARACTER = {
   on: CHARACTER_ON,
@@ -69,10 +70,10 @@ export const CHARACTER = {
   identity: layer('MC_IDENTITY'),
 };
 // (B3: MC_CHARACTER is a convenience switch over three older flags; a series that contradicts it is refused)
-if (process.env.MC_CHARACTER !== undefined && process.env.MC_CHARACTER !== '') {
+if (rawSetting('MC_CHARACTER') !== undefined && rawSetting('MC_CHARACTER') !== '') {
   const want = CHARACTER_ON ? { MCAI_TEMPERAMENT: 'on', MC_SKILL: 'on', MC_GOALS: 'on' } : { MCAI_TEMPERAMENT: 'off', MC_SKILL: 'off', MC_GOALS: 'off' };
-  const bad = Object.entries(want).filter(([k, v]) => (CHARACTER_ON ? (process.env[k] ?? '').toLowerCase() !== v : !['', v, undefined].includes((process.env[k] ?? '').toLowerCase()) && !(k === 'MCAI_TEMPERAMENT' && process.env[k] === 'identical')));
-  if (bad.length) throw new Error(`MC_CHARACTER=${process.env.MC_CHARACTER} needs ${bad.map(([k, v]) => `${k}=${v}`).join(' ')} (set them with it)`);
+  const bad = Object.entries(want).filter(([k, v]) => (CHARACTER_ON ? (rawSetting(k) ?? '').toLowerCase() !== v : !['', v, undefined].includes((rawSetting(k) ?? '').toLowerCase()) && !(k === 'MCAI_TEMPERAMENT' && rawSetting(k) === 'identical')));
+  if (bad.length) throw new Error(`MC_CHARACTER=${rawSetting('MC_CHARACTER')} needs ${bad.map(([k, v]) => `${k}=${v}`).join(' ')} (set them with it)`);
 }
 /** Whether any layer is on (the cap and floor apply everywhere then). */
 export const characterAny = () => CHARACTER.hexaco || CHARACTER.values || CHARACTER.gauges || CHARACTER.mood || CHARACTER.affinity || CHARACTER.identity;
@@ -100,7 +101,7 @@ const ZERO: Hexaco = { H: 0, E: 0, X: 0, A: 0, C: 0, O: 0 };
  * dominant value always first; self-enhancement's 25% cap does not apply) and its life goal. Unset: the draws as before.
  * `wealth` first; more (beauty, invention...) are entries in PRESETS.
  */
-export const CHARACTER_PRESET = (process.env.MC_CHARACTER_PRESET ?? '').trim().toLowerCase();
+export const CHARACTER_PRESET = (rawSetting('MC_CHARACTER_PRESET') ?? '').trim().toLowerCase();
 interface Preset { hex: Record<'H' | 'E' | 'X' | 'A' | 'C' | 'O', number>; values: Record<'openness' | 'conservation' | 'enhancement' | 'transcendence', number>; goal: string }
 const PRESETS: Record<string, Preset> = {
   // (a wealth-seeker: out for itself, hard-working and steady, a little outgoing for trade, slow to forgive, conventional)
@@ -286,11 +287,11 @@ interface VillageState {
 interface Store { version: 1; villages: Record<string, VillageState> }
 
 export const SERIES_POINTS = 360, MATRIX_POINTS = 36, THOUGHTS_ENDED = 50, LINE_LOG = 20;
-const scale = Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
+const scale = Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** A village minute in wall ms (sampling, decay). */
 export const MINUTE_MS = 60000 / scale;
 /** A village day (thought durations, decay), as memory.ts' MC_DAY_MIN. */
-const DAY_MS = (Number(process.env.MC_DAY_MIN ?? 20) * 60000) / scale;
+const DAY_MS = (Number(rawSetting('MC_DAY_MIN') ?? 20) * 60000) / scale;
 
 let store: Store = { version: 1, villages: {} };
 let file: string | null = null;

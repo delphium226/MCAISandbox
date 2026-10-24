@@ -26,6 +26,7 @@
 /** 'choose': a complete village's idle member choosing its next chore (A.2, choose.ts); 'ballot': a member's vote (vote.ts);
  *  'reflect': a member's look back at its day, at the village's night (G1, society.ts). */
 import { LLM_LIMITS } from './llmLimits';
+import { rawSetting } from './settings';
 
 export const CALL_KINDS = ['exec', 'plan', 'design', 'choose', 'ballot', 'reflect', 'answer'] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
@@ -68,7 +69,7 @@ export function parseReasoning(s: unknown, base: Reasoning = DEFAULT_REASONING):
   return out;
 }
 
-export const REASONING: Reasoning = parseReasoning(process.env.MC_REASONING);
+export const REASONING: Reasoning = parseReasoning(rawSetting('MC_REASONING'));
 
 const bare = (model: string) => model.replace(/^(ollama|anthropic):/, '');
 
@@ -701,17 +702,17 @@ export class UsageLedger {
 
 /** The per-agent part of the default limit (MC_TOKEN_BUDGET_AGENT_HOUR). */
 const PER_AGENT = (() => {
-  const n = Number(process.env.MC_TOKEN_BUDGET_AGENT_HOUR ?? 150_000);
+  const n = Number(rawSetting('MC_TOKEN_BUDGET_AGENT_HOUR') ?? 150_000);
   return Number.isFinite(n) && n > 0 ? n : 150_000;
 })();
 
 export const usage = new UsageLedger({
-  prices: process.env.MC_TOKEN_PRICES ?? DEFAULT_PRICES,
+  prices: rawSetting('MC_TOKEN_PRICES') ?? DEFAULT_PRICES,
   // (unset: the limit follows the agents, never below the old default)
   // (MC_LLM_LIMITS=off with no budget set: no hourly budget, no pause and no degrade)
-  budgetPerHour: process.env.MC_TOKEN_BUDGET_HOUR === undefined ? (LLM_LIMITS ? undefined : null) : parseBudget(process.env.MC_TOKEN_BUDGET_HOUR),
-  windowMs: Number(process.env.MC_TOKEN_WINDOW_MS) || HOUR,
-  agentFloor: Math.max(1, Number(process.env.MC_TOKEN_BUDGET_AGENTS) || 1),
-  spendCap: parseSpendCap(process.env.MC_SPEND_CAP_USD),
-  programmeStart: process.env.MC_SPEND_PROGRAMME_START ? Date.parse(process.env.MC_SPEND_PROGRAMME_START) || 0 : 0,
+  budgetPerHour: rawSetting('MC_TOKEN_BUDGET_HOUR') === undefined ? (LLM_LIMITS ? undefined : null) : parseBudget(rawSetting('MC_TOKEN_BUDGET_HOUR')),
+  windowMs: Number(rawSetting('MC_TOKEN_WINDOW_MS')) || HOUR,
+  agentFloor: Math.max(1, Number(rawSetting('MC_TOKEN_BUDGET_AGENTS')) || 1),
+  spendCap: parseSpendCap(rawSetting('MC_SPEND_CAP_USD')),
+  programmeStart: rawSetting('MC_SPEND_PROGRAMME_START') ? Date.parse(rawSetting('MC_SPEND_PROGRAMME_START')!) || 0 : 0,
 });

@@ -4,6 +4,7 @@
  * (fall_damage, keep_inventory); the old camelCase names are rejected.
  */
 import type { Rcon } from './rcon';
+import { rawSetting } from '../settings';
 
 /** Game rule -> the value it must have. */
 export const WORLD_RULES: Record<string, string> = {
@@ -29,7 +30,7 @@ export const WORLD_RULES: Record<string, string> = {
  * the wall clock). 1 when unset; acceptance runs stay at 1.
  */
 export function timeScale(): number {
-  const s = Number(process.env.MC_TIME_SCALE ?? 1);
+  const s = Number(rawSetting('MC_TIME_SCALE') ?? 1);
   return Number.isFinite(s) && s >= 1 && s <= 4 ? s : 1;
 }
 
@@ -40,7 +41,7 @@ export function timeScale(): number {
  * value never stays for the next run; acceptance runs stay at 3.
  */
 export function randomTickSpeed(): number {
-  const s = Number(process.env.MC_RANDOM_TICK ?? 3);
+  const s = Number(rawSetting('MC_RANDOM_TICK') ?? 3);
   return Number.isInteger(s) && s >= 0 && s <= 300 ? s : 3;
 }
 
@@ -50,7 +51,7 @@ export function randomTickSpeed(): number {
  * level is +20% dig speed (level 5 about 2x). Given at every spawn (mcWorld.ts); acceptance runs go without.
  */
 export function hasteLevel(): number {
-  const s = Number(process.env.MC_HASTE ?? 0);
+  const s = Number(rawSetting('MC_HASTE') ?? 0);
   return Number.isInteger(s) && s >= 0 && s <= 10 ? s : 0;
 }
 

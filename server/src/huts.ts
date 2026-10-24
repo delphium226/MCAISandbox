@@ -4,6 +4,7 @@
  */
 import type { Area, Design } from './village';
 import { annexCandidates } from './farmSlots';
+import { rawSetting } from './settings';
 
 export const STORAGE_HUT = 'storage_hut';
 
@@ -28,7 +29,7 @@ const LAYERS = [
  * torches' and the sign's support: a wall torch on a post, the name sign over the entrance on the roof's edge), so members
  * reach the chests from outside as well as from the aisle (#77: a member walled into a pocket under the hut).
  */
-export const OPEN_STORAGE = /^(on|1|true)$/i.test(process.env.MC_OPEN_STORAGE ?? 'off');
+export const OPEN_STORAGE = /^(on|1|true)$/i.test(rawSetting('MC_OPEN_STORAGE') ?? 'off');
 const OPEN_LAYERS = [
   Array(9).fill('CCCCCCC'),
   ['L.....L', '._._._.', '.......', '._..._.', 'L.T.F.L', '._..._.', '.......', '._..._.', 'L.....L'],
@@ -67,7 +68,7 @@ export function storageHutDesign(open = OPEN_STORAGE): Design {
  * MC_STORAGE_GROW (#121; on by default since 10-24, the user's after test train 1; off turns it off): storage that grows. A deposit keeps at most a cap of each bulk stone kind
  * (the rest goes on the spoil heap), and a storage yard is prepared beside the village once the hut is nearly full.
  */
-export const STORAGE_GROW = !/^(off|0|false|no)$/i.test(process.env.MC_STORAGE_GROW ?? 'on');
+export const STORAGE_GROW = !/^(off|0|false|no)$/i.test(rawSetting('MC_STORAGE_GROW') ?? 'on');
 
 /**
  * The storage yard's barrel spots (#121), for a yard on side `side` of the plot (the annex's 13x9 geometry: 13 along the

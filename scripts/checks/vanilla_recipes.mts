@@ -47,8 +47,8 @@ function literal<T>(start: string, end: string): T {
   const i = SRC.indexOf(start);
   if (i < 0) throw new Error(`mcMaterials.ts: ${start} not found`);
   const j = SRC.indexOf(end, i + start.length);
-  // (a table may spread an exported list: FLOWER_ITEMS in GATHER, 10-22)
-  return new Function('FLOWER_ITEMS', `return ${SRC.slice(i + start.length, j + (end.startsWith('}') ? 1 : 0))}`)(FLOWER_ITEMS) as T;
+  // (a table may spread an exported list: FLOWER_ITEMS in GATHER, 10-22; and a setting read through the registry, #115)
+  return new Function('FLOWER_ITEMS', 'rawSetting', `return ${SRC.slice(i + start.length, j + (end.startsWith('}') ? 1 : 0))}`)(FLOWER_ITEMS, (n: string) => process.env[n]) as T;
 }
 const GATHER = literal<string[]>('const GATHER = new Set(', ');');
 const UNOBTAINABLE = literal<Record<string, string>>('const UNOBTAINABLE: Record<string, string> = ', '};');

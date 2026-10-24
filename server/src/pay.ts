@@ -10,20 +10,21 @@
  */
 import { OWN } from './own';
 import type { OwnStock, Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 const on = (v: string | undefined) => /^(on|1|true)$/i.test(v ?? 'off');
 
 export const PAY = {
-  on: OWN.on && on(process.env.MC_PAY),
+  on: OWN.on && on(rawSetting('MC_PAY')),
   /** The most a request may offer, in whole emeralds (per step for wages). */
-  max: Math.max(1, Number(process.env.MC_PAY_MAX) || 8),
+  max: Math.max(1, Number(rawSetting('MC_PAY_MAX')) || 8),
   /** Emeralds each member gets once, when its own chest is placed (the user's choice 1). */
-  purse: Math.max(0, Number(process.env.MC_PURSE ?? 4)),
+  purse: Math.max(0, Number(rawSetting('MC_PURSE') ?? 4)),
   /** The levy on contracts (the user's choice 3: gifts go free): 'contracts' or 'off'. */
-  levy: (process.env.MC_PAY_LEVY ?? 'contracts') === 'off' ? 'off' : 'contracts',
+  levy: (rawSetting('MC_PAY_LEVY') ?? 'contracts') === 'off' ? 'off' : 'contracts',
   /** Test only: the share of unpriced requests given a 1-emerald bounty (the user's choice 4). */
-  bounty: Math.min(1, Math.max(0, Number(process.env.MC_PAY_BOUNTY) || 0)),
+  bounty: Math.min(1, Math.max(0, Number(rawSetting('MC_PAY_BOUNTY')) || 0)),
   /** How long an untaken priced request holds its escrow. */
   expireMs: 30 * 60000,
   /** A gift to a member who delivered to the payer within this long is logged as a gift after work. */

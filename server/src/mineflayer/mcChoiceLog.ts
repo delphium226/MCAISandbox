@@ -9,8 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChoiceContext, ChoiceSource, FallbackWhy } from '../world';
+import { rawSetting } from '../settings';
 
-const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /** One option of the menu a choice was made on (A.2). */
 export interface ChoiceLogOption {
@@ -153,7 +154,7 @@ function logFile(): string {
   if (file) return file;
   const d = new Date();
   const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  file = path.resolve(ROOT, process.env.MCAI_CHOICE_LOG || path.join('runs', `choices-${date}.jsonl`));
+  file = path.resolve(ROOT, rawSetting('MCAI_CHOICE_LOG') || path.join('runs', `choices-${date}.jsonl`));
   return file;
 }
 

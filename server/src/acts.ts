@@ -21,16 +21,17 @@ import type { Commitment } from './social';
 import { SOCIAL, memberSocial, noteHeard, noteKept, setActsOn } from './social';
 import { MEMORY, addNoteCheck, clockOf, contentWords, logAct, membersOf, touchMemory, villageSocialOf } from './memory';
 import { noteFact, think } from './character';
+import { rawSetting } from './settings';
 
-const scale = Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
-const wantActs = /^(on|1|true|yes)$/i.test(process.env.MC_ACTS ?? '');
+const scale = Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
+const wantActs = /^(on|1|true|yes)$/i.test(rawSetting('MC_ACTS') ?? '');
 if (wantActs && SOCIAL.mode === 'off') throw new Error('MC_ACTS=on with MCAI_SOCIAL=off: acts are social perception; run arm (b2) with MC_ACTS=off');
 if (wantActs && SOCIAL.mode === 'legacy') console.warn('[acts] MC_ACTS=on is ignored under MCAI_SOCIAL=legacy (set on, noblock or countsonly)');
 
 export const ACTS = {
   on: wantActs && SOCIAL.mode !== 'legacy' && SOCIAL.mode !== 'off',
-  every: Math.max(1, limited(process.env.MC_ACTS_EVERY, 3, 1)),
-  dueMs: (Number(process.env.MC_PROMISE_MIN ?? 15) * 60000) / scale,
+  every: Math.max(1, limited(rawSetting('MC_ACTS_EVERY'), 3, 1)),
+  dueMs: (Number(rawSetting('MC_PROMISE_MIN') ?? 15) * 60000) / scale,
   /** Requests answered or not within this are closed (expired). */
   requestMs: (30 * 60000) / scale,
   /** Inbox items (reports, offers, lines heard) are shown for this long. */
@@ -53,8 +54,8 @@ setActsOn(() => ACTS.on);
  *   MC_ACT_FIXES     on: bare tool words ("axe") map to a make option of that tool; a fixed or repeat pick of an option an
  *                    unpriced request asks for accepts it too
  */
-const flag = (k: string) => /^(on|1|true|yes)$/i.test(process.env[k] ?? '');
-const holdout = (process.env.MC_TALK_HOLDOUT ?? '').trim();
+const flag = (k: string) => /^(on|1|true|yes)$/i.test(rawSetting(k) ?? '');
+const holdout = (rawSetting('MC_TALK_HOLDOUT') ?? '').trim();
 export const TALK = {
   news: ACTS.on && flag('MC_NEWS'),
   questions: ACTS.on && flag('MC_QUESTIONS'),
@@ -240,7 +241,7 @@ export function setSpeaker(fn: (village: string, agent: string, text: string) =>
 
 /** MC_ACT_HINTS=on (#114, All1: 75 requests for axes nobody makes): a refused request is told what is close to it on offer,
  *  and that a tool nobody makes is not made here. */
-const ACT_HINTS = /^(on|1|true|yes)$/i.test(process.env.MC_ACT_HINTS ?? '');
+const ACT_HINTS = /^(on|1|true|yes)$/i.test(rawSetting('MC_ACT_HINTS') ?? '');
 const NOT_MADE = /\b(axe|sword|shovel|hoe|pickaxe|helmet|chestplate|boots|leggings|bow)s?\b/;
 export function notOnOffer(w: Pick<ActsWorld, 'items'>, asked: string): string {
   const words = (t: string) => t.toLowerCase().replace(/[_:]/g, ' ').split(/[^a-z]+/).filter((x) => x.length > 2).map((x) => x.replace(/e?s$/, ''));

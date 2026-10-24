@@ -23,18 +23,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NAME_POOL } from './agentNames';
+import { rawSetting } from './settings';
 
 const on = (v: string | undefined, dflt = false) => (v === undefined || v === '' ? dflt : /^(on|1|true|yes)$/i.test(v));
 
 export const MEMORY = {
-  on: on(process.env.MC_MEMORY),
-  clock: on(process.env.MC_MEMORY) && on(process.env.MC_CLOCK),
-  reflect: on(process.env.MC_REFLECT, true),
-  dayMs: (Number(process.env.MC_DAY_MIN ?? 20) * 60000) / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1),
-  carry: on(process.env.MC_MEMORY_CARRY),
-  chars: Number(process.env.MC_MEMORY_CHARS ?? 2000),
-  notes: Number(process.env.MC_MEMORY_NOTES ?? 8),
-  quality: on(process.env.MC_MEMORY) && on(process.env.MC_MEMORY_QUALITY),
+  on: on(rawSetting('MC_MEMORY')),
+  clock: on(rawSetting('MC_MEMORY')) && on(rawSetting('MC_CLOCK')),
+  reflect: on(rawSetting('MC_REFLECT'), true),
+  dayMs: (Number(rawSetting('MC_DAY_MIN') ?? 20) * 60000) / Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1),
+  carry: on(rawSetting('MC_MEMORY_CARRY')),
+  chars: Number(rawSetting('MC_MEMORY_CHARS') ?? 2000),
+  notes: Number(rawSetting('MC_MEMORY_NOTES') ?? 8),
+  quality: on(rawSetting('MC_MEMORY')) && on(rawSetting('MC_MEMORY_QUALITY')),
 };
 
 /** Whether the village's day line may be shown (G2: not under MCAI_SOCIAL=off, where others' activity is left out; set by
@@ -373,12 +374,12 @@ function dayNow(village: string, now: number): number {
 // The ledger (acts.jsonl)
 // ---------------------------------------------------------------------------------------------
 
-const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 let actsWarned = false;
 
 export function actsFile(): string {
-  if (process.env.MCAI_ACTS_LOG) return path.resolve(process.env.MCAI_ACTS_LOG);
-  const c = process.env.MCAI_CHOICE_LOG;
+  if (rawSetting('MCAI_ACTS_LOG')) return path.resolve(rawSetting('MCAI_ACTS_LOG')!);
+  const c = rawSetting('MCAI_CHOICE_LOG');
   if (c) return path.resolve(c.replace(/(\.choices)?\.jsonl$/, '') + '.acts.jsonl');
   const d = new Date();
   return path.join(ROOT, 'runs', `acts-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.jsonl`);

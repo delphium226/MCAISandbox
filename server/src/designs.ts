@@ -6,6 +6,7 @@
  * (see tieredBrain's design_building), checked here, stored in the village's design library and built by build_design.
  */
 import type { Design } from './village';
+import { rawSetting } from './settings';
 
 // 12 layers (10 before phase D): a gable over 11 rows takes floor, three wall layers, five steps and the ridge
 export const DESIGN_LIMITS = { minSide: 3, maxSide: 15, maxLayers: 12 };
@@ -37,7 +38,7 @@ export const MAX_SMELTS = 32;
  * building over HOUSE_UNITS), the importer's door fixes and snow's stand-in (vanillaPieces.ts), vanilla's lamps and
  * decorations as small works and its pens and farms as doorless yard works (smallWorks.ts).
  */
-export const VANILLA_ALL = /^(on|1|true)$/i.test(process.env.MC_VANILLA_ALL ?? 'off');
+export const VANILLA_ALL = /^(on|1|true)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'off');
 /** A larger home's budget (R1): vanilla's medium and big houses, and its small houses over HOUSE_UNITS (plains 5, taiga 1, 3
  *  and 5). A bigger house bills more; nothing is discounted. */
 export const HOUSE_UNITS_LARGE = 230;
@@ -57,7 +58,7 @@ export const houseBudget = (name: string) => (isLandmark(name) ? LANDMARK_UNITS 
  * every wooden block in another wood), and a wood for each neighbourhood among those with trees near home (grow.ts
  * hoodWood), its houses, small works and lamps in it; the style vote's options biome x wood (vote.ts).
  */
-export const WOOD_VARIANTS = /^(on|1|true)$/i.test(process.env.MC_WOOD_VARIANTS ?? 'off');
+export const WOOD_VARIANTS = /^(on|1|true)$/i.test(rawSetting('MC_WOOD_VARIANTS') ?? 'off');
 /** The woods a variant may take: refit.ts's list less bamboo (its planks come two a block) and the Nether's (no tree in the
  *  overworld, and stripped stems and hyphae bill 10-25% more: wood_variants.mts), so a variant's bill stays within 5%. */
 export const VARIANT_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak'];

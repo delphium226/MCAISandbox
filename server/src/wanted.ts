@@ -19,11 +19,12 @@ import { LIBRARY, LOCKED_SKILLS, techOf } from './tech';
 import type { MaterialPlan } from './mineflayer/mcMaterials';
 import { FOOD_GOODS, MAKE_GOODS } from './mineflayer/mcWorkshop';
 import type { Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** On with MC_WANTED=on: the API's writer and innovation's demand from the list (the route serves the list either way). */
-export const WANTED_ON = /^(on|1|true)$/i.test(process.env.MC_WANTED ?? 'off');
+export const WANTED_ON = /^(on|1|true)$/i.test(rawSetting('MC_WANTED') ?? 'off');
 
 /**
  * have: a skill and a library activity run it; locked: a foundry activity runs it once the village researches its
@@ -131,7 +132,7 @@ export const CAPABILITIES: Capability[] = [
 ];
 
 /** On with MC_LADDER=on: a chosen or offered rung's needs join the list (G8). */
-export const LADDER_ON = /^(on|1|true)$/i.test(process.env.MC_LADDER ?? 'off');
+export const LADDER_ON = /^(on|1|true)$/i.test(rawSetting('MC_LADDER') ?? 'off');
 /** The ladder's rungs (G8, runs/2026-10-22/ladder/spec.md 3). */
 export type RungId = 'iron' | 'letters' | 'diamond' | 'enchantment' | 'nether' | 'copper' | 'machines' | 'trade';
 export const RUNGS: RungId[] = ['iron', 'letters', 'diamond', 'enchantment', 'nether', 'copper', 'machines', 'trade'];

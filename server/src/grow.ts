@@ -10,17 +10,18 @@ import { GEN_HOMES, isHomeName, ownHomes } from './houseStyle';
 import { MINING_HUT, STORAGE_HUT } from './huts';
 import { doorOf, placeFarm, placeLamps, planStreets } from './streetPlan';
 import type { Area, Design, Task, Village } from './village';
+import { rawSetting } from './settings';
 
 /** On unless MC_GROW=0 (Q1: off until the staged runs passed; G3 and G25 did, 10-15); batch and range (D4, D6; 16 inside
  *  the village's range unless MC_GROW_RANGE says, s43). */
-export const GROW = { on: process.env.MC_GROW !== '0', batch: Number(process.env.MC_GROW_BATCH) || 4, range: Number(process.env.MC_GROW_RANGE) || (Number(process.env.MC_VILLAGE_RANGE) || 144) - 16 };
+export const GROW = { on: rawSetting('MC_GROW') !== '0', batch: Number(rawSetting('MC_GROW_BATCH')) || 4, range: Number(rawSetting('MC_GROW_RANGE')) || (Number(rawSetting('MC_VILLAGE_RANGE')) || 144) - 16 };
 
 /**
  * N.2 housing (s37; on by default since s38, MC_HOUSING=off turns it off): each member owns a house, a street of houses is a member's own project
  * (the chore menu's `grow:street`) or a voted work, and growth's code trigger is retired (growth lays out only on a
  * request). Growth's machinery stays: GROW.on must stay true. Spec runs/2026-10-18/s37/spec_batch_n2.md H.
  */
-export const HOUSING = process.env.MC_HOUSING !== 'off';
+export const HOUSING = rawSetting('MC_HOUSING') !== 'off';
 
 /** A task id's number ("t123" -> 123): ids come from one counter, so a later task has a higher one. */
 export const taskNum = (t: { id: string }) => Number(/\d+/.exec(t.id)?.[0] ?? NaN);
@@ -225,7 +226,7 @@ function fieldFits(designs: Design[], size: number, slots: number): boolean {
 const grow = (a: Area, n: number): Area => ({ x1: a.x1 - n, z1: a.z1 - n, x2: a.x2 + n, z2: a.z2 + n });
 
 /** Neighbourhood fields and farm slots (s30's food step, D1; off until the staged runs G3f and G25f pass). */
-export const GROW_FARMS = process.env.MC_GROW_FARMS === '1';
+export const GROW_FARMS = rawSetting('MC_GROW_FARMS') === '1';
 
 /** Biomes where a layout gets no wheat field (postLayout's rule: the channel freezes, or no grass for seeds). */
 export const NO_FIELD_BIOME = /snowy|frozen|ice|grove|peaks|desert|badlands/;

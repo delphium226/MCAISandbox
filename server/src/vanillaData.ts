@@ -8,18 +8,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
+import { rawSetting } from './settings';
 
 /** The jar vanilla's data is read from (mc/server's Paper; the test world's server runs the same version). */
 export const DEFAULT_JAR = 'mc/server/versions/26.1.2/paper-26.1.2.jar';
 
-const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** A jar path resolved against the repo root (relative paths do not depend on the working directory). */
 const resolveJar = (jar: string) => path.resolve(ROOT, jar);
 
 /** The jar to read: `MC_VANILLA_JAR` or DEFAULT_JAR, resolved against the repo root. */
 export function vanillaJar(): string {
-  return resolveJar(process.env.MC_VANILLA_JAR ?? DEFAULT_JAR);
+  return resolveJar(rawSetting('MC_VANILLA_JAR') ?? DEFAULT_JAR);
 }
 
 // ---------------------------------------------------------------------------------------------

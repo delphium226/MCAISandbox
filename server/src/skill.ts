@@ -12,11 +12,12 @@
  */
 import { KIND_WORDS, touchMemory } from './memory';
 import { memberSocial } from './social';
+import { rawSetting } from './settings';
 
 export const SKILL = {
-  on: /^(on|1|true|yes)$/i.test(process.env.MC_SKILL ?? ''),
-  gain: Number(process.env.MC_SKILL_GAIN ?? 0.15),
-  decay: Number(process.env.MC_SKILL_DECAY ?? 0.98),
+  on: /^(on|1|true|yes)$/i.test(rawSetting('MC_SKILL') ?? ''),
+  gain: Number(rawSetting('MC_SKILL_GAIN') ?? 0.15),
+  decay: Number(rawSetting('MC_SKILL_DECAY') ?? 0.98),
 };
 
 /** Test hook. */

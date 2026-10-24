@@ -23,11 +23,11 @@ import { IRON_AGE } from './ladderFlags';
 /** MC_BAN_SCOPE=member: bans are the failing member's own, short (BAN_MEMBER_MS), never village-wide (F304). */
 /** MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a
  *  re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model). */
-export const CHOOSE_BACKUP = /^(on|1|true|yes)$/i.test(process.env.MC_CHOOSE_BACKUP ?? '');
-export const BAN_MEMBER = /^member$/i.test(process.env.MC_BAN_SCOPE ?? '');
-const BAN_MEMBER_MS = 20 * 60000 / Math.max(0.1, Number(process.env.MC_TIME_SCALE ?? 1) || 1);
+export const CHOOSE_BACKUP = /^(on|1|true|yes)$/i.test(rawSetting('MC_CHOOSE_BACKUP') ?? '');
+export const BAN_MEMBER = /^member$/i.test(rawSetting('MC_BAN_SCOPE') ?? '');
+const BAN_MEMBER_MS = 20 * 60000 / Math.max(0.1, Number(rawSetting('MC_TIME_SCALE') ?? 1) || 1);
 /** MC_WORK_BLOCKS: model decisions paced through the hour (modelCallsLastHour), at most PACE_BURST at a time. */
-const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(process.env.MC_WORK_BLOCKS ?? '');
+const PACED = LLM_LIMITS && /^(on|1|true|yes)$/i.test(rawSetting('MC_WORK_BLOCKS') ?? '');
 const PACE_BURST = 3;
 import type { ChoiceKind, ChoiceMenu, ChoiceOption, FallbackWhy, ToolDef } from './world';
 import { callModel, CallFallback, CallWithdrawn, type ModelSpec, type Reply } from './modelCall';
@@ -36,24 +36,25 @@ import { FOCUS, MEMORY, applyWrites, clockOf, lastLines, logAct, recall, type Re
 import { TALK, actFields, payingOn, type ActFields } from './acts';
 import { capFloor, characterAny } from './character';
 import { PROMPT_SELF, basicTag } from './promptSelf';
+import { rawSetting } from './settings';
 
 export const MENU_MAX = 8, PER_KIND_MAX = 2;
 
 export const CHOOSE = {
-  mode: (process.env.MC_CHOOSE ?? 'fixed') as 'fixed' | 'model' | 'scripted',
-  instances: new Set((process.env.MC_CHOICE_INSTANCES ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
+  mode: (rawSetting('MC_CHOOSE') ?? 'fixed') as 'fixed' | 'model' | 'scripted',
+  instances: new Set((rawSetting('MC_CHOICE_INSTANCES') ?? 'explore,start').split(',').map((s) => s.trim()).filter(Boolean)),
   /** Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). */
-  families: new Set((process.env.MC_CHOICE_FAMILIES ?? 'make,gather,works,light,catalog,furnish,initiatives,activities').split(',').map((s) => s.trim()).filter(Boolean)),
+  families: new Set((rawSetting('MC_CHOICE_FAMILIES') ?? 'make,gather,works,light,catalog,furnish,initiatives,activities').split(',').map((s) => s.trim()).filter(Boolean)),
   /** 2, one below the gate's 3 cloud slots (modelCall.ts:199), so a human reply, a plan or an executor turn always
    *  finds a slot free of decisions (C11). */
   // (MC_LLM_LIMITS=off: every cloud slot, no give-up in the queue or at the gate; each setting still wins where set)
-  parallel: limited(process.env.MC_CHOOSE_PARALLEL, 2, cloudSlots()),
-  queueMs: limited(process.env.MC_CHOOSE_QUEUE_MS, 30000, Infinity),
-  waitMs: limited(process.env.MC_CHOOSE_WAIT_MS, 15000, Infinity),
-  fallbackMs: Number(process.env.MC_CHOOSE_FALLBACK_MS ?? 20000),
-  minGapMs: limited(process.env.MC_CHOOSE_MIN_GAP_MS, 90000, 0),
-  perHour: limited(process.env.MC_CHOOSE_HOURLY, 30, Infinity),
-  model: process.env.MC_CHOOSE_MODEL ?? process.env.MC_EXEC_MODEL ?? 'ollama:gpt-oss:120b-cloud',
+  parallel: limited(rawSetting('MC_CHOOSE_PARALLEL'), 2, cloudSlots()),
+  queueMs: limited(rawSetting('MC_CHOOSE_QUEUE_MS'), 30000, Infinity),
+  waitMs: limited(rawSetting('MC_CHOOSE_WAIT_MS'), 15000, Infinity),
+  fallbackMs: Number(rawSetting('MC_CHOOSE_FALLBACK_MS') ?? 20000),
+  minGapMs: limited(rawSetting('MC_CHOOSE_MIN_GAP_MS'), 90000, 0),
+  perHour: limited(rawSetting('MC_CHOOSE_HOURLY'), 30, Infinity),
+  model: rawSetting('MC_CHOOSE_MODEL') ?? rawSetting('MC_EXEC_MODEL') ?? 'ollama:gpt-oss:120b-cloud',
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -452,7 +453,7 @@ function whyOf(err: unknown, signal?: AbortSignal): FallbackWhy {
 }
 
 /** How long decisions leave a model alone after the provider refused for its quota (Ollama 429). */
-export const QUOTA_BACKOFF_MS = Number(process.env.MC_CHOOSE_QUOTA_BACKOFF_MS ?? 5 * 60000);
+export const QUOTA_BACKOFF_MS = Number(rawSetting('MC_CHOOSE_QUOTA_BACKOFF_MS') ?? 5 * 60000);
 /** Until when each model is left alone (s28: with the account's session limit reached every decision called again at
  *  once and came back 429; the next ones now take the fixed pick without a call). */
 const quotaUntil = new Map<string, number>();

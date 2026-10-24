@@ -7,13 +7,14 @@
 import { FOOD_POINTS, foodPoints } from './appetite';
 import { OWN, OWN_RECIPES, OWN_SALES } from './own';
 import type { OwnStock, Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** On with MC_BARTER=on beside MC_OWN; an offer lapses unanswered after lapseMs; a lapse cheapens its good, a take dears it. */
 export const BARTER = {
-  on: OWN.on && /^(on|1|true)$/i.test(process.env.MC_BARTER ?? 'off'),
-  lapseMs: Number(process.env.MC_BARTER_LAPSE_MIN ?? 10) * 60000,
+  on: OWN.on && /^(on|1|true)$/i.test(rawSetting('MC_BARTER') ?? 'off'),
+  lapseMs: Number(rawSetting('MC_BARTER_LAPSE_MIN') ?? 10) * 60000,
   down: 0.9,
   up: 1.05,
 };

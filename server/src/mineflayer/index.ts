@@ -20,16 +20,17 @@ import { MineflayerWorld } from './mcWorld';
 import { Rcon } from './rcon';
 import { gate } from '../modelCall';
 import { monthKey, usage } from '../modelUsage';
+import { rawSetting } from '../settings';
 
 // (MCAI_ROOT: the repo, when this runs from a code snapshot elsewhere, scripts/snapshot_code.py)
-const ROOT = process.env.MCAI_ROOT ? path.resolve(process.env.MCAI_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = rawSetting('MCAI_ROOT') ? path.resolve(rawSetting('MCAI_ROOT')!) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 // The Minecraft server's folder: its server.properties (RCON) and this world's villages.json and atlas.json
-const SERVER_DIR = path.resolve(ROOT, process.env.MC_SERVER_DIR ?? path.join('mc', 'server'));
-const HOST = process.env.MC_HOST ?? '127.0.0.1';
-const PORT = Number(process.env.MC_PORT ?? 25565);
-const VERSION = process.env.MC_VERSION ?? '26.1';
-const API_PORT = Number(process.env.MC_API_PORT ?? 8766);
-const API_HOST = process.env.MC_API_HOST ?? '127.0.0.1';
+const SERVER_DIR = path.resolve(ROOT, rawSetting('MC_SERVER_DIR') ?? path.join('mc', 'server'));
+const HOST = rawSetting('MC_HOST') ?? '127.0.0.1';
+const PORT = Number(rawSetting('MC_PORT') ?? 25565);
+const VERSION = rawSetting('MC_VERSION') ?? '26.1';
+const API_PORT = Number(rawSetting('MC_API_PORT') ?? 8766);
+const API_HOST = rawSetting('MC_API_HOST') ?? '127.0.0.1';
 
 function serverProperties(): Record<string, string> {
   const file = path.join(SERVER_DIR, 'server.properties');
@@ -108,9 +109,9 @@ const day = (t: number) => {
 usage.setSink((r, usd) => {
   fs.mkdirSync(SPEND_DIR, { recursive: true });
   // (appended at once: a total read later counts every call before its start, and this process adds its own since)
-  fs.appendFileSync(path.join(SPEND_DIR, `${day(r.at)}-${API_PORT}.jsonl`), `${JSON.stringify({ at: r.at, model: r.model, agent: r.agent, kind: r.kind, in: r.promptTokens, out: r.outputTokens, usd: Number(usd.toFixed(6)), outcome: r.outcome, run: process.env.MCAI_RUN ?? null })}\n`);
+  fs.appendFileSync(path.join(SPEND_DIR, `${day(r.at)}-${API_PORT}.jsonl`), `${JSON.stringify({ at: r.at, model: r.model, agent: r.agent, kind: r.kind, in: r.promptTokens, out: r.outputTokens, usd: Number(usd.toFixed(6)), outcome: r.outcome, run: rawSetting('MCAI_RUN') ?? null })}\n`);
 });
-const PROGRAMME_START = process.env.MC_SPEND_PROGRAMME_START ? Date.parse(process.env.MC_SPEND_PROGRAMME_START) || 0 : 0;
+const PROGRAMME_START = rawSetting('MC_SPEND_PROGRAMME_START') ? Date.parse(rawSetting('MC_SPEND_PROGRAMME_START')!) || 0 : 0;
 async function seedSpend() {
   const cutoff = Date.now(), key = monthKey(cutoff);
   let month = 0, programme = 0;
@@ -154,7 +155,7 @@ const shutdown = () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 // (a profiling run's clean stop: Windows sends no SIGINT to a detached node, and --cpu-prof writes only at exit)
-if (Number(process.env.MCAI_EXIT_AFTER_MIN) > 0) setTimeout(shutdown, Number(process.env.MCAI_EXIT_AFTER_MIN) * 60000).unref();
+if (Number(rawSetting('MCAI_EXIT_AFTER_MIN')) > 0) setTimeout(shutdown, Number(rawSetting('MCAI_EXIT_AFTER_MIN')) * 60000).unref();
 // An exception nobody caught (a library's own tick: mineflayer-pathfinder's placement read an undefined block after a door,
 // F153a, and took every bot down, X2q, s34): logged and survived, unless they come fast (more than 10 in a minute: a
 // state that keeps throwing is not run on; the villages are flushed on the way out)

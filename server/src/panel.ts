@@ -52,6 +52,7 @@ import { councilLine } from './council';
 import { CHARACTER, glance, identityOf, memberView, seriesView, villageView } from './character';
 import { phaseLine } from './society';
 import { LADDER, ladderView } from './ladder';
+import { rawSetting } from './settings';
 
 /** A design's elevations, or nothing for a malformed one (villages.json is read unchecked; one must not break the panel). */
 function safeElevations(d: Design): string {
@@ -63,7 +64,7 @@ function safeElevations(d: Design): string {
 }
 
 const PAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../panel/index.html');
-const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
+const OLLAMA_URL = rawSetting('MC_OLLAMA_URL') ?? 'http://localhost:11434';
 /** Event types too frequent to be worth showing. */
 const NOISE = new Set(['broke', 'pickup']);
 const mapCache = new Map<string, { at: number; radius: number; map: unknown }>();

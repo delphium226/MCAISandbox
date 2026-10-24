@@ -3,6 +3,10 @@
 The full notes on running, testing and benchmarking, moved verbatim from CLAUDE.md on 2026-10-15. CLAUDE.md keeps
 the short version; look here for a check script's arguments, a model detail or where land was good.
 
+**Every setting** (`MC_*`, `MCAI_*`: type, default, group, what it requires) is in `docs/SETTINGS.md`, generated from the
+registry `server/src/settings.ts` (#115): a new setting is an entry there, read through `rawSetting()`, then
+`node node_modules/tsx/dist/cli.mjs scripts/settings_doc.mts` (check:offline fails on a stray read or a stale table).
+
 ## Running and checking
 
 - `npm run dev` starts the game server (http://localhost:8765, REST API under `/api`) and the Vite client

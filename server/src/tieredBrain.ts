@@ -36,6 +36,7 @@ import { TaskBrain, taskCalls, taskSkillNames } from './taskBrain';
 import { usage, BudgetExceeded, REASONING, parseReasoning, thinkFor, type CallKind, type Reasoning, type ReasoningLevel } from './modelUsage';
 import { CallWithdrawn, callModel, isTransient, label, parseSpec, type CallPriority, type ModelSpec, type Reply, type ToolCall } from './modelCall';
 import { MEMORY, noteEnd as memoryEnd, noteIntent, recall } from './memory';
+import { rawSetting } from './settings';
 
 /** G1: a plan is the agent's intent (the panel's line and its memory). */
 function planIntent(a: WorldAgent, goal: string, why: string, source: string) {
@@ -58,15 +59,15 @@ function taskEnd(a: WorldAgent, v: Village, taskId: string, ok: boolean, message
 // (the benches import it from here)
 export { OLLAMA_ROUTES } from './modelCall';
 
-const EXEC_INTERVAL_MS = Number(process.env.MC_LLM_INTERVAL_MS ?? 6000);
-const PLAN_INTERVAL_MS = Number(process.env.MC_PLAN_INTERVAL_MS ?? 180000);
+const EXEC_INTERVAL_MS = Number(rawSetting('MC_LLM_INTERVAL_MS') ?? 6000);
+const PLAN_INTERVAL_MS = Number(rawSetting('MC_PLAN_INTERVAL_MS') ?? 180000);
 
 // ---------------------------------------------------------------------------------------------
 // Models (the calls themselves are modelCall.ts's)
 // ---------------------------------------------------------------------------------------------
 
-const EXEC_SPEC = parseSpec(process.env.MC_EXEC_MODEL ?? 'ollama:gpt-oss:120b-cloud')!;
-const PLAN_SPEC = process.env.MC_PLAN_MODEL === undefined ? EXEC_SPEC : parseSpec(process.env.MC_PLAN_MODEL);
+const EXEC_SPEC = parseSpec(rawSetting('MC_EXEC_MODEL') ?? 'ollama:gpt-oss:120b-cloud')!;
+const PLAN_SPEC = rawSetting('MC_PLAN_MODEL') === undefined ? EXEC_SPEC : parseSpec(rawSetting('MC_PLAN_MODEL'));
 
 // ---------------------------------------------------------------------------------------------
 // Prompts and tools
@@ -696,7 +697,7 @@ export class TieredBrain implements AgentBrain {
     const exec = (typeof m.execModel === 'string' && parseSpec(m.execModel)) || EXEC_SPEC;
     let plan = PLAN_SPEC;
     if (typeof m.planModel === 'string') plan = parseSpec(m.planModel);
-    else if (typeof m.execModel === 'string' && process.env.MC_PLAN_MODEL === undefined) plan = exec;
+    else if (typeof m.execModel === 'string' && rawSetting('MC_PLAN_MODEL') === undefined) plan = exec;
     return { exec, plan };
   }
 

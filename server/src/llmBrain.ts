@@ -11,9 +11,10 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentBrain, AgentEvent, WorldAgent } from './world';
+import { rawSetting } from './settings';
 
-const MODEL = process.env.MC_LLM_MODEL ?? 'claude-opus-5';
-const MIN_INTERVAL_MS = Number(process.env.MC_LLM_INTERVAL_MS ?? 6000);
+const MODEL = rawSetting('MC_LLM_MODEL') ?? 'claude-opus-5';
+const MIN_INTERVAL_MS = Number(rawSetting('MC_LLM_INTERVAL_MS') ?? 6000);
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {

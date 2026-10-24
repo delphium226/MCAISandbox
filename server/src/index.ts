@@ -11,6 +11,7 @@ import { DEFAULT_PORT, PROTOCOL_VERSION } from '../../shared/src/constants';
 import { hashString } from '../../shared/src/noise';
 import { handleApi } from './api';
 import { handlePanel } from './panel';
+import { rawSetting } from './settings';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -18,7 +19,7 @@ const ROOT = path.resolve(__dirname, '../..');
 function arg(name: string, def: string): string {
   const i = process.argv.indexOf(`--${name}`);
   if (i >= 0 && process.argv[i + 1]) return process.argv[i + 1];
-  const env = process.env[`MC_${name.toUpperCase().replace(/-/g, '_')}`];
+  const env = rawSetting(`MC_${name.toUpperCase().replace(/-/g, '_')}`);
   return env ?? def;
 }
 

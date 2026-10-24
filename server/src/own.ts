@@ -5,13 +5,14 @@
  */
 import { FOOD_POINTS } from './appetite';
 import type { OwnStock, Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** On with MC_OWN=on (off by default until a live run passes); the share of a chore's net yield that is the member's. */
 export const OWN = {
-  on: /^(on|1|true)$/i.test(process.env.MC_OWN ?? 'off'),
-  share: Math.min(1, Math.max(0, Number(process.env.MC_OWN_SHARE ?? 0.25))),
+  on: /^(on|1|true)$/i.test(rawSetting('MC_OWN') ?? 'off'),
+  share: Math.min(1, Math.max(0, Number(rawSetting('MC_OWN_SHARE') ?? 0.25))),
 };
 
 /**
@@ -33,7 +34,7 @@ export const SHARED = new Set(['farm', 'slot', 'penwork', 'activity', 'gather', 
  */
 export const CLAIM_AFTER = 3, CLAIM_LAPSE_MS = 15 * 60000;
 export const SPECIAL = (() => {
-  const s = new Set((process.env.MC_SPECIAL ?? '').split(/[,;+]/).map((x) => x.trim()).filter(Boolean));
+  const s = new Set((rawSetting('MC_SPECIAL') ?? '').split(/[,;+]/).map((x) => x.trim()).filter(Boolean));
   return { habit: OWN.on && s.has('habit'), price: OWN.on && s.has('price'), claim: OWN.on && s.has('claim') };
 })();
 
@@ -62,7 +63,7 @@ export const OWN_RECIPES: Array<{ item: string; inputs: Counts; smelt: boolean }
  * OWN_SALE_LOTS lots of a good a restock across members; the levy (MC_OWN_LEVY, 0.25: DECISIONS 10-20) goes to the
  * village's storage, fractions carried per member.
  */
-export const OWN_SALES_ON = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_SALES ?? 'off');
+export const OWN_SALES_ON = OWN.on && /^(on|1|true)$/i.test(rawSetting('MC_OWN_SALES') ?? 'off');
 export const OWN_SALES: Record<string, number> = {
   pumpkin: 6, wheat: 20, bread: 6, cod: 15, salmon: 13, carrot: 22, potato: 26,
   coal: 15, stone: 20, granite: 16, andesite: 16, diorite: 16, stick: 32, string: 20,
@@ -79,7 +80,7 @@ export const OWN_SALE_LOTS = 4;
  * house (lay_out_field's pad, within OWN_FARM_REACH of the house), seeded from the commons' spare seeds; it is claimed for
  * it for good, and its harvests are wholly its own (a share of 1).
  */
-export const OWN_FARM = OWN.on && /^(on|1|true)$/i.test(process.env.MC_OWN_FARM ?? 'off');
+export const OWN_FARM = OWN.on && /^(on|1|true)$/i.test(rawSetting('MC_OWN_FARM') ?? 'off');
 export const OWN_FARM_REACH = 24;
 
 /**
@@ -111,7 +112,7 @@ export function farmKindScore(kind: string, factor: Record<string, number>, hold
   const k = OWN_FARM_KINDS[kind];
   return (factor[k.product] ?? 1) * ((holds[k.product] ?? 0) > 0 ? 1 : 1.5) / (1 + (standing[kind] ?? 0));
 }
-export const LEVY = Math.min(1, Math.max(0, Number(process.env.MC_OWN_LEVY ?? 0.25)));
+export const LEVY = Math.min(1, Math.max(0, Number(rawSetting('MC_OWN_LEVY') ?? 0.25)));
 
 /** A sale's emeralds split: the member's and the levy, the levy's fraction carried in `part.levy`. */
 export function levySplit(own: OwnStock, emeralds: number): { kept: number; levy: number } {

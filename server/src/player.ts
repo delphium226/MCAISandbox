@@ -10,6 +10,7 @@ import { OpenWindow, playerWindow, craftingTableWindow, furnaceWindow, chestWind
 import { numKey } from '../../shared/src/world';
 import type { Game } from './game';
 import { Mob } from './mobs';
+import { rawSetting } from './settings';
 
 export interface Connection {
   send(msg: S2C): void;
@@ -443,7 +444,7 @@ export class Player extends Entity {
   }
 
   private resync(x: number, y: number, z: number, reason = '') {
-    if (reason && process.env.MC_DEBUG) console.log(`[dig] ${this.name} rejected at ${x},${y},${z}: ${reason}`);
+    if (reason && rawSetting('MC_DEBUG')) console.log(`[dig] ${this.name} rejected at ${x},${y},${z}: ${reason}`);
     this.send({ t: 'block', x, y, z, s: this.game.world.getBlock(x, y, z) });
   }
 

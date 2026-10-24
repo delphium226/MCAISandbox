@@ -5,20 +5,21 @@
  * the gauge in needTick and wires the answers. Behind MC_NEED_WORKS.
  */
 import { FOOD_POINTS, foodPoints } from './appetite';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** MC_NEED_WORKS: on (the default since s40, 10-19) or off (0, false). */
-export const NEED_WORKS = !/^(off|0|false)$/i.test(process.env.MC_NEED_WORKS ?? 'on');
+export const NEED_WORKS = !/^(off|0|false)$/i.test(rawSetting('MC_NEED_WORKS') ?? 'on');
 /** Game minutes the flow must stay short before the farmstead is offered (MC_NEED_HOLD_MIN shortens it for tests). */
-export const HOLD_MIN = Math.max(0, Number(process.env.MC_NEED_HOLD_MIN ?? 30) || 0);
+export const HOLD_MIN = Math.max(0, Number(rawSetting('MC_NEED_HOLD_MIN') ?? 30) || 0);
 /** Game minutes after a farmstead is laid out before another is offered (a crop cycle and its first harvest). */
-export const COOLDOWN_MIN = Math.max(HOLD_MIN, Number(process.env.MC_NEED_COOLDOWN_MIN ?? 90) || 0);
+export const COOLDOWN_MIN = Math.max(HOLD_MIN, Number(rawSetting('MC_NEED_COOLDOWN_MIN') ?? 90) || 0);
 /** Game minutes after a field work is laid out before another (s40: a crop cycle to its first harvest is ~40). */
-export const FIELD_COOLDOWN_MIN = Math.max(HOLD_MIN, Number(process.env.MC_NEED_FIELD_COOLDOWN_MIN ?? 45) || 0);
+export const FIELD_COOLDOWN_MIN = Math.max(HOLD_MIN, Number(rawSetting('MC_NEED_FIELD_COOLDOWN_MIN') ?? 45) || 0);
 /** MC_NEED_FARMSTEAD=on: the farmstead (s39) beside the field (s40); off by default: where no 9x9 field pad is left, no
  *  19x19 farmstead pad is either (Night40, the field spec's check 5). */
-export const FARMSTEAD_ON = /^(on|1|true)$/i.test(process.env.MC_NEED_FARMSTEAD ?? 'off');
+export const FARMSTEAD_ON = /^(on|1|true)$/i.test(rawSetting('MC_NEED_FARMSTEAD') ?? 'off');
 
 /** The window: BUCKETS buckets of BUCKET_MIN game minutes. */
 export const BUCKET_MIN = 10, BUCKETS = 12;

@@ -49,6 +49,7 @@ import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { zoneBoxes } from '../rules';
+import { rawSetting } from '../settings';
 
 type Pos = [number, number, number];
 
@@ -89,7 +90,7 @@ const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [
  * 1 out to N blocks (5 when on), and seals the caves its cut opens (within 3 under a cut, and in a cut's face).
  */
 export const PAD_HALO = (() => {
-  const s = process.env.MC_PAD_HALO ?? 'off';
+  const s = rawSetting('MC_PAD_HALO') ?? 'off';
   if (/^(on|true)$/i.test(s)) return 5;
   const n = Math.floor(Number(s));
   return Number.isFinite(n) && n > 0 ? Math.min(8, n) : 0;

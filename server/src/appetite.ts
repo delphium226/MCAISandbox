@@ -8,6 +8,7 @@
  */
 import type { ChoiceKind } from './world';
 import type { Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
@@ -23,9 +24,9 @@ function rateOf(raw: string | undefined): number {
 /** The appetite's numbers (D7-D9, D14): the busy rate (0: off), the idle share, a new member's level, the bar, the eat and
  *  hungry levels, and how many may eat at once (25 withdrawers at once would crowd the hut's chest spots). */
 export const APPETITE = {
-  rate: rateOf(process.env.MC_APPETITE),
-  idle: Number(process.env.MC_APPETITE_IDLE ?? 0.25) || 0,
-  start: Math.max(0, Math.min(20, Number(process.env.MC_APPETITE_START ?? 20) || 0)),
+  rate: rateOf(rawSetting('MC_APPETITE')),
+  idle: Number(rawSetting('MC_APPETITE_IDLE') ?? 0.25) || 0,
+  start: Math.max(0, Math.min(20, Number(rawSetting('MC_APPETITE_START') ?? 20) || 0)),
   cap: 20,
   eatAt: 12,
   hungryAt: 6,

@@ -29,24 +29,25 @@ import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ToolDef } from './world';
 import { usage, isCloudModel, thinkFor, type CallKind, type ReasoningLevel } from './modelUsage';
+import { rawSetting } from './settings';
 
-export const OLLAMA_URL = process.env.MC_OLLAMA_URL ?? 'http://localhost:11434';
+export const OLLAMA_URL = rawSetting('MC_OLLAMA_URL') ?? 'http://localhost:11434';
 /** Models served by another Ollama instance: MC_OLLAMA_ROUTES="model=url,model=url". */
 export const OLLAMA_ROUTES = new Map(
-  (process.env.MC_OLLAMA_ROUTES ?? '').split(',').map((r) => r.trim()).filter((r) => r.includes('='))
+  (rawSetting('MC_OLLAMA_ROUTES') ?? '').split(',').map((r) => r.trim()).filter((r) => r.includes('='))
     .map((r) => [r.slice(0, r.indexOf('=')).trim(), r.slice(r.indexOf('=') + 1).trim().replace(/\/$/, '')] as [string, string]),
 );
 const ollamaUrl = (model: string) => OLLAMA_ROUTES.get(model) ?? OLLAMA_URL;
-export const OLLAMA_CTX = Number(process.env.MC_OLLAMA_CTX ?? 8192);
+export const OLLAMA_CTX = Number(rawSetting('MC_OLLAMA_CTX') ?? 8192);
 
 /** Ollama's sampling temperature for every call (MC_TEMPERATURE, default 0.4: the value hard-coded before; gpt-oss is often
  *  run at 1.0, the character bench compares them). A function so a bench can set it per call through the environment. */
 export const temperature = () => {
-  const t = Number(process.env.MC_TEMPERATURE);
-  return Number.isFinite(t) && process.env.MC_TEMPERATURE ? Math.min(2, Math.max(0, t)) : 0.4;
+  const t = Number(rawSetting('MC_TEMPERATURE'));
+  return Number.isFinite(t) && rawSetting('MC_TEMPERATURE') ? Math.min(2, Math.max(0, t)) : 0.4;
 };
 /** How long one local model call may take (MC_OLLAMA_TIMEOUT, seconds): a 27B planner can queue behind another agent's call. */
-const OLLAMA_TIMEOUT_MS = Number(process.env.MC_OLLAMA_TIMEOUT ?? 300) * 1000;
+const OLLAMA_TIMEOUT_MS = Number(rawSetting('MC_OLLAMA_TIMEOUT') ?? 300) * 1000;
 
 // ---------------------------------------------------------------------------------------------
 // Providers
@@ -377,7 +378,7 @@ export class CallGate {
   }
 }
 
-export const gate = new CallGate(parseSlots(process.env.MC_CALL_SLOTS));
+export const gate = new CallGate(parseSlots(rawSetting('MC_CALL_SLOTS')));
 
 // ---------------------------------------------------------------------------------------------
 // Recording and replay
@@ -395,11 +396,11 @@ export const gate = new CallGate(parseSlots(process.env.MC_CALL_SLOTS));
  * ([replay] ... prompt same / differs), so where the run left the recording shows in the log.
  */
 const RECORD_FILE = ((): string | null => {
-  const v = process.env.MC_MODEL_RECORD;
+  const v = rawSetting('MC_MODEL_RECORD');
   if (v === '0' || v === 'off') return null;
   if (v) return v;
   const day = new Date().toISOString().slice(0, 10);
-  return path.join(process.env.MCAI_ROOT ?? process.cwd(), 'runs', 'model-calls', `${day}-${process.pid}.jsonl`);
+  return path.join(rawSetting('MCAI_ROOT') ?? process.cwd(), 'runs', 'model-calls', `${day}-${process.pid}.jsonl`);
 })();
 const recordedSystems = new Set<string>();
 /** Calls so far per agent and kind (recorded or replayed), for the sequence key. */
@@ -408,9 +409,9 @@ const hash = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 
 
 interface Recorded { agent: string; kind: string; model: string; n: number; hash: string; reply: Reply; ms: number }
 
-const REPLAY_MODE = process.env.MC_MODEL_REPLAY_MODE === 'exact' ? 'exact' : 'sequence';
+const REPLAY_MODE = rawSetting('MC_MODEL_REPLAY_MODE') === 'exact' ? 'exact' : 'sequence';
 const replay = ((): { bySeq: Map<string, Recorded>; byHash: Map<string, Recorded[]> } | null => {
-  const files = (process.env.MC_MODEL_REPLAY ?? '').split(',').map((f) => f.trim()).filter(Boolean);
+  const files = (rawSetting('MC_MODEL_REPLAY') ?? '').split(',').map((f) => f.trim()).filter(Boolean);
   if (!files.length) return null;
   const bySeq = new Map<string, Recorded>(), byHash = new Map<string, Recorded[]>();
   let n = 0;

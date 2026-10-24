@@ -7,6 +7,7 @@
  */
 import type minecraftData from 'minecraft-data';
 import type { Counts, MaterialPlan } from './mcMaterials';
+import { rawSetting } from '../settings';
 
 type Registry = ReturnType<typeof minecraftData>;
 
@@ -83,7 +84,7 @@ export const MAKE_KEEP = { cobblestone: 14, coal: 2, logsBase: 4, logsPerPen: 10
 export const MAKE_NEVER: ReadonlySet<string> = new Set(['wheat', 'wheat_seeds', 'raw_iron', 'iron_ingot', 'bucket', 'milk_bucket', 'egg', 'brown_egg', 'blue_egg', 'sugar', 'sugar_cane', 'cake', 'bread']);
 
 /** Crafting makes going at once in a village (they share the hut's table and its aisle; smelting makes go by furnace). */
-export const MAKE_PARALLEL = Number(process.env.MC_MAKE_PARALLEL ?? 4);
+export const MAKE_PARALLEL = Number(rawSetting('MC_MAKE_PARALLEL') ?? 4);
 
 /** What gathering for the workshop brings in (spec 4.8; no coal: the cobblestone mine is stone only, D9). */
 export type Material = 'sand' | 'logs' | 'cobblestone';
@@ -107,7 +108,7 @@ export const GATHER_KINDS: Record<Material, { atOnce: number | 'faces'; trip: nu
 export const GATHER_ALSO = 'coal,raw_iron,torch';
 
 /** Logs gathering for the workshop may bring a village in an hour (counted with what is on the way). */
-export const GATHER_LOGS_HOUR = Number(process.env.MC_GATHER_LOGS_HOUR ?? 96);
+export const GATHER_LOGS_HOUR = Number(rawSetting('MC_GATHER_LOGS_HOUR') ?? 96);
 
 /** Furnaces on the works plot (k 1-3; k 0 is the storage hut's). */
 export const WORKS_FURNACES = 3;

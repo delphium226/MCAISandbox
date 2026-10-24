@@ -16,6 +16,7 @@ import { checkAbort, num, reach, stateAt, wetAt } from './mcUtil';
 // tunnels are dug in (plus ores), and blocks that fall into a hole dug under them; water as collect sees it (wetAt)
 import { FALLING, MINE_DIGGABLE as DIGGABLE, MINE_STONE as STONE } from './mcBlocks';
 import { IRON_AGE, IRON_MINERS, IRON_STAIRS2, ORE_MINE } from '../ladderFlags';
+import { rawSetting } from '../settings';
 
 /** A chunk not loaded: try again later (not a reason to end the mine). */
 const UNLOADED = 'not loaded';
@@ -24,7 +25,7 @@ const UNLOADED = 'not loaded';
 const MAIN_STEP = MINE_STEP, BRANCH = MINE_BRANCH, PER = MAIN_STEP + 2 * BRANCH;
 /** Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most
  *  per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). */
-const MAX_LEGS = 12, MAX_CELLS = Math.max(1, Number(process.env.MC_MINE_LEVEL_CELLS) || 40 * PER);
+const MAX_LEGS = 12, MAX_CELLS = Math.max(1, Number(rawSetting('MC_MINE_LEVEL_CELLS')) || 40 * PER);
 /** Levels at most, and steps down from one to the next at least (three solid layers between their tunnels) and at most. */
 const MAX_LEVELS = 3, DOWN_STEPS = 6, DOWN_MAX = 10;
 
@@ -719,7 +720,7 @@ function nextLeg(a: BotAgent, v: Village, m: Mine): { leg: MineLeg; unit: Unit }
 
 /** A tunnel's holder leaves its junction's branches to miners waiting for a face and digs on along the main tunnel (S.2;
  *  MC_MINE_LEAVE=0 for comparison runs: the holder then digs main, left, right in order however many wait). */
-const LEAVE_BRANCHES = process.env.MC_MINE_LEAVE !== '0';
+const LEAVE_BRANCHES = rawSetting('MC_MINE_LEAVE') !== '0';
 /** Branches left to waiting miners, said once each. */
 const leftNoted = new Set<string>();
 
@@ -1874,7 +1875,7 @@ async function fillHole(a: BotAgent, q: Vec3, item: string) {
 // land: 55 raw iron a 1,000 cells today (IM2 live 56), 82 with the veins dug out, for 5% more blocks broken.
 // ---------------------------------------------------------------------------------------------
 
-const ORE_VEIN = ORE_ON && /^(on|1|true|yes)$/i.test(process.env.MC_ORE_VEIN ?? '');
+const ORE_VEIN = ORE_ON && /^(on|1|true|yes)$/i.test(rawSetting('MC_ORE_VEIN') ?? '');
 /** Vein blocks dug at most a cell; blocks looked at at most a cell (the bound on the search, F293); how far from the cell's
  *  column and below and above its floor (L) a vein is followed; and the stone a hole may be filled with. */
 const VEIN_CAP = 12, VEIN_LOOK = 400, VEIN_SIDE = 3, VEIN_DOWN = 2, VEIN_UP = 4;

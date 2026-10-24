@@ -11,7 +11,8 @@
  *   - the low classes' share of the gate (ballots, reflections, the chronicle: all slots but one): every slot.
  * What stays is the provider's own concurrency, MC_CALL_SLOTS (Ollama Cloud's 3 at once), as a queue, never a fallback.
  */
-export const LLM_LIMITS = !/^(off|0|false|no)$/i.test(process.env.MC_LLM_LIMITS ?? 'on');
+import { rawSetting } from './settings';
+export const LLM_LIMITS = !/^(off|0|false|no)$/i.test(rawSetting('MC_LLM_LIMITS') ?? 'on');
 
 /** A setting's value: its own env if set, else the limited default, else the unlimited one. */
 export function limited(env: string | undefined, on: number, off: number): number {
@@ -20,6 +21,6 @@ export function limited(env: string | undefined, on: number, off: number): numbe
 
 /** The cloud slots MC_CALL_SLOTS gives Ollama Cloud (3 by default): decisions in flight with the limits off. */
 export function cloudSlots(): number {
-  const m = /ollama-cloud\s*=\s*(\d+)/.exec(process.env.MC_CALL_SLOTS ?? '');
+  const m = /ollama-cloud\s*=\s*(\d+)/.exec(rawSetting('MC_CALL_SLOTS') ?? '');
   return m ? Number(m[1]) : 3;
 }

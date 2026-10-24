@@ -14,11 +14,12 @@ import { INNOVATE, techOf } from './tech';
 import type { Temperament } from './temperament';
 import type { ChoiceOption } from './world';
 import type { Village } from './village';
+import { rawSetting } from './settings';
 
 type Counts = Record<string, number>;
 
 /** On with MC_GOALS=on. */
-export const GOALS_ON = /^(on|1|true)$/i.test(process.env.MC_GOALS ?? 'off');
+export const GOALS_ON = /^(on|1|true)$/i.test(rawSetting('MC_GOALS') ?? 'off');
 
 export const GOALS = ['wealth', 'invention', 'mastery', 'standing', 'home', 'beauty'] as const;
 export type Goal = (typeof GOALS)[number];
@@ -58,7 +59,7 @@ const tie = (name: string, g: Goal) => fnv1a(`${name}|${g}`) / 2 ** 32 / 1000;
 /** The goals in play: wealth only with own stock (MC_OWN; the check's 12), invention only with innovation (MC_INNOVATE);
  *  MC_GOALS_ONLY narrows them (experiments). */
 export function goalsInPlay(): Goal[] {
-  const only = (process.env.MC_GOALS_ONLY ?? '').split(/[,;+]/).filter(Boolean);
+  const only = (rawSetting('MC_GOALS_ONLY') ?? '').split(/[,;+]/).filter(Boolean);
   return GOALS.filter((g) => (g !== 'wealth' || OWN.on) && (g !== 'invention' || INNOVATE) && (!only.length || only.includes(g)));
 }
 

@@ -23,6 +23,7 @@ import type { Counts } from './mcMaterials';
 import { MAKE_GOODS } from './mcWorkshop';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory, unmoved } from './mcUtil';
 import { OWN_TOOLS } from '../ladderFlags';
+import { rawSetting } from '../settings';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -50,7 +51,7 @@ const total = (items: Record<string, number>) => Object.values(items).reduce((s,
  * overflow into the chest with most room once the hut is down to its last free spot, and spare wooden parts burn first as
  * smelting fuel. MC_PARTS=off: storage as before.
  */
-export const PARTS_ON = process.env.MC_PARTS !== 'off';
+export const PARTS_ON = rawSetting('MC_PARTS') !== 'off';
 
 /**
  * Leftover building parts (s37 S2): stairs, slabs, walls, doors, trapdoors, fences and gates, buttons, pressure plates,
@@ -87,7 +88,7 @@ export function overflowChest<C extends { group?: string; items: Record<string, 
 }
 
 /** MC_STORAGE_BARRELS=off: the hut's nine chest spots only (s40: barrels in the six cells between them, on by default). */
-const BARRELS_ON = !/^(off|0|false)$/i.test(process.env.MC_STORAGE_BARRELS ?? 'on');
+const BARRELS_ON = !/^(off|0|false)$/i.test(rawSetting('MC_STORAGE_BARRELS') ?? 'on');
 
 /** The hut's barrel spots (s40), in world cells: offsets from its corner, as the chest spots are. */
 const barrelSpots = (v: Village): Array<{ x: number; z: number; barrel: true }> =>
@@ -488,8 +489,8 @@ const BULK_STONE = /^(cobblestone|cobbled_deepslate|stone|deepslate|andesite|dio
  * MC_STORAGE_CAP (#121, with MC_STORAGE_GROW): the most of each bulk stone kind storage keeps, "cobblestone:1024,stone:256"
  * by default ("stone": each other bulk kind; a kind named on its own takes its own number); "off": no cap.
  */
-export const STORAGE_CAP: Record<string, number> = /^(off|0|false)$/i.test(process.env.MC_STORAGE_CAP ?? '') ? {}
-  : Object.fromEntries((process.env.MC_STORAGE_CAP || 'cobblestone:1024,stone:256').split(',').map((e) => e.trim().split(':'))
+export const STORAGE_CAP: Record<string, number> = /^(off|0|false)$/i.test(rawSetting('MC_STORAGE_CAP') ?? '') ? {}
+  : Object.fromEntries((rawSetting('MC_STORAGE_CAP') || 'cobblestone:1024,stone:256').split(',').map((e) => e.trim().split(':'))
     .filter(([k, n]) => k && Number.isFinite(Number(n))).map(([k, n]) => [k, Math.max(0, Math.floor(Number(n)))]));
 
 /** The cap of a kind (#121): its own entry, else "stone"'s for a bulk stone kind; null for anything else. */

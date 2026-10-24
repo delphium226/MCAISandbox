@@ -39,6 +39,7 @@ import { makeMapView } from './world';
 
 export type { ActionStatus, AgentEvent, Observation } from './world';
 import type { FurnaceState } from './containers';
+import { rawSetting } from './settings';
 
 /** Connection stand-in for an agent: collects the messages a human client would receive. */
 class AgentConnection implements Connection {
@@ -710,7 +711,7 @@ interface BuildTarget {
 
 const MAX_BUILD_BLOCKS = 2000;
 /** Building speed multiplier (MC_BUILD_SPEED): 1 is about 10 blocks per second; raise it to make tests faster. */
-const BUILD_SPEED = Math.max(0.25, Math.min(20, Number(process.env.MC_BUILD_SPEED ?? 1) || 1));
+const BUILD_SPEED = Math.max(0.25, Math.min(20, Number(rawSetting('MC_BUILD_SPEED') ?? 1) || 1));
 const NON_GROUND = /leaves|_log$|grass$|fern|flower|dandelion|poppy|tulip|orchid|allium|bluet|daisy|bush|sapling|snow$/;
 
 /** The y of the highest ground block (ignoring trees and plants) in a column, searching around y0. */

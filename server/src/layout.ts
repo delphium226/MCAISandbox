@@ -11,6 +11,7 @@ import { refitDesign, TIER_WORDS, type RefitOption } from './refit';
 import { nameForNew } from './placeNames';
 import { zoneConflict } from './rules';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
+import { rawSetting } from './settings';
 
 export interface Site {
   x: number;
@@ -36,7 +37,7 @@ const FIELD_REACH = 96;
  * pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended
  * into the ground (prepare_site layout=N pad=K; runs/2026-10-24/layout-measure/spec_c.md).
  */
-export const PAD_PER_BUILDING = /^(on|1|true)$/i.test(process.env.MC_PAD_PER_BUILDING ?? 'off');
+export const PAD_PER_BUILDING = /^(on|1|true)$/i.test(rawSetting('MC_PAD_PER_BUILDING') ?? 'off');
 
 /** A part of the plot as plan_layout posts it (S.6): its rectangle, margins, and what it holds (for its task's title). */
 export type PrepPart = PlotPart & { what: string };

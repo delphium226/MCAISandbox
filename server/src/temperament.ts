@@ -13,9 +13,10 @@
 import { workerName, workerNumber } from './agentNames';
 import { CHOOSE, fnv1a, mulberry32, shuffled } from './choose';
 import type { ChoiceKind } from './world';
+import { rawSetting } from './settings';
 
 export type TemperamentMode = 'off' | 'on' | 'identical';
-const rawMode = (process.env.MCAI_TEMPERAMENT ?? 'on').trim().toLowerCase();
+const rawMode = (rawSetting('MCAI_TEMPERAMENT') ?? 'on').trim().toLowerCase();
 export const TEMPERAMENT_MODE: TemperamentMode = rawMode === 'off' || rawMode === 'identical' ? rawMode : 'on';
 
 export const TRAITS = ['curiosity', 'care', 'diligence', 'pride', 'sociability'] as const;
