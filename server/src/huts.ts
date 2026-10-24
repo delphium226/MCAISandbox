@@ -2,7 +2,8 @@
  * Buildings every village gets, drawn in code rather than by the architect: the storage hut (and, later, the mining
  * hut). Code lays them out with the village's first layout and knows where things go inside them.
  */
-import type { Design } from './village';
+import type { Area, Design } from './village';
+import { annexCandidates } from './farmSlots';
 
 export const STORAGE_HUT = 'storage_hut';
 
@@ -61,6 +62,34 @@ export function storageHutDesign(open = OPEN_STORAGE): Design {
     palette, layers: layers.map((l) => [...l]), width: 7, depth: 9, height: layers.length, blocks, by: 'code',
   };
 }
+
+/**
+ * MC_STORAGE_GROW=on (#121; off by default): storage that grows. A deposit keeps at most a cap of each bulk stone kind
+ * (the rest goes on the spoil heap), and a storage yard is prepared beside the village once the hut is nearly full.
+ */
+export const STORAGE_GROW = /^(on|1|true)$/i.test(process.env.MC_STORAGE_GROW ?? 'off');
+
+/**
+ * The storage yard's barrel spots (#121), for a yard on side `side` of the plot (the annex's 13x9 geometry: 13 along the
+ * plot's edge, 9 away from it): two double rows along the long axis, at depths 2-3 and 5-6, cells 1-11 along it, so every
+ * barrel has an aisle cell beside it (depths 1, 4 and 7; barrels never join, so they stand side by side). `stand`: that
+ * aisle cell. Nearest `door` first. 44 spots.
+ */
+export function storageYardSpots(r: { x1: number; z1: number; x2: number; z2: number; side: 'n' | 's' | 'e' | 'w' }, door: { x: number; z: number }): Array<{ x: number; z: number; stand: { x: number; z: number } }> {
+  const along = r.side === 'n' || r.side === 's';
+  const len = along ? r.x2 - r.x1 + 1 : r.z2 - r.z1 + 1;
+  const out: Array<{ x: number; z: number; stand: { x: number; z: number } }> = [];
+  const cell = (i: number, d: number) => (along ? { x: r.x1 + i, z: r.z1 + d } : { x: r.x1 + d, z: r.z1 + i });
+  for (const [d, aisle] of [[2, 1], [3, 4], [5, 4], [6, 7]]) for (let i = 1; i <= len - 2; i++) out.push({ ...cell(i, d), stand: cell(i, aisle) });
+  const dist = (s: { x: number; z: number }) => Math.abs(s.x - door.x) + Math.abs(s.z - door.z);
+  return out.sort((p, q) => dist(p) - dist(q) || p.x - q.x || p.z - q.z);
+}
+
+/**
+ * Where a storage yard may go (#121): the annex's 13x9 candidates round the plot, 3, 7 and 11 blocks out (a grown village
+ * leaves little room right beside its plot: im2_mine's first ring was all taken).
+ */
+export const storageYardCandidates = (plot: Area) => [0, 4, 8].flatMap((o) => annexCandidates({ x1: plot.x1 - o, z1: plot.z1 - o, x2: plot.x2 + o, z2: plot.z2 + o }));
 
 /** A storage hut's chest spots in the world, for a hut whose footprint starts at x1, z1 (not rotated). */
 export const hutSpots = (x1: number, z1: number) => STORAGE_HUT_SPOTS.map(([x, z]) => ({ x: x1 + x, z: z1 + z }));

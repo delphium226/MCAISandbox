@@ -2049,3 +2049,16 @@ CLAUDE.md when a phase ends.
   against HB0's 39% (by 10 min 42/35/42 against 49/46/20); [stuck] 71 against 32 (the walks to the sheep, ~90 blocks).
   The pin (basic needs taken after a meal by every picker, kept on the model's menu) is checked offline only.
   Logs: runs/2026-10-24/home-basics/ (spec.md, judge_HB*.txt, staged/).
+- F310 (10-24, storage-grows, #121) **A mining village fills its one storage hut in about two hours, and bulk stone and
+  spill take most of it; with storage that grows (MC_STORAGE_GROW) the full im2_mine hut stopped refusing deposits.**
+  Measured: the gauge rose ~2.5 slots a minute in M2 and W2 (224 -> 294 and 108 -> 322 of 405 by minute 90), flat in All1
+  (no mine). Stone kinds took 34-43% of the slots (im2_mine: 155 of 357, 6,145 cobblestone in 12 of 14 containers), and
+  spill cost ~30% (357 slots would pack into 248). Built (off): a cap on bulk stone (cobblestone 1,024, other stone kinds
+  256; the rest on a spoil heap) and a 13x9 storage yard with 44 barrel spots, prepared by a chore once the hut has at
+  most 2 free spots and 75% of its slots used (405 -> 1,593 slots). The first live try found no room: im2_mine's first
+  mine level (y 58-61, 4 below the plot) lay under every candidate, so the yard keeps off the mine's hut and stairs only
+  and searches 3, 7 and 11 blocks out. The second found barrels never crafted: craft does not make a recipe's slabs (6,000+
+  "short of 2x oak_slab" in s41-s43's logs), fixed in ensureBarrel for every run, flag or not. Staged SG1 (im2_mine,
+  world 1, 15 min after): the yard ready within ~2 minutes, 10 barrels in it, 9 spoil events; failed deposits by 5-min bin
+  2/3/1 (none "full") against HB0's 88/63/204 (309 "full") with the same settings; [stuck] 19, [lag] 0.
+  Logs: runs/2026-10-24/storage-grows/ (spec.md, staged/, try1-2 the failed tries).

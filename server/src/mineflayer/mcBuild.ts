@@ -25,7 +25,7 @@ import type { MakeGood } from './mcWorkshop';
 import { TEMPERAMENT_MODE, temperament } from '../temperament';
 import { WOOD_VARIANTS, doorOutward, outsideCells, turnState, variantWood } from '../designs';
 import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
-import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
+import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS, storageYardCandidates, storageYardSpots } from '../huts';
 import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
@@ -3532,20 +3532,29 @@ export const annexBusy = new Set<string>();
  * `which` 'works' (S.9): the works plot, of the same geometry, with the annex taken too; only rectangles whose farthest
  * cell is within WORKS_TABLE_RANGE of the hut's crafting table (a craft after a smelt there still finds the hut's table,
  * the check's L6), and "beside the annex" as a score term (D8). The annex's own search keeps off a works plot recorded.
+ *
+ * `which` 'store' (#121, MC_STORAGE_GROW): the storage yard, of the same geometry but up to 11 blocks out
+ * (storageYardCandidates), scored on the walk from the hut's door; it keeps off the mine's hut and stairs only, not its
+ * tunnels 4 below the level (im2_mine's first level ran under every candidate; prepare_site works the plot's level and up).
+ * Each side plot's search keeps off the others (annex, works, yard), recorded or prepared.
  */
-async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal, which: 'annex' | 'works' = 'annex'): Promise<{ rect: Area & { side: Side }; score: number } | null> {
+async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal, which: 'annex' | 'works' | 'store' = 'annex'): Promise<{ rect: Area & { side: Side }; score: number } | null> {
   const lay0 = v.layouts?.[0];
   const works = which === 'works';
-  const bad = new Set((works ? lay0?.works : lay0?.annex)?.bad ?? []);
-  // (the other side plot's rectangle, recorded even while it is being prepared)
-  const other = works ? lay0?.annex : lay0?.works;
+  const own = lay0?.[which];
+  const bad = new Set(own?.bad ?? []);
+  // (the other side plots' rectangles, recorded even while they are being prepared)
+  const sides = (['annex', 'works', 'store'] as const).filter((k) => k !== which).map((k) => lay0?.[k]).filter((q): q is NonNullable<typeof q> => !!q && q.x2 >= q.x1);
+  const other = works ? lay0?.annex : undefined;
+  const same = (p: Area, q: Area | undefined) => !!q && p.x1 === q.x1 && p.z1 === q.z1 && p.x2 === q.x2 && p.z2 === q.z2;
   const table = works ? villageStationCell(v, 'crafting_table') : null;
   if (works && !table) return null;
   const farthest = (c: Area) => Math.max(...[[c.x1, c.z1], [c.x1, c.z2], [c.x2, c.z1], [c.x2, c.z2]].map(([x, z]) => Math.hypot(x - table!.x, z - table!.z)));
-  const cands = annexCandidates(plot).filter((c) => !bad.has(`${c.x1},${c.z1}`) && (!works || farthest(c) <= WORKS_TABLE_RANGE));
+  const store = which === 'store';
+  const cands = (store ? storageYardCandidates(plot) : annexCandidates(plot)).filter((c) => !bad.has(`${c.x1},${c.z1}`) && (!works || farthest(c) <= WORKS_TABLE_RANGE));
   if (!cands.length) return null;
   const cx = Math.floor((plot.x1 + plot.x2) / 2), cz = Math.floor((plot.z1 + plot.z2) / 2);
-  const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + 13 + 4;
+  const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + 13 + 4 + (store ? 8 : 0);
   const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
   const all = [...a.world.villages.villages.values()];
   const now = Date.now();
@@ -3554,11 +3563,11 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
     ...all.filter((o) => o !== v).flatMap((o) => [...(o.layouts ?? []), ...o.plots]).map((q) => pad(q, 2)),
     // (and its own second site, laid out or prepared: the review's L1; and the other side plot, the annex or the works, S.9)
     // (a growth neighbourhood padded 5, as growSite pads the side plots: two prepare margins never touch, s30's review)
-    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !(works ? p.works : p.annex))].map((q) => pad(q, 'grow' in q && q.grow ? 5 : 2)),
-    ...(other && other.x2 >= other.x1 ? [pad(other, 2)] : []),
+    ...[...(v.layouts ?? []).slice(1), ...v.plots.filter((p) => p !== plot && !same(p, own))].map((q) => pad(q, 'grow' in q && q.grow ? 5 : 2)),
+    ...sides.map((q) => pad(q, 2)),
     ...all.flatMap((o) => o.reservations.filter((q) => q.by !== a.name && q.until > now)),
     // (the mine's hut and stairs, which reach the surface; its tunnels lie 6+ below the level, out of prepare_site's reach)
-    ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - 4) : []),
+    ...(v.mine ? mineAreas(v.mine).filter((b) => b.y2 >= plot.y - (store ? 2 : 4)) : []),
     // (G3, MC_RULES: a zone voted free of building; the annex's pens are farms, the works plot a building)
     ...zoneBoxes(v.name, works ? 'build' : 'farm').map((z) => ({ x1: z.x1, z1: z.z1, x2: z.x2, z2: z.z2 })),
   ];
@@ -3867,7 +3876,7 @@ function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: n
   const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
   const all = [...a.world.villages.villages.values()];
   const now = Date.now();
-  const sides = [lay0?.annex, lay0?.works].filter((q): q is NonNullable<typeof q> => !!q && q.x2 >= q.x1);
+  const sides = [lay0?.annex, lay0?.works, lay0?.store].filter((q): q is NonNullable<typeof q> => !!q && q.x2 >= q.x1);
   // (a side plot not chosen yet keeps a ring round the plot free for it: the annex always, the works plot with its family)
   const ringFor = (q: { x2: number; x1: number; tries?: number } | undefined) => (!q || q.x2 < q.x1) && (q?.tries ?? 0) < 3;
   const ring = lay0 && (ringFor(lay0.annex) || (CHOOSE.families.has('works') && ringFor(lay0.works))) ? [pad(lay0, 18)] : [];
@@ -4056,6 +4065,75 @@ async function prepareWorks(a: BotAgent, _args: Record<string, unknown>, signal:
     throw e;
   } finally {
     worksBusy.delete(v.name);
+  }
+}
+
+/** The village preparing its storage yard (#121; one at a time, the chore's lock). */
+export const storeBusy = new Set<string>();
+
+/**
+ * The storage yard (#121, MC_STORAGE_GROW; a chore code queues once the storage hut is nearly full): a 13x9 side plot of the
+ * annex's geometry beside the village, nearest the hut's door, prepared at the plot's level by prepareAnnex's rules (the
+ * rectangle recorded first, one that fails for its ground marked bad). Once ready its 44 barrel spots (storageYardSpots)
+ * join the hut's, and deposits put barrels down there as they need them. A plot entry `works: true`: protected village
+ * ground, kept out of the main plot's lookups as the works plot is.
+ */
+async function prepareStorageYard(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const lay = v?.layouts?.[0];
+  if (!v || !lay) throw new Error('prepare_storage_yard: the village has no layout');
+  if (!v.storageHut) throw new Error('prepare_storage_yard: the village has no storage hut');
+  const plot = v.plots.find((p) => !p.annex && !p.works && overlaps(p, lay));
+  if (!plot) throw new Error('prepare_storage_yard: the village plot is not prepared');
+  if (storeBusy.has(v.name)) throw new Error('prepare_storage_yard: the storage yard is being prepared');
+  storeBusy.add(v.name);
+  const save = () => a.world.villages.save();
+  try {
+    let yd = lay.store;
+    if (yd?.state === 'ready') return `the storage yard at ${areaText(yd)} is ready`;
+    const home = villageHome(v, a.memory);
+    if (home && Math.hypot(a.bot.entity.position.x - home.x, a.bot.entity.position.z - home.z) > 24)
+      await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+    if (!yd || yd.x2 < yd.x1) {
+      const spot = await annexSpot(a, v, plot, signal, 'store');
+      if (!spot) throw new Error(`prepare_storage_yard: no room for a 13x9 storage yard beside the plot at ${areaText(plot)} (every side taken, wet, too steep or built on)`);
+      yd = lay.store = { ...lay.store, x1: spot.rect.x1, z1: spot.rect.z1, x2: spot.rect.x2, z2: spot.rect.z2, y: plot.y, side: spot.rect.side, state: 'preparing' };
+      save();
+      console.log(`[storage] ${v.name}: ${a.name} prepares the storage yard at ${areaText(yd)} (${yd.side}, score ${Math.round(spot.score)})`);
+    }
+    const w = yd.x2 - yd.x1 + 1, d = yd.z2 - yd.z1 + 1;
+    const out = await prepareSite(a, { x: yd.x1 + Math.floor(w / 2), z: yd.z1 + Math.floor(d / 2), width: w, depth: d, y: yd.y, margin: 2, works: true }, signal);
+    const rec = v.plots.find((p) => p.x1 === yd!.x1 && p.z1 === yd!.z1 && p.x2 === yd!.x2 && p.z2 === yd!.z2);
+    if (rec) rec.works = true;
+    yd.state = 'ready';
+    save();
+    const n = storageYardSpots(yd, { x: v.storageHut.x1 + 3, z: v.storageHut.z2 + 1 }).length;
+    a.world.villages.note(v, `${a.name} prepared the storage yard at ${areaText(yd)}: room for ${n} more barrels of storage`);
+    console.log(`[storage] ${v.name}: the storage yard at ${areaText(yd)} is ready (${n} barrel spots)`);
+    const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
+      if (e.message === 'cancelled') throw e;
+      return '';
+    });
+    return `prepared the storage yard at ${areaText(yd)} (${yd.side} of the plot) with room for ${n} barrels: ${out.replace(/^plot ready: /, '')}${stored ? '; deposited what it carried' : ''}`;
+  } catch (e) {
+    const why = (e as Error).message;
+    if (why !== 'cancelled' && !signal.aborted) {
+      const yd = (lay.store ??= { x1: 0, z1: 0, x2: -1, z2: -1, y: plot.y, side: 'n', state: 'preparing' });
+      if (yd.state !== 'ready' && yd.x2 >= yd.x1 && /cannot be prepared here|cannot be made dry|not ready after two passes|whole area is covered|too much work/.test(why)) {
+        yd.bad = [...(yd.bad ?? []), `${yd.x1},${yd.z1}`].slice(-20);
+        yd.x2 = yd.x1 - 1;
+      }
+      yd.tries = (yd.tries ?? 0) + 1;
+      yd.lastTry = { at: Date.now(), why: why.slice(0, 200) };
+    }
+    save();
+    if (why !== 'cancelled' && !signal.aborted && !unmoved(e))
+      await STORAGE_SKILLS.deposit.run(a, { item: 'logs', keep_wood: true }, signal).catch(() => '');
+    throw e;
+  } finally {
+    storeBusy.delete(v.name);
   }
 }
 
@@ -6639,6 +6717,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   // (S.9's, chores: the workshop's make, the works plot and its furnaces)
   make: { check: (x) => (str(x.item, 'item'), num(x.count, 'count'), undefined), run: makeGoods },
   prepare_works: { run: prepareWorks },
+  // (#121's, a chore code queues: the storage yard)
+  prepare_storage_yard: { run: prepareStorageYard },
   place_works_furnace: { check: (x) => void num(x.k, 'k'), run: placeWorksFurnace },
   // (B.4's, a chore too: torches from storage into a building or a part of the mine)
   put_up_torches: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: partsBack(putUpTorches) },

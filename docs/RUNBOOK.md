@@ -135,6 +135,13 @@ the short version; look here for a check script's arguments, a model detail or w
   the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
   `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
   idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
+- **Storage that grows** (#121, `MC_STORAGE_GROW=on`, off; spec `runs/2026-10-24/storage-grows/spec.md`): a deposit keeps
+  at most `MC_STORAGE_CAP` of each bulk stone kind (default `cobblestone:1024,stone:256`, "stone" each other bulk kind;
+  `off` no cap) and the rest goes on the spoil heap (cleared by command, not credited; `[storage] spoil:`); and when the
+  hut has at most 2 free spots and 75% of its slots used, an idle fed member prepares a **storage yard** (`prepare_storage_yard`,
+  chore key `tidy:yard`; a 13x9 side plot by the annex's search, plot entry `works: true`, `lay.store`), whose 44 barrel
+  spots join the hut's (405 -> 1,593 slots; `[storage] ... the storage yard ... is ready`, `put a storage barrel ... in the
+  yard`). Offline: `scripts/checks/storage_grow.mts` (im2_mine).
 - **The mine's cap is a level's** (s40, F256): 1080 tunnel cells a level, counted from the mine's `dug` when its stairs
   reached the level (`dugAt` on `m.down`); a full level sends the stairs down (3 levels, ~3240 cells). `MC_MINE_LEVEL_CELLS`
   lowers the cap for staged tests (Min1: 760 from mv3_grown25's 710). With `MC_NEEDS` show or on, the `mineflow` gauge

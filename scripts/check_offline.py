@@ -39,7 +39,7 @@ def commands():
     # (s42: the village simulator, 20 simulated minutes on mv3_grown25: no error, every member picking)
     out["village_sim"] = ([node, TSX, "scripts/sim/village_sim.mts", "--minutes", "20"], ["mc/testcheckpoints/mv3_grown25/villages.json"])
     # (#21: the letters rung's goods, keeps and trades, and the library's cells, on the im2_mine checkpoint)
-    for name in ("letters_make", "library_shelves"):
+    for name in ("letters_make", "library_shelves", "storage_grow"):
         out[name] = ([node, TSX, f"scripts/checks/{name}.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (MC_HOME_BASICS: a bed, a chest and a table for every owned house of im2_mine, and the jar's houses' cells)
     out["home_basics"] = ([node, TSX, "scripts/checks/home_basics.mts", "im2_mine"], ["mc/testcheckpoints/im2_mine/villages.json"])

@@ -6,7 +6,7 @@
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { VILLAGE_RANGE, FARM_TRIP_RANGE, MINE_TASK, PARTS_MAKE, PICK_GATHER, PICK_SUPPLY, STATION_NAMES, VillageRegistry, WINDOWS, preparedAt, signTask, stationsOwed, villageHome, type Task, type Village } from '../village';
-import { MINING_HUT, STORAGE_HUT } from '../huts';
+import { MINING_HUT, STORAGE_GROW, STORAGE_HUT } from '../huts';
 import type { ActionStatus, ChoiceContext, ChoiceKind, ChoiceMenu, ChoiceMeta, ChoiceOption, ChoiceStatus, ChoiceSummary, ToolDef, WorldAdapter, WorldAgent } from '../world';
 import { TOOLS } from '../skills';
 import { BotAgent } from './botAgent';
@@ -19,7 +19,7 @@ import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORD
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
-import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, wheatKeep } from './mcBuild';
+import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, wheatKeep } from './mcBuild';
 import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -41,7 +41,7 @@ import { TaskBrain } from '../taskBrain';
 import type { AgentBrain } from '../world';
 import type { Area, Design, Initiative, Structure } from '../village';
 import { Materials, designBill, designBlockList, gatherNames, gatherTasks, hardToGather, inWood, type Counts, type MaterialPlan } from './mcMaterials';
-import { PART_RE, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
+import { PART_RE, freeSpots, storageContents, storageFlow, storageGross, storageSlots, storageStrays } from './mcStorage';
 import { HOME_BASICS, basicsCost, basicsFacts, basicsLeft, sheepPlace, woolInHand, type BasicsCells } from './mcHome';
 import { contractOf, deliveriesOf, deliveryWords, earmarked, levyOwed, levySweep, markAtEnd, reconcilePay, startPay, storeByCommand, type PayWorld } from './mcPay';
 import { PAY, payOf } from '../pay';
@@ -2265,6 +2265,7 @@ export class MineflayerWorld implements WorldAdapter {
     // (s40, MC_NEED_WORKS: a field work beside growth and the vote, its own gate; the storage's tidy-up)
     if (NEED_WORKS) this.fieldTick(v, now);
     if (NEED_WORKS) this.tidyTick(v, now);
+    if (STORAGE_GROW) this.storeTick(v, now);
     if (BARTER.on && v.complete) this.barterTick(v, now);
     if (v.growth?.active) return this.growEnd(v, now);
     if (HOUSING) this.homeRequestAge(v, now);
@@ -3148,6 +3149,30 @@ export class MineflayerWorld implements WorldAdapter {
   private tidyAt = new Map<string, number>();
 
   /**
+   * #121 (MC_STORAGE_GROW): the storage yard prepared by an idle fed member once storageDue says the hut is nearly full;
+   * one chore at a time, a failure backing off as the works plot's do (3 tries, 10 minutes apart).
+   */
+  private storeTick(v: Village, now: number) {
+    if (!v.complete || !v.storageHut || storeBusy.has(v.name)) return;
+    if ([...this.chores.values()].some((c) => c.village === v.name && c.key === 'tidy:yard')) return;
+    const st = storageSlots(v, this.registry as never);
+    const due = storageDue(v, st, freeSpots(v).length, now);
+    if (!due.due) return;
+    const fed = (a: BotAgent) => this.hungerOf(v, a) !== 'hungry';
+    const agent = this.idleMembers(v, now).find(fed);
+    if (!agent) return;
+    let s: ActionStatus;
+    try {
+      s = agent.enqueue('prepare_storage_yard', { chore: true });
+    } catch (e) {
+      console.log(`[storage] ${v.name}: prepare_storage_yard not queued for ${agent.name}: ${(e as Error).message}`);
+      return;
+    }
+    this.setChore(v, agent, 'tidy:yard', [s], 'prepare the storage yard');
+    console.log(`[storage] ${v.name}: ${agent.name} prepares the storage yard (${st.used} of ${st.cap} slots used, ${freeSpots(v).length} spots free)`);
+  }
+
+  /**
    * #70 (MC_BARTER): the notice board once a minute: open offers past their time lapse (each cheapening its good), and
    * each member with a chest and none open gets the offer code drafts (its most pressing want some other member can spare,
    * paid in its surplus at the board's prices).
@@ -3263,7 +3288,7 @@ export class MineflayerWorld implements WorldAdapter {
       for (const sg of l.signs ?? []) blocked.push(cell(sg.x, sg.z, 1));
       if (l.farm) blocked.push(pad(l.farm, 1));
       for (const sl of l.slots ?? []) blocked.push(pad(sl, 1));
-      for (const side of [l.annex, l.works]) if (side && side.x2 >= side.x1) blocked.push(pad(side, 1));
+      for (const side of [l.annex, l.works, l.store]) if (side && side.x2 >= side.x1) blocked.push(pad(side, 1));
     }
     if (v.mine) blocked.push(...mineAreas(v.mine).map((q) => pad(q, 1)));
     // (three cells out from every building's door: the way in stays clear)
@@ -7755,6 +7780,24 @@ const HOME_REQUEST_MS = 15 * 60000, OWNER_FIRST_MS = 3 * 60000, HOME_FIRST_MS = 
 const INITIATIVES_MAX = Number(process.env.MC_INITIATIVES ?? 3), INITIATIVE_GATHERERS = 2, INITIATIVE_LAPSE_MS = 30 * 60000;
 /** MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). */
 const INITIATIVE_STORE = !/^(off|0|false)$/i.test(process.env.MC_INITIATIVE_STORE ?? 'on');
+/** #121: the storage yard is due at this share of the storage's slots used, with at most STORE_FREE spots free. */
+const STORE_AT = 0.75, STORE_FREE = 2;
+
+/**
+ * Whether the storage yard is due (#121, pure, for storage_grow.mts): a storage hut, no yard ready or recorded with three
+ * failed tries, the last try 10+ minutes ago, at most STORE_FREE spots free and STORE_AT of the slots used.
+ */
+export function storageDue(v: Village, st: { used: number; cap: number }, free: number, now: number): { due: boolean; why: string } {
+  const yd = v.layouts?.[0]?.store;
+  if (!v.storageHut || !v.layouts?.[0]) return { due: false, why: 'no storage hut' };
+  if (yd?.state === 'ready') return { due: false, why: 'the yard is ready' };
+  if ((yd?.tries ?? 0) >= 3) return { due: false, why: `the yard failed ${yd!.tries} times` };
+  if (yd?.lastTry && now - yd.lastTry.at < 10 * 60000) return { due: false, why: 'backing off' };
+  if (free > STORE_FREE) return { due: false, why: `${free} spots free` };
+  if (st.cap <= 0 || st.used / st.cap < STORE_AT) return { due: false, why: `${st.used} of ${st.cap} slots used` };
+  return { due: true, why: '' };
+}
+
 /** The storage's tidy-up (s40): strays filling this many slots, at most every TIDY_MS. */
 const TIDY_SLOTS = 6, TIDY_MS = 10 * 60000;
 /** N.1's needs (spec_needs_v2): off; show (measured, logged, on the API and panel); on (also on the menus). */

@@ -526,6 +526,8 @@ export interface Village {
     annex?: Annex;
     /** The works plot beside the annex (S.9; the first layout only): its furnaces by k - 1 (null once found gone). */
     works?: SidePlot & { furnaces?: Array<WorksFurnace | null> };
+    /** The storage yard (#121, MC_STORAGE_GROW; the first layout only): barrel spots that join the storage hut's once ready. */
+    store?: SidePlot;
     /** A neighbourhood laid out as the village grows (s30): its index among the growth layouts, from 1. */
     grow?: number;
     /** A field work (s40, lay_out_field): a pad holding only `farm`, no buildings, streets, lamps or signs. */
