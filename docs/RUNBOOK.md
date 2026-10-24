@@ -135,6 +135,11 @@ the short version; look here for a check script's arguments, a model detail or w
   the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
   `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
   idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
+- **Pad edges blended** (#136, `MC_PAD_HALO=on|N`, off by default): prepare_site blends each outer margin into the ground,
+  a slope of at most 1 out to N blocks (5 when `on`, at most 8), skipping any village's ground, the mine, built columns,
+  other members' claims, fills deeper than N and cuts deeper than 8; and seals cave air within 3 under every cut column
+  and in a cut's face. Its reply adds "its edge blended into the ground over N columns, M cave cells sealed". Measured in
+  `runs/2026-10-24/layout-measure/` (report.md; staged/ for the live checks); check with `scripts/checks/pad_halo.py`.
 - **Storage that grows** (#121, `MC_STORAGE_GROW`, on by default since 10-24, `=off` turns it off; spec `runs/2026-10-24/storage-grows/spec.md`): a deposit keeps
   at most `MC_STORAGE_CAP` of each bulk stone kind (default `cobblestone:1024,stone:256`, "stone" each other bulk kind;
   `off` no cap) and the rest goes on the spoil heap (cleared by command, not credited; `[storage] spoil:`); and when the
@@ -457,6 +462,9 @@ the short version; look here for a check script's arguments, a model detail or w
   Since 2026-10-02: `top_map.py WORLD X1 Z1 X2 Z2` (offline top-ground map: a prepared plot's pits against the
   snapshot), `region_logs.py WORLD X1 Y1 Z1 X2 Y2 Z2` (logs with their axis: fallen trees); `site.py` also checks the
   wood count; `site.py` and `fell_trees.py` take `MCAI_API`. The "shelf" site needs `--buildings testhut,testhut,testhall`.
+  Since 2026-10-24: `pad_halo.py WORLD X1 Z1 X2 Z2` (or `--villages FILE [--village NAME]`: a prepared plot's edge read
+  offline against the pristine test world: steps over 1 and of 3+ in the ring out to the halo, cave air under the cut;
+  passes over buildings and the mine; for fresh preparations, #136).
   Since E.1 (2026-10-11): `scale_probe25.py AGENT_LOG` (25 bots of mixed work; `LEVELS`, `WORK`), `pf_share.mts` (the
   pathfinder's shared allowance offline), `human_line.cjs NAME PORT "TEXT"` (a plain player's chat line, for chat
   routing), `cdp_profile.cjs`/`profile_callers.cjs` (CPU profile of a running agent server, lesson 125), and

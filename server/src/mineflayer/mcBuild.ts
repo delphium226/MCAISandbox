@@ -84,6 +84,16 @@ const baseName = (b: string) => b.replace(/^minecraft:/, '').replace(/\[.*$/, ''
 const isLog = (n: string) => BUILD_ISLOG.has(n);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+/**
+ * MC_PAD_HALO=on|N (#136; off by default): prepare_site blends a plot's outer margins into the ground, a slope of at most
+ * 1 out to N blocks (5 when on), and seals the caves its cut opens (within 3 under a cut, and in a cut's face).
+ */
+export const PAD_HALO = (() => {
+  const s = process.env.MC_PAD_HALO ?? 'off';
+  if (/^(on|true)$/i.test(s)) return 5;
+  const n = Math.floor(Number(s));
+  return Number.isFinite(n) && n > 0 ? Math.min(8, n) : 0;
+})();
 
 // ---------------------------------------------------------------------------------------------
 // Looking at the terrain
@@ -1934,8 +1944,83 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
       } else if (top !== 'grass_block' && (g < y || top === 'dirt' || !solidTop)) add(x, y, z, 'grass_block');
     }
   if (!columns) throw new Error('the whole area is covered by existing buildings; use find_site to choose another spot');
+  // MC_PAD_HALO (#136): beyond each outer margin, a halo blended into the ground, at most 1 block of height a block out
+  // to PAD_HALO blocks, so no cliff or wall is left where the level meets the hillside (layout-measure, 10-24: today's
+  // edge left cliffs of 3-6 on 6 of 8 test sites); and the caves the cut opened sealed (#133's member fell into one). The
+  // halo keeps off any village's ground (plots, layouts and buildings at any height: lessons 30, 102), the mine (F131),
+  // anything built and another member's claim, and a part fells only its own (S.6); a column needing more fill than the
+  // halo is wide (a drop, F83) or more than 8 of cut is left as it is
+  const [hN, hS, hW, hE] = [mN, mS, mW, mE].map((q) => (PAD_HALO && q > 0 ? PAD_HALO : 0));
+  const haloCols = new Set<string>();
+  let haloN = 0, sealed = 0;
+  if (PAD_HALO) {
+    const ax1 = x0 - mW, ax2 = x1 + mE, az1 = z0 - mN, az2 = z1 + mS;
+    // Every column worked, with its new top and its ground before (for the seal)
+    const worked = new Map<string, { t: number; g: number }>();
+    for (let x = ax1; x <= ax2; x++)
+      for (let z = az1; z <= az2; z++) if (!kept.has(`${x},${z}`)) worked.set(`${x},${z}`, { t: y, g: surf.get(`${x},${z}`)!.y });
+    const py = Math.floor(a.bot.entity.position.y);
+    const reg = a.world.villages;
+    const free = (x: number, z: number) => ours(x, z) && !onVillageGround(a, x, z) && !mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2)
+      && !(v && reg.conflictOf(v, { x1: x, z1: z, x2: x, z2: z }, a.name, false));
+    const isAir = (n: string | null) => n === 'air' || n === 'cave_air';
+    for (let x = ax1 - hW; x <= ax2 + hE; x++)
+      halo: for (let z = az1 - hN; z <= az2 + hS; z++) {
+        if (x >= ax1 && x <= ax2 && z >= az1 && z <= az2) continue;
+        const dist = Math.max(ax1 - x, x - ax2, az1 - z, z - az2);
+        const c = surfaceAt(a, x, z, py);
+        if (!c || c.liquid) continue;
+        const g = c.y, t = Math.max(y - dist, Math.min(y + dist, g));
+        if (t === g || t - g > PAD_HALO || g - t > 8 || !free(x, z)) continue;
+        const cut: number[] = [];
+        for (let yy = t + 1; yy <= Math.max(t, g) + 32; yy++) {
+          const n = blockName(a, x, yy, z) ?? 'air';
+          if (isAir(n)) continue;
+          if (!NATURAL.has(n)) continue halo;
+          cut.push(yy);
+        }
+        for (const yy of cut) {
+          const n = blockName(a, x, yy, z)!;
+          if ((isLog(n) || isLeaves(n)) && !crawled.has(`${x},${yy},${z}`)) {
+            let took = 0;
+            for (const [tx, ty, tz] of treeAt(a, x, yy, z)) {
+              crawled.add(`${tx},${ty},${tz}`);
+              if (nearBuilt(tx, ty, tz) || !ours(tx, tz)) continue;
+              took++;
+              treeLogs.add(`${tx},${ty},${tz}`);
+              add(tx, ty, tz, 'air');
+            }
+            if (took) felled++;
+          }
+          add(x, yy, z, 'air');
+        }
+        for (let yy = g + 1; yy < t; yy++) add(x, yy, z, 'dirt');
+        if (g < t || a.bot.blockAt(new Vec3(x, t, z))?.boundingBox !== 'block') add(x, t, z, 'grass_block');
+        worked.set(`${x},${z}`, { t, g });
+        haloCols.add(`${x},${z}`);
+        haloN++;
+      }
+    // The seal: cave air up to 3 under a cut column's new top, and in the face of a cut (a higher natural neighbour
+    // left as it is, between the new top and its ground)
+    const seal = (x: number, yy: number, z: number) => {
+      if (!isAir(blockName(a, x, yy, z))) return;
+      add(x, yy, z, 'dirt');
+      haloCols.add(`${x},${z}`);
+      sealed++;
+    };
+    for (const [k, { t, g }] of worked) {
+      const [x, z] = k.split(',').map(Number);
+      if (g > t) for (let yy = t - 3; yy < t; yy++) seal(x, yy, z);
+      for (const [nx, nz] of [[x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1]]) {
+        if (worked.has(`${nx},${nz}`) || kept.has(`${nx},${nz}`)) continue;
+        const c = surf.get(`${nx},${nz}`) ?? surfaceAt(a, nx, nz, py);
+        if (!c || c.liquid || c.y <= t + 1 || c.y - t > 12 || !free(nx, nz)) continue;
+        for (let yy = t + 1; yy < c.y; yy++) seal(nx, yy, nz);
+      }
+    }
+  }
   // (12000 for a 32 plot's 36x36 with the margin, as much again per column for a 40 plot's 44x44, V2.4)
-  const maxWork = Math.max(12000, Math.round(12000 * ((w + mW + mE) * (d + mN + mS)) / (36 * 36)));
+  const maxWork = Math.max(12000, Math.round(12000 * ((w + mW + mE + hW + hE) * (d + mN + mS + hN + hS)) / (36 * 36)));
   if (targets.length > maxWork) throw new Error(`too much work (${targets.length} blocks, max ${maxWork}); prepare a smaller area`);
   const plot: Plot = { x1: x0, z1: z0, x2: x1, z2: z1, y };
   // Survival: the preparer keeps the logs of the trees it fells (the rest of the earth moving is free landscaping;
@@ -1958,7 +2043,8 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
   // build's own rule (dry, ground at y-1..y, nothing above), or prepare_site fails instead of a build later ("not level")
   await sleep(1000, signal);
   // (only on the plot and its margin: a felled tree's cells beyond are not set again, whatever stands there now)
-  const onClaim = (t: Target) => t.x >= claim.area.x1 && t.x <= claim.area.x2 && t.z >= claim.area.z1 && t.z <= claim.area.z2;
+  // (and the halo's and the seal's columns, MC_PAD_HALO)
+  const onClaim = (t: Target) => (t.x >= claim.area.x1 && t.x <= claim.area.x2 && t.z >= claim.area.z1 && t.z <= claim.area.z2) || haloCols.has(`${t.x},${t.z}`);
   const redo = targets.filter((t) => onClaim(t) && blockName(a, t.x, t.y, t.z) !== null && !alreadyThere(a, t));
   let people = '';
   if (redo.length) {
@@ -2051,7 +2137,7 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
     }
   } else a.memory.plots = [...((a.memory.plots as Plot[] | undefined) ?? []).filter((q) => !same(q)), plot].slice(-20);
   const margin = part ? `margins ${mN}/${mS}/${mW}/${mE} north/south/west/east` : `a ${m}-block margin`;
-  return `${part ? `part ${partK} of ${lay!.parts!.length} of the village plot ready` : 'plot ready'}: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus ${margin})${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${mineCols ? `; left ${mineCols} columns over the mine as they are` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
+  return `${part ? `part ${partK} of ${lay!.parts!.length} of the village plot ready` : 'plot ready'}: ${w}x${d} centred at x=${cx} z=${cz}, level ground at y=${y} (x ${x0}..${x1}, z ${z0}..${z1}, plus ${margin})${haloN ? `, its edge blended into the ground over ${haloN} columns` : ''}${sealed ? `, ${sealed} cave cells sealed` : ''}${paved ? `, ${paved} blocks of street` : ''}${protectedCols ? `; left ${protectedCols} columns with existing buildings untouched` : ''}${mineCols ? `; left ${mineCols} columns over the mine as they are` : ''}${drops.length ? `; left ${drops.length} margin columns over a drop or deep water as they are (${drops.slice(0, 3).join(' ')}${drops.length > 3 ? ' ...' : ''})` : ''}; ${summary}`;
 }
 
 /**
