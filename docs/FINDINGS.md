@@ -2154,3 +2154,18 @@ CLAUDE.md when a phase ends.
   caves); [stuck-world] 68 vs 2 (members in the mine under the pads). Both reached iron (AFTER ~42 vs ~27) and letters
   (~135 vs ~104); $0.95 vs $1.09. A DNS outage at 13:20-13:35 hit both alike. Logs: runs/2026-10-25/train4/
   (report.md); checkpoints iron_age_g1 / iron_age_g0.
+- F320 (10-25, train5, #149) **The pad village's stalls are the chore menu's small-work spot search, not the iron
+  trips, and 59af444 did not end them.** iron_age_g1 resumed with code 2339905: 429 [lag] lines in 90 min (56 in the
+  first 10), 4.0-6.2 s each. CPU profile during them (runs/2026-10-25/train5/X/prof/x1_2): 45% busy, about half of it
+  gardenSpots (13.9% of all samples) + smallWorkSpots (6.4%) + placedGrid/placedDoor (~2%), all under smallWorkSpot <
+  choiceOptions (mcWorld.ts); lightPartsOf 0.4%. On a village spread out on pads (45 buildings out to 92 blocks) every
+  menu searches the whole spread, likely also why it held 22 small works against 66 (F319). dig_iron is only the
+  commonest action. A profile must attach to tsx's child node process, not the launcher.
+- F321 (10-25, train5, #142/#139/#140) **A mixed flower bed whose flower runs out stays open for good: in C1 six beds
+  needing lily of the valley (used up near minevale3 by AFTER ~39) filled the project cap of 6 to the end, 124
+  collects failed and busy fell to 45% in hour 2 against 62% off.** C1 = policy options + pen variety + flower mix on,
+  C0 off, blank minevale3, 25 members, 1x, 120 min after, shears and carrots stocked. With that cause set aside: #142
+  works as specified (loop p50 6-14 ms past minute 65, every gate sample at a really full cap against 61% held in F317,
+  gated options taken 90 of 91 in hour 1, [stuck] 140 vs 348) but its busy gain could not be judged; #139 drew a small
+  3x3, a long 5x7 and an L-shaped pen (37 cells), with sheep, pigs and chickens, 54 breedings (pigs on the fixture's
+  carrots) and two pen shearings. Logs: runs/2026-10-25/train5/ (report.md).
