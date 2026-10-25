@@ -875,3 +875,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   first live test; a code-drawn Gothic split grammar (the model picks the reference and parameters, never geometry);
   phases M0-M4 behind MC_MONUMENT, MC_QUARRY, MC_GLAZING (off); the village votes for it; at most ~60% of the menu; no
   /forceload for now; the default palette. M0 (the grammar, offline) first, M1 after #142 frees mcWorld.ts.
+- 10-25 (the user's, during M0) **The monument has no vote**: it starts by itself once the village completes the iron
+  age, and its tests start from a checkpoint saved at the end of the iron age (#144, #146, #148). M0 done (c0845e6,
+  #143): Notre-Dame 1:2 bills 7,773 blocks in 26 jobs, ~0.6x the research's shell estimate, so its hours are upper bounds.
