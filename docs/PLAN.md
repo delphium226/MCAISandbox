@@ -34,38 +34,23 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-24 ~16:30 by the planning session local_81ead10e; the strategy is `docs/STRATEGY.md`; the live state
-(sessions and their ids, the queue, what waits on the user) is in `runs/2026-10-24/planning/state.md`)
+(written 2026-10-25 ~13:40 by the planning session local_81ead10e at 73% context, handing over to a fresh planning
+session; the strategy is `docs/STRATEGY.md`; the live state (sessions, ids, the queue, what waits on the user) is in
+`runs/2026-10-25/planning/state.md`)
 
-- **How work runs:** the planning session owns `docs/STRATEGY.md` and this handover; work sessions get briefs (in
-  `runs/2026-10-24/planning/brief_*.md`) and report back. Milestones G1-G8, Support, Parked. **The focus: G8, the ladder
-  of ages.** The foundry is parked. New rules today (STRATEGY.md): **the context rule** (no new task past ~70% of a
-  session's context; safe stop and resume note at ~85%) and **the test train** (build sessions stop at offline checks
-  and commit with flags off; one test session runs every new flag together once or twice a day).
-- **Where the work lives:** the private repo; pushed to c8cf8f9 (home basics) plus later commits named below.
-- **Done on 10-24** (F305-F309, lesson 178):
-  - **G8's iron rung reached in a model-driven run** (W4, from a blank map, village day 2; stages 600 cells, 30 raw
-    iron, 24 ingots); then the village voted for letters (11 of 25);
-  - #101 two-lane stairs built and parked (aef401f); #100 the vein dig judged model-driven (150cf29, F305); #112 kept
-    connections (b35e0e5); #111 payments' leftovers and #107 news, questions, deliberation (b0b2d2e, F306-F308); #102
-    the forge (55fb96d);
-  - #21 **the letters rung** (6ec32ca, MC_LETTERS; spec `runs/2026-10-24/letters/spec.md`, the user's four choices):
-    reached in a staged run on the im2_room checkpoint at 21.3 min (d5736a1); in W4 it sits at stage 0 (to read);
-  - **home basics** (c8cf8f9, MC_HOME_BASICS, F309): a bed, chest and crafting table in every owned house, pinned as a
-    basic need; live in W1: all 25 houses had all three;
-  - research: all choices to the model (`runs/2026-10-24/llm-autonomy/report.md`: the model is asked on every real
-    decision but only 32% of answers run; the limits are the option space, one-chore horizons and no feedback);
-    idle-time issues consolidated under #131.
-- **In progress:** storage-grows (#121, MC_STORAGE_GROW) in the shared-files lane; observe-run's W4 on world 3 (the
-  user's observation run, every flag on, final report ~18:21).
-- **The shared-files queue** (`mcWorld.ts`, `choose.ts`, `mcBuild.ts`, one writer): #121 -> #97 (taken options) ->
-  #117 (own state, goal meaning, scarcity, the ambition, Maslow's basic needs pinned) -> #122 (gated options) -> #115
-  (run profiles) -> **the combined model-driven run** -> #130/#124 -> #125/#118 -> #119 -> #123, #31. A second lane for
-  work outside those files: #129/#130's offline checks, #124's library. The first test train after #121.
-- **Filed today:** #115, #117-#119, #120-#121, #122-#133 (#131 tracks free time and autonomy; #133 a stuck member
-  stalls the build).
-- **The user's open choices:** default flags (MC_ORE_VEIN recommended on after the combined run); when the foundry is
-  unparked (the enchantment rung).
+- **How work runs:** the planning session owns STRATEGY.md and this handover, briefs work sessions and checks their
+  reports. Rules added 10-24/25: the context rule, the test train (offline checks in build sessions; condensed trains,
+  ~1 a day), pushes to `private` without asking, the planning session decides routine steps itself.
+- **G8:** iron and letters reached model-driven (W4; train 2 L1, F315); trade voted next.
+- **Built and pushed on 10-24/25** (F305-F317): #100 vein dig, #112, #102, #111/#107 payments and talk, #21 letters +
+  #134 pace, home basics, #121 storage that grows, #117 prompt (Maslow basics), #97 holds, #122 policy options, #136
+  halo, #84 C1+C2 per-building pads and graded paths, #138 growing outward, #115 run profiles (settings registry,
+  profiles, culture mixes, pause/resume, live settings, schedules), #139 pens, #140 flowers, one crafting table a house.
+- **On by default now:** storage grow, home basics, prompt self, letters pace, pad halo, choice holds, open storage
+  hut, vanilla pieces, wood variants, gen homes (plus the older defaults).
+- **In flight:** train 4 (pad village model-driven on/off), the monument research, pens-flowers' staged check.
+- **Next:** #142 (policy options' event loop and the cap over-count) before policy options go default; #141 house
+  decorations; the next train; the open list in the state file.
 
 ## Earlier phases
 
