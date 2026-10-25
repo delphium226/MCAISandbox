@@ -884,3 +884,5 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-25 (the user's, after the confirm run, F322) **MC_POLICY_OPTIONS on by default** (#122 with #142's fixes: busy
   77.8/71.7% against 78.5/61.8% in hours 1-2, 192 against 99 initiatives, no [lag]; `=off` turns it off). The choice
   golden and workshop_check pin it off (policy_options.mts checks the gated path).
+- 10-25 (the user's) **A castle after the cathedral's M3**: Conwy at 1:2 first (runs/2026-10-25/monument/castle_note.md),
+  on M1's stages and yard and M2's quarry; whether villages choose their monument type is decided later.
