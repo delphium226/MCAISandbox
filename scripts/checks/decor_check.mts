@@ -100,6 +100,9 @@ for (const pc of pieces) {
     ok(JSON.stringify(spots) === JSON.stringify(SP.buildingDecor(place as Any, wood, { lights, signs: signs as Any })), `${d.name} rot ${rot}: two calls differ`);
     const label = `${d.name} rot ${rot}`;
     ok(spots.length <= want, `${label}: ${spots.length} spots, at most ${want}`);
+    // (one crafting table a house, the user's, 10-25: furnishing's at most one, none where the design has one)
+    const designTable = Object.values(d.palette).some((b) => base(b as string) === 'crafting_table');
+    for (const list of [spots, bare]) ok(list.filter((q) => base(q.block) === 'crafting_table').length <= (designTable ? 0 : 1), `${label}: ${list.filter((q) => base(q.block) === 'crafting_table').length} crafting tables`);
     // The doors, the entrance's inside cell
     const doorCells: Array<[number, number]> = [];
     for (const [k, b] of g.cells) { const [x, l, z] = k.split(',').map(Number); if (l === 1 && isDoor(b)) doorCells.push([x, z]); }

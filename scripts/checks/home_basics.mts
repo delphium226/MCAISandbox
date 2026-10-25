@@ -65,6 +65,9 @@ function checkHouse(src: string, label: string, place: Place, lights: Any[], sig
   SP.buildingDecor(place as Any, 'oak', { lights, signs, basics: again });
   ok(JSON.stringify(holder.out) === JSON.stringify(again.out), `${label}: two calls differ`);
   const hb = holder.out ?? {};
+  // (one crafting table a house, the user's, 10-25: the basics' table and furnishing's together)
+  const tables = spots.filter((q: Any) => base(q.block) === 'crafting_table').length + (hb.table ? 1 : 0);
+  ok(tables <= 1, `${label}: ${tables} crafting tables (basics ${hb.table ? 1 : 0}, furnishing ${tables - (hb.table ? 1 : 0)})`);
   const ent = SP.placedDoor(place as Any)!;
   const inX = ent.x - ent.ox, inZ = ent.z - ent.oz;
   const off = new Set<string>();

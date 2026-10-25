@@ -236,6 +236,22 @@ async function homeBasics(a: BotAgent, _args: Record<string, unknown>, signal: A
       done.push(`${p.piece === 'table' ? 'a crafting table' : `a ${p.piece}`} (already there)`);
       continue;
     }
+    // (one crafting table a house, the user's, 10-25: a table furnishing put on another of the house's cells counts)
+    if (p.piece === 'table') {
+      let standing = false;
+      for (const k of v.decor?.[P.part]?.done ?? []) {
+        const [x, y, z] = k.split(',').map(Number);
+        if (/passed/i.test(await a.world.rcon.command(`execute if block ${x} ${y} ${z} minecraft:crafting_table`).catch(() => ''))) {
+          standing = true;
+          break;
+        }
+      }
+      if (standing) {
+        rec.table = { at: Date.now(), by: a.name };
+        done.push('a crafting table (one stands in the house already)');
+        continue;
+      }
+    }
     if (!(await clearCell(a, v, P, at)) || (foot && !(await clearCell(a, v, P, foot)))) { failed.push(`${p.piece} (its cell is not free)`); continue; }
     // (the cost taken first, as the own chest's; given back when the block did not go down)
     const took: Counts = {};

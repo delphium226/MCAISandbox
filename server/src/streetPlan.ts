@@ -693,7 +693,8 @@ export interface HomeBasics {
  * neighbours, off the given lights' and signs' cells at layers 1 and 2. clamp(inside cells / 6, 1, 8) of them, the first
  * farthest from the entrance, each next the farthest from those chosen (ties in the piece's row, column order: the same
  * spots, turned, at every turn); a spot that would cut an inside cell off from the entrance is dropped. The pieces cycle
- * chair, table, crafting table, barrel, grindstone, composter (no smoker: the catalogue cannot make one, its recipe plans
+ * chair, table, crafting table, barrel, grindstone, composter, the crafting table only once and not in a house with one
+ * (home basics' or its design's: one a house, the user's, 10-25) (no smoker: the catalogue cannot make one, its recipe plans
  * from stripped warped stems; no furnace: a far bot's smelt in it left items out of storage, lesson 112): a chair's stair
  * backs onto its wall (a
  * stair's tall back is on its `facing` side, as holdsTorch reads it), a smoker and a furnace face away from it, a
@@ -862,11 +863,20 @@ export function buildingDecor(p: SignPlace, wood: string, opts: { lights?: Light
     // (a chest faces away from its wall)
     opts.chest.spot = { ...world(c.i, c.j), facing: CLOCKWISE[CLOCKWISE[wall]] };
   }
+  // (one crafting table a house, the user's, 10-25: the cycle's first only, and none where the house has one: home basics'
+  // table, or one in its design; houses with 9 spots or more got two, and every owned house a second beside basics')
+  const hasTable = !!opts.basics?.out?.table || Object.values(d.palette).some((b) => /^(minecraft:)?crafting_table\b/.test(b));
+  const pieces: Array<(typeof PIECES)[number]> = [];
+  for (let k = 0; pieces.length < chosen.length; k++) {
+    const piece = PIECES[k % PIECES.length];
+    if (piece === 'crafting_table' && (hasTable || pieces.includes(piece))) continue;
+    pieces.push(piece);
+  }
   return chosen.map((c, n) => {
     let wall = c.wall;
     for (let r = 0; r < rot; r++) wall = CLOCKWISE[wall];
     const { x, z } = world(c.i, c.j);
-    const piece = PIECES[n % PIECES.length];
+    const piece = pieces[n];
     const spot = (block: string, item: string): DecorSpot => ({ x, layer: 1, z, block, item });
     switch (piece) {
       case 'chair': return spot(`${wood}_stairs[facing=${wall},half=bottom]`, `${wood}_stairs`);
