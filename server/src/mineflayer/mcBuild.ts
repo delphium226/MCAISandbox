@@ -4593,8 +4593,8 @@ async function prepareWorks(a: BotAgent, _args: Record<string, unknown>, signal:
 
 /**
  * The monument's site (M1, #144; MC_MONUMENT): a chore the first member to take it runs once. The cathedral's footprint
- * is placed by outward.ts' slope-scored search (#138) on a coarse grid (1:2 and larger read every second or third
- * column: the search is O(positions x pad cells) on the one event loop, lesson 16), the door (the west portal) toward
+ * is placed by outward.ts' slope-scored search (#138) on a coarse grid (every second column, every third at 1:1: the
+ * search is O(positions x pad cells) on the one event loop, lesson 16; 1:4 on every column took 2.2 s, on every second 0.45), the door (the west portal) toward
  * the meeting point, off every building, plot, layout, field, the mine, members' claims and other villages' ground
  * (lesson 30). Its ground is recorded at once (a structure "cathedral" every later layout keeps off), then prepared at
  * the pad's level in parts of at most 40 a side (prepare_site's limit), each with a 2-block margin that blends the
@@ -4615,7 +4615,7 @@ async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal:
       : hut ? { x: Math.round((hut.x1 + hut.x2) / 2), z: Math.round((hut.z1 + hut.z2) / 2) } : villageHome(v);
     if (!hub) throw new Error('monument_site: the village has no home');
     const home = lay0?.y ?? v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
-    const f = m.scale >= 4 ? 1 : m.scale >= 2 ? 2 : 3;
+    const f = m.scale >= 2 ? 2 : 3;
     const M = Math.min(VILLAGE_RANGE, 72 + Math.ceil(Math.max(plan.width, plan.depth) / 2));
     const ax1 = hub.x - M, az1 = hub.z - M, N = Math.floor((2 * M + 1) / f);
     const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
