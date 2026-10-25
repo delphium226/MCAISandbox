@@ -73,6 +73,8 @@ process.env.MC_INNOVATE = 'off';
 process.env.MC_GOALS = 'off';
 // (#75's refits: off by default, pinned here so the golden stays the chores')
 process.env.MC_WORKS_GROW = 'off';
+// (#139's varied pens: on by default since 10-25, off here: the golden is of the classic pens' chores)
+process.env.MC_PEN_VARIETY ??= 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

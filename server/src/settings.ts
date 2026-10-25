@@ -323,7 +323,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The levy on contracts (the user\'s choice 3: gifts go free): \'contracts\' or \'off\'.' },
   { name: 'MC_PAY_MAX', type: 'string', default: '', group: 'economy', live: false, read: 'pay.ts',
     describe: 'The most a request may offer, in whole emeralds (per step for wages).' },
-  { name: 'MC_PEN_VARIETY', type: 'flag', default: 'off', group: 'building', live: false, read: 'farmSlots.ts',
+  { name: 'MC_PEN_VARIETY', type: 'flag', default: 'on', group: 'building', live: false, read: 'farmSlots.ts',
     describe: '#139: a 25x13 annex (the classic 13x9 where none fits; on pads, at its own ground level) with 3-4 pens of varied sizes and shapes (3x3 to 7x9 inside, and an L), a set per village; pens for sheep and pigs (and rabbits, goats) besides chickens and cows, each in the free pen nearest the size of its herd, its cap by area; goats milked, sheep sheared (with shears in storage).' },
   { name: 'MC_PLAN_INTERVAL_MS', type: 'number', default: '180000', group: 'models', live: false, read: 'tieredBrain.ts',
     describe: 'The workers\' planner\'s least interval between plans.' },

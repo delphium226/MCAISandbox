@@ -139,10 +139,11 @@ export interface PenPlan {
 }
 
 /**
- * #139 (MC_PEN_VARIETY=on; off by default): pens of varied sizes and shapes on a larger annex, and more kinds of animals
- * (sheep, pigs, rabbits, goats besides chickens and cows), each pen's cap from its inside area.
+ * #139 (MC_PEN_VARIETY; on by default since 10-25, the user's, after train 5; =off for the classic pens): pens of varied
+ * sizes and shapes on a larger annex, and more kinds of animals (sheep, pigs, rabbits, goats besides chickens and cows),
+ * each pen's cap from its inside area.
  */
-export const PEN_VARIETY = /^(on|1|true)$/i.test(rawSetting('MC_PEN_VARIETY') ?? 'off');
+export const PEN_VARIETY = !/^(off|0|false|no)$/i.test(rawSetting('MC_PEN_VARIETY') ?? 'on');
 
 /**
  * The animals a pen holds (pens v2, 10-09; #139 adds four; from the jar's tags: chicken_food, cow_food, sheep_food,

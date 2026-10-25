@@ -878,3 +878,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-25 (the user's, during M0) **The monument has no vote**: it starts by itself once the village completes the iron
   age, and its tests start from a checkpoint saved at the end of the iron age (#144, #146, #148). M0 done (c0845e6,
   #143): Notre-Dame 1:2 bills 7,773 blocks in 26 jobs, ~0.6x the research's shell estimate, so its hours are upper bounds.
+- 10-25 (the user's, after test train 5, F321) **MC_PEN_VARIETY on by default** (#139: varied pens on a 25x13 annex,
+  sheep, pigs, rabbits and goats; breed_pen 54 against 12, shear_pen ran; `=off` gives the classic pens). The choice
+  golden pins it off. MC_FLOWER_MIX stays off until #140's fix; MC_POLICY_OPTIONS waits for the confirm run.
