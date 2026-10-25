@@ -13,7 +13,7 @@
 import { Vec3 } from 'vec3';
 import type { Village } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
-import { KILN, KILN_SMELTS, SLOT, cookedBy, loadView, type KilnFurnace, kilnLine, kilnSize, kilnStrip, laneFurnaces, loadFurnace, newKiln, spreadLoad, unloadFurnace } from '../kiln';
+import { KILN, KILN_SMELTS, SLOT, cookedBy, fuelFor, kilnLanes, loadView, type KilnFurnace, kilnLine, kilnSize, kilnStrip, laneFurnaces, loadFurnace, newKiln, spreadLoad, unloadFurnace } from '../kiln';
 import { searchQuarry } from '../quarry';
 import { MONUMENT, kilnWants, monumentPlan, siteTaken, stageBill, AHEAD, type PlanOf } from '../monument';
 import type { BotAgent } from './botAgent';
@@ -25,11 +25,8 @@ import { SURVIVAL_SKILLS, placeStation } from './mcSurvival';
 import { prepareSite, surfaceAt, withScanTurn } from './mcBuild';
 import { abortable, countItem, itemId, num, reach } from './mcUtil';
 
-/** Masons at once (each its lane of furnaces), and the most input one trip carries. */
-export const KILN_LANES = 2;
+/** The most input one trip carries (masons at once: kilnLanes). */
 const TRIP_LOAD = 256;
-/** Coal and charcoal storage keeps for torches and other smelts (the kiln takes only what is beyond). */
-const KEEP_COAL = 16;
 /** Villages whose kiln is being built (one builder at a time). */
 const building = new Set<string>();
 
@@ -113,16 +110,6 @@ async function buildKiln(a: BotAgent, _args: Record<string, unknown>, signal: Ab
   }
 }
 
-/** The fuel a load of `smelts` takes: spare coal and charcoal first, else planks (sawn from logs). */
-function fuelFor(v: Village, smelts: number): { coal: string | null; coalN: number; planks: number } {
-  const stock = storageContents(v);
-  const coalKind = (stock.coal ?? 0) - KEEP_COAL >= (stock.charcoal ?? 0) - KEEP_COAL ? 'coal' : 'charcoal';
-  const spare = Math.max(0, (stock[coalKind] ?? 0) - KEEP_COAL);
-  const coalN = Math.min(spare, Math.ceil(smelts / 8));
-  const planks = Math.ceil(Math.max(0, smelts - coalN * 8) / 1.5);
-  return { coal: coalN ? coalKind : null, coalN, planks };
-}
-
 /** tend_kiln: a lane of the kiln loaded and unloaded (see the header). */
 async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
@@ -131,7 +118,7 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
   if (!v || !m || kl?.state !== 'ready') throw new Error('tend_kiln: the cathedral has no kiln ready');
   const lane = Math.max(1, Math.floor(num(args.lane ?? 1, 'lane')));
   const reg = a.world.villages, plan = planOf(a.world), scale = timeScale();
-  const fs = laneFurnaces(kl, lane, KILN_LANES);
+  const fs = laneFurnaces(kl, lane, kilnLanes(kl));
   // (the load spread over the furnaces as they will be once their done output is out: loadView)
   const view = loadView(fs, Date.now(), scale);
   const real = (g: KilnFurnace) => fs[view.indexOf(g)];
@@ -150,39 +137,45 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
   // for what the lane's furnaces hold (one whose fire went out is refuelled: M2's live check left 64 cobblestone in a
   // furnace with no fuel, and the record counted it smelted)
   const held = fs.reduce((t, f) => t + f.n, 0);
-  const fuel = fuelFor(v, total + held);
+  const fuel = fuelFor(storageContents(v), total + held, wood);
   if (total + held) {
-    const logs = Math.ceil(fuel.planks / 4);
-    const got = (await withdrawItems(a, v, { ...load, ...(fuel.coal ? { [fuel.coal]: fuel.coalN } : {}), ...(logs ? { [`${wood}_log`]: logs } : {}) }, signal)).got as Record<string, number>;
+    const got = (await withdrawItems(a, v, { ...load, ...(fuel.coal ? { [fuel.coal]: fuel.coalN } : {}), ...fuel.logs }, signal)).got as Record<string, number>;
     for (const input of Object.keys(load)) load[input] = Math.min(load[input], got[input] ?? 0);
-    if (logs && (got[`${wood}_log`] ?? 0) > 0) {
-      await SURVIVAL_SKILLS.craft.run(a, { item: `${wood}_planks`, count: (got[`${wood}_log`] ?? 0) * 4 }, signal).catch((e: Error) => {
+    for (const log of Object.keys(fuel.logs)) {
+      const n = got[log] ?? 0;
+      if (n <= 0) continue;
+      await SURVIVAL_SKILLS.craft.run(a, { item: log.replace(/_log$/, '_planks'), count: n * 4 }, signal).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
         notes.push(`planks not sawn (${e.message.slice(0, 60)})`);
       });
-      m.yard[`${wood}_log`] = Math.max(0, (m.yard[`${wood}_log`] ?? 0) - (got[`${wood}_log`] ?? 0));
-      if (!m.yard[`${wood}_log`]) delete m.yard[`${wood}_log`];
+      m.yard[log] = Math.max(0, (m.yard[log] ?? 0) - n);
+      if (!m.yard[log]) delete m.yard[log];
     }
   }
   // 3. At the kiln: each furnace of the lane, its output taken, more loaded with its fuel
   const spread = spreadLoad(view, load).map((p) => ({ ...p, f: real(p.f) }));
   const taken: Record<string, number> = {}, loaded: Record<string, number> = {};
-  const coalId = fuel.coal ? itemId(a, fuel.coal)! : undefined;
-  const plankId = itemId(a, `${wood}_planks`)!;
-  // Fuel in a furnace's slot to cover what its input still needs (the slot's own kind, else coal, else planks)
+  // Fuel in a furnace's slot to cover what its input still needs: more of the slot's own kind, else what is carried (coal
+  // or charcoal first, then planks of any kind, then logs)
+  const per = (n?: string) => (n === 'coal' || n === 'charcoal' ? 8 : 1.5);
+  let cold = 0;
+  const carried = () => a.bot.inventory.items();
   const topUp = async (fw: Awaited<ReturnType<typeof a.bot.openFurnace>>, f: { x: number; y: number; z: number }) => {
     const inp = fw.inputItem();
     if (!inp) return;
     const inSlot = fw.fuelItem();
-    const per = (n?: string) => (n === 'coal' || n === 'charcoal' ? 8 : n && /_log$/.test(n) ? 1.5 : 1.5);
-    const covered = (inSlot ? inSlot.count * per(inSlot.name) : 0) + (fw.fuel > 0 ? 1 : 0);
+    // (the item burning counts at its kind's worth: one coal burning was counted as 1 smelt, and a furnace with its coal
+    // was reported short of fuel, Kiln152's 14 "no more coal" notes)
+    const burning = fw.fuel > 0 ? per(inSlot?.name ?? 'coal') : 0;
+    const covered = (inSlot ? inSlot.count * per(inSlot.name) : 0) + burning;
+    // (a furnace found cold with input to cook: a real shortfall, counted)
+    if (!inSlot && !(fw.fuel > 0)) cold++;
     if (covered >= inp.count) return;
-    const useCoal = coalId !== undefined && countItem(a, coalId) > 0 && (!inSlot || inSlot.name === fuel.coal);
-    const fid = useCoal ? coalId! : plankId;
-    if (inSlot && inSlot.type !== fid) return void notes.push(`fuel of another kind in ${f.x},${f.y},${f.z}`);
-    const n = Math.min(countItem(a, fid), SLOT - (inSlot?.count ?? 0), Math.ceil((inp.count - covered) / (useCoal ? 8 : 1.5)));
-    if (n > 0) await fw.putFuel(fid, null, n);
-    else notes.push(`no fuel for ${f.x},${f.y},${f.z}`);
+    const it = inSlot ? carried().find((i) => i.type === inSlot.type)
+      : carried().find((i) => i.name === 'coal' || i.name === 'charcoal') ?? carried().find((i) => /_planks$/.test(i.name)) ?? carried().find((i) => /_log$/.test(i.name) && !KILN_SMELTS[i.name]);
+    if (!it) return void notes.push(inSlot ? `no more ${inSlot.name} to add at ${f.x},${f.y},${f.z} (still burning)` : `no fuel for ${f.x},${f.y},${f.z}`);
+    const n = Math.min(countItem(a, it.type), SLOT - (inSlot?.count ?? 0), Math.ceil((inp.count - covered) / per(it.name)));
+    if (n > 0) await fw.putFuel(it.type, null, n);
   };
   // (every furnace of the lane opened: the record is set to what each really holds, lesson 29)
   for (const f of fs) {
@@ -259,14 +252,14 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
     else a.memory.monumentGather = was;
   }
   const list = (c: Record<string, number>) => Object.entries(c).map(([n, q]) => `${q} ${n}`).join(', ') || 'nothing';
-  console.log(`[kiln] ${v.name}: ${a.name} tended lane ${lane}: loaded ${list(loaded)}, took ${list(taken)}, crafted ${bricks} stone bricks (fuel ${fuel.coal ? `${fuel.coalN} ${fuel.coal}, ` : ''}${fuel.planks} planks)${notes.length ? `; ${notes.join('; ')}` : ''}; ${kilnLine(kl, Date.now(), scale)}`);
+  console.log(`[kiln] ${v.name}: ${a.name} tended lane ${lane}: loaded ${list(loaded)}, took ${list(taken)}, crafted ${bricks} stone bricks (${cold ? `${cold} found cold; ` : ''}fuel ${fuel.coal ? `${fuel.coalN} ${fuel.coal}, ` : ''}${fuel.planks} planks)${notes.length ? `; ${notes.join('; ')}` : ''}; ${kilnLine(kl, Date.now(), scale)}`);
   return `tended the cathedral's kiln (lane ${lane}): loaded ${list(loaded)}, took out ${list(taken)}${bricks ? `, crafted ${bricks} stone bricks` : ''}`;
 }
 
 /** What a lane can do now: input the stage wants smelted that the yard holds (and room for it), or output ready. */
 export function laneWork(v: Village, lane: number, plan: PlanOf, now: number): { load: number; ready: number } {
   const m = v.monument!, kl = m.kiln!;
-  const fs = laneFurnaces(kl, lane, KILN_LANES);
+  const fs = laneFurnaces(kl, lane, kilnLanes(kl));
   const wants = kilnWants(m, plan);
   const load = spreadLoad(loadView(fs, now, timeScale()), wants).reduce((t, p) => t + p.n, 0);
   const ready = fs.reduce((t, f) => t + cookedBy(f, now, timeScale()), 0);

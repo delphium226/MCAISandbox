@@ -36,18 +36,26 @@ export interface Kiln extends Area {
   structure?: string;
 }
 
-/** Furnaces for a cathedral that wants `smelts` in all: one an ~250 smelts, 4 to 16. */
+/** Furnaces for a cathedral that wants `smelts` in all: one an ~200 smelts, 4 to 40 (#152: at 1:2, 16 furnaces smelted
+ *  ~6.2k in ~95 min at 1x while the quarry gave its cobblestone in ~35; a furnace cooks 6 a minute at 1x, at most). */
 export function kilnSize(smelts: number): number {
-  return Math.max(4, Math.min(16, Math.ceil(smelts / 250)));
+  return Math.max(4, Math.min(40, Math.ceil(smelts / 200)));
 }
 
-/** The kiln's strip for k furnaces: k + 2 long, 3 wide (the furnaces down the middle, a walk on each side). */
-export const kilnStrip = (k: number) => ({ w: k + 2, d: 3 });
+/** Rows of furnaces: one up to 16, two beyond (a strip of 40 in a row found no room near the hut). */
+const kilnRows = (k: number) => (k > 16 ? 2 : 1);
 
-/** The furnaces' cells on a strip prepared at level y (standing on it: y + 1). */
+/** The kiln's strip for k furnaces: its rows of furnaces with a walk on each side of each (3 wide for one row, 5 for two). */
+export const kilnStrip = (k: number) => ({ w: Math.ceil(k / kilnRows(k)) + 2, d: 2 * kilnRows(k) + 1 });
+
+/** The furnaces' cells on a strip prepared at level y (standing on it: y + 1), row by row. */
 export function kilnCells(area: Area, y: number, k: number): Array<{ x: number; y: number; z: number }> {
-  return Array.from({ length: k }, (_, i) => ({ x: area.x1 + 1 + i, y: y + 1, z: area.z1 + 1 }));
+  const per = Math.ceil(k / kilnRows(k));
+  return Array.from({ length: k }, (_, i) => ({ x: area.x1 + 1 + (i % per), y: y + 1, z: area.z1 + 1 + 2 * Math.floor(i / per) }));
 }
+
+/** Lanes (members tending at once, each every lanes-th furnace): one a 4 furnaces, 2 at least (#152). */
+export const kilnLanes = (k: Pick<Kiln, 'furnaces'>) => Math.max(2, Math.ceil(k.furnaces.length / 4));
 
 /** A new kiln record. */
 export function newKiln(area: Area, y: number, k: number, by: string, now: number): Kiln {
@@ -137,6 +145,33 @@ export function loadView(fs: KilnFurnace[], now: number, scale = 1): KilnFurnace
     const n = f.n - cookedBy(f, now, scale);
     return { ...f, n, input: n > 0 ? f.input : undefined };
   });
+}
+
+/** Coal and charcoal storage keeps for torches and other smelts (the kiln takes only what is beyond while there are logs),
+ *  and the fuel fetched beyond a load's need (rounding, a refuel). */
+const KEEP_COAL = 16, FUEL_MARGIN = 1.15;
+
+/** The fuel a load of `smelts` takes (with a margin): spare coal and charcoal first, else planks sawn from logs of any
+ *  kind (the monument's wood first); when storage's logs fall short of the planks, its coal and charcoal down to none
+ *  (#152: 24 refuels found no fuel in M2's live check). `logs`: by kind, what to withdraw. */
+export function fuelFor(stock: Record<string, number>, smelts: number, wood: string): { coal: string | null; coalN: number; planks: number; logs: Record<string, number> } {
+  const need = Math.ceil(smelts * FUEL_MARGIN);
+  const logKinds = Object.keys(stock).filter((n) => /_log$/.test(n) && stock[n] > 0).sort((a, b) => Number(b === `${wood}_log`) - Number(a === `${wood}_log`) || stock[b] - stock[a]);
+  const logsHeld = logKinds.reduce((t, n) => t + stock[n], 0);
+  const coalKind = (stock.coal ?? 0) >= (stock.charcoal ?? 0) ? 'coal' : 'charcoal';
+  const short = logsHeld * 4 * 1.5 < need;
+  const spare = Math.max(0, (stock[coalKind] ?? 0) - (short ? 0 : KEEP_COAL));
+  const coalN = Math.min(spare, Math.ceil(need / 8));
+  const planks = Math.ceil(Math.max(0, need - coalN * 8) / 1.5);
+  const logs: Record<string, number> = {};
+  let left = Math.ceil(planks / 4);
+  for (const n of logKinds) {
+    if (left <= 0) break;
+    const t = Math.min(left, stock[n]);
+    logs[n] = t;
+    left -= t;
+  }
+  return { coal: coalN ? coalKind : null, coalN, planks, logs };
 }
 
 /** The record's line for logs. */

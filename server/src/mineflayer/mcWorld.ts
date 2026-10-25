@@ -89,8 +89,8 @@ import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodT
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers } from '../monument';
-import { KILN_LANES, kilnOn, laneWork, planOf } from './mcKiln';
-import { kilnLine } from '../kiln';
+import { kilnOn, laneWork, planOf } from './mcKiln';
+import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
 import { GOTHIC_STAGES } from '../gothicGen';
 
@@ -6497,15 +6497,17 @@ export class MineflayerWorld implements WorldAdapter {
               effect: "the cathedral's kiln stands, ready to smelt",
             }, { kind: 'monument', step: 'kiln', lane: 0 });
         } else
-          for (let lane = 1; lane <= KILN_LANES; lane++) {
+          for (let lane = 1; lane <= kilnLanes(kl); lane++) {
             const key = `monument:kiln:${lane}`;
             if (busy.has(key) || (this.monumentBack.get(`${v.name}:kiln:${lane}`) ?? 0) > now) continue;
             const w = laneWork(v, lane, planOf(this), now);
-            if (w.load < 16 && w.ready < 16) continue;
+            // (a few done with nothing more to load are taken out too: Kiln152's 19 stone over 3 lanes held stage 1's
+            // last job, which wanted 300 with 281 in the yard)
+            if (w.load < 16 && w.ready < 16 && !(w.ready > 0 && !w.load)) continue;
             add({
               id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 159,
               name: `Tend the cathedral's kiln (load ${w.load}, take out ${w.ready})`,
-              facts: `stage ${st} wants its stone smelted; ${kl.furnaces.length} furnaces, lane ${lane} of ${KILN_LANES}; ${kilnLine(kl, now, timeScale())}`,
+              facts: `stage ${st} wants its stone smelted; ${kl.furnaces.length} furnaces, lane ${lane} of ${kilnLanes(kl)}; ${kilnLine(kl, now, timeScale())}`,
               effect: `${w.ready} smelted for the cathedral, ${w.load} more smelting`,
             }, { kind: 'monument', step: 'kiln', lane });
           }

@@ -66,6 +66,31 @@ for (const scale of [4, 2]) {
   console.log(`1:${scale} full: ${c.design.blocks} blocks; gather ${raw}; ${p.fuel.smelts} smelts (fuel ${p.fuel.planks} planks or ${Math.ceil(p.fuel.smelts / 8)} coal); kiln of ${kiln.kilnSize(p.fuel.smelts)}`);
 }
 
+// #152: fuel from any logs and coal when they run short; the kiln's rows and lanes; 1:2's pace against the quarry
+{
+  const f1 = kiln.fuelFor({ birch_log: 10, oak_log: 50, coal: 20 }, 300, 'birch');
+  const logs = Object.values(f1.logs).reduce((t, n) => t + n, 0);
+  ok(f1.coal === 'coal' && f1.coalN === 4 && (f1.logs.birch_log ?? 0) === 10 && logs * 4 >= f1.planks, `fuel: 4 spare coal, the monument's birch first, oak for the rest (${JSON.stringify(f1)})`);
+  ok((f1.coalN * 8 + f1.planks * 1.5) >= 300 * 1.15, 'fuel covers the load with its margin');
+  const f2 = kiln.fuelFor({ birch_log: 2, coal: 20 }, 300, 'birch');
+  ok(f2.coalN === 20, `with logs short, coal down to none (${JSON.stringify(f2)})`);
+  for (const k of [8, 10, 16, 31, 40]) {
+    const { w, d } = kiln.kilnStrip(k);
+    const cells = kiln.kilnCells({ x1: 0, z1: 0, x2: w - 1, z2: d - 1 }, 70, k);
+    const keys = new Set(cells.map((c) => `${c.x},${c.z}`));
+    ok(keys.size === k && cells.every((c) => c.x >= 1 && c.x <= w - 2 && c.z >= 1 && c.z <= d - 2 && c.z % 2 === 1), `kiln of ${k}: ${w}x${d}, cells inside with a walk on each side`);
+    const lanes = kiln.kilnLanes({ furnaces: cells as never });
+    ok(lanes === Math.max(2, Math.ceil(k / 4)), `kiln of ${k}: ${lanes} lanes`);
+  }
+  // (Mon2e's rates at 2x: 20.7 cobblestone a member-minute digging, ~9 members on the quarry; 8.1 smelts a furnace-minute)
+  const c = mon.monumentPlan(record(2));
+  const p = mats.plan(c.bill, {});
+  const k = kiln.kilnSize(p.fuel.smelts);
+  const quarryMin = (p.gather.cobblestone ?? p.gather['any:cobblestone'] ?? 0) / (9 * 20.7), kilnMin = p.fuel.smelts / (k * 8.1);
+  ok(kilnMin <= quarryMin, `1:2: the kiln of ${k} smelts in ${kilnMin.toFixed(0)} min, the quarry gives in ${quarryMin.toFixed(0)} (2x)`);
+  console.log(`1:2 pace (2x, Mon2e's rates): quarry ${quarryMin.toFixed(1)} min, kiln of ${k} furnaces ${kilnMin.toFixed(1)} min, ${kiln.kilnLanes({ furnaces: Array(k) })} lanes`);
+}
+
 // The furnaces' ledger
 {
   const f: import('../../server/src/kiln').KilnFurnace = { x: 0, y: 0, z: 0, n: 0, until: 0 };

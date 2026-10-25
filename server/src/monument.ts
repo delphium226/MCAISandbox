@@ -325,9 +325,12 @@ export function searchSite(m: Monument, input: {
   ground: (x: number, z: number) => number | null; takenAt: (x: number, z: number) => boolean; grids: number[];
 }): { site: NonNullable<Monument['site']>; cost: number; f: number } | { why: string } {
   const plan = monumentPlan(m).design;
-  const M = Math.min(input.range, 72 + Math.ceil(Math.max(plan.width, plan.depth) / 2));
+  const M0 = Math.min(input.range, 72 + Math.ceil(Math.max(plan.width, plan.depth) / 2));
   const zc = Math.floor((plan.depth - 1) / 2);
   let why = '';
+  // (24 further out when nothing fits nearer: Chartres at 1:4, 33x21, found no ground within 89 of iron_age_g1's G1 and
+  // its site was never chosen; within 113 it was)
+  for (const M of [...new Set([M0, Math.min(input.range, M0 + 24)])])
   for (const f of input.grids) {
     const ax1 = input.hub.x - M, az1 = input.hub.z - M, N = Math.floor((2 * M + 1) / f);
     const g = new Map<string, number | null>(), t = new Set<string>();
