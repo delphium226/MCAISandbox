@@ -57,7 +57,7 @@ import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, 
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE } from '../ladderFlags';
 import { isPaused } from '../runClock';
-import { BED_FLOWERS, FLOWER_MIX, GARDENS, flowerMix, gardenSpots, isFlowerWork, isGarden, menuWorks, mixWords, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
+import { BED_FLOWERS, FLOWER_MIX, GARDENS, flowerMix, gardenSpots, isFlowerWork, isGarden, menuWorks, mixWords, smallWorkKind, smallWorkSpots, smallWorkWood, type GardenSpot, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
 import { postRefit } from '../layout';
@@ -175,6 +175,13 @@ type MakePlan = { count: number; bill: Counts; inputs: Counts; smelts: boolean; 
 type GatherWanted = Record<Material, { need: number; incoming: number; want: number; for: string[] }>;
 /** Gathering's materials in their table order (ties of the menu's order). */
 const MATERIALS: Material[] = ['sand', 'logs', 'cobblestone'];
+/** What small works keep off (smallBlocked), with the spots found on it (#149: by footprint size, and the gardens'). */
+type SmallBlocked = {
+  sig: string; blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[];
+  spots: Map<string, Array<{ x: number; z: number; y: number; prep?: true }>>; gardens?: { at: number; list: GardenSpot[] };
+};
+/** #149: how long the gardens' spots are kept on an unchanged village (their soil is read from the world). */
+const GARDEN_SPOTS_MS = 60_000;
 /** #117: a good made for later that nothing in the village uses yet (barrels go to the storage yard with MC_STORAGE_GROW). */
 const unusedGood = (g: MakeGood) => UNUSED_GOOD.test(g.forWhat) && !(STORAGE_GROW && g.item === 'barrel');
 /** The smallest trip a further gatherer is sent for while some of the material is already on the way (no walk for one
@@ -3348,10 +3355,12 @@ export class MineflayerWorld implements WorldAdapter {
   // ---- s35: initiatives, small works members start and help with (spec runs/2026-10-18/s35/spec_initiatives_v2.md) --------
 
   /** Areas a small work keeps off (every village's buildings with a ring, streets, lamps, signs, farms, slots, the side
-   *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from. */
-  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[] }>();
+   *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from.
+   *  #149: the spots found on them are kept with them (`spots` by footprint size; `gardens` for GARDEN_SPOTS_MS, as the
+   *  soil is read from the world): every member's menu asked again, and a pad village's search held the loop 4-6 s. */
+  private smallBlockedCache = new Map<string, SmallBlocked>();
 
-  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[] } {
+  private smallBlocked(v: Village): SmallBlocked {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const bot = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.bot.entity);
@@ -3436,7 +3445,7 @@ export class MineflayerWorld implements WorldAdapter {
       .map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y, ...(q.pads ? groundOf(q.y) : {}) }));
     // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
     const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
-    const entry = { sig, blocked, plots, hard, own };
+    const entry: SmallBlocked = { sig, blocked, plots, hard, own, spots: new Map() };
     this.smallBlockedCache.set(v.name, entry);
     return entry;
   }
@@ -3444,8 +3453,15 @@ export class MineflayerWorld implements WorldAdapter {
   /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
   private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number; prep?: true } | null {
     const d = k.make(wood);
-    const { blocked, plots, hard, own } = this.smallBlocked(v);
+    const entry = this.smallBlocked(v);
+    const { blocked, plots, hard, own } = entry;
     // (#45, MC_GARDENS: a garden's spots by its doors and greens, gardenSpots in smallWorks.ts)
+    if (GARDENS && isGarden(k.kind) && entry.gardens && Date.now() - entry.gardens.at < GARDEN_SPOTS_MS) {
+      const spots = entry.gardens.list.filter((sp) => sp.kind === k.kind);
+      if (!spots.length) return null;
+      const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
+      return { x: sp.x, y: sp.y, z: sp.z };
+    }
     if (GARDENS && isGarden(k.kind)) {
       const doors: Array<{ x: number; z: number; ox: number; oz: number; y: number }> = [];
       for (const P of this.lightParts(v)) {
@@ -3465,14 +3481,17 @@ export class MineflayerWorld implements WorldAdapter {
         }
       };
       // (every village's building footprints: a garden's box and its 1-cell margin keep clear of them)
-      const spots = gardenSpots({ doors, greens, plots, hard, structures: own, soil }).filter((sp) => sp.kind === k.kind);
+      entry.gardens = { at: Date.now(), list: gardenSpots({ doors, greens, plots, hard, structures: own, soil }) };
+      const spots = entry.gardens.list.filter((sp) => sp.kind === k.kind);
       if (!spots.length) return null;
       const sp = spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
       return { x: sp.x, y: sp.y, z: sp.z };
     }
-    const spots = smallWorkSpots({ plots, blocked }, d.width, d.depth, 8);
+    const size = `${d.width}x${d.depth}`;
+    let spots = entry.spots.get(size);
+    if (!spots) entry.spots.set(size, (spots = smallWorkSpots({ plots, blocked }, d.width, d.depth, 8)));
     if (!spots.length) return null;
-    return spots[fnv1a(`${seed}|${k.kind}`) % spots.length];
+    return { ...spots[fnv1a(`${seed}|${k.kind}`) % spots.length] };
   }
 
   /**
@@ -3567,6 +3586,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (why === 'cancelled' || collect.code || deposit.code) return;
       if (deposit.state === 'done' && depositedOf(deposit.message ?? '', step.material, step.item) > 0) return;
       it.backoff = Date.now() + 5 * 60000;
+      if (/cannot be gathered here/.test(collect.message ?? '')) this.initiativeNoneNear(v, it, step);
     };
     this.setChore(v, worker, opt.key, [collect, deposit], `gather ${step.amount} ${step.material} for ${it.id}`, failed, meta, opt.holds, opt);
     // (judged by its deposit as gathering is: a partial collect whose load landed is a success, s36)
@@ -3606,6 +3626,39 @@ export class MineflayerWorld implements WorldAdapter {
     if ((this.monumentAt.get(v.name) ?? 0) > now) return;
     this.monumentAt.set(v.name, now + 5 * 60000);
     console.log(`[monument] ${v.name}: ${monumentLine(v.monument)}`);
+  }
+
+  /**
+   * #140: an initiative's gathering found none near the village. Each retry was a step, so the project never lapsed:
+   * train 5's C1 kept six beds open on used-up lilies of the valley, the whole project cap. A bed's flower is dropped from
+   * its mix; anything else, or a bed down to wildflowers, ends the project after 3 such answers.
+   */
+  initiativeNoneNear(v: Village, it: Initiative, step: { material: string; block: string; item?: string }) {
+    if (step.material === 'flowers' && step.item && this.dropBedFlower(v, it, step.item)) return;
+    it.fails = (it.fails ?? 0) + 1;
+    if (it.fails >= 3) this.endInitiative(v, it, 'failed', `no ${step.item ?? step.block} can be gathered near the village`);
+    this.villages.save();
+  }
+
+  /**
+   * #140: a flower bed's flower that cannot be gathered near the village any more leaves its mix: the bed is drawn again
+   * from the rest (wildflowers when nothing else is left) under its new design's name, and the census is read afresh.
+   * False when the bed has no mix holding that flower.
+   */
+  private dropBedFlower(v: Village, it: Initiative, flower: string): boolean {
+    const k = smallWorkKind(it.kind), at = it.design.indexOf('~');
+    if (!k || at < 0) return false;
+    const mix = it.design.slice(at + 1).split('-');
+    if (!mix.includes(flower)) return false;
+    const rest = mix.filter((f) => f !== flower);
+    const d = k.make(smallWorkWood(it.design) ?? v.wood ?? 'oak', rest.length ? rest : ['wildflowers']);
+    v.designs[d.name] = d;
+    const was = it.design;
+    it.design = d.name;
+    this.flowerCensus.delete(v.name);
+    this.villages.save();
+    console.log(`[initiative] ${v.name}: ${it.id} drops ${flower} (none left near the village): ${was} -> ${d.name}`);
+    return true;
   }
 
   /** An initiative ended: the record, a note, a line with its crew. */

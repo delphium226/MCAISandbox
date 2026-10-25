@@ -487,13 +487,47 @@ export interface GardenSpot { kind: string; x: number; y: number; z: number; cel
 const inArea = (a: Area, x: number, z: number) => x >= a.x1 && x <= a.x2 && z >= a.z1 && z <= a.z2;
 
 /**
+ * Areas bucketed by 16x16 tile, for many cell and box tests against a long list (#149: a village on pads keeps each
+ * graded path cell as an area of its own, thousands of them, and every garden cell was tested against all of them on
+ * every menu). The answers are the plain list's; an area spanning more than 256 tiles is tested on every call.
+ */
+export function areaIndex(areas: Area[]): { hits: (x: number, z: number) => boolean; overlaps: (b: Area) => boolean } {
+  const T = 16, tiles = new Map<string, Area[]>(), big: Area[] = [];
+  const tile = (n: number) => Math.floor(n / T);
+  for (const a of areas) {
+    if ((tile(a.x2) - tile(a.x1) + 1) * (tile(a.z2) - tile(a.z1) + 1) > 256) {
+      big.push(a);
+      continue;
+    }
+    for (let tx = tile(a.x1); tx <= tile(a.x2); tx++)
+      for (let tz = tile(a.z1); tz <= tile(a.z2); tz++) {
+        const k = `${tx},${tz}`;
+        const l = tiles.get(k);
+        if (l) l.push(a);
+        else tiles.set(k, [a]);
+      }
+  }
+  const over = (a: Area, b: Area) => a.x1 <= b.x2 && a.x2 >= b.x1 && a.z1 <= b.z2 && a.z2 >= b.z1;
+  return {
+    hits: (x, z) => big.some((a) => inArea(a, x, z)) || !!tiles.get(`${tile(x)},${tile(z)}`)?.some((a) => inArea(a, x, z)),
+    overlaps: (b) => {
+      if (big.some((a) => over(a, b))) return true;
+      for (let tx = tile(b.x1); tx <= tile(b.x2); tx++)
+        for (let tz = tile(b.z1); tz <= tile(b.z2); tz++) if (tiles.get(`${tx},${tz}`)?.some((a) => over(a, b))) return true;
+      return false;
+    },
+  };
+}
+
+/**
  * Where gardens fit (pure, #45): for each door, a 2x2 flower bed beside its walkway (its near column 2-6 cells to either
  * side, its rows 1-6 out from the door, the first that fits, its build box and margin clear of every building: the walkway and the cells beside it stay free for the door's
  * sign and its stand cells, lessons 44, 62, 68); for each green, the ring round its centre; #46's corner trees. A spot is kept only when every cell it plants is free of the hard areas and on
  * soil. Each spot's centre is build_design's for its design (x1 + floor(w / 2), z1 + floor(d / 2)).
  */
 export function gardenSpots(input: GardenInput): GardenSpot[] {
-  const free = (x: number, z: number, y: number) => !input.hard.some((a) => inArea(a, x, z)) && input.soil(x, z, y);
+  const hard = areaIndex(input.hard), builtOn = input.structures ? areaIndex(input.structures) : hard;
+  const free = (x: number, z: number, y: number) => !hard.hits(x, z) && input.soil(x, z, y);
   const out: GardenSpot[] = [];
   const plant = (kind: string, d: Design, x1: number, z1: number, y: number) => {
     const cells: Array<{ x: number; z: number }> = [];
@@ -503,7 +537,7 @@ export function gardenSpots(input: GardenInput): GardenSpot[] {
     // (build_design works on the design's box and a 1-cell margin, and refuses one that overlaps a building: the margin
     // clear of the buildings' footprints too, G2's L2: a front bed's box ran into the house beside it)
     const box = { x1: x1 - 1, z1: z1 - 1, x2: x1 + d.width, z2: z1 + d.depth };
-    if ((input.structures ?? input.hard).some((a) => a.x1 <= box.x2 && a.x2 >= box.x1 && a.z1 <= box.z2 && a.z2 >= box.z1)) return;
+    if (builtOn.overlaps(box)) return;
     out.push({ kind, x: x1 + Math.floor(d.width / 2), y, z: z1 + Math.floor(d.depth / 2), cells });
   };
   for (const dr of input.doors) {
@@ -528,7 +562,7 @@ export function gardenSpots(input: GardenInput): GardenSpot[] {
     if (a.x2 - a.x1 < 6 || a.z2 - a.z1 < 6) continue;
     for (const [x, z] of [[a.x1 + 2, a.z1 + 2], [a.x2 - 2, a.z1 + 2], [a.x1 + 2, a.z2 - 2], [a.x2 - 2, a.z2 - 2]]) {
       let clear = input.soil(x, z, a.y);
-      for (let dx = -2; dx <= 2 && clear; dx++) for (let dz = -2; dz <= 2 && clear; dz++) if (input.hard.some((h) => inArea(h, x + dx, z + dz))) clear = false;
+      for (let dx = -2; dx <= 2 && clear; dx++) for (let dz = -2; dz <= 2 && clear; dz++) if (hard.hits(x + dx, z + dz)) clear = false;
       if (clear) out.push({ kind: 'sapling', x, y: a.y, z, cells: [{ x, z }] });
     }
   }
