@@ -21,7 +21,7 @@ import { collectFilter, collectTargets, exposed, villageStationCell } from './mc
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
 import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep } from './mcBuild';
 import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
-import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
+import { EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, penCap, penLure, penPlan, penSlotFit, penWords, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
 import { hasteLevel, timeScale } from './mcRules';
 import { choiceId, countsDelta, itemCounts, logChoice, logChoiceBan, logChoiceDrop, logChoiceEnd, type ChoiceDrop, type ChoiceLogOption } from './mcChoiceLog';
@@ -57,7 +57,7 @@ import { buildingDecor, buildingLights, type HomeBasics, placedDoor, signLabel, 
 import { buildCatalog, type ActivitySpec } from '../activities';
 import { LETTERS_PACE } from '../ladderFlags';
 import { isPaused } from '../runClock';
-import { GARDENS, gardenSpots, isGarden, menuWorks, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
+import { BED_FLOWERS, FLOWER_MIX, GARDENS, flowerMix, gardenSpots, isFlowerWork, isGarden, menuWorks, mixWords, smallWorkKind, smallWorkSpots, smallWorkWood, type SmallWorkKind } from '../smallWorks';
 import { FLOWER_ITEMS } from './mcMaterials';
 import { TIER_WORDS, parseRefitProject, refitDesign, refitOptions, refitProject } from '../refit';
 import { postRefit } from '../layout';
@@ -126,7 +126,7 @@ type ChoiceState = {
   make?: { item: string; count: number; smelts: boolean; k?: number };
   gather?: { material: Material; n: number };
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
-  initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number };
+  initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -179,6 +179,9 @@ const GATHER_MIN_TRIP: Record<Material, number> = { logs: 6, sand: 8, cobbleston
 /** #45 (MC_GARDENS): a garden's wildflowers, gathered by its own crew only (not a workshop material: the catalogue reads
  *  GATHER_KINDS). */
 const FLOWER_GATHER = { trip: 12, block: () => 'wildflowers', deposit: () => 'wildflowers' };
+/** #140 (MC_FLOWER_MIX): how far from the storage hut the flowers a bed is planted from are counted (collect looks 96 out
+ *  from where the gatherer stands, at the hut or on its way). */
+const FLOWER_REACH = 80;
 /** #46 (MC_GARDENS): a sapling of the village's wood, from its leaves (they drop saplings by chance: ~20 leaves a trip). */
 // (the collect counts the saplings, not every drop: a leaf drops one 1 time in 20, F287)
 const SAPLING_GATHER = { trip: 2, block: (wood?: string) => `${wood ?? 'oak'}_leaves`, deposit: (wood?: string) => `${wood ?? 'oak'}_sapling` };
@@ -718,6 +721,48 @@ export class MineflayerWorld implements WorldAdapter {
   /** The catalogue's cache, by village: the key it was built on (wood and the furniture's demand). */
   private catalogCache = new Map<string, { key: string; goods: MakeGood[]; specs: Map<string, ActivitySpec> }>();
   private catalogFailed = new Set<string>();
+
+  /** #140 (MC_FLOWER_MIX): each village's bed flowers counted near its storage hut, and when. */
+  private flowerCensus = new Map<string, { at: number; counts: Record<string, number> }>();
+
+  /**
+   * The bed flowers near a village (#140): one search for every kind round the storage hut (within FLOWER_REACH, near the
+   * hut's height or in the open, as collect finds them; at most 400 blocks), counted by kind, kept 10 minutes. Empty when
+   * no member is online to look.
+   */
+  flowerCounts(v: Village, by?: BotAgent): Record<string, number> {
+    const hit = this.flowerCensus.get(v.name);
+    if (hit && Date.now() - hit.at < 10 * 60000) return hit.counts;
+    const h = v.storageHut, home = villageHome(v);
+    const c = h ? { x: (h.x1 + h.x2) / 2, z: (h.z1 + h.z2) / 2 } : home;
+    const a = by ?? [...this.agents.values()].find((q) => q.village()?.name === v.name && q.bot.entity);
+    const counts: Record<string, number> = {};
+    if (!c || !a?.bot.entity) return counts;
+    try {
+      const reg = a.bot.registry;
+      const ids = BED_FLOWERS.map((f) => reg.blocksByName?.[f]?.id).filter((id): id is number => id !== undefined);
+      const y = v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
+      const keep = (p: Vec3) => {
+        const d = Math.hypot(p.x - c.x, p.z - c.z);
+        return p.y >= y - 16 && d <= FLOWER_REACH && (d <= 40 || exposed(a, p));
+      };
+      for (const p of nearestBlocks(a, ids, FLOWER_REACH + 48, 400, keep, { min: y - 16 })) {
+        const n = a.bot.blockAt(p)?.name;
+        if (n) counts[n] = (counts[n] ?? 0) + 1;
+      }
+    } catch {
+      // (a search that failed counts nothing: the bed takes wildflowers)
+    }
+    this.flowerCensus.set(v.name, { at: Date.now(), counts });
+    return counts;
+  }
+
+  /** A member's flower work's mix (#140): from the village's census, seeded by the member and the village's works so far. */
+  private flowerMixFor(v: Village, a: BotAgent, kind: string): string[] | undefined {
+    if (!FLOWER_MIX || !isFlowerWork(kind)) return undefined;
+    // (enough of each kind for a trip that finds them: a ring takes up to 8 of its main flower)
+    return flowerMix(this.flowerCounts(v, a), `${a.name}|${v.initiativeN ?? 0}`, kind === 'flower_ring' ? 12 : 6);
+  }
 
   /** The wood kind the catalogue makes wood goods in: pinned on the village by the sweep (catalogWood), else as it would be. */
   catalogWoodOf(v: Village): string {
@@ -3428,6 +3473,9 @@ export class MineflayerWorld implements WorldAdapter {
         const wood = this.workWood(v, d.name);
         return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(1, Math.ceil(q))), block: spec.block(wood), deposit: spec.deposit(wood), item: spec.deposit(wood) };
       }
+      // (#140: a flower bed's own flowers, kind by kind, picked, deposited and credited by name; wildflowers as before)
+      // (a mix's other kinds by 2 at least: a 2x2 bed of four kinds took four trips of 4)
+      if (m === 'flowers' && FLOWER_MIX) return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(n === 'wildflowers' ? 4 : 2, Math.ceil(q))), block: n, deposit: n, ...(n === 'wildflowers' ? {} : { item: n }) };
       return { what: 'gather', material: m, amount: Math.min(spec.trip, Math.max(4, Math.ceil(q))), block: spec.block((WOOD_VARIANTS && smallWorkWood(d.name)) || (v.wood ?? v.catalogWood)), deposit: spec.deposit(v.wood) };
     }
     return null;
@@ -3480,13 +3528,13 @@ export class MineflayerWorld implements WorldAdapter {
     const deposit = worker.enqueue('deposit', { item: step.deposit, also: GATHER_ALSO, chore: true });
     const failed = (why: string) => {
       if (why === 'cancelled' || collect.code || deposit.code) return;
-      if (deposit.state === 'done' && depositedOf(deposit.message ?? '', step.material) > 0) return;
+      if (deposit.state === 'done' && depositedOf(deposit.message ?? '', step.material, step.item) > 0) return;
       it.backoff = Date.now() + 5 * 60000;
     };
     this.setChore(v, worker, opt.key, [collect, deposit], `gather ${step.amount} ${step.material} for ${it.id}`, failed, meta, opt.holds, opt);
     // (judged by its deposit as gathering is: a partial collect whose load landed is a success, s36)
     const c = this.chores.get(worker.name.toLowerCase());
-    if (c) c.choice.initiative = { id: it.id, material: step.material, n: step.amount };
+    if (c) c.choice.initiative = { id: it.id, material: step.material, n: step.amount, ...(step.material === 'flowers' && step.item ? { item: step.item } : {}) };
     console.log(`[initiative] ${v.name}: ${worker.name} gathers ${step.amount} ${step.material} for ${it.id} (${it.by}'s ${k?.words ?? it.kind})`);
   }
 
@@ -4418,7 +4466,7 @@ export class MineflayerWorld implements WorldAdapter {
     const g = c.choice.gather ?? c.choice.initiative;
     if (g) {
       const dep = c.status[c.status.length - 1];
-      const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', g.material) : 0;
+      const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', g.material, c.choice.initiative?.item) : 0;
       ok = n > 0;
       // (a failed deposit after a failed collect says only "not carrying sand": the collect's reason, the first failure,
       // is the one the log and the model's last chores read; S.9's review, lens 2 L1)
@@ -4431,7 +4479,7 @@ export class MineflayerWorld implements WorldAdapter {
       const vi = ini && n > 0 ? this.villages.villages.get(c.village.toLowerCase()) : undefined;
       const it = vi?.initiatives?.find((i) => i.id === ini!.id);
       if (vi && it && ini) {
-        const item = ini.material === 'logs' ? `${this.workWood(vi, it.design)}_log` : ini.material === 'flowers' ? 'wildflowers' : ini.material === 'saplings' ? `${this.workWood(vi, it.design)}_sapling` : ini.material;
+        const item = ini.material === 'logs' ? `${this.workWood(vi, it.design)}_log` : ini.material === 'flowers' ? ini.item ?? 'wildflowers' : ini.material === 'saplings' ? `${this.workWood(vi, it.design)}_sapling` : ini.material;
         it.gathered = { ...(it.gathered ?? {}), [item]: (it.gathered?.[item] ?? 0) + n };
         this.villages.save();
       }
@@ -4889,7 +4937,7 @@ export class MineflayerWorld implements WorldAdapter {
         const plot = v.plots.find((p) => p.annex);
         if (!slot || !plot) return false;
         const P = penPlan(slot, slot.face ?? 'n');
-        const inPen = (q: { x: number; y: number; z: number }) => q.x >= P.inner.x1 && q.x < P.inner.x2 + 1 && q.z >= P.inner.z1 && q.z < P.inner.z2 + 1 && Math.abs(q.y - (plot.y + 1)) <= 2;
+        const inPen = (q: { x: number; y: number; z: number }) => P.boxes.some((b) => q.x >= b.x1 && q.x < b.x2 + 1 && q.z >= b.z1 && q.z < b.z2 + 1) && Math.abs(q.y - (plot.y + 1)) <= 2;
         return [...this.agents.values()].some((b) => b.bot.entity && Object.values(b.bot.entities).some((e) => e.name === 'item' && inPen(e.position)));
       }),
       known: memo((xz) => {
@@ -5513,8 +5561,9 @@ export class MineflayerWorld implements WorldAdapter {
     else
       add({
         id: 'annex', kind: 'annex', key: 'annex', excludes: ['annex'], name: 'Prepare the annex for animal pens', rank: 300,
-        facts: `${ax && ax.x2 >= ax.x1 ? `${ax.x2 - ax.x1 + 1}x${ax.z2 - ax.z1 + 1} at ${ax.x1},${ax.z1}, tried ${effTries(ax.tries, ax.lastTry?.at, now)} times` : 'a 13x9 field beside the village, not started'}; ${record('annex')}${others('annex')}`,
-        effect: 'room for two pens',
+        facts: `${ax && ax.x2 >= ax.x1 ? `${ax.x2 - ax.x1 + 1}x${ax.z2 - ax.z1 + 1} at ${ax.x1},${ax.z1}, tried ${effTries(ax.tries, ax.lastTry?.at, now)} times` : `a ${PEN_VARIETY ? '25x13' : '13x9'} field beside the village, not started`}; ${record('annex')}${others('annex')}`,
+        // (#139, MC_PEN_VARIETY: pens of the village's own sizes and shapes)
+        effect: PEN_VARIETY ? 'room for three or four pens of different sizes, for chickens, sheep, pigs or cows' : 'room for two pens',
       }, { kind: 'annex', again: !!(ax && ax.x2 >= ax.x1), area: ax ? `${ax.x1},${ax.z1}..${ax.x2},${ax.z2}` : '' });
 
     // Pens on the annex: one with animals of each kind (no harvest, farm start or other lure beside it, the pen review's L3;
@@ -5526,22 +5575,27 @@ export class MineflayerWorld implements WorldAdapter {
       const slots = (lay0.slots ?? []).map((slot, jj) => ({ slot, j: jj + 1 })).filter(({ slot }) => slot.annex);
       for (const [p, kind] of PEN_ORDER.entries()) {
         if (slots.some(({ slot }) => slot.kind === kind && (slot.pen?.animals ?? 0) >= 2)) continue;
-        if (PEN_KINDS[kind].lure === 'wheat' && !(store.wheat ?? 0)) continue;
+        // (a lure storage holds; seeds also come from the grass. #139: a pig's carrots, potatoes or beetroot)
+        const lure = penLure(kind, store);
+        if (lure !== 'wheat_seeds' && !(store[lure] ?? 0)) continue;
         const by = ax.penBy?.[kind];
         // (an entry over an hour old is forgiven: the sweep deletes it)
         if (by && now - by.at <= 60 * 60000 && (by.tries >= 3 || now - by.at < 10 * 60000)) continue;
-        const pick = slots.find(({ slot }) => slot.kind === kind && !slot.laying) ?? slots.find(({ slot }) => !slot.kind);
+        // (#139: a free pen whose size suits the kind's herd)
+        const pick = slots.find(({ slot }) => slot.kind === kind && !slot.laying) ?? (PEN_VARIETY ? penSlotFit(kind, slots.filter(({ slot }) => !slot.kind).map((q) => ({ ...q, shape: q.slot.shape }))) : slots.find(({ slot }) => !slot.kind));
         if (!pick || slotBusy.has(`${v.name}:1:${pick.j}`)) continue;
         const near = facts.animals(kind);
         const dy = (s: { y: number }) => s.y - (ax.y + 1);
         const seen = near.find((s) => Math.abs(dy(s)) <= 4) ?? near.find((s) => dy(s) >= -4 && dy(s) <= 8);
         if (!seen) continue;
         const [x, y, z] = [Math.floor(seen.x), Math.floor(seen.y), Math.floor(seen.z)];
-        const lure = PEN_KINDS[kind].lure;
+        const many = kind === 'sheep' ? 'sheep' : `${kind}s`;
+        const size = PEN_VARIETY ? `the ${penWords(pick.slot)} pen (room for ${penCap(kind, pick.slot)}); ` : '';
+        const gives = kind === 'chicken' ? 'eggs' : kind === 'cow' || kind === 'goat' ? 'milk' : kind === 'sheep' ? 'wool' : '';
         add({
-          id: `pen:${kind}`, kind: 'pen', key: 'pen', excludes: penEx, name: `Lead ${kind}s into a pen`, rank: 400 + p, at: { x, y, z },
-          facts: `the nearest ${kind} seen ${Math.round(Math.hypot(seen.x - (ax.x1 + ax.x2) / 2, seen.z - (ax.z1 + ax.z2) / 2))} blocks from the annex, ${Math.abs(Math.round(dy(seen)))} ${dy(seen) >= 0 ? 'above' : 'below'} it; ${store[lure] ?? 0} ${words(lure)} in storage; tried ${by && now - by.at <= 60 * 60000 ? by.tries : 0} times; ${record('pen')}`,
-          effect: `a pen of ${kind}s to breed`,
+          id: `pen:${kind}`, kind: 'pen', key: 'pen', excludes: penEx, name: `Lead ${many} into a pen`, rank: 400 + p, at: { x, y, z },
+          facts: `the nearest ${kind} seen ${Math.round(Math.hypot(seen.x - (ax.x1 + ax.x2) / 2, seen.z - (ax.z1 + ax.z2) / 2))} blocks from the annex, ${Math.abs(Math.round(dy(seen)))} ${dy(seen) >= 0 ? 'above' : 'below'} it; ${size}${store[lure] ?? 0} ${words(lure)} in storage; tried ${by && now - by.at <= 60 * 60000 ? by.tries : 0} times; ${record('pen')}`,
+          effect: `a pen of ${many} to breed${PEN_VARIETY && gives ? ` (${gives})` : ''}`,
         }, { kind: 'pen', j: pick.j, slotKind: kind, x, y, z });
       }
       if (!out.some((o) => o.kind === 'pen')) reasons.pen = 'no animals to lead';
@@ -5566,18 +5620,21 @@ export class MineflayerWorld implements WorldAdapter {
         }
         const works: Array<[number, string, string, string, string]> = [];
         if (slot.kind === 'chicken' && due(pen, 'eggs', 1) && facts.eggs(String(j))) works.push([0, 'eggs', 'collect_eggs', 'Collect eggs in the chicken pen', 'eggs lying in the pen']);
-        if (slot.kind === 'cow' && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', 'Milk the cows', `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
+        if ((slot.kind === 'cow' || slot.kind === 'goat') && (store.bucket ?? 0) > 0 && (store.milk_bucket ?? 0) < 3 && due(pen, 'milk', 2)) works.push([1, 'milk', 'milk_cows', `Milk the ${slot.kind}s`, `${store.bucket ?? 0} buckets and ${store.milk_bucket ?? 0} milk in storage`]);
+        // (#139: a sheep pen's wool, with shears from storage; wool grows back on grass)
+        if (slot.kind === 'sheep' && (store.shears ?? 0) > 0 && due(pen, 'shear', 5 / scale)) works.push([3, 'shear', 'shear_pen', 'Shear the sheep in the pen', `${store.shears} shears in storage; ${pen.wool ?? 0} wool sheared here so far`]);
         // (never the seeds a field's open planting still needs: G3f's neighbourhood field was sown half, s30)
-        const feed = (store[spec.lure] ?? 0) - (spec.lure === 'wheat_seeds' ? seedsForFields(v) : 0);
-        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < spec.cap && feed >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind}s`, `${store[spec.lure] ?? 0} ${words(spec.lure)} in storage`]);
+        const lure = penLure(slot.kind!, store), cap = penCap(slot.kind!, slot);
+        const feed = (store[lure] ?? 0) - (lure === 'wheat_seeds' ? seedsForFields(v) : 0);
+        if ((pen.animals ?? 0) >= 2 && (pen.animals ?? 0) < cap && feed >= 2 && due(pen, 'breed', 5 / scale)) works.push([2, 'breed', 'breed_pen', `Breed the ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`}`, `${store[lure] ?? 0} ${words(lure)} in storage${PEN_VARIETY ? `; room for ${cap}` : ''}`]);
         const twin = (lay0.slots ?? []).filter((s) => s.annex && s.kind === slot.kind && s.pen?.built).length > 1;
         for (const [w, what, skill, name, fact] of works) {
           const last = pen.workAt?.[what];
           add({
             id: `penwork:${j}:${what}`, kind: 'penwork', key: `penwork:${j}`, excludes, name: `${name}${twin ? ` on slot ${numberWord(j)}` : ''}`, rank: 500 + 10 * j + w,
             at: { x: Math.floor((slot.x1 + slot.x2) / 2), z: Math.floor((slot.z1 + slot.z2) / 2) },
-            facts: `${pen.animals} ${slot.kind}s in the pen; ${fact}; ${last ? `last done ${ago(now - last)}` : 'never done'}; ${record('penwork')}`,
-            effect: what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : `a young ${slot.kind}`,
+            facts: `${pen.animals} ${slot.kind === 'sheep' ? 'sheep' : `${slot.kind}s`} in the pen; ${fact}; ${last ? `last done ${ago(now - last)}` : 'never done'}; ${record('penwork')}`,
+            effect: what === 'eggs' ? 'eggs into storage' : what === 'milk' ? 'milk buckets toward a cake' : what === 'shear' ? 'wool into storage, for beds, banners and carpets' : `a young ${slot.kind}`,
           }, { kind: 'penwork', j, what, skill, slotKind: slot.kind ?? '', animals: pen.animals ?? 0 });
         }
       }
@@ -5607,7 +5664,7 @@ export class MineflayerWorld implements WorldAdapter {
     else {
       const made = m.ironMade ?? [];
       // (three buckets once a cow pen holds cows: a cake takes three milk buckets at once, pens v2)
-      const cows = (lay0?.slots ?? []).some((s) => s.annex && s.kind === 'cow' && (s.pen?.animals ?? 0) > 0);
+      const cows = (lay0?.slots ?? []).some((s) => s.annex && (s.kind === 'cow' || s.kind === 'goat') && (s.pen?.animals ?? 0) > 0);
       // (buckets the village holds count too: VanC2 was stocked with three and still made one)
       const buckets = Math.max(made.filter((t) => t === 'bucket').length, (store.bucket ?? 0) + (store.milk_bucket ?? 0));
       const iron = (store.raw_iron ?? 0) + (store.iron_ingot ?? 0);
@@ -6153,7 +6210,9 @@ export class MineflayerWorld implements WorldAdapter {
           if (front) frontGarden = true;
           // (R2: in the wood of the neighbourhood it stands in)
           const kw = (WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood;
-          const d = k.make(kw);
+          // (#140, MC_FLOWER_MIX: a flower work of the flowers growing near the village, the member's own mix)
+          const mix = this.flowerMixFor(v, a, k.kind);
+          const d = k.make(kw, mix);
           // (only a work whose first step can be taken now: otherwise it would open, sit and lapse; s36)
           if (!this.initiativeStep(v, { id: '_new', design: d.name }, facts.spare(), busy, d)) {
             why.push('nothing to gather for it now');
@@ -6171,11 +6230,11 @@ export class MineflayerWorld implements WorldAdapter {
           const alone = open.filter((i) => !i.crew.some((n) => n !== i.by)).length;
           add({
             id: `initiate:${k.kind}`, kind: 'initiate', key: `initiate:${a.name.toLowerCase()}`, excludes: [`initiate:${a.name.toLowerCase()}=`],
-            name: past ? `Start another project: a ${k.words} (your own)` : `Start building a ${k.words} (your own project)`, rank: (past ? 1350 : 1100) + r, at: spot, ...(past ? { mark: PAST_TAG } : {}),
+            name: past ? `Start another project: a ${k.words}${mix ? ` of ${mixWords(mix)}` : ''} (your own)` : `Start building a ${k.words}${mix ? ` of ${mixWords(mix)}` : ''} (your own project)`, rank: (past ? 1350 : 1100) + r, at: spot, ...(past ? { mark: PAST_TAG } : {}),
             facts: past ? `${open.length} projects open${openN > open.length ? ` and ${openN - open.length} being chosen by others now` : ' already'}, past the usual ${INITIATIVES_MAX} (${alone} with nobody helping): another splits the helpers; a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps`
               : `a ${d.width}x${d.depth} ${k.words} at ${spot.x},${spot.z}; takes ${takes || 'little'}, gathered by you and whoever helps; ${open.length} of ${INITIATIVES_MAX} projects open; others may help you`,
             effect: `your own ${k.words} in the village: ${k.forWhat}`,
-          }, { kind: 'initiate', work: k.kind });
+          }, { kind: 'initiate', work: k.kind, ...(mix ? { mix } : {}) });
           if (past) {
             gated.add(out[out.length - 1]);
             gateWhy.initiate = 'enough projects open';
@@ -7051,7 +7110,8 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[initiative] ${v.name}: ${worker.name} could not start a ${d.work} (${!k ? 'unknown kind' : !spot ? 'no room left' : 'its own is open'})`);
           return;
         }
-        const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood);
+        // (#140: the mix the menu offered: the same census and seed)
+        const design = k.make((WOOD_VARIANTS && hoodWoodAt(v, spot.x, spot.z)) || wood, d.mix ?? this.flowerMixFor(v, worker, k.kind));
         // (its first step decided before the record: no initiative opens that nobody can work on, s36)
         const first = this.initiativeStep(v, { id: '_new', design: design.name, pending }, this.makeSpare(v, worker.name), new Set(), design);
         if (!first) {
@@ -7977,7 +8037,7 @@ type OptionRun =
   | { kind: 'light'; part: string; n: number; unlit: number; label: string }
   | { kind: 'furnish'; part: string; n: number; items: Counts; open: number; label: string }
   | { kind: 'shelve'; n: number }
-  | { kind: 'initiate'; work: string; green?: boolean }
+  | { kind: 'initiate'; work: string; green?: boolean; mix?: string[] }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
@@ -8100,9 +8160,10 @@ function depositedItems(message: string, items: string[]): number {
   return n;
 }
 
-function depositedOf(message: string, m: Material | 'flowers' | 'saplings' | 'sandstone'): number {
+function depositedOf(message: string, m: Material | 'flowers' | 'saplings' | 'sandstone', item?: string): number {
   const head = /^deposited ([^(;.]*)/.exec(message)?.[1] ?? '';
-  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? 'wildflowers' : m === 'saplings' ? '[a-z_]+_sapling' : m === 'sandstone' ? '(?:red_)?sandstone' : 'cobblestone';
+  // (#140: a flower bed's trip by the flower it picked)
+  const name = m === 'logs' ? '[a-z_]+_log' : m === 'sand' ? '(?:red_)?sand' : m === 'flowers' ? item ?? 'wildflowers' : m === 'saplings' ? '[a-z_]+_sapling' : m === 'sandstone' ? '(?:red_)?sandstone' : 'cobblestone';
   let n = 0;
   for (const x of head.matchAll(new RegExp(`(\\d+) ${name}\\b`, 'g'))) n += Number(x[1]);
   return n;

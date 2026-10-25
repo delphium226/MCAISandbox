@@ -75,7 +75,10 @@ def main():
     if missing_total:
         print(f"GARDENS FAILED: {missing_total} of {planted_total} planted cells missing")
         return 1
-    print(f"GARDENS OK: {len(built)} built, {planted_total} planted cells read back")
+    # (#140, MC_FLOWER_MIX: the distinct flowers the built gardens planted)
+    kinds = sorted({v["designs"][i["design"]]["palette"][c].split("[")[0] for i in built if i["design"] in v["designs"]
+                    for row in v["designs"][i["design"]]["layers"][1] for c in row if c not in "._"} - {""})
+    print(f"GARDENS OK: {len(built)} built, {planted_total} planted cells read back; {len(kinds)} kinds planted: {', '.join(kinds)}")
     return 0
 
 

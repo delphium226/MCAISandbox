@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-193 settings.
+195 settings.
 
 ## Game speed
 
@@ -75,6 +75,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
+| `MC_FLOWER_MIX` | flag | `off` |  |  | #140: with MC_GARDENS, a flower bed or ring is planted from a mix of 2-4 of the one-block flowers counted within 80 of the storage hut (each with enough blocks to gather), drawn per member; the option, the design and the bill name the mix, and its crew picks each kind by name. |
 | `MC_GARDENS` | flag | `off` |  |  | #45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side of a house's door walkway (the walkway itself left as it is), one design a walkway's direction; a flower ring circles a green's centre, its four sides open. Planted from flowers... |
 | `MC_GEN_HOMES` | flag | `on` |  |  | Generated homes (buildingGen) beside the catalogue's. |
 | `MC_GREENS_PER` | string | (unset) |  |  | Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER for experiments, s43). |
@@ -90,6 +91,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_OPEN_STORAGE` | flag | `on` |  |  | The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches' and the sign's support: a wall torch on a post, the... |
 | `MC_PAD_HALO` | string | `on` |  |  | #136: blended pad edges and cave sealing in prepare_site. |
 | `MC_PAD_PER_BUILDING` | flag | `off` |  |  | MC_PAD_PER_BUILDING=on (#84 C1; off by default): a village's first street plan is not levelled as one plot but laid out on pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended into the ground (prepare_site layout=N pad=K;... |
+| `MC_PEN_VARIETY` | flag | `off` |  |  | #139: a 25x13 annex (the classic 13x9 where none fits; on pads, at its own ground level) with 3-4 pens of varied sizes and shapes (3x3 to 7x9 inside, and an L), a set per village; pens for sheep and pigs (and rabbits, goats) besides chickens and cows, each in the free pen nearest the size of its herd, its cap by area; goats milked, sheep sheared (with shears in storage). |
 | `MC_PROJECT_REST_MS` | number | `120000` |  |  | How long public works rest after "no new work" wins. |
 | `MC_PROJECTS` | flag | `on` |  |  | X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). |
 | `MC_QUARTER` | number | `3` |  |  | X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). |

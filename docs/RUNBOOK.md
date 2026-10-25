@@ -157,6 +157,17 @@ run minutes from the agent server's start, paused time left out.
   distance from the meeting point, the pads' levels rule) as a layout of its own: its pad, a graded path joining the
   village's paths (`planPadPaths` with `tree`), its build. `[grow] V: outward K by NAME: n of m placed (...), D/D/...
   from the meeting point`. Check: `scripts/checks/grow_outward.mts`. Notes: `runs/2026-10-25/grow-outward/`.
+- **Varied pens** (#139, `MC_PEN_VARIETY=on`, off by default): the annex is 25x13 (the classic 13x9 where none fits; beside
+  a village on pads, at its own ground's level) and holds the village's set of 3-4 pen shapes (`farmSlots.ts` PEN_SETS:
+  3x3, 3x5, 5x5, 5x7, 7x9 inside and an L of 37 cells; `[annex]` notes name them). Pens for sheep and pigs (lures: wheat;
+  carrot, potato or beetroot from storage), rabbits and goats besides chickens and cows, each kind in the free pen
+  nearest its herd's area, its cap by area (`penCap`). Pen work: goats milked (`milk_cows`), sheep sheared
+  (`shear_pen`, with shears in storage). Animals near the test sites: `scripts/checks/land_life.py [SITE]` (pigs and
+  sheep at every site, no rabbits or goats; `runs/2026-10-25/pens-flowers/measure.md`).
+- **Mixed flower beds** (#140, `MC_FLOWER_MIX=on` with `MC_GARDENS=on`, off by default): a front bed or flower ring is
+  planted from 2-4 one-block flowers counted within 80 of the storage hut (`flowerCounts`, kept 10 minutes; tall
+  flowers stay out), a mix per member; the option says "a flower bed of X and Y", the design is named
+  `small_front_bed_<wood>~<mix>` and its crew picks each kind by name. Check (both): `scripts/checks/pens_flowers.mts`.
 - **Per-building pads** (#84 C1, `MC_PAD_PER_BUILDING=on`, off by default; spec and review
   `runs/2026-10-24/layout-measure/spec_c.md`): a village's first street plan is laid out on pads. Each building, the
   wheat field and each farm slot gets its footprint and a 1-block ring at its own level, with a halo of `MC_PAD_HALO`'s

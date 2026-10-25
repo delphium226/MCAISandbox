@@ -19,8 +19,8 @@ export interface SmallWorkKind {
   words: string;
   /** What it is for ("a meeting place in the village"). */
   forWhat: string;
-  /** Its design in a wood kind ("oak", "spruce"...). */
-  make: (wood: string) => Design;
+  /** Its design in a wood kind ("oak", "spruce"...); a flower bed's in a mix of flowers (#140, MC_FLOWER_MIX). */
+  make: (wood: string, flowers?: string[]) => Design;
   /** R1's vanilla kinds: the village biome whose piece it is (a menu may keep them to villages of that style). */
   biome?: string;
 }
@@ -161,25 +161,91 @@ export const GARDENS = /^(on|1|true)$/i.test(rawSetting('MC_GARDENS') ?? 'off');
 export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
 
 /**
+ * #140 (MC_FLOWER_MIX=on; off by default, and only with MC_GARDENS): a flower bed or ring planted from a mix of 2-4 of the
+ * flowers growing near the village, not wildflowers alone. The one-block flowers a bed may take (the jar's
+ * small_flowers that grow wild, with wildflowers and pink petals, set as four to a block); the tall ones (lilac, peony,
+ * rose bush, sunflower) need a two-block placement and stay out.
+ */
+export const FLOWER_MIX = GARDENS && /^(on|1|true)$/i.test(rawSetting('MC_FLOWER_MIX') ?? 'off');
+export const BED_FLOWERS = ['wildflowers', 'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip', 'orange_tulip', 'white_tulip',
+  'pink_tulip', 'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'pink_petals'];
+/** A bed flower's block (wildflowers and pink petals as four to a block). */
+const flowerBlock = (f: string) => (f === 'wildflowers' || f === 'pink_petals' ? `${f}[flower_amount=4,facing=north]` : f);
+/** The kinds a flower work is planted from (#140). */
+export const isFlowerWork = (kind: string) => kind === 'front_bed' || kind === 'flower_ring';
+
+/** A string's small hash (FNV-1a): a member's mix differs from another's, never between runs. */
+function hashOf(s: string): number {
+  let h = 2166136261;
+  for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h;
+}
+
+/**
+ * The mix a flower work is planted from (#140): from the bed flowers counted near the village (`counts`, blocks by kind),
+ * those with at least `need` blocks (a work's gathering finds them), 2 to 4 of them drawn by weight of their count with a
+ * seed (the member and the village's count of works: members differ, and a member's next one may too); one kind when only
+ * one is common enough, wildflowers when none is. Kinds in the order drawn (the first is the bed's main flower).
+ */
+export function flowerMix(counts: Record<string, number>, seed: string, need = 4): string[] {
+  const pool = BED_FLOWERS.filter((f) => (counts[f] ?? 0) >= need).map((f) => ({ f, w: Math.sqrt(counts[f]) }));
+  if (!pool.length) return ['wildflowers'];
+  let h = hashOf(seed);
+  const next = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0), (h % 10000) / 10000);
+  const want = Math.min(pool.length, 2 + Math.floor(next() * 3));
+  const out: string[] = [];
+  while (out.length < want) {
+    const left = pool.filter((q) => !out.includes(q.f));
+    const total = left.reduce((t, q) => t + q.w, 0);
+    let r = next() * total;
+    const pick = left.find((q) => (r -= q.w) <= 0) ?? left[left.length - 1];
+    out.push(pick.f);
+  }
+  return out;
+}
+
+/** A mix in words: "wildflowers, lily of the valley and dandelion". */
+export function mixWords(mix: string[]): string {
+  const w = mix.map((f) => f.replace(/_/g, ' '));
+  return w.length < 2 ? w.join('') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
+}
+
+/** A flower work's design: its kind's shape with the mix's letters (A the main flower), named with its mix after "~". */
+function mixedDesign(kind: string, w: string, what: string, mix: string[] | undefined, layers: (letters: string[]) => string[][]): Design {
+  const kinds = mix?.length ? mix : ['wildflowers'];
+  const one = kinds.length === 1 && kinds[0] === 'wildflowers' && !mix?.length;
+  // (without a mix, the design as it was: one letter F of GARDEN_FLOWER)
+  const letters = one ? ['F'] : kinds.map((_, i) => 'ABCD'[i]);
+  const d = design(kind, w, one ? what : `${what}, of ${mixWords(kinds)}`, Object.fromEntries(kinds.map((f, i) => [letters[i], one ? GARDEN_FLOWER : flowerBlock(f)])), layers(letters));
+  return one ? d : { ...d, name: `${d.name}~${kinds.join('-')}` };
+}
+
+/**
  * A 2x2 front bed of flowers beside a door's walkway (one side; the other side may take its own). The two fixed garden
  * shapes first tried (5x2 and 2x5 either side of the walkway) fitted none of mv3_grown25's 28 doors: doors sit a cell
  * inside the outline, streets run along the walls, and the door's sign covers the cells beside the walkway (G2's probe,
- * 10-22); a one-sided bed searched outward fits where the land is free.
+ * 10-22); a one-sided bed searched outward fits where the land is free. #140: a mix of two kinds chequered, of three or
+ * four one a cell.
  */
-function frontBed(_w: string): Design {
-  return design('front_bed', _w, "a flower bed by a house's door", { F: GARDEN_FLOWER }, [
-    ['__', '__'],
-    ['FF', 'FF'],
-  ]);
+function frontBed(_w: string, mix?: string[]): Design {
+  return mixedDesign('front_bed', _w, "a flower bed by a house's door", mix, (L) => {
+    const [a, b = a, c = a, d = b] = L;
+    const top = L.length === 2 ? [`${a}${b}`, `${b}${a}`] : L.length === 3 ? [`${a}${b}`, `${c}${a}`] : [`${a}${b}`, `${c}${d}`];
+    return [['__', '__'], top];
+  });
 }
 
 /** A 5x5 flower ring round a green's centre (its middle 3x3 left as it is, the middle of each side open as a way in; only round
- *  an empty centre: build_design refuses a box over a building). */
-function flowerRing(_w: string): Design {
-  return design('flower_ring', _w, "a flower ring round the green's centre, open on each side", { F: GARDEN_FLOWER }, [
-    ['_____', '_____', '_____', '_____', '_____'],
-    ['FF_FF', 'F___F', '_____', 'F___F', 'FF_FF'],
-  ]);
+ *  an empty centre: build_design refuses a box over a building). #140: the corners the main flower, the cells beside them
+ *  along the rows the second, along the columns the third (else the second), a fourth on two opposite corners. */
+function flowerRing(_w: string, mix?: string[]): Design {
+  return mixedDesign('flower_ring', _w, "a flower ring round the green's centre, open on each side", mix, (L) => {
+    const [a, b = a, c = b, d = a] = L;
+    return [
+      ['_____', '_____', '_____', '_____', '_____'],
+      [`${a}${b}_${b}${d}`, `${c}___${c}`, '_____', `${c}___${c}`, `${d}${b}_${b}${a}`],
+    ];
+  });
 }
 
 /** #46: a sapling of the village's wood, planted where its canopy has room (a 5x5 clear round it). */
@@ -313,7 +379,8 @@ export function menuWorks(biome?: string): SmallWorkKind[] {
 export function smallWorkWood(name: string): string | undefined {
   const kinds = [...SMALL_WORKS, ...GARDEN_WORKS, ...VANILLA_WORKS, ...YARD_WORKS].map((k) => k.kind).sort((a, b) => b.length - a.length);
   const k = kinds.find((x) => name.startsWith(`${SMALL_WORK_PREFIX}${x}_`));
-  return k ? name.slice(SMALL_WORK_PREFIX.length + k.length + 1) || undefined : undefined;
+  // (#140: a flower bed's mix follows its wood after a "~": "small_front_bed_oak~dandelion-poppy")
+  return k ? name.slice(SMALL_WORK_PREFIX.length + k.length + 1).split('~')[0] || undefined : undefined;
 }
 
 export interface SpotInput {

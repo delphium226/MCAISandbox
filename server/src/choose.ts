@@ -718,8 +718,10 @@ const YIELD: Record<string, (m: string) => number | null> = {
     if (got) return [...got[1].matchAll(/(?<!\d)(\d+) [a-z_]*egg\b/g)].reduce((s, x) => s + Number(x[1]), 0);
     return /^no eggs in\b/.test(m) ? 0 : null;
   },
-  // "milked the cows on annex slot 1: 2 milk buckets" | "the storage holds 3 milk buckets already"
-  milk_cows: counted(/^milked the cows on annex slot \d+: (\d+) milk bucket/, /^the storage holds \d+ milk buckets already/),
+  // "milked the cows on annex slot 1: 2 milk buckets" (#139: or the goats) | "the storage holds 3 milk buckets already"
+  milk_cows: counted(/^milked the (?:cows|goats) on annex slot \d+: (\d+) milk bucket/, /^the storage holds \d+ milk buckets already/),
+  // #139: "sheared 3 sheep in the pen on annex slot 2: 6 wool (...)" | "no sheep with wool in the pen on annex slot 2 ..."
+  shear_pen: counted(/^sheared \d+ sheep in the pen on annex slot \d+: (\d+) wool/, /^no sheep with wool\b/),
   // "fed 2 cows wheat in the pen on annex slot 1: 1 young born, 3 in the pen" | "...: no young yet" | "... ready to breed of 1"
   // | "... is full (6 of 6)": only young born count
   breed_pen: (m) => counted(/: (\d+) young born\b/)(m) ?? 0,
@@ -743,7 +745,7 @@ const YIELD: Record<string, (m: string) => number | null> = {
 
 /** Items a skill's carried gain is judged by when its message gives no count. */
 const YIELD_ITEMS: Record<string, RegExp> = {
-  harvest_farm: /wheat|seeds/, harvest_slot: /carrot|potato|beetroot|pumpkin|melon|sugar_cane|seeds/, collect_eggs: /egg/, milk_cows: /milk/,
+  harvest_farm: /wheat|seeds/, harvest_slot: /carrot|potato|beetroot|pumpkin|melon|sugar_cane|seeds/, collect_eggs: /egg/, milk_cows: /milk/, shear_pen: /wool/,
   dig_iron: /raw_iron|iron_ore/,
 };
 

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
-import type { Side } from './farmSlots';
+import type { PenShape, Side } from './farmSlots';
 import { growing, housesOf } from './grow';
 import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
@@ -401,13 +401,17 @@ export type FarmSlot = FarmSpot & {
   /** On the annex (10-09): never a plant farm; `face` is its end facing the village, where a pen's gate goes. */
   annex?: boolean;
   face?: Side;
+  /** #139 (MC_PEN_VARIETY): a pen's shape on a varied annex (its size and an L's cut); none: the classic 5x7. */
+  shape?: PenShape;
   /**
    * A pen (kind 'chicken' or 'cow', PEN_KINDS): its gate and the gate's facing, whether the ring stands, the animals
    * counted inside; pens v2 (10-09): eggs taken in all and when, the last breeding and the young born of it, the last
    * milking, and when each was last tried (a back-off).
    */
   pen?: { gate: [number, number]; facing: string; wood?: string; built?: boolean; animals?: number; at?: number;
-    eggs?: number; eggsAt?: number; bredAt?: number; born?: number; milk?: number; milkAt?: number; workAt?: Record<string, number> };
+    eggs?: number; eggsAt?: number; bredAt?: number; born?: number; milk?: number; milkAt?: number; workAt?: Record<string, number>;
+    /** #139: wool sheared in all and when. */
+    wool?: number; shearAt?: number };
 };
 
 /**

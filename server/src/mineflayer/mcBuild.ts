@@ -19,7 +19,7 @@ import { MINE_SUPPORT, inIronLevel, ironTrip, mineAreas, mineFacesGoing, nearMin
 import { teleportHome } from './mcRescue';
 import { cellKey, libraryOf, setLibrary, type LibraryCell, type LibraryRecord } from './mcLibrary';
 import { FARM_TRIP_RANGE, PARTS_MAKE, SCOUT_RANGE, STATION_NAMES, STATIONS_TASK, VILLAGE_RANGE, areaText, overlaps, partClaim, preparedAt, signCall, signTask, villageHome, type StationName } from '../village';
-import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penPlan, slotCell, slotPlan, worksFurnaces, type Side } from '../farmSlots';
+import { ANNEX_VARIED, EGGS, PEN_KINDS, PEN_ORDER, PEN_VARIETY, SLOT_KINDS, SLOT_ORDER, annexCandidates, annexSlots, penCap, penLure, penLures, penPlan, penSetFor, penWords, slotCell, slotPlan, variedAnnexSlots, worksFurnaces, type Side } from '../farmSlots';
 import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease, lightCarried, makeBill, makeHolds, makeLeft, worksBusy } from './mcWorkshop';
 import type { MakeGood } from './mcWorkshop';
 import { TEMPERAMENT_MODE, temperament } from '../temperament';
@@ -3945,7 +3945,7 @@ export const annexBusy = new Set<string>();
  * tunnels 4 below the level (im2_mine's first level ran under every candidate; prepare_site works the plot's level and up).
  * Each side plot's search keeps off the others (annex, works, yard), recorded or prepared.
  */
-async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal, which: 'annex' | 'works' | 'store' = 'annex'): Promise<{ rect: Area & { side: Side }; score: number } | null> {
+async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSignal, which: 'annex' | 'works' | 'store' = 'annex', size?: [number, number]): Promise<{ rect: Area & { side: Side }; score: number; y?: number } | null> {
   const lay0 = v.layouts?.[0];
   const works = which === 'works';
   const own = lay0?.[which];
@@ -3958,10 +3958,12 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
   if (works && !table) return null;
   const farthest = (c: Area) => Math.max(...[[c.x1, c.z1], [c.x1, c.z2], [c.x2, c.z1], [c.x2, c.z2]].map(([x, z]) => Math.hypot(x - table!.x, z - table!.z)));
   const store = which === 'store';
-  const cands = (store ? storageYardCandidates(plot) : annexCandidates(plot)).filter((c) => !bad.has(`${c.x1},${c.z1}`) && (!works || farthest(c) <= WORKS_TABLE_RANGE));
+  // (#139: a varied annex's failed rectangle is kept by its corner and size, apart from a classic one's)
+  const badKey = (c: Area) => (size ? `${c.x1},${c.z1},${size[0]}` : `${c.x1},${c.z1}`);
+  const cands = (store ? storageYardCandidates(plot) : annexCandidates(plot, size)).filter((c) => !bad.has(badKey(c)) && (!works || farthest(c) <= WORKS_TABLE_RANGE));
   if (!cands.length) return null;
   const cx = Math.floor((plot.x1 + plot.x2) / 2), cz = Math.floor((plot.z1 + plot.z2) / 2);
-  const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + 13 + 4 + (store ? 8 : 0);
+  const r = Math.ceil(Math.max(plot.x2 - plot.x1, plot.z2 - plot.z1) / 2) + 3 + Math.max(13, size?.[0] ?? 0) + 4 + (store ? 8 : 0);
   const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
   const all = [...a.world.villages.villages.values()];
   const now = Date.now();
@@ -3988,18 +3990,28 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
   const inGrid = (q: Area) => q.x1 >= g.x0 && q.z1 >= g.z0 && q.x2 < g.x0 + g.n && q.z2 < g.z0 + g.n;
   const h = v.storageHut;
   const door = h ? { x: h.x1 + 3, z: h.z2 + 1 } : { x: cx, z: cz };
-  let best: { rect: Area & { side: Side }; score: number } | null = null;
+  let best: { rect: Area & { side: Side }; score: number; y?: number } | null = null;
+  // (#139, MC_PEN_VARIETY: beside a village laid out on pads the annex is a pad of its own at its ground's level, the
+  // middle of its columns' heights, not the home level: on a slope every side was out of the home level's -4..+5)
+  const ownLevel = PEN_VARIETY && which === 'annex' && !!(plot as Plot & { pads?: boolean }).pads;
   for (const c of cands) {
     const claim = pad(c, 2);
     if (!inGrid(claim)) continue;
     if (rectSum(g.sums.taken, c) || rectSum(g.sums.built, c) || rectSum(g.sums.unloaded, claim) || rectSum(g.sums.wet, claim)) continue;
+    let level = plot.y;
+    if (ownLevel) {
+      const ys: number[] = [];
+      for (let z = c.z1; z <= c.z2; z++) for (let x = c.x1; x <= c.x2; x++) ys.push(g.y[(z - g.z0) * g.n + (x - g.x0)]);
+      ys.sort((p, q) => p - q);
+      level = ys[Math.floor(ys.length / 2)];
+    }
     let earth = 0, ok = true;
     for (let z = claim.z1; z <= claim.z2 && ok; z++)
       for (let x = claim.x1; x <= claim.x2; x++) {
         const k = (z - g.z0) * g.n + (x - g.x0);
         // (a taken cell of the margin is a building's walkway or the plot's own margin: prepare_site keeps built columns)
         if (g.kind[k] === 3) continue;
-        const dy = g.y[k] - plot.y;
+        const dy = g.y[k] - level;
         if (dy < -4 || dy > 5) {
           ok = false;
           break;
@@ -4007,12 +4019,14 @@ async function annexSpot(a: BotAgent, v: Village, plot: Plot, signal: AbortSigna
         earth += Math.abs(dy);
       }
     if (!ok) continue;
-    const mid = c.side === 's' ? { x: c.x1 + 6, z: c.z1 } : c.side === 'n' ? { x: c.x1 + 6, z: c.z2 } : c.side === 'e' ? { x: c.x1, z: c.z1 + 6 } : { x: c.x2, z: c.z1 + 6 };
+    // (the middle of its edge facing the plot: 6 into a 13-long side plot, #139's 25-long annex 12)
+    const half = size ? Math.floor(size[0] / 2) : 6;
+    const mid = c.side === 's' ? { x: c.x1 + half, z: c.z1 } : c.side === 'n' ? { x: c.x1 + half, z: c.z2 } : c.side === 'e' ? { x: c.x1, z: c.z1 + half } : { x: c.x2, z: c.z1 + half };
     // (the works plot beside the annex: centre to centre, D8)
     const besideAnnex = works && other && other.x2 >= other.x1
       ? 0.5 * (Math.abs((c.x1 + c.x2) / 2 - (other.x1 + other.x2) / 2) + Math.abs((c.z1 + c.z2) / 2 - (other.z1 + other.z2) / 2)) : 0;
     const score = earth + 0.3 * rectSum(g.sums.trees, claim) + 0.5 * (Math.abs(mid.x - door.x) + Math.abs(mid.z - door.z)) + besideAnnex;
-    if (!best || score < best.score) best = { rect: c, score };
+    if (!best || score < best.score) best = { rect: c, score, ...(ownLevel ? { y: level } : {}) };
   }
   return best;
 }
@@ -4041,9 +4055,10 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
         if (e.message === 'cancelled') throw e;
       });
     if (!ax || ax.x2 < ax.x1) {
-      const spot = await annexSpot(a, v, plot, signal);
+      // (#139, MC_PEN_VARIETY: a 25x13 annex for pens of varied sizes first, the classic 13x9 where none fits)
+      const spot = (PEN_VARIETY ? await annexSpot(a, v, plot, signal, 'annex', ANNEX_VARIED) : null) ?? await annexSpot(a, v, plot, signal);
       if (!spot) throw new Error(`prepare_annex: no room for a 13x9 annex beside the plot at ${areaText(plot)} (every side taken, wet, too steep or built on)`);
-      ax = lay.annex = { ...lay.annex, x1: spot.rect.x1, z1: spot.rect.z1, x2: spot.rect.x2, z2: spot.rect.z2, y: plot.y, side: spot.rect.side, state: 'preparing' };
+      ax = lay.annex = { ...lay.annex, x1: spot.rect.x1, z1: spot.rect.z1, x2: spot.rect.x2, z2: spot.rect.z2, y: spot.y ?? plot.y, side: spot.rect.side, state: 'preparing' };
       save();
       console.log(`[annex] ${v.name}: ${a.name} prepares the annex at ${areaText(ax)} (${ax.side} of the plot, score ${Math.round(spot.score)})`);
     }
@@ -4052,16 +4067,20 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
     const rec = v.plots.find((p) => p.x1 === ax!.x1 && p.z1 === ax!.z1 && p.x2 === ax!.x2 && p.z2 === ax!.z2);
     if (rec) rec.annex = true;
     lay.slots ??= [];
-    if (!lay.slots.some((s) => s.annex)) lay.slots.push(...annexSlots({ ...ax, side: ax.side }).map((s) => ({ ...s, annex: true })));
+    // (#139: a varied annex, by its size, holds the village's own set of pen shapes)
+    const varied = PEN_VARIETY && Math.max(w, d) === ANNEX_VARIED[0] && Math.min(w, d) === ANNEX_VARIED[1];
+    if (!lay.slots.some((s) => s.annex))
+      lay.slots.push(...(varied ? variedAnnexSlots({ ...ax, side: ax.side }, penSetFor(v.name)) : annexSlots({ ...ax, side: ax.side })).map((s) => ({ ...s, annex: true })));
+    const pens = lay.slots.filter((s) => s.annex);
     ax.state = 'ready';
     save();
-    a.world.villages.note(v, `${a.name} prepared the annex at ${areaText(ax)} for the pens`);
+    a.world.villages.note(v, `${a.name} prepared the annex at ${areaText(ax)} for the pens${varied ? ` (${pens.map((q) => penWords(q)).join(', ')})` : ''}`);
     // (the felled trees' logs)
     const stored = await STORAGE_SKILLS.deposit.run(a, { item: 'all' }, signal).catch((e: Error) => {
       if (e.message === 'cancelled') throw e;
       return '';
     });
-    return `prepared the annex at ${areaText(ax)} (${ax.side} of the plot) with 2 pen slots: ${out.replace(/^plot ready: /, '')}${stored ? '; deposited what it carried' : ''}`;
+    return `prepared the annex at ${areaText(ax)} (${ax.side} of the plot) with ${pens.length} pen slots${varied ? ` (${pens.map((q) => penWords(q)).join(', ')})` : ''}: ${out.replace(/^plot ready: /, '')}${stored ? '; deposited what it carried' : ''}`;
   } catch (e) {
     const why = (e as Error).message;
     if (why !== 'cancelled' && !signal.aborted) {
@@ -4069,7 +4088,8 @@ async function prepareAnnex(a: BotAgent, _args: Record<string, unknown>, signal:
       const ax = (lay.annex ??= { x1: 0, z1: 0, x2: -1, z2: -1, y: plot.y, side: 'n', state: 'preparing' });
       // Ground that cannot be made ready: another rectangle next time
       if (ax.state !== 'ready' && ax.x2 >= ax.x1 && /cannot be prepared here|cannot be made dry|not ready after two passes|whole area is covered|too much work/.test(why)) {
-        ax.bad = [...(ax.bad ?? []), `${ax.x1},${ax.z1}`].slice(-20);
+        const big = Math.max(ax.x2 - ax.x1, ax.z2 - ax.z1) + 1 === ANNEX_VARIED[0];
+        ax.bad = [...(ax.bad ?? []), `${ax.x1},${ax.z1}${big ? `,${ANNEX_VARIED[0]}` : ''}`].slice(-20);
         ax.x2 = ax.x1 - 1;
       }
       ax.tries = (ax.tries ?? 0) + 1;
@@ -4657,8 +4677,9 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   if (slotBusy.has(key)) throw new ContentionError(`start_pen: farm slot ${j} is busy`, 'busy', `slot:${key}`);
   const kind = args.kind === undefined ? 'chicken' : str(args.kind, 'kind');
   const spec = PEN_KINDS[kind];
-  if (!spec) throw new Error(`start_pen: no pen for ${kind} (${PEN_ORDER.join(', ')})`);
-  const lure = spec.lure;
+  if (!spec || !PEN_ORDER.includes(kind)) throw new Error(`start_pen: no pen for ${kind} (${PEN_ORDER.join(', ')})`);
+  // (#139: a kind with several lures takes the first the bot or storage holds: a pig follows carrots, potatoes or beetroot)
+  const lure = penLures(kind).find((l) => (a.bot.inventory.items().some((it) => it.name === l))) ?? penLure(kind, storageContents(v));
   if (slot.kind && slot.kind !== kind) throw new Error(`start_pen: farm slot ${j} already holds ${slot.kind}`);
   const sx = Math.floor(num(args.x, 'x')), sy = Math.floor(num(args.y, 'y')), sz = Math.floor(num(args.z, 'z'));
   const P = penPlan(slot, slot.face ?? 'n');
@@ -4669,13 +4690,25 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
   const tp = (c: [number, number]) => rcon(`tp ${name} ${c[0] + 0.5} ${y} ${c[1] + 0.5}`);
   const box = (q: Area) => `x=${q.x1},y=${y},z=${q.z1},dx=${q.x2 - q.x1},dy=2,dz=${q.z2 - q.z1}`;
   const gateCell = { x1: P.gate[0], z1: P.gate[1], x2: P.gate[0], z2: P.gate[1] };
-  const count = async (q: Area) => Number(/count: (\d+)/i.exec(await rcon(`execute if entity @e[type=minecraft:${kind},${box(q)}]`))?.[1] ?? 0);
+  const count1 = async (q: Area) => Number(/count: (\d+)/i.exec(await rcon(`execute if entity @e[type=minecraft:${kind},${box(q)}]`))?.[1] ?? 0);
   // (-1 when the server gave no count: the pen's base must not read 0 for a pen holding animals, the fixes review's L1)
-  const known = async (q: Area) => {
+  const known1 = async (q: Area) => {
     const r = await rcon(`execute if entity @e[type=minecraft:${kind},${box(q)}]`);
     const m = /count: (\d+)/i.exec(r);
     return m ? Number(m[1]) : /Test failed/i.test(r) ? 0 : -1;
   };
+  // (#139: an L's inside is two boxes; an animal on their seam touches both, so it is counted once by a tag of the slot's
+  // own, the review's 1)
+  const ltag = penTag('count', key);
+  const known = async (q: Area[]): Promise<number> => {
+    if (q.length === 1) return known1(q[0]);
+    for (const b of q) await rcon(`tag @e[type=minecraft:${kind},${box(b)}] add ${ltag}`);
+    const r = await rcon(`execute if entity @e[tag=${ltag}]`);
+    await rcon(`tag @e[tag=${ltag}] remove ${ltag}`);
+    const m = /count: (\d+)/i.exec(r);
+    return m ? Number(m[1]) : /Test failed/i.test(r) ? 0 : -1;
+  };
+  const count = async (q: Area | Area[]) => (Array.isArray(q) ? Math.max(0, await known(q)) : count1(q));
   // (a village with no wood kind recorded: the kind storage holds most wood of, not oak, whose craft failed first in VanA3;
   // kept on the pen, so the gate is always set again in its own wood)
   const stock = storageContents(v);
@@ -4699,11 +4732,12 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     if (!slot.pen.built) {
       const targets: Target[] = P.ring.map(([x, z]) => ({ x, y, z, block: `${wood}_fence` }));
       targets.push({ x: P.gate[0], y, z: P.gate[1], block: gate(true) });
-      for (let x = P.inner.x1; x <= P.inner.x2; x++)
-        for (let z = P.inner.z1; z <= P.inner.z2; z++) {
-          const n = blockName(a, x, y, z);
-          if (n && n !== 'air' && n !== 'cave_air') targets.push({ x, y, z, block: 'air' });
-        }
+      for (const b of P.boxes)
+        for (let x = b.x1; x <= b.x2; x++)
+          for (let z = b.z1; z <= b.z2; z++) {
+            const n = blockName(a, x, y, z);
+            if (n && n !== 'air' && n !== 'cave_air') targets.push({ x, y, z, block: 'air' });
+          }
       notes.push(await runJob(a, { ...job, targets }, signal));
       await sleep(1000, signal);
       const missing = targets.filter((t) => !alreadyThere(a, t, true));
@@ -4716,7 +4750,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     }
     // (a pen with animals already keeps its gate shut until the bot is at it with the new ones: VanC2's pens held one
     // animal each, too few to breed, so a second trip comes)
-    const counted = slot.pen.built ? await known(P.inner) : 0;
+    const counted = slot.pen.built ? await known(P.boxes) : 0;
     const base = counted < 0 || (counted === 0 && (slot.pen.animals ?? 0) > 0) ? (slot.pen.animals ?? 0) : counted;
     if (!base && !gateOpen) {
       await rcon(`setblock ${P.gate[0]} ${y} ${P.gate[1]} minecraft:${gate(true)}`);
@@ -4724,7 +4758,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     }
     // A lure left in the off-hand by a run cut off before its clean-up (a restart): back into the inventory (review M1;
     // any kind's: a chicken start's seeds blocked every cow start, the diff review's L2)
-    for (const l of new Set(Object.values(PEN_KINDS).map((q) => q.lure))) {
+    for (const l of new Set(Object.keys(PEN_KINDS).flatMap(penLures))) {
       const left = await rcon(`execute if items entity ${name} weapon.offhand minecraft:${l}`);
       if (!/passed/i.test(left)) continue;
       await rcon(`item replace entity ${name} weapon.offhand with minecraft:air`);
@@ -4773,7 +4807,9 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       .filter((e) => e.name === kind && e.position.distanceTo(me()) <= r && Math.abs(e.position.y - me().y) <= 4 && !onVillageGround(a, Math.floor(e.position.x), Math.floor(e.position.z)))
       .sort((p, q) => flat(p) - flat(q));
     const where = (ids: number[]) => ids.map((id) => (a.bot.entities[id] ? `${at(a.bot.entities[id].position)} (${a.bot.entities[id].position.distanceTo(me()).toFixed(1)})` : `${id} gone`)).join(', ');
-    let chosen = near(9).slice(0, 4).map((e) => e.id);
+    // (#139: no more than the pen has room for: a small pen holds 2-3 cows or goats)
+    const room = PEN_VARIETY && slot.shape ? Math.max(1, Math.min(4, penCap(kind, slot) - base)) : 4;
+    let chosen = near(9).slice(0, room).map((e) => e.id);
     if (!chosen.length) {
       // (they wander: to the nearest within 24 at any height, then a second look)
       const e = Object.values(a.bot.entities).filter((c) => c.name === kind && flat(c) <= 24 && !onVillageGround(a, Math.floor(c.position.x), Math.floor(c.position.z))).sort((p, q) => flat(p) - flat(q))[0];
@@ -4782,7 +4818,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
           if (er.message === 'cancelled') throw er;
         });
         await sleep(1500, signal);
-        chosen = near(9).slice(0, 4).map((c) => c.id);
+        chosen = near(9).slice(0, room).map((c) => c.id);
       }
     }
     if (!chosen.length) throw new Error(`start_pen: no ${kind} within 9 blocks of ${at(me())} (seen at ${sx},${sy},${sz})`);
@@ -4846,28 +4882,29 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     await tp([toward(P.gate[0], P.back[0]), toward(P.gate[1], P.back[1])]);
     const t1 = Date.now();
     while (Date.now() - t1 < 6000) {
-      if ((await count(P.inner)) >= base + chosen.length) break;
+      if ((await count(P.boxes)) >= base + chosen.length) break;
       await sleep(500, signal);
     }
     await tp(P.back);
     const t2 = Date.now();
     while (Date.now() - t2 < 4000) {
-      if ((await count(P.inner)) >= base + chosen.length && !(await count(gateCell))) break;
+      if ((await count(P.boxes)) >= base + chosen.length && !(await count(gateCell))) break;
       await sleep(500, signal);
     }
     // Animals left in or just outside the open gate are put in by command: two cows led to the gate jammed in its cell and
     // never came in (pens v2's live tests; chickens, 0.4 wide, walk through)
     let nudged = 0;
-    if ((await count(P.inner)) < base + chosen.length) {
+    if ((await count(P.boxes)) < base + chosen.length) {
       const xs = [P.gate[0], P.approach[0]], zs = [P.gate[1], P.approach[1]];
       const near = { x1: Math.min(...xs) - 1, z1: Math.min(...zs) - 1, x2: Math.max(...xs) + 1, z2: Math.max(...zs) + 1 };
-      const c = [Math.floor((P.inner.x1 + P.inner.x2) / 2), Math.floor((P.inner.z1 + P.inner.z2) / 2)];
+      // (the middle of a rectangle's inside; an L's middle may be its cut corner, so 2 in from its gate, #139)
+      const c = P.boxes.length > 1 ? [toward(P.gate[0], P.back[0]), toward(P.gate[1], P.back[1])] : [Math.floor((P.inner.x1 + P.inner.x2) / 2), Math.floor((P.inner.z1 + P.inner.z2) / 2)];
       // ("Teleported 2 entities to ..." or, for one, "Teleported Cow to ...": the diff review's L5)
       const r = await rcon(`tp @e[type=minecraft:${kind},${box(near)}] ${c[0] + 0.5} ${y} ${c[1] + 0.5}`);
       nudged = /Teleported (\d+) entities/i.test(r) ? Number(/Teleported (\d+)/i.exec(r)![1]) : /Teleported /i.test(r) ? 1 : 0;
       if (nudged) await sleep(1000, signal);
     }
-    console.log(`[pen] ${name}: in the back row ${Math.round((Date.now() - t1) / 100) / 10} s: ${await count(P.inner)} inside${nudged ? ` (${nudged} put in from the gate)` : ''}, ${await count(gateCell)} in the gate; ${where(chosen)}`);
+    console.log(`[pen] ${name}: in the back row ${Math.round((Date.now() - t1) / 100) / 10} s: ${await count(P.boxes)} inside${nudged ? ` (${nudged} put in from the gate)` : ''}, ${await count(gateCell)} in the gate; ${where(chosen)}`);
     let closed = false;
     for (let i = 0; i < 3 && !closed; i++) {
       if (!(await count(gateCell)) && !playersIn(a, [P.gate[0], y, P.gate[1]], 2).length) {
@@ -4879,7 +4916,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     gateOpen = false;
     await tp(P.approach);
     await sleep(3000, signal);
-    const animals = await count(P.inner);
+    const animals = await count(P.boxes);
     slot.pen = { ...slot.pen, animals, at: Date.now() };
     slot.from = [sx, Math.floor(num(args.y, 'y')), sz];
     delete slot.laying;
@@ -4893,7 +4930,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
       if (e.message === 'cancelled') throw e;
     });
     if (animals <= base) throw new Error(`start_pen: none of the ${led} ${kind}s led home came into the pen (${chosen.length} followed to the gate)`);
-    const done = `put ${animals - base} ${kind}${animals - base > 1 ? 's' : ''} into the pen on annex slot ${j} at ${areaText(slot)} (${led} led from ${sx},${sz}, ${hops} hops)`;
+    const done = `put ${animals - base} ${kind}${animals - base > 1 && kind !== 'sheep' ? 's' : ''} into the ${slot.shape ? `${penWords(slot)} ` : ''}pen on annex slot ${j} at ${areaText(slot)} (${led} led from ${sx},${sz}, ${hops} hops)`;
     a.world.villages.note(v, `${name} ${done}`);
     return `${done}${notes.length ? `: ${notes.join('; ')}` : ''}`;
   } catch (e) {
@@ -4908,7 +4945,7 @@ async function startPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     if (ann && why !== 'cancelled' && !signal.aborted) {
       ann.penBy = { ...ann.penBy, [kind]: { tries: (ann.penBy?.[kind]?.tries ?? 0) + 1, at: Date.now(), why: why.slice(0, 200) } };
       // (animals not found there, lost or not led in: that sighting is passed over next time, review M3)
-      if (/no (chicken|cow) within|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${kind}:${sx},${sz},${Date.now()}`].slice(-20);
+      if (/no [a-z]+ within 9 blocks|were lost|could not lead|none of the|stuck at/.test(why)) ann.penBad = [...(ann.penBad ?? []), `${kind}:${sx},${sz},${Date.now()}`].slice(-20);
     }
     save();
     const home = villageHome(v, a.memory);
@@ -4952,11 +4989,26 @@ function penOf(a: BotAgent, args: Record<string, unknown>, what: string, kind?: 
     throw new Error(`${what}: annex slot ${j} holds no ${kind ?? 'animal'} pen`);
   const P = penPlan(slot, slot.face ?? 'n');
   const y = plot.y + 1;
-  const sel = `x=${P.inner.x1},y=${y},z=${P.inner.z1},dx=${P.inner.x2 - P.inner.x1},dy=2,dz=${P.inner.z2 - P.inner.z1}`;
+  // (#139: one selector a box of the inside, two for an L)
+  const sels = P.boxes.map((b) => `x=${b.x1},y=${y},z=${b.z1},dx=${b.x2 - b.x1},dy=2,dz=${b.z2 - b.z1}`);
+  const sel = sels[0];
   const rcon = (c: string) => a.world.rcon.command(c).catch(() => '');
+  // (the animals of the inside matching `extra`, tagged with a tag of the slot's own for one command over every box (an
+  // animal on an L's seam counted once; two pens' chores never share a tag, the review's 1 and 2); untagged after)
+  const tagged = async (what: string, extra = '') => {
+    const tag = penTag(what, s.key);
+    for (const q of sels) await rcon(`tag @e[type=minecraft:${slot.kind},${q}${extra}] add ${tag}`);
+    return { tag, untag: () => rcon(`tag @e[tag=${tag}] remove ${tag}`) };
+  };
   // (-1 when the server gave no count: a failed command read as 0 wiped a pen's record, the diff review's M2)
   const count = async (extra = '') => {
-    const r = await rcon(`execute if entity @e[type=minecraft:${slot.kind},${sel}${extra}]`);
+    let r: string;
+    if (sels.length === 1) r = await rcon(`execute if entity @e[type=minecraft:${slot.kind},${sel}${extra}]`);
+    else {
+      const t = await tagged('count', extra);
+      r = await rcon(`execute if entity @e[tag=${t.tag}]`);
+      await t.untag();
+    }
     const m = /count: (\d+)/i.exec(r);
     return m ? Number(m[1]) : /Test failed/i.test(r) ? 0 : -1;
   };
@@ -4965,7 +5017,7 @@ function penOf(a: BotAgent, args: Record<string, unknown>, what: string, kind?: 
       if (e.message === 'cancelled') throw e;
       return `walk: ${e.message.slice(0, 80)}`;
     });
-  return { ...s, P, y, sel, rcon, count, toGate, pen: slot.pen, kind: slot.kind };
+  return { ...s, P, y, sel, sels, rcon, count, tagged, toGate, pen: slot.pen, kind: slot.kind };
 }
 
 /**
@@ -4984,7 +5036,7 @@ async function depositKept(a: BotAgent, signal: AbortSignal): Promise<void> {
 /** Eggs lying in a chicken pen into storage: teleported to the bot by command, counted on the server, deposited by name
  *  (eggs are junk to `deposit all`); an egg item despawns 5 minutes after it is laid (6000 ticks). */
 async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
-  const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'collect_eggs', 'chicken');
+  const { v, j, key, sels, rcon, toGate, pen } = penOf(a, args, 'collect_eggs', 'chicken');
   if (slotBusy.has(key)) throw new ContentionError(`collect_eggs: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   try {
@@ -4994,7 +5046,9 @@ async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: A
     const got: Record<string, number> = {};
     for (const egg of EGGS) {
       const before = await serverCount(a, egg);
-      if (!/Teleported/i.test(await rcon(`tp @e[type=minecraft:item,${sel},nbt={Item:{id:"minecraft:${egg}"}}] ${a.name}`))) continue;
+      let moved = false;
+      for (const sel of sels) if (/Teleported/i.test(await rcon(`tp @e[type=minecraft:item,${sel},nbt={Item:{id:"minecraft:${egg}"}}] ${a.name}`))) moved = true;
+      if (!moved) continue;
       // (picked up after the item's pickup delay, 10 ticks)
       for (let i = 0; i < 10; i++) {
         await sleep(300, signal);
@@ -5025,8 +5079,10 @@ async function collectEggs(a: BotAgent, args: Record<string, unknown>, signal: A
 /** Two adults of a pen bred (food charged: one each; put in love by command, the live tests: young within ~2 s). Only
  *  ready adults (Age 0: young and parents on their 5-minute cooldown are not), and never beyond the pen's cap. */
 async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
-  const { v, j, key, sel, rcon, count, toGate, pen, kind } = penOf(a, args, 'breed_pen');
-  const { lure: food, cap } = PEN_KINDS[kind];
+  const { v, j, key, slot, sels, rcon, count, tagged, toGate, pen, kind } = penOf(a, args, 'breed_pen');
+  // (#139: the lure the bot holds two of, else the one storage holds, of a kind's several; the cap by the pen's inside area)
+  const food = penLures(kind).find((l) => a.bot.inventory.items().filter((it) => it.name === l).reduce((n, it) => n + it.count, 0) >= 2) ?? penLure(kind, storageContents(v));
+  const cap = penCap(kind, slot);
   if (slotBusy.has(key)) throw new ContentionError(`breed_pen: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   let refund = 0;
@@ -5049,7 +5105,13 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
     notes.push(await toGate(signal));
     refund = await a.world.rcon.take(a.name, `minecraft:${food}`, 2);
     if (refund < 2) throw new Error(`breed_pen: could not take 2 ${food} from the inventory`);
-    const r = await rcon(`execute as @e[type=minecraft:${kind},${sel},nbt={Age:0},limit=2,sort=random] run data merge entity @s {InLove:600}`);
+    let r: string;
+    if (sels.length === 1) r = await rcon(`execute as @e[type=minecraft:${kind},${sels[0]},nbt={Age:0},limit=2,sort=random] run data merge entity @s {InLove:600}`);
+    else {
+      const t = await tagged('breed', ',nbt={Age:0}');
+      r = await rcon(`execute as @e[type=minecraft:${kind},tag=${t.tag},limit=2,sort=random] run data merge entity @s {InLove:600}`);
+      await t.untag();
+    }
     const fed = (r.match(/Modified entity data/gi) ?? []).length;
     refund = 2 - fed;
     if (fed < 2) throw new Error(`breed_pen: only ${fed} ${kind} could be fed (${r.slice(0, 80) || 'no answer'})`);
@@ -5076,7 +5138,9 @@ async function breedPen(a: BotAgent, args: Record<string, unknown>, signal: Abor
 /** Milk from the cow pen into storage: each empty bucket storage holds becomes a milk bucket (an adult cow gives milk
  *  with no cooldown; charged by command: a bucket taken, a milk bucket given), up to the cake's three. */
 async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
-  const { v, j, key, sel, rcon, toGate, pen } = penOf(a, args, 'milk_cows', 'cow');
+  const { v, j, key, sels, rcon, toGate, pen, kind } = penOf(a, args, 'milk_cows');
+  if (kind !== 'cow' && kind !== 'goat') throw new Error(`milk_cows: annex slot ${j} holds no cow or goat pen`);
+  const herd = `${kind}s`;
   if (slotBusy.has(key)) throw new ContentionError(`milk_cows: annex slot ${j} is busy`, 'busy', `slot:${key}`);
   slotBusy.add(key);
   let taken = 0;
@@ -5085,11 +5149,15 @@ async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: Abor
     // (counted from the gate, where the pen's entities are loaded: the fixes review's L2)
     const notes = [await toGate(signal)].filter(Boolean);
     await rcon('scoreboard objectives add mcai_age dummy');
-    await rcon(`execute as @e[type=minecraft:cow,${sel}] store result score @s mcai_age run data get entity @s Age`);
-    const r = await rcon(`execute if entity @e[type=minecraft:cow,${sel},scores={mcai_age=0..}]`);
-    const adults = /count: (\d+)/i.test(r) ? Number(/count: (\d+)/i.exec(r)![1]) : /Test failed/i.test(r) ? 0 : -1;
-    if (adults < 0) throw new Error(`milk_cows: the server gave no count of the cows in the pen on annex slot ${j}`);
-    if (!adults) throw new Error(`milk_cows: no grown cow in the pen on annex slot ${j} (calves give no milk)`);
+    let adults = 0;
+    for (const sel of sels) {
+      await rcon(`execute as @e[type=minecraft:${kind},${sel}] store result score @s mcai_age run data get entity @s Age`);
+      const r = await rcon(`execute if entity @e[type=minecraft:${kind},${sel},scores={mcai_age=0..}]`);
+      const n = /count: (\d+)/i.test(r) ? Number(/count: (\d+)/i.exec(r)![1]) : /Test failed/i.test(r) ? 0 : -1;
+      if (n < 0) throw new Error(`milk_cows: the server gave no count of the ${herd} in the pen on annex slot ${j}`);
+      adults += n;
+    }
+    if (!adults) throw new Error(`milk_cows: no grown ${kind} in the pen on annex slot ${j} (the young give no milk)`);
     const store = storageContents(v);
     const want = Math.max(0, 3 - (store.milk_bucket ?? 0) - (await serverCount(a, 'milk_bucket')));
     if (!want) return 'the storage holds 3 milk buckets already';
@@ -5128,12 +5196,82 @@ async function milkCows(a: BotAgent, args: Record<string, unknown>, signal: Abor
         notes.push(`own bucket not made up: ${e.message.slice(0, 80)}`);
       });
     }
-    const out = `milked the cows on annex slot ${j}: ${milked} milk bucket${milked === 1 ? '' : 's'}`;
+    const out = `milked the ${herd} on annex slot ${j}: ${milked} milk bucket${milked === 1 ? '' : 's'}`;
     a.world.villages.note(v, `${a.name} ${out}`);
     const said = notes.filter(Boolean);
     return `${out}${said.length ? ` (${said.join('; ')})` : ''}`;
   } finally {
     if (taken) await rcon(`give ${a.name} minecraft:bucket ${taken}`);
+    slotBusy.delete(key);
+  }
+}
+
+/** A pen chore's entity tag of its own slot (#139: two pens' chores at once never share one). */
+function penTag(what: string, key: string): string {
+  return `mcai_${what}_${key.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+}
+
+/** The dye colours by a sheep's Color number (the order of the game's DyeColor). */
+const SHEEP_COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'];
+
+/**
+ * A sheep pen's wool into storage (#139, MC_PEN_VARIETY): from the cell beyond the gate, each grown sheep with its wool is
+ * sheared by command (Sheared set, 1-3 wool of its colour given, as shears drop), up to 8 a trip, with shears the bot holds
+ * or takes from storage (kept, not worn: a pen's shearing is charged nothing else, as milking takes only the bucket). Wool
+ * grows back when a sheep eats the grass of its pen's floor.
+ */
+async function shearPen(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const { v, j, key, sels, rcon, toGate, pen } = penOf(a, args, 'shear_pen', 'sheep');
+  const tag = penTag('shear', key);
+  if (slotBusy.has(key)) throw new ContentionError(`shear_pen: annex slot ${j} is busy`, 'busy', `slot:${key}`);
+  slotBusy.add(key);
+  try {
+    await depositKept(a, signal);
+    await roomForLoot(a, 'shear_pen', signal);
+    if ((await serverCount(a, 'shears')) < 1) {
+      if (!(storageContents(v).shears ?? 0)) throw new Error('shear_pen: no shears (the storage holds none; shears take 2 iron ingots)');
+      await withdrawItems(a, v, { shears: 1 }, signal);
+      if ((await serverCount(a, 'shears')) < 1) throw new Error('shear_pen: the shears could not be taken from storage');
+    }
+    const notes = [await toGate(signal)].filter(Boolean);
+    const got: Record<string, number> = {};
+    let sheared = 0;
+    // (grown sheep by Age >= 0, those on a breeding cooldown too, as milk_cows reads them)
+    await rcon('scoreboard objectives add mcai_age dummy');
+    for (const sel of sels) await rcon(`execute as @e[type=minecraft:sheep,${sel}] store result score @s mcai_age run data get entity @s Age`);
+    for (let i = 0; i < 8; i++) {
+      checkAbort(signal);
+      let one = false;
+      for (const sel of sels)
+        if (!one && /Added tag/i.test(await rcon(`tag @e[type=minecraft:sheep,${sel},nbt={Sheared:0b},scores={mcai_age=0..},limit=1] add ${tag}`))) one = true;
+      if (!one) break;
+      const c = await rcon(`data get entity @e[tag=${tag},limit=1] Color`);
+      const n = /data: (\d+)b?\s*$/i.exec(c), named = /data: "([a-z_]+)"/i.exec(c);
+      const colour = named?.[1] ?? SHEEP_COLORS[Number(n?.[1] ?? 0)] ?? 'white';
+      const ok = /Modified entity data/i.test(await rcon(`data merge entity @e[tag=${tag},limit=1] {Sheared:1b}`));
+      await rcon(`tag @e[tag=${tag}] remove ${tag}`);
+      if (!ok) break;
+      const wool = 1 + Math.floor(Math.random() * 3);
+      await rcon(`give ${a.name} minecraft:${colour}_wool ${wool}`);
+      got[`${colour}_wool`] = (got[`${colour}_wool`] ?? 0) + wool;
+      sheared++;
+    }
+    const n = Object.values(got).reduce((s, q) => s + q, 0);
+    pen.wool = (pen.wool ?? 0) + n;
+    pen.shearAt = Date.now();
+    a.world.villages.save();
+    await syncInventory(a).catch(() => {});
+    for (const item of [...Object.keys(got), 'shears'])
+      await STORAGE_SKILLS.deposit.run(a, { item }, signal).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+        notes.push(`${item} not deposited: ${e.message.slice(0, 80)}`);
+      });
+    if (!sheared) return `no sheep with wool in the pen on annex slot ${j} (wool grows back when they eat the pen's grass)${notes.length ? ` (${notes.join('; ')})` : ''}`;
+    const out = `sheared ${sheared} sheep in the pen on annex slot ${j}: ${n} wool (${Object.entries(got).map(([w, q]) => `${q} ${w}`).join(', ')})`;
+    a.world.villages.note(v, `${a.name} ${out}`);
+    return `${out}${notes.length ? ` (${notes.join('; ')})` : ''}`;
+  } finally {
+    await rcon(`tag @e[tag=${tag}] remove ${tag}`);
     slotBusy.delete(key);
   }
 }
@@ -7194,6 +7332,8 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   collect_eggs: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: collectEggs },
   breed_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: breedPen },
   milk_cows: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: milkCows },
+  // (#139, MC_PEN_VARIETY: a sheep pen's wool)
+  shear_pen: { check: (x) => (num(x.layout, 'layout'), num(x.slot, 'slot'), undefined), run: shearPen },
   bake_cake: { run: bakeCake },
   // (s30's appetite: a meal from the village storage, a chore code queues for a peckish member, never a model's tool)
   eat_meal: { run: eatMeal },
