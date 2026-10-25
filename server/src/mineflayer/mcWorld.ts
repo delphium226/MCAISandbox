@@ -19,7 +19,7 @@ import { MERCHANT_ON, MERCHANT_RESTOCK_MIN, MERCHANT_TAG, OFFERS, ORDERS_ON, ORD
 import { Vec3 } from 'vec3';
 import { collectFilter, collectTargets, exposed, villageStationCell } from './mcSurvival';
 import { nearestBlocks, onVillageGround, stateAt } from './mcUtil';
-import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, wheatKeep } from './mcBuild';
+import { annexBusy, biomeAt, cakeShort, harvesting, makeKeeps, seedsForFields, slotBusy, storeBusy, surfaceAt, wheatKeep } from './mcBuild';
 import { ironDone, mineAreas, mineCanGive, mineCellsLeft, mineFaces, mineFacesGoing, mineGrowing, mineLights, nearMineFace, type MineLightSpot } from './mcMine';
 import { EGGS, PEN_KINDS, PEN_ORDER, SLOT_KINDS, SLOT_ORDER, penPlan, worksFurnaces } from '../farmSlots';
 import { FOOD_GOODS, GATHER_ALSO, GATHER_KINDS, GATHER_LOGS_HOUR, LETTERS_GOODS, LIGHT_MIN_TRIP, LIGHT_TRIP, MAKE_GOODS, MAKE_KEEP, MAKE_NEVER, MAKE_PARALLEL, MINE_LIGHT_MIN, TORCH_DEMAND_CAP, TORCH_RESERVE, WORKS_FURNACES, FURNISH_TRIP, FURNISH_MIN_TRIP, decorCarried, holdKey, holdsDelete, holdsSet, holdsVersion, lightCarried, makeBill, makeHolds, makeLeft, worksBusy, type MakeGood, type Material } from './mcWorkshop';
@@ -3267,12 +3267,13 @@ export class MineflayerWorld implements WorldAdapter {
 
   /** Areas a small work keeps off (every village's buildings with a ring, streets, lamps, signs, farms, slots, the side
    *  plots, the mine, door fronts, reservations, other initiatives' spots); cached on a signature of what they come from. */
-  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[]; own: Area[] }>();
+  private smallBlockedCache = new Map<string, { sig: string; blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[] }>();
 
-  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number }>; hard: Area[]; own: Area[] } {
+  private smallBlocked(v: Village): { blocked: Area[]; plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>; hard: Area[]; own: Area[] } {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
-    const sig = JSON.stringify([v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
+    const bot = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.bot.entity);
+    const sig = JSON.stringify([!!bot, v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
       (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`),
       v.tasks.filter((t) => t.status !== 'done' && /^Build /.test(t.title)).length, ...(RULES.on ? [zoneBoxes(v.name, 'build').map((z) => z.text)] : [])]);
     const old = this.smallBlockedCache.get(v.name);
@@ -3326,7 +3327,26 @@ export class MineflayerWorld implements WorldAdapter {
     }
     // (a green waits for its own initiative's spot before others may use it, s36's review)
     const waiting = new Set((v.initiatives ?? []).filter((i) => i.state === 'open' && i.pending).map((i) => i.id));
-    const plots = v.plots.filter((q) => !q.annex && !q.works && !q.parts && !(q.green && waiting.has(q.green))).map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y }));
+    // (#84, MC_PAD_PER_BUILDING: a village on pads keeps its layout-wide record, parts and all; the ground between its pads
+    // is the slope's own, so a spot there is read column by column: train 3's P1 offered initiatives on 27 of 507 menus)
+    const groundOf = (yHint: number) => {
+      const memo = new Map<string, number | null>();
+      return (x: number, z: number): number | null => {
+        const k = `${x},${z}`;
+        if (memo.has(k)) return memo.get(k)!;
+        let g: number | null = null;
+        try {
+          const c = bot ? surfaceAt(bot, x, z, yHint) : null;
+          g = c && !c.liquid && !c.trees && c.block !== 'air' && Math.abs(c.y - yHint) <= 6 ? c.y : null;
+        } catch {
+          g = null;
+        }
+        memo.set(k, g);
+        return g;
+      };
+    };
+    const plots = v.plots.filter((q) => !q.annex && !q.works && (!q.parts || (q.pads && bot)) && !(q.green && waiting.has(q.green)))
+      .map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y, ...(q.pads ? { ground: groundOf(q.y) } : {}) }));
     // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
     const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
     const entry = { sig, blocked, plots, hard, own };

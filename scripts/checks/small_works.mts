@@ -170,6 +170,17 @@ for (const k of SMALL_WORKS) {
 if (smallWorkSpots({ plots: [{ x1: 0, z1: 0, x2: 9, z2: 9, y: 64 }], blocked: [{ x1: -5, z1: -5, x2: 20, z2: 20 }] }, 3, 3).length) fails.push('a blocked plot has spots');
 const one = smallWorkSpots({ plots: [{ x1: 10, z1: 20, x2: 14, z2: 24, y: 70 }], blocked: [] }, 3, 3);
 if (JSON.stringify(one) !== JSON.stringify([{ x: 12, z: 22, y: 70 }])) fails.push(`a 5x5 plot's 3x3 spots: ${JSON.stringify(one)}`);
+// #84: a plot on sloped ground (pads): a step of 1 is fine, a step of 2 inside the footprint or 3 at the ring is not, water
+// is not, and a spot takes the footprint's top
+const slope = (x: number, z: number) => (x === 3 && z === 3 ? null : 64 + Math.floor(x / 4) + (z >= 7 ? 3 : 0));
+const rough = smallWorkSpots({ plots: [{ x1: 0, z1: 0, x2: 9, z2: 9, y: 64, ground: slope }], blocked: [] }, 3, 3);
+for (const s of rough) {
+  const fx = [s.x - 1, s.x, s.x + 1], fz = [s.z - 1, s.z, s.z + 1];
+  const hs = fx.flatMap((x) => fz.map((z) => slope(x, z)));
+  if (hs.some((h) => h === null) || Math.max(...(hs as number[])) - Math.min(...(hs as number[])) > 1 || s.y !== Math.max(...(hs as number[]))) fails.push(`a sloped spot ${JSON.stringify(s)}: heights ${hs.join(',')}`);
+}
+if (!rough.length) fails.push('a sloped plot with flat-enough ground has no spots');
+if (rough.some((s) => s.z + 2 >= 7 && s.z - 2 < 7)) fails.push('a spot straddles a 3-block bank');
 // Scale: a 60x60 plot with 400 blocked cells, as a menu at 25 agents might ask
 const many: Area[] = [];
 for (let k = 0; k < 400; k++) many.push(cell(((k * 37) % 60), ((k * 53) % 60)));

@@ -150,7 +150,7 @@ function surfaceTable(a: BotAgent) {
 }
 
 /** The top of a column as a builder sees it: liquid, or the first solid non-plant block, plus tree blocks above it. */
-function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
+export function surfaceAt(a: BotAgent, x: number, z: number, yHint: number): Surface | null {
   const { cls, name } = surfaceTable(a);
   let trees = 0;
   // Ground higher than the window read as solid at its top cell: flat, treeless ground at yHint + 32 (F88: "ground
