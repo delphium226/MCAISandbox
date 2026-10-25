@@ -2143,3 +2143,14 @@ CLAUDE.md when a phase ends.
   count as one open project at most (three counted as three, filling the cap while none chose one), and sand is never
   gathered anyway (collect's lake-edge sand sent C1's gatherers into the water). The walks in the mine's tunnels were not
   traced. Offline only; checks parts_cache.mts, choice_holds.mts, policy_options.mts.
+- F319 (10-25, train4, #84/#138) **A pad village growing outward builds in 6.4 min against 11.1, moves half the ground
+  (26% of the plot's columns against 49%), walks stall less (167 [stuck] against 443) and stays compact (buildings a
+  median 52 blocks from the meeting point against 83, max 92 against 130; 41 placed outward, none refused), but its
+  after phase thins from AFTER ~80: busy 51/51% in hours 2-3 against 60/60, 88 initiatives against 138, 22 small works
+  standing against 66; and from 13:47 (AFTER ~83) its agent server stalled 283 times for 2-6.7 s (tick p99 up to 5.2
+  s), with members on dig_iron in every stall, where the off run had none.** Model-driven, 1x, blank minevale3, 25
+  members, 150 min after, code 76b77de (before 59af444's parts-cache fix). Hour 1 was level (busy 74.7 vs 74.2), so the
+  busy gap starts with the stalls; not traced. Pads: 10 of 13 passed pad_halo, 3 with steps of 2 (no cliffs, no
+  caves); [stuck-world] 68 vs 2 (members in the mine under the pads). Both reached iron (AFTER ~42 vs ~27) and letters
+  (~135 vs ~104); $0.95 vs $1.09. A DNS outage at 13:20-13:35 hit both alike. Logs: runs/2026-10-25/train4/
+  (report.md); checkpoints iron_age_g1 / iron_age_g0.
