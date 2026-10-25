@@ -726,8 +726,8 @@ export class MineflayerWorld implements WorldAdapter {
   private flowerCensus = new Map<string, { at: number; counts: Record<string, number> }>();
 
   /**
-   * The bed flowers near a village (#140): one search for every kind round the storage hut (within FLOWER_REACH, near the
-   * hut's height or in the open, as collect finds them; at most 400 blocks), counted by kind, kept 10 minutes. Empty when
+   * The bed flowers near a village (#140): one search a kind round the storage hut (within FLOWER_REACH, near the hut's
+   * height or in the open, as collect finds them; up to 24 each), counted by kind, kept 10 minutes. Empty when
    * no member is online to look.
    */
   flowerCounts(v: Village, by?: BotAgent): Record<string, number> {
@@ -740,15 +740,17 @@ export class MineflayerWorld implements WorldAdapter {
     if (!c || !a?.bot.entity) return counts;
     try {
       const reg = a.bot.registry;
-      const ids = BED_FLOWERS.map((f) => reg.blocksByName?.[f]?.id).filter((id): id is number => id !== undefined);
       const y = v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
       const keep = (p: Vec3) => {
         const d = Math.hypot(p.x - c.x, p.z - c.z);
         return p.y >= y - 16 && d <= FLOWER_REACH && (d <= 40 || exposed(a, p));
       };
-      for (const p of nearestBlocks(a, ids, FLOWER_REACH + 48, 400, keep, { min: y - 16 })) {
-        const n = a.bot.blockAt(p)?.name;
-        if (n) counts[n] = (counts[n] ?? 0) + 1;
+      // (a search a kind, each up to 24: one search for all filled its 400 with wildflowers near minevale3, PF0)
+      for (const f of BED_FLOWERS) {
+        const id = reg.blocksByName?.[f]?.id;
+        if (id === undefined) continue;
+        const n = nearestBlocks(a, [id], FLOWER_REACH + 48, 24, keep, { min: y - 16 }).length;
+        if (n) counts[f] = n;
       }
     } catch {
       // (a search that failed counts nothing: the bed takes wildflowers)

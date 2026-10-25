@@ -1240,6 +1240,9 @@ def annex_text(an):
 def pen_inner(s):
     """A pen slot's inner 3x5 cells (penPlan's inner box): columns 1..3 across the middle line, rows 1..5 along it."""
     w = s.get("water") or {}
+    # (#139, MC_PEN_VARIETY: a shaped pen's inside within its fence; an L's box holds its cut corner too)
+    if s.get("shape"):
+        return s["x1"] + 1, s["z1"] + 1, s["x2"] - 1, s["z2"] - 1
     if w.get("x1") == w.get("x2"):
         # (5 across x, 7 along z)
         return s["x1"] + 1, s["z1"] + 1, s["x1"] + 3, s["z1"] + 5
