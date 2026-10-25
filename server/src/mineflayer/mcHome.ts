@@ -16,7 +16,7 @@ import { isDwelling } from '../grow';
 import { OWN, ownOf } from '../own';
 import { givePurse } from '../pay';
 import { placedDoor } from '../streetPlan';
-import { storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
 import { ContentionError, goals, syncInventory, unmoved, walk } from './mcUtil';
 import { FOUNDRY as WOOL } from './foundry/wool';
 import { rawSetting } from '../settings';
@@ -300,16 +300,29 @@ export function sheepPlace(a: BotAgent, v: Village): { x: number; y: number; z: 
 /**
  * shear_for_bed: shears from the member's inventory or storage (the chore puts make_iron_tool shears first when storage
  * has none), then 3 wool sheared at the atlas's sheep (shear_sheep_at); the wool stays in hand for home_basics, which the
- * chore queues next.
+ * chore queues next. Shears taken from storage go back to it at the end (a tool, kept by `deposit all`: test train's PF0b
+ * had storage's 3 pairs gone with three members after their beds, and no sheep pen could be sheared; lesson 112).
  */
 async function shearForBed(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   if (!v) throw new Error('shear_for_bed: not in a village');
-  if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) {
-    if ((storageContents(v).shears ?? 0) < 1) throw new Error('shear_for_bed: no shears in your inventory or in storage (make_iron_tool shears makes a pair from 2 iron)');
-    await withdrawItems(a, v, { shears: 1 }, signal);
-    if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) throw new ContentionError('shear_for_bed: another agent took the shears', 'taken', 'stock:shears');
+  let borrowed = false;
+  try {
+    if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) {
+      if ((storageContents(v).shears ?? 0) < 1) throw new Error('shear_for_bed: no shears in your inventory or in storage (make_iron_tool shears makes a pair from 2 iron)');
+      await withdrawItems(a, v, { shears: 1 }, signal);
+      if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) throw new ContentionError('shear_for_bed: another agent took the shears', 'taken', 'stock:shears');
+      borrowed = true;
+    }
+    return await shearWool(a, v, signal);
+  } finally {
+    if (borrowed && !signal.aborted && (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) > 0)
+      await STORAGE_SKILLS.deposit.run(a, { item: 'shears' }, signal).catch(() => '');
   }
+}
+
+/** shear_for_bed's shearing, with shears in hand. */
+async function shearWool(a: BotAgent, v: Village, signal: AbortSignal): Promise<string> {
   const have = (await carriedWool(a))?.n ?? 0;
   if (have >= 3) return `you already carry ${have} wool of one colour for your bed`;
   const at = sheepPlace(a, v);

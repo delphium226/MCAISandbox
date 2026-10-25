@@ -58,8 +58,9 @@ export async function mineBlock(a: BotAgent, pos: Vec3, signal: AbortSignal, for
   const bot = a.bot;
   let block = bot.blockAt(pos);
   if (!block) throw new Error(`the block at ${at(pos)} is not loaded; move closer first`);
-  // (plants with no collision box are mined too: sugar cane and crops, for a farm slot's first plants, 10-08)
-  if (block.boundingBox === 'empty' && !/grass|fern|bush|flower|sapling|snow|sugar_cane|carrots|potatoes|beetroots|wheat/.test(block.name)) return `nothing to mine at ${at(pos)} (${block.name})`;
+  // (plants with no collision box are mined too: sugar cane and crops, for a farm slot's first plants, 10-08; every flower,
+  // #140: a lily of the valley, a poppy or a tulip was "nothing to mine" and a mixed bed's gathering failed, PF0b)
+  if (block.boundingBox === 'empty' && !/grass|fern|bush|flower|sapling|snow|sugar_cane|carrots|potatoes|beetroots|wheat|dandelion|poppy|tulip|orchid|allium|bluet|daisy|lily_of_the_valley|lilac|peony|petals/.test(block.name)) return `nothing to mine at ${at(pos)} (${block.name})`;
   if (block.hardness === null || block.hardness < 0) throw new Error(`${block.name} at ${at(pos)} cannot be broken`);
   const tools = block.harvestTools;
   if (tools && !force && !bot.inventory.items().some((it) => tools[it.type]))
