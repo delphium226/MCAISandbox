@@ -393,7 +393,7 @@ def main():
     argv = sys.argv[1:]
     flags = {a for a in argv if a.startswith("--")}
     pos = [a for a in argv if not a.startswith("--")]
-    if not pos or flags - {"--dry-run", "--detach"}:
+    if not pos or flags - {"--dry-run", "--detach", "--keep-agents"}:
         raise SystemExit(__doc__)
     spec_path = pos[0]
     spec = json.load(open(spec_path, encoding="utf-8"))
@@ -496,7 +496,8 @@ def main():
             print(f"    save {run['save']}: exit {code}", flush=True)
     if results and "--dry-run" not in flags:
         last = runs[-1]
-        if not last["save"]:
+        # (--keep-agents: the last run's agents stay in the world, for the user to watch)
+        if not last["save"] and "--keep-agents" not in flags:
             print(f"removed {remove_agents(last)} agents of {last['name']}", flush=True)
         print("\nRUN      exit  minutes  stopped", flush=True)
         for r in results:
