@@ -86,7 +86,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_INITIATIVE_STORE` | flag | `on` |  |  | MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). |
 | `MC_INITIATIVES` | number | `3` |  |  | Initiatives (small works members start) open at once in a village; 0: none. |
 | `MC_LIGHT_FACADES` | flag | `off` |  |  | Vanilla's facade torches lit too (D4: vanilla's own look); off, only the spots inside. |
-| `MC_OPEN_STORAGE` | flag | `off` |  |  | The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches' and the sign's support: a wall torch on a post, the... |
+| `MC_OPEN_STORAGE` | flag | `on` |  |  | The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof, chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the torches' and the sign's support: a wall torch on a post, the... |
 | `MC_PAD_HALO` | string | `on` |  |  | #136: blended pad edges and cave sealing in prepare_site. |
 | `MC_PAD_PER_BUILDING` | flag | `off` |  |  | MC_PAD_PER_BUILDING=on (#84 C1; off by default): a village's first street plan is not levelled as one plot but laid out on pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended into the ground (prepare_site layout=N pad=K;... |
 | `MC_PROJECT_REST_MS` | number | `120000` |  |  | How long public works rest after "no new work" wins. |

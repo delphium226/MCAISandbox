@@ -24,12 +24,12 @@ const LAYERS = [
 ];
 
 /**
- * The open-sided storage hut (MC_OPEN_STORAGE=on; off by default; the user's, 10-24): the same footprint, floor, roof,
+ * The open-sided storage hut (MC_OPEN_STORAGE; always on by default since 10-25, the user's: "the storage shed must always be open sided"; the user's, 10-24): the same footprint, floor, roof,
  * chest, barrel and station spots, but no walls: log posts at the four corners and halfway along each long side (the
  * torches' and the sign's support: a wall torch on a post, the name sign over the entrance on the roof's edge), so members
  * reach the chests from outside as well as from the aisle (#77: a member walled into a pocket under the hut).
  */
-export const OPEN_STORAGE = /^(on|1|true)$/i.test(rawSetting('MC_OPEN_STORAGE') ?? 'off');
+export const OPEN_STORAGE = !/^(off|0|false|no)$/i.test(rawSetting('MC_OPEN_STORAGE') ?? 'on');
 const OPEN_LAYERS = [
   Array(9).fill('CCCCCCC'),
   ['L.....L', '._._._.', '.......', '._..._.', 'L.T.F.L', '._..._.', '.......', '._..._.', 'L.....L'],
