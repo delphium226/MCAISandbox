@@ -11,6 +11,11 @@
  * - the rest posted after the storage hut's build, and no parts;
  * - the farm, the lamps and the signs wait for every building's and the field's pad;
  * - at most 100 tasks.
+ * C2's paths (#84): a path record and task (prepare_site layout=1 path=K) for each building's door but the hub's, each after
+ * every pad, the lamps after every path; then padPaths.ts's plan on two made-up slopes (1 in 5 and 1 in 2, the pads at
+ * their own ground's level, kept within 1 a block apart as the levels' rule does): every door joined, no step over 1
+ * between neighbouring centreline cells, no path cell on a footprint or field, and the steps over 1 among all the path's
+ * cells and onto the pads counted (reported; a few beside steep ground are expected); lamps off the paths and footprints.
  * Rows layouts keep today's parts.
  * Run: node_modules/.bin/tsx scripts/checks/pads_plan.mts
  */
@@ -26,6 +31,7 @@ const { postLayout, PAD_PER_BUILDING } = await import('../../server/src/layout')
 const { MINING_HUT, STORAGE_HUT } = await import('../../server/src/huts');
 const { VILLAGE_BIOMES, vanillaLibrary, villageBiome } = await import('../../server/src/vanillaPieces');
 const { vanillaJar } = await import('../../server/src/vanillaData');
+const { planPadPaths, pathLamps } = await import('../../server/src/padPaths');
 
 const sites = (JSON.parse(readFileSync('scripts/test_sites.json', 'utf-8')).sites as Array<{ name: string; site: { x: number; y: number; z: number; size: number } | null }>).filter((s) => s.site);
 const reg = new VillageRegistry(join(mkdtempSync(join(tmpdir(), 'pads-')), 'villages.json'));
@@ -44,7 +50,8 @@ const world = (village: Village): unknown => ({
   village,
 });
 
-let bad = 0, cases = 0, laidOnPads = 0;
+let bad = 0, cases = 0, laidOnPads = 0, planned = 0, pathCells = 0, bandSteps = 0, lampsN = 0;
+const stepsBy: Record<number, [number]> = {}, cellsBy: Record<number, number> = {};
 const grow = (a: Area, n: number): Area => ({ x1: a.x1 - n, z1: a.z1 - n, x2: a.x2 + n, z2: a.z2 + n });
 const same = (a: Area, b: Area) => a.x1 === b.x1 && a.z1 === b.z1 && a.x2 === b.x2 && a.z2 === b.z2;
 const within = (a: Area, b: Area) => a.x1 >= b.x1 && a.x2 <= b.x2 && a.z1 >= b.z1 && a.z2 <= b.z2;
@@ -111,7 +118,79 @@ function check(name: string, site: { x: number; y: number; z: number; size: numb
   const mainIds = pads.map((q, k) => (q.kind === 'building' || (lay.farm && same(q, grow(lay.farm, 1))) ? padId(k)! : '')).filter(Boolean);
   for (const t of T)
     if (/^(Plant the farm|Light the streets|Put up the sign)/.test(t.title) && !mainIds.every((id) => t.after.includes(id))) fail(`${t.title} does not wait for every pad`);
-  console.log(`ok ${at}: ${buildingPads.length} building pads, ${fieldPads.length} field pads, ${T.length} tasks`);
+  // C2: the paths' records and tasks
+  const hub = Math.max(0, pads.findIndex((q) => /meeting/.test(q.what)));
+  const doors = pads.map((q, k) => ({ q, k })).filter(({ q, k }) => q.kind === 'building' && q.door && k !== hub);
+  if (buildingPads.some((q, k) => !q.door && !(k === hub && /meeting/.test(q.what)))) fail(`${buildingPads.filter((q) => !q.door).map((q) => q.what).join(', ')} without a door step`);
+  if ((lay.paths?.length ?? 0) !== doors.length) fail(`${lay.paths?.length ?? 0} paths for ${doors.length} doors`);
+  const pathT = T.filter((t) => /^prepare_site layout=1 path=\d+ /.test(t.detail));
+  if (pathT.length !== doors.length) fail(`${pathT.length} path tasks for ${doors.length} doors`);
+  // (every building's pad and the wheat field's; the slots' pads are posted later, and paths keep off fields)
+  for (const t of pathT) if (!mainIds.every((id) => t.after.includes(id))) fail(`${t.title} does not wait for every pad`);
+  const lampsT = T.find((t) => /^Light the streets/.test(t.title));
+  if (lampsT && !pathT.every((t) => lampsT.after.includes(t.id))) fail('the lamps do not wait for every path');
+  for (const [k, q] of pads.entries()) if (q.door && !(q.door.x >= q.x1 && q.door.x <= q.x2 && q.door.z >= q.z1 && q.door.z <= q.z2 && !(q.inner && q.door.x >= q.inner.x1 && q.door.x <= q.inner.x2 && q.door.z >= q.inner.z1 && q.door.z <= q.inner.z2)))
+    fail(`pad ${k + 1} (${q.what})'s door step ${q.door.x},${q.door.z} is not on its ring`);
+  // C2: the plan on two slopes
+  for (const run of [5, 2]) {
+    const ground = (x: number, z: number) => site.y + Math.floor((x - lay.x1) / run) + Math.floor((z - lay.z1) / (run * 2));
+    const mid = (q: Area) => ground(Math.floor((q.x1 + q.x2) / 2), Math.floor((q.z1 + q.z2) / 2));
+    // (the levels as prepare_site sets them: home the storage hut's, each other pad its own within -3..+6 of home and its
+    // gap + 1 of every pad before it, nearest the storage hut first)
+    const levelled = pads.map((q) => ({ ...q, y: mid(q) }));
+    const gap = (p: Area, q: Area) => Math.max(0, Math.max(q.x1 - p.x2, p.x1 - q.x2, q.z1 - p.z2, p.z1 - q.z2) - 1);
+    const cen = (q: Area) => [(q.x1 + q.x2) / 2, (q.z1 + q.z2) / 2];
+    const home = levelled[0].y, done = [0];
+    for (const k of levelled.map((_, k) => k).slice(1).sort((i, j) => Math.hypot(cen(pads[i])[0] - cen(pads[0])[0], cen(pads[i])[1] - cen(pads[0])[1]) - Math.hypot(cen(pads[j])[0] - cen(pads[0])[0], cen(pads[j])[1] - cen(pads[0])[1]))) {
+      let lo = home - 3, hi = home + 6;
+      for (const j of done) {
+        lo = Math.max(lo, levelled[j].y - gap(pads[k], pads[j]) - 1);
+        hi = Math.min(hi, levelled[j].y + gap(pads[k], pads[j]) + 1);
+      }
+      levelled[k].y = lo <= hi ? Math.max(lo, Math.min(hi, levelled[k].y)) : Math.round((lo + hi) / 2);
+      done.push(k);
+    }
+    const area = grow(lay, 3);
+    const plan = planPadPaths({ area, pads: levelled, hub, ground });
+    planned++;
+    const fails = plan.filter((p) => p.fail);
+    if (fails.length) fail(`slope 1/${run}: ${fails.map((p) => p.fail).join('; ')}`);
+    const t = new Map<string, number>();
+    for (const p of plan) for (const [x, z, y] of p.cells) {
+      if (!Number.isInteger(y)) fail(`slope 1/${run}: cell ${x},${z} of the path to ${p.what} has no level (${y})`);
+      if (t.has(`${x},${z}`)) fail(`slope 1/${run}: cell ${x},${z} in two paths`);
+      t.set(`${x},${z}`, y);
+    }
+    pathCells += t.size;
+    cellsBy[run] = (cellsBy[run] ?? 0) + t.size;
+    const lineCells = new Set(plan.flatMap((p) => p.line.map(([x, z]) => `${x},${z}`)));
+    for (const c of lineCells) {
+      const [x, z] = c.split(',').map(Number);
+      for (const [dx, dz] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+        const n = `${x + dx},${z + dz}`;
+        if (lineCells.has(n) && Math.abs(t.get(n)! - t.get(c)!) > 1) fail(`slope 1/${run}: a centreline step of ${Math.abs(t.get(n)! - t.get(c)!)} at ${c}`);
+      }
+    }
+    // (every cell's level: the path's target, a building pad's level, else the ground)
+    const level = (x: number, z: number) => t.get(`${x},${z}`) ?? levelled.find((q) => q.kind === 'building' && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)?.y ?? ground(x, z);
+    for (const [c, y] of t) {
+      const [x, z] = c.split(',').map(Number);
+      for (const q of levelled) if ((q.kind === 'field' && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2) || (q.inner && x >= q.inner.x1 && x <= q.inner.x2 && z >= q.inner.z1 && z <= q.inner.z2)) fail(`slope 1/${run}: path cell ${c} on ${q.what}`);
+      for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+        const X = x + dx, Z = z + dz;
+        const onPad = levelled.some((q) => q.kind === 'building' && X >= q.x1 && X <= q.x2 && Z >= q.z1 && Z <= q.z2);
+        if ((t.has(`${X},${Z}`) || onPad) && Math.abs(level(X, Z) - y) > 1) {
+          bandSteps++;
+          (stepsBy[run] ??= [0])[0]++;
+        }
+      }
+    }
+    const lamps = pathLamps(plan.filter((p) => !p.fail), ground, (x, z) => levelled.some((q) => x >= q.x1 - 1 && x <= q.x2 + 1 && z >= q.z1 - 1 && z <= q.z2 + 1));
+    lampsN += lamps.length;
+    for (const l of lamps) if (t.has(`${l.x},${l.z}`)) fail(`slope 1/${run}: a lamp on the path at ${l.x},${l.z}`);
+    if (doors.length && !lamps.length) fail(`slope 1/${run}: no lamps along ${doors.length} paths`);
+  }
+  console.log(`ok ${at}: ${buildingPads.length} building pads, ${fieldPads.length} field pads, ${pathT.length} paths, ${T.length} tasks`);
 }
 
 if (!PAD_PER_BUILDING) {
@@ -128,5 +207,6 @@ for (const s of sites)
     }
     for (const workers of [11, 2]) for (const size of [40, 32]) check(s.name, { ...s.site!, size }, chosen, workers, biome);
   }
-console.log(`\n${cases} layouts, ${laidOnPads} on pads, ${bad ? `${bad} FAILED` : 'all checks passed'}`);
+console.log(`\n${cases} layouts, ${laidOnPads} on pads; paths planned ${planned} times, ${pathCells} path cells, ${bandSteps} steps over 1 among path cells and onto pads, ${lampsN} lamps; ${bad ? `${bad} FAILED` : 'all checks passed'}`);
+console.log(`steps over 1 by slope: ${Object.keys(cellsBy).map((r) => `1/${r}: ${stepsBy[+r]?.[0] ?? 0} of ${cellsBy[+r]} cells`).join(', ')}`);
 process.exit(bad ? 1 : 0);

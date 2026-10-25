@@ -45,6 +45,7 @@ import { OFFERS } from '../merchant';
 import { LIBRARY, addPledge, chanceFor, needOf, pointsIn, ptsText, settleAttempt, techOf, techOwnRecipes } from '../tech';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, holdMeal, noteFood, releaseMeal, stateOf, storeForMeals } from '../appetite';
 import { postLayout } from '../layout';
+import { pathLamps, planPadPaths } from '../padPaths';
 import { parseRefit } from '../refit';
 import { CHOOSE } from '../choose';
 import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
@@ -1745,7 +1746,188 @@ async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: A
   }
 }
 
+/**
+ * One graded path of a village laid out on pads (#84 C2, prepare_site layout=N path=K): the first path call plans them all
+ * (padPaths.ts, once every pad is prepared: their levels and edges are what the grade joins) and moves the lamps onto the
+ * paths' shoulders; each call then cuts and fills its own cells to their targets and paves them with dirt_path. A column
+ * built on, over water or more than 8 from its target is left as it is. No plot record: the y readers never see paths.
+ */
+async function preparePath(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal, turn: ScanTurn): Promise<string> {
+  const v = a.village();
+  const layN = args.layout !== undefined ? int(args, 'layout') : undefined;
+  const k = int(args, 'path');
+  const lay = layN !== undefined ? v?.layouts?.[layN - 1] : undefined;
+  const rec = lay?.paths?.[k - 1];
+  if (!v || !lay?.pads || !rec) throw new Error(`prepare_site: ${lay ? `layout ${layN} has no path ${k}` : `no layout ${layN ?? '(layout= missing)'} in your village`}; prepare the path its task names`);
+  if (rec.done) return `the path to ${rec.what} is already graded`;
+  const pads = lay.pads;
+  const whole = v.plots.find((q) => q.pads && q.x1 === lay.x1 && q.z1 === lay.z1 && q.x2 === lay.x2 && q.z2 === lay.z2);
+  // (the buildings' pads: their levels and edges are what the grade joins; paths keep off fields, whose slots come later)
+  const left = pads.filter((q) => q.kind === 'building' && (q.y === undefined || !whole?.parts?.some((p) => p.x1 === q.x1 && p.z1 === q.z1 && p.x2 === q.x2 && p.z2 === q.z2)));
+  if (left.length) throw new Error(`the buildings' pads are not all prepared yet (${left.map((q) => q.what).slice(0, 3).join(', ')}${left.length > 3 ? ' ...' : ''}); the path joins their levels, so prepare them first`);
+  const H = 3;
+  const area = { x1: lay.x1 - H, z1: lay.z1 - H, x2: lay.x2 + H, z2: lay.z2 + H };
+  const reg = a.world.villages;
+  const others = [...reg.villages.values()].filter((o) => o !== v);
+  const builtCells = [...reg.villages.values()].flatMap((o) => o.structures);
+  const mineBoxes = v.mine ? mineAreas(v.mine) : [];
+  const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
+  const blocked = (x: number, z: number) => others.some((o) => o.plots.some((q) => ins(q, x, z, 2)) || (o.layouts ?? []).some((q) => ins(q, x, z, 2)) || o.structures.some((q) => ins(q, x, z, 1)))
+    || mineBoxes.some((b) => ins(b, x, z)) || !!lay.farm && ins(lay.farm, x, z) || (lay.slots ?? []).some((q) => ins(q, x, z))
+    || builtCells.some((q) => ins(q, x, z) && !pads.some((p) => p.kind === 'building' && p.inner && ins(p.inner, x, z)));
+  if (!rec.cells && !rec.fail) {
+    await turn.take(signal);
+    const read = () => {
+      const py = Math.floor(a.bot.entity.position.y);
+      const m = new Map<string, number | null>();
+      for (let x = area.x1; x <= area.x2; x++)
+        for (let z = area.z1; z <= area.z2; z++) {
+          const c = surfaceAt(a, x, z, py);
+          if (!c) return null;
+          m.set(`${x},${z}`, c.liquid || c.block === 'air' ? null : c.y);
+        }
+      return m;
+    };
+    let gm = read();
+    if (!gm) {
+      const mx = Math.floor((lay.x1 + lay.x2) / 2), mz = Math.floor((lay.z1 + lay.z2) / 2);
+      turn.release();
+      await walk(a, new goals.GoalNearXZ(mx, mz, 3), `the village's middle at ${mx},${mz}`, signal, 90000).catch((e: Error) => {
+        if (e.message === 'cancelled') throw e;
+      });
+      await a.bot.waitForChunksToLoad().catch(() => {});
+      await turn.take(signal);
+      checkAbort(signal);
+      gm = lay.paths!.some((q) => q.cells || q.fail) ? new Map() : read();
+      if (!gm) {
+        turn.release();
+        throw new Error(`part of the village is not loaded; walk closer to x=${mx} z=${mz} first`);
+      }
+    }
+    // (planned by another path's call meanwhile: its plan stands)
+    if (!lay.paths!.some((q) => q.cells || q.fail)) {
+      const ground = (x: number, z: number) => gm!.get(`${x},${z}`) ?? null;
+      const hub = Math.max(0, pads.findIndex((q) => /meeting/.test(q.what)));
+      const planned = planPadPaths({ area, pads: pads.map((q) => ({ ...q, y: q.y! })), hub, ground, blocked });
+      for (const q of lay.paths!) {
+        const p = planned.find((r) => r.pad === q.pad);
+        if (!p || p.fail) q.fail = p?.fail ?? `the door of ${q.what} has no path`;
+        else {
+          q.cells = p.cells;
+          q.line = p.line;
+        }
+      }
+      // (the lamps onto the paths' shoulders, M8: clear of buildings by 2, pads, the farm, slots and signs)
+      if (lay.lamps?.length && !lay.lit) {
+        const avoid = (x: number, z: number) => !ins(lay, x, z) || blocked(x, z) || pads.some((p) => ins(p, x, z) || (p.inner && ins(p.inner, x, z, 2)))
+          || (lay.signs ?? []).some((s) => ins({ x1: s.x, z1: s.z, x2: s.x, z2: s.z }, x, z, 1)) || !!lay.farm && ins(lay.farm, x, z, 1) || (lay.slots ?? []).some((q) => ins(q, x, z, 1));
+        const lamps = pathLamps(planned.filter((p) => !p.fail), ground, avoid);
+        if (lamps.length) {
+          console.log(`[prepare] ${a.name} lamps for layout ${layN} moved onto the paths: ${lay.lamps.length} -> ${lamps.length}`);
+          lay.lamps = lamps;
+        }
+      }
+      reg.save();
+      console.log(`[prepare] ${a.name} paths for layout ${layN}: ${planned.map((p) => `${p.what} ${p.fail ? 'FAIL' : `${p.line.length} long, ${p.cells.length} cells`}`).join('; ')}`);
+    }
+    turn.release();
+  }
+  if (rec.fail) {
+    rec.done = true;
+    reg.save();
+    return `the path to ${rec.what} was not laid: ${rec.fail}; members walk over the ground there`;
+  }
+  await turn.take(signal);
+  const py = Math.floor(a.bot.entity.position.y);
+  const targets: Target[] = [];
+  const seen = new Map<string, number>();
+  const add = (x: number, yy: number, z: number, block: string) => {
+    const key = `${x},${yy},${z}`;
+    const i = seen.get(key);
+    if (i === undefined) seen.set(key, targets.push({ x, y: yy, z, block }) - 1);
+    else if (targets[i].block === 'air' && block !== 'air') targets[i] = { x, y: yy, z, block };
+  };
+  const nearBuilt = (x: number, yy: number, z: number) => builtCells.some((s) => x >= s.x1 - 1 && x <= s.x2 + 1 && z >= s.z1 - 1 && z <= s.z2 + 1 && yy >= s.y - 1);
+  const isAir = (n: string | null) => n === 'air' || n === 'cave_air';
+  const treeLogs = new Set<string>();
+  const crawled = new Set<string>();
+  let felled = 0, kept = 0, paved = 0;
+  const cols = rec.cells ?? [];
+  col: for (const [x, z, t] of cols) {
+    // (a target that is not a number: never sent on, a NaN look got three members kicked, C2's first staged run)
+    if (!Number.isFinite(t)) {
+      kept++;
+      continue;
+    }
+    const c = surfaceAt(a, x, z, py);
+    if (!c || c.liquid || Math.abs(c.y - t) > 8) {
+      kept++;
+      continue;
+    }
+    const g = c.y;
+    const cut: number[] = [];
+    for (let yy = t + 1; yy <= Math.max(t, g) + 32; yy++) {
+      const n = blockName(a, x, yy, z) ?? 'air';
+      if (isAir(n)) continue;
+      if (!NATURAL.has(n)) {
+        kept++;
+        continue col;
+      }
+      cut.push(yy);
+    }
+    for (const yy of cut) {
+      const n = blockName(a, x, yy, z)!;
+      if ((isLog(n) || isLeaves(n)) && !crawled.has(`${x},${yy},${z}`)) {
+        let took = 0;
+        for (const [tx, ty, tz] of treeAt(a, x, yy, z)) {
+          crawled.add(`${tx},${ty},${tz}`);
+          if (nearBuilt(tx, ty, tz)) continue;
+          took++;
+          treeLogs.add(`${tx},${ty},${tz}`);
+          add(tx, ty, tz, 'air');
+        }
+        if (took) felled++;
+      }
+      add(x, yy, z, 'air');
+    }
+    for (let yy = g + 1; yy < t; yy++) add(x, yy, z, 'dirt');
+    // (a cut opens no cave under the path: air up to 3 under its top filled)
+    if (g > t) for (let yy = t - 3; yy < t; yy++) if (isAir(blockName(a, x, yy, z))) add(x, yy, z, 'dirt');
+    if (blockName(a, x, t, z) !== 'dirt_path') add(x, t, z, 'dirt_path');
+    paved++;
+  }
+  const xs = cols.map((c) => c[0]), zs = cols.map((c) => c[1]);
+  const box = cols.length ? { x1: Math.min(...xs), z1: Math.min(...zs), x2: Math.max(...xs), z2: Math.max(...zs) } : { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2 };
+  const logs: Counts = {};
+  for (const key of treeLogs) {
+    const [tx, ty, tz] = key.split(',').map(Number);
+    const n = blockName(a, tx, ty, tz);
+    if (n && isLog(n) && n !== 'mushroom_stem') logs[n] = (logs[n] ?? 0) + 1;
+  }
+  turn.release();
+  let summary = targets.length ? await runJob(a, { targets, area: box, y: lay.y ?? pads[0].y ?? py, free: true }, signal, felled) : 'nothing to move';
+  if (a.gamemode !== 'creative' && Object.keys(logs).length) {
+    for (const [n, q] of Object.entries(logs)) await a.world.rcon.command(`give ${a.name} ${n} ${q}`);
+    summary += `; kept ${listCounts(logs)} from the felled trees`;
+  }
+  // The check: the centreline's steps as they stand now (kept columns may leave one)
+  await sleep(1000, signal);
+  let steep = 0;
+  const line = rec.line ?? [];
+  const tops = line.map(([x, z]) => surfaceAt(a, x, z, py)?.y);
+  for (let i = 1; i < tops.length; i++) if (tops[i] !== undefined && tops[i - 1] !== undefined && Math.abs(tops[i]! - tops[i - 1]!) > 1) steep++;
+  rec.done = true;
+  reg.note(v, `${a.name} graded the path to ${rec.what} (${line.length} long, ${paved} cells paved${steep ? `, ${steep} steps over 1 left` : ''})`);
+  reg.save();
+  const n = Object.values(logs).reduce((s, q) => s + q, 0);
+  if (a.gamemode !== 'creative' && n) summary += await depositFelled(a, v, n, `the path to ${rec.what}`, false, signal);
+  console.log(`[prepare] ${a.name} path ${k} to ${rec.what}: ${line.length} long, ${paved} paved, ${kept} kept, ${felled} trees, steps over 1: ${steep}`);
+  return `the path to ${rec.what} ready: ${line.length} blocks of centreline, ${paved} cells paved with dirt_path${kept ? `, ${kept} columns left as they are (built, water or too far from the grade)` : ''}${steep ? `; ${steep} steps over 1 left` : ''}; ${summary}`;
+}
+
 async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal, turn: ScanTurn): Promise<string> {
+  // (#84 C2: a graded path between pads, layout=N path=K)
+  if (args.path !== undefined) return preparePath(a, args, signal, turn);
   const p = a.bot.entity.position;
   const v = a.village();
   // One part of a layout's plot prepared in parts (S.6, layout=N part=K): its rectangle and margins come from the layout
@@ -2038,8 +2220,10 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
     const reg = a.world.villages;
     // (a pad's halo inside its own layout: not onVillageGround, which counts the whole layout at any height, but off every
     // other pad, prepared or not, and 2 round any building: the spec's review, B1)
+    // (and off the paths' cells, #84 C2: a pad prepared again after them leaves their grade be, the review's M3)
+    const pathCells = new Set((lay?.paths ?? []).flatMap((q) => (q.cells ?? []).map(([px, pz]) => `${px},${pz}`)));
     const onPadGround = (x: number, z: number) => !!pad && !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2;
-    const otherPad = (x: number, z: number) => !!lay?.pads?.some((q) => q !== pad && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2);
+    const otherPad = (x: number, z: number) => !!lay?.pads?.some((q) => q !== pad && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2) || pathCells.has(`${x},${z}`);
     const nearBuilding = (x: number, z: number) => builtCells.some((s) => x >= s.x1 - 2 && x <= s.x2 + 2 && z >= s.z1 - 2 && z <= s.z2 + 2);
     const free = (x: number, z: number) => ours(x, z) && (onPadGround(x, z) ? !otherPad(x, z) && !nearBuilding(x, z) : !onVillageGround(a, x, z))
       && !mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2)

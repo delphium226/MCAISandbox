@@ -3273,7 +3273,7 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     const res = v.reservations.filter((q) => q.until > now);
     const bot = [...this.agents.values()].find((a) => a.village()?.name === v.name && a.bot.entity);
-    const sig = JSON.stringify([!!bot, v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm]), v.plots.length,
+    const sig = JSON.stringify([!!bot, v.structures.length, (v.layouts ?? []).length, (v.layouts ?? []).map((l) => [l.lamps?.length, l.signs?.length, l.slots?.length, !!l.farm, (l.paths ?? []).filter((q) => q.cells).length]), v.plots.length,
       (v.initiatives ?? []).map((i) => `${i.id}:${i.state}:${i.pending ? 'p' : ''}`), res.map((q) => `${q.x1},${q.z1},${q.x2},${q.z2}`),
       v.tasks.filter((t) => t.status !== 'done' && /^Build /.test(t.title)).length, ...(RULES.on ? [zoneBoxes(v.name, 'build').map((z) => z.text)] : [])]);
     const old = this.smallBlockedCache.get(v.name);
@@ -3293,6 +3293,8 @@ export class MineflayerWorld implements WorldAdapter {
     }
     for (const l of v.layouts ?? []) {
       for (const st of l.streets ?? []) blocked.push(st);
+      // (#84 C2: the graded paths between pads, each cell)
+      for (const q of l.paths ?? []) for (const [x, z] of q.cells ?? []) blocked.push(cell(x, z));
       for (const lp of l.lamps ?? []) blocked.push(cell(lp.x, lp.z, 1));
       for (const sg of l.signs ?? []) blocked.push(cell(sg.x, sg.z, 1));
       if (l.farm) blocked.push(pad(l.farm, 1));

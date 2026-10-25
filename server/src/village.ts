@@ -529,7 +529,11 @@ export interface Village {
     parts?: PlotPart[]; y?: number; seamsBad?: boolean;
     /** MC_PAD_PER_BUILDING (#84 C1): the pads instead of parts (prepare_site layout=N pad=K, K from 1), each a footprint and
      *  its 1-block ring (a building) or a field's ring, with its own level, all worked out by the first pad prepared. */
-    pads?: Array<Area & { what: string; kind: 'building' | 'field'; y?: number }>;
+    pads?: Array<Area & { what: string; kind: 'building' | 'field'; y?: number; door?: { x: number; z: number }; inner?: Area }>;
+    /** #84 C2: the graded paths, one from each building's door but the hub's (prepare_site layout=N path=K, K from 1); `cells`
+     *  (x, z, target y) and `line` (the centreline) once the first path call planned them all, `done` once graded, `fail`
+     *  when no way was found. No plot record: the y readers never see them. */
+    paths?: Array<{ pad: number; what: string; cells?: Array<[number, number, number]>; line?: Array<[number, number]>; done?: boolean; fail?: string }>;
     /** The wheat field (10-08): `planted` cells confirmed sown; the hoe's materials and the seeds asked for again once each. */
     farm?: FarmSpot & { planted?: number; requeuedHoe?: boolean; requeuedSeeds?: boolean;
       /** Harvests (10-08, farming v2): how many, the bread baked in all, and the last one's time and outcome (a back-off). */

@@ -35,7 +35,8 @@ const FIELD_REACH = 96;
 /**
  * MC_PAD_PER_BUILDING=on (#84 C1; off by default): a village's first street plan is not levelled as one plot but laid out on
  * pads, each building, the wheat field and each farm slot on its footprint and a 1-block ring, at its own level and blended
- * into the ground (prepare_site layout=N pad=K; runs/2026-10-24/layout-measure/spec_c.md).
+ * into the ground (prepare_site layout=N pad=K; runs/2026-10-24/layout-measure/spec_c.md); C2: graded dirt paths from each
+ * building's door to the meeting point's (prepare_site layout=N path=K, padPaths.ts), the lamps along them.
  */
 export const PAD_PER_BUILDING = /^(on|1|true)$/i.test(rawSetting('MC_PAD_PER_BUILDING') ?? 'off');
 
@@ -375,8 +376,20 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const padRing = (q: Area) => ({ x1: q.x1 - 1, z1: q.z1 - 1, x2: q.x2 + 1, z2: q.z2 + 1 });
     const pads: NonNullable<NonNullable<Village['layouts']>[number]['pads']> | null = onPads
       ? [...lay.places].sort((p, q) => (q.name === STORAGE_HUT ? 1 : 0) - (p.name === STORAGE_HUT ? 1 : 0) || (q.name === MINING_HUT ? 1 : 0) - (p.name === MINING_HUT ? 1 : 0))
-        .map((p) => ({ ...padRing(p), what: p.name, kind: 'building' as const }))
+        .map((p) => {
+          // (#84 C2: each building's door step, the cell outside its door on the pad's ring, where its path starts)
+          // (a vanilla piece's door may stand back in the footprint: the first cell out of it, the way the door opens)
+          const dr = street?.doors?.find((q) => q.x >= p.x1 && q.x <= p.x2 && q.z >= p.z1 && q.z <= p.z2);
+          let out = dr ? { x: dr.x, z: dr.z } : undefined;
+          while (dr && out && out.x >= p.x1 && out.x <= p.x2 && out.z >= p.z1 && out.z <= p.z2) out = { x: out.x + dr.ox, z: out.z + dr.oz };
+          return { ...padRing(p), what: p.name, kind: 'building' as const, inner: { x1: p.x1, z1: p.z1, x2: p.x2, z2: p.z2 }, ...(out ? { door: out } : {}) };
+        })
       : null;
+    // (#84 C2: a path from each other building's door to the tree grown from the hub's, the meeting point's if any, else the
+    // storage hut's; planned by the first path prepared, once every pad's level is known)
+    const hubPad = pads ? Math.max(0, pads.findIndex((q) => /meeting/.test(q.what))) : 0;
+    const paths: Array<{ pad: number; what: string }> = pads ? pads.map((q, k) => ({ pad: k, what: q.what, door: q.door })).filter((q) => q.pad !== hubPad && q.door).map(({ pad, what }) => ({ pad, what })) : [];
+    const pathTasks: number[] = [];
     // (each pad's task index, by its rectangle: a building waits for its own pad)
     const padTask = new Map<string, number>();
     const padKey = (q: Area) => `${q.x1},${q.z1}`;
@@ -437,6 +450,11 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
           allParts.push(tasks.length);
           postPad(k);
         }
+        // (#84 C2: each path after every pad: its grade joins their levels and edges, the review's M3)
+        paths.forEach((q, i) => {
+          pathTasks.push(tasks.length);
+          tasks.push({ title: `Prepare the path to ${q.what}`, detail: `prepare_site layout=${nth} path=${i + 1} (a graded dirt path from the door of ${q.what} to the village's other paths, steps of at most 1)`, after: [...allParts] });
+        });
         return;
       }
       if (!parts) return;
@@ -692,7 +710,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const hutGate = v.storageHut ? [...(storage !== undefined ? [storage] : []), ...(lampGate !== undefined ? [lampGate] : [])] : null;
     if (lamps.length)
       tasks.push({ title: `Light the streets: ${lamps.length} lamp posts`, detail: `light_streets layout=${nth} (a post with a torch beside the streets, made from the village storage)`,
-        after: [...allParts, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
+        after: [...allParts, ...pathTasks, ...(hutGate ?? builds)], soft: true, ...(hutGate ? {} : { afterClaimed: true }) });
     // Farm slots (opportunistic farming, 10-08): up to two more 5x7 fields kept free beside the wheat field, for whatever
     // the agents find to farm once the village stands (mcWorld.ts farmChores); after the lamps and off them, so no lamp is
     // lost, a cell from the field and from each other. Nothing is built there until then (not structures: lesson 62)
@@ -753,7 +771,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const left = nb ? [] : [...(v.unplaced?.length ? v.unplaced : names)];
     if (!nb) for (const n of placed) left.splice(left.indexOf(n), 1);
     v.layouts = [...(v.layouts ?? []), { ...plot, buildings: placed, ...(street ? { streets: street.streets } : {}), ...(street?.green ? { green: street.green } : {}), ...(lamps.length ? { lamps } : {}), ...(signs.length ? { signs } : {}), ...(farm ? { farm } : {}), ...(slots.length ? { slots } : {}),
-      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(pads ? { pads } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(hoodName ? { name: hoodName } : {}), ...(farmWhy ? { farmWhy } : {}) }];
+      ...(parts ? { parts: parts.map(({ x1, z1, x2, z2, m }) => ({ x1, z1, x2, z2, m })) } : {}), ...(pads ? { pads } : {}), ...(paths.length ? { paths } : {}), ...(nb ? { grow: (v.growth?.past.length ?? 0) + 1 } : {}), ...(hoodName ? { name: hoodName } : {}), ...(farmWhy ? { farmWhy } : {}) }];
     if (!nb) v.unplaced = left;
     reg.note(v, `${poster} laid out ${placed.join(', ')} on a ${lay.width}x${lay.depth} plot at ${areaText(plot)}${nb ? ` as a new neighbourhood${hoodName ? `, ${hoodName}` : ''}` : street?.green ? ' round a green' : street ? ' along streets' : ''}${left.length ? `; no room for ${left.join(', ')}` : ''}`);
     reg.save();
