@@ -2123,3 +2123,13 @@ CLAUDE.md when a phase ends.
   at AFTER 84 against 40 because its iron stairs met caves five times (not a flag). Pair P (staged, the sloped s0 plot):
   every pad passed pad_halo but one member-dug column; after 20 minutes busy 33% against 56%, initiatives offered on 27
   of 507 menus against 161 of 818. Logs: runs/2026-10-25/train3/ (report.md).
+- F317 (10-25, train3 rerun, #122/#97) **Policy options halve the idle members in hours 2+ (3,899 idle samples against
+  8,426) and the filler makes after minute 80 (87 against 181), raise busy to 75% from 61% and cost less an hour (~$0.31
+  against ~$0.43); much of what idle is left behind "enough projects open" is held decisions counting as open projects.**
+  With holds on (both runs), the cap reads open projects plus every other member's pending decision shown a start option
+  (mcWorld.ts heldProjects): 61% of C1's gate samples came with fewer than 6 projects really open, 20% of C0's with fewer
+  than 3. Gated options were taken on 161 of 170 menus (lamp posts 92, sand 25), logs in storage grew to 972 against 604.
+  Two things to look at: C1's event loop degraded from AFTER ~65 (loop p50 150-520 ms, RCON p90 1-4 s, against ~6 ms),
+  and its walks stalled 1,107 times against 119 (members in the mine's tunnels under the storage hut, and the gated sand
+  at a lake). Letters came at AFTER 175 in C1 against 112 (its shelving stage took an hour). Logs:
+  runs/2026-10-25/train3r/ (report.md).
