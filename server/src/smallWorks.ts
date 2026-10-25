@@ -319,8 +319,10 @@ export function smallWorkWood(name: string): string | undefined {
 export interface SpotInput {
   /** Prepared building plots (not the annex, not the works plot), each at its level. A plot with `ground` is not level
    *  (#84: a village laid out on pads, the ground between them): a spot there needs its footprint within 1 of its top and
-   *  its ring within -2..+1 of it, read column by column (null: water, a tree or unloaded), and takes that top as its y. */
-  plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null }>;
+   *  its ring within -2..+1 of it, read column by column (null: water or unloaded), and takes that top as its y; a
+   *  footprint within 2, or with a tree on it (`wooded`), is a spot to prepare first (`prep`: its own little pad, the
+   *  footprint and the ring), after every level one. */
+  plots: Array<Area & { y: number; ground?: (x: number, z: number) => number | null; wooded?: (x: number, z: number) => boolean }>;
   /** Areas kept free: structures (+1), streets, lamps (+1), signs, farms, slots, door fronts, reservations, the mine's
    *  surface, other initiatives' spots (+2)... */
   blocked: Area[];
@@ -333,8 +335,8 @@ export interface SpotInput {
  * overlap one another: they are alternatives. A grid and prefix sums per plot: about the plot's cells plus the blocked
  * cells inside it.
  */
-export function smallWorkSpots(input: SpotInput, w: number, d: number, max = Infinity): Array<{ x: number; z: number; y: number }> {
-  const out: Array<{ x: number; z: number; y: number; dist: number; plot: number }> = [];
+export function smallWorkSpots(input: SpotInput, w: number, d: number, max = Infinity): Array<{ x: number; z: number; y: number; prep?: true }> {
+  const out: Array<{ x: number; z: number; y: number; dist: number; plot: number; prep?: true }> = [];
   const W = w + 2, D = d + 2;
   input.plots.forEach((p, pi) => {
     const pw = p.x2 - p.x1 + 1, pd = p.z2 - p.z1 + 1;
@@ -363,26 +365,27 @@ export function smallWorkSpots(input: SpotInput, w: number, d: number, max = Inf
         // The footprint starts inside the ring
         const x = p.x1 + i + 1 + Math.floor(w / 2), z = p.z1 + j + 1 + Math.floor(d / 2);
         const mx = p.x1 + i + 1 + (w - 1) / 2, mz = p.z1 + j + 1 + (d - 1) / 2;
-        const y = p.ground ? groundTop(p.ground, p.x1 + i, p.z1 + j, W, D) : p.y;
-        if (y === null) continue;
-        out.push({ x, z, y, dist: (mx - cx) ** 2 + (mz - cz) ** 2, plot: pi });
+        const top = p.ground ? groundTop(p.ground, p.x1 + i, p.z1 + j, W, D, p.wooded) : { y: p.y, prep: false };
+        if (!top) continue;
+        out.push({ x, z, y: top.y, dist: (mx - cx) ** 2 + (mz - cz) ** 2, plot: pi, ...(top.prep ? { prep: true as const } : {}) });
       }
   });
-  out.sort((a, b) => a.dist - b.dist || a.z - b.z || a.x - b.x || a.plot - b.plot);
-  return out.slice(0, max).map(({ x, z, y }) => ({ x, z, y }));
+  out.sort((a, b) => Number(!!a.prep) - Number(!!b.prep) || a.dist - b.dist || a.z - b.z || a.x - b.x || a.plot - b.plot);
+  return out.slice(0, max).map(({ x, z, y, prep }) => ({ x, z, y, ...(prep ? { prep } : {}) }));
 }
 
-/** A W x D box's top (its footprint, inside the 1-cell ring) when the footprint is within 1 of it and the ring within -2..+1;
- *  else null (#84). */
-function groundTop(ground: (x: number, z: number) => number | null, x1: number, z1: number, W: number, D: number): number | null {
-  let top = -Infinity, low = Infinity;
+/** A W x D box's top (its footprint, inside the 1-cell ring) when the footprint is within 1 of it and the ring within -2..+1
+ *  (`prep` when the footprint is within 2 or wooded: levelled first); else null (#84). */
+function groundTop(ground: (x: number, z: number) => number | null, x1: number, z1: number, W: number, D: number, wooded?: (x: number, z: number) => boolean): { y: number; prep: boolean } | null {
+  let top = -Infinity, low = Infinity, trees = false;
   for (let z = z1 + 1; z < z1 + D - 1; z++)
     for (let x = x1 + 1; x < x1 + W - 1; x++) {
       const g = ground(x, z);
       if (g === null) return null;
       top = Math.max(top, g);
       low = Math.min(low, g);
-      if (top - low > 1) return null;
+      if (top - low > 2) return null;
+      trees ||= !!wooded?.(x, z);
     }
   for (let z = z1; z < z1 + D; z++)
     for (let x = x1; x < x1 + W; x++) {
@@ -390,7 +393,7 @@ function groundTop(ground: (x: number, z: number) => number | null, x1: number, 
       const g = ground(x, z);
       if (g === null || g < top - 2 || g > top + 1) return null;
     }
-  return top;
+  return { y: top, prep: top - low > 1 || trees };
 }
 
 /** What gardenSpots reads from the world (#45). */

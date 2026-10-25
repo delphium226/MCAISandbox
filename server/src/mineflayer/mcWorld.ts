@@ -3331,24 +3331,27 @@ export class MineflayerWorld implements WorldAdapter {
     const waiting = new Set((v.initiatives ?? []).filter((i) => i.state === 'open' && i.pending).map((i) => i.id));
     // (#84, MC_PAD_PER_BUILDING: a village on pads keeps its layout-wide record, parts and all; the ground between its pads
     // is the slope's own, so a spot there is read column by column: train 3's P1 offered initiatives on 27 of 507 menus)
+    // (a column under a tree counts at its ground, `wooded`: the spot is prepared first, felling it)
     const groundOf = (yHint: number) => {
-      const memo = new Map<string, number | null>();
-      return (x: number, z: number): number | null => {
+      const memo = new Map<string, { y: number; trees: boolean } | null>();
+      const read = (x: number, z: number) => {
         const k = `${x},${z}`;
-        if (memo.has(k)) return memo.get(k)!;
-        let g: number | null = null;
-        try {
-          const c = bot ? surfaceAt(bot, x, z, yHint) : null;
-          g = c && !c.liquid && !c.trees && c.block !== 'air' && Math.abs(c.y - yHint) <= 6 ? c.y : null;
-        } catch {
-          g = null;
+        if (!memo.has(k)) {
+          let g: { y: number; trees: boolean } | null = null;
+          try {
+            const c = bot ? surfaceAt(bot, x, z, yHint) : null;
+            g = c && !c.liquid && c.block !== 'air' && Math.abs(c.y - yHint) <= 6 ? { y: c.y, trees: c.trees > 0 } : null;
+          } catch {
+            g = null;
+          }
+          memo.set(k, g);
         }
-        memo.set(k, g);
-        return g;
+        return memo.get(k)!;
       };
+      return { ground: (x: number, z: number) => read(x, z)?.y ?? null, wooded: (x: number, z: number) => !!read(x, z)?.trees };
     };
     const plots = v.plots.filter((q) => !q.annex && !q.works && (!q.parts || (q.pads && bot)) && !(q.green && waiting.has(q.green)))
-      .map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y, ...(q.pads ? { ground: groundOf(q.y) } : {}) }));
+      .map((q) => ({ x1: q.x1, z1: q.z1, x2: q.x2, z2: q.z2, y: q.y, ...(q.pads ? groundOf(q.y) : {}) }));
     // (hard: every blocked area but the rings and door fronts, with the structures' own footprints back)
     const hard = [...blocked.filter((q) => !soft.has(q)), ...own];
     const entry = { sig, blocked, plots, hard, own };
@@ -3357,7 +3360,7 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** A free spot for a small work (pure): one of the first spots smallWorkSpots finds, chosen by `seed` so members spread. */
-  private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number } | null {
+  private smallWorkSpot(v: Village, k: SmallWorkKind, wood: string, seed: string): { x: number; y: number; z: number; prep?: true } | null {
     const d = k.make(wood);
     const { blocked, plots, hard, own } = this.smallBlocked(v);
     // (#45, MC_GARDENS: a garden's spots by its doors and greens, gardenSpots in smallWorks.ts)
@@ -3458,15 +3461,18 @@ export class MineflayerWorld implements WorldAdapter {
       return;
     }
     if (step.what === 'build') {
+      // (#84: a spot between pads not level enough, its footprint and ring prepared first, at their own level)
+      const dz = it.prep ? v.designs[it.design] : undefined;
+      const prep = dz ? worker.enqueue('prepare_site', { x: it.x, z: it.z, width: dz.width + 2, depth: dz.depth + 2, margin: 0, chore: true }) : null;
       const st = worker.enqueue('build_design', { design: it.design, x: it.x, z: it.z, chore: true });
       const failed = (why: string) => {
-        if (why === 'cancelled' || st.code) return;
+        if (why === 'cancelled' || st.code || prep?.code) return;
         it.fails = (it.fails ?? 0) + 1;
         it.backoff = Date.now() + 10 * 60000;
         if (it.fails >= 3) this.endInitiative(v, it, 'failed', `the build failed 3 times (${why.slice(0, 120)})`);
         this.villages.save();
       };
-      this.setChore(v, worker, opt.key, [st], `build ${it.id} (${k?.words ?? it.kind})`, failed, meta, opt.holds, opt);
+      this.setChore(v, worker, opt.key, prep ? [prep, st] : [st], `build ${it.id} (${k?.words ?? it.kind})`, failed, meta, opt.holds, opt);
       console.log(`[initiative] ${v.name}: ${worker.name} builds ${it.id} (${it.by}'s ${k?.words ?? it.kind}) at ${it.x},${it.z}`);
       return;
     }
@@ -7053,7 +7059,7 @@ export class MineflayerWorld implements WorldAdapter {
           return;
         }
         if (!v.designs[design.name]) v.designs[design.name] = design;
-        const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: worker.name, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: Date.now(), state: 'open', crew: [worker.name], steps: [], ...(pending ? { pending: true } : {}) };
+        const it: Initiative = { id: `i${(v.initiativeN = (v.initiativeN ?? 0) + 1)}`, by: worker.name, kind: k.kind, design: design.name, x: spot.x, y: spot.y, z: spot.z, at: Date.now(), state: 'open', crew: [worker.name], steps: [], ...(pending ? { pending: true } : {}), ...(found?.prep ? { prep: true } : {}) };
         v.initiatives = [...(v.initiatives ?? []), it];
         this.villages.note(v, `${worker.name} starts a ${k.words} of its own ${pending ? 'on a new green' : `at ${spot.x},${spot.z}`} (${it.id})`);
         this.villages.save();

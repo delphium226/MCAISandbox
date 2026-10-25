@@ -450,8 +450,11 @@ async function digMine(a: BotAgent, args: Record<string, unknown>, signal: Abort
     if (wetAt(a, under.position)) return stop(`${under.name} under step ${i}`);
     m.steps = i;
     reg.save();
-    // Seven steps at least: the tunnels then run 5 or more below the plot, under the ground kept from digging
-    if (i >= 7 && STONE.has(under.name) && inStone) {
+    // Seven steps at least: the tunnels then run 5 or more below the plot, under the ground kept from digging (on pads,
+    // #84: 6 below the lowest pad and the home level too, not the mining hut's own pad only: a hut a block above home left
+    // the tunnels at home - 4, every one refused "under the plot", and no cobblestone came, C2's staged runs)
+    const padLow = v.plots.some((q) => q.pads) ? Math.min(...v.plots.filter((q) => q.pads || q.pad).map((q) => q.y)) : null;
+    if (i >= 7 && STONE.has(under.name) && inStone && (padLow === null || floor + 1 <= padLow - 6)) {
       m.level = floor + 1;
       upgradeMine(m);
       reg.note(v, `${a.name} dug the mine stairs ${i} steps down to stone at y=${m.level}`);

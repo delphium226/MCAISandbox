@@ -177,9 +177,14 @@ const rough = smallWorkSpots({ plots: [{ x1: 0, z1: 0, x2: 9, z2: 9, y: 64, grou
 for (const s of rough) {
   const fx = [s.x - 1, s.x, s.x + 1], fz = [s.z - 1, s.z, s.z + 1];
   const hs = fx.flatMap((x) => fz.map((z) => slope(x, z)));
-  if (hs.some((h) => h === null) || Math.max(...(hs as number[])) - Math.min(...(hs as number[])) > 1 || s.y !== Math.max(...(hs as number[]))) fails.push(`a sloped spot ${JSON.stringify(s)}: heights ${hs.join(',')}`);
+  const spread = Math.max(...(hs as number[])) - Math.min(...(hs as number[]));
+  if (hs.some((h) => h === null) || spread > (s.prep ? 2 : 1) || (!s.prep && spread > 1) || (s.prep && spread < 2) || s.y !== Math.max(...(hs as number[]))) fails.push(`a sloped spot ${JSON.stringify(s)}: heights ${hs.join(',')}`);
 }
-if (!rough.length) fails.push('a sloped plot with flat-enough ground has no spots');
+if (!rough.filter((s) => !s.prep).length) fails.push('a sloped plot with flat-enough ground has no level spots');
+if (rough.findIndex((s) => s.prep) >= 0 && rough.findIndex((s) => s.prep) < rough.filter((s) => !s.prep).length) fails.push('a spot to prepare comes before a level one');
+// (a tree on a level footprint: a spot to prepare)
+const woods = smallWorkSpots({ plots: [{ x1: 0, z1: 0, x2: 4, z2: 4, y: 64, ground: () => 64, wooded: (x, z) => x === 2 && z === 2 }], blocked: [] }, 3, 3);
+if (JSON.stringify(woods) !== JSON.stringify([{ x: 2, z: 2, y: 64, prep: true }])) fails.push(`a wooded spot: ${JSON.stringify(woods)}`);
 if (rough.some((s) => s.z + 2 >= 7 && s.z - 2 < 7)) fails.push('a spot straddles a 3-block bank');
 // Scale: a 60x60 plot with 400 blocked cells, as a menu at 25 agents might ask
 const many: Area[] = [];

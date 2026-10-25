@@ -255,6 +255,9 @@ export interface Initiative {
   /** No spot yet (s36): the plots were full, so its first step prepares a green (Plot.green = its id); x, y, z are the
    *  village's home until a spot on the green is found. */
   pending?: boolean;
+  /** #84: its spot lies between a pad village's pads on ground not level enough (or wooded): its build first prepares the
+   *  footprint and a ring round it (prepare_site margin=0). */
+  prep?: boolean;
   /** What its crew has gathered for it (the user's, s36: initiatives gather their own materials, storage is not drawn
    *  on), by item: logs as the village wood's log, cobblestone, sand. */
   gathered?: Record<string, number>;
