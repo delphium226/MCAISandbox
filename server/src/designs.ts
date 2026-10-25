@@ -38,7 +38,8 @@ export const MAX_SMELTS = 32;
  * building over HOUSE_UNITS), the importer's door fixes and snow's stand-in (vanillaPieces.ts), vanilla's lamps and
  * decorations as small works and its pens and farms as doorless yard works (smallWorks.ts).
  */
-export const VANILLA_ALL = /^(on|1|true)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'off');
+// (on by default since 10-25, the user's: "always use the newer building style"; =off turns it off)
+export const VANILLA_ALL = !/^(off|0|false|no)$/i.test(rawSetting('MC_VANILLA_ALL') ?? 'on');
 /** A larger home's budget (R1): vanilla's medium and big houses, and its small houses over HOUSE_UNITS (plains 5, taiga 1, 3
  *  and 5). A bigger house bills more; nothing is discounted. */
 export const HOUSE_UNITS_LARGE = 230;
@@ -58,7 +59,8 @@ export const houseBudget = (name: string) => (isLandmark(name) ? LANDMARK_UNITS 
  * every wooden block in another wood), and a wood for each neighbourhood among those with trees near home (grow.ts
  * hoodWood), its houses, small works and lamps in it; the style vote's options biome x wood (vote.ts).
  */
-export const WOOD_VARIANTS = /^(on|1|true)$/i.test(rawSetting('MC_WOOD_VARIANTS') ?? 'off');
+// (on by default since 10-25, the user's: "always use the newer building style"; =off turns it off)
+export const WOOD_VARIANTS = !/^(off|0|false|no)$/i.test(rawSetting('MC_WOOD_VARIANTS') ?? 'on');
 /** The woods a variant may take: refit.ts's list less bamboo (its planks come two a block) and the Nether's (no tree in the
  *  overworld, and stripped stems and hyphae bill 10-25% more: wood_variants.mts), so a variant's bill stays within 5%. */
 export const VARIANT_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak'];

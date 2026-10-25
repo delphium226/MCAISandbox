@@ -59,6 +59,11 @@ def commands():
     return out
 
 
+# Checks written for a default since changed: the setting they assume (small_works checks the small-work pieces of the
+# default library, before MC_VANILLA_ALL went on by default on 10-25; vanilla_all.mts checks the library with it on).
+CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off"}}
+
+
 def run(name, cmd, needs, logdir):
     missing = [p for p in needs if not os.path.exists(os.path.join(ROOT, p))]
     if missing:
@@ -67,7 +72,7 @@ def run(name, cmd, needs, logdir):
     try:
         # (A.3p: temperaments off, whatever the shell says: the goldens are of the picker without them)
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
-                           env={**os.environ, "MCAI_TEMPERAMENT": "off"})
+                           env={**os.environ, "MCAI_TEMPERAMENT": "off", **CHECK_ENV.get(name, {})})
         code, text, out = r.returncode, r.stdout + r.stderr, r.stdout
     except subprocess.TimeoutExpired:
         code, text, out = "timeout", "", ""

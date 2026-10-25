@@ -76,7 +76,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
 | `MC_GARDENS` | flag | `off` |  |  | #45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side of a house's door walkway (the walkway itself left as it is), one design a walkway's direction; a flower ring circles a green's centre, its four sides open. Planted from flowers... |
-| `MC_GEN_HOMES` | flag | `off` |  |  | Generated homes (buildingGen) beside the catalogue's. |
+| `MC_GEN_HOMES` | flag | `on` |  |  | Generated homes (buildingGen) beside the catalogue's. |
 | `MC_GREENS_PER` | string | (unset) |  |  | Members a green (the user's, s36): a village prepares one green per GREENS_PER members for small works (MC_GREENS_PER for experiments, s43). |
 | `MC_GROW` | flag | `on` |  |  | Growth after completion: neighbourhoods until a house per member; 0 turns it off. |
 | `MC_GROW_BATCH` | string | (unset) |  |  | Houses a growth layout lays out at once. |
@@ -93,10 +93,10 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PROJECTS` | flag | `on` |  |  | X.2: public works (MC_PROJECTS, on by default since X2p: 7 works in an hour, steady busy 1% -> 3-4%); the status quo option's id; how long a "no new work" win rests the question (2 min: at 5 the rests were most of each cycle, X2p). |
 | `MC_QUARTER` | number | `3` |  |  | X.2 part 2a: the most pieces a public work's quarter holds (MC_QUARTER; 1: a lone piece, as part 1). |
 | `MC_REFIT_FIRST` | flag | `off` |  |  | Refits offered before new public works. |
-| `MC_VANILLA_ALL` | flag | `off` |  |  | #104's R1 (MC_VANILLA_ALL=on; off by default): the jar's village pieces opened up. Every passing vanilla dwelling is kept (vanillaLibrary), larger homes pass up to HOUSE_UNITS_LARGE (one a neighbourhood: plan_layout's rule for a building over HOUSE_UNITS), the importer's door fixes and snow's... |
+| `MC_VANILLA_ALL` | flag | `on` |  |  | #104's R1 (MC_VANILLA_ALL=on; off by default): the jar's village pieces opened up. Every passing vanilla dwelling is kept (vanillaLibrary), larger homes pass up to HOUSE_UNITS_LARGE (one a neighbourhood: plan_layout's rule for a building over HOUSE_UNITS), the importer's door fixes and snow's... |
 | `MC_VANILLA_JAR` | string | (unset) |  |  | The Minecraft jar vanilla pieces and data are read from. |
 | `MC_VILLAGE_RANGE` | number | `144` |  |  | The village's range (growth reaches 16 inside it). |
-| `MC_WOOD_VARIANTS` | flag | `off` |  |  | #104's R2 (MC_WOOD_VARIANTS=on; off by default): wood variants of a design ("plains_small_house_1@spruce": its shape, every wooden block in another wood), and a wood for each neighbourhood among those with trees near home (grow.ts hoodWood), its houses, small works and lamps in it; the style... |
+| `MC_WOOD_VARIANTS` | flag | `on` |  |  | #104's R2 (MC_WOOD_VARIANTS=on; off by default): wood variants of a design ("plains_small_house_1@spruce": its shape, every wooden block in another wood), and a wood for each neighbourhood among those with trees near home (grow.ts hoodWood), its houses, small works and lamps in it; the style... |
 | `MC_WORKS_GROW` | flag | `off` |  |  | #75: works that grow with the village (off by default): standing buildings refitted a tier on their own cells (refit.ts), offered in the public-work vote where new works leave slots (runs/2026-10-21/works-grow/design.md). |
 | `MC_WORKS_REPEAT` | flag | `off` |  |  | #75: public works may repeat a piece once the unbuilt ones run out (off by default, s43). |
 

@@ -12,7 +12,8 @@ import { HOUSE_UNITS, HOUSE_UNITS_LARGE, MAX_SMELTS } from './designs';
 import type { Design } from './village';
 import { rawSetting } from './settings';
 
-export const GEN_HOMES = /^(on|1|true)$/i.test(rawSetting('MC_GEN_HOMES') ?? 'off');
+// (on by default since 10-25, the user's: "always use the newer building style"; =off turns it off)
+export const GEN_HOMES = !/^(off|0|false|no)$/i.test(rawSetting('MC_GEN_HOMES') ?? 'on');
 
 /** A neighbourhood's look, after vanilla's village of its biome. */
 export interface Family {
