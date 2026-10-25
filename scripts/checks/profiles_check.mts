@@ -45,6 +45,6 @@ ok(!errs({ schedule: sched }) && JSON.parse(profileEnv({ ...base, schedule: sche
 const w = checkSettings({ MC_TIME_SCALE: '2', MC_HASTE: '5' }, 'model').warnings;
 ok(w.length === 2 && !checkSettings({ MC_TIME_SCALE: '2', MC_HASTE: '5' }, 'staged').warnings.length, `speed-ups warned in model runs only (${w.length})`);
 const eff = effectiveSettings({ MC_LADDER: 'on' });
-ok(Object.keys(eff).length === SETTINGS.length && eff.MC_LADDER === 'on' && eff.MC_STORAGE_GROW === 'on' && eff.MC_LETTERS_PACE === 'off', 'effective settings: given over defaults, every entry');
+ok(Object.keys(eff).length === SETTINGS.length && eff.MC_LADDER === 'on' && eff.MC_STORAGE_GROW === 'on' && eff.MC_LETTERS_PACE === 'on', 'effective settings: given over defaults, every entry');
 console.log(fails ? `profiles_check: ${fails} of ${checks} failed` : `profiles_check: all ${checks} passed`);
 process.exit(fails ? 1 : 0);

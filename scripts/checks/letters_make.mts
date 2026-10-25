@@ -14,6 +14,7 @@ const villagesFile = process.argv[2] ?? 'mc/testcheckpoints/im2_mine/villages.js
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'letters-make-'));
 process.env.MC_LADDER = 'on';
 process.env.MC_LETTERS = 'on';
+process.env.MC_LETTERS_PACE = 'off'; // these cases are the rung without #134's pace (on by default since 10-25; letters_pace.mts covers it on)
 process.env.MC_CHOOSE = 'fixed';
 process.env.MC_TIME_SCALE = '1';
 process.env.MCAI_CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');

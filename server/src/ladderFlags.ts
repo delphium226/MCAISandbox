@@ -18,7 +18,8 @@ export const LETTERS = flag('MC_LETTERS');
 /** MC_LETTERS_PACE (#134): the letters rung at 1x: while the cane slots hold fewer than a slot's 14 stalks the merchant
  *  sells cane for them and harvests (or a top-up visit) replant from storage; and the first market stall is posted as a
  *  village work at completion (with MC_MERCHANT), so the merchant comes early. */
-export const LETTERS_PACE = flag('MC_LETTERS_PACE');
+/** (on by default since 10-25, the user's after test train 2; MC_LETTERS_PACE=off turns it off) */
+export const LETTERS_PACE = !/^(off|0|false|no)$/i.test(rawSetting('MC_LETTERS_PACE') ?? 'on');
 /** MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. */
 export const OWN_TOOLS = flag('MC_OWN_TOOLS');
 /** Up to this many miners at once on the iron level, each on its own leg (spec B2). */

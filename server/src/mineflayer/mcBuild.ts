@@ -86,11 +86,11 @@ const isLog = (n: string) => BUILD_ISLOG.has(n);
 const isLeaves = (n: string) => n.endsWith('_leaves');
 const FACES: Pos[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 /**
- * MC_PAD_HALO=on|N (#136; off by default): prepare_site blends a plot's outer margins into the ground, a slope of at most
+ * MC_PAD_HALO=on|N|off (#136; on by default since 10-25, the user's after test train 2): prepare_site blends a plot's outer margins into the ground, a slope of at most
  * 1 out to N blocks (5 when on), and seals the caves its cut opens (within 3 under a cut, and in a cut's face).
  */
 export const PAD_HALO = (() => {
-  const s = rawSetting('MC_PAD_HALO') ?? 'off';
+  const s = rawSetting('MC_PAD_HALO') ?? 'on';
   if (/^(on|true)$/i.test(s)) return 5;
   const n = Math.floor(Number(s));
   return Number.isFinite(n) && n > 0 ? Math.min(8, n) : 0;
