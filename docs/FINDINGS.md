@@ -2112,3 +2112,14 @@ CLAUDE.md when a phase ends.
   basics and prompt self on by default both model runs housed all 25 and had beds for 21 and 24 by hour 1. Members
   trapped underground (#133) were teleported 4 times in L1, two on the way back from the amethyst geode under the
   village. Logs: runs/2026-10-24/train2/ (report.md).
+- F316 (10-25, train3, #97/#122/#84) **Holds make nearly every model answer run (90-92% of model and fallback, 75-80% of
+  all with drops, against 69-78% and 37-49%) and cut model calls by about a third; per-building pads keep a slope's
+  ground (19% of the plot's columns changed against 46%) but starve the after phase of small works.** Pair C (the
+  combined model-driven run, blank land, 1x) was cut at AFTER ~90 by an overnight shutdown: lost picks fell from 302 /
+  278 / 320 a half hour to 122 / 54 / 57, menus shrank (2.5-2.9 options against 2.9-3.7) and $0.87 against $1.27. Policy
+  options were taken on 150 of 162 menus that had them, yet idle members with nothing feasible were sampled 3-8 times as
+  often as without (nearly all naming "enough projects open") and filler makes did not fall; with both flags in one run,
+  and only 10 minutes past minute 80, #122 is not judged (a rerun splits holds from policy options). C1's iron age came
+  at AFTER 84 against 40 because its iron stairs met caves five times (not a flag). Pair P (staged, the sloped s0 plot):
+  every pad passed pad_halo but one member-dug column; after 20 minutes busy 33% against 56%, initiatives offered on 27
+  of 507 menus against 161 of 818. Logs: runs/2026-10-25/train3/ (report.md).
