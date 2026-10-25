@@ -15,7 +15,8 @@
  */
 import { GOTHIC_PRESETS, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
 import { rawSetting } from './settings';
-import type { Monument, Village } from './village';
+import { placeOutward } from './outward';
+import { villageHome, type Area, type Monument, type Village } from './village';
 
 export const MONUMENT = {
   on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT') ?? 'off'),
@@ -182,4 +183,77 @@ export function monumentLine(m: Monument): string {
   const c = monumentPlan(m), st = currentStage(m);
   const yard = Object.entries(m.yard).map(([n, q]) => `${q} ${n}`).join(', ') || 'empty';
   return `${m.preset} 1:${m.scale} ${m.state}${st ? `, stage ${st}` : ''}: ${m.done.length} of ${c.jobs.length} jobs, ${c.jobs.filter((_, i) => m.done.includes(i)).reduce((t, j) => t + j.blocks, 0)} of ${c.design.blocks} blocks; yard ${yard}`;
+}
+
+/** The site search's hub (the meeting point's pad, else the storage hut, else the village's home) and home level. */
+export function siteHub(v: Village, fallbackY: number): { hub: { x: number; z: number } | null; home: number } {
+  const lay0 = v.layouts?.[0];
+  const hubPad = lay0?.pads?.find((q) => /meeting/.test(q.what)) ?? lay0?.pads?.[0];
+  const hut = v.storageHut;
+  const hub = hubPad ? { x: Math.round((hubPad.x1 + hubPad.x2) / 2), z: Math.round((hubPad.z1 + hubPad.z2) / 2) }
+    : hut ? { x: Math.round((hut.x1 + hut.x2) / 2), z: Math.round((hut.z1 + hut.z2) / 2) } : villageHome(v);
+  return { hub: hub ? { x: hub.x, z: hub.z } : null, home: lay0?.y ?? v.plots[0]?.y ?? fallbackY };
+}
+
+/**
+ * The cathedral's site (pure; monument_site's search, and the offline check's on a checkpoint's ground): outward.ts'
+ * placement of the footprint, its door (the west portal) toward the hub, off everything `takenAt` names, on a grid of
+ * every f-th column (a coarse cell is taken if any of its columns is, its ground the highest of them, none if any is
+ * water or unread). Each grid of `grids` in turn until one places it: a coarse grid is ~5x faster on the one event loop
+ * (lesson 16) but stricter at its edges, so a tight spot falls back to the finer.
+ */
+export function searchSite(m: Monument, input: {
+  hub: { x: number; z: number }; home: number; range: number;
+  ground: (x: number, z: number) => number | null; takenAt: (x: number, z: number) => boolean; grids: number[];
+}): { site: NonNullable<Monument['site']>; cost: number; f: number } | { why: string } {
+  const plan = monumentPlan(m).design;
+  const M = Math.min(input.range, 72 + Math.ceil(Math.max(plan.width, plan.depth) / 2));
+  const zc = Math.floor((plan.depth - 1) / 2);
+  let why = '';
+  for (const f of input.grids) {
+    const ax1 = input.hub.x - M, az1 = input.hub.z - M, N = Math.floor((2 * M + 1) / f);
+    const g = new Map<string, number | null>(), t = new Set<string>();
+    for (let i = 0; i < N; i++)
+      for (let j = 0; j < N; j++) {
+        let top: number | null = -Infinity;
+        let taken = false;
+        for (let dx = 0; dx < f; dx++)
+          for (let dz = 0; dz < f; dz++) {
+            const x = ax1 + i * f + dx, z = az1 + j * f + dz;
+            if (input.takenAt(x, z)) taken = true;
+            const h: number | null = top === null ? null : input.ground(x, z);
+            top = top === null || h === null ? null : Math.max(top, h);
+          }
+        g.set(`${i},${j}`, top);
+        if (taken) t.add(`${i},${j}`);
+      }
+    const placed = placeOutward({
+      area: { x1: 0, z1: 0, x2: N - 1, z2: N - 1 },
+      ground: (i, j) => g.get(`${i},${j}`) ?? null,
+      taken: (i, j) => t.has(`${i},${j}`),
+      hub: { x: Math.floor((input.hub.x - ax1) / f), z: Math.floor((input.hub.z - az1) / f) },
+      home: input.home, pads: [],
+      items: [{ name: 'cathedral', width: Math.ceil(plan.width / f), depth: Math.ceil(plan.depth / f), door: [0, Math.floor(zc / f)], out: [-1, 0] }],
+    })[0];
+    if (!placed || 'why' in placed) {
+      why = `no free ground for the cathedral (${plan.width}x${plan.depth}) within ${M} of the village (grids ${input.grids.join(', ')})`;
+      continue;
+    }
+    const x1 = ax1 + placed.x1 * f, z1 = az1 + placed.z1 * f;
+    const { w, d } = siteSize(m, placed.rotate);
+    return { site: { x1, z1, x2: x1 + w - 1, z2: z1 + d - 1, y: placed.y, rotate: placed.rotate }, cost: placed.cost, f };
+  }
+  return { why };
+}
+
+/** The ground the cathedral keeps off (lesson 30): the village's buildings, plots and layouts (3 round), its fields and
+ *  mine (2), other members' claims, and other villages' ground (5). */
+export function siteTaken(v: Village, others: Village[], mineBoxes: Area[], now: number, by: string): (x: number, z: number) => boolean {
+  const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
+  const claims = v.reservations.filter((r) => r.until > now && r.by !== by);
+  const fields = (v.layouts ?? []).flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])]);
+  return (x, z) => v.structures.some((q) => ins(q, x, z, 3)) || v.plots.some((q) => ins(q, x, z, 3))
+    || (v.layouts ?? []).some((q) => ins(q, x, z, 3)) || fields.some((q) => ins(q, x, z, 2)) || mineBoxes.some((b) => ins(b, x, z, 2))
+    || claims.some((q) => ins(q, x, z))
+    || others.some((o) => o.plots.some((q) => ins(q, x, z, 5)) || (o.layouts ?? []).some((q) => ins(q, x, z, 5)) || o.structures.some((q) => ins(q, x, z, 5)));
 }
