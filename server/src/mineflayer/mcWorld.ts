@@ -7873,7 +7873,8 @@ const QUICK_NEXT = /^(on|1|true|yes)$/i.test(rawSetting('MC_QUICK_NEXT') ?? '');
  *  answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts
  *  as an open project against INITIATIVES_MAX. The counterfactual on All1 and train 1 (runs/2026-10-24/collisions-97):
  *  56-63% of the model's lost picks were taken in flight by another member, 13-18% lost to the projects' cap. */
-const CHOICE_HOLDS = /^(on|1|true|yes)$/i.test(rawSetting('MC_CHOICE_HOLDS') ?? '');
+// (on by default since 10-25, the user's after test train 3, F316; MC_CHOICE_HOLDS=off turns it off)
+const CHOICE_HOLDS = !/^(off|0|false|no)$/i.test(rawSetting('MC_CHOICE_HOLDS') ?? 'on');
 /** #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options
  *  with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the
  *  village's cap (under twice it); the filler makes leave such a menu (spec runs/2026-10-24/policy-122). */

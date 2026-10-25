@@ -113,7 +113,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Custom archetypes as JSON ({name: {hex: {H,E,X,A,C,O: -1..1}, values: {openness, conservation, enhancement, transcendence: 0..1}, goal}}): a profile\'s "archetypes".' },
   { name: 'MC_CHOICE_FAMILIES', type: 'string', default: 'make,gather,works,light,catalog,furnish,initiatives,activities', group: 'choices', live: false, read: 'choose.ts',
     describe: 'Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8\'s baselines).' },
-  { name: 'MC_CHOICE_HOLDS', type: 'flag', default: 'off', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
+  { name: 'MC_CHOICE_HOLDS', type: 'flag', default: 'on', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
     describe: '#97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its answer runs or it is dropped, so no other member\'s menu offers them meanwhile; one shown a project of its own counts as an open project against INITIATIVES_MAX. The...' },
   { name: 'MC_CHOICE_INSTANCES', type: 'string', default: 'explore,start', group: 'choices', live: false, read: 'choose.ts',
     describe: 'Option kinds offered as several instances on one menu.' },

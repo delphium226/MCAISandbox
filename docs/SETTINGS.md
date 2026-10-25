@@ -52,7 +52,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_BAN_SCOPE` | string | (unset) |  |  | member: a failed choice bans the option for that member only (else the village). |
 | `MC_BLOCK_MIN` | number | `6` |  |  | Minutes a work block lasts (divided by the time scale). |
 | `MC_CHOICE_FAMILIES` | string | `make,gather,works,light,catalog,furnish,initiatives,activities` |  |  | Goal-2 families switched on (S.9: make, gather, works; B.4: light); empty: none (the golden check, A.8's baselines). |
-| `MC_CHOICE_HOLDS` | flag | `off` |  |  | #97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts as an open project against INITIATIVES_MAX. The... |
+| `MC_CHOICE_HOLDS` | flag | `on` |  |  | #97 (MC_CHOICE_HOLDS=on, off): a pending decision holds the options it was shown (their keys and further keys) until its answer runs or it is dropped, so no other member's menu offers them meanwhile; one shown a project of its own counts as an open project against INITIATIVES_MAX. The... |
 | `MC_CHOICE_INSTANCES` | string | `explore,start` |  |  | Option kinds offered as several instances on one menu. |
 | `MC_CHOOSE` | string | `fixed` | yes |  | Who picks after-completion chores: fixed (code), model, or scripted (staged runs). |
 | `MC_CHOOSE_BACKUP` | flag | `off` |  |  | MC_CHOOSE_BACKUP=on: the model names a second option, run when its first is taken by the time the pick runs, before a re-ask (All1, F304: 299 fixed picks for a taken pick and 475 re-asks with every member on the model). |
