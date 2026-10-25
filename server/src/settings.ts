@@ -329,7 +329,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The workers\' planner\'s least interval between plans.' },
   { name: 'MC_PLAN_MODEL', type: 'string', default: '', group: 'models', live: false, read: 'tieredBrain.ts',
     describe: 'The workers\' planner\'s model (default: the executors\').' },
-  { name: 'MC_POLICY_OPTIONS', type: 'flag', default: 'off', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
+  { name: 'MC_POLICY_OPTIONS', type: 'flag', default: 'on', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
     describe: '#122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code\'s policy gates become options with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the village\'s cap (under twice it); the filler makes leave such...' },
   { name: 'MC_PORT', type: 'number', default: '25565', group: 'server', live: false, read: 'mineflayer/index.ts, index.ts',
     describe: "The Minecraft server port Mineflayer connects to; in the sandbox, its game server's port (default 8765)." },

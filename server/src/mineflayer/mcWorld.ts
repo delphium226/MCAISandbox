@@ -8189,10 +8189,10 @@ const QUICK_NEXT = /^(on|1|true|yes)$/i.test(rawSetting('MC_QUICK_NEXT') ?? '');
  *  56-63% of the model's lost picks were taken in flight by another member, 13-18% lost to the projects' cap. */
 // (on by default since 10-25, the user's after test train 3, F316; MC_CHOICE_HOLDS=off turns it off)
 const CHOICE_HOLDS = !/^(off|0|false|no)$/i.test(rawSetting('MC_CHOICE_HOLDS') ?? 'on');
-/** #122 (MC_POLICY_OPTIONS=on, off): on a menu that is empty or holds only filler makes, code's policy gates become options
+/** #122 (MC_POLICY_OPTIONS; on by default since 10-25, the user's after the confirm run, F322; =off turns it off): on a menu that is empty or holds only filler makes, code's policy gates become options
  *  with their facts: a material nothing wants gathered anyway (under GATHER_ANYWAY_MAX in storage), a project past the
  *  village's cap (under twice it); the filler makes leave such a menu (spec runs/2026-10-24/policy-122). */
-const POLICY_OPTIONS = /^(on|1|true|yes)$/i.test(rawSetting('MC_POLICY_OPTIONS') ?? '');
+const POLICY_OPTIONS = !/^(off|0|false|no)$/i.test(rawSetting('MC_POLICY_OPTIONS') ?? 'on');
 const GATHER_ANYWAY_MAX = 192;
 const PAST_TAG = '[past a village limit]';
 /** A make of a good nothing uses now: its effect says it is for later, nothing places it, or it is the torch reserve (All1

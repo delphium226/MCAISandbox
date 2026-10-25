@@ -881,3 +881,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-25 (the user's, after test train 5, F321) **MC_PEN_VARIETY on by default** (#139: varied pens on a 25x13 annex,
   sheep, pigs, rabbits and goats; breed_pen 54 against 12, shear_pen ran; `=off` gives the classic pens). The choice
   golden pins it off. MC_FLOWER_MIX stays off until #140's fix; MC_POLICY_OPTIONS waits for the confirm run.
+- 10-25 (the user's, after the confirm run, F322) **MC_POLICY_OPTIONS on by default** (#122 with #142's fixes: busy
+  77.8/71.7% against 78.5/61.8% in hours 1-2, 192 against 99 initiatives, no [lag]; `=off` turns it off). The choice
+  golden and workshop_check pin it off (policy_options.mts checks the gated path).

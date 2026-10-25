@@ -75,6 +75,8 @@ process.env.MC_GOALS = 'off';
 process.env.MC_WORKS_GROW = 'off';
 // (#139's varied pens: on by default since 10-25, off here: the golden is of the classic pens' chores)
 process.env.MC_PEN_VARIETY ??= 'off';
+// (#122's policy options: on by default since 10-25, off here: the golden is of the menus without the gated options)
+process.env.MC_POLICY_OPTIONS ??= 'off';
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'choice-golden-'));
 const CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 process.env.MCAI_CHOICE_LOG = CHOICE_LOG;

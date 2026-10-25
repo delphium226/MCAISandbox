@@ -32,6 +32,9 @@ process.env.MC_CHOOSE = 'fixed';
 process.env.MC_CHOICE_FAMILIES = 'make,gather,works';
 process.env.MC_CHOICE_INSTANCES = 'explore,start';
 process.env.MC_TIME_SCALE = '1';
+// (#122's policy options, on by default since 10-25, turn a capped gather into a gated option; policy_options.mts checks
+// that path, so this check of the workshop's own caps runs without them)
+process.env.MC_POLICY_OPTIONS ??= 'off';
 process.env.MCAI_CHOICE_LOG = path.join(SCRATCH, 'choices.jsonl');
 const NOW = Date.parse('2026-10-14T12:00:00Z');
 const MIN = 60000;
