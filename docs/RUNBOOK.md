@@ -278,7 +278,7 @@ run minutes from the agent server's start, paused time left out.
   `python runs/2026-10-24/collisions-97/counterfactual.py RUN.choices.jsonl` counts the lost picks a hold would have
   prevented). `MC_POLICY_OPTIONS=on` (#122, off): on a menu that is empty or holds only filler makes (effect "later",
   "nothing places it yet", the torch reserve), code's gates become options tagged `[past a village limit]` with their facts:
-  a material nothing wants gathered anyway (under 192 in storage) and another project past the 3-open cap (under 6); the
+  a material nothing wants gathered anyway (under 192 in storage, never sand: #142) and another project past the 3-open cap (under 6); the
   filler leaves such a menu (`scripts/checks/policy_options.mts`; bench runs/2026-10-24/policy-122/). The panel shows all of it: the village card's Economy tab and the simple
   view's Economy card (members' wealth, the board, inventions, goals), a wealth line on each agent card;
   `runs/2026-10-21/s44/panel_harness.mts VILLAGES.json [PORT]` serves the page against a sim run's record (the sim now keeps

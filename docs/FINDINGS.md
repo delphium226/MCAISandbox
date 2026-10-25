@@ -2133,3 +2133,13 @@ CLAUDE.md when a phase ends.
   and its walks stalled 1,107 times against 119 (members in the mine's tunnels under the storage hut, and the gated sand
   at a lake). Letters came at AFTER 175 in C1 against 112 (its shelving stage took an hour). Logs:
   runs/2026-10-25/train3r/ (report.md).
+- F318 (10-25, prompt-117 session, #142) **C1's late event loop was held by the menus' light and furniture parts, whose
+  cache key cost more than the cache saved, not by the gated spot search.** CPU profile of choices() for 25 members on
+  C1's own end record (217 structures, 166 small works built; runs/2026-10-25/policy-142/): 5.4 ms a menu with policy
+  options on, 4.7 off (0.3-1.7 on a fresh checkpoint); lightPartsOf took 336 of 579 ms self time (its signature
+  stringified every structure, done build and lit spot on each of several calls a menu), smallWorkSpot 78 ms. A quick
+  signature of counts and ids checked first: 2.4 ms on, 1.45 off; the past-cap spot search only on a menu that is filler
+  so far: 2.15 on. A late sweep (25 members, ~3 menus each) from ~400 to ~160 ms. Also: held decisions shown a project
+  count as one open project at most (three counted as three, filling the cap while none chose one), and sand is never
+  gathered anyway (collect's lake-edge sand sent C1's gatherers into the water). The walks in the mine's tunnels were not
+  traced. Offline only; checks parts_cache.mts, choice_holds.mts, policy_options.mts.

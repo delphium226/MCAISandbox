@@ -141,7 +141,8 @@ for (const { a, m } of first) {
   ok(!lost.length, `${a.name}'s own options left its menu: ${lost.map((o: Any) => o.id).join(', ')}`);
   mute();
 }
-// 3. The projects' cap: decisions shown a project of their own fill it
+// 3. The projects' cap: pending decisions shown a project of their own count as one open project at most (#142: one each
+// filled the cap while none chose one)
 for (const { a } of first) w.dropDecision(w.pending.get(a.name.toLowerCase()), 'busy');
 const initiators: Any[] = [];
 for (const a of agents.slice(1)) {
@@ -154,9 +155,12 @@ for (const a of agents.slice(1)) {
 }
 const offered = agents.filter((b) => !w.pending.has(b.name.toLowerCase())).filter((b) => (w.choices(b)?.options ?? []).some((o: Any) => o.kind === 'initiate')).length;
 const openNow = (v.initiatives ?? []).filter((i: Any) => i.state === 'open').length;
+const other = agents.find((b) => !w.pending.has(b.name.toLowerCase()));
+const counted = w.heldProjects(v, other);
 unmute();
-if (initiators.length + openNow >= 3) ok(OFF ? offered > 0 : offered === 0, `${offered} members offered a project of their own with ${initiators.length} pending and ${openNow} open`);
-else quiet.log(`  (the cap not reached: ${initiators.length} pending initiators, ${openNow} open)`);
+ok(counted === (OFF || !initiators.length ? 0 : 1), `the cap counts ${counted} for ${initiators.length} pending decisions shown a project`);
+if (openNow + (OFF ? 0 : Math.min(1, initiators.length)) < 3) ok(offered > 0, `${offered} members offered a project of their own with ${initiators.length} pending and ${openNow} open`);
+else ok(offered === 0, `${offered} members offered a project of their own past the cap`);
 mute();
 // 4. Every decision dropped: the menus as before
 for (const a of initiators) w.dropDecision(w.pending.get(a.name.toLowerCase()), 'busy');
@@ -165,7 +169,7 @@ unmute();
 ok(w.pending.size === 0, `${w.pending.size} decisions left pending`);
 ok([...before].every(([k, s]) => after.get(k) === s), 'the menus differ after every hold was released');
 const shown = [...before.values()].filter(Boolean).length;
-quiet.log(`  ${OFF ? 'flag off' : 'flag on'}: ${first.length} decisions in flight, ${cost}; ${initiators.length} shown a project; ${offered} others offered a project then; ${shown} members with a menu`);
+quiet.log(`  ${OFF ? 'flag off' : 'flag on'}: ${first.length} decisions in flight, ${cost}; ${initiators.length} shown a project (counted ${counted}); ${offered} others offered a project then; ${shown} members with a menu`);
 
 if (!OFF) {
   const out = execFileSync(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'scripts/checks/choice_holds.mts', cpDir], { env: { ...process.env, CHOICE_HOLDS_CHILD: 'off', MC_CHOICE_HOLDS: 'off' }, encoding: 'utf8' });

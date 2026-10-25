@@ -8,7 +8,7 @@
  *      options, gather anyway and another project past the cap, each tagged, none a filler make;
  *   B. the same with a real option on the menu (one project open and not pending: a help step): no gated option, and the
  *      gates' reasons kept ("gather: nothing wanted", "initiate: enough projects open");
- *   C. a material at GATHER_ANYWAY_MAX in storage is not offered anyway;
+ *   C. a material at GATHER_ANYWAY_MAX in storage is not offered anyway, and sand never is (#142);
  * and flag off (a child run): no gated option anywhere, and the reasons as before.
  * Usage: node node_modules/tsx/dist/cli.mjs scripts/checks/policy_options.mts [CHECKPOINT_DIR]   (default mc/testcheckpoints/im2_mine)
  */
@@ -109,6 +109,8 @@ unmute();
 const gatedOf = (o: Any) => o.mark === TAG;
 const filler = (o: Any) => o.kind === 'make' && /\blater\b|nothing places it yet|the reserve kept beyond/.test(o.effect);
 const withGated = A.filter((m) => m.options.some(gatedOf));
+// (#142: sand is never gathered anyway: collect's lake-edge sand sent gatherers into the water)
+ok(!A.some((m) => m.options.some((o: Any) => o.id === 'gather:sand' && gatedOf(o))), 'A: sand offered anyway');
 if (OFF) {
   ok(!withGated.length, `flag off: ${withGated.length} menus with a gated option`);
 } else {
@@ -146,10 +148,10 @@ if (!OFF) {
 w.heldProjects = () => 3;
 // C: a material at the cap is not gathered anyway
 mute();
-chest0.items.sand = 192;
+chest0.items[logs] = 192;
 const C = snap();
 unmute();
-if (!OFF) ok(!C.some((m) => m.options.some((o: Any) => o.id === 'gather:sand' && gatedOf(o))), 'C: sand at 192 still gathered anyway');
+if (!OFF) ok(!C.some((m) => m.options.some((o: Any) => o.id === 'gather:logs' && gatedOf(o))), 'C: logs at 192 still gathered anyway');
 quiet.log(`  ${OFF ? 'flag off' : 'flag on'}: A ${withGated.length} of ${A.length} menus gated; gated kinds ${[...new Set(A.flatMap((m) => m.options.filter(gatedOf).map((o: Any) => o.id)))].join(', ') || 'none'}`);
 
 if (!OFF) {

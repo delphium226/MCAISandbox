@@ -796,7 +796,7 @@ export class MineflayerWorld implements WorldAdapter {
   }
 
   /** decorParts' cache, by village, and the villages whose parts threw (logged once), as lighting's. */
-  private decorCache = new Map<string, { sig: string; parts: DecorPart[] }>();
+  private decorCache = new Map<string, { sig: string; quick?: { light: LightPart[]; key: string }; parts: DecorPart[] }>();
   private decorFailed = new Set<string>();
 
   /**
@@ -817,11 +817,21 @@ export class MineflayerWorld implements WorldAdapter {
 
   private decorPartsOf(v: Village): DecorPart[] {
     const wood = this.catalogWoodOf(v);
-    const buildings = this.lightParts(v).filter((P) => P.kind === 'building' && P.place && P.structure && P.structure.kind !== STORAGE_HUT && P.structure.kind !== MINING_HUT && !/_meeting_point_/.test(P.place.design.name) && !P.place.noSign);
+    // (#142: as lightParts, a quick signature first: lightParts' own cached result, the wood, the signs' and the furnished
+    // spots' counts, and what home basics and own chests read)
+    const light = this.lightParts(v);
+    const key = `${wood}|${(v.layouts ?? []).map((l) => l.signs?.length ?? 0).join(',')}|${Object.entries(v.decor ?? {}).map(([k, r]) => `${k}:${r.done.length}/${r.never?.length ?? 0}`).join(',')}|`
+      + Object.entries(v.homes ?? {}).map(([n, h]) => (h?.chest ? `${n}@${h.chest.x},${h.chest.y},${h.chest.z}` : n)).join(',');
+    const hit = this.decorCache.get(v.name);
+    if (hit?.quick?.light === light && hit.quick.key === key) return hit.parts;
+    const buildings = light.filter((P) => P.kind === 'building' && P.place && P.structure && P.structure.kind !== STORAGE_HUT && P.structure.kind !== MINING_HUT && !/_meeting_point_/.test(P.place.design.name) && !P.place.noSign);
     const signs = (v.layouts ?? []).flatMap((l) => l.signs ?? []);
     const sig = JSON.stringify([wood, buildings.map((P) => [P.part, P.place!.design.name, P.place!.x, P.place!.z, P.place!.rot, P.structure!.y, P.walk]), signs.map((q) => `${q.x},${q.layer},${q.z}`), v.decor ?? null]);
     const old = this.decorCache.get(v.name);
-    if (old?.sig === sig) return old.parts;
+    if (old?.sig === sig) {
+      old.quick = { light, key };
+      return old.parts;
+    }
     const parts: DecorPart[] = [];
     for (const P of buildings) {
       const st = P.structure!, place = P.place!;
@@ -848,7 +858,7 @@ export class MineflayerWorld implements WorldAdapter {
       parts.push({ part: P.part, label: P.label, structure: st, place, walk: P.walk, spots, open, ...(own ? { chest: own } : {}), ...(basics ? { basics } : {}) });
     }
     parts.sort((p, q) => q.open.length - p.open.length);
-    this.decorCache.set(v.name, { sig, parts });
+    this.decorCache.set(v.name, { sig, quick: { light, key }, parts });
     return parts;
   }
 
@@ -1110,8 +1120,9 @@ export class MineflayerWorld implements WorldAdapter {
 
   // ---- B.4: lighting's parts and the torch demand (pure; the menu, the skill and the offline checks read them) ----------
 
-  /** lightParts' cache, by village: the signature it was computed on (L3; left out of the golden check's purity snapshot). */
-  private lightCache = new Map<string, { sig: string; parts: LightPart[] }>();
+  /** lightParts' cache, by village: the signature it was computed on (L3; left out of the golden check's purity snapshot),
+   *  and the quick signature checked first (#142). */
+  private lightCache = new Map<string, { sig: string; quick: string; parts: LightPart[] }>();
 
   /**
    * The parts a village lights (B.4, D3, D9): its buildings (structures with a design in v.designs and a done Build task
@@ -1136,6 +1147,16 @@ export class MineflayerWorld implements WorldAdapter {
 
   private lightPartsOf(v: Village): LightPart[] {
     const m = v.mine;
+    // (#142: the full signature stringified every structure, done build and lit spot on each call, several calls a member's
+    // menu: 336 of 579 ms of C1's late menus (217 structures, 166 small works). The quick one counts the same things; only
+    // when it changes is the full one worked out. Done builds, lit spots and structures are only added or replaced, so a
+    // change moves a count or an id)
+    const doneBuilds = v.tasks.reduce((n, t) => n + (t.status === 'done' ? 1 : 0), 0);
+    const quick = `${v.complete ?? false}|${v.structures.length}:${v.structures.map((st) => st.id).join(',')}|${v.tasks.length}:${doneBuilds}|${Object.keys(v.designs).length}|`
+      + `${(v.layouts ?? []).map((l) => `${l.signs?.length ?? 0}/${l.lamps?.length ?? 0}`).join(',')}|${Object.entries(v.lights ?? {}).map(([k, r]) => `${k}:${r.done.length}/${r.never?.length ?? 0}`).join(',')}|`
+      + JSON.stringify(m ? [m.level, m.steps, m.stopped, m.dug, (m.legs ?? []).map((l) => [l.main, l.br, l.dug, l.ended, l.end]), m.down, m.iron ? [m.iron.x, m.iron.z, m.iron.steps, m.iron.level, m.iron.finished, m.iron.legs.map((l) => [l.dug, l.end])] : null] : null);
+    const hit = this.lightCache.get(v.name);
+    if (hit?.quick === quick) return hit.parts;
     const builds = v.tasks.filter((t) => t.status === 'done' && /^build_design "/.test(t.detail)).map((t) => t.detail.slice(0, 120));
     const sig = JSON.stringify([
       v.complete ?? false, v.structures.map((st) => `${st.id}:${st.kind}:${st.x1},${st.z1},${st.y}`), builds, Object.keys(v.designs),
@@ -1144,7 +1165,10 @@ export class MineflayerWorld implements WorldAdapter {
       v.lights ?? null,
     ]);
     const old = this.lightCache.get(v.name);
-    if (old?.sig === sig) return old.parts;
+    if (old?.sig === sig) {
+      old.quick = quick;
+      return old.parts;
+    }
     const rec = (part: string) => v.lights?.[part];
     const unlitOf = (part: string, keys: string[]) => {
       const r = rec(part);
@@ -1205,7 +1229,7 @@ export class MineflayerWorld implements WorldAdapter {
       }
     }
     const parts = [...buildings, ...mine];
-    this.lightCache.set(v.name, { sig, parts });
+    this.lightCache.set(v.name, { sig, quick, parts });
     return parts;
   }
 
@@ -4677,13 +4701,14 @@ export class MineflayerWorld implements WorldAdapter {
     return out;
   }
 
-  /** MC_CHOICE_HOLDS: the other members' pending decisions shown a project of their own (each counts as one open). */
+  /** MC_CHOICE_HOLDS: whether another member's pending decision was shown a project of its own, as one open project at
+   *  most (#142: counted one each, they filled the cap while none chose one: 61% of train 3's cap-gate samples had fewer
+   *  projects open than the cap; most decisions shown a project choose something else). */
   private heldProjects(v: Village, a: BotAgent): number {
     if (!CHOICE_HOLDS) return 0;
     const me = a.name.toLowerCase();
-    let n = 0;
-    for (const p of this.pending.values()) if (p.village === v.name && p.id !== me && p.initiates) n++;
-    return n;
+    for (const p of this.pending.values()) if (p.village === v.name && p.id !== me && p.initiates) return 1;
+    return 0;
   }
 
   /** MC_CHOICE_HOLDS: a pending decision's holds gone (answered, expired or dropped): the next sweep within QUICK_GAP_MS, so a
@@ -5908,7 +5933,8 @@ export class MineflayerWorld implements WorldAdapter {
         // (#122: nothing wants it: gathered anyway as a gated option, while storage holds little of it; its stops are not
         // the gather's reasons)
         const anyway = w.want <= 0;
-        if (anyway && !(POLICY_OPTIONS && stored < GATHER_ANYWAY_MAX)) continue;
+        // (#142: never sand: the lake-edge sand collect takes for dry sent train 3's gatherers into the water, 544 [stuck])
+        if (anyway && !(POLICY_OPTIONS && stored < GATHER_ANYWAY_MAX && m !== 'sand')) continue;
         const note = (x: string) => {
           if (!anyway) why.push(x);
         };
@@ -6184,8 +6210,9 @@ export class MineflayerWorld implements WorldAdapter {
       const mineOpen = open.some((i) => i.by === a.name);
       // (#97: with holds, the projects other members are choosing now count as open)
       const openN = open.length + this.heldProjects(v, a);
-      // (#122: past the cap, under twice it, a member's projects are gated options)
-      const past = POLICY_OPTIONS && openN >= INITIATIVES_MAX && openN < 2 * INITIATIVES_MAX;
+      // (#122: past the cap, under twice it, a member's projects are gated options; #142: only on a menu that is filler so
+      // far, as the gate keeps them only there: the spot search ran for every member past the cap and was thrown away)
+      const past = POLICY_OPTIONS && openN >= INITIATIVES_MAX && openN < 2 * INITIATIVES_MAX && out.every((o) => gated.has(o) || o.kind === 'eat' || isFiller(o));
       if (mineOpen) why.push('own project open');
       else if (openN >= INITIATIVES_MAX && !past) why.push('enough projects open');
       else {
