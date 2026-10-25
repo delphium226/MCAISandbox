@@ -52,6 +52,8 @@ import { CHOOSE } from '../choose';
 import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { zoneBoxes } from '../rules';
 import { rawSetting } from '../settings';
+import { jobTargets, monumentPlan, siteSize } from '../monument';
+import { GOTHIC_STAGES } from '../gothicGen';
 
 type Pos = [number, number, number];
 
@@ -4589,6 +4591,136 @@ async function prepareWorks(a: BotAgent, _args: Record<string, unknown>, signal:
   }
 }
 
+/**
+ * The monument's site (M1, #144; MC_MONUMENT): a chore the first member to take it runs once. The cathedral's footprint
+ * is placed by outward.ts' slope-scored search (#138) on a coarse grid (1:2 and larger read every second or third
+ * column: the search is O(positions x pad cells) on the one event loop, lesson 16), the door (the west portal) toward
+ * the meeting point, off every building, plot, layout, field, the mine, members' claims and other villages' ground
+ * (lesson 30). Its ground is recorded at once (a structure "cathedral" every later layout keeps off), then prepared at
+ * the pad's level in parts of at most 40 a side (prepare_site's limit), each with a 2-block margin that blends the
+ * edge (#84's halo).
+ */
+async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const m = v?.monument;
+  if (!v || !m) throw new Error('monument_site: the village has no monument');
+  if (m.site?.prepared) return `the cathedral's site at ${areaText(m.site)} is already prepared`;
+  const reg = a.world.villages;
+  if (!m.site) {
+    const plan = monumentPlan(m).design;
+    const lay0 = v.layouts?.[0];
+    const hubPad = lay0?.pads?.find((q) => /meeting/.test(q.what)) ?? lay0?.pads?.[0];
+    const hut = v.storageHut;
+    const hub = hubPad ? { x: Math.round((hubPad.x1 + hubPad.x2) / 2), z: Math.round((hubPad.z1 + hubPad.z2) / 2) }
+      : hut ? { x: Math.round((hut.x1 + hut.x2) / 2), z: Math.round((hut.z1 + hut.z2) / 2) } : villageHome(v);
+    if (!hub) throw new Error('monument_site: the village has no home');
+    const home = lay0?.y ?? v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
+    const f = m.scale >= 4 ? 1 : m.scale >= 2 ? 2 : 3;
+    const M = Math.min(VILLAGE_RANGE, 72 + Math.ceil(Math.max(plan.width, plan.depth) / 2));
+    const ax1 = hub.x - M, az1 = hub.z - M, N = Math.floor((2 * M + 1) / f);
+    const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
+    const others = [...reg.villages.values()].filter((o) => o !== v);
+    const now = Date.now();
+    const claims = v.reservations.filter((r) => r.until > now && r.by !== a.name);
+    const mineBoxes = v.mine ? mineAreas(v.mine) : [];
+    const fields = (v.layouts ?? []).flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])]);
+    const takenAt = (x: number, z: number) => v.structures.some((q) => ins(q, x, z, 3)) || v.plots.some((q) => ins(q, x, z, 3))
+      || (v.layouts ?? []).some((q) => ins(q, x, z, 3)) || fields.some((q) => ins(q, x, z, 2)) || mineBoxes.some((b) => ins(b, x, z, 2))
+      || claims.some((q) => ins(q, x, z))
+      || others.some((o) => o.plots.some((q) => ins(q, x, z, 5)) || (o.layouts ?? []).some((q) => ins(q, x, z, 5)) || o.structures.some((q) => ins(q, x, z, 5)));
+    // (a coarse cell is the f x f columns from its corner: taken if any is, its ground the highest of them, none if any
+    // is water or unread)
+    const grid = await withScanTurn(signal, () => {
+      const py = Math.floor(a.bot.entity.position.y);
+      const g = new Map<string, number | null>();
+      const t = new Set<string>();
+      for (let i = 0; i < N; i++)
+        for (let j = 0; j < N; j++) {
+          let top: number | null = -Infinity;
+          let taken = false;
+          for (let dx = 0; dx < f; dx++)
+            for (let dz = 0; dz < f; dz++) {
+              const x = ax1 + i * f + dx, z = az1 + j * f + dz;
+              if (takenAt(x, z)) taken = true;
+              const c: Surface | null = top === null ? null : surfaceAt(a, x, z, py);
+              top = top === null || !c || c.liquid || c.block === 'air' ? null : Math.max(top, c.y);
+            }
+          g.set(`${i},${j}`, top);
+          if (taken) t.add(`${i},${j}`);
+        }
+      return { g, t };
+    });
+    const zc = Math.floor((plan.depth - 1) / 2);
+    const placed = placeOutward({
+      area: { x1: 0, z1: 0, x2: N - 1, z2: N - 1 },
+      ground: (i, j) => grid.g.get(`${i},${j}`) ?? null,
+      taken: (i, j) => grid.t.has(`${i},${j}`),
+      hub: { x: Math.floor((hub.x - ax1) / f), z: Math.floor((hub.z - az1) / f) },
+      home, pads: [],
+      items: [{ name: 'cathedral', width: Math.ceil(plan.width / f), depth: Math.ceil(plan.depth / f), door: [0, Math.floor(zc / f)], out: [-1, 0] }],
+    })[0];
+    if (!placed || 'why' in placed) {
+      m.fails = (m.fails ?? 0) + 1;
+      m.backoff = Date.now() + 10 * 60000;
+      reg.save();
+      throw new Error(`monument_site: no free ground for the cathedral (${plan.width}x${plan.depth}) within ${M} of the village${placed && 'why' in placed ? `: ${placed.why}` : ''}`);
+    }
+    const x1 = ax1 + placed.x1 * f, z1 = az1 + placed.z1 * f;
+    const { w, d } = siteSize(m, placed.rotate);
+    m.site = { x1, z1, x2: x1 + w - 1, z2: z1 + d - 1, y: placed.y, rotate: placed.rotate, by: a.name };
+    const id = reg.id('s');
+    v.structures.push({ id, x1, z1, x2: x1 + w - 1, z2: z1 + d - 1, y: placed.y, kind: 'cathedral', builtBy: a.name });
+    m.structure = id;
+    reg.save();
+    reg.note(v, `${a.name} chose the cathedral's site at ${areaText(m.site)} (level ${placed.y}, turned ${placed.rotate})`);
+    console.log(`[monument] ${v.name}: ${a.name} chose the site at ${areaText(m.site)} y=${placed.y} rotate=${placed.rotate} (cost ${placed.cost}, grid ${f})`);
+  }
+  // The pad: the footprint and a ring of 1, in parts of at most 40 a side, each at the pad's level
+  const s = m.site;
+  const px1 = s.x1 - 1, pz1 = s.z1 - 1, px2 = s.x2 + 1, pz2 = s.z2 + 1;
+  const nx = Math.ceil((px2 - px1 + 1) / 40), nz = Math.ceil((pz2 - pz1 + 1) / 40);
+  const sw = Math.ceil((px2 - px1 + 1) / nx), sd = Math.ceil((pz2 - pz1 + 1) / nz);
+  const done: string[] = [];
+  for (let i = 0; i < nx; i++)
+    for (let j = 0; j < nz; j++) {
+      const qx1 = px1 + i * sw, qz1 = pz1 + j * sd, qx2 = Math.min(px2, qx1 + sw - 1), qz2 = Math.min(pz2, qz1 + sd - 1);
+      const w = qx2 - qx1 + 1, d = qz2 - qz1 + 1;
+      const r = await prepareSite(a, { x: qx1 + Math.floor(w / 2), z: qz1 + Math.floor(d / 2), width: w, depth: d, margin: 2, y: s.y }, signal);
+      done.push(`${areaText({ x1: qx1, z1: qz1, x2: qx2, z2: qz2 })}: ${r.slice(0, 80)}`);
+    }
+  s.prepared = true;
+  m.state = 'building';
+  reg.save();
+  reg.note(v, `${a.name} prepared the cathedral's pad at ${areaText(s)}`);
+  console.log(`[monument] ${v.name}: ${a.name} prepared the pad at ${areaText(s)} y=${s.y} in ${done.length} part${done.length > 1 ? 's' : ''}`);
+  return `prepared the cathedral's pad at ${areaText(s)}, level ${s.y} (${done.length} part${done.length > 1 ? 's' : ''}: ${done.join('; ').slice(0, 240)})`;
+}
+
+/**
+ * One of the monument's jobs (M1, #144): its cells (gothicGen.ts' job, 300-800 blocks) placed at the site by command and
+ * charged to the builder, as build_design places a design (runJob: what is missing is taken from storage or made there),
+ * without build_design's site checks (the cathedral stands on its own pad and each job builds on the last). The ground it
+ * works on is claimed; the cathedral's own structure record is not in its way.
+ */
+async function buildMonument(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const v = a.village();
+  const m = v?.monument;
+  const index = num(args.job, 'job');
+  if (!v || !m?.site?.prepared) throw new Error('build_monument: the cathedral has no prepared site');
+  if (m.done.includes(index)) return `job ${index} of the cathedral is already built`;
+  const plan = monumentPlan(m);
+  const j = plan.jobs[index];
+  if (!j) throw new Error(`build_monument: the cathedral has no job ${index}`);
+  const targets: Target[] = jobTargets(m, index, turnState);
+  const area = { x1: Math.min(...targets.map((t) => t.x)), z1: Math.min(...targets.map((t) => t.z)), x2: Math.max(...targets.map((t) => t.x)), z2: Math.max(...targets.map((t) => t.z)) };
+  const what = `the cathedral's ${GOTHIC_STAGES[j.stage - 1]} (job ${index})`;
+  const summary = await runJob(a, {
+    targets, area, y: Math.min(...targets.map((t) => t.y)), what,
+    claim: { area, purpose: `build ${what}`, avoidStructures: false },
+  }, signal);
+  return `built ${what}: ${summary}`;
+}
+
 /** The village preparing its storage yard (#121; one at a time, the chore's lock). */
 export const storeBusy = new Set<string>();
 
@@ -7360,6 +7492,9 @@ export const BUILD_SKILLS: Record<string, McSkill> = {
   prepare_works: { run: prepareWorks },
   // (#121's, a chore code queues: the storage yard)
   prepare_storage_yard: { run: prepareStorageYard },
+  // (M1's, chores: the monument's site and its jobs, MC_MONUMENT)
+  monument_site: { run: monumentSite },
+  build_monument: { check: (x) => void num(x.job, 'job'), run: buildMonument },
   place_works_furnace: { check: (x) => void num(x.k, 'k'), run: placeWorksFurnace },
   // (B.4's, a chore too: torches from storage into a building or a part of the mine)
   put_up_torches: { check: (x) => (str(x.part, 'part'), num(x.count, 'count'), undefined), run: partsBack(putUpTorches) },

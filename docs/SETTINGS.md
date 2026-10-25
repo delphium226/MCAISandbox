@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-195 settings.
+200 settings.
 
 ## Game speed
 
@@ -208,6 +208,11 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_LETTERS_PACE` | flag | `on` |  | `MC_LETTERS` | MC_LETTERS_PACE (#134): the letters rung at 1x: while the cane slots hold fewer than a slot's 14 stalks the merchant sells cane for them and harvests (or a top-up visit) replant from storage; and the first market stall is posted as a village work at completion (with MC_MERCHANT), so the merchant... |
 | `MC_MINE_LEAVE` | string | (unset) |  |  | A tunnel's holder leaves its junction's branches to miners waiting for a face and digs on along the main tunnel (S.2; MC_MINE_LEAVE=0 for comparison runs: the holder then digs main, left, right in order however many wait). |
 | `MC_MINE_LEVEL_CELLS` | string | (unset) |  |  | Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). |
+| `MC_MONUMENT` | flag | `off` |  | `MC_IRON_AGE` | MC_MONUMENT=on (M1, #144; off by default): once the village completes the iron age it builds a Gothic cathedral drawn by gothicGen.ts, stage by stage, on a pad of its own at the edge of the village, with no vote (the user, 10-25); members gather each stage bill into a yard (a ledger over storage, outside the bulk cap) and build its jobs of 300-800 blocks. |
+| `MC_MONUMENT_PALETTE` | string | `today` |  | `MC_MONUMENT` | today (cobblestone, a roof of the village wood, plain panes: what the skills of today gather) or full (the stone bricks, tuff, deepslate tiles and stained glass, for M2). |
+| `MC_MONUMENT_PRESET` | string | `notre_dame` |  | `MC_MONUMENT` | The cathedral gothicGen.ts draws: notre_dame, salisbury or chartres. |
+| `MC_MONUMENT_SCALE` | number | `0.5` |  | `MC_MONUMENT` | The scale against the real cathedral: 0.5 (1:2, the first target) or 0.25 (1:4, the first live test). |
+| `MC_MONUMENT_SHARE` | number | `0.6` |  | `MC_MONUMENT` | At most this share of a menu may be monument options (one at least), so food, the ladder and chores go on. |
 | `MC_ORE_MINE` | flag | `off` |  | `MC_IRON_AGE` | MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. |
 | `MC_ORE_VEIN` | flag | `off` |  |  | Ore veins followed in the mine (with the ore mine). |
 | `MC_OWN_TOOLS` | flag | `off` |  |  | MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. |

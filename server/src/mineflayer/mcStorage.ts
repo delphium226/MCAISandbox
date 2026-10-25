@@ -521,8 +521,11 @@ const spoiledBy = new Map<string, Record<string, number>>();
  */
 async function spoilSurplus(a: BotAgent, v: Village, test: (n: string) => boolean, needed: (n: string) => boolean, notes: string[]): Promise<void> {
   const carried: Record<string, number> = {};
-  for (const it of a.bot.inventory.items()) if (BULK_STONE.test(it.name) && test(it.name) && !needed(it.name)) carried[it.name] = (carried[it.name] ?? 0) + it.count;
-  const split = spoilSplit(storageContents(v), carried);
+  // (M1, #144: a trip for the monument keeps its load, and the monument's yard is not counted against the cap)
+  for (const it of a.bot.inventory.items()) if (BULK_STONE.test(it.name) && test(it.name) && !needed(it.name) && a.memory.monumentGather !== it.name) carried[it.name] = (carried[it.name] ?? 0) + it.count;
+  const stored = { ...storageContents(v) };
+  for (const [n, q] of Object.entries(v.monument?.yard ?? {})) if (stored[n]) stored[n] = Math.max(0, stored[n] - q);
+  const split = spoilSplit(stored, carried);
   if (!Object.keys(split).length) return;
   const done: Record<string, number> = {};
   for (const [n, q] of Object.entries(split)) {

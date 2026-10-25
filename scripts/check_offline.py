@@ -52,6 +52,8 @@ def commands():
     # (#142: lightParts' and decorParts' quick signatures keep the cached parts right through each change they read)
     out["parts_cache"] = ([node, TSX, "scripts/checks/parts_cache.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (#115: the settings registry against the server's reads, and docs/SETTINGS.md up to date)
+    # (M1, #144: the monument's trigger, yard, jobs and share on im2_mine with the iron rung set by hand)
+    out["monument_unit"] = ([node, TSX, "scripts/checks/monument_unit.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])

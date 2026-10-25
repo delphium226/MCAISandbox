@@ -245,6 +245,30 @@ export interface Design {
   /** The style code drew it from (buildingGen.ts, phase D.2). */
   style?: BuildingStyle;
 }
+/** The monument (M1, #144; monument.ts): a Gothic cathedral (gothicGen.ts) built stage by stage after the iron age. */
+export interface Monument {
+  preset: string;
+  /** 1:scale (2 for 1:2). */
+  scale: number;
+  palette: 'today' | 'full';
+  /** The village wood its roof uses (today's palette). */
+  wood: string;
+  at: number;
+  state: 'site' | 'building' | 'built';
+  /** The pad: the footprint as turned, its level and turn (build_design's), and whether it is prepared. */
+  site?: { x1: number; z1: number; x2: number; z2: number; y: number; rotate: number; prepared?: boolean; by?: string };
+  /** Jobs built (indexes into the plan's jobs). */
+  done: number[];
+  /** The yard: raw items gathered for the current stage and not built with yet (a ledger over the village storage). */
+  yard: Record<string, number>;
+  /** Each stage's first job built and its last (ms). */
+  stages: Array<{ began?: number; ended?: number }>;
+  fails?: number;
+  backoff?: number;
+  built?: number;
+  /** The structure record that keeps its ground (its id). */
+  structure?: string;
+}
 /** A member's initiative (s35): a small work on the village's ground, built by whoever helps. */
 export interface Initiative {
   id: string; by: string; kind: string; design: string; x: number; y: number; z: number; at: number;
@@ -498,6 +522,8 @@ export interface Village {
   /** G8 (MC_LADDER): the ladder of ages (ladder.ts); never written with the flag off. wanted.ts reads `current` and
    *  `offered` only. */
   ladder?: LadderState;
+  /** M1 (#144, MC_MONUMENT): the cathedral the village builds after the iron age (monument.ts). */
+  monument?: Monument;
   plots: Plot[];
   structures: Structure[];
   designs: Record<string, Design>;
