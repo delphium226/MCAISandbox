@@ -24,7 +24,8 @@ import { WORKS_FURNACES, WORKS_TABLE_RANGE, decorCarried, holdKey, holdsRelease,
 import type { MakeGood } from './mcWorkshop';
 import { TEMPERAMENT_MODE, temperament } from '../temperament';
 import { WOOD_VARIANTS, doorOutward, outsideCells, turnState, variantWood } from '../designs';
-import { holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
+import { doorOf, holdsSign, holdsStandingTorch, holdsTorch, placeFarm, placedDoor, type SignSpot } from '../streetPlan';
+import { GROW_OUTWARD, placeOutward, type OutwardPlace } from '../outward';
 import { MINING_HUT, STORAGE_HUT, STORAGE_HUT_STATIONS, storageYardCandidates, storageYardSpots } from '../huts';
 import type { DecorPart, LightPart } from './mcWorld';
 import type { BotAgent } from './botAgent';
@@ -1766,14 +1767,29 @@ async function preparePath(a: BotAgent, args: Record<string, unknown>, signal: A
   const left = pads.filter((q) => q.kind === 'building' && (q.y === undefined || !whole?.parts?.some((p) => p.x1 === q.x1 && p.z1 === q.z1 && p.x2 === q.x2 && p.z2 === q.z2)));
   if (left.length) throw new Error(`the buildings' pads are not all prepared yet (${left.map((q) => q.what).slice(0, 3).join(', ')}${left.length > 3 ? ' ...' : ''}); the path joins their levels, so prepare them first`);
   const H = 3;
-  const area = { x1: lay.x1 - H, z1: lay.z1 - H, x2: lay.x2 + H, z2: lay.z2 + H };
+  // #138 (MC_GROW_OUTWARD): an outward building's layout (a later pad layout of a village whose first is on pads) joins
+  // the tree of the others' paths, already planned or graded, and their door steps; the area reaches its nearest cell
+  const first = v.layouts![0];
+  const outwardLay = lay !== first && !!first.pads;
+  const padLays = outwardLay ? v.layouts!.filter((l) => l !== lay && l.pads) : [];
+  const tree: Array<[number, number, number]> = padLays.flatMap((l) => [
+    ...(l.paths ?? []).flatMap((q) => q.cells ?? []),
+    ...l.pads!.filter((q) => q.door && q.y !== undefined).map((q): [number, number, number] => [q.door!.x, q.door!.z, q.y!]),
+  ]).filter(([, , y]) => Number.isFinite(y));
+  const mid = { x: (lay.x1 + lay.x2) / 2, z: (lay.z1 + lay.z2) / 2 };
+  const near = tree.reduce<[number, number, number] | null>((b, c) => (!b || Math.hypot(c[0] - mid.x, c[1] - mid.z) < Math.hypot(b[0] - mid.x, b[1] - mid.z) ? c : b), null);
+  const reach = 6;
+  const area = near
+    ? { x1: Math.min(lay.x1, near[0]) - reach, z1: Math.min(lay.z1, near[1]) - reach, x2: Math.max(lay.x2, near[0]) + reach, z2: Math.max(lay.z2, near[1]) + reach }
+    : { x1: lay.x1 - H, z1: lay.z1 - H, x2: lay.x2 + H, z2: lay.z2 + H };
+  const fields = (outwardLay ? v.layouts! : [lay]).flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])]);
   const reg = a.world.villages;
   const others = [...reg.villages.values()].filter((o) => o !== v);
   const builtCells = [...reg.villages.values()].flatMap((o) => o.structures);
   const mineBoxes = v.mine ? mineAreas(v.mine) : [];
   const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
   const blocked = (x: number, z: number) => others.some((o) => o.plots.some((q) => ins(q, x, z, 2)) || (o.layouts ?? []).some((q) => ins(q, x, z, 2)) || o.structures.some((q) => ins(q, x, z, 1)))
-    || mineBoxes.some((b) => ins(b, x, z)) || !!lay.farm && ins(lay.farm, x, z) || (lay.slots ?? []).some((q) => ins(q, x, z))
+    || mineBoxes.some((b) => ins(b, x, z)) || fields.some((q) => ins(q, x, z))
     || builtCells.some((q) => ins(q, x, z) && !pads.some((p) => p.kind === 'building' && p.inner && ins(p.inner, x, z)));
   if (!rec.cells && !rec.fail) {
     await turn.take(signal);
@@ -1807,8 +1823,11 @@ async function preparePath(a: BotAgent, args: Record<string, unknown>, signal: A
     // (planned by another path's call meanwhile: its plan stands)
     if (!lay.paths!.some((q) => q.cells || q.fail)) {
       const ground = (x: number, z: number) => gm!.get(`${x},${z}`) ?? null;
-      const hub = Math.max(0, pads.findIndex((q) => /meeting/.test(q.what)));
-      const planned = planPadPaths({ area, pads: pads.map((q) => ({ ...q, y: q.y! })), hub, ground, blocked });
+      const hub = outwardLay ? -1 : Math.max(0, pads.findIndex((q) => /meeting/.test(q.what)));
+      // (an outward layout's own pads first, so the plan's pad indices are the layout's; the others' pads shape the grade)
+      const others = padLays.flatMap((l) => l.pads!.filter((q) => q.y !== undefined));
+      const planned = planPadPaths({ area, pads: [...pads, ...others].map((q) => ({ ...q, y: q.y! })), hub, ground, blocked,
+        ...(outwardLay ? { tree, only: pads.map((_, i) => i) } : {}) });
       for (const q of lay.paths!) {
         const p = planned.find((r) => r.pad === q.pad);
         if (!p || p.fail) q.fail = p?.fail ?? `the door of ${q.what} has no path`;
@@ -2221,9 +2240,11 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
     // (a pad's halo inside its own layout: not onVillageGround, which counts the whole layout at any height, but off every
     // other pad, prepared or not, and 2 round any building: the spec's review, B1)
     // (and off the paths' cells, #84 C2: a pad prepared again after them leaves their grade be, the review's M3)
-    const pathCells = new Set((lay?.paths ?? []).flatMap((q) => (q.cells ?? []).map(([px, pz]) => `${px},${pz}`)));
+    // (#138: every pad layout's pads and paths, an outward building's halo beside the first plot's included)
+    const padLays = (v?.layouts ?? []).filter((l) => l.pads);
+    const pathCells = new Set(padLays.flatMap((l) => (l.paths ?? []).flatMap((q) => (q.cells ?? []).map(([px, pz]) => `${px},${pz}`))));
     const onPadGround = (x: number, z: number) => !!pad && !!lay && x >= lay.x1 - 2 && x <= lay.x2 + 2 && z >= lay.z1 - 2 && z <= lay.z2 + 2;
-    const otherPad = (x: number, z: number) => !!lay?.pads?.some((q) => q !== pad && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2) || pathCells.has(`${x},${z}`);
+    const otherPad = (x: number, z: number) => padLays.some((l) => l.pads!.some((q) => q !== pad && x >= q.x1 && x <= q.x2 && z >= q.z1 && z <= q.z2)) || pathCells.has(`${x},${z}`);
     const nearBuilding = (x: number, z: number) => builtCells.some((s) => x >= s.x1 - 2 && x <= s.x2 + 2 && z >= s.z1 - 2 && z <= s.z2 + 2);
     const free = (x: number, z: number) => ours(x, z) && (onPadGround(x, z) ? !otherPad(x, z) && !nearBuilding(x, z) : !onVillageGround(a, x, z))
       && !mineBoxes.some((b) => x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2)
@@ -2361,7 +2382,9 @@ async function prepareSiteHeld(a: BotAgent, args: Record<string, unknown>, signa
       let rec = v.plots.find((q) => q.pads && sameAsLay(q));
       if (!rec) {
         rec = { x1: lay.x1, z1: lay.z1, x2: lay.x2, z2: lay.z2, y: lay.y ?? y, id: a.world.villages.id('plot'), preparedBy: a.name, parts: [], pads: true };
-        v.plots.unshift(rec);
+        // (the first layout's goes first, plots[0]; an outward building's, #138, after the others)
+        if (layN === 1) v.plots.unshift(rec);
+        else v.plots.push(rec);
       }
       if (!rec.parts!.some(same)) rec.parts!.push({ x1: x0, z1: z0, x2: x1, z2: z1 });
       const i = v.plots.findIndex((q) => q.pad && same(q));
@@ -4255,6 +4278,98 @@ export const growReach = (S: number) => Math.min(GROW.range, VILLAGE_RANGE - Mat
 
 /** The ground growSite keeps off (its doc), read now: built again after the survey to test the square chosen (the village's
  *  records may have changed meanwhile, s30's review). */
+/**
+ * #138 (MC_GROW_OUTWARD): lay_out_houses on a village laid out on pads. The ground round the village's pads is read, and
+ * outward.ts places each house in turn on the nearest good spot (slope, water, distance from the meeting point, the
+ * levels rule), each posted as a layout of its own (postLayout's `outward`): its pad, its path to the village's paths
+ * and its build, as a neighbourhood's. Kept off every pad, path, field, building and side plot of the village, the mine,
+ * lamps, signs, members' claims and other villages' ground (lesson 30). The growth record is the neighbourhood's (one
+ * active, from the first layout posted).
+ */
+async function layOutOutward(a: BotAgent, v: Village, houses: string[], project: string | undefined, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+  const first = v.layouts![0];
+  const padLays = v.layouts!.filter((l) => l.pads);
+  const pads = padLays.flatMap((l) => l.pads!);
+  const hubPad = first.pads!.find((q) => /meeting/.test(q.what)) ?? first.pads![0];
+  const hub = { x: Math.round((hubPad.x1 + hubPad.x2) / 2), z: Math.round((hubPad.z1 + hubPad.z2) / 2) };
+  const home = first.y ?? v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
+  // The area: the pads' extent and 20 round it, at most 72 from the meeting point (the ground a member at home has loaded)
+  const R = 20, M = 72;
+  const area = {
+    x1: Math.max(hub.x - M, Math.min(...pads.map((q) => q.x1)) - R), z1: Math.max(hub.z - M, Math.min(...pads.map((q) => q.z1)) - R),
+    x2: Math.min(hub.x + M, Math.max(...pads.map((q) => q.x2)) + R), z2: Math.min(hub.z + M, Math.max(...pads.map((q) => q.z2)) + R),
+  };
+  const ins = (q: Area, x: number, z: number, n = 0) => x >= q.x1 - n && x <= q.x2 + n && z >= q.z1 - n && z <= q.z2 + n;
+  const reg = a.world.villages;
+  const others = [...reg.villages.values()].filter((o) => o !== v);
+  const pathCells = new Set(padLays.flatMap((l) => (l.paths ?? []).flatMap((q) => (q.cells ?? []).map(([x, z]) => `${x},${z}`))));
+  const fields = v.layouts!.flatMap((l) => [...(l.farm ? [l.farm] : []), ...(l.slots ?? [])]);
+  const marks = v.layouts!.flatMap((l) => [...(l.lamps ?? []), ...(l.signs ?? [])]);
+  const sides = v.plots.filter((q) => q.annex || q.works || q.green || q.field);
+  const sideRecs = [first.annex, first.works, first.store].filter((q): q is NonNullable<typeof q> => !!q && q.x2 >= q.x1);
+  const mineBoxes = v.mine ? mineAreas(v.mine) : [];
+  const now = Date.now();
+  const claims = v.reservations.filter((r) => r.until > now && r.by !== a.name);
+  // (a layout of this village not on pads, a neighbourhood from before: all of it)
+  const plainLays = v.layouts!.filter((l) => !l.pads);
+  const taken = (x: number, z: number) => pads.some((q) => ins(q, x, z)) || pathCells.has(`${x},${z}`) || fields.some((q) => ins(q, x, z, 1))
+    || marks.some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.z - z) <= 1) || v.structures.some((q) => ins(q, x, z, 2))
+    || sides.some((q) => ins(q, x, z, 2)) || sideRecs.some((q) => ins(q, x, z, 2)) || plainLays.some((q) => ins(q, x, z, 2))
+    || mineBoxes.some((b) => ins(b, x, z, 1)) || claims.some((q) => ins(q, x, z))
+    || others.some((o) => o.plots.some((q) => ins(q, x, z, 5)) || (o.layouts ?? []).some((q) => ins(q, x, z, 5)) || o.structures.some((q) => ins(q, x, z, 5)));
+  const gm = await withScanTurn(signal, () => {
+    const py = Math.floor(a.bot.entity.position.y);
+    const m = new Map<string, number | null>();
+    for (let x = area.x1; x <= area.x2; x++)
+      for (let z = area.z1; z <= area.z2; z++) {
+        const c = surfaceAt(a, x, z, py);
+        m.set(`${x},${z}`, !c || c.liquid || c.block === 'air' ? null : c.y);
+      }
+    return m;
+  });
+  const items = houses.filter((h) => v.designs[h]).map((h) => {
+    const d = v.designs[h];
+    const { door, out } = doorOf(d);
+    return { name: h, width: d.width, depth: d.depth, door, out };
+  });
+  if (!items.length) throw new Error(`lay_out_houses: no design for ${houses.join(', ')}`);
+  const placed = placeOutward({ area, ground: (x, z) => gm.get(`${x},${z}`) ?? null, taken, hub, home, pads: pads.filter((q) => q.y !== undefined).map((q) => ({ ...q, y: q.y! })), items });
+  // (no await from here to the record: D7)
+  if (!v.complete || v.growth?.active || (v.growth?.stop && !(project && /house design/.test(v.growth.stop)))) throw new Error('lay_out_houses: the village changed during the survey');
+  const before = new Set(v.tasks.map((t) => t.id));
+  const n0 = v.layouts!.length + 1;
+  const made: string[] = [], refused: string[] = [];
+  for (const p of placed) {
+    if ('why' in p) {
+      refused.push(p.why);
+      continue;
+    }
+    const out = postLayout(a.world, v, a.name, { x: p.x, y: p.y, z: p.z, size: Math.max(p.x2 - p.x1, p.z2 - p.z1) + 3 }, [p.name], true, undefined, { poster: 'grow', neighbourhood: true, outward: p as OutwardPlace });
+    if (out.startsWith('Laid out')) made.push(p.name);
+    else refused.push(out);
+  }
+  if (!made.length) throw new Error(`lay_out_houses: no house placed on the edge of the village (${refused.slice(0, 2).join('; ')})`);
+  const tasks = v.tasks.filter((t) => !before.has(t.id));
+  const lays = v.layouts!.slice(n0 - 1);
+  const g = (v.growth ??= { past: [] });
+  const k = lays[0].grow ?? g.past.length + 1;
+  const members = a.world.growMembers(v).length, H = housesOf(v);
+  const builds = tasks.filter((t) => /^Build /.test(t.title)).map((t) => t.id);
+  const plot = { x1: Math.min(...lays.map((l) => l.x1)), z1: Math.min(...lays.map((l) => l.z1)), x2: Math.max(...lays.map((l) => l.x2)), z2: Math.max(...lays.map((l) => l.z2)) };
+  const style = typeof args.style === 'string' && args.style ? args.style : undefined;
+  g.active = { k, layout: n0, from: Math.min(...tasks.map(taskNum)), at: Date.now(), by: a.name, plot, houses: made, builds, members, before: H, changed: Date.now(), sig: '', ...(style ? { style } : {}), ...(project ? { project } : {}) };
+  if (project && project !== 'farmstead') delete g.work;
+  else delete g.next;
+  delete g.tries;
+  delete g.noSite;
+  reg.save();
+  const where = lays.map((l) => `${l.buildings[0]} at ${areaText(l)} y=${l.pads?.[0]?.y}`).join('; ');
+  const dist = lays.map((l) => Math.round(Math.hypot((l.x1 + l.x2) / 2 - hub.x, (l.z1 + l.z2) / 2 - hub.z)));
+  console.log(`[grow] ${v.name}: outward ${k} by ${a.name}: ${made.length} of ${houses.length} placed (${where}), ${dist.join('/')} from the meeting point${refused.length ? `; refused: ${refused.join('; ').slice(0, 200)}` : ''}; members ${members}, houses ${H}; ${tasks.length} tasks`);
+  reg.note(v, `${a.name} laid out ${made.join(', ')} on the edge of the village${project ? ` (public work ${project})` : ''}`);
+  return `laid out ${made.length} ${project ? 'public work' : `house${made.length > 1 ? 's' : ''}`} on the edge of the village (${where}), ${tasks.length} tasks posted${refused.length ? `; not placed: ${refused.join('; ').slice(0, 160)}` : ''}`;
+}
+
 function growTaken(a: BotAgent, v: Village, home: { x: number; z: number }, r: number, use: 'build' | 'farm' = 'build'): Area[] {
   const lay0 = v.layouts?.[0];
   const pad = (q: Area, n: number) => ({ x1: q.x1 - n, z1: q.z1 - n, x2: q.x2 + n, z2: q.z2 + n });
@@ -4323,6 +4438,8 @@ async function layOutHouses(a: BotAgent, args: Record<string, unknown>, signal: 
       await walk(a, new goals.GoalNearXZ(Math.floor(home.x), Math.floor(home.z), 6), 'the village', signal, 120000).catch((e: Error) => {
         if (e.message === 'cancelled') throw e;
       });
+    // #138 (MC_GROW_OUTWARD): on a village laid out on pads, each house at the nearest good spot on its edge instead
+    if (GROW_OUTWARD && v.layouts?.[0]?.pads) return await layOutOutward(a, v, all.slice(0, Math.max(...opts.map((o) => o.n))), project, args, signal);
     const site = await growSite(a, v, opts, signal);
     if ('why' in site) {
       const S0 = opts[0].size, rest = opts.slice(1).map((o) => `${o.size}x${o.size}`);

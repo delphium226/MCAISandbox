@@ -12,6 +12,7 @@ import { nameForNew } from './placeNames';
 import { zoneConflict } from './rules';
 import { hutSpots, MINING_HUT, miningHutDesign, miningHutTurn, miningStairs, STORAGE_HUT, STORAGE_HUT_SPOTS, STORAGE_HUT_STAND, storageHutDesign } from './huts';
 import { rawSetting } from './settings';
+import type { OutwardPlace } from './outward';
 
 export interface Site {
   x: number;
@@ -133,7 +134,7 @@ export function prepParts(plot: Area, hut: Area, mine: Area, back: Area | undefi
  * layout (`farmWhy`). `opts.poster` (default `by`) posts the tasks ('grow' for growth, so the mayor's "laid out by me"
  * rules never see them); `by` stays the agent the material check counts with.
  */
-export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number, opts: { poster?: string; neighbourhood?: boolean; farm?: boolean; slots?: number } = {}): string {
+export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site | undefined, buildings: unknown, economy: boolean, workers?: number, opts: { poster?: string; neighbourhood?: boolean; farm?: boolean; slots?: number; outward?: OutwardPlace } = {}): string {
     const reg = w.villages;
     const poster = opts.poster ?? by;
     const nb = !!opts.neighbourhood;
@@ -161,7 +162,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       });
       if (!second.length) return `plan_layout: ${names.join(', ')} ${names.length > 1 ? 'are' : 'is'} already laid out; still waiting for a site: ${v.unplaced.join(', ')} (run find_site, then plan_layout with ${v.unplaced.length > 1 ? 'those names' : 'that name'})`;
       names.splice(0, names.length, ...second);
-    } else if (laidOut.length) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
+    // (#138: growing outward posts a layout a house, the batch's earlier ones still on the board)
+    } else if (laidOut.length && !opts.outward) return `plan_layout: the buildings are already on the task board (${laidOut.map((t) => t.id).join(', ')}); wait for them, or re-post a failed task with post_tasks`;
     // A new village's first layout gets the storage hut (villages laid out before it keep their loose chests)
     const withHut = economy && !v.storageHut && !v.storage?.chests.length && !v.layouts?.length;
     if (withHut) {
@@ -288,7 +290,14 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     };
     let street: StreetLayout | null = null;
     // A neighbourhood: plain crossing streets, every house placed or none (its pad was sized for them, grow.ts padFor)
-    if (nb) {
+    if (opts.outward) {
+      // #138 (MC_GROW_OUTWARD): one building where outward.ts placed it, on its own pad (the layout is the pad)
+      const o = opts.outward;
+      const pad = { x1: o.x1 - 1, z1: o.z1 - 1, x2: o.x2 + 1, z2: o.z2 + 1 };
+      if (names.length !== 1) return `plan_layout: an outward placement takes one building (${names.length} given)`;
+      street = { plot: pad, x: o.x, z: o.z, width: pad.x2 - pad.x1 + 1, depth: pad.z2 - pad.z1 + 1, streets: [], paths: [], unplaced: [],
+        places: [{ name: names[0], width: o.x2 - o.x1 + 1, depth: o.z2 - o.z1 + 1, x1: o.x1, z1: o.z1, x2: o.x2, z2: o.z2, x: o.x, z: o.z, rotate: o.rotate }] };
+    } else if (nb) {
       const items: PlanItem[] = names.map((n) => ({ name: n, width: v.designs[n].width, depth: v.designs[n].depth, ...doorOf(v.designs[n]) }));
       street = planStreets(site.x, site.z, streetLimit, null, items);
       if (street.unplaced.length) return `plan_layout: ${street.unplaced.join(', ')} ${street.unplaced.length > 1 ? 'do' : 'does'} not fit the ${streetLimit}x${streetLimit} neighbourhood along its streets`;
@@ -346,7 +355,8 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // (G3, MC_RULES: a zone the village voted keeps new plots off it; a field alone may lie in one kept for farms)
     const why = reg.conflict(v, plot, by) ?? zoneConflict(v.name, plot, raw.length ? 'build' : 'farm');
     if (why) return `plan_layout: the plot at ${areaText(plot)} is not free (${why}); run find_site again for another site`;
-    const clash = (v.layouts ?? []).find((l) => overlaps(plot, l, 2));
+    // (an outward placement keeps clear of the pads, fields and buildings itself: it may stand inside the first plot)
+    const clash = opts.outward ? undefined : (v.layouts ?? []).find((l) => overlaps(plot, l, 2));
     if (clash) return `plan_layout: the plot at ${areaText(plot)} overlaps the plot laid out for ${clash.buildings.join(', ')} (${areaText(clash)}); run find_site for a new site (it keeps off laid-out plots), then plan_layout again`;
     // (a neighbourhood also keeps off the annex and the works plot, recorded while they are prepared: one chosen during its
     // survey, D7)
@@ -372,7 +382,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // before the levelling); a village from before, a later plot or the sandbox are prepared whole
     const crew = workers ?? w.memberCount?.(v) ?? 0;
     // (MC_PAD_PER_BUILDING, #84 C1: a street plan's buildings and fields on pads of their own instead)
-    const onPads = PAD_PER_BUILDING && !!street && withHut && !!w.preparesParts && !!laid && !!mining;
+    const onPads = (PAD_PER_BUILDING && !!street && withHut && !!w.preparesParts && !!laid && !!mining) || !!opts.outward;
     const padRing = (q: Area) => ({ x1: q.x1 - 1, z1: q.z1 - 1, x2: q.x2 + 1, z2: q.z2 + 1 });
     const pads: NonNullable<NonNullable<Village['layouts']>[number]['pads']> | null = onPads
       ? [...lay.places].sort((p, q) => (q.name === STORAGE_HUT ? 1 : 0) - (p.name === STORAGE_HUT ? 1 : 0) || (q.name === MINING_HUT ? 1 : 0) - (p.name === MINING_HUT ? 1 : 0))
@@ -387,7 +397,9 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       : null;
     // (#84 C2: a path from each other building's door to the tree grown from the hub's, the meeting point's if any, else the
     // storage hut's; planned by the first path prepared, once every pad's level is known)
-    const hubPad = pads ? Math.max(0, pads.findIndex((q) => /meeting/.test(q.what))) : 0;
+    // (#138: an outward building's pad, at the level placement gave it, its door step as placed; its path joins the tree)
+    if (pads && opts.outward) Object.assign(pads[0], { y: opts.outward.y, door: opts.outward.door });
+    const hubPad = opts.outward ? -1 : pads ? Math.max(0, pads.findIndex((q) => /meeting/.test(q.what))) : 0;
     const paths: Array<{ pad: number; what: string }> = pads ? pads.map((q, k) => ({ pad: k, what: q.what, door: q.door })).filter((q) => q.pad !== hubPad && q.door).map(({ pad, what }) => ({ pad, what })) : [];
     const pathTasks: number[] = [];
     // (each pad's task index, by its rectangle: a building waits for its own pad)
@@ -412,7 +424,15 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       tasks.push({ title: `Prepare the village plot, part ${k} of ${parts!.length} (${q.what})`,
         detail: `prepare_site x=${q.x1 + Math.floor(wd / 2)} z=${q.z1 + Math.floor(dp / 2)} width=${wd} depth=${dp} layout=${nth} part=${k} (to the plot's one level${streets ? '; its streets laid as dirt_path' : ''})`, after: [] });
     };
-    if (pads) {
+    if (pads && opts.outward) {
+      // #138: the pad, then its path to the village's paths
+      allParts.push(tasks.length);
+      postPad(1);
+      paths.forEach((q, i) => {
+        pathTasks.push(tasks.length);
+        tasks.push({ title: `Prepare the path to ${q.what}`, detail: `prepare_site layout=${nth} path=${i + 1} (a graded dirt path from the door of ${q.what} to the village's other paths, steps of at most 1)`, after: [...allParts] });
+      });
+    } else if (pads) {
       // The huts' pads first (the storage hut's sets the home level), the rest after the storage hut's build
       for (let k = 1; k <= 2; k++) {
         hutParts.push(tasks.length);
@@ -439,7 +459,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     const storagePart = hutParts[0];
     // The rest of the plot, posted right after the storage hut's build (claimed in posting order: two workers start the mine
     // before the levelling); everything else on the plot waits for every part
-    let restPosted = !(parts || pads);
+    let restPosted = !(parts || pads) || !!opts.outward;
     const postRest = () => {
       if (restPosted || !(parts || pads)) return;
       restPosted = true;
@@ -577,7 +597,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
     // then, gathering posted only if it falls short (as a build's). Soft; the village is complete once they are lit. Only
     // where the world has the skill (not the sandbox). Placed before the buildings are posted: the windows' task makes
     // their torches (S.3)
-    const lamps = street && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
+    const lamps = street && !opts.outward && economy && w.skills.some((t) => t.name === 'light_streets') ? placeLamps(street, undefined, undefined, farm ? [farm] : []) : [];
     // The windows billed once (S.3): their sand posted early (gathered while the plot is prepared, as other sand), each
     // building with windows waiting for it as it waited for its own
     const windows = pooled ? w.sharedParts!(lay.places.filter((p) => p.name !== STORAGE_HUT).map((p) => v.designs[p.name]), wood) : null;
@@ -745,7 +765,7 @@ export function postLayout(w: WorldAdapter, v: Village, by: string, site: Site |
       : [];
     // A neighbourhood of houses gets its name (#10, placeNames.ts), on the third line of each house's sign (the owner's
     // name, N.2, rewrites the first two)
-    const hoodName = nb && placed.length && placed.every(isDwelling) ? nameForNew(v, (v.growth?.past.length ?? 0) + 1, (WOOD_VARIANTS && placed.map(variantWood).find(Boolean)) || (wood ?? v.wood)) : undefined;
+    const hoodName = nb && !opts.outward && placed.length && placed.every(isDwelling) ? nameForNew(v, (v.growth?.past.length ?? 0) + 1, (WOOD_VARIANTS && placed.map(variantWood).find(Boolean)) || (wood ?? v.wood)) : undefined;
     if (hoodName) for (const s of signs) s.text = [s.text[0], s.text[1] ?? '', hoodName];
     for (const s of signs) {
       const b = buildOf.get(`${s.cx},${s.cz}`);

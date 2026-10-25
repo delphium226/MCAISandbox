@@ -152,6 +152,11 @@ run minutes from the agent server's start, paused time left out.
   the free chest spots (`MC_STORAGE_BARRELS=on|off`, on; 15 spots, 405 slots); a **tidy-up** (`tidy_storage`, kind
   `tidy`) when items in another group's chest fill 6 slots or more and two spots are free, at most every 10 minutes, by an
   idle fed member (`[storage] ... tidies` / `tidied`; with `MC_NEED_WORKS`).
+- **Growing outward** (#138, `MC_GROW_OUTWARD=on`, off by default; only on a village whose first layout is on pads):
+  growth's lay_out_houses places each house at the nearest good spot on the village's edge (`outward.ts`: slope, water,
+  distance from the meeting point, the pads' levels rule) as a layout of its own: its pad, a graded path joining the
+  village's paths (`planPadPaths` with `tree`), its build. `[grow] V: outward K by NAME: n of m placed (...), D/D/...
+  from the meeting point`. Check: `scripts/checks/grow_outward.mts`. Notes: `runs/2026-10-25/grow-outward/`.
 - **Per-building pads** (#84 C1, `MC_PAD_PER_BUILDING=on`, off by default; spec and review
   `runs/2026-10-24/layout-measure/spec_c.md`): a village's first street plan is laid out on pads. Each building, the
   wheat field and each farm slot gets its footprint and a 1-block ring at its own level, with a halo of `MC_PAD_HALO`'s

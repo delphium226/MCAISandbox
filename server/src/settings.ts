@@ -173,6 +173,8 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Houses a growth layout lays out at once.' },
   { name: 'MC_GROW_FARMS', type: 'flag', default: 'off', group: 'building', live: false, read: 'grow.ts',
     describe: 'Neighbourhood fields and farm slots.' },
+  { name: 'MC_GROW_OUTWARD', type: 'flag', default: 'off', group: 'building', live: false, read: 'outward.ts',
+    describe: 'MC_GROW_OUTWARD=on (#138; off by default): on a village laid out on pads (MC_PAD_PER_BUILDING), growth places each new house at the nearest good spot on the edge of the village, on its own pad joined to the paths, instead of a neighbourhood on a flat plot found further off.' },
   { name: 'MC_GROW_RANGE', type: 'string', default: '', group: 'building', live: false, read: 'grow.ts',
     describe: 'How far from the village growth may lay out.' },
   { name: 'MC_HASTE', type: 'number', default: '0', group: 'speed', live: false, notIn: ['acceptance'], read: 'mineflayer/mcRules.ts',

@@ -34,6 +34,10 @@ export interface PathInput {
   ground: (x: number, z: number) => number | null;
   /** Columns paths keep off besides footprints and fields (other villages, the mine, built things). */
   blocked?: (x: number, z: number) => boolean;
+  /** #138 (MC_GROW_OUTWARD): the paths already graded, [x, z, y] (their cells kept at their levels: new paths join them),
+   *  and the pads to plan paths for (the others are on the tree already). With a tree, `hub` may be -1. */
+  tree?: Array<[number, number, number]>;
+  only?: number[];
 }
 
 export interface PlannedPath {
@@ -54,8 +58,10 @@ const cheb = (a: Area, x: number, z: number) => Math.max(a.x1 - x, x - a.x2, a.z
 /** Paths for every building pad with a door but the hub's, in the order they join the tree (nearest the hub first). */
 export function planPadPaths(input: PathInput): PlannedPath[] {
   const { area, pads, ground } = input;
-  const hub = pads[input.hub];
-  if (!hub) return [];
+  const hub = pads[input.hub] as PathPad | undefined;
+  const tree = input.tree ?? [];
+  const fixed = new Map(tree.map(([x, z, y]) => [key(x, z), y]));
+  if (!hub && !tree.length) return [];
   const padAt = (x: number, z: number) => pads.find((p) => inside(p, x, z));
   // (footprints and fields are never walked through: a field's ring and a building's ring are, being the pads' edges)
   const hard = (x: number, z: number) => !inside(area, x, z) || pads.some((p) => (p.kind === 'field' ? inside(p, x, z) : !!p.inner && inside(p.inner, x, z)))
@@ -71,13 +77,18 @@ export function planPadPaths(input: PathInput): PlannedPath[] {
   };
   // (the tree starts at the hub's door, or with no door (a meeting point, open on every side) anywhere on its ring)
   const ring: Array<[number, number]> = [];
-  if (!hub.door) for (let x = hub.x1; x <= hub.x2; x++) for (let z = hub.z1; z <= hub.z2; z++) if (!(hub.inner && inside(hub.inner, x, z)) && !input.blocked?.(x, z)) ring.push([x, z]);
-  const at0 = hub.door ?? { x: Math.round((hub.x1 + hub.x2) / 2), z: Math.round((hub.z1 + hub.z2) / 2) };
-  const on = new Set<string>(hub.door ? [key(hub.door.x, hub.door.z)] : ring.map(([x, z]) => key(x, z)));
-  const centre: Array<[number, number]> = hub.door ? [[hub.door.x, hub.door.z]] : [];
+  if (hub && !hub.door) for (let x = hub.x1; x <= hub.x2; x++) for (let z = hub.z1; z <= hub.z2; z++) if (!(hub.inner && inside(hub.inner, x, z)) && !input.blocked?.(x, z)) ring.push([x, z]);
+  const at0 = !hub ? { x: tree[0][0], z: tree[0][1] } : hub.door ?? { x: Math.round((hub.x1 + hub.x2) / 2), z: Math.round((hub.z1 + hub.z2) / 2) };
+  const on = new Set<string>(!hub ? [] : hub.door ? [key(hub.door.x, hub.door.z)] : ring.map(([x, z]) => key(x, z)));
+  const centre: Array<[number, number]> = hub?.door ? [[hub.door.x, hub.door.z]] : [];
+  // (the tree already graded: on it, and part of the centreline whose levels anchor the new paths' grades)
+  for (const [x, z] of tree) if (!on.has(key(x, z))) {
+    on.add(key(x, z));
+    centre.push([x, z]);
+  }
   const inCentre = new Set(centre.map(([x, z]) => key(x, z)));
   const lines: PlannedPath[] = [];
-  const order = pads.map((p, k) => ({ p, k })).filter(({ p, k }) => k !== input.hub && p.kind === 'building' && p.door)
+  const order = pads.map((p, k) => ({ p, k })).filter(({ p, k }) => k !== input.hub && p.kind === 'building' && p.door && (!input.only || input.only.includes(k)))
     .sort((a, b) => Math.abs(a.p.door!.x - at0.x) + Math.abs(a.p.door!.z - at0.z) - (Math.abs(b.p.door!.x - at0.x) + Math.abs(b.p.door!.z - at0.z)) || a.k - b.k);
   for (const { p, k } of order) {
     const start: [number, number] = [p.door!.x, p.door!.z];
@@ -111,12 +122,16 @@ export function planPadPaths(input: PathInput): PlannedPath[] {
   const h = new Map<string, number>();
   for (const [x, z] of centre) {
     const p = padAt(x, z);
+    if (fixed.has(key(x, z))) {
+      h.set(key(x, z), fixed.get(key(x, z))!);
+      continue;
+    }
     if (p && p.kind === 'building') {
       h.set(key(x, z), p.y);
       continue;
     }
     const [lo, hi] = env(x, z);
-    const gg = g(x, z) ?? hub.y;
+    const gg = g(x, z) ?? hub?.y ?? tree[0][2];
     h.set(key(x, z), lo <= hi ? Math.max(lo, Math.min(hi, gg)) : Math.round((lo + hi) / 2));
   }
   const relax = (sign: 1 | -1) => {
@@ -124,6 +139,7 @@ export function planPadPaths(input: PathInput): PlannedPath[] {
     for (let changed = true; changed;) {
       changed = false;
       for (const [x, z] of centre) {
+        if (fixed.has(key(x, z))) continue;
         let best = e.get(key(x, z))!;
         for (let dx = -1; dx <= 1; dx++)
           for (let dz = -1; dz <= 1; dz++) {
@@ -141,9 +157,10 @@ export function planPadPaths(input: PathInput): PlannedPath[] {
   };
   const lower = relax(1), upper = relax(-1);
   const t = new Map<string, number>();
-  for (const [x, z] of centre) t.set(key(x, z), Math.floor((lower.get(key(x, z))! + upper.get(key(x, z))!) / 2));
-  // The cells each path adds: its centreline and its sides, a cell to the first path that reaches it
-  const taken = new Set<string>();
+  for (const [x, z] of centre) t.set(key(x, z), fixed.get(key(x, z)) ?? Math.floor((lower.get(key(x, z))! + upper.get(key(x, z))!) / 2));
+  // The cells each path adds: its centreline and its sides, a cell to the first path that reaches it (never a cell of
+  // the tree already graded)
+  const taken = new Set<string>(fixed.keys());
   const hubCells: Array<[number, number, number]> = [];
   // (every centreline cell to its own path first: a cell taken as another's side would keep the side's level)
   const own = (out: Array<[number, number, number]>, x: number, z: number) => {
@@ -172,9 +189,9 @@ export function planPadPaths(input: PathInput): PlannedPath[] {
         out.push([X, Z, y]);
       }
   };
-  if (hub.door) own(hubCells, hub.door.x, hub.door.z);
+  if (hub?.door) own(hubCells, hub.door.x, hub.door.z);
   for (const L of lines) for (const [x, z] of L.line) own(L.cells, x, z);
-  if (hub.door) add(hubCells, hub.door.x, hub.door.z);
+  if (hub?.door) add(hubCells, hub.door.x, hub.door.z);
   for (const L of lines) for (const [x, z] of L.line) add(L.cells, x, z);
   // (the hub's door cell and its sides go with the first path)
   if (lines.length && hubCells.length) lines.find((L) => !L.fail)?.cells.unshift(...hubCells);

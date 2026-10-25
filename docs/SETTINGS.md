@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-192 settings.
+193 settings.
 
 ## Game speed
 
@@ -81,6 +81,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_GROW` | flag | `on` |  |  | Growth after completion: neighbourhoods until a house per member; 0 turns it off. |
 | `MC_GROW_BATCH` | string | (unset) |  |  | Houses a growth layout lays out at once. |
 | `MC_GROW_FARMS` | flag | `off` |  |  | Neighbourhood fields and farm slots. |
+| `MC_GROW_OUTWARD` | flag | `off` |  |  | MC_GROW_OUTWARD=on (#138; off by default): on a village laid out on pads (MC_PAD_PER_BUILDING), growth places each new house at the nearest good spot on the edge of the village, on its own pad joined to the paths, instead of a neighbourhood on a flat plot found further off. |
 | `MC_GROW_RANGE` | string | (unset) |  |  | How far from the village growth may lay out. |
 | `MC_HOUSING` | flag | `on` |  |  | N.2 housing (s37; on by default since s38, MC_HOUSING=off turns it off): each member owns a house, a street of houses is a member's own project (the chore menu's `grow:street`) or a voted work, and growth's code trigger is retired (growth lays out only on a request). Growth's machinery stays:... |
 | `MC_INITIATIVE_STORE` | flag | `on` |  |  | MC_INITIATIVE_STORE=off: initiatives gather all their own (s36's rule); on by default since s40 (the user's, 10-20). |
