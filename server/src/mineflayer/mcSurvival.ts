@@ -9,6 +9,7 @@ import type { Entity } from 'prismarine-entity';
 import type { BotAgent } from './botAgent';
 import { STORAGE_HUT, STORAGE_HUT_STATIONS } from '../huts';
 import { mineAreas, mineCanGive, mineFor } from './mcMine';
+import { quarryFeeds, quarryFor } from './mcQuarry';
 import { STORAGE_SKILLS, hutY, partBurn, storageContents, withdrawItems } from './mcStorage';
 import type { McSkill } from './mcSkills';
 import { timeScale } from './mcRules';
@@ -35,7 +36,7 @@ function weakestTool(a: BotAgent, block: Block): string {
 }
 
 /** Walk to the drops that just fell near pos and pick them up (best effort, a few seconds at most). */
-async function pickUpDrops(a: BotAgent, pos: Vec3, signal: AbortSignal) {
+export async function pickUpDrops(a: BotAgent, pos: Vec3, signal: AbortSignal) {
   const bot = a.bot;
   const t0 = Date.now();
   await sleep(250, signal);
@@ -759,6 +760,15 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   // Sand no gatherer found near the village is not searched for again (F96: each futile search held the event loop)
   if (home?.unavailable?.includes(label.replace(/s$/, '')) || home?.unavailable?.includes(label))
     throw new Error(`no ${label} within 96 blocks of the village (found none before): it cannot be gathered here (a building that needs it goes without, or the task is handed back)`);
+  // M2 (#145, MC_QUARRY): the cathedral's cobblestone from its quarry, not the mine (what the pit cannot give comes as before)
+  if (home && a.memory.monumentGather === 'cobblestone' && label.replace(/s$/, '') === 'cobblestone' && quarryFeeds(home, 'cobblestone')) {
+    const r = await quarryFor(a, home, want, have, signal).catch((e: Error) => {
+      if (e.message === 'cancelled' || e instanceof ContentionError) throw e;
+      return { got: 0, why: e.message };
+    });
+    if (r.got > 0) return `collected ${r.got} cobblestone in the cathedral's quarry${r.got < want ? ` (${r.why})` : ''}`;
+    if (home.monument?.quarry && home.monument.quarry.state !== 'done') throw new Error(`the cathedral's quarry gave no cobblestone this time (${r.why}); collect again`);
+  }
   if (home && items.length && mineCanGive(home, label.replace(/s$/, ''))) {
     const { got, why, busy } = await mineFor(a, home, want, have, signal);
     if (got >= want) return `collected ${got} ${label} in the village mine (${home.mine!.dug} tunnel cells dug so far)`;

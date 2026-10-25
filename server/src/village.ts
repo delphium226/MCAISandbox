@@ -10,6 +10,8 @@ import path from 'node:path';
 import type { BuildingStyle } from './buildingGen';
 import type { FarmSpot, SignSpot } from './streetPlan';
 import type { PenShape, Side } from './farmSlots';
+import type { Quarry } from './quarry';
+import type { Kiln } from './kiln';
 import { growing, housesOf } from './grow';
 import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
@@ -268,6 +270,16 @@ export interface Monument {
   built?: number;
   /** The structure record that keeps its ground (its id). */
   structure?: string;
+  /** M2 (#145, MC_QUARRY): the terrace pit its cobblestone trips dig (quarry.ts), and no site search before this (ms). */
+  quarry?: Quarry;
+  quarryBackoff?: number;
+  /** M2 (#145, MC_KILN): the furnaces its masons load and unload (kiln.ts), and no kiln site search before this (ms). */
+  kiln?: Kiln;
+  kilnBackoff?: number;
+  /** M2 (MC_GLAZING): the glass colours (the generator's blue, red, yellow -> a dye colour the flowers near give). */
+  colours?: Record<string, string>;
+  /** M2 (MC_GLAZING): the flower gathered for each dye colour (the one most counted near the village). */
+  flowers?: Record<string, string>;
 }
 /** A member's initiative (s35): a small work on the village's ground, built by whoever helps. */
 export interface Initiative {

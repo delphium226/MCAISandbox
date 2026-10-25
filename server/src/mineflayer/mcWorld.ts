@@ -87,7 +87,11 @@ import { GEN_HOMES, familyKey, homeOwner, isHomeName } from '../houseStyle';
 import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodAt, hoodWoods, housesOf, isDwelling, isGrowTask, padFor, padLadder, pickHouses, taskNum, treesNear } from '../grow';
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
-import { MONUMENT, capShare, currentStage, ironReached, jobBuilt, monumentLine, monumentPlan, newMonument, openJobs, stageWants, yardCovers } from '../monument';
+import { quarryFeeds } from './mcQuarry';
+import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers } from '../monument';
+import { KILN_LANES, kilnOn, laneWork, planOf } from './mcKiln';
+import { kilnLine } from '../kiln';
+import { quarryLine } from '../quarry';
 import { GOTHIC_STAGES } from '../gothicGen';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
@@ -130,7 +134,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material; n?: number; job?: number; site?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -3617,6 +3621,12 @@ export class MineflayerWorld implements WorldAdapter {
     if (!v.monument) {
       if (!ironReached(v)) return;
       v.monument = newMonument(this.catalogWoodOf(v), now);
+      // (M2, #145: the glass colours the flowers near the village give, chosen once)
+      if (MONUMENT.glazing && v.monument.palette === 'full') {
+        const counts = this.flowerCounts(v);
+        v.monument.colours = glassColours(counts);
+        v.monument.flowers = dyeFlowers(counts);
+      }
       const c = monumentPlan(v.monument);
       this.villages.save();
       this.villages.note(v, `The village begins its cathedral (${v.monument.preset}, 1:${v.monument.scale}) after the iron age: ${c.design.blocks} blocks in ${c.jobs.length} jobs over 8 stages`);
@@ -3626,6 +3636,8 @@ export class MineflayerWorld implements WorldAdapter {
     if ((this.monumentAt.get(v.name) ?? 0) > now) return;
     this.monumentAt.set(v.name, now + 5 * 60000);
     console.log(`[monument] ${v.name}: ${monumentLine(v.monument)}`);
+    if (v.monument.quarry) console.log(`[quarry] ${v.name}: ${quarryLine(v.monument.quarry)}`);
+    if (v.monument.kiln) console.log(`[kiln] ${v.name}: ${kilnLine(v.monument.kiln, now, timeScale())}`);
   }
 
   /**
@@ -4616,7 +4628,7 @@ export class MineflayerWorld implements WorldAdapter {
       if (am) delete am.memory.monumentGather;
       if (mon.item && mon.material) {
         const dep = c.status[c.status.length - 1];
-        const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', mon.material) : 0;
+        const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', mon.material, mon.item) : 0;
         ok = n > 0;
         if (dep?.state === 'done' && (n > 0 || !bad)) message = dep.message ?? message;
         if (n > 0) {
@@ -4626,7 +4638,9 @@ export class MineflayerWorld implements WorldAdapter {
         }
       } else if (mon.job !== undefined && ok) {
         const st0 = currentStage(m);
-        jobBuilt(m, mon.job, this.monumentRaw(m, monumentPlan(m).jobs[mon.job].bill), Date.now());
+        // (M2, MC_KILN: the yard holds made goods, and the job takes what its plan took)
+        if (KILN.on) jobBuiltPlanned(m, mon.job, planOf(this), Date.now());
+        else jobBuilt(m, mon.job, this.monumentRaw(m, monumentPlan(m).jobs[mon.job].bill), Date.now());
         this.villages.save();
         const st1 = currentStage(m);
         console.log(`[monument] ${c.village}: ${c.agent} built job ${mon.job}: ${monumentLine(m)}`);
@@ -6430,14 +6444,20 @@ export class MineflayerWorld implements WorldAdapter {
             effect: "the cathedral's pad, level and ready for its foundations",
           }, { kind: 'monument', step: 'site' });
       } else {
-        const wants = stageWants(m, (b) => this.monumentRaw(m, b));
+        // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
+        const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
         for (const [item, q] of Object.entries(wants)) {
           // (what is not gathered (glass, coal for its smelting) is made at the build from storage; M2's chains)
-          const mat: Material | null = /_log$/.test(item) ? 'logs' : /^(red_)?sand$/.test(item) ? 'sand' : item === 'cobblestone' ? 'cobblestone' : null;
+          // (M2, MC_GLAZING: a dye's flower, picked where it grows)
+          const flower = MONUMENT.glazing && !!FLOWER_DYE[item];
+          const mat: Material | 'flowers' | null = /_log$/.test(item) ? 'logs' : /^(red_)?sand$/.test(item) ? 'sand' : item === 'cobblestone' ? 'cobblestone' : flower ? 'flowers' : null;
           if (!mat) continue;
-          if (mat === 'cobblestone' && !mineCanGive(v, 'cobblestone')) continue;
-          if (mat === 'sand' && v.unavailable?.includes('sand')) continue;
-          const spec = GATHER_KINDS[mat];
+          // (M2, #145: or from the cathedral's quarry, MC_QUARRY)
+          const quarry = mat === 'cobblestone' && quarryFeeds(v, 'cobblestone');
+          if (mat === 'cobblestone' && !mineCanGive(v, 'cobblestone') && !quarry) continue;
+          if ((mat === 'sand' || mat === 'flowers') && v.unavailable?.includes(item)) continue;
+          // (a quarry trip digs 64: its walk down the steps is the same for any load)
+          const spec = mat === 'flowers' ? { trip: 12, block: () => item, deposit: () => item } : quarry ? { ...GATHER_KINDS.cobblestone, trip: 64 } : GATHER_KINDS[mat];
           const lanes = Math.min(6, Math.ceil(q / spec.trip));
           const n = Array.from({ length: lanes }, (_, i) => i + 1).find((i) => !busy.has(`monument:gather:${item}:${i}`));
           if (!n) continue;
@@ -6455,7 +6475,7 @@ export class MineflayerWorld implements WorldAdapter {
           const key = `monument:job:${i}`;
           if (busy.has(key) || (this.monumentBack.get(`${v.name}:${i}`) ?? 0) > now) continue;
           const j = c.jobs[i];
-          if (!yardCovers(m, this.monumentRaw(m, j.bill))) continue;
+          if (KILN.on ? !jobReady(m, i, planOf(this)) : !yardCovers(m, this.monumentRaw(m, j.bill))) continue;
           shown++;
           add({
             id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 158,
@@ -6464,6 +6484,31 @@ export class MineflayerWorld implements WorldAdapter {
             effect: `${j.blocks} more blocks of the cathedral stand`,
           }, { kind: 'monument', step: 'job', job: i });
         }
+      }
+      // M2 (#145, MC_KILN): the kiln built once something wants smelting, then tended a lane at a time (loaded and unloaded)
+      if (kilnOn(v)) {
+        const kl = m.kiln;
+        if (kl?.state !== 'ready') {
+          if ((m.kilnBackoff ?? 0) <= now && !busy.has('monument:kiln:0') && (m.yard.cobblestone ?? 0) >= 64)
+            add({
+              id: 'monument:kiln:0', kind: 'monument', key: 'monument:kiln:0', excludes: ['monument:kiln:0='], rank: 157,
+              name: "Build the cathedral's kiln (a row of furnaces for its stone bricks)",
+              facts: `the cathedral's stone bricks${MONUMENT.glazing ? ' and glass' : ''} are smelted there, many at once; its yard holds ${m.yard.cobblestone ?? 0} cobblestone`,
+              effect: "the cathedral's kiln stands, ready to smelt",
+            }, { kind: 'monument', step: 'kiln', lane: 0 });
+        } else
+          for (let lane = 1; lane <= KILN_LANES; lane++) {
+            const key = `monument:kiln:${lane}`;
+            if (busy.has(key) || (this.monumentBack.get(`${v.name}:kiln:${lane}`) ?? 0) > now) continue;
+            const w = laneWork(v, lane, planOf(this), now);
+            if (w.load < 16 && w.ready < 16) continue;
+            add({
+              id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 159,
+              name: `Tend the cathedral's kiln (load ${w.load}, take out ${w.ready})`,
+              facts: `stage ${st} wants its stone smelted; ${kl.furnaces.length} furnaces, lane ${lane} of ${KILN_LANES}; ${kilnLine(kl, now, timeScale())}`,
+              effect: `${w.ready} smelted for the cathedral, ${w.load} more smelting`,
+            }, { kind: 'monument', step: 'kiln', lane });
+          }
       }
       if (!out.some((o) => o.kind === 'monument')) reasons.monument = m.state === 'site' ? 'the site is being chosen' : 'nothing wanted now';
     }
@@ -7378,8 +7423,24 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} builds job ${job} (stage ${monumentPlan(m).jobs[job].stage}, ${monumentPlan(m).jobs[job].blocks} blocks)`);
           return;
         }
+        if (d.step === 'kiln') {
+          const lane = d.lane;
+          const st = worker.enqueue(lane ? 'tend_kiln' : 'build_kiln', { ...(lane ? { lane } : {}), chore: true });
+          const failed = (why: string) => {
+            if (why === 'cancelled' || st.code) return;
+            if (lane) this.monumentBack.set(`${v.name}:kiln:${lane}`, Date.now() + 2 * 60000);
+            else {
+              m.kilnBackoff = Date.now() + 5 * 60000;
+              this.villages.save();
+            }
+          };
+          this.setChore(v, worker, opt.key, [st], lane ? `tend the cathedral's kiln (lane ${lane})` : "build the cathedral's kiln", failed, meta, opt.holds, opt);
+          console.log(`[monument] ${v.name}: ${worker.name} ${lane ? `tends the kiln's lane ${lane}` : 'builds the kiln'}`);
+          return;
+        }
         const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true });
-        const deposit = worker.enqueue('deposit', { item: d.deposit, also: GATHER_ALSO, chore: true });
+        // (M2: a quarry trip's other stone goes in too: the bulk cap puts what is over it on the spoil heap)
+        const deposit = worker.enqueue('deposit', { item: d.deposit, also: d.material === 'cobblestone' && quarryFeeds(v, 'cobblestone') ? `${GATHER_ALSO},andesite,diorite,granite,tuff` : GATHER_ALSO, chore: true });
         // (its load is the cathedral's: the bulk cap leaves it, mcStorage.ts spoilSurplus)
         worker.memory.monumentGather = d.item;
         this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material} for the cathedral`, undefined, meta, opt.holds, opt);
@@ -8286,7 +8347,8 @@ type OptionRun =
   | { kind: 'initiate'; work: string; green?: boolean; mix?: string[] }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
-  | { kind: 'monument'; step: 'gather'; item: string; material: Material; amount: number; block: string; deposit: string }
+  | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string }
+  | { kind: 'monument'; step: 'kiln'; lane: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

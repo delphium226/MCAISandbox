@@ -12,19 +12,72 @@
  * MC_MONUMENT_SHARE (0.6: monument options at most this share of a menu), MC_MONUMENT_PALETTE (today: cobblestone, the
  * village wood's roof and plain panes, what today's skills gather; full: the generator's stone bricks, tuff, deepslate
  * and stained glass, for M2's chains).
+ *
+ * M2 (#145): the full palette as the village can make it (fullBlock): stone bricks and plain stone (for the andesite)
+ * from cobblestone smelted in the kiln (kiln.ts, MC_KILN), tuff bricks as stone bricks, the deepslate roof in the village
+ * wood until there is a source of cobbled deepslate, and stained panes (MC_GLAZING) in the colours the flowers near the
+ * village give (Monument.colours), plain panes without. With the kiln the yard holds made goods too (stone, bricks,
+ * glass), and the stage's wants and a job's cover are a materials plan of its bill against the yard (stageWantsPlanned,
+ * jobReady).
  */
 import { GOTHIC_PRESETS, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
 import { rawSetting } from './settings';
 import { placeOutward } from './outward';
 import { villageHome, type Area, type Monument, type Village } from './village';
+import { KILN, kilnHolds } from './kiln';
 
+export { KILN };
 export const MONUMENT = {
   on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT') ?? 'off'),
   preset: rawSetting('MC_MONUMENT_PRESET') || 'notre_dame',
   scale: Math.max(0.05, Math.min(1, Number(rawSetting('MC_MONUMENT_SCALE') ?? 0.5) || 0.5)),
   share: Math.max(0.1, Math.min(1, Number(rawSetting('MC_MONUMENT_SHARE') ?? 0.6) || 0.6)),
   palette: (/^full$/i.test(rawSetting('MC_MONUMENT_PALETTE') ?? 'today') ? 'full' : 'today') as 'today' | 'full',
+  /** M2 (#145, MC_GLAZING): stained panes from the flowers' dyes, and sand smelted into glass in the kiln. */
+  glazing: /^(on|1|true|yes)$/i.test(rawSetting('MC_GLAZING') ?? 'off'),
 };
+
+/** The dye each flower makes (the jar's recipes), and the generator's three glass colours with what may stand in. */
+export const FLOWER_DYE: Record<string, string> = {
+  cornflower: 'blue', blue_orchid: 'light_blue', poppy: 'red', red_tulip: 'red', rose_bush: 'red', dandelion: 'yellow', sunflower: 'yellow',
+  wildflowers: 'yellow', orange_tulip: 'orange', pink_tulip: 'pink', peony: 'pink', pink_petals: 'pink', allium: 'magenta', lilac: 'magenta',
+  azure_bluet: 'light_gray', oxeye_daisy: 'light_gray', white_tulip: 'light_gray', lily_of_the_valley: 'white',
+};
+const STAND_INS: Record<string, string[]> = { blue: ['blue', 'light_blue', 'magenta'], red: ['red', 'orange', 'pink', 'magenta'], yellow: ['yellow', 'orange', 'white'] };
+
+/** The flower picked for each dye colour (MC_GLAZING): the one counted most near the village. */
+export function dyeFlowers(counts: Record<string, number>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [f, n] of Object.entries(counts).sort((a, b) => b[1] - a[1])) if (FLOWER_DYE[f] && n > 0) out[FLOWER_DYE[f]] ??= f;
+  return out;
+}
+
+/** The glass colours (MC_GLAZING) from the flowers counted near the village: each colour, or the nearest the flowers give
+ *  (at least `min` of them), else none (plain panes). */
+export function glassColours(counts: Record<string, number>, min = 6): Record<string, string> {
+  const have: Record<string, number> = {};
+  for (const [f, n] of Object.entries(counts)) if (FLOWER_DYE[f]) have[FLOWER_DYE[f]] = (have[FLOWER_DYE[f]] ?? 0) + n;
+  const out: Record<string, string> = {};
+  for (const [c, list] of Object.entries(STAND_INS)) {
+    const pick = list.find((d) => (have[d] ?? 0) >= min);
+    if (pick) out[c] = pick;
+  }
+  return out;
+}
+
+/** The full palette as the village can make it (M2): see the header. */
+export function fullBlock(block: string, wood: string, colours: Record<string, string> = {}): string {
+  const m = /^([^[]+)(\[.*\])?$/.exec(block)!;
+  const name = m[1], st = m[2] ?? '';
+  if (name === 'polished_andesite') return 'stone';
+  if (name === 'tuff_bricks') return 'stone_bricks';
+  if (name === 'deepslate_tile_stairs') return `${wood}_stairs${st}`;
+  if (name === 'deepslate_tile_slab') return `${wood}_slab${st}`;
+  if (name === 'deepslate_tiles') return `${wood}_planks`;
+  const glass = /^(\w+?)_stained_glass_pane$/.exec(name);
+  if (glass) return MONUMENT.glazing && colours[glass[1]] ? `${colours[glass[1]]}_stained_glass_pane${st}` : `glass_pane${st}`;
+  return block;
+}
 
 /** Whether the village has reached the iron rung (the ladder's record). */
 export const ironReached = (v: Village) => !!v.ladder?.reached?.some((r) => r.rung === 'iron');
@@ -53,14 +106,14 @@ export function todayBlock(block: string, wood: string): string {
 const plans = new Map<string, Cathedral>();
 /** The monument's cathedral (generated once per preset, scale, palette and wood: ~50 ms at 1:2), its palette applied. */
 export function monumentPlan(m: Monument): Cathedral {
-  const key = `${m.preset}|${m.scale}|${m.palette}|${m.wood}`;
+  const key = `${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}`;
   let c = plans.get(key);
   if (c) return c;
   c = generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale);
-  if (m.palette === 'today') {
+  {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {};
-    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = todayBlock(b, wood);
+    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours);
     const swap = (cells: Array<[string, number]>) => {
       const out: Record<string, number> = {};
       for (const [b, q] of cells) out[gothicItem(b)] = (out[gothicItem(b)] ?? 0) + q;
@@ -112,6 +165,71 @@ export function stageWants(m: Monument, raw: (bill: Record<string, number>) => R
     if (left > 0) out[n] = left;
   }
   return out;
+}
+
+/** M2 (#145, MC_KILN): the plan of a bill against what is had (mcMaterials' Materials.plan, its parts the code reads). */
+export type PlanOf = (bill: Record<string, number>, have: Record<string, number>) => {
+  gather: Record<string, number>; fromStock: Record<string, number>; steps: Array<{ do: 'craft' | 'smelt'; item: string; runs: number; input?: string }>; fuel: { smelts: number };
+};
+/** The open jobs' bills together (the current stage's still to build). */
+export function stageBill(m: Monument, ahead = 0): Record<string, number> {
+  const c = monumentPlan(m), bill: Record<string, number> = {}, st = currentStage(m);
+  // (`ahead`: the next stages' jobs too, MC_KILN: the quarry and the kiln work ahead while a stage waits on its smelting;
+  // M2's live check left 17 members idle with the stage's cobblestone in and its bricks still cooking)
+  const jobs = ahead ? c.jobs.map((j, i) => (st && j.stage >= st && j.stage <= st + ahead && !m.done.includes(i) ? i : -1)).filter((i) => i >= 0) : openJobs(m);
+  for (const i of jobs) for (const [n, q] of Object.entries(c.jobs[i].bill)) bill[n] = (bill[n] ?? 0) + q;
+  return bill;
+}
+/** The stages ahead the yard's wants and the kiln work for (MC_KILN). */
+export const AHEAD = 1;
+/** A plan's raw item as the yard names it (logs as the monument's wood, "any:" dropped). */
+export const rawName = (m: Monument, n: string) => (n === 'any:logs' ? `${m.wood}_log` : n.replace(/^any:/, ''));
+/** The yard and what the kiln's furnaces hold (as their outputs). */
+function hadWithKiln(m: Monument): Record<string, number> {
+  const have: Record<string, number> = { ...m.yard };
+  for (const [n, q] of Object.entries(kilnHolds(m.kiln))) have[n] = (have[n] ?? 0) + q;
+  return have;
+}
+
+/** What the current stage still wants gathered (MC_KILN): its open jobs' plan against the yard and the kiln's load. */
+export function stageWantsPlanned(m: Monument, plan: PlanOf): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [n, q] of Object.entries(plan(stageBill(m, AHEAD), hadWithKiln(m)).gather)) {
+    if (q <= 0) continue;
+    // (a dye's flower as the one that grows near the village: the plan may pick another of its colour, a rose bush for
+    // poppies; once one is in the yard the plan takes it)
+    const raw = FLOWER_DYE[n] && m.flowers?.[FLOWER_DYE[n]] ? m.flowers[FLOWER_DYE[n]] : rawName(m, n);
+    out[raw] = (out[raw] ?? 0) + Math.ceil(q);
+  }
+  return out;
+}
+
+/** What the current stage wants smelted by the kiln, by input, that the yard holds now (its plan against the yard and the
+ *  kiln's load: the smelts still to do, at most what the yard has of each input). */
+export function kilnWants(m: Monument, plan: PlanOf): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of plan(stageBill(m, AHEAD), hadWithKiln(m)).steps) {
+    if (s.do !== 'smelt' || !s.input) continue;
+    const input = rawName(m, s.input);
+    if (input !== 'cobblestone' && input !== 'sand') continue;
+    const n = Math.min(s.runs, Math.floor(m.yard[input] ?? 0) - (out[input] ?? 0));
+    if (n > 0) out[input] = (out[input] ?? 0) + n;
+  }
+  return out;
+}
+
+/** Whether a job can be built from the yard (MC_KILN): nothing to gather and nothing to smelt (the kiln's work), its
+ *  crafts (bricks, stairs, walls, panes from what is made) done at the build. */
+export function jobReady(m: Monument, index: number, plan: PlanOf): boolean {
+  const p = plan(monumentPlan(m).jobs[index].bill, m.yard);
+  return !Object.values(p.gather).some((q) => q > 0) && !p.fuel.smelts;
+}
+
+/** A job built (MC_KILN): what its plan took from the yard taken out of it, the job marked done. */
+export function jobBuiltPlanned(m: Monument, index: number, plan: PlanOf, now: number): void {
+  if (m.done.includes(index)) return;
+  const took = plan(monumentPlan(m).jobs[index].bill, m.yard).fromStock;
+  jobBuilt(m, index, Object.fromEntries(Object.entries(took).map(([n, q]) => [rawName(m, n), q])), now);
 }
 
 /** Whether the yard covers a job's raw bill. */

@@ -1273,7 +1273,7 @@ class ScanTurn {
 }
 
 /** Run a scan holding the turn, given up however it ends. */
-async function withScanTurn<T>(signal: AbortSignal | undefined, scan: () => Promise<T> | T): Promise<T> {
+export async function withScanTurn<T>(signal: AbortSignal | undefined, scan: () => Promise<T> | T): Promise<T> {
   const turn = new ScanTurn();
   await turn.take(signal);
   try {
@@ -1738,7 +1738,7 @@ function siteFound(a: BotAgent, b: SiteCandidate, logs: Vec3[]): string {
 // prepare_site
 // ---------------------------------------------------------------------------------------------
 
-async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
+export async function prepareSite(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   // The scan, from the first column read to the job's targets, holds the scan turn (E.1); given up for walks and the
   // job, and here however the skill ends
   const turn = new ScanTurn();

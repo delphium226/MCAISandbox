@@ -13,6 +13,7 @@ import { MINE_SKILLS } from './mcMine';
 import { ANIMAL_SKILLS } from './mcAnimals';
 import { FOUNDRY_SKILLS } from './foundry/list';
 import { HOME_SKILLS } from './mcHome';
+import { KILN_SKILLS } from './mcKiln';
 import { at, goals, num, sleep, standableY, str, walk } from './mcUtil';
 
 export interface McSkill {
@@ -66,6 +67,7 @@ export const MC_SKILLS: Record<string, McSkill> = {
   ...MINE_SKILLS,
   ...ANIMAL_SKILLS,
   ...HOME_SKILLS,
+  ...KILN_SKILLS,
   // (the foundry's, s41: one file each in foundry/)
   ...Object.fromEntries(FOUNDRY_SKILLS.map((f) => [f.name, f.skill])),
 };
