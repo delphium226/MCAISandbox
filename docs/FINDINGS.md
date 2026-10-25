@@ -2169,3 +2169,9 @@ CLAUDE.md when a phase ends.
   gated options taken 90 of 91 in hour 1, [stuck] 140 vs 348) but its busy gain could not be judged; #139 drew a small
   3x3, a long 5x7 and an L-shaped pen (37 cells), with sheep, pigs and chickens, 54 breedings (pigs on the fixture's
   carrots) and two pen shearings. Logs: runs/2026-10-25/train5/ (report.md).
+- F322 (10-25, fix-149 confirm run, #142) **With the flower mix off, policy options give F317's gain again: busy 71.7%
+  in hour 2 against C0's 61.8% (same code), works 87 against 58, 192 initiatives against 99.** P1 = MC_POLICY_OPTIONS
+  + MC_PEN_VARIETY on, MC_FLOWER_MIX off, gardens on, blank minevale3, 25 members, 1x, 120 min after, shears and carrots
+  stocked, code 9f0f68c (before c1b6bc1). Gated options taken 160 of 170 menus; [lag] 0, loop p50 5-27 ms but six 5-min
+  samples at 136-292 ms (C0 had five); [stuck] 338 (C0 348); 5% of the cap gate's samples came with fewer than 3
+  projects open; $1.21 against C0's $1.00. Logs: runs/2026-10-25/fix-149/ (report.md).
