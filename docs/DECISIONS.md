@@ -870,3 +870,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-24 (the user's, after test train 1, F312) **MC_STORAGE_GROW, MC_HOME_BASICS and MC_PROMPT_SELF on by default**
   (d9f9815; `=off` turns each off). **The shared-files queue:** #134's fix (cane buying, the early market stall), #136
   (the pad halo), #97, #122, #84's per-building layout step (a), #115, the combined model-driven run, then #84 (b), (c).
+- 10-25 (the user's, after the monument research `runs/2026-10-25/monument/report.md`) **Start the monument on the
+  recommended approach**: Notre-Dame de Paris at 1:2 (~20k blocks) as the first target, the same grammar at 1:4 as the
+  first live test; a code-drawn Gothic split grammar (the model picks the reference and parameters, never geometry);
+  phases M0-M4 behind MC_MONUMENT, MC_QUARRY, MC_GLAZING (off); the village votes for it; at most ~60% of the menu; no
+  /forceload for now; the default palette. M0 (the grammar, offline) first, M1 after #142 frees mcWorld.ts.
