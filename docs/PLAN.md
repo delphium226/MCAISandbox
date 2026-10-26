@@ -34,7 +34,7 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-10-25 ~23:30 by the planning session that took over at 13:40, paused for the evening at the user's
+(updated 2026-10-26 ~21:30 by the planning session that took over on 10-25 13:40, paused for the night at the user's
 request; the strategy is `docs/STRATEGY.md`; the morning state (sessions, ids, the queue, what waits on the user) is in
 `runs/2026-10-26/planning/state.md`, the day's log in `runs/2026-10-25/planning/state.md`)
 
@@ -52,10 +52,16 @@ request; the strategy is `docs/STRATEGY.md`; the morning state (sessions, ids, t
   Notre-Dame and Chartres built in full at 1:4 from the village's own stone; a castle (Conwy 1:2, #153) after M3.
 - **On by default now:** storage grow, home basics, prompt self, letters pace, pad halo, choice holds, open storage
   hut, vanilla pieces, wood variants, gen homes, **pen variety, policy options** (10-25) (plus the older defaults).
-- **In flight (paused):** monument M3 (#146: trades, news and memory, the architect's pick), its session asked to stop
-  safely and leave `runs/2026-10-26/monument-m3/resume.md`.
-- **Next:** finish M3; test train 6 (#149 live, then the pad flags to the user as defaults; flower mix with #140's fix);
-  #151, #141 house decorations, #133; the castle after M3; M4 (Notre-Dame 1:2).
+- **Built and pushed on 10-26** (F323-F325): M3 trades/news/architect (b1b22dc), the castle (Conwy, White Tower;
+  3bc68da), test train 6 (#149 live: 0 [lag]), tier 2 detail with stonecutter and dye bed (#162), the masons' lodge
+  with bulk trips (#163, 3be5aa4), Cologne (699ce77). **Defaults turned on 10-26:** pads per building, growing outward,
+  flower mix, gardens (always on).
+- **Standing in the test worlds** (stopped and saved): Cologne 1:3 (world 1, /tp -1732 75 68), detail Chartres 1:4
+  (world 3), Conwy 1:3 (world 4, /tp -1712 72 44), Salisbury 1:3 (world 5).
+- **Next:** #165 (Cologne's follow-ups: [stuck] 5x, yard andesite unused, kiln brick buffer, quarry topsoil); tier 2's
+  chains C-E (lanterns, banners, candles, bell); M4 (a 1:2 cathedral); then **#164, strengthening the model's
+  influence** (the user's, parked until the monument work is done; an on/off pair first); #133, #151, #141, #154, #155.
+  The scale rounds to whole numbers (1:3, not 1:2.7).
 
 ## Earlier phases
 
