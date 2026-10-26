@@ -20,7 +20,7 @@
  * glass), and the stage's wants and a job's cover are a materials plan of its bill against the yard (stageWantsPlanned,
  * jobReady).
  */
-import { GOTHIC_PRESETS, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
+import { GOTHIC_PRESETS, GOTHIC_STAGES, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
 import { rawSetting } from './settings';
 import { placeOutward } from './outward';
 import { villageHome, type Area, type Monument, type Village } from './village';
@@ -377,4 +377,260 @@ export function siteTaken(v: Village, others: Village[], mineBoxes: Area[], now:
     || (v.layouts ?? []).some((q) => ins(q, x, z, 3)) || fields.some((q) => ins(q, x, z, 2)) || mineBoxes.some((b) => ins(b, x, z, 2))
     || claims.some((q) => ins(q, x, z))
     || others.some((o) => o.plots.some((q) => ins(q, x, z, 5)) || (o.layouts ?? []).some((q) => ins(q, x, z, 5)) || o.structures.some((q) => ins(q, x, z, 5)));
+}
+
+// ---------------------------------------------------------------------------------------------
+// M3 (#146): the trades, the progress in news and memory, the architect's parameters
+// ---------------------------------------------------------------------------------------------
+
+/** M3's flags (each off): the trades (MC_MONUMENT_ROLES), the progress line and news (MC_MONUMENT_NEWS), the architect's
+ *  pick at the trigger (MC_MONUMENT_ARCHITECT) and the scales it may pick from (MC_MONUMENT_SCALES; empty: the one set). */
+const flagOn = (name: string) => /^(on|1|true|yes)$/i.test(rawSetting(name) ?? 'off');
+export const M3 = {
+  roles: flagOn('MC_MONUMENT_ROLES'),
+  news: flagOn('MC_MONUMENT_NEWS'),
+  architect: flagOn('MC_MONUMENT_ARCHITECT'),
+  /** As N for 1:N, largest N (smallest cathedral) first. */
+  scales: (() => {
+    const list = (rawSetting('MC_MONUMENT_SCALES') ?? '').split(',').map((s) => Number(s.trim())).filter((s) => s >= 0.05 && s <= 1);
+    return [...new Set((list.length ? list : [MONUMENT.scale]).map((s) => Math.round(1 / s)))].sort((a, b) => b - a);
+  })(),
+};
+/** Test hook. */
+export function setM3(s: Partial<typeof M3>): void {
+  Object.assign(M3, s);
+}
+
+export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter'] as const;
+export type Trade = (typeof TRADES)[number];
+/** What each trade does for the cathedral, in the prompt's words. */
+export const TRADE_WORK: Record<Trade, string> = {
+  quarryman: 'its stone dug and its site levelled', mason: 'its kiln and its stonework', glazier: 'its sand, dye flowers and glass', carpenter: 'its logs, roof and fuel',
+};
+/** M3: the weight an option of the member's own trade carries (and its tag says so). */
+export const TRADE_WEIGHT = 1.5;
+
+/** A member's trade record (code's, kept on the monument record in villages.json, so it carries across restarts). */
+export interface TradeRecord {
+  trade?: Trade;
+  /** When it took the trade, and in which stage. */
+  since?: number;
+  sinceStage?: number;
+  /** Credited monument chores by trade, the last 8 (oldest first), and by stage (the role measure). */
+  n: Partial<Record<Trade, number>>;
+  recent: Trade[];
+  stages: Record<string, Partial<Record<Trade, number>>>;
+  /** Parts built and items brought, for its memory line. */
+  built?: number;
+  brought?: Record<string, number>;
+}
+/** M3's places on the monument record (village.ts' Monument is M1-M2's; these ride along in the same JSON). */
+export type MonumentM3 = Monument & {
+  trades?: Record<string, TradeRecord>;
+  /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
+  news?: { t: number; text: string };
+  /** MC_MONUMENT_ARCHITECT: the dedication, and who chose and why (or why code chose). */
+  name?: string;
+  arch?: { by: string; reason: string; fallback?: string };
+};
+export const m3 = (m: Monument) => m as MonumentM3;
+
+const WOODS = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_/;
+/** The trade a gathered item feeds. */
+export function tradeOfItem(item: string): Trade {
+  if (/_log$/.test(item) || WOODS.test(item)) return 'carpenter';
+  if (/^(red_)?sand$/.test(item) || FLOWER_DYE[item]) return 'glazier';
+  return 'quarryman';
+}
+/** The trade a job belongs to: its bill's most blocks of glass, wood or stone. */
+export function tradeOfJob(m: Monument, index: number): Trade {
+  const bill = monumentPlan(m).jobs[index]?.bill ?? {};
+  const by: Record<string, number> = { mason: 0, carpenter: 0, glazier: 0 };
+  for (const [n, q] of Object.entries(bill)) by[/glass/.test(n) ? 'glazier' : WOODS.test(n) ? 'carpenter' : 'mason'] += q;
+  return Object.entries(by).sort((a, b) => b[1] - a[1])[0][0] as Trade;
+}
+/** The trade of a monument option's step. */
+export function tradeOfStep(m: Monument, step: { step: string; item?: string; job?: number }): Trade {
+  if (step.step === 'site') return 'quarryman';
+  if (step.step === 'kiln') return 'mason';
+  if (step.step === 'job' && step.job !== undefined) return tradeOfJob(m, step.job);
+  return tradeOfItem(step.item ?? '');
+}
+
+/** The member's trade, if it holds one. */
+export function tradeOf(m: Monument, member: string): Trade | undefined {
+  return m3(m).trades?.[member]?.trade;
+}
+
+/**
+ * A credited monument chore of a trade (MC_MONUMENT_ROLES): counted, and the member's trade taken or changed. The first
+ * trade to reach 2 credited chores is taken; a held trade changes only when another has 3 more among the last 8 (so a
+ * mason who fetches a few logs between stages stays a mason). Returns the change, if any.
+ */
+export function noteTrade(m: Monument, member: string, trade: Trade, now: number, what?: { built?: boolean; item?: string; n?: number }): { took: Trade; from?: Trade } | null {
+  const rec = ((m3(m).trades ??= {})[member] ??= { n: {}, recent: [], stages: {} });
+  const st = String(currentStage(m) || 'built');
+  rec.n[trade] = (rec.n[trade] ?? 0) + 1;
+  rec.recent = [...rec.recent, trade].slice(-8);
+  const s = (rec.stages[st] ??= {});
+  s[trade] = (s[trade] ?? 0) + 1;
+  if (what?.built) rec.built = (rec.built ?? 0) + 1;
+  if (what?.item && what.n) (rec.brought ??= {})[what.item] = (rec.brought[what.item] ?? 0) + what.n;
+  const count = (t: Trade) => rec.recent.filter((x) => x === t).length;
+  if (!rec.trade) {
+    if ((rec.n[trade] ?? 0) < 2) return null;
+  } else if (rec.trade === trade || count(trade) < count(rec.trade) + 3) return null;
+  const from = rec.trade;
+  rec.trade = trade;
+  rec.since = now;
+  rec.sinceStage = currentStage(m) || undefined;
+  return { took: trade, ...(from ? { from } : {}) };
+}
+
+/** The cathedral's name for lines: its dedication, else "the cathedral". */
+export const cathedralName = (m: Monument) => (m3(m).name ? `the cathedral of ${m3(m).name}` : 'the cathedral');
+const PRESET_WORDS: Record<string, string> = { notre_dame: 'Notre-Dame', salisbury: 'Salisbury', chartres: 'Chartres' };
+export const presetWords = (p: string) => PRESET_WORDS[p] ?? p;
+
+/** The current stage's parts: built and in all. */
+export function stageParts(m: Monument): { stage: number; built: number; of: number } {
+  const c = monumentPlan(m), st = currentStage(m);
+  const jobs = c.jobs.map((j, i) => ({ j, i })).filter((x) => x.j.stage === st);
+  return { stage: st, built: jobs.filter((x) => m.done.includes(x.i)).length, of: jobs.length };
+}
+
+/** MC_MONUMENT_NEWS: the progress line in every member's prompt ("stage 2 of 8, aisle walls ...: 3 of 5 parts built"),
+ *  with its latest news for a village day and, under MC_MONUMENT_ROLES, the member's trade. */
+export function progressLine(m: Monument, now: number, dayMs: number, member?: string): string {
+  const c = monumentPlan(m), n = m3(m);
+  const blocks = c.jobs.filter((_, i) => m.done.includes(i)).reduce((t, j) => t + j.blocks, 0);
+  const head = `The village's monument: ${cathedralName(m)} (${presetWords(m.preset)} at 1:${m.scale})`;
+  let what: string;
+  if (m.state === 'built') what = `finished, ${c.design.blocks} blocks`;
+  else if (m.state === 'site') what = 'its site is being chosen and levelled';
+  else {
+    const p = stageParts(m);
+    what = `stage ${p.stage} of 8, ${GOTHIC_STAGES[p.stage - 1]}: ${p.built} of ${p.of} parts built (${blocks} of ${c.design.blocks} blocks in all)`;
+  }
+  const news = n.news && now - n.news.t < dayMs ? ` ${n.news.text}.` : '';
+  const t = member && M3.roles ? tradeOf(m, member) : undefined;
+  const trade = t ? ` You are its ${t} (${TRADE_WORK[t]}).` : '';
+  return `${head}: ${what}.${news}${trade}`.slice(0, 360);
+}
+
+/** MC_MONUMENT_NEWS: a member's own part in the cathedral, for what it remembers ('' when it has none). */
+export function partLine(m: Monument, member: string): string {
+  const rec = m3(m).trades?.[member];
+  const total = rec ? Object.values(rec.n).reduce((t, q) => t + (q ?? 0), 0) : 0;
+  if (!rec || !total) return '';
+  const trade = rec.trade ? `its ${rec.trade} since stage ${rec.sinceStage ?? 1}; ` : '';
+  const by = Object.entries(rec.n).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([t, q]) => `${q} as ${t}`).join(', ');
+  const brought = Object.entries(rec.brought ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([i, q]) => `${q} ${i}`).join(', ');
+  return `Your part in ${cathedralName(m)}: ${trade}${total} chore${total === 1 ? '' : 's'} (${by})${rec.built ? `, ${rec.built} part${rec.built === 1 ? '' : 's'} built` : ''}${brought ? `, brought ${brought}` : ''}.`;
+}
+
+// The architect (MC_MONUMENT_ARCHITECT): parameters only; code draws every block (lesson 1)
+
+/** The glass roles the generator draws (its blue, red and yellow panes). */
+export const GLASS_ROLES = ['blue', 'red', 'yellow'] as const;
+
+export interface ArchitectFacts {
+  village: string;
+  members: number;
+  wood: string;
+  /** Dye colours the flowers near the village give at least 6 of, with counts (MC_GLAZING with the full palette); null:
+   *  plain panes this time. */
+  dyes: Record<string, number> | null;
+  /** Each preset at each allowed scale: footprint, height, blocks, parts. */
+  options: Array<{ preset: string; scale: number; width: number; depth: number; height: number; blocks: number; jobs: number }>;
+}
+
+/** Each preset drawn at each allowed scale (~50 ms each at 1:2), for the architect's facts. */
+export function architectOptions(scales = M3.scales): ArchitectFacts['options'] {
+  const out: ArchitectFacts['options'] = [];
+  for (const preset of Object.keys(GOTHIC_PRESETS))
+    for (const scale of scales) {
+      const c = generateCathedral(GOTHIC_PRESETS[preset], scale);
+      out.push({ preset, scale, width: c.design.width, depth: c.design.depth, height: c.design.height, blocks: c.design.blocks, jobs: c.jobs.length });
+    }
+  return out;
+}
+
+/** The dye colours on offer (at least `min` flowers of the colour near the village), with their counts. */
+export function dyesOnOffer(counts: Record<string, number>, min = 6): Record<string, number> {
+  const have: Record<string, number> = {};
+  for (const [f, n] of Object.entries(counts)) if (FLOWER_DYE[f]) have[FLOWER_DYE[f]] = (have[FLOWER_DYE[f]] ?? 0) + n;
+  return Object.fromEntries(Object.entries(have).filter(([, n]) => n >= min).sort((a, b) => b[1] - a[1]));
+}
+
+export const ARCHITECT_SYSTEM = 'You are the village architect. The village has finished its iron age and now raises a Gothic cathedral as its '
+  + 'monument, over many sessions. You choose its parameters: which cathedral to model, the scale and the colours of its stained glass, and '
+  + 'you may dedicate it. Code draws every block from your choice; you never draw. Call `plan_cathedral` once.';
+
+export const ARCHITECT_TOOL = {
+  name: 'plan_cathedral',
+  description: 'Choose the cathedral the village builds: a preset, a scale from those offered, a dye colour for each glass role (or "plain"), an optional dedication and a one-sentence reason.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string', description: 'One sentence: why this cathedral suits the village.' },
+      preset: { type: 'string', enum: Object.keys(GOTHIC_PRESETS) },
+      scale: { type: 'number', description: 'N for 1:N, one of those offered.' },
+      glass: { type: 'object', description: 'For each glass role (blue, red, yellow), a dye colour on offer or "plain".', properties: Object.fromEntries(GLASS_ROLES.map((r) => [r, { type: 'string' }])) },
+      dedication: { type: 'string', description: 'Optional: a short name it is dedicated to (a saint, a founder, a virtue), up to 30 characters.' },
+    },
+    required: ['reason', 'preset', 'scale'],
+  },
+};
+
+/** The architect's prompt. */
+export function architectPrompt(f: ArchitectFacts): string {
+  const scales = [...new Set(f.options.map((o) => o.scale))];
+  return [
+    `The village ${f.village} (${f.members} members, building in ${f.wood} wood) begins its cathedral. Members quarry the stone, smelt it into bricks in a kiln, cut the roof from logs and make the glass; a bigger cathedral takes many more sessions.`,
+    'The cathedrals (footprint, height, blocks, parts of 300-800 blocks):',
+    ...Object.keys(GOTHIC_PRESETS).map((p) => `- ${p}: ${GOTHIC_PRESETS[p].description}. ${f.options.filter((o) => o.preset === p).map((o) => `At 1:${o.scale}: ${o.width}x${o.depth}, ${o.height} high, ${o.blocks} blocks in ${o.jobs} parts.`).join(' ')}`),
+    scales.length > 1 ? `Scales offered: ${scales.map((s) => `1:${s}`).join(', ')}.` : `The scale is set: 1:${scales[0]} (give scale ${scales[0]}).`,
+    f.dyes && Object.keys(f.dyes).length
+      ? `Stained glass: the windows have three glass roles (blue, red and yellow in the real cathedrals). The flowers near the village give these dye colours (flowers counted): ${Object.entries(f.dyes).map(([c, n]) => `${c} (${n})`).join(', ')}. Give each role one of these colours or "plain".`
+      : 'Stained glass: no dye flowers grow near the village in number, so the windows are plain glass (give "plain" for each role).',
+  ].join('\n');
+}
+
+export interface ArchitectPick { preset: string; scale: number; colours: Record<string, string>; name?: string; reason: string }
+
+/** The architect's call checked: the problems to send back, or the pick (colours only those on offer, plain left out). */
+export function checkArchitect(input: Record<string, unknown> | undefined, f: ArchitectFacts): { pick: ArchitectPick } | { problems: string[] } {
+  const problems: string[] = [];
+  const preset = String(input?.preset ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^notre_dame_de_paris$/, 'notre_dame');
+  if (!GOTHIC_PRESETS[preset]) problems.push(`preset must be one of ${Object.keys(GOTHIC_PRESETS).join(', ')} (got "${String(input?.preset ?? '')}")`);
+  const scales = [...new Set(f.options.map((o) => o.scale))];
+  const raw = Number(String(input?.scale ?? '').replace(/^1:/, ''));
+  const scale = raw > 0 && raw < 1 ? Math.round(1 / raw) : raw;
+  if (!scales.includes(scale)) problems.push(`scale must be one of ${scales.join(', ')} (N for 1:N; got ${String(input?.scale ?? 'none')})`);
+  const colours: Record<string, string> = {};
+  const glass = (input?.glass && typeof input.glass === 'object' ? input.glass : {}) as Record<string, unknown>;
+  for (const r of GLASS_ROLES) {
+    const c = String(glass[r] ?? 'plain').trim().toLowerCase().replace(/\s+/g, '_');
+    if (c === 'plain' || c === '' || c === 'none') continue;
+    if (!f.dyes?.[c]) problems.push(`glass ${r}: "${c}" is not a colour on offer (${f.dyes && Object.keys(f.dyes).length ? Object.keys(f.dyes).join(', ') : 'none'}, or plain)`);
+    else colours[r] = c;
+  }
+  const name = String(input?.dedication ?? '').replace(/[^\p{L}\p{N} '.-]/gu, '').trim().slice(0, 30);
+  const reason = String(input?.reason ?? '').trim().slice(0, 240);
+  if (problems.length) return { problems };
+  return { pick: { preset, scale, colours, ...(name ? { name } : {}), reason } };
+}
+
+/** A new monument record from the architect's pick (MC_MONUMENT_ARCHITECT), or from the settings with why code chose. */
+export function newMonumentPicked(wood: string, now: number, pick: ArchitectPick | null, by: string, fallback?: string): MonumentM3 {
+  const m: MonumentM3 = newMonument(wood, now);
+  if (pick) {
+    m.preset = pick.preset;
+    m.scale = pick.scale;
+    if (MONUMENT.glazing && m.palette === 'full') m.colours = pick.colours;
+    if (pick.name) m.name = pick.name;
+  }
+  m.arch = { by, reason: pick?.reason ?? '', ...(fallback ? { fallback } : {}) };
+  return m;
 }

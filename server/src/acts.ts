@@ -341,6 +341,23 @@ export function newsLines(village: string, agent: string, now: number): string[]
     .map((n) => `${n.from === n.origin ? `${n.from} says` : `${n.from} says ${n.origin} said`}: "${n.text}" (${ago(now - n.t)})`);
 }
 
+/**
+ * M3 (MC_MONUMENT_NEWS with MC_NEWS): a news item code knows to be true (the cathedral's start, a stage's end), told by
+ * `from` to every hearer named, tagged checked and logged like a member's; it may be retold once like any news.
+ */
+export function codeNews(village: string, from: string, text: string, hearers: string[], now: number): void {
+  if (!TALK.news) return;
+  const st = state(village);
+  const id = `n${st.next++}`;
+  const to = hearers.filter((h) => h !== from);
+  for (const h of to) {
+    const list = ((st.news ??= {})[h] ??= []);
+    list.push({ id, t: now, from, origin: from, text, tag: 'checked' });
+    if (list.length > 12) list.splice(0, list.length - 12);
+  }
+  logAct({ type: 'news', village, agent: from, id, text, tag: 'checked', origin: from, hearers: to, by: 'code' });
+}
+
 /** #107: the answers to the member's questions (kept a village day), newest first. */
 export function answerLines(village: string, agent: string, now: number): string[] {
   if (!TALK.questions) return [];

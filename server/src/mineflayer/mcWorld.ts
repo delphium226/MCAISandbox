@@ -34,7 +34,7 @@ import { IRON_AGE, IRON_MINERS, LADDER, LETTERS, RUNG_DEFS, VW, chooseRung, feed
 import type { RungId } from '../wanted';
 import type { ChronicleEntry } from '../social';
 import { BALLOTS_PARALLEL, STYLE_LOOK, VOTE_MAX_MS, VOTE_SETTING, castAll, predictedBallot, predictedChoice, parseStyle, styleOption, tally, woodStyleOptions, type Ballot, type BallotRequest, type StyleHouse, type VoteMode, type VoteOption, type VoteRecord, type VoteTopic } from '../vote';
-import { callModel, label, parseSpec, type ModelSpec } from '../modelCall';
+import { callModel, isTransient, label, parseSpec, type ModelSpec } from '../modelCall';
 import { TieredBrain } from '../tieredBrain';
 import { REASONING, isCloudModel, usage } from '../modelUsage';
 import { LLMBrain } from '../llmBrain';
@@ -66,7 +66,7 @@ import { LOW, NEED_TRAIT, needWeight, readNeeds, stepNeed, type NeedKind, type N
 import { UtilClock, type UtilView } from '../utilisation';
 import { FARMSTEAD_ON, NEED_WORKS, addFlow, addMineFlow, farmsteadDue, fieldDue, foodTarget, foodflowReading, madePoints, mineflowReading, stepShort, storedPoints } from '../needWorks';
 import { vanillaJar } from '../vanillaData';
-import { MEMORY, agentMemory, contentWords as contentWordsOf, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
+import { MEMORY, agentMemory, rosterOf, contentWords as contentWordsOf, focusOf, initMemory, lastLines, logAct, noteEnd as memoryEnd, noteIntent, noteSpawn, recall } from '../memory';
 import { tick as clockTick } from '../society';
 import { SOCIAL, blockOn, awareness, noteChoice, noteHelp, observe, observing, roleLine, roleNoun, roleOf, socialOff, type Presence } from '../social';
 import { ACTS, TALK, actsHelp, actsState, answerLines, deliverAnswer, failAnswer, impliedAccept, newsLines, openRequests, requestersOf, handle as handleActs, inbox as actsInbox, mayAct, noteEnd as actsEnd, noteStart as actsStart, setAnswerer, setSpeaker, sweep as actsSweep, tags as actsTags, type ActFields, type ActsWorld, type NewsTag, type Question } from '../acts';
@@ -76,8 +76,8 @@ import { PROPOSALS_ON, allProposals, initProposals, markTriage, readyForTriage, 
 import { setProposalCtx } from '../society';
 import { topWanted, wantedList } from '../wanted';
 import { SELLS } from '../merchant';
-import { clockOf, noteAnswer, scrub, toldAnswer, villageMemory } from '../memory';
-import { tellMember } from '../acts';
+import { clockOf, noteAnswer, scrub, setProjectLines, toldAnswer, villageMemory } from '../memory';
+import { codeNews, tellMember } from '../acts';
 import { RULES, breaks, contributeTag, duties, levyRate, noteCompliance, notePuts, noteTakes, rulesLine, setZoneVillages, zoneBoxes } from '../rules';
 import { lapsePending, levyLeft, pendShare, pendingOf, settlePending } from '../own';
 import { councilLine, needBoost, noteNeedOffer, noteNeedStatus, setCouncilStore, withInfluence } from '../council';
@@ -88,7 +88,7 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers } from '../monument';
+import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
@@ -134,7 +134,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -257,6 +257,13 @@ export class MineflayerWorld implements WorldAdapter {
     // (G1: members' memory, social.json beside villages.json)
     initMemory(dataDir);
     initCharacter(dataDir);
+    // (M3, MC_MONUMENT_NEWS: a member's own part in the cathedral, in what it remembers)
+    if (MONUMENT.on && M3.news)
+      setProjectLines((village, agent) => {
+        const m = this.villages.villages.get(village.toLowerCase())?.monument;
+        const line = m ? partLine(m, agent) : '';
+        return line ? [line] : [];
+      });
     // (G5, #90, MC_PROPOSALS: members' proposals beside villages.json, and code's check of them from what this world can do)
     if (PROPOSALS_ON) {
       initProposals(dataDir);
@@ -3620,17 +3627,31 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     if (!v.monument) {
       if (!ironReached(v)) return;
-      v.monument = newMonument(this.catalogWoodOf(v), now);
-      // (M2, #145: the glass colours the flowers near the village give, chosen once)
+      // (M3, MC_MONUMENT_ARCHITECT: the architect model picks the parameters first; the record waits for its answer)
+      if (M3.architect) {
+        const pick = this.architectPicks.get(v.name);
+        if (!pick) {
+          this.architectPicks.set(v.name, 'asking');
+          this.askArchitect(v).then((r) => this.architectPicks.set(v.name, r), (e) => this.architectPicks.set(v.name, { pick: null, by: 'code', why: String((e as Error)?.message ?? e).slice(0, 160) }));
+          return;
+        }
+        if (pick === 'asking') return;
+        this.architectPicks.delete(v.name);
+        v.monument = newMonumentPicked(this.catalogWoodOf(v), now, pick.pick, pick.by, pick.why);
+      } else v.monument = newMonument(this.catalogWoodOf(v), now);
+      // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
         const counts = this.flowerCounts(v);
-        v.monument.colours = glassColours(counts);
+        if (!(M3.architect && m3(v.monument).arch?.by !== 'code')) v.monument.colours = glassColours(counts);
         v.monument.flowers = dyeFlowers(counts);
       }
       const c = monumentPlan(v.monument);
       this.villages.save();
-      this.villages.note(v, `The village begins its cathedral (${v.monument.preset}, 1:${v.monument.scale}) after the iron age: ${c.design.blocks} blocks in ${c.jobs.length} jobs over 8 stages`);
-      console.log(`[monument] ${v.name}: begun after the iron age: ${monumentLine(v.monument)}`);
+      const named = m3(v.monument).name ? `, dedicated to ${m3(v.monument).name}` : '';
+      const text = `The village begins its cathedral (${presetWords(v.monument.preset)} at 1:${v.monument.scale}${named}) after the iron age: ${c.design.blocks} blocks in ${c.jobs.length} parts over 8 stages`;
+      if (M3.news) this.monumentNews(v, text, m3(v.monument).arch?.by && m3(v.monument).arch!.by !== 'code' ? m3(v.monument).arch!.by : 'Mayor');
+      else this.villages.note(v, text);
+      console.log(`[monument] ${v.name}: begun after the iron age: ${monumentLine(v.monument)}${m3(v.monument).arch ? ` (by ${m3(v.monument).arch!.by}${m3(v.monument).arch!.fallback ? `: ${m3(v.monument).arch!.fallback}` : `: ${m3(v.monument).arch!.reason}`})` : ''}`);
       return;
     }
     if ((this.monumentAt.get(v.name) ?? 0) > now) return;
@@ -3638,6 +3659,95 @@ export class MineflayerWorld implements WorldAdapter {
     console.log(`[monument] ${v.name}: ${monumentLine(v.monument)}`);
     if (v.monument.quarry) console.log(`[quarry] ${v.name}: ${quarryLine(v.monument.quarry)}`);
     if (v.monument.kiln) console.log(`[kiln] ${v.name}: ${kilnLine(v.monument.kiln, now, timeScale())}`);
+    if (M3.roles && m3(v.monument).trades) console.log(`[trade] ${v.name}: ${Object.entries(m3(v.monument).trades!).filter(([, r]) => r.trade).map(([n, r]) => `${n} ${r.trade}`).join(', ') || 'no trades yet'}`);
+  }
+
+  /** M3 (MC_MONUMENT_ARCHITECT): the pick under way ('asking') or answered, by village. */
+  private architectPicks = new Map<string, 'asking' | { pick: ArchitectPick | null; by: string; why?: string }>();
+
+  /**
+   * M3 (MC_MONUMENT_ARCHITECT): the architect model (the mayor's design model, else the planner's, else the default) picks
+   * the preset, the scale among those allowed, the glass colours the flowers allow and a dedication; code checks the
+   * pick and draws everything (lesson 1). One retry with the problems; then the settings' preset, with why.
+   */
+  private async askArchitect(v: Village): Promise<{ pick: ArchitectPick | null; by: string; why?: string }> {
+    const mayor = [...this.agents.values()].find((a) => a.village() === v && a.role === 'mayor');
+    const by = mayor?.name ?? 'Mayor';
+    const mem = mayor?.memory ?? {};
+    const spec = [mem.designModel, mem.planModel, mem.execModel, rawSetting('MC_PLAN_MODEL'), rawSetting('MC_EXEC_MODEL'), 'ollama:gpt-oss:120b-cloud']
+      .map((x) => (typeof x === 'string' ? parseSpec(x) : null)).find((x) => x);
+    const counts = MONUMENT.glazing && MONUMENT.palette === 'full' ? this.flowerCounts(v) : null;
+    const facts: ArchitectFacts = {
+      // (the roster as memory keeps it too: M3a's trigger came while members were still spawning, 11 of 25)
+      village: v.name, members: Math.max([...this.agents.values()].filter((a) => a.village() === v).length, rosterOf(v.name).length),
+      wood: this.catalogWoodOf(v), dyes: counts ? dyesOnOffer(counts) : null, options: architectOptions(),
+    };
+    let user = architectPrompt(facts);
+    let why = 'no model';
+    // (a transient error, a 429 or 5xx, waits and asks again, up to 6 times, without spending the one retry: M3a's two
+    // tries both met an Ollama 500 at the trigger and code chose)
+    let transient = 0;
+    for (let attempt = 0; spec && attempt < 2; attempt++) {
+      try {
+        const { reply } = await callModel({ spec, system: ARCHITECT_SYSTEM, user, tools: [ARCHITECT_TOOL], level: REASONING.design, agent: by, kind: 'design', priority: 'plan' });
+        const call = reply.calls?.find((c) => c.name === ARCHITECT_TOOL.name);
+        if (!call) {
+          why = 'the architect called no plan_cathedral';
+          user = `${architectPrompt(facts)}\nCall plan_cathedral now.`;
+          continue;
+        }
+        const r = checkArchitect(call.input as Record<string, unknown>, facts);
+        console.log(`[architect] ${v.name}: ${by} (${label(spec)}) ${'pick' in r ? `picks ${r.pick.preset} 1:${r.pick.scale}, glass ${JSON.stringify(r.pick.colours)}${r.pick.name ? `, dedicated to ${r.pick.name}` : ''}: ${r.pick.reason}` : `sent back: ${r.problems.join('; ')}`}`);
+        if ('pick' in r) return { pick: r.pick, by };
+        why = r.problems.join('; ');
+        user = `${architectPrompt(facts)}\nYour last choice could not be used: ${why}. Choose again.`;
+      } catch (e) {
+        why = String((e as Error)?.message ?? e).slice(0, 160);
+        console.log(`[architect] ${v.name}: the call failed: ${why}`);
+        if (isTransient(e) && transient < 6) {
+          transient++;
+          attempt--;
+          await new Promise((r) => setTimeout(r, (30000 * transient) / timeScale()).unref?.());
+        }
+      }
+    }
+    console.log(`[architect] ${v.name}: code chooses ${MONUMENT.preset} (${why})`);
+    return { pick: null, by: 'code', why };
+  }
+
+  /** M3 (MC_MONUMENT_NEWS): the cathedral's news: its record (shown a village day), the village log, the chronicle, and
+   *  (MC_NEWS) every member's news, told by `from`. */
+  private monumentNews(v: Village, text: string, from: string) {
+    const now = Date.now();
+    if (v.monument) m3(v.monument).news = { t: now, text };
+    this.villages.note(v, text);
+    const day = clockOf(v.name, now)?.day;
+    const vm = villageMemory(v.name);
+    if (vm && day !== undefined) {
+      const ch = ((vm.social.chronicle as ChronicleEntry[] | undefined) ?? []);
+      const e = ch.find((x) => x.day === day) ?? (ch.push({ day, facts: [] }), ch[ch.length - 1]);
+      e.facts.push(text);
+      vm.social.chronicle = ch.slice(-30);
+    }
+    const members = [...this.agents.values()].filter((a) => a.village() === v).map((a) => a.name);
+    codeNews(v.name, from, text, members, now);
+    logAct({ type: 'monument', village: v.name, text, from, t: now });
+    console.log(`[monument] ${v.name}: news: ${text}`);
+  }
+
+  /** M3 (MC_MONUMENT_ROLES): a credited monument chore counted to its trade, the trade taken or changed and logged. */
+  private creditTrade(v: Village, agent: string, trade: Trade, what?: { built?: boolean; item?: string; n?: number }) {
+    const m = v.monument;
+    if (!m) return;
+    const ch = noteTrade(m, agent, trade, Date.now(), what);
+    console.log(`[trade] ${v.name}: ${agent} works as ${trade} in stage ${currentStage(m) || 'built'}${tradeOf(m, agent) ? ` (holds ${tradeOf(m, agent)})` : ''}`);
+    if (ch) console.log(`[trade] ${v.name}: ${agent} ${ch.from ? `changes trade: ${ch.from} -> ${ch.took}` : `takes the trade of ${ch.took}`} in stage ${currentStage(m) || 'built'}`);
+  }
+
+  /** G2's role note for a choice: its kind, or (MC_MONUMENT_ROLES) a monument option's cathedral trade. */
+  private roleKindOf(v: Village, kind: string, opt?: ChoiceOption): string {
+    const d = opt && kind === 'monument' && M3.roles && v.monument ? OPTION_RUN.get(opt) : undefined;
+    return d?.kind === 'monument' ? tradeOfStep(v.monument!, d) : kind;
   }
 
   /**
@@ -4537,7 +4647,7 @@ export class MineflayerWorld implements WorldAdapter {
     worker.memory.intent = intent;
     noteIntent(v.name, worker.name, intent);
     // (G2: a member's own choices make its role, code's label)
-    if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, kind, choice.t);
+    if ((meta?.source === 'model' || meta?.source === 'scripted') && (SOCIAL.mode !== 'legacy' || MEMORY.on)) noteChoice(v.name, worker.name, this.roleKindOf(v, kind, opt), choice.t);
     if (characterAny() && (meta?.source === 'model' || meta?.source === 'scripted')) noteDecision(v.name, worker.name, opt?.cf ?? 1);
     // (MC_WORK_BLOCKS: a decided choice opens a block of the same option; a block's own repeats keep it)
     // (only a decided choice opens one: the model's or the scripted controller's, or the fixed pick in fixed mode; IM1's rate
@@ -4554,7 +4664,7 @@ export class MineflayerWorld implements WorldAdapter {
     const shown = meta?.source === 'model' ? meta.shown : undefined;
     const options: ChoiceLogOption[] = (menu?.options ?? []).map((o) => ({
       id: o.id, kind: o.kind, key: o.key, name: o.name, facts: o.facts, effect: o.effect, rank: o.rank,
-      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.vw !== undefined ? { vw: o.vw, ladderTag: o.ladderTag } : {}), ...(o.basic ? { basic: true, ...(o.basicNeed ? { basicNeed: o.basicNeed } : {}) } : {}), ...(o.mark ? { mark: o.mark } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
+      ...(o.lp !== undefined ? { lp: o.lp } : {}), ...(o.tw !== undefined ? { tw: o.tw } : {}), ...(o.nw !== undefined ? { nw: o.nw } : {}), ...(o.ww !== undefined ? { ww: o.ww } : {}), ...(o.gw !== undefined ? { gw: o.gw } : {}), ...(o.iw !== undefined ? { iw: o.iw } : {}), ...(o.sw !== undefined ? { sw: o.sw } : {}), ...(o.social ? { social: o.social } : {}), ...(o.ruleTag ? { ruleTag: o.ruleTag } : {}), ...(o.vw !== undefined ? { vw: o.vw, ladderTag: o.ladderTag } : {}), ...(o.rw !== undefined ? { rw: o.rw } : {}), ...(o.basic ? { basic: true, ...(o.basicNeed ? { basicNeed: o.basicNeed } : {}) } : {}), ...(o.mark ? { mark: o.mark } : {}), ...(o.mw !== undefined ? { mw: o.mw } : {}), ...(o.fw !== undefined ? { fw: o.fw } : {}), ...(o.dw !== undefined ? { dw: o.dw } : {}), ...(o.cf !== undefined ? { cf: o.cf, pre: Math.round((o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * o.cf * 1000) / 1000 } : {}), ...(shown && shown.includes(o.id) ? { shown: shown.indexOf(o.id) + 1 } : {}),
     }));
     const position = opt && shown?.includes(opt.id) ? shown.indexOf(opt.id) + 1 : undefined;
     logChoice({
@@ -4633,6 +4743,7 @@ export class MineflayerWorld implements WorldAdapter {
         if (dep?.state === 'done' && (n > 0 || !bad)) message = dep.message ?? message;
         if (n > 0) {
           m.yard[mon.item] = (m.yard[mon.item] ?? 0) + n;
+          if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'gather', item: mon.item }), { item: mon.item, n });
           this.villages.save();
           console.log(`[monument] ${c.village}: ${c.agent} brings ${n} ${mon.item} to the yard (${monumentLine(m)})`);
         }
@@ -4643,9 +4754,18 @@ export class MineflayerWorld implements WorldAdapter {
         else jobBuilt(m, mon.job, this.monumentRaw(m, monumentPlan(m).jobs[mon.job].bill), Date.now());
         this.villages.save();
         const st1 = currentStage(m);
+        if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'job', job: mon.job }), { built: true });
         console.log(`[monument] ${c.village}: ${c.agent} built job ${mon.job}: ${monumentLine(m)}`);
-        if (st1 !== st0) this.villages.note(vm, st1 ? `The cathedral's ${GOTHIC_STAGES[st0 - 1]} is done; its ${GOTHIC_STAGES[st1 - 1]} begins` : 'The cathedral is finished');
-      } else if (mon.site && ok) console.log(`[monument] ${c.village}: ${c.agent} prepared the site: ${monumentLine(m)}`);
+        // (M3, MC_MONUMENT_NEWS: a stage's end is news, told by the member who finished it; a part built shows in the line)
+        const stageText = st1 ? `The cathedral's ${GOTHIC_STAGES[st0 - 1]} is done; its ${GOTHIC_STAGES[st1 - 1]} begins` : 'The cathedral is finished';
+        if (st1 !== st0) {
+          if (M3.news) this.monumentNews(vm, `${stageText.replace(/^The cathedral/, cathedralName(m).replace(/^t/, 'T'))} (stage ${st0} of 8 finished by ${c.agent})`, c.agent);
+          else this.villages.note(vm, stageText);
+        } else if (M3.news) m3(m).news = { t: Date.now(), text: `${c.agent} built a part of its ${GOTHIC_STAGES[st0 - 1]}` };
+      } else if (mon.site && ok) {
+        if (M3.roles) this.creditTrade(vm, c.agent, 'quarryman');
+        console.log(`[monument] ${c.village}: ${c.agent} prepared the site: ${monumentLine(m)}`);
+      } else if (mon.kiln !== undefined && ok && M3.roles) this.creditTrade(vm, c.agent, 'mason');
     }
     // s41: a library activity by its gives' deposit, as gathering (the check's F3: the first step is a withdraw)
     const act = c.choice.activity;
@@ -6543,6 +6663,17 @@ export class MineflayerWorld implements WorldAdapter {
       // (N.2: a house of one's own is a houseless member's first preference whatever its temperament: the scale's top, H3)
       for (const o of out) if (o.kind === 'grow') o.tw = 2.5;
     }
+    // M3 (MC_MONUMENT_ROLES): a monument option of the member's own cathedral trade weighs TRADE_WEIGHT and says so
+    if (MONUMENT.on && M3.roles && v.monument) {
+      const t = tradeOf(v.monument, a.name);
+      if (t)
+        for (const o of out) {
+          const d = OPTION_RUN.get(o);
+          if (d?.kind !== 'monument' || tradeOfStep(v.monument, d) !== t) continue;
+          o.rw = TRADE_WEIGHT;
+          o.tradeTag = `[your trade: ${t}]`;
+        }
+    }
     // N.1 (MC_NEEDS=on): an option that answers a village need at LOW or above says so, and the need weighs on it by its
     // level and the member's trait for it (needWeight; a neutral trait without temperaments)
     if (NEEDS_MODE === 'on') {
@@ -7073,6 +7204,8 @@ export class MineflayerWorld implements WorldAdapter {
       })() : {}),
       // (G8: the ladder's progress line, with a stage's news for a village day)
       ...(LADDER && v.complete ? (() => { ladderOf(v, Date.now()); const line = progressLine(v, Date.now(), MEMORY.dayMs); return line ? { ladder: line } : {}; })() : {}),
+      // (M3, MC_MONUMENT_NEWS: the cathedral's progress line, its news for a village day and the member's trade)
+      ...(MONUMENT.on && M3.news && v.monument ? { monument: monumentProgress(v.monument, Date.now(), MEMORY.dayMs, a.name) } : {}),
       // (N.1: the needs at LOW or above, most acute first)
       ...(NEEDS_MODE === 'on' && (this.needReadings.get(v.name) ?? []).some((r) => r.level >= LOW)
         ? { needs: (this.needReadings.get(v.name) ?? []).filter((r) => r.level >= LOW).sort((x, y) => y.level - x.level).slice(0, 3).map((r) => r.text) } : {}),
@@ -7437,6 +7570,8 @@ export class MineflayerWorld implements WorldAdapter {
             }
           };
           this.setChore(v, worker, opt.key, [st], lane ? `tend the cathedral's kiln (lane ${lane})` : "build the cathedral's kiln", failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { kiln: lane };
           console.log(`[monument] ${v.name}: ${worker.name} ${lane ? `tends the kiln's lane ${lane}` : 'builds the kiln'}`);
           return;
         }

@@ -145,12 +145,12 @@ export function shuffled<T>(xs: T[], seed: string): T[] {
 }
 
 /** Whether an option carries any weight (tw, nw, ww or gw): the fixed pick reads the weights only then. */
-export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined || o.vw !== undefined;
+export const weighted = (o: ChoiceOption) => o.tw !== undefined || o.nw !== undefined || o.ww !== undefined || o.gw !== undefined || o.iw !== undefined || o.sw !== undefined || o.cf !== undefined || o.vw !== undefined || o.rw !== undefined;
 /** #79: the cap on an option's weights' product (temperament's top, 2.5 squared), applied when a life goal weighs on it. */
 export const WEIGHT_CAP = 6.25;
 /** An option's weights' product (tw x nw x ww x gw; capped where a goal weighs, so goals off leave it as it was). */
 export const weights = (o: ChoiceOption) => {
-  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1);
+  const p = (o.tw ?? 1) * (o.nw ?? 1) * (o.ww ?? 1) * (o.gw ?? 1) * (o.iw ?? 1) * (o.sw ?? 1) * (o.cf ?? 1) * (o.vw ?? 1) * (o.rw ?? 1);
   // (character v2's B1: with any layer on, every product capped at 6.25 and floored at 0.16)
   if (characterAny()) return capFloor(p);
   return o.gw !== undefined ? Math.min(WEIGHT_CAP, p) : p;
@@ -209,7 +209,7 @@ export interface PromptMemory {
  * scale's top for every houseless member, not the member's temperament.
  */
 const tag = (o: ChoiceOption) => (o.tw === undefined || o.kind === 'grow' ? '' : o.tw >= ENJOYED ? ' [you enjoy this]' : o.tw <= DULL ? ' [you find this dull]' : '')
-  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '');
+  + (o.gw !== undefined ? ' [toward your goal]' : '') + (o.basic ? ` ${o.basicNeed ? basicTag(o.basicNeed) : '[a basic need: your own house]'}` : '') + (o.social ? ` ${o.social}` : '') + (o.mark ? ` ${o.mark}` : '') + (o.ruleTag ? ` ${o.ruleTag}` : '') + (o.ladderTag ? ` ${o.ladderTag}` : '') + (o.tradeTag ? ` ${o.tradeTag}` : '');
 
 /** A context line with its label, unless the world wrote the label already. */
 const labelled = (label: string, text: string) => (text.toLowerCase().startsWith(label.toLowerCase()) ? text : `${label}: ${text}`);
@@ -235,6 +235,8 @@ export function buildPrompt(menu: ChoiceMenu, shown: ChoiceOption[], mem?: Promp
   if (ctx.wants?.trim()) lines.push(ctx.wants.trim());
   if (ctx.goal?.trim()) lines.push(ctx.goal.trim());
   if (ctx.ladder?.trim()) lines.push(ctx.ladder.trim());
+  // (M3, MC_MONUMENT_NEWS: the cathedral's progress, its news and the member's trade)
+  if (ctx.monument?.trim()) lines.push(ctx.monument.trim());
   const outcomes = ctx.outcomes?.length ? ctx.outcomes : mem?.outcomes ?? [];
   lines.push(`Your last chores: ${outcomes.length ? outcomes.join(' | ') : 'none yet'}`);
   if (rc) lines.push(rc.text);

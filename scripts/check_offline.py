@@ -62,6 +62,8 @@ def commands():
     out["quarry_unit"] = ([node, TSX, "scripts/checks/quarry_unit.mts"], [])
     # (M2, #145: the kiln's ledger and the full palette's plan, the 1:4 cathedral through the planned yard)
     out["kiln_unit"] = ([node, TSX, "scripts/checks/kiln_unit.mts"], [])
+    # (M3, #146: the architect's pick (replayed), the trades and their weight, the progress in news and memory)
+    out["monument_m3"] = ([node, TSX, "scripts/checks/monument_m3.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])

@@ -298,6 +298,10 @@ export interface ChoiceOption {
   /** G8 (MC_LADDER): the weight (ladder.ts' VW) and tag, "[for the iron age]", of an option that feeds the ladder's current stage. */
   vw?: number;
   ladderTag?: string;
+  /** M3 (MC_MONUMENT_ROLES): the weight (monument.ts' TRADE_WEIGHT) and tag, "[your trade: mason]", of a monument option of
+   *  the member's own cathedral trade. */
+  rw?: number;
+  tradeTag?: string;
 }
 
 export interface ChoiceContext {
@@ -340,6 +344,8 @@ export interface ChoiceContext {
   goal?: string;
   /** G8 (MC_LADDER): the ladder's progress line, "The village's ambition: the iron age, stage 2 of 4: ...". */
   ladder?: string;
+  /** M3 (MC_MONUMENT_NEWS): the cathedral's progress line, with its latest news and the member's trade. */
+  monument?: string;
   /** #117 (MC_PROMPT_SELF): the member's own state and its unmet basic needs ("You: no house of your own yet; ..."). */
   self?: string;
   /** #117 (MC_PROMPT_SELF): what is short and what is made for nothing yet. */

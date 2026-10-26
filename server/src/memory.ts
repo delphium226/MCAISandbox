@@ -676,6 +676,8 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
   }
   if (v?.days.length && villageLine()) lines.push({ text: `- The village: ${v.days[v.days.length - 1].line}`, items: ['village'] });
   for (const x of a?.answers ?? []) lines.push({ text: `- ${x.line}`, items: [`answer:${x.id}`], keep: true });
+  // (M3, MC_MONUMENT_NEWS: the member's own part in the village's project, kept by code on the project's record)
+  for (const t of projectLines?.(village, agent, now) ?? []) lines.push({ text: `- ${t}`, items: ['project'], keep: true });
   if (MEMORY.quality && a?.refused) lines.push({ text: `- A note you wanted to keep was not kept: ${a.refused}.`, items: ['refused'], keep: true });
   // (a member with nothing remembered yet still gets the head on its first choice of a day, so the intention is asked)
   if (!lines.length && !dawn) return null;
@@ -696,6 +698,12 @@ export function recall(village: string, agent: string, now: number, o: { cap?: n
     save();
   }
   return { text, shown: kept.flatMap((l) => l.items), liveIds: live.map((n) => n.id), full: live.length >= MEMORY.notes, dawn, day: c?.day ?? 0 };
+}
+
+/** M3 (MC_MONUMENT_NEWS): code's lines on a long project the member remembers (set by the world; none by default). */
+let projectLines: ((village: string, agent: string, now: number) => string[]) | null = null;
+export function setProjectLines(fn: ((village: string, agent: string, now: number) => string[]) | null): void {
+  projectLines = fn;
 }
 
 /** The last n end lines (the chooser's "Your last chores" after a restart emptied the statistics). */
