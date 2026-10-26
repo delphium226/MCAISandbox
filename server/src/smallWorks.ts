@@ -156,7 +156,8 @@ function signpost(w: string): Design {
  * layer 0 keeps the ground, which must be soil (the world's soil test in gardenSpots). Their spots come from gardenSpots,
  * not smallWorkSpots: they hug a door or a green's centre, where other works keep off.
  */
-export const GARDENS = /^(on|1|true)$/i.test(rawSetting('MC_GARDENS') ?? 'off');
+// (on by default since 10-26, the user's: "always turn gardens on"; =off for none)
+export const GARDENS = !/^(off|0|false|no)$/i.test(rawSetting('MC_GARDENS') ?? 'on');
 /** The flower a garden plants (the commonest near minevale3, yellow; one item a block). */
 export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
 

@@ -895,3 +895,5 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-26 (the user's) **MC_FLOWER_MIX on by default after #140's menu fix** (F324's left-over: no new mixed bed with a
   flower the village ran out of in the last hour; the mixes read the dye census out to 144, so they vary with what
   grows). It still acts only with MC_GARDENS on (off by default); `MC_FLOWER_MIX=off` turns it off.
+- 10-26 (the user's) **MC_GARDENS always on** (#45: front beds, flower rings, saplings; with it the flower mix, on
+  by default since e854a3a, takes effect). `=off` remains for tests; small_works checks the pieces without it.

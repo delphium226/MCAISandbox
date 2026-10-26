@@ -155,7 +155,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'The executors\' model (and choices\', unless MC_CHOOSE_MODEL).' },
   { name: 'MC_FLOWER_MIX', type: 'flag', default: 'on', group: 'building', live: false, read: 'smallWorks.ts',
     describe: '#140: with MC_GARDENS, a flower bed or ring is planted from a mix of 2-4 of the one-block flowers counted within 80 of the storage hut (each with enough blocks to gather), drawn per member; the option, the design and the bill name the mix, and its crew picks each kind by name.' },
-  { name: 'MC_GARDENS', type: 'flag', default: 'off', group: 'building', live: false, read: 'smallWorks.ts',
+  { name: 'MC_GARDENS', type: 'flag', default: 'on', group: 'building', live: false, read: 'smallWorks.ts',
     describe: '#45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side of a house\'s door walkway (the walkway itself left as it is), one design a walkway\'s direction; a flower ring circles a green\'s centre, its four sides open. Planted from flowers...' },
   { name: 'MC_GATHER_LOGS_HOUR', type: 'number', default: '96', group: 'economy', live: false, read: 'mineflayer/mcWorkshop.ts',
     describe: 'Logs gathering for the workshop may bring a village in an hour (counted with what is on the way).' },

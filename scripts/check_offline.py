@@ -76,8 +76,9 @@ def commands():
 
 
 # Checks written for a default since changed: the setting they assume (small_works checks the small-work pieces of the
-# default library, before MC_VANILLA_ALL went on by default on 10-25; vanilla_all.mts checks the library with it on).
-CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off"}}
+# default library, before MC_VANILLA_ALL went on by default on 10-25; vanilla_all.mts checks the library with it on; and
+# without #45's gardens, on by default since 10-26, which gardens_unit.mts checks).
+CHECK_ENV = {"small_works": {"MC_VANILLA_ALL": "off", "MC_GARDENS": "off"}}
 
 
 def run(name, cmd, needs, logdir):
