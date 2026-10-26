@@ -97,6 +97,8 @@ import { DETAIL_COLOURS } from '../gothicGen';
 import { stoneStandIn } from '../monument';
 /** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
 const STONE_WAIT_MIN = 6;
+/** #140 (F324): minutes (game time) a village leaves a bed flower it ran out of out of new mixes. */
+const FLOWER_OUT_MIN = 60;
 import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
 
@@ -807,8 +809,17 @@ export class MineflayerWorld implements WorldAdapter {
   /** A member's flower work's mix (#140): from the village's census, seeded by the member and the village's works so far. */
   private flowerMixFor(v: Village, a: BotAgent, kind: string): string[] | undefined {
     if (!FLOWER_MIX || !isFlowerWork(kind)) return undefined;
-    // (enough of each kind for a trip that finds them: a ring takes up to 8 of its main flower)
-    return flowerMix(this.flowerCounts(v, a), `${a.name}|${v.initiativeN ?? 0}`, kind === 'flower_ring' ? 12 : 6);
+    // (enough of each kind for a trip that finds them: a ring takes up to 8 of its main flower; the dye census, out to 144,
+    // so the kinds that grow beyond 80 vary the mixes (F324: every mix was wildflowers and lilies); never a kind the
+    // village ran out of within the last hour)
+    return flowerMix(this.dyeCounts(v, a), `${a.name}|${v.initiativeN ?? 0}`, kind === 'flower_ring' ? 12 : 6, this.flowersOut(v));
+  }
+
+  /** #140 (F324): the bed flowers a village ran out of (a bed dropped them) within the last FLOWER_OUT_MIN, game time. */
+  private flowersOut(v: Village): Set<string> {
+    const rec = (v as Village & { flowersOut?: Record<string, number> }).flowersOut ?? {};
+    const since = Date.now() - FLOWER_OUT_MIN * 60000 / timeScale();
+    return new Set(Object.entries(rec).filter(([, t]) => t > since).map(([f]) => f));
   }
 
   /** The wood kind the catalogue makes wood goods in: pinned on the village by the sweep (catalogWood), else as it would be. */
@@ -3808,7 +3819,10 @@ export class MineflayerWorld implements WorldAdapter {
     v.designs[d.name] = d;
     const was = it.design;
     it.design = d.name;
+    // (and no new bed is offered with it for a while: F324)
+    ((v as Village & { flowersOut?: Record<string, number> }).flowersOut ??= {})[flower] = Date.now();
     this.flowerCensus.delete(v.name);
+    this.flowerCensus.delete(`${v.name}|${DYE_REACH}`);
     this.villages.save();
     console.log(`[initiative] ${v.name}: ${it.id} drops ${flower} (none left near the village): ${was} -> ${d.name}`);
     return true;

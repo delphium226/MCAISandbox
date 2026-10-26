@@ -108,6 +108,18 @@ for (let i = 0; i < 3; i++) w.initiativeNoneNear(v, c, { material: 'logs', block
 unmute();
 ok(c.state === 'failed', `C: logs none found 3 times left it ${c.state}`);
 
+// D (F324): after the lilies ran out no new mix holds them, though the census still counts them; and with more kinds
+// growing (the widened census) the mixes differ from member to member
+w.flowerCensus.set(`${v.name}|144`, { at: Date.now(), counts: { lily_of_the_valley: 24, wildflowers: 24, poppy: 14, dandelion: 12, cornflower: 9, azure_bluet: 8 } });
+const mixesNow = Array.from({ length: 12 }, (_, i) => w.flowerMixFor(v, { name: `M${i}` }, 'front_bed') as string[]);
+ok(mixesNow.every((m) => !m.includes('lily_of_the_valley')), `D: a new mix holds the used-up lily: ${JSON.stringify(mixesNow.find((m) => m.includes('lily_of_the_valley')))}`);
+const distinct = new Set(mixesNow.map((m) => [...m].sort().join('+')));
+ok(distinct.size >= 4, `D: only ${distinct.size} different mixes over 12 members`);
+ok(new Set(mixesNow.flat()).size >= 4, `D: the mixes use ${new Set(mixesNow.flat()).size} kinds of 5 to be had`);
+v.flowersOut.lily_of_the_valley = Date.now() - 2 * 3600000;
+const later = Array.from({ length: 12 }, (_, i) => w.flowerMixFor(v, { name: `M${i}` }, 'front_bed') as string[]);
+ok(later.some((m) => m.includes('lily_of_the_valley')), 'D: the lily never comes back after its hour out');
+quiet.log(`  mixes after the lilies ran out: ${[...distinct].join('; ')}`);
 quiet.log(`  ${base.name}: beds ${beds.map((b) => `${b.id} ${b.design} ${b.state}`).join('; ')}`);
 quiet.log(`${failures ? 'FAIL' : 'PASS'}: ${checks} checks, ${failures} failures`);
 process.exit(failures ? 1 : 0);

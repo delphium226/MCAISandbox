@@ -892,3 +892,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-26 (the user's, after test train 6, F323) **MC_PAD_PER_BUILDING and MC_GROW_OUTWARD on by default** (#84, #138:
   per-building pads and outward growth; with #149's spot cache the pad village had 0 [lag] against 429 and [stuck] 56
   against 434; `=off` turns each off). MC_FLOWER_MIX stays off until the menu stops offering a used-up flower.
+- 10-26 (the user's) **MC_FLOWER_MIX on by default after #140's menu fix** (F324's left-over: no new mixed bed with a
+  flower the village ran out of in the last hour; the mixes read the dye census out to 144, so they vary with what
+  grows). It still acts only with MC_GARDENS on (off by default); `MC_FLOWER_MIX=off` turns it off.

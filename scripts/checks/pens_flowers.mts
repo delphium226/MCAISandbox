@@ -154,7 +154,7 @@ ok(choreProductive('penwork', 'shear_pen', true, 'sheared 3 sheep in the pen on 
 ok(!choreProductive('penwork', 'shear_pen', true, "no sheep with wool in the pen on annex slot 2 (wool grows back when they eat the pen's grass)", null), 'shear_pen with none not productive');
 ok(choreProductive('penwork', 'milk_cows', true, 'milked the goats on annex slot 3: 2 milk buckets', null), 'goat milk productive');
 ok(SETTINGS.find((q) => q.name === 'MC_PEN_VARIETY')?.default === 'on', 'MC_PEN_VARIETY registered, on (the user\'s, 10-25)');
-ok(SETTINGS.find((q) => q.name === 'MC_FLOWER_MIX')?.default === 'off', 'MC_FLOWER_MIX registered, off');
+ok(SETTINGS.find((q) => q.name === 'MC_FLOWER_MIX')?.default === 'on', 'MC_FLOWER_MIX registered, on (10-26, the user\'s)');
 
 console.log(`${fail ? 'PENS_FLOWERS FAILED' : 'PENS_FLOWERS OK'}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

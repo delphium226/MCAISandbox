@@ -161,12 +161,12 @@ export const GARDENS = /^(on|1|true)$/i.test(rawSetting('MC_GARDENS') ?? 'off');
 export const GARDEN_FLOWER = 'wildflowers[flower_amount=4,facing=north]';
 
 /**
- * #140 (MC_FLOWER_MIX=on; off by default, and only with MC_GARDENS): a flower bed or ring planted from a mix of 2-4 of the
+ * #140 (MC_FLOWER_MIX; on by default since 10-26, the user's, and only with MC_GARDENS): a flower bed or ring planted from a mix of 2-4 of the
  * flowers growing near the village, not wildflowers alone. The one-block flowers a bed may take (the jar's
  * small_flowers that grow wild, with wildflowers and pink petals, set as four to a block); the tall ones (lilac, peony,
  * rose bush, sunflower) need a two-block placement and stay out.
  */
-export const FLOWER_MIX = GARDENS && /^(on|1|true)$/i.test(rawSetting('MC_FLOWER_MIX') ?? 'off');
+export const FLOWER_MIX = GARDENS && !/^(off|0|false|no)$/i.test(rawSetting('MC_FLOWER_MIX') ?? 'on');
 export const BED_FLOWERS = ['wildflowers', 'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip', 'orange_tulip', 'white_tulip',
   'pink_tulip', 'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'pink_petals'];
 /** A bed flower's block (wildflowers and pink petals as four to a block). */
@@ -185,10 +185,11 @@ function hashOf(s: string): number {
  * The mix a flower work is planted from (#140): from the bed flowers counted near the village (`counts`, blocks by kind),
  * those with at least `need` blocks (a work's gathering finds them), 2 to 4 of them drawn by weight of their count with a
  * seed (the member and the village's count of works: members differ, and a member's next one may too); one kind when only
- * one is common enough, wildflowers when none is. Kinds in the order drawn (the first is the bed's main flower).
+ * one is common enough, wildflowers when none is. Kinds in the order drawn (the first is the bed's main flower). `ranOut`:
+ * kinds the village has run out of (a bed dropped them: F324's 6 new beds each lost a gather on used-up lilies), left out.
  */
-export function flowerMix(counts: Record<string, number>, seed: string, need = 4): string[] {
-  const pool = BED_FLOWERS.filter((f) => (counts[f] ?? 0) >= need).map((f) => ({ f, w: Math.sqrt(counts[f]) }));
+export function flowerMix(counts: Record<string, number>, seed: string, need = 4, ranOut: ReadonlySet<string> = new Set()): string[] {
+  const pool = BED_FLOWERS.filter((f) => (counts[f] ?? 0) >= need && !ranOut.has(f)).map((f) => ({ f, w: Math.sqrt(counts[f]) }));
   if (!pool.length) return ['wildflowers'];
   let h = hashOf(seed);
   const next = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0), (h % 10000) / 10000);
