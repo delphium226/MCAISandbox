@@ -2191,3 +2191,14 @@ CLAUDE.md when a phase ends.
   was offered in its last 30 minutes (F0: 53, taken 31), so F0 kept 5-6 open and F1 3; not from beds, not traced. F0
   repeats F322's gain with policy options on by default (68 vs 71.7 in hour 2). $1.19 vs $1.28. Logs:
   runs/2026-10-26/train6/ (report.md).
+- F325 (10-26, tier2, #162) **The detail cathedral with the stonecutter and the dye bed builds in full live, and the
+  monument's work splits beyond masons.** T2d (world 3, iron_age_g1, Chartres 1:4, staged, 2x, MC_MONUMENT_DETAIL +
+  MC_DYE_BED with kiln, quarry, glazing, roles): 12 of 12 jobs, 18 kinds of block (M3a 11), 96 of 96 sampled cells in
+  place; 1,999 pieces cut in 59 carver loads, 8 dye colours from 13 dye chores (the bed's rose bushes and lilacs copied
+  with composted bone meal, lapis, mixes); trades held at the end carpenter 7, mason 6, quarryman 3, carver 1 (masons 35%
+  of holders, M3a 74%); busy 54% (51%), [lag] 0, [stuck] 231 (73 one member in #133's amethyst geode; 6 near the new
+  works). Three runs before it each stalled on a supply the spec missed: the polished floor's andesite and diorite (open
+  stone 50-70 out, under water or in hills: collect failed 32 of 40 trips; storage held 256 of each, now claimed first),
+  the dye bed's ground (none within 48 of a crowded hut; found at 64), and the yard's dyes (dyers mixed them away). The
+  dye census at reach 144 with tall flowers makes 12 colours near G1 against today's 2. No member took the dyer trade
+  (dye chores spread thin). Logs: runs/2026-10-26/tier2/ (report.md).
