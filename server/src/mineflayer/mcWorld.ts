@@ -88,11 +88,10 @@ import { GROW, GROW_FARMS, HOUSING, NO_FIELD_BIOME, growing, hoodWood, hoodWoodA
 import { APPETITE, FOOD_POINTS, appetiteOn, chooseMeal, drain, foodPoints, foodText, holdMeal, isFoodKind, isFoodTask, releaseMeal, stateOf, storeForMeals, type Appetite } from '../appetite';
 import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
-import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
+import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
-import { GOTHIC_STAGES } from '../gothicGen';
 
 /** Brains that only use the world interface (the scripted ones in brains.ts are sandbox-only). */
 export const MC_BRAINS: Record<string, () => AgentBrain> = {
@@ -3627,8 +3626,9 @@ export class MineflayerWorld implements WorldAdapter {
     const now = Date.now();
     if (!v.monument) {
       if (!ironReached(v)) return;
-      // (M3, MC_MONUMENT_ARCHITECT: the architect model picks the parameters first; the record waits for its answer)
-      if (M3.architect) {
+      // (M3, MC_MONUMENT_ARCHITECT: the architect model picks the parameters first; the record waits for its answer; the
+      // cathedral's only, #153: code sets the castle's)
+      if (M3.architect && MONUMENT.type === 'cathedral') {
         const pick = this.architectPicks.get(v.name);
         if (!pick) {
           this.architectPicks.set(v.name, 'asking');
@@ -3648,7 +3648,7 @@ export class MineflayerWorld implements WorldAdapter {
       const c = monumentPlan(v.monument);
       this.villages.save();
       const named = m3(v.monument).name ? `, dedicated to ${m3(v.monument).name}` : '';
-      const text = `The village begins its cathedral (${presetWords(v.monument.preset)} at 1:${v.monument.scale}${named}) after the iron age: ${c.design.blocks} blocks in ${c.jobs.length} parts over 8 stages`;
+      const text = `The village begins its ${monumentNoun(v.monument)} (${presetWords(v.monument.preset)} at 1:${v.monument.scale}${named}) after the iron age: ${c.design.blocks} blocks in ${c.jobs.length} parts over ${c.stageNames.length} stages`;
       if (M3.news) this.monumentNews(v, text, m3(v.monument).arch?.by && m3(v.monument).arch!.by !== 'code' ? m3(v.monument).arch!.by : 'Mayor');
       else this.villages.note(v, text);
       console.log(`[monument] ${v.name}: begun after the iron age: ${monumentLine(v.monument)}${m3(v.monument).arch ? ` (by ${m3(v.monument).arch!.by}${m3(v.monument).arch!.fallback ? `: ${m3(v.monument).arch!.fallback}` : `: ${m3(v.monument).arch!.reason}`})` : ''}`);
@@ -4757,11 +4757,12 @@ export class MineflayerWorld implements WorldAdapter {
         if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'job', job: mon.job }), { built: true });
         console.log(`[monument] ${c.village}: ${c.agent} built job ${mon.job}: ${monumentLine(m)}`);
         // (M3, MC_MONUMENT_NEWS: a stage's end is news, told by the member who finished it; a part built shows in the line)
-        const stageText = st1 ? `The cathedral's ${GOTHIC_STAGES[st0 - 1]} is done; its ${GOTHIC_STAGES[st1 - 1]} begins` : 'The cathedral is finished';
+        const names = monumentStages(m), noun = monumentNoun(m);
+        const stageText = st1 ? `The ${noun}'s ${names[st0 - 1]} is done; its ${names[st1 - 1]} begins` : `The ${noun} is finished`;
         if (st1 !== st0) {
-          if (M3.news) this.monumentNews(vm, `${stageText.replace(/^The cathedral/, cathedralName(m).replace(/^t/, 'T'))} (stage ${st0} of 8 finished by ${c.agent})`, c.agent);
+          if (M3.news) this.monumentNews(vm, `${stageText.replace(`The ${noun}`, cathedralName(m).replace(/^t/, 'T'))} (stage ${st0} of ${names.length} finished by ${c.agent})`, c.agent);
           else this.villages.note(vm, stageText);
-        } else if (M3.news) m3(m).news = { t: Date.now(), text: `${c.agent} built a part of its ${GOTHIC_STAGES[st0 - 1]}` };
+        } else if (M3.news) m3(m).news = { t: Date.now(), text: `${c.agent} built a part of its ${names[st0 - 1]}` };
       } else if (mon.site && ok) {
         if (M3.roles) this.creditTrade(vm, c.agent, 'quarryman');
         console.log(`[monument] ${c.village}: ${c.agent} prepared the site: ${monumentLine(m)}`);
@@ -6554,14 +6555,16 @@ export class MineflayerWorld implements WorldAdapter {
       const m = v.monument;
       const c = monumentPlan(m);
       const st = currentStage(m);
-      const stageName = GOTHIC_STAGES[st - 1] ?? '';
+      const stageName = c.stageNames[st - 1] ?? '';
+      // (#153: the cathedral's or the castle's)
+      const N = monumentNoun(m);
       if (m.state === 'site') {
         if ((m.backoff ?? 0) <= now && !busy.has('monument:site'))
           add({
             id: 'monument:site', kind: 'monument', key: 'monument:site', excludes: ['monument:site='], rank: 155,
-            name: "Choose and level the cathedral's site (the village's monument)",
-            facts: `the village began a cathedral after the iron age: ${c.design.width}x${c.design.depth}, ${c.design.blocks} blocks in 8 stages; its pad goes at the edge of the village`,
-            effect: "the cathedral's pad, level and ready for its foundations",
+            name: `Choose and level the ${N}'s site (the village's monument)`,
+            facts: `the village began a ${N} after the iron age: ${c.design.width}x${c.design.depth}, ${c.design.blocks} blocks in ${c.stageNames.length} stages; its pad goes at the edge of the village`,
+            effect: `the ${N}'s pad, level and ready for its foundations`,
           }, { kind: 'monument', step: 'site' });
       } else {
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
@@ -6584,9 +6587,9 @@ export class MineflayerWorld implements WorldAdapter {
           const key = `monument:gather:${item}:${n}`, amount = Math.min(spec.trip, q);
           add({
             id: `monument:gather:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
-            name: `Gather ${amount} ${mat} for the cathedral (stage ${st}: ${stageName})`,
-            facts: `the cathedral's stage ${st} still wants ${q} ${item}; its yard holds ${m.yard[item] ?? 0}; ${m.done.length} of ${c.jobs.length} jobs built`,
-            effect: `+${amount} ${item} in the cathedral's yard toward its ${stageName}`,
+            name: `Gather ${amount} ${mat} for the ${N} (stage ${st}: ${stageName})`,
+            facts: `the ${N}'s stage ${st} still wants ${q} ${item}; its yard holds ${m.yard[item] ?? 0}; ${m.done.length} of ${c.jobs.length} jobs built`,
+            effect: `+${amount} ${item} in the ${N}'s yard toward its ${stageName}`,
           }, { kind: 'monument', step: 'gather', item, material: mat, amount, block: spec.block(m.wood), deposit: spec.deposit(m.wood) });
         }
         let shown = 0;
@@ -6599,9 +6602,9 @@ export class MineflayerWorld implements WorldAdapter {
           shown++;
           add({
             id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 158,
-            name: `Build part of the cathedral: its ${stageName} (${j.blocks} blocks)`,
-            facts: `stage ${st} of 8; ${m.done.length} of ${c.jobs.length} jobs built; its materials are in the yard`,
-            effect: `${j.blocks} more blocks of the cathedral stand`,
+            name: `Build part of the ${N}: its ${stageName} (${j.blocks} blocks)`,
+            facts: `stage ${st} of ${c.stageNames.length}; ${m.done.length} of ${c.jobs.length} jobs built; its materials are in the yard`,
+            effect: `${j.blocks} more blocks of the ${N} stand`,
           }, { kind: 'monument', step: 'job', job: i });
         }
       }
@@ -6612,9 +6615,9 @@ export class MineflayerWorld implements WorldAdapter {
           if ((m.kilnBackoff ?? 0) <= now && !busy.has('monument:kiln:0') && (m.yard.cobblestone ?? 0) >= 64)
             add({
               id: 'monument:kiln:0', kind: 'monument', key: 'monument:kiln:0', excludes: ['monument:kiln:0='], rank: 157,
-              name: "Build the cathedral's kiln (a row of furnaces for its stone bricks)",
-              facts: `the cathedral's stone bricks${MONUMENT.glazing ? ' and glass' : ''} are smelted there, many at once; its yard holds ${m.yard.cobblestone ?? 0} cobblestone`,
-              effect: "the cathedral's kiln stands, ready to smelt",
+              name: `Build the ${N}'s kiln (a row of furnaces for its stone bricks)`,
+              facts: `the ${N}'s stone bricks${MONUMENT.glazing ? ' and glass' : ''} are smelted there, many at once; its yard holds ${m.yard.cobblestone ?? 0} cobblestone`,
+              effect: `the ${N}'s kiln stands, ready to smelt`,
             }, { kind: 'monument', step: 'kiln', lane: 0 });
         } else
           for (let lane = 1; lane <= kilnLanes(kl); lane++) {
@@ -6626,9 +6629,9 @@ export class MineflayerWorld implements WorldAdapter {
             if (w.load < 16 && w.ready < 16 && !(w.ready > 0 && !w.load)) continue;
             add({
               id: key, kind: 'monument', key, excludes: [`${key}=`], rank: 159,
-              name: `Tend the cathedral's kiln (load ${w.load}, take out ${w.ready})`,
+              name: `Tend the ${N}'s kiln (load ${w.load}, take out ${w.ready})`,
               facts: `stage ${st} wants its stone smelted; ${kl.furnaces.length} furnaces, lane ${lane} of ${kilnLanes(kl)}; ${kilnLine(kl, now, timeScale())}`,
-              effect: `${w.ready} smelted for the cathedral, ${w.load} more smelting`,
+              effect: `${w.ready} smelted for the ${N}, ${w.load} more smelting`,
             }, { kind: 'monument', step: 'kiln', lane });
           }
       }
@@ -7532,6 +7535,7 @@ export class MineflayerWorld implements WorldAdapter {
       case 'monument': {
         const m = v.monument;
         if (!m) return;
+        const N = monumentNoun(m);
         if (d.step === 'site') {
           const st = worker.enqueue('monument_site', { chore: true });
           const failed = (why: string) => {
@@ -7540,10 +7544,10 @@ export class MineflayerWorld implements WorldAdapter {
             m.backoff = Date.now() + 5 * 60000;
             this.villages.save();
           };
-          this.setChore(v, worker, opt.key, [st], "prepare the cathedral's site", failed, meta, opt.holds, opt);
+          this.setChore(v, worker, opt.key, [st], `prepare the ${N}'s site`, failed, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());
           if (c) c.choice.monument = { site: true };
-          console.log(`[monument] ${v.name}: ${worker.name} prepares the cathedral's site`);
+          console.log(`[monument] ${v.name}: ${worker.name} prepares the ${N}'s site`);
           return;
         }
         if (d.step === 'job') {
@@ -7552,7 +7556,7 @@ export class MineflayerWorld implements WorldAdapter {
           const failed = (why: string) => {
             if (why !== 'cancelled' && !st.code) this.monumentBack.set(`${v.name}:${job}`, Date.now() + 5 * 60000);
           };
-          this.setChore(v, worker, opt.key, [st], `build the cathedral's job ${job}`, failed, meta, opt.holds, opt);
+          this.setChore(v, worker, opt.key, [st], `build the ${N}'s job ${job}`, failed, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());
           if (c) c.choice.monument = { job };
           console.log(`[monument] ${v.name}: ${worker.name} builds job ${job} (stage ${monumentPlan(m).jobs[job].stage}, ${monumentPlan(m).jobs[job].blocks} blocks)`);
@@ -7569,7 +7573,7 @@ export class MineflayerWorld implements WorldAdapter {
               this.villages.save();
             }
           };
-          this.setChore(v, worker, opt.key, [st], lane ? `tend the cathedral's kiln (lane ${lane})` : "build the cathedral's kiln", failed, meta, opt.holds, opt);
+          this.setChore(v, worker, opt.key, [st], lane ? `tend the ${N}'s kiln (lane ${lane})` : `build the ${N}'s kiln`, failed, meta, opt.holds, opt);
           const c = this.chores.get(worker.name.toLowerCase());
           if (c) c.choice.monument = { kiln: lane };
           console.log(`[monument] ${v.name}: ${worker.name} ${lane ? `tends the kiln's lane ${lane}` : 'builds the kiln'}`);
@@ -7580,7 +7584,7 @@ export class MineflayerWorld implements WorldAdapter {
         const deposit = worker.enqueue('deposit', { item: d.deposit, also: d.material === 'cobblestone' && quarryFeeds(v, 'cobblestone') ? `${GATHER_ALSO},andesite,diorite,granite,tuff` : GATHER_ALSO, chore: true });
         // (its load is the cathedral's: the bulk cap leaves it, mcStorage.ts spoilSurplus)
         worker.memory.monumentGather = d.item;
-        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material} for the cathedral`, undefined, meta, opt.holds, opt);
+        this.setChore(v, worker, opt.key, [collect, deposit], `gather ${d.amount} ${d.material} for the ${N}`, undefined, meta, opt.holds, opt);
         const c = this.chores.get(worker.name.toLowerCase());
         if (c) c.choice.monument = { item: d.item, material: d.material, n: d.amount };
         console.log(`[monument] ${v.name}: ${worker.name} gathers ${d.amount} ${d.material} for stage ${currentStage(m)}`);

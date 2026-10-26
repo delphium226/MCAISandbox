@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-207 settings.
+208 settings.
 
 ## Game speed
 
@@ -214,11 +214,12 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MONUMENT_ARCHITECT` | flag | `off` |  | `MC_MONUMENT` | MC_MONUMENT_ARCHITECT=on (M3, #146; off by default): at the trigger the architect model (the mayor's design model) picks the preset, the scale among MC_MONUMENT_SCALES, the glass colours the flowers near the village allow and a dedication; code draws the geometry (lesson 1). One retry with the problems, then MC_MONUMENT_PRESET. |
 | `MC_MONUMENT_NEWS` | flag | `off` |  | `MC_MONUMENT` | MC_MONUMENT_NEWS=on (M3, #146; off by default): the cathedral's progress (stage, parts built of the stage's, blocks) in every member's prompt with its latest news for a village day; its start, stage ends and finish in the chronicle, the village log and (MC_NEWS) every member's news; each member's own part in it in what it remembers (MC_MEMORY). |
 | `MC_MONUMENT_PALETTE` | string | `today` |  | `MC_MONUMENT` | today (cobblestone, a roof of the village wood, plain panes: what the skills of today gather) or full (M2, #145: stone bricks, and plain stone for the andesite, smelted in the kiln with MC_KILN; tuff bricks as stone bricks; the roof in the village wood until cobbled deepslate has a source; stained panes with MC_GLAZING, plain without). |
-| `MC_MONUMENT_PRESET` | string | `notre_dame` |  | `MC_MONUMENT` | The cathedral gothicGen.ts draws: notre_dame, salisbury or chartres. |
+| `MC_MONUMENT_PRESET` | string | `notre_dame` |  | `MC_MONUMENT` | The preset drawn: a cathedral (notre_dame, salisbury or chartres) or, with MC_MONUMENT_TYPE=castle, a castle (conwy, white_tower); one of the other type falls back to notre_dame or conwy. |
 | `MC_MONUMENT_ROLES` | flag | `off` |  | `MC_MONUMENT` | MC_MONUMENT_ROLES=on (M3, #146; off by default): the cathedral's trades (quarryman, mason, glazier, carpenter) taken by practice: a member whose monument chores of one trade reach 2 holds it across stages (a switch needs 3 more of another among its last 8); options of its trade weigh 1.5 and say so, its role (social.ts) is the trade. |
 | `MC_MONUMENT_SCALE` | number | `0.5` |  | `MC_MONUMENT` | The scale against the real cathedral: 0.5 (1:2, the first target) or 0.25 (1:4, the first live test). |
 | `MC_MONUMENT_SCALES` | string | (unset) |  | `MC_MONUMENT_ARCHITECT` | The scales the architect may pick from, comma-separated (0.25,0.5); empty: MC_MONUMENT_SCALE only. |
 | `MC_MONUMENT_SHARE` | number | `0.6` |  | `MC_MONUMENT` | At most this share of a menu may be monument options (one at least), so food, the ladder and chores go on. |
+| `MC_MONUMENT_TYPE` | string | `cathedral` |  | `MC_MONUMENT` | The monument the village builds after the iron age (#153): cathedral (gothicGen.ts) or castle (castleGen.ts: Conwy, or the White Tower with MC_MONUMENT_PRESET=white_tower), on the same pad, yard, quarry, kiln and jobs; the architect (MC_MONUMENT_ARCHITECT) picks only for the cathedral. |
 | `MC_ORE_MINE` | flag | `off` |  | `MC_IRON_AGE` | MC_ORE_MINE (with MC_IRON_AGE): the iron levels follow the iron seen (short drifts to ore seen near the tunnels, turns and next levels toward it, levels 6 apart down to y -8) instead of fixed patterns only, up to 8,000 cells in all. |
 | `MC_ORE_VEIN` | flag | `off` |  |  | Ore veins followed in the mine (with the ore mine). |
 | `MC_OWN_TOOLS` | flag | `off` |  |  | MC_OWN_TOOLS: a tool given to a member stays with it (deposits keep it) and its skills use it before storage's. |

@@ -52,8 +52,7 @@ import { CHOOSE } from '../choose';
 import { IRON_AGE, LETTERS, LETTERS_PACE, OWN_TOOLS } from '../ladderFlags';
 import { zoneBoxes } from '../rules';
 import { rawSetting } from '../settings';
-import { jobTargets, monumentPlan, searchSite, siteHub, siteTaken } from '../monument';
-import { GOTHIC_STAGES } from '../gothicGen';
+import { jobTargets, monumentNoun, monumentPlan, searchSite, siteHub, siteTaken } from '../monument';
 
 type Pos = [number, number, number];
 
@@ -4605,7 +4604,9 @@ async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal:
   const v = a.village();
   const m = v?.monument;
   if (!v || !m) throw new Error('monument_site: the village has no monument');
-  if (m.site?.prepared) return `the cathedral's site at ${areaText(m.site)} is already prepared`;
+  // (#153: the cathedral's or the castle's)
+  const N = monumentNoun(m);
+  if (m.site?.prepared) return `the ${N}'s site at ${areaText(m.site)} is already prepared`;
   const reg = a.world.villages;
   if (!m.site) {
     const { hub, home } = siteHub(v, Math.floor(a.bot.entity.position.y));
@@ -4628,10 +4629,10 @@ async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal:
     m.site = { ...found.site, by: a.name };
     const { x1, z1, x2, z2, y, rotate } = m.site;
     const id = reg.id('s');
-    v.structures.push({ id, x1, z1, x2, z2, y, kind: 'cathedral', builtBy: a.name });
+    v.structures.push({ id, x1, z1, x2, z2, y, kind: N, builtBy: a.name });
     m.structure = id;
     reg.save();
-    reg.note(v, `${a.name} chose the cathedral's site at ${areaText(m.site)} (level ${y}, turned ${rotate})`);
+    reg.note(v, `${a.name} chose the ${N}'s site at ${areaText(m.site)} (level ${y}, turned ${rotate})`);
     console.log(`[monument] ${v.name}: ${a.name} chose the site at ${areaText(m.site)} y=${y} rotate=${rotate} (cost ${found.cost}, grid ${found.f})`);
   }
   // The pad: the footprint and a ring of 1, in parts of at most 40 a side, each at the pad's level
@@ -4650,29 +4651,30 @@ async function monumentSite(a: BotAgent, _args: Record<string, unknown>, signal:
   s.prepared = true;
   m.state = 'building';
   reg.save();
-  reg.note(v, `${a.name} prepared the cathedral's pad at ${areaText(s)}`);
+  reg.note(v, `${a.name} prepared the ${N}'s pad at ${areaText(s)}`);
   console.log(`[monument] ${v.name}: ${a.name} prepared the pad at ${areaText(s)} y=${s.y} in ${done.length} part${done.length > 1 ? 's' : ''}`);
-  return `prepared the cathedral's pad at ${areaText(s)}, level ${s.y} (${done.length} part${done.length > 1 ? 's' : ''}: ${done.join('; ').slice(0, 240)})`;
+  return `prepared the ${N}'s pad at ${areaText(s)}, level ${s.y} (${done.length} part${done.length > 1 ? 's' : ''}: ${done.join('; ').slice(0, 240)})`;
 }
 
 /**
  * One of the monument's jobs (M1, #144): its cells (gothicGen.ts' job, 300-800 blocks) placed at the site by command and
  * charged to the builder, as build_design places a design (runJob: what is missing is taken from storage or made there),
  * without build_design's site checks (the cathedral stands on its own pad and each job builds on the last). The ground it
- * works on is claimed; the cathedral's own structure record is not in its way.
+ * works on is claimed; the monument's own structure record is not in its way.
  */
 async function buildMonument(a: BotAgent, args: Record<string, unknown>, signal: AbortSignal): Promise<string> {
   const v = a.village();
   const m = v?.monument;
   const index = num(args.job, 'job');
-  if (!v || !m?.site?.prepared) throw new Error('build_monument: the cathedral has no prepared site');
-  if (m.done.includes(index)) return `job ${index} of the cathedral is already built`;
+  if (!v || !m?.site?.prepared) throw new Error('build_monument: the monument has no prepared site');
+  const N = monumentNoun(m);
+  if (m.done.includes(index)) return `job ${index} of the ${N} is already built`;
   const plan = monumentPlan(m);
   const j = plan.jobs[index];
-  if (!j) throw new Error(`build_monument: the cathedral has no job ${index}`);
+  if (!j) throw new Error(`build_monument: the ${N} has no job ${index}`);
   const targets: Target[] = jobTargets(m, index, turnState);
   const area = { x1: Math.min(...targets.map((t) => t.x)), z1: Math.min(...targets.map((t) => t.z)), x2: Math.max(...targets.map((t) => t.x)), z2: Math.max(...targets.map((t) => t.z)) };
-  const what = `the cathedral's ${GOTHIC_STAGES[j.stage - 1]} (job ${index})`;
+  const what = `the ${N}'s ${plan.stageNames[j.stage - 1]} (job ${index})`;
   const summary = await runJob(a, {
     targets, area, y: Math.min(...targets.map((t) => t.y)), what,
     claim: { area, purpose: `build ${what}`, avoidStructures: false },

@@ -19,8 +19,14 @@
  * village give (Monument.colours), plain panes without. With the kiln the yard holds made goods too (stone, bricks,
  * glass), and the stage's wants and a job's cover are a materials plan of its bill against the yard (stageWantsPlanned,
  * jobReady).
+ *
+ * #153 (MC_MONUMENT_TYPE=castle; cathedral by default): the monument is a castle drawn by castleGen.ts instead (Conwy
+ * first), on the same record, pad, yard, quarry, kiln and jobs; its stages are the castle's (the plan's stageNames), its
+ * iron-bar portcullis is made of the village wood's fence until the kiln smelts iron, and the architect (M3) is the
+ * cathedral's only, so code sets the castle's preset and scale.
  */
 import { GOTHIC_PRESETS, GOTHIC_STAGES, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
+import { CASTLE_PRESETS, generateCastle } from './castleGen';
 import { rawSetting } from './settings';
 import { placeOutward } from './outward';
 import { villageHome, type Area, type Monument, type Village } from './village';
@@ -35,7 +41,16 @@ export const MONUMENT = {
   palette: (/^full$/i.test(rawSetting('MC_MONUMENT_PALETTE') ?? 'today') ? 'full' : 'today') as 'today' | 'full',
   /** M2 (#145, MC_GLAZING): stained panes from the flowers' dyes, and sand smelted into glass in the kiln. */
   glazing: /^(on|1|true|yes)$/i.test(rawSetting('MC_GLAZING') ?? 'off'),
+  /** #153: the monument's type: the cathedral or the castle (castleGen.ts). */
+  type: (/^castle$/i.test(rawSetting('MC_MONUMENT_TYPE') ?? 'cathedral') ? 'castle' : 'cathedral') as MonumentType,
 };
+export type MonumentType = 'cathedral' | 'castle';
+/** #153: a monument's type (records from before it are cathedrals). */
+export const monumentType = (m: Monument): MonumentType => (m as MonumentM3).type ?? 'cathedral';
+/** The monument's noun in lines ("the castle's site"). */
+export const monumentNoun = (m: Monument) => monumentType(m);
+/** The presets of a type. */
+export const presetsOf = (t: MonumentType): Record<string, unknown> => (t === 'castle' ? CASTLE_PRESETS : GOTHIC_PRESETS);
 
 /** The dye each flower makes (the jar's recipes), and the generator's three glass colours with what may stand in. */
 export const FLOWER_DYE: Record<string, string> = {
@@ -74,6 +89,7 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
   if (name === 'deepslate_tile_stairs') return `${wood}_stairs${st}`;
   if (name === 'deepslate_tile_slab') return `${wood}_slab${st}`;
   if (name === 'deepslate_tiles') return `${wood}_planks`;
+  if (name === 'iron_bars') return `${wood}_fence`;
   const glass = /^(\w+?)_stained_glass_pane$/.exec(name);
   if (glass) return MONUMENT.glazing && colours[glass[1]] ? `${colours[glass[1]]}_stained_glass_pane${st}` : `glass_pane${st}`;
   return block;
@@ -83,9 +99,12 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
 export const ironReached = (v: Village) => !!v.ladder?.reached?.some((r) => r.rung === 'iron');
 
 /** A new monument record (the trigger's; the site is chosen by the first member who takes it). */
-export function newMonument(wood: string, now: number): Monument {
-  const preset = GOTHIC_PRESETS[MONUMENT.preset] ? MONUMENT.preset : 'notre_dame';
-  return { preset, scale: Math.round(1 / MONUMENT.scale), palette: MONUMENT.palette, wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
+export function newMonument(wood: string, now: number, type: MonumentType = MONUMENT.type): Monument {
+  // (#153: MC_MONUMENT_PRESET names a preset of the type, else its first: Notre-Dame, Conwy)
+  const preset = presetsOf(type)[MONUMENT.preset] ? MONUMENT.preset : type === 'castle' ? 'conwy' : 'notre_dame';
+  const m: MonumentM3 = { preset, scale: Math.round(1 / MONUMENT.scale), palette: MONUMENT.palette, wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
+  if (type === 'castle') m.type = type;
+  return m;
 }
 
 /** Today's palette (MC_MONUMENT_PALETTE=today): the generator's blocks as today's skills can gather and make them. */
@@ -99,17 +118,24 @@ export function todayBlock(block: string, wood: string): string {
   if (name === 'deepslate_tile_stairs') return `${wood}_stairs${st}`;
   if (name === 'deepslate_tile_slab') return `${wood}_slab${st}`;
   if (name === 'deepslate_tiles') return `${wood}_planks`;
+  // (#153: the castle's portcullis in the village wood: iron bars want raw iron smelted, which the kiln does not do)
+  if (name === 'iron_bars') return `${wood}_fence`;
   if (/_stained_glass_pane$/.test(name)) return 'glass_pane';
   return block;
 }
 
-const plans = new Map<string, Cathedral>();
-/** The monument's cathedral (generated once per preset, scale, palette and wood: ~50 ms at 1:2), its palette applied. */
-export function monumentPlan(m: Monument): Cathedral {
-  const key = `${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}`;
+/** A monument's plan: the generator's cathedral or castle with its stages' names. */
+export type MonumentPlan = Cathedral & { stageNames: readonly string[] };
+const plans = new Map<string, MonumentPlan>();
+/** The monument's cathedral or castle (generated once per type, preset, scale, palette and wood: ~50 ms at 1:2), its
+ *  palette applied. */
+export function monumentPlan(m: Monument): MonumentPlan {
+  const type = monumentType(m);
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}`;
   let c = plans.get(key);
   if (c) return c;
-  c = generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale);
+  c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
+    : { ...generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale), stageNames: GOTHIC_STAGES };
   {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {};
@@ -139,6 +165,9 @@ export function monumentPlan(m: Monument): Cathedral {
   plans.set(key, c);
   return c;
 }
+
+/** The names of the monument's stages (index 0 = stage 1). */
+export const stageNames = (m: Monument): readonly string[] => monumentPlan(m).stageNames;
 
 /** The stage now being built: the lowest with a job not done (0 when every job is done). */
 export function currentStage(m: Monument): number {
@@ -426,6 +455,8 @@ export interface TradeRecord {
 }
 /** M3's places on the monument record (village.ts' Monument is M1-M2's; these ride along in the same JSON). */
 export type MonumentM3 = Monument & {
+  /** #153: a castle (absent: a cathedral). */
+  type?: MonumentType;
   trades?: Record<string, TradeRecord>;
   /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
   news?: { t: number; text: string };
@@ -487,9 +518,9 @@ export function noteTrade(m: Monument, member: string, trade: Trade, now: number
   return { took: trade, ...(from ? { from } : {}) };
 }
 
-/** The cathedral's name for lines: its dedication, else "the cathedral". */
-export const cathedralName = (m: Monument) => (m3(m).name ? `the cathedral of ${m3(m).name}` : 'the cathedral');
-const PRESET_WORDS: Record<string, string> = { notre_dame: 'Notre-Dame', salisbury: 'Salisbury', chartres: 'Chartres' };
+/** The monument's name for lines: its dedication, else "the cathedral" (or "the castle", #153). */
+export const cathedralName = (m: Monument) => (m3(m).name ? `the ${monumentNoun(m)} of ${m3(m).name}` : `the ${monumentNoun(m)}`);
+const PRESET_WORDS: Record<string, string> = { notre_dame: 'Notre-Dame', salisbury: 'Salisbury', chartres: 'Chartres', conwy: 'Conwy', white_tower: 'the White Tower' };
 export const presetWords = (p: string) => PRESET_WORDS[p] ?? p;
 
 /** The current stage's parts: built and in all. */
@@ -510,7 +541,7 @@ export function progressLine(m: Monument, now: number, dayMs: number, member?: s
   else if (m.state === 'site') what = 'its site is being chosen and levelled';
   else {
     const p = stageParts(m);
-    what = `stage ${p.stage} of 8, ${GOTHIC_STAGES[p.stage - 1]}: ${p.built} of ${p.of} parts built (${blocks} of ${c.design.blocks} blocks in all)`;
+    what = `stage ${p.stage} of ${c.stageNames.length}, ${c.stageNames[p.stage - 1]}: ${p.built} of ${p.of} parts built (${blocks} of ${c.design.blocks} blocks in all)`;
   }
   const news = n.news && now - n.news.t < dayMs ? ` ${n.news.text}.` : '';
   const t = member && M3.roles ? tradeOf(m, member) : undefined;
