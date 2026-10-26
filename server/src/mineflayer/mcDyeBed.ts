@@ -22,9 +22,14 @@ import { SURVIVAL_SKILLS, placeStation } from './mcSurvival';
 import { prepareSite, surfaceAt, withScanTurn } from './mcBuild';
 import { num, reach, str } from './mcUtil';
 
-type MonumentT2 = Monument & { dyeBed?: DyeBed };
+type MonumentT2 = Monument & { dyeBed?: DyeBed; dyeBedBackoff?: number };
 /** Villages whose bed is being built (one builder at a time). */
 const building = new Set<string>();
+/** Whether another member is building the village's bed now (the menu leaves the dyes off meanwhile: T2a's 10 dye
+ *  chores ended at once on it). */
+export const bedBuilding = (v: Village) => building.has(v.name);
+/** Minutes a village goes without trying a bed again after none fitted. */
+const BED_BACKOFF_MIN = 10;
 
 /** Whether a village's cathedral makes its dyes (the flag and a cathedral under way). */
 export function dyeBedOn(v: Village | undefined): boolean {
@@ -48,15 +53,24 @@ async function ensureBed(a: BotAgent, v: Village, m: MonumentT2, census: Record<
       const hut = v.storageHut, s = m.site!;
       const hutAt = hut ? { x: Math.round((hut.x1 + hut.x2) / 2), z: Math.round((hut.z1 + hut.z2) / 2) } : { x: s.x1, z: s.z1 };
       const takenAt = siteTaken(v, [...reg.villages.values()].filter((o) => o !== v), v.mine ? mineAreas(v.mine) : [], Date.now(), a.name);
-      const found = await withScanTurn(signal, () => searchQuarry({
-        side: w, depthSide: d, center: hutAt, hut: hutAt, range: Math.min(VILLAGE_RANGE - 8, 48),
-        ground: (x, z) => {
-          const c = surfaceAt(a, x, z, s.y);
-          return !c || c.liquid || c.block === 'air' ? null : { y: c.y, trees: c.trees };
-        },
-        takenAt,
-      }));
-      if (!found) throw new Error(`make_dye: no level ground for a ${w}x${d} dye bed near the storage hut`);
+      // (within 64 of the hut, as the kiln, then 96: T2a found none within 48 of iron_age_g1's crowded centre)
+      let found: ReturnType<typeof searchQuarry> = null;
+      for (const range of [64, 96]) {
+        found = await withScanTurn(signal, () => searchQuarry({
+          side: w, depthSide: d, center: hutAt, hut: hutAt, range: Math.min(VILLAGE_RANGE - 8, range),
+          ground: (x, z) => {
+            const c = surfaceAt(a, x, z, s.y);
+            return !c || c.liquid || c.block === 'air' ? null : { y: c.y, trees: c.trees };
+          },
+          takenAt,
+        }));
+        if (found) break;
+      }
+      if (!found) {
+        m.dyeBedBackoff = Date.now() + BED_BACKOFF_MIN * 60000;
+        reg.save();
+        throw new Error(`make_dye: no level ground for a ${w}x${d} dye bed within 96 of the storage hut`);
+      }
       m.dyeBed = newBed(found.area, found.y, kinds, a.name, Date.now());
       const id = reg.id('s');
       v.structures.push({ id, ...found.area, y: found.y, kind: 'dye_bed', builtBy: a.name });
@@ -191,10 +205,20 @@ async function makeDye(a: BotAgent, args: Record<string, unknown>, signal: Abort
   const notes: string[] = [];
   // 1. The dye's plan (dyeSteps: lapis, bone meal and the flowers to be had; mixes): what it takes beyond the stock is
   // made first: bone meal at the composter, tall flowers from the bed, other flowers picked where they grow
-  const real = () => sum(storageContents(v), countsCarried(a));
-  const bedFlowers = m.dyeBed?.cells.map((c) => c.kind) ?? bedKinds(census);
-  const wild = Object.keys(census).filter((k) => (census[k] ?? 0) >= DYE_MIN && !TALL_FLOWERS.includes(k));
-  const renew = new Set(['bone_meal', ...bedFlowers, ...wild]);
+  // (storage less what the yard holds: T2c's dyers took the yard's red dye for their orange and purple, and the glass job
+  // then found none)
+  const free = () => {
+    const out = { ...storageContents(v) };
+    for (const [k, q] of Object.entries(m.yard)) if (out[k] !== undefined) out[k] = Math.max(0, out[k] - q);
+    return out;
+  };
+  const real = () => sum(free(), countsCarried(a));
+  // (no bed while one failed to fit lately: then the tall flowers are picked where they grow, as the others, and bone meal
+  // is only what storage holds)
+  const bedUp = m.dyeBed?.state === 'ready' || (!args.noBed && (m.dyeBedBackoff ?? 0) <= Date.now());
+  const bedFlowers = bedUp ? m.dyeBed?.cells.map((c) => c.kind) ?? bedKinds(census) : [];
+  const wild = Object.keys(census).filter((k) => (census[k] ?? 0) >= (TALL_FLOWERS.includes(k) ? 1 : DYE_MIN) && !bedFlowers.includes(k));
+  const renew = new Set([...(bedUp ? ['bone_meal'] : []), ...bedFlowers, ...wild]);
   let have = real();
   const plan = dyeSteps(dyeYields(a.world.registry), item, n, have, renew);
   if (!plan) throw new Error(`make_dye: ${item} cannot be made here (no flower, lapis, bone meal or mix for it; lapis comes from the mine, ink sacs from the merchant)`);
@@ -203,7 +227,14 @@ async function makeDye(a: BotAgent, args: Record<string, unknown>, signal: Abort
   for (const k of new Set(bedFlowers)) if (beyond(k)) tall[k] = beyond(k);
   const bmNeed = beyond('bone_meal') + Object.values(tall).reduce((t, q) => t + q, 0);
   if (bmNeed) {
-    const bed = await ensureBed(a, v, m, census, signal);
+    let bed: DyeBed;
+    try {
+      bed = await ensureBed(a, v, m, census, signal);
+    } catch (e) {
+      // (none fits: this chore goes on without a bed, the tall flowers picked where they grow)
+      if (/no level ground/.test((e as Error).message) && !args.noBed) return makeDye(a, { ...args, noBed: true }, signal);
+      throw e;
+    }
     const bmHave = await a.world.rcon.count(a.name, 'bone_meal');
     if (bmNeed > bmHave) {
       await withdrawItems(a, v, { bone_meal: bmNeed - bmHave }, signal);

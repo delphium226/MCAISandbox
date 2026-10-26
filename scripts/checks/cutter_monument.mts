@@ -77,5 +77,16 @@ for (const preset of ['notre_dame', 'chartres']) {
   ok(loads >= 5 && loads <= 30, `${preset}: ${loads} carver loads`);
   console.log(`${preset} 1:4 detail: ${c.design.blocks} blocks, ${built} jobs built, ${loads} carver loads, ${heldForCuts} job-rounds held for cutting; yard left ${JSON.stringify(m.yard)}`);
 }
+// The stand-in for a quarried stone the stage could not get (T2d): the polished stone storage holds most of, else stone
+ok(mon.stoneStandIn('andesite', 60, { granite: 256, diorite: 100 }) === 'polished_granite', 'andesite stands in as granite');
+ok(mon.stoneStandIn('andesite', 60, { granite: 10, diorite: 30 }) === 'stone', 'plain stone when none suffices');
+ok(mon.standIn('polished_andesite[x=1]', { polished_andesite: 'polished_granite' }) === 'polished_granite[x=1]', 'a stand-in keeps the states');
+{
+  const m = mon.newMonument('spruce', 0) as Monument;
+  m.preset = 'chartres';
+  mon.m3(m).standIns = { polished_andesite: 'polished_granite' };
+  const c = mon.monumentPlan(m);
+  ok(!c.bill.polished_andesite && c.bill.polished_granite > 0, `the plan with the stand-in: ${c.bill.polished_granite} polished_granite`);
+}
 console.log(failures ? `FAIL cutter_monument: ${failures} of ${checks}` : `OK cutter_monument: ${checks} of ${checks} checks ok`);
 process.exit(failures ? 1 : 0);

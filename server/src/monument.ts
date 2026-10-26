@@ -107,6 +107,19 @@ export function fullBlock(block: string, wood: string, colours: Record<string, s
   return block;
 }
 
+/** A block with its stand-in, if it has one (its states kept). */
+export function standIn(block: string, standIns: Record<string, string>): string {
+  const m = /^([^[]+)(\[.*\])?$/.exec(block)!;
+  return standIns[m[1]] ? `${standIns[m[1]]}${m[2] ?? ''}` : block;
+}
+
+/** #162: the stand-in for a quarried stone the stage has waited on too long: the polished form of the stone storage holds
+ *  most of beyond the yard's (at least what is still wanted), else plain stone (M2's stand-in). */
+export function stoneStandIn(item: string, want: number, free: Record<string, number>): string {
+  const best = ['granite', 'diorite', 'andesite'].filter((s) => s !== item && (free[s] ?? 0) >= want).sort((a, b) => (free[b] ?? 0) - (free[a] ?? 0))[0];
+  return best ? `polished_${best}` : 'stone';
+}
+
 /** Whether the village has reached the iron rung (the ladder's record). */
 export const ironReached = (v: Village) => !!v.ladder?.reached?.some((r) => r.rung === 'iron');
 
@@ -146,7 +159,8 @@ const plans = new Map<string, MonumentPlan>();
 export function monumentPlan(m: Monument): MonumentPlan {
   const type = monumentType(m);
   const detail = !!(m as MonumentM3).detail;
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}`;
+  const standIns = (m as MonumentM3).standIns ?? {};
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}|${JSON.stringify(standIns)}`;
   let c = plans.get(key);
   if (c) return c;
   c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
@@ -154,7 +168,7 @@ export function monumentPlan(m: Monument): MonumentPlan {
   {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {};
-    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail);
+    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = standIn(m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail), standIns);
     const swap = (cells: Array<[string, number]>) => {
       const out: Record<string, number> = {};
       for (const [b, q] of cells) {
@@ -483,6 +497,8 @@ export type MonumentM3 = Monument & {
   /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
   dyeBed?: DyeBed;
+  /** #162: blocks standing in for others the village could not get (polished_andesite -> polished_granite), by name. */
+  standIns?: Record<string, string>;
   trades?: Record<string, TradeRecord>;
   /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
   news?: { t: number; text: string };

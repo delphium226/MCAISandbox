@@ -868,7 +868,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     const tPick = performance.now();
     // (sugar cane: never a stalk's base, so the wild cane grows back)
     const stalk = (p: Vec3) => label !== 'sugar_cane' || a.bot.blockAt(p.offset(0, -1, 0))?.name === 'sugar_cane';
-    const found = nearestBlocks(a, blocks, 48, 1024, (p) => dry(p) && near(p) && stalk(p), ys).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
+    // (#162: `surface`, the monument's andesite and diorite: only what lies in the open, at most 4 below home; T2a's trips
+    // for them dug pits under the village and one member spent 25 minutes in one)
+    const open = (p: Vec3) => args.surface !== true || (exposed(a, p) && (homeY === undefined || p.y >= homeY - 4));
+    const found = nearestBlocks(a, blocks, 48, 1024, (p) => dry(p) && near(p) && stalk(p) && open(p), ys).filter((p) => !failed.has(at(p)) && !bad.has(at(p)));
     // The cheapest to get at: near, not far below (exposed stone deep in a cave had no path to it, six times), and in
     // the open rather than buried; buried ones only within 16 blocks
     const me = a.bot.entity.position;

@@ -91,9 +91,12 @@ import { quarryFeeds } from './mcQuarry';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { cutWork, cutterOn } from './mcCutter';
-import { dyeBedOn } from './mcDyeBed';
+import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
 import { DETAIL_COLOURS } from '../gothicGen';
+import { stoneStandIn } from '../monument';
+/** #162: minutes (game time) a stage waits for a quarried stone before the rest stands in as another. */
+const STONE_WAIT_MIN = 6;
 import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
 
@@ -3638,6 +3641,8 @@ export class MineflayerWorld implements WorldAdapter {
   /** M1: when each village's monument line was last logged, and jobs backed off after a failure (until). */
   private monumentAt = new Map<string, number>();
   private monumentBack = new Map<string, number>();
+  /** #162: when the stage began waiting for a quarried stone (village:item), for its stand-in after STONE_WAIT_MIN. */
+  private stoneWait = new Map<string, { since: number; last: number }>();
 
   /** M1 (#144, MC_MONUMENT): the cathedral begun once the iron age is complete (no vote: the user's, 10-25), and its
    *  progress logged every 5 minutes. */
@@ -4767,6 +4772,18 @@ export class MineflayerWorld implements WorldAdapter {
         const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', mon.material, mon.item) : 0;
         ok = n > 0;
         if (dep?.state === 'done' && (n > 0 || !bad)) message = dep.message ?? message;
+        // (#162, the detail palette: a quarry trip's andesite, diorite and granite are the yard's too, as far as the stage
+        // wants them: T2a's collect trips for them failed 16 of 22 on stone under water)
+        if (dep?.state === 'done' && m3(m).detail && mon.material === 'cobblestone') {
+          const wants = stageWantsPlanned(m, planOf(this));
+          for (const st of ['andesite', 'diorite', 'granite']) {
+            const k = Math.min(wants[st] ?? 0, depositedOf(dep.message ?? '', 'flowers', st));
+            if (k > 0) {
+              m.yard[st] = (m.yard[st] ?? 0) + k;
+              console.log(`[monument] ${c.village}: ${c.agent}'s quarry trip brings ${k} ${st} too`);
+            }
+          }
+        }
         if (n > 0) {
           m.yard[mon.item] = (m.yard[mon.item] ?? 0) + n;
           if (M3.roles) this.creditTrade(vm, c.agent, tradeOfStep(m, { step: 'gather', item: mon.item }), { item: mon.item, n });
@@ -6599,6 +6616,7 @@ export class MineflayerWorld implements WorldAdapter {
         for (const [item, q] of Object.entries(wants)) {
           // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
           if (/_dye$/.test(item) && dyeBedOn(v)) {
+            if (bedBuilding(v)) continue;
             const n = Array.from({ length: 2 }, (_, i) => i + 1).find((i) => !busy.has(`monument:dye:${item}:${i}`));
             if (!n || (this.monumentBack.get(`${v.name}:dye:${item}`) ?? 0) > now) continue;
             const key = `monument:dye:${item}:${n}`, amount = Math.min(8, q);
@@ -6613,8 +6631,38 @@ export class MineflayerWorld implements WorldAdapter {
           // (what is not gathered (glass, coal for its smelting) is made at the build from storage; M2's chains)
           // (M2, MC_GLAZING: a dye's flower, picked where it grows)
           const flower = MONUMENT.glazing && !!FLOWER_DYE[item];
-          // (#162, the detail palette: andesite and diorite collected where they lie, as flowers are picked)
+          // (#162, the detail palette: andesite and diorite collected where they lie, as flowers are picked; first what
+          // storage holds of them (the mine's and the quarry's by-products, 256 each at iron_age_g1), claimed for the yard:
+          // T2a and T2b's trips to the open stone 50-70 out failed 32 of 40)
           const stone = !!m3(m).detail && /^(andesite|diorite|granite)$/.test(item);
+          if (stone) {
+            const free = Math.floor((storageContents(v)[item] ?? 0) - (m.yard[item] ?? 0));
+            const k = Math.min(q, free);
+            if (k > 0) {
+              m.yard[item] = (m.yard[item] ?? 0) + k;
+              this.villages.save();
+              console.log(`[monument] ${v.name}: ${k} ${item} in storage claimed for the ${N}'s yard`);
+              if (k >= q) continue;
+            }
+            // (still short after STONE_WAIT_MIN: the rest stands in as another stone, the spec's rule; T2d waited on 60
+            // andesite for 10 minutes with 256 granite in storage)
+            // (the wait restarts when the want lapsed for 2 minutes: a later stage's want is a new wait)
+            const wk = `${v.name}:${item}`;
+            const was = this.stoneWait.get(wk);
+            const since = was && now - was.last < 2 * 60000 ? was.since : now;
+            this.stoneWait.set(wk, { since, last: now });
+            if (now - since > STONE_WAIT_MIN * 60000 / timeScale()) {
+              const free: Record<string, number> = {};
+              for (const [n2, q2] of Object.entries(storageContents(v))) free[n2] = q2 - (m.yard[n2] ?? 0);
+              const sub = stoneStandIn(item, q - Math.max(0, k), free);
+              (m3(m).standIns ??= {})[`polished_${item}`] = sub;
+              this.stoneWait.delete(wk);
+              this.villages.save();
+              console.log(`[monument] ${v.name}: the ${N}'s polished_${item} stands in as ${sub} (short ${q - Math.max(0, k)} after ${STONE_WAIT_MIN} min)`);
+              if (M3.news) this.monumentNews(v, `The ${N}'s floor goes on in ${sub.replace(/_/g, ' ')}: no more ${item} to be had`, a.name);
+              continue;
+            }
+          }
           const mat: Material | 'flowers' | null = /_log$/.test(item) ? 'logs' : /^(red_)?sand$/.test(item) ? 'sand' : item === 'cobblestone' ? 'cobblestone' : flower || stone ? 'flowers' : null;
           if (!mat) continue;
           // (M2, #145: or from the cathedral's quarry, MC_QUARRY)
@@ -6681,7 +6729,8 @@ export class MineflayerWorld implements WorldAdapter {
       if (cutterOn(v) && !busy.has('monument:cut') && (this.monumentBack.get(`${v.name}:cut`) ?? 0) <= now) {
         const work = cutWork(v, planOf(this));
         const n = work.reduce((t, w) => t + w.makes, 0);
-        if (n >= 16 || (n > 0 && openJobs(m).every((i) => !jobReady(m, i, planOf(this)))))
+        // (a load of 64 at least, or what there is when no job can go on without it: T2a's 19 loads of 43-60 at 1:4)
+        if (n >= 64 || (n > 0 && openJobs(m).every((i) => !jobReady(m, i, planOf(this)))))
           add({
             id: 'monument:cut', kind: 'monument', key: 'monument:cut', excludes: ['monument:cut='], rank: 159,
             name: `Cut stone at the ${N}'s stonecutter (${n} pieces: ${[...new Set(work.map((w) => w.item))].slice(0, 3).join(', ')})`,
@@ -7657,7 +7706,8 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} ${lane ? `tends the kiln's lane ${lane}` : 'builds the kiln'}`);
           return;
         }
-        const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true });
+        // (#162: the detail palette's quarried stones only from the open, `surface`)
+        const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true, ...(/^(andesite|diorite|granite)$/.test(d.block) ? { surface: true } : {}) });
         // (M2: a quarry trip's other stone goes in too: the bulk cap puts what is over it on the spoil heap)
         const deposit = worker.enqueue('deposit', { item: d.deposit, also: d.material === 'cobblestone' && quarryFeeds(v, 'cobblestone') ? `${GATHER_ALSO},andesite,diorite,granite,tuff` : GATHER_ALSO, chore: true });
         // (its load is the cathedral's: the bulk cap leaves it, mcStorage.ts spoilSurplus)
