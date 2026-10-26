@@ -12,23 +12,31 @@
  *   give the design back;
  * - the floor is walkable: every floor cell with two cells of air above it is reached on foot from outside (four
  *   neighbours, a step of one up or down at most), so no member is shut in (the report's [stuck] risk).
- * Usage: node_modules/.bin/tsx scripts/checks/gothic_gen.mts [OUT_DIR: also writes each design and its quarter turn
- *        as JSON for scripts/render_design.py]
+ * With --detail (or GOTHIC_DETAIL=1, as scripts/checks/gothic_detail.mts runs it; #162's tier 2) every case is drawn with
+ * `detail` and checked the same way, and also: nine stages; capitals, arch shoulders, the patterned floor, lanterns on
+ * chains, banners and (with towers) the bell are there; the windows hold at least six colours; and the bill planned with
+ * the stonecutter (Materials `cut`) cuts every stonecutter piece (none crafted at the table) and can be had but for the
+ * candles' string (the merchant's) and the bell (no recipe).
+ * Usage: node_modules/.bin/tsx scripts/checks/gothic_gen.mts [--detail] [OUT_DIR: also writes each design and its quarter
+ *        turn as JSON for scripts/render_design.py]
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import minecraftData from 'minecraft-data';
 import { GOTHIC_PRESETS, GOTHIC_STAGES, generateCathedral, jobDesign } from '../../server/src/gothicGen';
+import { Materials, chargedItem, cutOptions } from '../../server/src/mineflayer/mcMaterials';
 import { turnState, validateDesign } from '../../server/src/designs';
 import type { Design } from '../../server/src/village';
 import { designBill } from '../../server/src/mineflayer/mcMaterials';
+
+const DETAIL = process.argv.includes('--detail') || process.env.GOTHIC_DETAIL === '1';
 
 const reg = minecraftData('26.1');
 const isPlaceable = (block: string) => {
   const m = /^(?:minecraft:)?([a-z0-9_]+)(?:\[(.*)\])?$/.exec(block.trim());
   if (!m) return false;
   const b = reg.blocksByName[m[1]];
-  if (!b || !reg.itemsByName[m[1]]) return false;
+  if (!b || !reg.itemsByName[chargedItem(m[1])]) return false;
   if (m[2] === undefined) return true;
   const states = (b.states ?? []) as Array<{ name: string; type: string; values?: string[] }>;
   return m[2].split(',').every((p) => {
@@ -101,7 +109,7 @@ function shutIn(d: Design): number {
   return n;
 }
 
-const out = process.argv[2];
+const out = process.argv.slice(2).find((a) => !a.startsWith('--'));
 if (out) fs.mkdirSync(out, { recursive: true });
 let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
@@ -110,12 +118,32 @@ for (const name of Object.keys(GOTHIC_PRESETS)) cases.push([name, 4], [name, 2])
 cases.push(['notre_dame', 1]);
 for (const [name, scale] of cases) {
   const t0 = Date.now();
-  const c = generateCathedral(GOTHIC_PRESETS[name], scale);
+  const c = generateCathedral(GOTHIC_PRESETS[name], scale, { detail: DETAIL });
   const d = c.design;
   const total = d.blocks;
   const top = Object.entries(c.bill).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${v} ${k}`).join(', ');
   console.log(`${name} 1:${scale}: ${d.width}x${d.depth}x${d.height}, ${total} blocks, ${c.jobs.length} jobs (${Date.now() - t0} ms); ${top}`);
-  console.log(`  stages: ${c.stages.map((n, i) => `${i + 1} ${GOTHIC_STAGES[i]} ${n}`).join('; ')}`);
+  console.log(`  stages: ${c.stages.map((n, i) => `${i + 1} ${c.stageNames[i]} ${n}`).join('; ')}`);
+  if (!DETAIL && c.stageNames !== GOTHIC_STAGES) fail('the stages without detail are not GOTHIC_STAGES');
+  if (DETAIL) {
+    if (c.stageNames.length !== 9) fail(`${c.stageNames.length} stages with detail, not 9`);
+    const blocks = [...new Set(Object.values(d.palette))];
+    const n = (re: RegExp) => Object.entries(c.bill).filter(([k]) => re.test(k)).reduce((t, [, q]) => t + q, 0);
+    for (const [what, re] of [['capitals', /^chiseled_stone_bricks$/], ['lanterns', /^lantern$/], ['chains', /^iron_chain$/], ['banners', /_banner$/], ['diorite floor', /^polished_diorite$/]] as Array<[string, RegExp]>)
+      if (!n(re)) fail(`no ${what}`);
+    // (1:4's arches are too low for shoulders that leave an opening two high)
+    if (scale <= 2 && !blocks.some((b) => /^stone_brick_stairs\[.*half=top/.test(b))) fail('no arch shoulders (upside-down stairs)');
+    if (GOTHIC_PRESETS[name].towers && !c.bill.bell) fail('no bell in the towers');
+    const colours = new Set(Object.keys(c.bill).map((k) => /^(\w+)_stained_glass_pane$/.exec(k)?.[1]).filter(Boolean));
+    if (colours.size < 6) fail(`${colours.size} window colours`);
+    const p = new Materials(reg, { cut: true }).plan(c.bill, {});
+    const cutItems = new Set([...cutOptions().keys()]);
+    const tableCut = p.steps.filter((st) => st.do === 'craft' && !st.cut && cutItems.has(st.item) && !/^cobble/.test(st.item));
+    if (tableCut.length) fail(`crafted at the table though the stonecutter makes them: ${tableCut.map((st) => st.item).join(', ')}`);
+    const unexpected = p.problems.filter((q) => !/^string:/.test(q));
+    if (unexpected.length) fail(`plan problems: ${unexpected.join('; ')}`);
+    console.log(`  detail: ${blocks.length} blocks, ${colours.size} colours; ${['chiseled_stone_bricks', 'lantern', 'iron_chain', 'bell', 'candle'].map((k) => `${c.bill[k] ?? 0} ${k}`).join(', ')}, ${n(/_banner$/)} banners; cut ${p.steps.filter((st) => st.cut).reduce((t, st) => t + st.makes, 0)} at the stonecutter; gather ${Object.entries(p.gather).map(([k, q]) => `${q} ${k}`).join(', ')}`);
+  }
   const { errors } = validateDesign({ ...d }, 'check', { isPlaceable, states: true, maxSide: 1000, maxLayers: 1000, requireDoor: false });
   for (const e of errors.slice(0, 5)) fail(`validateDesign: ${e}`);
   const bill = designBill(d);
@@ -145,5 +173,5 @@ for (const [name, scale] of cases) {
   const shut = shutIn(d);
   if (shut) fail(`${shut} floor cells not reached on foot from outside`);
 }
-console.log(failures ? `FAIL: ${failures} problems` : 'OK: every preset and scale passed');
+console.log(failures ? `FAIL: ${failures} problems` : `OK: every preset and scale passed${DETAIL ? ' (detail)' : ''}`);
 process.exit(failures ? 1 : 0);

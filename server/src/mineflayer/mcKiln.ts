@@ -24,14 +24,23 @@ import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, placeStation } from './mcSurvival';
 import { prepareSite, surfaceAt, withScanTurn } from './mcBuild';
 import { abortable, countItem, itemId, num, reach } from './mcUtil';
+import { Materials } from './mcMaterials';
+import { CUTTER } from '../cutter';
 
 /** The most input one trip carries (masons at once: kilnLanes). */
 const TRIP_LOAD = 256;
 /** Villages whose kiln is being built (one builder at a time). */
 const building = new Set<string>();
 
-/** The plan of a bill against what is had, as the yard's arithmetic wants it (Materials.plan). */
-export const planOf = (w: { materials: { plan: PlanOf } }): PlanOf => (bill, have) => w.materials.plan(bill, have);
+/** The plan of a bill against what is had, as the yard's arithmetic wants it (Materials.plan); with the stonecutter
+ *  (#162, MC_MONUMENT_DETAIL) a plan that cuts the stone pieces rather than crafting them. */
+const cutPlans = new WeakMap<object, Materials>();
+export const planOf = (w: { materials: { plan: PlanOf }; registry?: ConstructorParameters<typeof Materials>[0] }): PlanOf => {
+  if (!CUTTER.on || !w.registry) return (bill, have) => w.materials.plan(bill, have);
+  let cut = cutPlans.get(w);
+  if (!cut) cutPlans.set(w, (cut = new Materials(w.registry, { cut: true })));
+  return (bill, have) => cut!.plan(bill, have);
+};
 
 /** Whether a village's cathedral uses its kiln now (the flag, a prepared site, and something the yard can smelt). */
 export function kilnOn(v: Village | undefined): boolean {
@@ -223,7 +232,8 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
   let bricks = 0;
   const stoneHeld = countItem(a, itemId(a, 'stone')!);
   if (stoneHeld >= 4) {
-    const step = plan(stageBill(m, AHEAD), m.yard).steps.find((s) => s.do === 'craft' && s.item === 'stone_bricks');
+    // (not with the stonecutter: the carver cuts the bricks, #162)
+    const step = plan(stageBill(m, AHEAD), m.yard).steps.find((s) => s.do === 'craft' && s.item === 'stone_bricks' && !(s as { cut?: true }).cut);
     const want = Math.min(Math.floor(stoneHeld / 4) * 4, (step?.runs ?? 0) * 4);
     if (want > 0) {
       await SURVIVAL_SKILLS.craft.run(a, { item: 'stone_bricks', count: want }, signal).then(() => {

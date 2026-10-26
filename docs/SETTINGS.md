@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-208 settings.
+209 settings.
 
 ## Game speed
 
@@ -212,6 +212,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_MINE_LEVEL_CELLS` | string | (unset) |  |  | Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). |
 | `MC_MONUMENT` | flag | `off` |  | `MC_IRON_AGE` | MC_MONUMENT=on (M1, #144; off by default): once the village completes the iron age it builds a Gothic cathedral drawn by gothicGen.ts, stage by stage, on a pad of its own at the edge of the village, with no vote (the user, 10-25); members gather each stage bill into a yard (a ledger over storage, outside the bulk cap) and build its jobs of 300-800 blocks. |
 | `MC_MONUMENT_ARCHITECT` | flag | `off` |  | `MC_MONUMENT` | MC_MONUMENT_ARCHITECT=on (M3, #146; off by default): at the trigger the architect model (the mayor's design model) picks the preset, the scale among MC_MONUMENT_SCALES, the glass colours the flowers near the village allow and a dedication; code draws the geometry (lesson 1). One retry with the problems, then MC_MONUMENT_PRESET. |
+| `MC_MONUMENT_DETAIL` | flag | `off` |  | `MC_MONUMENT`, `MC_KILN` | MC_MONUMENT_DETAIL=on (#162, tier 2; off by default; with MC_MONUMENT_PALETTE=full and MC_KILN): a cathedral begun with it is drawn with gothicGen's detail palette (chiselled capitals and jambs, arch shoulders, mullions, polished andesite ribs, a floor of polished andesite and diorite, windows in many colours) and its stone pieces are cut at a stonecutter set beside the kiln (the carver's cut_stone chore), none crafted at the build; its andesite and diorite gathered where they lie. |
 | `MC_MONUMENT_NEWS` | flag | `off` |  | `MC_MONUMENT` | MC_MONUMENT_NEWS=on (M3, #146; off by default): the cathedral's progress (stage, parts built of the stage's, blocks) in every member's prompt with its latest news for a village day; its start, stage ends and finish in the chronicle, the village log and (MC_NEWS) every member's news; each member's own part in it in what it remembers (MC_MEMORY). |
 | `MC_MONUMENT_PALETTE` | string | `today` |  | `MC_MONUMENT` | today (cobblestone, a roof of the village wood, plain panes: what the skills of today gather) or full (M2, #145: stone bricks, and plain stone for the andesite, smelted in the kiln with MC_KILN; tuff bricks as stone bricks; the roof in the village wood until cobbled deepslate has a source; stained panes with MC_GLAZING, plain without). |
 | `MC_MONUMENT_PRESET` | string | `notre_dame` |  | `MC_MONUMENT` | The preset drawn: a cathedral (notre_dame, salisbury or chartres) or, with MC_MONUMENT_TYPE=castle, a castle (conwy, white_tower); one of the other type falls back to notre_dame or conwy. |

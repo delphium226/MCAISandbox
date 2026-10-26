@@ -83,6 +83,26 @@ export const GOTHIC_STAGES = [
   'pad and floor', 'aisle walls and west-front base', 'piers and arcade', 'clerestory and buttresses',
   'vault and roof', 'towers', 'glass and rose', 'spires and pinnacles',
 ] as const;
+/** With `detail` (#162): a ninth stage, the furnishing (lanterns on chains, the bell, the altar's candles, banners). */
+export const GOTHIC_STAGES_DETAIL = [...GOTHIC_STAGES, 'furnishing'] as const;
+
+/** #162's tier 2 (`detail`): the stonecutter's pieces, a patterned floor, glass in many colours and the furnishing. */
+const T2 = {
+  capital: 'chiseled_stone_bricks', jamb: 'chiseled_stone_bricks', floorB: 'polished_diorite', aisleFloor: 'polished_andesite',
+  mullion: 'stone_brick_wall', chain: 'iron_chain[axis=y]', lantern: 'lantern[hanging=true]', bell: 'bell[attachment=ceiling,facing=north]', bellFloor: 'bell[attachment=floor,facing=north]',
+  altar: 'chiseled_stone_bricks', candle: 'candle[candles=1,lit=true]',
+};
+/** The window colours `detail` cycles through by bay when none are given (each lancet one colour, the roses in rings). */
+export const DETAIL_COLOURS = ['blue', 'red', 'purple', 'light_blue', 'magenta', 'orange', 'cyan', 'yellow', 'pink', 'lime', 'white', 'green'];
+
+/** A block's cost as an item and a count (#162): wall banners are the banner item, a candle block holds `candles`. */
+export function gothicCost(block: string): [string, number] {
+  const name = gothicItem(block);
+  const banner = /^(\w+)_wall_banner$/.exec(name);
+  if (banner) return [`${banner[1]}_banner`, 1];
+  if (/(^|_)candle$/.test(name)) return [name, Number(/candles=(\d)/.exec(block)?.[1] ?? 1)];
+  return [name, 1];
+}
 
 export interface GothicJob {
   /** 1-8, GOTHIC_STAGES[stage - 1]. */
@@ -104,6 +124,21 @@ export interface Cathedral {
   /** Grid cell (x,y,z) -> stage, and -> its job's index in `jobs`. */
   cellStage: Map<string, number>;
   cellJob: Map<string, number>;
+  /** The stages' names (GOTHIC_STAGES, or GOTHIC_STAGES_DETAIL with `detail`). */
+  stageNames: readonly string[];
+}
+
+export interface GothicOpts {
+  jobMin?: number;
+  jobMax?: number;
+  /** #162: the tier-2 palette (off: the cells exactly as before). */
+  detail?: boolean;
+  /** With `detail`: the dye colours the windows cycle through (default DETAIL_COLOURS). */
+  colours?: string[];
+  /** With `detail`: the banners' colours, alternating (default white and the first window colour). */
+  banners?: string[];
+  /** With `detail`: the ninth stage, the furnishing (default on; off: eight stages, no lanterns, bell, candles or banners). */
+  furnish?: boolean;
 }
 
 /** The item a block costs: its name without states (stained panes, tiles and bricks are items of their own). */
@@ -112,8 +147,10 @@ export const gothicItem = (block: string) => block.replace(/\[.*\]$/, '');
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 const STEP4: Array<[number, number, string]> = [[0, -1, 'north'], [1, 0, 'east'], [0, 1, 'south'], [-1, 0, 'west']];
 
-/** Draw a preset at 1:scale. `opts.jobMin`/`jobMax` set the job size (300/800). */
-export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin?: number; jobMax?: number } = {}): Cathedral {
+/** Draw a preset at 1:scale. `opts.jobMin`/`jobMax` set the job size (300/800); `opts.detail` the tier-2 palette. */
+export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOpts = {}): Cathedral {
+  const detail = !!opts.detail;
+  const colours = opts.colours?.length ? opts.colours : DETAIL_COLOURS;
   const s = (m: number, min = 1) => Math.max(min, Math.round(m / scale));
   const odd = (n: number) => (n % 2 ? n : n + 1);
   const pitch = s(p.bay, 3);
@@ -209,10 +246,18 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
     if (pitch >= 5 && (m === 1 || m === pitch - 1)) return 0;
     return pitch >= 6 && (m === 2 || m === pitch - 2) ? 1 : 2; // 1: the shoulder of a pointed head
   };
-  const glassFor = (y: number, x: number) => ((y + x) % 5 === 0 ? M.red : M.blue);
+  const glassFor = (y: number, x: number, t?: number) => detail && t !== undefined
+    ? `${colours[((Math.floor(t / pitch) % colours.length) + colours.length) % colours.length]}_stained_glass_pane`
+    : ((y + x) % 5 === 0 ? M.red : M.blue);
+  // (detail: a mullion down the middle of a window three or more wide)
+  const winCols = pitch - 1 - (pitch >= 5 ? 2 : 0);
+  const mullion = (t: number) => detail && winCols >= 3 && ((t % pitch) + pitch) % pitch === Math.floor(pitch / 2);
+  const glassAt = (y: number, x: number, t: number, plain: boolean) => (mullion(t) ? T2.mullion : plain && !detail ? M.pane : glassFor(y, x, t));
 
   // 1. Pad and floor
-  for (let x = 0; x < W; x++) for (let z = 0; z < D; z++) if (at(x, z)) set(x, 0, z, M.floor, 1);
+  for (let x = 0; x < W; x++)
+    for (let z = 0; z < D; z++)
+      if (at(x, z)) set(x, 0, z, !detail ? M.floor : at(x, z) === 2 ? ((x + z) % 2 ? T2.floorB : M.floor) : T2.aisleFloor, 1);
 
   // 2-4. Walls: outer low walls, outer high walls, arcades
   const arcH = Math.max(2, Ha - 2);
@@ -222,7 +267,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
       if (lWall(x, z)) {
         for (let y = 1; y <= Ha; y++) set(x, y, z, y === 1 ? M.tone : M.wall, 2);
         const lo = 2, hi = Ha <= 5 ? Ha - 1 : Ha - 2 - (w === 1 ? 1 : 0);
-        if (w) for (let y = lo; y <= hi; y++) set(x, y, z, M.pane, 7);
+        if (w) for (let y = lo; y <= hi; y++) set(x, y, z, glassAt(y, x, t, true), 7);
       } else if (hWall(x, z)) {
         const outer = STEP4.some(([dx, dz]) => at(x + dx, z + dz) === 0);
         // (the west front between the towers is a screen up to its gallery, as Notre-Dame's, hiding the roof's end)
@@ -230,14 +275,14 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
         const top = gable(x, z) ? Math.max(roofHigh(x, z) - 1, screen) : Hv;
         for (let y = 1; y <= top; y++) set(x, y, z, y === 1 ? M.tone : M.wall, y <= Ha ? (outer ? 2 : 3) : 4);
         if (outer) {
-          if (w && !gable(x, z)) for (let y = 2; y <= Hv - 3 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassFor(y, x), 7);
+          if (w && !gable(x, z)) for (let y = 2; y <= Hv - 3 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassAt(y, x, t, false), 7);
         } else if (w || winCol(t) === 0 && ((t % pitch) + pitch) % pitch !== 0) {
           // Arcade: pointed arches below, a triforium band, the clerestory above the aisle roof
           for (let y = 1; y <= arcH - (w === 1 ? 1 : 0); y++) clear(x, y, z);
           if (w && ((t % 2) + 2) % 2 === 1) clear(x, Ha, z);
           const lowN = STEP4.map(([dx, dz]) => [x + dx, z + dz]).find(([u, v]) => isLow(u, v));
           const roofAt = lowN ? roofLow(lowN[0], lowN[1]) : Ha + 1;
-          if (w) for (let y = roofAt + 1; y <= Hv - 2 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassFor(y, x), 7);
+          if (w) for (let y = roofAt + 1; y <= Hv - 2 - (w === 1 ? 1 : 0); y++) set(x, y, z, glassAt(y, x, t, false), 7);
         }
       }
     }
@@ -247,6 +292,13 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
   const portal = (cx: number, cz: number, alongX: boolean, half: number, h: number) => {
     for (let o = -half; o <= half; o++)
       for (let y = 1; y <= h - (Math.abs(o) === half && half > 0 ? 1 : 0); y++) clear(alongX ? cx + o : cx, y, alongX ? cz : cz + o);
+    // (detail: chiselled jambs either side, as high as the opening)
+    if (detail)
+      for (const o of [-half - 1, half + 1])
+        for (let y = 1; y < h; y++) {
+          const jx = alongX ? cx + o : cx, jz = alongX ? cz : cz + o;
+          if (has(jx, y, jz) && !/glass|_wall$/.test(cells.get(key(jx, y, jz))!)) set(jx, y, jz, T2.jamb, stageOf.get(key(jx, y, jz))!);
+        }
   };
   portal(0, zc, false, pw, ph);
   if (arm) {
@@ -255,14 +307,34 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
   }
   portal(xe + rO, zc, false, 0, Math.min(Ha, 3));
 
+  // detail: each arcade pier's capital (chiselled, at the arches' height) and the arches' shoulders (upside-down stairs at
+  // the top of an opening beside a pier, their backs to it), where the opening stays two high
+  if (detail)
+    for (let x = 0; x < W; x++)
+      for (let z = 0; z < D; z++) {
+        if (!hWall(x, z) || STEP4.some(([dx, dz]) => at(x + dx, z + dz) === 0)) continue;
+        const arcade = (u: number, v: number) => hWall(u, v) && !STEP4.some(([ex, ez]) => at(u + ex, v + ez) === 0);
+        const along2 = STEP4.filter(([dx, dz]) => arcade(x + dx, z + dz));
+        if (has(x, 1, z)) {
+          if (along2.some(([dx, dz]) => !has(x + dx, 1, z + dz)) && has(x, arcH, z)) set(x, arcH, z, T2.capital, 3);
+          continue;
+        }
+        let top = 1;
+        while (top < Hv && !has(x, top, z)) top++;
+        const pier = along2.find(([dx, dz]) => has(x + dx, 1, z + dz));
+        if (pier && top - 2 >= 2) set(x, top - 1, z, `${M.stair}[facing=${pier[2]},half=top]`, 3);
+      }
+
   // Roses: a disc of stained panes in a wall's plane, tracery on the spokes of the larger ones
   const rose = (cx: number, cz: number, alongX: boolean, cy: number, r: number) => {
     for (let a = -r; a <= r; a++)
       for (let b = -r; b <= r; b++) {
         const d = Math.hypot(a, b);
         if (d > r + 0.3) continue;
-        const block = d < 0.8 ? M.yellow : r >= 3 && d < r - 0.5 && (a === 0 || b === 0 || Math.abs(a) === Math.abs(b)) ? M.post
-          : d > r - 0.7 ? M.red : M.blue;
+        const ring = `${colours[Math.floor(d) % colours.length]}_stained_glass_pane`;
+        const block = d < 0.8 ? (detail ? `${colours[colours.length > 7 ? 7 : 0]}_stained_glass_pane` : M.yellow)
+          : r >= 3 && d < r - 0.5 && (a === 0 || b === 0 || Math.abs(a) === Math.abs(b)) ? M.post
+          : detail ? ring : d > r - 0.7 ? M.red : M.blue;
         set(alongX ? cx + a : cx, cy + b, alongX ? cz : cz + a, block, block === M.post ? 7 : 7);
       }
   };
@@ -368,6 +440,8 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
         if (!corner && off >= 1 && off <= halfSide - 1.5) for (let y = belfry; y < y1 - 2; y++) clear(x, y, z);
       }
     if (!foot) for (let x = x0 + 1; x < x1; x++) for (let z = z0 + 1; z < z1; z++) set(x, y1 - 1, z, M.slab + '[type=top]', 6);
+    // (detail: a west tower's belfry floor, for the bell)
+    if (detail && foot) for (let x = x0 + 1; x < x1; x++) for (let z = z0 + 1; z < z1; z++) set(x, belfry - 1, z, M.slab + '[type=top]', 6);
     if (spire > 0) drawSpire(cxT, czT, (Math.min(x1 - x0, z1 - z0)) / 2, y1, spire);
   };
   const drawSpire = (cx: number, cz: number, r0: number, y0: number, h: number) => {
@@ -405,11 +479,62 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: { jobMin
     shellTower([xt0, xt1, zP, zP2], Hv + 1, y1, s(p.crossingSpire, 0), false);
   }
 
-  return finish(p, scale, cells, stageOf, W, D, opts);
+  // 9 (detail). The furnishing: a lantern on a chain from the vault's crown at each bay line of the nave, the bell under a
+  // tower's ceiling, an altar with candles in the apse when the nave is wide enough to walk round it, banners on the
+  // arcade piers facing into the nave
+  const furnish = detail && opts.furnish !== false;
+  if (furnish) {
+    const empty = (x: number, y: number, z: number) => !has(x, y, z);
+    const zr = Math.round(zc);
+    for (let i = 0; i <= Math.floor(xe / pitch); i++) {
+      const x = i * pitch;
+      if (inTower(x, zr) || x < tower0) continue;
+      let yv = 2;
+      while (yv <= Hv + 1 && empty(x, yv, zr)) yv++;
+      if (yv > Hv + 1) continue;
+      const len = Math.max(1, Math.min(6, Math.round((yv - 4) / 2)));
+      const yl = Math.max(3, yv - 1 - len);
+      if (yl >= yv) continue;
+      for (let y = yl + 1; y < yv; y++) set(x, y, zr, T2.chain, 9);
+      set(x, yl, zr, T2.lantern, 9);
+    }
+    // (the bell stands on a west tower's belfry floor, or hangs from the crossing tower's ceiling)
+    const bellBox: [number, number, number, number] | null = towerBoxes[0] ?? (p.crossing === 'tower' ? [xt0, xt1, zP, zP2] : null);
+    if (bellBox) {
+      const bx = Math.floor((bellBox[0] + bellBox[1]) / 2), bz = Math.floor((bellBox[2] + bellBox[3]) / 2);
+      if (towerBoxes[0]) {
+        const belfry = towerH - Math.max(3, Math.round((towerH - 1) * 0.25));
+        if (has(bx, belfry - 1, bz) && empty(bx, belfry, bz)) set(bx, belfry, bz, T2.bellFloor, 9);
+      } else {
+        const top = Math.max(s(p.crossingHeight), Hv + 6);
+        if (has(bx, top - 1, bz) && empty(bx, top - 2, bz)) set(bx, top - 2, bz, T2.bell, 9);
+      }
+    }
+    if (nave >= 7) {
+      const ax = xe + Math.max(1, Math.floor(rI / 2));
+      if ([-1, 0, 1].every((o) => isHigh(ax, zr + o) && !hWall(ax, zr + o) && empty(ax, 1, zr + o))) {
+        for (const o of [-1, 0, 1]) set(ax, 1, zr + o, T2.altar, 9);
+        for (const o of [-1, 1]) set(ax, 2, zr + o, T2.candle, 9);
+      }
+    }
+    const banners = opts.banners?.length ? opts.banners : ['white', colours[0]];
+    let nb = 0;
+    for (let x = tower0; x <= xe; x++)
+      for (let z = 0; z < D; z++) {
+        if (!hWall(x, z) || inTower(x, z) || STEP4.some(([dx, dz]) => at(x + dx, z + dz) === 0) || !has(x, 1, z) || (arm && x >= xt0 && x <= xt1)) continue;
+        if (!STEP4.some(([dx, dz]) => hWall(x + dx, z + dz) && !has(x + dx, 1, z + dz))) continue;
+        const into = STEP4.find(([dx, dz]) => isHigh(x + dx, z + dz) && !hWall(x + dx, z + dz));
+        const y = arcH + 1;
+        if (!into || y < 3 || !has(x, y, z) || !empty(x + into[0], y, z + into[1])) continue;
+        set(x + into[0], y, z + into[1], `${banners[nb++ % banners.length]}_wall_banner[facing=${into[2]}]`, 9);
+      }
+  }
+
+  return finish(p, scale, cells, stageOf, W, D, opts, furnish ? GOTHIC_STAGES_DETAIL : GOTHIC_STAGES);
 }
 
 function finish(p: GothicPreset, scale: number, cells: Map<string, string>, stageOf: Map<string, number>, W: number, D: number,
-  opts: { jobMin?: number; jobMax?: number }): Cathedral {
+  opts: GothicOpts, stageNames: readonly string[]): Cathedral {
   let H = 0;
   for (const kk of cells.keys()) H = Math.max(H, Number(kk.split(',')[1]) + 1);
   const blocks = [...new Set(cells.values())].sort();
@@ -428,9 +553,10 @@ function finish(p: GothicPreset, scale: number, cells: Map<string, string>, stag
     layers.push(rows);
   }
   const bill: Record<string, number> = {};
-  const stages = new Array(GOTHIC_STAGES.length).fill(0);
+  const stages = new Array(stageNames.length).fill(0);
   for (const [kk, b] of cells) {
-    bill[gothicItem(b)] = (bill[gothicItem(b)] ?? 0) + 1;
+    const [item, n] = gothicCost(b);
+    bill[item] = (bill[item] ?? 0) + n;
     stages[stageOf.get(kk)! - 1]++;
   }
   const design: Design = {
@@ -438,15 +564,15 @@ function finish(p: GothicPreset, scale: number, cells: Map<string, string>, stag
     palette, layers, width: W, depth: D, height: H, blocks: cells.size, by: 'gothicGen',
   };
   const cellJob = new Map<string, number>();
-  const jobs = cutJobs(cells, stageOf, opts.jobMin ?? 300, opts.jobMax ?? 800, cellJob);
-  return { design, scale, stages, jobs, bill, cellStage: stageOf, cellJob };
+  const jobs = cutJobs(cells, stageOf, opts.jobMin ?? 300, opts.jobMax ?? 800, cellJob, stageNames.length);
+  return { design, scale, stages, jobs, bill, cellStage: stageOf, cellJob, stageNames };
 }
 
 /** Each stage's cells cut into jobs: whole x slices gathered west to east until a job holds jobMin; a slice larger
  *  than jobMax is cut into bands of layers. The last job of a stage may be smaller. */
-function cutJobs(cells: Map<string, string>, stageOf: Map<string, number>, jobMin: number, jobMax: number, cellJob: Map<string, number>): GothicJob[] {
+function cutJobs(cells: Map<string, string>, stageOf: Map<string, number>, jobMin: number, jobMax: number, cellJob: Map<string, number>, nStages: number): GothicJob[] {
   const jobs: GothicJob[] = [];
-  for (let st = 1; st <= GOTHIC_STAGES.length; st++) {
+  for (let st = 1; st <= nStages; st++) {
     const bySlice = new Map<number, Array<[number, number, number, string]>>();
     for (const [kk, b] of cells) {
       if (stageOf.get(kk) !== st) continue;
@@ -461,7 +587,8 @@ function cutJobs(cells: Map<string, string>, stageOf: Map<string, number>, jobMi
       for (const [x, y, z, b] of cur) {
         j.x0 = Math.min(j.x0, x); j.x1 = Math.max(j.x1, x); j.y0 = Math.min(j.y0, y); j.y1 = Math.max(j.y1, y);
         j.z0 = Math.min(j.z0, z); j.z1 = Math.max(j.z1, z);
-        j.bill[gothicItem(b)] = (j.bill[gothicItem(b)] ?? 0) + 1;
+        const [item, n] = gothicCost(b);
+        j.bill[item] = (j.bill[item] ?? 0) + n;
         cellJob.set(key(x, y, z), jobs.length);
       }
       jobs.push(j); cur = [];

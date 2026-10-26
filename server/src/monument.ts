@@ -24,13 +24,19 @@
  * first), on the same record, pad, yard, quarry, kiln and jobs; its stages are the castle's (the plan's stageNames), its
  * iron-bar portcullis is made of the village wood's fence until the kiln smelts iron, and the architect (M3) is the
  * cathedral's only, so code sets the castle's preset and scale.
+ *
+ * #162 (MC_MONUMENT_DETAIL, tier 2's chain A): a cathedral begun with it keeps `detail` on its record and is drawn with
+ * gothicGen's detail palette (no furnishing stage yet: its lanterns, bell, candles and banners come with their chains);
+ * fullBlock keeps the polished stones and chiselled bricks, and a job waits until the carver has cut its pieces
+ * (cutter.ts: the build cuts nothing).
  */
-import { GOTHIC_PRESETS, GOTHIC_STAGES, generateCathedral, gothicItem, type Cathedral, type GothicJob } from './gothicGen';
+import { GOTHIC_PRESETS, generateCathedral, gothicCost, type Cathedral, type GothicJob } from './gothicGen';
 import { CASTLE_PRESETS, generateCastle } from './castleGen';
 import { rawSetting } from './settings';
 import { placeOutward } from './outward';
 import { villageHome, type Area, type Monument, type Village } from './village';
 import { KILN, kilnHolds } from './kiln';
+import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
 
 export { KILN };
 export const MONUMENT = {
@@ -80,11 +86,16 @@ export function glassColours(counts: Record<string, number>, min = 6): Record<st
   return out;
 }
 
-/** The full palette as the village can make it (M2): see the header. */
-export function fullBlock(block: string, wood: string, colours: Record<string, string> = {}): string {
+/** The full palette as the village can make it (M2): see the header. `detail` (#162): the detail palette's stones kept,
+ *  a window's colour kept when the glazing's colours hold it, else plain. */
+export function fullBlock(block: string, wood: string, colours: Record<string, string> = {}, detail = false): string {
   const m = /^([^[]+)(\[.*\])?$/.exec(block)!;
   const name = m[1], st = m[2] ?? '';
-  if (name === 'polished_andesite') return 'stone';
+  if (detail) {
+    const pane = /^(\w+?)_stained_glass_pane$/.exec(name);
+    if (pane) return MONUMENT.glazing && Object.values(colours).includes(pane[1]) ? block : `glass_pane${st}`;
+  }
+  if (name === 'polished_andesite' && !detail) return 'stone';
   if (name === 'tuff_bricks') return 'stone_bricks';
   if (name === 'deepslate_tile_stairs') return `${wood}_stairs${st}`;
   if (name === 'deepslate_tile_slab') return `${wood}_slab${st}`;
@@ -104,6 +115,8 @@ export function newMonument(wood: string, now: number, type: MonumentType = MONU
   const preset = presetsOf(type)[MONUMENT.preset] ? MONUMENT.preset : type === 'castle' ? 'conwy' : 'notre_dame';
   const m: MonumentM3 = { preset, scale: Math.round(1 / MONUMENT.scale), palette: MONUMENT.palette, wood, at: now, state: 'site', done: [], yard: {}, stages: [] };
   if (type === 'castle') m.type = type;
+  // (#162: kept on the record, so a cathedral begun with the detail palette is drawn with it whatever the flag says later)
+  else if (CUTTER.on && MONUMENT.palette === 'full') m.detail = true;
   return m;
 }
 
@@ -131,18 +144,22 @@ const plans = new Map<string, MonumentPlan>();
  *  palette applied. */
 export function monumentPlan(m: Monument): MonumentPlan {
   const type = monumentType(m);
-  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}`;
+  const detail = !!(m as MonumentM3).detail;
+  const key = `${type}|${m.preset}|${m.scale}|${m.palette}|${m.wood}|${JSON.stringify(m.colours ?? {})}|${detail}`;
   let c = plans.get(key);
   if (c) return c;
   c = type === 'castle' ? generateCastle(CASTLE_PRESETS[m.preset] ?? CASTLE_PRESETS.conwy, m.scale)
-    : { ...generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale), stageNames: GOTHIC_STAGES };
+    : generateCathedral(GOTHIC_PRESETS[m.preset] ?? GOTHIC_PRESETS.notre_dame, m.scale, { detail, furnish: false });
   {
     const wood = m.wood || 'oak';
     const pal: Record<string, string> = {};
-    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours);
+    for (const [ch, b] of Object.entries(c.design.palette)) pal[ch] = m.palette === 'today' ? todayBlock(b, wood) : fullBlock(b, wood, m.colours, detail);
     const swap = (cells: Array<[string, number]>) => {
       const out: Record<string, number> = {};
-      for (const [b, q] of cells) out[gothicItem(b)] = (out[gothicItem(b)] ?? 0) + q;
+      for (const [b, q] of cells) {
+        const [item, n] = gothicCost(b);
+        out[item] = (out[item] ?? 0) + q * n;
+      }
       return out;
     };
     // (bills again from the swapped palette: each job's cells by its character)
@@ -251,7 +268,8 @@ export function kilnWants(m: Monument, plan: PlanOf): Record<string, number> {
  *  crafts (bricks, stairs, walls, panes from what is made) done at the build. */
 export function jobReady(m: Monument, index: number, plan: PlanOf): boolean {
   const p = plan(monumentPlan(m).jobs[index].bill, m.yard);
-  return !Object.values(p.gather).some((q) => q > 0) && !p.fuel.smelts;
+  // (#162: with the detail palette the carver cuts its pieces first)
+  return !Object.values(p.gather).some((q) => q > 0) && !p.fuel.smelts && !((m as MonumentM3).detail && needsCutting(p.steps as CutStep[]));
 }
 
 /** A job built (MC_KILN): what its plan took from the yard taken out of it, the job marked done. */
@@ -430,11 +448,12 @@ export function setM3(s: Partial<typeof M3>): void {
   Object.assign(M3, s);
 }
 
-export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter'] as const;
+export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter', 'carver'] as const;
 export type Trade = (typeof TRADES)[number];
 /** What each trade does for the cathedral, in the prompt's words. */
 export const TRADE_WORK: Record<Trade, string> = {
   quarryman: 'its stone dug and its site levelled', mason: 'its kiln and its stonework', glazier: 'its sand, dye flowers and glass', carpenter: 'its logs, roof and fuel',
+  carver: 'its stone cut at the stonecutter: capitals, arches, tracery and polished stone',
 };
 /** M3: the weight an option of the member's own trade carries (and its tag says so). */
 export const TRADE_WEIGHT = 1.5;
@@ -457,6 +476,10 @@ export interface TradeRecord {
 export type MonumentM3 = Monument & {
   /** #153: a castle (absent: a cathedral). */
   type?: MonumentType;
+  /** #162: drawn with the detail palette, its stone cut at the stonecutter. */
+  detail?: boolean;
+  /** #162: its stonecutter (mcCutter.ts). */
+  cutter?: CutterRecord;
   trades?: Record<string, TradeRecord>;
   /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
   news?: { t: number; text: string };
@@ -484,6 +507,7 @@ export function tradeOfJob(m: Monument, index: number): Trade {
 export function tradeOfStep(m: Monument, step: { step: string; item?: string; job?: number }): Trade {
   if (step.step === 'site') return 'quarryman';
   if (step.step === 'kiln') return 'mason';
+  if (step.step === 'cut') return 'carver';
   if (step.step === 'job' && step.job !== undefined) return tradeOfJob(m, step.job);
   return tradeOfItem(step.item ?? '');
 }

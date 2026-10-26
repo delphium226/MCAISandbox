@@ -410,5 +410,5 @@ const ROLE_NOUN: Record<string, string> = {
   furnish: 'furnisher', initiate: 'builder of projects', help: 'helper', activity: 'craftsperson', grow: 'house builder',
   own: 'trader', innovate: 'inventor',
   // (M3, MC_MONUMENT_ROLES: a monument choice is noted as its cathedral trade, so the inferred role can be one)
-  quarryman: "cathedral's quarryman", mason: "cathedral's mason", glazier: "cathedral's glazier", carpenter: "cathedral's carpenter", monument: 'cathedral builder',
+  quarryman: "cathedral's quarryman", mason: "cathedral's mason", glazier: "cathedral's glazier", carpenter: "cathedral's carpenter", carver: "cathedral's carver", monument: 'cathedral builder',
 };

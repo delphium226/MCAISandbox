@@ -120,13 +120,44 @@ const CHARGE_AS: Record<string, string> = {
 };
 
 export interface Option {
-  kind: 'craft' | 'smelt';
+  /** cut: at a stonecutter (#162, only in a plan made with `cut`). */
+  kind: 'craft' | 'smelt' | 'cut';
   /** Items made per run. */
   out: number;
   ins: Counts;
 }
 
 let smeltTable: Map<string, Option[]> | undefined;
+let cutTable: Map<string, Option[]> | undefined;
+
+/**
+ * Stonecutting options by output (#162, the monument's tier 2): the jar's `minecraft:stonecutting` recipes (one input,
+ * one run, `count` out: stone into stone bricks 1:1, stairs 1:1, slabs 2), built once per process; none when the jar is
+ * missing (one `[vanilla]` line says why, and a plan with `cut` then crafts as without it).
+ */
+export function cutOptions(): Map<string, Option[]> {
+  if (cutTable) return cutTable;
+  cutTable = new Map();
+  try {
+    const jar = vanillaJar();
+    if (!hasJar(jar)) throw new Error(`no jar at ${jar}`);
+    for (const file of listEntries('data/minecraft/recipe/', jar)) {
+      if (!file.endsWith('.json')) continue;
+      const j = readJson<{ type?: string; ingredient?: unknown; result?: { id?: string; count?: number } }>(file, jar);
+      if (j.type !== 'minecraft:stonecutting') continue;
+      if (typeof j.ingredient !== 'string' || !j.result?.id) throw new Error(`${file}: a stonecutting recipe not read`);
+      const out = j.result.id.replace(/^minecraft:/, ''), input = j.ingredient.replace(/^minecraft:/, '');
+      (cutTable.get(out) ?? cutTable.set(out, []).get(out)!).push({ kind: 'cut', out: j.result.count ?? 1, ins: { [input]: 1 } });
+    }
+    if (!cutTable.size) throw new Error(`no stonecutting recipes in ${jar}`);
+  } catch (e) {
+    console.error(`[vanilla] no stonecutting: ${(e as Error).message}`);
+  }
+  return cutTable;
+}
+
+/** Stones the quarry and the mine give as they lie (#162): with `cut`, gathered rather than mixed from diorite. */
+const CUT_GATHER = ['andesite', 'diorite', 'granite', 'tuff', 'calcite'];
 
 /**
  * Smelting options by output, from the jar's `minecraft:smelting` recipes, built once per process (one registry, the
@@ -210,8 +241,10 @@ export interface Step {
   item: string;
   runs: number;
   makes: number;
-  /** What is smelted (smelting steps). */
+  /** What is smelted (smelting steps) or cut. */
   input?: string;
+  /** #162: a craft done at the stonecutter (a plan made with `cut`). */
+  cut?: true;
 }
 
 export interface MaterialPlan {
@@ -253,6 +286,9 @@ export function chargedItem(block: string): string {
   if (w && /(^|_)(log|wood)$/.test(w.part)) return `${w.kind}_log`;
   // A sign on a wall is the sign item (the block has none of its own)
   if (w?.part === 'wall_sign') return `${w.kind}_sign`;
+  // (and a banner on a wall the banner item: the monument's furnishing, #162)
+  const banner = /^(\w+)_wall_banner$/.exec(name);
+  if (banner) return `${banner[1]}_banner`;
   return CHARGE_AS[name] ?? name;
 }
 
@@ -280,8 +316,15 @@ export function label(name: string): string {
 
 export class Materials {
   private options = new Map<string, Option[]>();
+  private gathered: Set<string>;
 
-  constructor(private registry: Registry) {}
+  /**
+   * `opts.cut` (#162, the monument's tier 2): an item the stonecutter makes is cut there, never crafted (its options
+   * only: the carver's work is the cutting), and the quarry's stones are gathered as they lie. Off: the plans as before.
+   */
+  constructor(private registry: Registry, private opts: { cut?: boolean } = {}) {
+    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : [])]);
+  }
 
   /** Crafting recipes (variant recipes merged into "any:" ones) and smelting for an item. */
   private optionsFor(name: string): Option[] {
@@ -314,6 +357,12 @@ export class Materials {
     }
     for (const g of groups.values()) out.push(g.n > 1 ? g.general : g.exact);
     out.push(...(smeltOptions(this.registry).get(name) ?? []));
+    // (cut instead only what is otherwise crafted: cobblestone has a cut from stone, but it is gathered)
+    const cuts = this.opts.cut ? cutOptions().get(name) : undefined;
+    if (cuts?.length && out.some((o) => o.kind === 'craft')) {
+      this.options.set(name, cuts);
+      return cuts;
+    }
     this.options.set(name, out);
     return out;
   }
@@ -329,7 +378,7 @@ export class Materials {
     if (UNOBTAINABLE[name]) return 1000;
     const options = this.optionsFor(name);
     // No recipe at all: gathered as it is
-    let best = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !options.length ? gatherCost(name) : Infinity;
+    let best = this.gathered.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !options.length ? gatherCost(name) : Infinity;
     let cut = false;
     path.add(name);
     for (const o of options) {
@@ -352,7 +401,7 @@ export class Materials {
    * nothing, so a dye is made from the flowers in storage (wildflowers) before the cheaper tall ones nobody picked (10-22).
    */
   private choose(name: string, memo: Map<string, number>, held: Counts = {}): Option | null {
-    const gather = GATHER.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !!UNOBTAINABLE[name];
+    const gather = this.gathered.has(name) || name === 'any:logs' || name === 'any:cobblestone' || !!UNOBTAINABLE[name];
     let best: Option | null = null, bestCost = gather ? (UNOBTAINABLE[name] ? 1000 : gatherCost(name)) : Infinity;
     for (const o of this.optionsFor(name)) {
       let c = o.kind === 'smelt' ? 0.3 : 0.02;
@@ -454,7 +503,7 @@ export class Materials {
         continue;
       }
       const runs = Math.ceil(need / o.out);
-      steps.push({ do: o.kind, item: n, runs, makes: runs * o.out, ...(o.kind === 'smelt' ? { input: Object.keys(o.ins)[0] } : {}) });
+      steps.push({ do: o.kind === 'smelt' ? 'smelt' : 'craft', item: n, runs, makes: runs * o.out, ...(o.kind !== 'craft' ? { input: Object.keys(o.ins)[0] } : {}), ...(o.kind === 'cut' ? { cut: true as const } : {}) });
       if (o.kind === 'smelt') smelts += runs;
       // Surplus from a batch (6 planks make 3 doors) stays in the pool for later uses
       if (runs * o.out > need) surplus[n] = (surplus[n] ?? 0) + runs * o.out - need;
@@ -470,9 +519,11 @@ export function describeWork(p: MaterialPlan): string {
   const list = (c: Counts) => Object.entries(c).map(([n, q]) => `${q} ${label(n)}`).join(', ');
   const parts: string[] = [];
   if (Object.keys(p.gather).length) parts.push(`gather ${list(p.gather)}`);
-  const crafts = p.steps.filter((s) => s.do === 'craft').map((s) => `${s.makes} ${label(s.item)}`);
+  const crafts = p.steps.filter((s) => s.do === 'craft' && !s.cut).map((s) => `${s.makes} ${label(s.item)}`);
   const smelts = p.steps.filter((s) => s.do === 'smelt').map((s) => `${s.makes} ${label(s.item)}`);
   if (crafts.length) parts.push(`craft ${crafts.join(', ')}`);
+  const cuts = p.steps.filter((s) => s.cut).map((s) => `${s.makes} ${label(s.item)}`);
+  if (cuts.length) parts.push(`cut at the stonecutter ${cuts.join(', ')}`);
   if (smelts.length) parts.push(`smelt ${smelts.join(', ')} (fuel: ${p.fuel.coal ? `${p.fuel.coal} coal` : ''}${p.fuel.coal && p.fuel.planks ? ' + ' : ''}${p.fuel.planks ? `${p.fuel.planks} planks, or ${Math.ceil((p.fuel.smelts - p.fuel.coal * 8) / 8)} coal instead` : ''})`);
   if (p.problems.length) parts.push(`cannot be had: ${p.problems.join('; ')}`);
   return parts.join('; ');
