@@ -34,9 +34,9 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(written 2026-10-25 ~13:40 by the planning session local_81ead10e at 73% context, handing over to a fresh planning
-session; the strategy is `docs/STRATEGY.md`; the live state (sessions, ids, the queue, what waits on the user) is in
-`runs/2026-10-25/planning/state.md`)
+(updated 2026-10-25 ~23:30 by the planning session that took over at 13:40, paused for the evening at the user's
+request; the strategy is `docs/STRATEGY.md`; the morning state (sessions, ids, the queue, what waits on the user) is in
+`runs/2026-10-26/planning/state.md`, the day's log in `runs/2026-10-25/planning/state.md`)
 
 - **How work runs:** the planning session owns STRATEGY.md and this handover, briefs work sessions and checks their
   reports. Rules added 10-24/25: the context rule, the test train (offline checks in build sessions; condensed trains,
@@ -46,11 +46,16 @@ session; the strategy is `docs/STRATEGY.md`; the live state (sessions, ids, the 
   #134 pace, home basics, #121 storage that grows, #117 prompt (Maslow basics), #97 holds, #122 policy options, #136
   halo, #84 C1+C2 per-building pads and graded paths, #138 growing outward, #115 run profiles (settings registry,
   profiles, culture mixes, pause/resume, live settings, schedules), #139 pens, #140 flowers, one crafting table a house.
+- **Built and pushed on 10-25 after 13:40** (F318-F322): #142, #149 (small-work spot cache; live check pending), #140
+  (beds drop a used-up flower), trains 4-5 and the policy confirm run; **the monument** (G8, the user's: a Gothic
+  cathedral after the iron age, no vote): M0 grammar, M1 staged project, M2 quarry/kiln/glazing (flags off), #152 kiln;
+  Notre-Dame and Chartres built in full at 1:4 from the village's own stone; a castle (Conwy 1:2, #153) after M3.
 - **On by default now:** storage grow, home basics, prompt self, letters pace, pad halo, choice holds, open storage
-  hut, vanilla pieces, wood variants, gen homes (plus the older defaults).
-- **In flight:** train 4 (pad village model-driven on/off), the monument research, pens-flowers' staged check.
-- **Next:** #142 (policy options' event loop and the cap over-count) before policy options go default; #141 house
-  decorations; the next train; the open list in the state file.
+  hut, vanilla pieces, wood variants, gen homes, **pen variety, policy options** (10-25) (plus the older defaults).
+- **In flight (paused):** monument M3 (#146: trades, news and memory, the architect's pick), its session asked to stop
+  safely and leave `runs/2026-10-26/monument-m3/resume.md`.
+- **Next:** finish M3; test train 6 (#149 live, then the pad flags to the user as defaults; flower mix with #140's fix);
+  #151, #141 house decorations, #133; the castle after M3; M4 (Notre-Dame 1:2).
 
 ## Earlier phases
 
