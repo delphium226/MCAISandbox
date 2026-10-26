@@ -1,6 +1,6 @@
 /**
  * The Gothic cathedral generator checked offline (the monument, M0; server/src/gothicGen.ts; no server): every preset at
- * 1:4 and 1:2 (and Notre-Dame at 1:1), generated, validated as the architect's designs are (validateDesign with
+ * 1:4 and 1:2 (and Notre-Dame at 1:1, Cologne at 1:3, its live scale), generated, validated as the architect's designs are (validateDesign with
  * Minecraft's blocks and states, sizes unlimited, no door rule: its portals are open arches), and checked:
  * - the bill: designBill (what a build charges) equals the generator's, and Notre-Dame's blocks fall in a range: 1:2
  *   6-22k (the report's shell estimate was ~12.5k, its detailed one ~20k; the generator's one-block walls and hollow
@@ -115,7 +115,7 @@ let failures = 0;
 const fail = (msg: string) => { failures++; console.log(`  FAIL ${msg}`); };
 const cases: Array<[string, number]> = [];
 for (const name of Object.keys(GOTHIC_PRESETS)) cases.push([name, 4], [name, 2]);
-cases.push(['notre_dame', 1]);
+cases.push(['notre_dame', 1], ['cologne', 3]);
 for (const [name, scale] of cases) {
   const t0 = Date.now();
   const c = generateCathedral(GOTHIC_PRESETS[name], scale, { detail: DETAIL });

@@ -48,6 +48,12 @@ export interface GothicPreset {
   crossingSpire: number;
   /** The west rose's diameter; transept ends get one of the same size when they are wide enough. */
   rose: number;
+  /** Five aisles (Cologne): `aisle` is then both aisles of a side, split by a row of piers, under a lean-to half as steep. */
+  aisles?: 3 | 5;
+  /** Radiating chapels round the apse's ambulatory (0: none). */
+  chapels?: number;
+  /** Openwork spires (Cologne's): solid bands every third course, a lattice of posts between. */
+  openwork?: boolean;
 }
 
 export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
@@ -68,6 +74,13 @@ export const GOTHIC_PRESETS: Record<string, GothicPreset> = {
     length: 130, bay: 7, nave: 14, aisle: 8, buttress: 4, vault: 37, aisleHeight: 14,
     transeptBay: 9, transeptBays: 2, transeptArm: 16,
     towers: 2, towerHeight: 60, spires: [45, 53], crossing: 'none', crossingHeight: 0, crossingSpire: 0, rose: 13,
+  },
+  cologne: {
+    name: 'cologne', description: 'Cologne: sheer height, five aisles, twin openwork spires, an apse ringed with chapels',
+    length: 144, bay: 7.5, nave: 14, aisle: 14, buttress: 5, vault: 43, aisleHeight: 18,
+    transeptBay: 9, transeptBays: 2, transeptArm: 20,
+    towers: 2, towerHeight: 95, spires: [62, 62], crossing: 'fleche', crossingHeight: 0, crossingSpire: 45, rose: 0,
+    aisles: 5, chapels: 7, openwork: true,
   },
 };
 
@@ -170,7 +183,14 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   const rI = k + 1, rO = rI + aisle + 1;
   const bays = Math.max(4, Math.floor((s(p.length, 20) - rO - 1) / pitch));
   const xe = bays * pitch;
-  const W = xe + rO + butW + 2;
+  // Radiating chapels: discs of low cells round the ambulatory, centred just outside it
+  const nCh = p.chapels ?? 0;
+  const rCh = nCh ? Math.max(1.5, (Math.PI * rO / nCh) * 0.45) : 0;
+  const chapelAt = Array.from({ length: nCh }, (_, i) => {
+    const a = -Math.PI / 2 + Math.PI * (i + 0.5) / nCh;
+    return [xe + Math.cos(a) * (rO + rCh * 0.5), (zA + zA2) / 2 + Math.sin(a) * (rO + rCh * 0.5)];
+  });
+  const W = xe + rO + Math.max(butW, nCh ? Math.ceil(rCh * 1.5 + 1) : 0) + 2;
   const tb = Math.min(Math.max(1, Math.round(p.transeptBay * p.bay / scale / pitch)), bays - p.transeptBays - 1);
   const xt0 = tb * pitch, xt1 = (tb + p.transeptBays) * pitch;
   const zN = zA - arm, zS = zA2 + arm;
@@ -185,6 +205,7 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
       if (x <= xe && z >= zA && z <= zA2) plan[x][z] = z >= zP && z <= zP2 ? 2 : 1;
       else if (x > xe && apseD(x, z) < rO + 0.5) plan[x][z] = apseD(x, z) < rI + 0.5 ? 2 : 1;
       if (arm && x >= xt0 && x <= xt1 && z >= zN && z <= zS) plan[x][z] = 2;
+      if (!plan[x][z] && x > xe && chapelAt.some(([u, v]) => Math.hypot(x - u, z - v) < rCh + 0.5)) plan[x][z] = 1;
     }
   const at = (x: number, z: number) => (x < 0 || z < 0 || x >= W || z >= D ? 0 : plan[x][z]);
   const touches = (x: number, z: number, v: number) => STEP4.some(([dx, dz]) => at(x + dx, z + dz) === v);
@@ -229,7 +250,8 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   const highIn = field(isHigh, hWall);
   const lowRoof = field(isLow, lWall);
   const roofHigh = (x: number, z: number) => Hv + 1 + highRoof[x][z];
-  const roofLow = (x: number, z: number) => Ha + 1 + lowRoof[x][z];
+  const five = p.aisles === 5;
+  const roofLow = (x: number, z: number) => Ha + 1 + (five ? Math.floor(lowRoof[x][z] / 2) : lowRoof[x][z]);
 
   // Along a wall: the coordinate its bays are counted in (x along the side walls, z along the end walls, the arc in
   // the apse), and its windows: piers at the bay lines, the openings between (a margin each side when the bay is wide)
@@ -286,6 +308,18 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
         }
       }
     }
+
+  // Five aisles: a row of piers down the middle of each side's aisles (stage 3), pointed arches between them and a
+  // spandrel wall up to the lean-to
+  const zMid = [zA + 1 + Math.floor(aisle / 2), zA2 - 1 - Math.floor(aisle / 2)];
+  if (five)
+    for (let x = 1; x < xe; x++)
+      for (const z of zMid) {
+        if (!isLow(x, z) || (arm && x >= xt0 && x <= xt1)) continue;
+        const m = x % pitch, top = roofLow(x, z) - 1;
+        const from = m === 0 ? 1 : arcH + (pitch >= 3 && (m === 1 || m === pitch - 1) ? 0 : 1);
+        for (let y = from; y <= top; y++) set(x, y, z, M.pier, 3);
+      }
 
   // Portals: the west front's middle, each transept end, the apse's east; the towers add their own
   const ph = Math.max(3, Math.round(Hv * 0.3)), pw = nave >= 7 ? 1 : 0;
@@ -446,12 +480,17 @@ export function generateCathedral(p: GothicPreset, scale: number, opts: GothicOp
   };
   const drawSpire = (cx: number, cz: number, r0: number, y0: number, h: number) => {
     for (let i = 0; i < h; i++) {
+      const lattice = p.openwork && i % 3 !== 0 && i < h - 2;
       const r = r0 * (1 - i / h);
       const inO = (x: number, z: number) => Math.abs(x - cx) <= r && Math.abs(z - cz) <= r && Math.abs(x - cx) + Math.abs(z - cz) <= r * 1.42;
       let any = false;
       for (let x = Math.floor(cx - r0); x <= Math.ceil(cx + r0); x++)
         for (let z = Math.floor(cz - r0); z <= Math.ceil(cz + r0); z++)
-          if (inO(x, z) && STEP4.some(([dx, dz]) => !inO(x + dx, z + dz))) { set(x, y0 + i, z, M.wall, 8); any = true; }
+          if (inO(x, z) && STEP4.some(([dx, dz]) => !inO(x + dx, z + dz))) {
+            any = true;
+            if (!lattice) set(x, y0 + i, z, M.wall, 8);
+            else if ((x + z + i) % 2 === 0) set(x, y0 + i, z, M.post, 8);
+          }
       if (!any) { set(Math.round(cx), y0 + i, Math.round(cz), M.post, 8); }
     }
     set(Math.round(cx), y0 + h, Math.round(cz), M.post, 8);
@@ -594,11 +633,15 @@ function cutJobs(cells: Map<string, string>, stageOf: Map<string, number>, jobMi
       jobs.push(j); cur = [];
     };
     for (const x of [...bySlice.keys()].sort((a, b) => a - b)) {
-      const slice = bySlice.get(x)!;
+      let slice = bySlice.get(x)!;
       if (slice.length > jobMax) {
-        flush();
+        // (a job gathered short of jobMin goes with the big slice's bands)
+        if (cur.length >= jobMin) flush();
+        else slice = [...cur, ...slice], cur = [];
         slice.sort((a, b) => a[1] - b[1]);
-        for (let i = 0; i < slice.length; i += jobMax) { cur = slice.slice(i, i + jobMax); flush(); }
+        // (bands of jobMax, or equal bands when the last would fall under jobMin)
+        const band = slice.length % jobMax && slice.length % jobMax < jobMin ? Math.ceil(slice.length / Math.ceil(slice.length / jobMax)) : jobMax;
+        for (let i = 0; i < slice.length; i += band) { cur = slice.slice(i, i + band); flush(); }
         continue;
       }
       if (cur.length + slice.length > jobMax && cur.length >= jobMin) flush();

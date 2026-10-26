@@ -141,8 +141,8 @@ if (OFF) {
   const facts = { village: 'V', members: 25, wood: 'oak', dyes: { yellow: 39, blue: 7 }, options: [{ preset: 'chartres', scale: 4, width: 1, depth: 1, height: 1, blocks: 1, jobs: 1 }, { preset: 'chartres', scale: 2, width: 1, depth: 1, height: 1, blocks: 1, jobs: 1 }] };
   const r1 = mon.checkArchitect({ preset: 'Notre Dame', scale: '1:2', glass: { blue: 'blue', red: 'plain', yellow: 'yellow' }, reason: 'x' }, facts) as Any;
   ok(r1.pick?.preset === 'notre_dame' && r1.pick.scale === 2 && JSON.stringify(r1.pick.colours) === '{"blue":"blue","yellow":"yellow"}', `a good pick: ${JSON.stringify(r1)}`);
-  const r2 = mon.checkArchitect({ preset: 'cologne', scale: 0.5, glass: { red: 'red' } }, facts) as Any;
-  ok(r2.problems?.length === 2 && /cologne/.test(r2.problems[0]) && /red/.test(r2.problems[1]), `cologne refused, 0.5 read as 1:2, red not on offer: ${JSON.stringify(r2)}`);
+  const r2 = mon.checkArchitect({ preset: 'york', scale: 0.5, glass: { red: 'red' } }, facts) as Any;
+  ok(r2.problems?.length === 2 && /york/.test(r2.problems[0]) && /red/.test(r2.problems[1]), `york refused, 0.5 read as 1:2, red not on offer: ${JSON.stringify(r2)}`);
   const r3 = mon.checkArchitect({ preset: 'chartres', scale: 4, glass: { red: 'red' } }, facts) as Any;
   ok(r3.problems?.length === 1 && /red/.test(r3.problems[0]), `a colour not on offer refused: ${JSON.stringify(r3)}`);
   ok(/The scale is set: 1:4/.test(mon.architectPrompt({ ...facts, options: [facts.options[0]] })) && /dye colours.*yellow \(39\)/.test(mon.architectPrompt(facts)), 'the prompt: a set scale, the dyes on offer');
