@@ -15,7 +15,8 @@
 import { rawSetting } from './settings';
 import type { Area } from './village';
 
-export const GROW_OUTWARD = /^(on|1|true)$/i.test(rawSetting('MC_GROW_OUTWARD') ?? 'off');
+// (on by default since 10-26, the user's after test train 6, F323; =off for growth inside the plot)
+export const GROW_OUTWARD = !/^(off|0|false|no)$/i.test(rawSetting('MC_GROW_OUTWARD') ?? 'on');
 
 /** A building to place, as drawn: its size and its door (doorOf: the door cell and the way it opens). */
 export interface OutwardItem {

@@ -39,7 +39,8 @@ const FIELD_REACH = 96;
  * into the ground (prepare_site layout=N pad=K; runs/2026-10-24/layout-measure/spec_c.md); C2: graded dirt paths from each
  * building's door to the meeting point's (prepare_site layout=N path=K, padPaths.ts), the lamps along them.
  */
-export const PAD_PER_BUILDING = /^(on|1|true)$/i.test(rawSetting('MC_PAD_PER_BUILDING') ?? 'off');
+// (on by default since 10-26, the user's after test train 6, F323; =off for the one levelled plot)
+export const PAD_PER_BUILDING = !/^(off|0|false|no)$/i.test(rawSetting('MC_PAD_PER_BUILDING') ?? 'on');
 
 /** A part of the plot as plan_layout posts it (S.6): its rectangle, margins, and what it holds (for its task's title). */
 export type PrepPart = PlotPart & { what: string };

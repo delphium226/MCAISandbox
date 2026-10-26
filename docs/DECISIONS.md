@@ -889,3 +889,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
 - 10-26 (the user's) **Monument materials tier 2** (#162): richer palettes (stonecutter variants, lanterns, chains,
   bells, candles, banners, every stained-glass colour) to drive new crafting chains, built in code as M2's were; the
   foundry stays parked. Missing sources become members' wants. Runs beside the castle (#153) and train 6.
+- 10-26 (the user's, after test train 6, F323) **MC_PAD_PER_BUILDING and MC_GROW_OUTWARD on by default** (#84, #138:
+  per-building pads and outward growth; with #149's spot cache the pad village had 0 [lag] against 429 and [stuck] 56
+  against 434; `=off` turns each off). MC_FLOWER_MIX stays off until the menu stops offering a used-up flower.
