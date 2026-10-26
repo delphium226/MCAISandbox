@@ -24,6 +24,8 @@ import { MAKE_GOODS } from './mcWorkshop';
 import { abortable, at, checkAbort, countItem, itemId, num, reach, resolveItem, sleep, standableY, str, syncInventory, unmoved } from './mcUtil';
 import { OWN_TOOLS } from '../ladderFlags';
 import { rawSetting } from '../settings';
+import { monumentPlan } from '../monument';
+import { lodgeKeeps } from '../lodge';
 
 type Window = Awaited<ReturnType<BotAgent['bot']['openContainer']>>;
 
@@ -170,6 +172,22 @@ export function storageContents(v: Village): Record<string, number> {
   return out;
 }
 
+/** The hut's chests and barrels (and the storage yard's): every storage container but the masons' lodge's (#163). */
+export const hutChests = (v: Village): StorageChest[] => (v.storage?.chests ?? []).filter((c) => !c.lodge);
+
+/** What the masons' lodge's chests hold (#163), summed. */
+export function lodgeContents(v: Village): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of v.storage?.chests ?? []) if (c.lodge) for (const [n, q] of Object.entries(c.items)) out[n] = (out[n] ?? 0) + q;
+  return out;
+}
+
+/**
+ * Whether a member's withdrawals and deposits go to the masons' lodge (#163, MC_LODGE): a monument chore (mcWorld sets
+ * `memory.lodge` for its length) in a village whose lodge has chests.
+ */
+export const atLodge = (a: BotAgent, v: Village): boolean => !!a.memory.lodge && (v.storage?.chests ?? []).some((c) => c.lodge);
+
 /** One line for summaries and messages: "40 cobblestone, 12 oak_log, ..." (most first), chest by chest when sorted. */
 export function describeStorage(v: Village, max = 20): string {
   return storageText(v, max);
@@ -214,7 +232,8 @@ function slotsUsed(a: BotAgent, c: StorageChest): number {
  * registry (mcWorld passes its own); the game's data otherwise.
  */
 export function storageSlots(v: Village, reg?: StackReg): { used: number; cap: number; chests: number; spots: number } {
-  const chests = v.storage?.chests ?? [];
+  // (not the masons' lodge's chests: the monument's yard, #163)
+  const chests = hutChests(v);
   const used = chests.reduce((s, c) => s + chestSlots(c, reg), 0);
   const spots = v.storageHut ? allSpots(v) : chests.length;
   return { used, cap: 27 * spots, chests: chests.length, spots };
@@ -601,7 +620,12 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
   }
   try {
     // (`keep_wood`, code's only: no chest crafted from the carried wood, S.3)
-    if (v.storageHut) left = await depositSorted(a, v, m.test, left, moved, notes, signal, args.keep_wood === true, keep);
+    // (#163: a monument chore's load into the masons' lodge; what it has no room for goes to the hut)
+    if (atLodge(a, v)) {
+      const bill = v.monument ? monumentPlan(v.monument).bill : undefined;
+      left = await depositLodge(a, v, (n) => m.test(n) && lodgeKeeps(v.monument, bill, n), left, moved, notes, signal, keep);
+    }
+    if (v.storageHut && left > 0 && a.bot.inventory.items().some((it) => m.test(it.name))) left = await depositSorted(a, v, m.test, left, moved, notes, signal, args.keep_wood === true, keep);
     for (let i = 0; !v.storageHut && left > 0 && want.size; i++) {
       checkAbort(signal);
       // A put that failed with room left (the chest's slots drifted, or another worker had it open): once more from the
@@ -704,7 +728,8 @@ async function depositToCommons(a: BotAgent, args: Record<string, unknown>, sign
  */
 async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal, keepWood = false, keep: Record<string, number> = {}): Promise<number> {
   const chestId = itemId(a, 'chest')!;
-  const chests = () => v.storage?.chests ?? [];
+  // (the masons' lodge's chests are not sorted, #163)
+  const chests = () => hutChests(v);
   // A chest holding something but with no group yet (registered by a test, say) takes the group of what it holds most of
   for (const c of chests())
     if (!c.group) {
@@ -825,6 +850,54 @@ async function depositSorted(a: BotAgent, v: Village, test: (n: string) => boole
   return left;
 }
 
+/**
+ * The masons' lodge (#163): everything a monument chore carries (that `test` takes) into the lodge's chests, nearest
+ * first, unsorted (the yard's few kinds). Returns how many of `left` are still to put in.
+ */
+async function depositLodge(a: BotAgent, v: Village, test: (n: string) => boolean, left: number, moved: Record<string, number>, notes: string[], signal: AbortSignal, keep: Record<string, number> = {}): Promise<number> {
+  const me = a.bot.entity.position;
+  const lodge = (v.storage?.chests ?? []).filter((c) => c.lodge && slotsUsed(a, c) < 27).sort((p, q) => me.distanceTo(new Vec3(p.x, p.y, p.z)) - me.distanceTo(new Vec3(q.x, q.y, q.z)));
+  for (const c of lodge) {
+    if (left <= 0 || !a.bot.inventory.items().some((it) => test(it.name))) break;
+    checkAbort(signal);
+    const w = await openChest(a, v, c, signal).catch((e: Error) => {
+      if (e.message === 'cancelled' || unmoved(e)) throw e;
+      notes.push(e.message);
+      return null;
+    });
+    if (!w) continue;
+    try {
+      const held = new Map<number, { name: string; count: number }>();
+      for (let i = w.inventoryStart; i < w.slots.length; i++) {
+        const it = w.slots[i];
+        if (!it || !test(it.name)) continue;
+        const e = held.get(it.type) ?? { name: it.name, count: 0 };
+        e.count += it.count;
+        held.set(it.type, e);
+      }
+      for (const [type, { name, count }] of held) {
+        const n = Math.min(Math.max(0, count - (keep[name] ?? 0)), left, room(a, w, 0, w.inventoryStart, type));
+        if (n <= 0) continue;
+        try {
+          await abortable(w.deposit(type, null, n), signal);
+          moved[name] = (moved[name] ?? 0) + n;
+          left -= n;
+        } catch (e) {
+          if ((e as Error).message === 'cancelled') throw e;
+        }
+      }
+      c.items = chestItems(w);
+    } finally {
+      w.close();
+    }
+    await syncInventory(a);
+    v.storage!.updated = Date.now();
+    a.world.villages.save();
+  }
+  if (Object.keys(moved).length) notes.push('in the masons\' lodge');
+  return left;
+}
+
 /** A new chest in the storage hut's next free spot, carried or crafted for it; null if there is no spot or no wood. */
 async function newChest(a: BotAgent, v: Village, signal: AbortSignal, notes: string[]): Promise<StorageChest | null> {
   // A spot no one else is filling, claimed before the chest is crafted (two agents each crafted one from storage logs for
@@ -910,7 +983,11 @@ async function take(a: BotAgent, v: Village, wants: Array<{ test: (name: string)
   let invFull = false;
   const open = () => wants.filter((w) => w.left > 0);
   const has = (c: StorageChest) => Object.entries(c.items).some(([n, q]) => q > 0 && open().some((w) => w.test(n)));
-  const order = [...(v.storage?.chests ?? [])].sort((x, y) => Number(has(y)) - Number(has(x)));
+  // (#163: the masons' lodge's chests first for a monument chore and last for anyone else, then the nearest)
+  const lodge = atLodge(a, v), me = a.bot.entity.position;
+  const side = (c: StorageChest) => Number(!!c.lodge !== lodge);
+  const dist = (c: StorageChest) => me.distanceTo(new Vec3(c.x, c.y, c.z));
+  const order = [...(v.storage?.chests ?? [])].sort((x, y) => Number(has(y)) - Number(has(x)) || side(x) - side(y) || (lodge ? dist(x) - dist(y) : 0));
   for (const c of order) {
     if (!open().length || invFull) break;
     if (!has(c) && Object.keys(got).length) continue;
@@ -997,7 +1074,9 @@ async function tidyStorage(a: BotAgent, _args: Record<string, unknown>, signal: 
 
 /** Open every storage chest to re-read what it holds (someone may have filled or emptied it outside the record). */
 export async function refreshStorage(a: BotAgent, v: Village, signal: AbortSignal): Promise<void> {
-  for (const c of [...(v.storage?.chests ?? [])]) {
+  // (#163: a monument chore re-reads the masons' lodge's chests, anyone else the hut's)
+  const lodge = atLodge(a, v);
+  for (const c of [...(v.storage?.chests ?? [])].filter((c) => !!c.lodge === lodge)) {
     checkAbort(signal);
     const w = await openChest(a, v, c, signal).catch((e: Error) => {
       if (e.message === 'cancelled' || unmoved(e)) throw e;
@@ -1031,6 +1110,13 @@ async function withdraw(a: BotAgent, args: Record<string, unknown>, signal: Abor
   }
   const short = n < want ? (invFull ? `; inventory is full, ${want - n} not taken` : `; storage had only ${n} of the ${want} asked for`) : '';
   return `withdrew ${taken}${short}`;
+}
+
+/** Register one of the masons' lodge's chests (#163), set by mcKiln.ts' build_kiln. */
+export function registerLodgeChest(v: Village, pos: { x: number; y: number; z: number }): void {
+  v.storage ??= { chests: [], updated: Date.now() };
+  if (v.storage.chests.some((c) => c.x === pos.x && c.y === pos.y && c.z === pos.z)) return;
+  v.storage.chests.push({ ...pos, items: {}, lodge: true });
 }
 
 /** Register a chest that is already in the world (API, tests), with its material group in a sorted storage. */

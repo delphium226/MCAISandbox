@@ -128,10 +128,10 @@ function cellRule(a: BotAgent, q: Quarry, x: number, y: number, z: number): stri
 
 /**
  * A cobblestone trip in the quarry: rows of the shallowest open layer until `want` more cobblestone is held, the trip's
- * time is up or no row is open. Returns what it got and why it stopped; throws ContentionError when every open row is
+ * time is up (`tripMs`: a bulk trip's own, #163) or no row is open. Returns what it got and why it stopped; throws ContentionError when every open row is
  * held by other diggers.
  */
-export async function quarryFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal): Promise<{ got: number; why: string }> {
+export async function quarryFor(a: BotAgent, v: Village, want: number, have: () => number, signal: AbortSignal, tripMs = TRIP_MS): Promise<{ got: number; why: string }> {
   const m = v.monument!;
   const reg = a.world.villages;
   const q = m.quarry ?? (await chooseQuarry(a, v, signal));
@@ -142,10 +142,19 @@ export async function quarryFor(a: BotAgent, v: Village, want: number, have: () 
   const letGo = () => { for (const [k, h] of held) if (h.by === a.name) held.delete(k); };
   letGo();
   const tally = (item: string, n: number) => { q.got[item] = (q.got[item] ?? 0) + n; };
+  // Topsoil past the scaffolding's keep and gravel dropped in the pit (nothing uses them; the inventory fills)
+  const dropJunk = async () => {
+    for (const junk of ['dirt', 'gravel', 'coarse_dirt', 'rooted_dirt']) {
+      const id = itemId(a, junk);
+      if (id === undefined) continue;
+      const n = countItem(a, id) - (junk === 'dirt' ? KEEP_DIRT : 0);
+      if (n > 0) await a.bot.toss(id, null, n).catch(() => undefined);
+    }
+  };
   try {
     while (have() - start < want) {
       checkAbort(signal);
-      if (Date.now() - t0 > TRIP_MS) { why = 'the trip\'s time is up'; break; }
+      if (Date.now() - t0 > tripMs) { why = 'the trip\'s time is up'; break; }
       const now = Date.now();
       const busy = new Set([...held].filter(([k, h]) => k.startsWith(`${v.name}:`) && h.by !== a.name && h.until > now).map(([k]) => k.slice(v.name.length + 1)));
       const open = openRows(q, busy);
@@ -237,18 +246,14 @@ export async function quarryFor(a: BotAgent, v: Village, want: number, have: () 
       }
       held.delete(mine(k, row));
       if (why) break;
+      // (a bulk trip's topsoil, #163: dropped between rows once the inventory runs low on room)
+      if (a.bot.inventory.emptySlotCount() < 6) await dropJunk();
     }
     // The drops of the last cells (it stands beside the last one dug)
     const last = a.bot.entity.position.floored();
     await pickUpDrops(a, last.offset(1, 0, 0), signal).catch(() => undefined);
     await sleep(300, signal);
-    // Topsoil past the scaffolding's keep and gravel dropped in the pit (nothing uses them; the inventory fills)
-    for (const junk of ['dirt', 'gravel', 'coarse_dirt', 'rooted_dirt']) {
-      const id = itemId(a, junk);
-      if (id === undefined) continue;
-      const n = countItem(a, id) - (junk === 'dirt' ? KEEP_DIRT : 0);
-      if (n > 0) await a.bot.toss(id, null, n).catch(() => undefined);
-    }
+    await dropJunk();
     return { got: have() - start, why: why || 'done' };
   } finally {
     letGo();

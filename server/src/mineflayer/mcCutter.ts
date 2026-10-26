@@ -45,6 +45,8 @@ async function ensureCutter(a: BotAgent, v: Village, m: MonumentT2, signal: Abor
     m.yard.stone = Math.max(0, (m.yard.stone ?? 0) - 3);
     if (!m.yard.stone) delete m.yard.stone;
   }
+  // (to the cell first: placeStation refuses from more than 3 below it, and the lodge can stand above the hut, #163's L2)
+  await reach(a, new Vec3(cell.x + 0.5, cell.y, cell.z + 0.5), 3, signal);
   // (placeStation sets any station block by name in a given cell; the stonecutter is not one of the hut's two)
   await placeStation(a, 'stonecutter' as StationName, signal, 'the cathedral\'s stonecutter', 0, false, {
     pos: cell, facing: 'north', lockKey: `${v.name}:cutter`, record: () => undefined,

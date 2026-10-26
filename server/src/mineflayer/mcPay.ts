@@ -208,7 +208,8 @@ export async function slotsOf(rcon: PayWorld['rcon'], c: { x: number; y: number;
  * changed by what the count shows moved. Returns the signed number moved (0 when nothing could be).
  */
 export async function storeByCommand(rcon: PayWorld['rcon'], v: Village, item: string, delta: number): Promise<number> {
-  const chests = [...(v.storage?.chests ?? [])];
+  // (not into the masons' lodge's chests: the monument's yard, #163)
+  const chests = [...(v.storage?.chests ?? [])].filter((c) => delta < 0 || !c.lodge);
   // (adding: a chest that holds the item first, then the misc group's, then any; taking: those that hold it, most first)
   const order = delta > 0
     ? chests.sort((p, q) => Number((q.items[item] ?? 0) > 0) - Number((p.items[item] ?? 0) > 0) || Number(q.group === 'misc') - Number(p.group === 'misc'))

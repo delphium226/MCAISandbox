@@ -12,6 +12,7 @@ import type { FarmSpot, SignSpot } from './streetPlan';
 import type { PenShape, Side } from './farmSlots';
 import type { Quarry } from './quarry';
 import type { Kiln } from './kiln';
+import type { Lodge } from './lodge';
 import { growing, housesOf } from './grow';
 import { WOOD_VARIANTS, variantWood } from './designs';
 import { neighbourhoodNames } from './placeNames';
@@ -98,6 +99,8 @@ export interface StorageChest {
   group?: string;
   /** A barrel in one of the hut's barrel spots (s40), not a chest. */
   barrel?: boolean;
+  /** #163 (MC_LODGE): one of the masons' lodge's chests (the monument's yard), not the hut's. */
+  lodge?: boolean;
 }
 /**
  * The village mine (plan step V.5): stairs from inside the mining hut down to stone, then a main tunnel with branches at
@@ -276,6 +279,8 @@ export interface Monument {
   /** M2 (#145, MC_KILN): the furnaces its masons load and unload (kiln.ts), and no kiln site search before this (ms). */
   kiln?: Kiln;
   kilnBackoff?: number;
+  /** #163 (MC_LODGE): the masons' lodge round the kiln, between the pad and the quarry, with the yard's own chests. */
+  lodge?: Lodge;
   /** M2 (MC_GLAZING): the glass colours (the generator's blue, red, yellow -> a dye colour the flowers near give). */
   colours?: Record<string, string>;
   /** M2 (MC_GLAZING): the flower gathered for each dye colour (the one most counted near the village). */

@@ -113,6 +113,9 @@ export class BotAgent implements WorldAgent {
   private lastHurt = 0;
   /** The current walk's physics tally (mcUtil walkOnce), or null. */
   walkTally: WalkTally | null = null;
+  /** #163: blocks walked in x and z since the bot joined (the chores' walk distance), and where it stood last tick. */
+  walked = 0;
+  private odoAt: { x: number; z: number } | null = null;
   /** Where the last walk that stalled was going, from where, and when (the rescue walks out the other way first). */
   lastStall: { x: number; z: number; t: number; at: { x: number; z: number } } | null = null;
   /** The pathfinder's recent events, repeats folded into one entry (for the `[stuck]` line). */
@@ -417,6 +420,15 @@ export class BotAgent implements WorldAgent {
       t.forcedAt = { x: p.x, y: p.y, z: p.z };
     });
     bot.on('physicsTick', () => {
+      // (#163: the odometer; more than 4 blocks in a tick is a teleport, not a walk)
+      const q = bot.entity?.position;
+      if (q) {
+        if (this.odoAt) {
+          const d = Math.hypot(q.x - this.odoAt.x, q.z - this.odoAt.z);
+          if (d < 4) this.walked += d;
+        }
+        this.odoAt = { x: q.x, z: q.z };
+      }
       const t = this.walkTally;
       if (!t) return;
       const e = bot.entity;

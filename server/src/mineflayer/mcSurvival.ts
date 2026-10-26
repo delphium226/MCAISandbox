@@ -187,7 +187,8 @@ export function exposed(a: BotAgent, p: Vec3): boolean {
 /** Where a village member's home is: its storage chest, or its first plot's centre. */
 function homeOf(a: BotAgent): { x: number; z: number } | null {
   const v = a.village();
-  const c = v?.storage?.chests[0];
+  // (#163: a monument chore's home is the masons' lodge, so its trips start there and do not walk back to the hut first)
+  const c = (a.memory.lodge ? v?.storage?.chests.find((q) => q.lodge) : undefined) ?? v?.storage?.chests[0];
   if (c) return { x: c.x, z: c.z };
   const p = v?.plots[0] ?? v?.layouts?.[0];
   // (or its first layout, laid out but not prepared yet: gatherers work while the plot is prepared, #3)
@@ -748,6 +749,9 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
   const takenByOther = (p: Vec3) => { const t = targeted.get(at(p)); return !!t && t.by !== a.name && t.until > Date.now(); };
   if (a.gamemode === 'creative') throw new Error(`in creative mode broken blocks drop nothing; use get_item ${label} instead`);
   const want = args.count !== undefined ? Math.max(1, Math.floor(num(args.count, 'count'))) : 1;
+  // (#163, code's only: a bulk monument trip's minutes; at its end, or when nothing more can be reached, it ends with what
+  // it has rather than failing)
+  const tripMs = typeof args.trip === 'number' && args.trip > 0 ? args.trip * 60000 : 0;
   const have = () => items.reduce((s, id) => s + countItem(a, id), 0);
   // A farm slot's start (a chore, opportunistic farming 10-08) collects where it walked to: no walk home first, and as far
   // as its trip may go (FARM_TRIP_RANGE); every other collect stays within the village's range
@@ -762,7 +766,7 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     throw new Error(`no ${label} within 96 blocks of the village (found none before): it cannot be gathered here (a building that needs it goes without, or the task is handed back)`);
   // M2 (#145, MC_QUARRY): the cathedral's cobblestone from its quarry, not the mine (what the pit cannot give comes as before)
   if (home && a.memory.monumentGather === 'cobblestone' && label.replace(/s$/, '') === 'cobblestone' && quarryFeeds(home, 'cobblestone')) {
-    const r = await quarryFor(a, home, want, have, signal).catch((e: Error) => {
+    const r = await quarryFor(a, home, want, have, signal, tripMs || undefined).catch((e: Error) => {
       if (e.message === 'cancelled' || e instanceof ContentionError) throw e;
       return { got: 0, why: e.message };
     });
@@ -844,8 +848,10 @@ async function collectRun(a: BotAgent, args: Record<string, unknown>, signal: Ab
     const got = items.length ? have() - start : mined;
     if (got >= want) return `collected ${got} ${only !== undefined ? String(args.item) : label}${only !== undefined ? ` from ${label}` : ''}${alsoTook()}`;
     if (got > lastGot) { lastGot = got; lastGain = Date.now(); }
+    if (tripMs && got > 0 && (failed.size >= 3 || failMs > 90000 || (failed.size && Date.now() - lastGain > 2 * 60000) || Date.now() - t0 > tripMs))
+      return `collected ${got} of ${want} ${label} (the trip ends: ${Date.now() - t0 > tripMs ? 'its time is up' : `nothing more within reach, ${lastError}`})${alsoTook()}`;
     if (failed.size >= 3 || failMs > 90000 || (failed.size && Date.now() - lastGain > 2 * 60000)) throw giveUp(got);
-    if (Date.now() - t0 > 5 * 60000) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
+    if (Date.now() - t0 > (tripMs || 5 * 60000)) throw new Error(`timed out after collecting ${got} of ${want} ${label}`);
     // Many candidates, nearest first: findBlocks returns them in scan order, and 64 of them can all be far off. A village
     // member stays within 96 blocks of home (the storage chest or plot): gathering walk by walk it drifted 150 away
     // (never in a village building, on or under a plot, nor far below home: collectFilter)

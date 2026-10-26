@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-210 settings.
+212 settings.
 
 ## Game speed
 
@@ -209,6 +209,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_LADDER` | flag | `off` |  |  | MC_LADDER: the ladder's state, the progress line, the stage tags and the rung ballot (wanted.ts reads the same). |
 | `MC_LETTERS` | flag | `off` |  | `MC_LADDER` | MC_LETTERS (with MC_LADDER, #21): the age of letters' four counted stages (cane, leather, books, the library), the rung's make goods, the merchant's leather and sugar cane, the cane harvest's replanting and the library's shelving. |
 | `MC_LETTERS_PACE` | flag | `on` |  | `MC_LETTERS` | MC_LETTERS_PACE (#134): the letters rung at 1x: while the cane slots hold fewer than a slot's 14 stalks the merchant sells cane for them and harvests (or a top-up visit) replant from storage; and the first market stall is posted as a village work at completion (with MC_MERCHANT), so the merchant... |
+| `MC_LODGE` | flag | `off` |  | `MC_KILN`, `MC_QUARRY` | MC_LODGE=on (#163; off by default): the masons' lodge, chosen with the kiln between the monument's pad and its quarry: the kiln's furnaces, the stonecutter, a crafting table and the yard's own chests (outside MC_STORAGE_CAP) on one level strip, so a monument chore withdraws and deposits there, not at the storage hut; and bulk trips: cobblestone, logs and sand for the monument gathered MC_LODGE_TRIP stacks at a time (or 5 minutes), the last trips cut to what the stage still wants, at most 3 at once. |
+| `MC_LODGE_TRIP` | number | `4` |  | `MC_LODGE` | Stacks one bulk monument trip aims for with MC_LODGE (#163): 4 (256 cobblestone, logs or sand), ended sooner by its 5-minute cap. |
 | `MC_MINE_LEAVE` | string | (unset) |  |  | A tunnel's holder leaves its junction's branches to miners waiting for a face and digs on along the main tunnel (S.2; MC_MINE_LEAVE=0 for comparison runs: the holder then digs main, left, right in order however many wait). |
 | `MC_MINE_LEVEL_CELLS` | string | (unset) |  |  | Main tunnels at most per level: the first and the turns made from those that ended (V.5b); and tunnel cells dug at most per level (s40, F256: a cap on the whole mine spent B25x2's first level at 989 of 1080 and left levels 2-3 shut). |
 | `MC_MONUMENT` | flag | `off` |  | `MC_IRON_AGE` | MC_MONUMENT=on (M1, #144; off by default): once the village completes the iron age it builds a Gothic cathedral drawn by gothicGen.ts, stage by stage, on a pad of its own at the edge of the village, with no vote (the user, 10-25); members gather each stage bill into a yard (a ledger over storage, outside the bulk cap) and build its jobs of 300-800 blocks. |

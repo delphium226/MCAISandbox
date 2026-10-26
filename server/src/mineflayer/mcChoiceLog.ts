@@ -83,6 +83,8 @@ export interface ChoiceEnd {
   tEnd: number;
   /** s41: each step's skill, ms run (null: never started) and state, for the simulator's calibration (#74). */
   steps?: Array<{ type: string; ms: number | null; state: string }>;
+  /** #163: blocks the member walked in it (x and z). */
+  walked?: number;
   /** Cut short rather than failed: its agent removed or stopped (every action then fails as "cancelled", lesson 67). */
   cut: boolean;
   /**

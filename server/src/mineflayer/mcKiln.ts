@@ -9,24 +9,29 @@
  *   kiln, each furnace of the lane opened, its output taken and more loaded with fuel for it, never waited on; back at the
  *   hut, stone the stage wants as bricks crafted into stone bricks; everything deposited. The yard's ledger moves with
  *   each step (kiln.ts' header), and the furnaces' loads are kept in the record.
+ * With MC_LODGE (#163, lodge.ts) build_kiln chooses the masons' lodge instead, between the pad and the quarry, and sets
+ * its table and chests before the furnaces; a monument chore's withdrawals and deposits then go to the lodge's chests
+ * (mcStorage.ts' atLodge), so a tend starts and ends there, not at the hut.
  */
 import { Vec3 } from 'vec3';
 import type { Village } from '../village';
 import { VILLAGE_RANGE, areaText } from '../village';
 import { KILN, KILN_SMELTS, SLOT, cookedBy, fuelFor, kilnLanes, loadView, type KilnFurnace, kilnLine, kilnSize, kilnStrip, laneFurnaces, loadFurnace, newKiln, spreadLoad, unloadFurnace } from '../kiln';
 import { searchQuarry } from '../quarry';
-import { MONUMENT, kilnWants, monumentPlan, siteTaken, stageBill, AHEAD, type PlanOf } from '../monument';
+import { MONUMENT, kilnWants, monumentNoun, monumentPlan, siteTaken, stageBill, AHEAD, type PlanOf } from '../monument';
 import type { BotAgent } from './botAgent';
 import type { McSkill } from './mcSkills';
 import { mineAreas } from './mcMine';
 import { timeScale } from './mcRules';
-import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
+import { STORAGE_SKILLS, lodgeContents, registerLodgeChest, storageContents, withdrawItems } from './mcStorage';
 import { SURVIVAL_SKILLS, placeStation } from './mcSurvival';
 import { prepareSite, surfaceAt, withScanTurn } from './mcBuild';
 import { abortable, countItem, itemId, num, reach } from './mcUtil';
 import { Materials } from './mcMaterials';
 import { CUTTER } from '../cutter';
 import { DYE_BED } from '../dyeBed';
+import { LODGE, lodgeLine, lodgeParts, newLodge, searchLodge } from '../lodge';
+import type { StationName } from '../village';
 
 /** The most input one trip carries (masons at once: kilnLanes). */
 const TRIP_LOAD = 256;
@@ -60,6 +65,31 @@ async function buildKiln(a: BotAgent, _args: Record<string, unknown>, signal: Ab
   building.add(v.name);
   const reg = a.world.villages;
   try {
+    if (!m.kiln && LODGE.on) {
+      const smelts = a.world.materials.plan(monumentPlan(m).bill, {}).fuel.smelts;
+      const k = kilnSize(smelts);
+      const s = m.site, hut = v.storageHut;
+      const hutAt = hut ? { x: Math.round((hut.x1 + hut.x2) / 2), z: Math.round((hut.z1 + hut.z2) / 2) } : { x: s.x1, z: s.z1 };
+      const takenAt = siteTaken(v, [...reg.villages.values()].filter((o) => o !== v), v.mine ? mineAreas(v.mine) : [], Date.now(), a.name);
+      const ground = (x: number, z: number) => {
+        const c = surfaceAt(a, x, z, s.y);
+        return !c || c.liquid || c.block === 'air' ? null : { y: c.y, trees: c.trees };
+      };
+      // #163 (MC_LODGE): the masons' lodge round the kiln, between the pad and the quarry (the hut's ground as before when
+      // none is found there)
+      const lodge = await withScanTurn(signal, () => searchLodge({ k, pad: s, quarry: m.quarry, hut: hutAt, maxRange: Math.min(VILLAGE_RANGE - 8, 96), ground, takenAt }));
+      if (lodge) {
+        const parts = lodgeParts(lodge.area, lodge.y, k);
+        m.lodge = newLodge(lodge.area, lodge.y, k, a.name, Date.now());
+        m.kiln = newKiln(parts.kiln, lodge.y, k, a.name, Date.now());
+        const id = reg.id('s');
+        v.structures.push({ id, ...lodge.area, y: lodge.y, kind: 'lodge', builtBy: a.name });
+        m.kiln.structure = m.lodge.structure = id;
+        reg.save();
+        reg.note(v, `${a.name} marked out the ${monumentNoun(m)}'s masons' lodge at ${areaText(lodge.area)}, between its pad and its quarry`);
+        console.log(`[lodge] ${v.name}: ${a.name} chose the lodge at ${areaText(lodge.area)} y=${lodge.y} for ${k} furnaces (${smelts} smelts; ${Math.round(Math.hypot((lodge.area.x1 + lodge.area.x2) / 2 - lodge.target.x, (lodge.area.z1 + lodge.area.z2) / 2 - lodge.target.z))} from the point between pad and quarry)`);
+      } else console.log(`[lodge] ${v.name}: no level ground for a lodge between the pad and the quarry; the kiln goes near the hut`);
+    }
     if (!m.kiln) {
       const smelts = a.world.materials.plan(monumentPlan(m).bill, {}).fuel.smelts;
       const k = kilnSize(smelts);
@@ -88,8 +118,11 @@ async function buildKiln(a: BotAgent, _args: Record<string, unknown>, signal: Ab
       console.log(`[kiln] ${v.name}: ${a.name} chose the kiln's strip at ${areaText(found.area)} y=${found.y} for ${k} furnaces (${smelts} smelts in the cathedral)`);
     }
     const kl = m.kiln;
-    const w = kl.x2 - kl.x1 + 1, dd = kl.z2 - kl.z1 + 1;
-    await prepareSite(a, { x: kl.x1 + Math.floor(w / 2), z: kl.z1 + Math.floor(dd / 2), width: w, depth: dd, y: kl.y, margin: 1, works: true }, signal);
+    // (the lodge's whole strip with it: its table and chests' row)
+    const ground = m.lodge ?? kl;
+    const w = ground.x2 - ground.x1 + 1, dd = ground.z2 - ground.z1 + 1;
+    await prepareSite(a, { x: ground.x1 + Math.floor(w / 2), z: ground.z1 + Math.floor(dd / 2), width: w, depth: dd, y: kl.y, margin: 1, works: true }, signal);
+    if (m.lodge && m.lodge.state !== 'ready') await furnishLodge(a, v, signal);
     // The furnaces: made at the hut's table from cobblestone withdrawn (the yard's first), carried, set in their cells
     const missing = [];
     for (const f of kl.furnaces)
@@ -105,6 +138,9 @@ async function buildKiln(a: BotAgent, _args: Record<string, unknown>, signal: Ab
       }
       for (const [i, f] of kl.furnaces.entries()) {
         if (!missing.includes(f)) continue;
+        // (to the cell first: placeStation refuses from more than 3 below it, and a lodge on the highest level ground near
+        // the pad stood 4-5 above the hut where the furnaces were made, L1)
+        await reach(a, new Vec3(f.x + 0.5, f.y, f.z + 0.5), 3, signal);
         await placeStation(a, 'furnace', signal, `the cathedral's kiln (${i + 1})`, 0, false, {
           pos: { x: f.x, y: f.y, z: f.z }, facing: 'north', lockKey: `${v.name}:kiln:${i}`,
           record: () => undefined,
@@ -119,6 +155,43 @@ async function buildKiln(a: BotAgent, _args: Record<string, unknown>, signal: Ab
   } finally {
     building.delete(v.name);
   }
+}
+
+/**
+ * The masons' lodge's table and chests (#163): the table set by placeStation (crafted from a log); the chests crafted at
+ * it from logs withdrawn (two a chest, the monument's wood first), set in their cells by command (charged: placeStation)
+ * and registered as the lodge's storage chests.
+ */
+async function furnishLodge(a: BotAgent, v: Village, signal: AbortSignal): Promise<void> {
+  const m = v.monument!, l = m.lodge!;
+  const rcon = a.world.rcon, reg = a.world.villages;
+  const isAt = async (c: { x: number; y: number; z: number }, b: string) => /passed/i.test(await rcon.command(`execute if block ${c.x} ${c.y} ${c.z} minecraft:${b}`).catch(() => ''));
+  // (each cell walked to first: placeStation refuses from more than 3 below it, and the lodge can stand above the hut, L1)
+  const to = (c: { x: number; y: number; z: number }) => reach(a, new Vec3(c.x + 0.5, c.y, c.z + 0.5), 3, signal);
+  await to(l.table);
+  await placeStation(a, 'crafting_table', signal, `the ${monumentNoun(m)}'s lodge's table`, 0, false, { pos: l.table, lockKey: `${v.name}:lodge:table`, record: () => undefined });
+  const missing = [];
+  for (const c of l.chests) if (!(await isAt(c, 'chest'))) missing.push(c);
+  const chestId = itemId(a, 'chest')!;
+  const want = Math.max(0, missing.length - countItem(a, chestId));
+  if (want) {
+    const store = storageContents(v);
+    const log = [`${m.wood || 'oak'}_log`, ...Object.keys(store).filter((n) => /^(?!stripped_).*_log$/.test(n)).sort((p, q) => store[q] - store[p])].find((n) => (store[n] ?? 0) >= 2 * want);
+    if (!log) throw new Error(`build_kiln: the lodge's ${want} chests want ${2 * want} logs of one kind and storage holds none so many`);
+    const got = ((await withdrawItems(a, v, { [log]: 2 * want }, signal)).got as Record<string, number>)[log] ?? 0;
+    await SURVIVAL_SKILLS.craft.run(a, { item: log.replace(/_log$/, '_planks'), count: got * 4 }, signal);
+    await to(l.table);
+    await SURVIVAL_SKILLS.craft.run(a, { item: 'chest', count: Math.floor(got / 2) }, signal);
+  }
+  for (const [i, c] of missing.entries()) {
+    await to(c);
+    await placeStation(a, 'chest' as StationName, signal, `the lodge's chest ${i + 1}`, 0, false, { pos: c, facing: 'north', lockKey: `${v.name}:lodge:${c.x}`, record: () => undefined });
+  }
+  for (const c of l.chests) if (await isAt(c, 'chest')) registerLodgeChest(v, c);
+  l.state = 'ready';
+  reg.save();
+  reg.note(v, `${a.name} set up the ${monumentNoun(m)}'s masons' lodge: a table and ${l.chests.length} chests for its yard beside the kiln`);
+  console.log(`[lodge] ${v.name}: ${a.name} set the lodge's table and chests (${lodgeLine(l)})`);
 }
 
 /** tend_kiln: a lane of the kiln loaded and unloaded (see the header). */
@@ -148,9 +221,26 @@ async function tendKiln(a: BotAgent, args: Record<string, unknown>, signal: Abor
   // for what the lane's furnaces hold (one whose fire went out is refuelled: M2's live check left 64 cobblestone in a
   // furnace with no fuel, and the record counted it smelted)
   const held = fs.reduce((t, f) => t + f.n, 0);
-  const fuel = fuelFor(storageContents(v), total + held, wood);
+  // (#163, the masons' lodge: the fuel its own chests hold, their planks first (each tend's sawn logs leave some over: L2's
+  // lodge held ~1,250 planks while tends walked to the hut for coal and logs); the whole storage's when they hold none)
+  const lodgeStock = m.lodge?.state === 'ready' ? lodgeContents(v) : null;
+  const lodgeFuel = lodgeStock && Object.entries(lodgeStock).some(([n, q]) => q > 0 && /(_log|_planks|^coal|^charcoal)$/.test(n)) ? lodgeStock : null;
+  const planksTaken: Record<string, number> = {};
+  let fromPlanks = 0;
+  if (lodgeFuel) {
+    let need = Math.ceil(((total + held) * 1.15) / 1.5);
+    for (const [n, q] of Object.entries(lodgeFuel).filter(([n]) => /_planks$/.test(n)).sort((x, y) => y[1] - x[1])) {
+      const k = Math.min(q, need);
+      if (k <= 0) break;
+      planksTaken[n] = k;
+      need -= k;
+      fromPlanks += k * 1.5 / 1.15;
+    }
+  }
+  const fuel = fuelFor(lodgeFuel ?? storageContents(v), Math.max(0, Math.ceil(total + held - fromPlanks)), wood);
+  if (!(total + held - fromPlanks > 0)) Object.assign(fuel, { coal: null, coalN: 0, planks: 0, logs: {} });
   if (total + held) {
-    const got = (await withdrawItems(a, v, { ...load, ...(fuel.coal ? { [fuel.coal]: fuel.coalN } : {}), ...fuel.logs }, signal)).got as Record<string, number>;
+    const got = (await withdrawItems(a, v, { ...load, ...planksTaken, ...(fuel.coal ? { [fuel.coal]: fuel.coalN } : {}), ...fuel.logs }, signal)).got as Record<string, number>;
     for (const input of Object.keys(load)) load[input] = Math.min(load[input], got[input] ?? 0);
     for (const log of Object.keys(fuel.logs)) {
       const n = got[log] ?? 0;

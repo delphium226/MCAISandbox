@@ -90,6 +90,7 @@ import { onSetting, rawSetting } from '../settings';
 import { quarryFeeds } from './mcQuarry';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
+import { BULK_LANES, LODGE, TRIP_MIN, bulkTrip } from '../lodge';
 import { cutWork, cutterOn } from './mcCutter';
 import { bedBuilding, dyeBedOn } from './mcDyeBed';
 import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
@@ -127,6 +128,8 @@ export interface SpawnOptions {
  */
 type ChoiceState = {
   id: string; t: number; ended?: boolean; store: Counts; carried: Counts; with: Set<string>;
+  /** #163: the member's odometer at the start (blocks walked, BotAgent.walked). */
+  walked0?: number;
   /** #68: the member's commons flow (put minus taken) at the start, for its share of the net yield. */
   flow?: Counts;
   /** #108 (MC_PAY): its gross puts at the start, a priced request's evidence and earmark. */
@@ -4672,7 +4675,7 @@ export class MineflayerWorld implements WorldAdapter {
     const old = this.chores.get(id);
     if (old) this.endChoice(old);
     const kind = (opt?.kind ?? key.split(':')[0]) as ChoiceKind;
-    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), ...(PAY.on ? { gross: storageGross(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId };
+    const choice: ChoiceState = { id: meta?.decisionId ?? choiceId(v.name), t: Date.now(), store: storageContents(v), carried: heldCounts(worker) ?? {}, ...(OWN.on || RULES.on ? { flow: storageFlow(worker.name) } : {}), ...(PAY.on ? { gross: storageGross(worker.name) } : {}), with: new Set(), holds, kind, option: opt?.id ?? key, name: opt?.name ?? choreName(key, what), decisionId: meta?.decisionId, walked0: worker.walked };
     if (opt?.kind === 'explore' && opt.at) {
       try {
         choice.point = { x: opt.at.x, z: opt.at.z, known0: this.atlas.known(opt.at.x, opt.at.z, 48) };
@@ -4780,7 +4783,10 @@ export class MineflayerWorld implements WorldAdapter {
     if (mon && vm?.monument) {
       const m = vm.monument;
       const am = this.agents.get(c.agent.toLowerCase());
-      if (am) delete am.memory.monumentGather;
+      if (am) {
+        delete am.memory.monumentGather;
+        delete am.memory.lodge;
+      }
       if (mon.item && mon.material) {
         const dep = c.status[c.status.length - 1];
         const n = dep?.state === 'done' ? depositedOf(dep.message ?? '', mon.material, mon.item) : 0;
@@ -4957,6 +4963,8 @@ export class MineflayerWorld implements WorldAdapter {
       id: c.choice.id, ok, message, minutes: Math.round((Date.now() - c.choice.t) / 600) / 100, tEnd: Date.now(), cut,
       yield: { storage: v ? countsDelta(c.choice.store, storageContents(v)) : {}, carried, with: [...c.choice.with], ...(known !== undefined ? { known } : {}) },
       ...(code ? { code } : {}), productive,
+      // (#163: blocks walked in the chore)
+      ...(agent && c.choice.walked0 !== undefined ? { walked: Math.round(agent.walked - c.choice.walked0) } : {}),
       steps: c.status.map((q) => ({ type: q.type, ms: q.startedAt && q.endedAt ? q.endedAt - q.startedAt : null, state: q.state })),
     });
     try {
@@ -6685,16 +6693,28 @@ export class MineflayerWorld implements WorldAdapter {
           if ((mat === 'sand' || mat === 'flowers') && v.unavailable?.includes(item)) continue;
           // (a quarry trip digs 64: its walk down the steps is the same for any load)
           const spec = mat === 'flowers' ? { trip: stone ? 32 : 12, block: () => item, deposit: () => item } : quarry ? { ...GATHER_KINDS.cobblestone, trip: 64 } : GATHER_KINDS[mat];
-          const lanes = Math.min(6, Math.ceil(q / spec.trip));
+          let lanes = Math.min(6, Math.ceil(q / spec.trip)), amount = Math.min(spec.trip, q);
+          // #163 (MC_LODGE): bulk trips, MC_LODGE_TRIP stacks or 5 minutes, cut to what the stage still wants after the trips
+          // out for it, at most BULK_LANES at once (the others keep the kiln and the builders fed)
+          const bulk = LODGE.on && (mat === 'cobblestone' || mat === 'logs' || mat === 'sand');
+          if (bulk) {
+            let out = 0;
+            for (const ch of this.chores.values()) if (ch.village === v.name && !ch.choice.ended && ch.choice.monument?.item === item) out += ch.choice.monument.n ?? 0;
+            const t = bulkTrip(q, out);
+            if (t === null) continue;
+            amount = t;
+            // (6 out until the kiln stands: there is nothing else to feed, and the pit's topsoil takes the first trips, L1)
+            lanes = m.kiln?.state === 'ready' ? BULK_LANES : 6;
+          }
           const n = Array.from({ length: lanes }, (_, i) => i + 1).find((i) => !busy.has(`monument:gather:${item}:${i}`));
           if (!n) continue;
-          const key = `monument:gather:${item}:${n}`, amount = Math.min(spec.trip, q);
+          const key = `monument:gather:${item}:${n}`;
           add({
             id: `monument:gather:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
             name: `Gather ${amount} ${stone ? item : mat} for the ${N} (stage ${st}: ${stageName})`,
             facts: `the ${N}'s stage ${st} still wants ${q} ${item}; its yard holds ${m.yard[item] ?? 0}; ${m.done.length} of ${c.jobs.length} jobs built`,
             effect: `+${amount} ${item} in the ${N}'s yard toward its ${stageName}`,
-          }, { kind: 'monument', step: 'gather', item, material: mat, amount, block: spec.block(m.wood), deposit: spec.deposit(m.wood) });
+          }, { kind: 'monument', step: 'gather', item, material: mat, amount, block: spec.block(m.wood), deposit: spec.deposit(m.wood), ...(bulk ? { bulk: true } : {}) });
         }
         let shown = 0;
         for (const i of openJobs(m)) {
@@ -7653,6 +7673,9 @@ export class MineflayerWorld implements WorldAdapter {
         const m = v.monument;
         if (!m) return;
         const N = monumentNoun(m);
+        // (#163, MC_LODGE: its withdrawals and deposits at the masons' lodge, mcStorage.ts' atLodge; cleared at its end)
+        // (not the dyer's: it works at the dye bed by the hut, and its seeds and flowers are the hut's)
+        if (LODGE.on && d.step !== 'dye') worker.memory.lodge = true;
         if (d.step === 'site') {
           const st = worker.enqueue('monument_site', { chore: true });
           const failed = (why: string) => {
@@ -7721,7 +7744,8 @@ export class MineflayerWorld implements WorldAdapter {
           return;
         }
         // (#162: the detail palette's quarried stones only from the open, `surface`)
-        const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true, ...(/^(andesite|diorite|granite)$/.test(d.block) ? { surface: true } : {}) });
+        // (#163: a bulk trip ends at its time with what it has, collect's `trip`)
+        const collect = worker.enqueue('collect', { block: d.block, count: d.amount, chore: true, ...(/^(andesite|diorite|granite)$/.test(d.block) ? { surface: true } : {}), ...(d.bulk ? { trip: TRIP_MIN } : {}) });
         // (M2: a quarry trip's other stone goes in too: the bulk cap puts what is over it on the spoil heap)
         const deposit = worker.enqueue('deposit', { item: d.deposit, also: d.material === 'cobblestone' && quarryFeeds(v, 'cobblestone') ? `${GATHER_ALSO},andesite,diorite,granite,tuff` : GATHER_ALSO, chore: true });
         // (its load is the cathedral's: the bulk cap leaves it, mcStorage.ts spoilSurplus)
@@ -8630,7 +8654,7 @@ type OptionRun =
   | { kind: 'initiate'; work: string; green?: boolean; mix?: string[] }
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
-  | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string }
+  | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string; bulk?: true }
   | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }

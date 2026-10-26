@@ -66,6 +66,8 @@ def commands():
     out["monument_m3"] = ([node, TSX, "scripts/checks/monument_m3.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
     # (#153: the castle as the monument: Conwy's trigger, stages, palettes, menu, cells at every turn and site search)
     out["castle_monument"] = ([node, TSX, "scripts/checks/castle_monument.mts"], ["mc/testcheckpoints/im2_mine/villages.json"])
+    # (#163: the masons' lodge's parts, bulk trips and site search, and #161's two-row kiln on iron_age_g1's own ground)
+    out["lodge_unit"] = ([node, TSX, "scripts/checks/lodge_unit.mts"], ["mc/testcheckpoints/iron_age_g1/villages.json"])
     out["settings_reads"] = ([node, TSX, "scripts/checks/settings_reads.mts"], [])
     out["settings_doc"] = ([node, TSX, "scripts/settings_doc.mts", "--check"], [])
     out["profiles_check"] = ([node, TSX, "scripts/checks/profiles_check.mts"], [])
