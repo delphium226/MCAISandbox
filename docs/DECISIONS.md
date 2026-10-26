@@ -886,3 +886,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   golden and workshop_check pin it off (policy_options.mts checks the gated path).
 - 10-25 (the user's) **A castle after the cathedral's M3**: Conwy at 1:2 first (runs/2026-10-25/monument/castle_note.md),
   on M1's stages and yard and M2's quarry; whether villages choose their monument type is decided later.
+- 10-26 (the user's) **Monument materials tier 2** (#162): richer palettes (stonecutter variants, lanterns, chains,
+  bells, candles, banners, every stained-glass colour) to drive new crafting chains, built in code as M2's were; the
+  foundry stays parked. Missing sources become members' wants. Runs beside the castle (#153) and train 6.
