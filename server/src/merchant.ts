@@ -8,6 +8,8 @@
 import type { Counts } from './mineflayer/mcMaterials';
 import { LETTERS } from './ladderFlags';
 import { rawSetting } from './settings';
+import { CUTTER } from './cutter';
+import { DYE_BED } from './dyeBed';
 
 /** On by default since s42 (Stg2: purchases only of what the village uses); MC_MERCHANT=off turns it off. */
 export const MERCHANT_ON = (rawSetting('MC_MERCHANT') ?? 'on') === 'on';
@@ -53,6 +55,8 @@ export const SELLS: MerchantOffer[] = [
     { item: 'leather', n: 2, emeralds: 1, stock: 6, dir: 'sells' as const },
     { item: 'sugar_cane', n: 4, emeralds: 1, stock: 4, dir: 'sells' as const },
   ] : []),
+  // (#162: the monument's bell, which no recipe makes; vanilla's armourers sell one. Last, for the same reason)
+  ...(CUTTER.on && DYE_BED.on ? [{ item: 'bell', n: 1, emeralds: 12, stock: 1, dir: 'sells' as const }] : []),
 ];
 
 export const OFFERS: MerchantOffer[] = [...BUYS, ...SELLS];

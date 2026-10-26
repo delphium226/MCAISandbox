@@ -34,8 +34,9 @@ export const FLOWER_ITEMS = ['dandelion', 'poppy', 'blue_orchid', 'allium', 'azu
  * back into itself, so red wool (and red banners, beds and carpets) was planned as gathered as it is. White wool is what
  * shearing gives.
  */
-/** What dyes are made of (flowers, the farms' beetroot, cactus, cocoa, the mine's lapis): held, it is used first. */
-const DYE_SOURCES = new Set([...FLOWER_ITEMS, 'beetroot', 'cactus', 'cocoa_beans', 'lapis_lazuli']);
+/** What dyes are made of (flowers, the farms' beetroot, cactus, cocoa, the mine's lapis, bone meal and the merchant's ink,
+ *  #162): held, it is used first. */
+const DYE_SOURCES = new Set([...FLOWER_ITEMS, 'beetroot', 'cactus', 'cocoa_beans', 'lapis_lazuli', 'bone_meal', 'ink_sac']);
 const DYED_WOOL = /^(orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_wool$/;
 
 /** Smelting (output <- input, one each) when the jar cannot be read: the hand table the jar's recipes replaced (V2.5). */
@@ -320,10 +321,12 @@ export class Materials {
 
   /**
    * `opts.cut` (#162, the monument's tier 2): an item the stonecutter makes is cut there, never crafted (its options
-   * only: the carver's work is the cutting), and the quarry's stones are gathered as they lie. Off: the plans as before.
+   * only: the carver's work is the cutting), and the quarry's stones are gathered as they lie. `opts.dyes` (#162's dye
+   * bed): every dye is gathered (the dyer makes it, make_dye), so a plan asks for dyes, not for a flower. Off: the plans
+   * as before.
    */
-  constructor(private registry: Registry, private opts: { cut?: boolean } = {}) {
-    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : [])]);
+  constructor(private registry: Registry, private opts: { cut?: boolean; dyes?: boolean } = {}) {
+    this.gathered = new Set([...GATHER, ...(opts.cut ? CUT_GATHER : []), ...(opts.dyes ? Object.keys(registry.itemsByName).filter((n) => /_dye$/.test(n)) : [])]);
   }
 
   /** Crafting recipes (variant recipes merged into "any:" ones) and smelting for an item. */

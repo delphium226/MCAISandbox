@@ -15,6 +15,7 @@ import { FOUNDRY_SKILLS } from './foundry/list';
 import { HOME_SKILLS } from './mcHome';
 import { KILN_SKILLS } from './mcKiln';
 import { CUTTER_SKILLS } from './mcCutter';
+import { DYE_SKILLS } from './mcDyeBed';
 import { at, goals, num, sleep, standableY, str, walk } from './mcUtil';
 
 export interface McSkill {
@@ -70,6 +71,7 @@ export const MC_SKILLS: Record<string, McSkill> = {
   ...HOME_SKILLS,
   ...KILN_SKILLS,
   ...CUTTER_SKILLS,
+  ...DYE_SKILLS,
   // (the foundry's, s41: one file each in foundry/)
   ...Object.fromEntries(FOUNDRY_SKILLS.map((f) => [f.name, f.skill])),
 };

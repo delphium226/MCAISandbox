@@ -91,6 +91,9 @@ import { quarryFeeds } from './mcQuarry';
 import { FLOWER_DYE, KILN, MONUMENT, capShare, currentStage, dyeFlowers, glassColours, ironReached, jobBuilt, jobBuiltPlanned, jobReady, monumentLine, monumentPlan, newMonument, openJobs, stageWants, stageWantsPlanned, yardCovers, M3, TRADE_WEIGHT, noteTrade, tradeOfStep, tradeOf, progressLine as monumentProgress, partLine, cathedralName, presetWords, stageNames as monumentStages, monumentNoun, m3, architectOptions, dyesOnOffer, ARCHITECT_SYSTEM, ARCHITECT_TOOL, architectPrompt, checkArchitect, newMonumentPicked, type ArchitectFacts, type ArchitectPick, type Trade } from '../monument';
 import { kilnOn, laneWork, planOf } from './mcKiln';
 import { cutWork, cutterOn } from './mcCutter';
+import { dyeBedOn } from './mcDyeBed';
+import { DYE_BED, DYE_FLOWERS, DYE_REACH, TALL_FLOWERS, dyeRecipes, makeableColours, windowColours } from '../dyeBed';
+import { DETAIL_COLOURS } from '../gothicGen';
 import { kilnLanes, kilnLine } from '../kiln';
 import { quarryLine } from '../quarry';
 
@@ -134,7 +137,7 @@ type ChoiceState = {
   /** s36: an initiative's gathering trip (its own field: the workshop's demand must not count it as incoming). */
   initiative?: { id: string; material: Material | 'flowers' | 'saplings' | 'sandstone'; n: number; item?: string };
   /** M1 (#144): a monument chore: a gathering trip's item, material and amount, a job's index, or the site. */
-  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number; cut?: boolean };
+  monument?: { item?: string; material?: Material | 'flowers'; n?: number; job?: number; site?: boolean; kiln?: number; cut?: boolean; dye?: boolean };
   /** S.9: a works furnace placement's k (its 8 cobblestone earmarked, so gathering's demand leaves it out). */
   furnace?: number;
   /** B.4: a light chore's part and its torches. */
@@ -746,7 +749,8 @@ export class MineflayerWorld implements WorldAdapter {
   private catalogCache = new Map<string, { key: string; goods: MakeGood[]; specs: Map<string, ActivitySpec> }>();
   private catalogFailed = new Set<string>();
 
-  /** #140 (MC_FLOWER_MIX): each village's bed flowers counted near its storage hut, and when. */
+  /** #140 (MC_FLOWER_MIX): each village's bed flowers counted near its storage hut, and when (#162: the dye census too,
+   *  keyed by village and reach). */
   private flowerCensus = new Map<string, { at: number; counts: Record<string, number> }>();
 
   /**
@@ -754,8 +758,9 @@ export class MineflayerWorld implements WorldAdapter {
    * height or in the open, as collect finds them; up to 24 each), counted by kind, kept 10 minutes. Empty when
    * no member is online to look.
    */
-  flowerCounts(v: Village, by?: BotAgent): Record<string, number> {
-    const hit = this.flowerCensus.get(v.name);
+  flowerCounts(v: Village, by?: BotAgent, kinds: readonly string[] = BED_FLOWERS, reach = FLOWER_REACH): Record<string, number> {
+    const ck = reach === FLOWER_REACH ? v.name : `${v.name}|${reach}`;
+    const hit = this.flowerCensus.get(ck);
     if (hit && Date.now() - hit.at < 10 * 60000) return hit.counts;
     const h = v.storageHut, home = villageHome(v);
     const c = h ? { x: (h.x1 + h.x2) / 2, z: (h.z1 + h.z2) / 2 } : home;
@@ -767,20 +772,33 @@ export class MineflayerWorld implements WorldAdapter {
       const y = v.plots[0]?.y ?? Math.floor(a.bot.entity.position.y);
       const keep = (p: Vec3) => {
         const d = Math.hypot(p.x - c.x, p.z - c.z);
-        return p.y >= y - 16 && d <= FLOWER_REACH && (d <= 40 || exposed(a, p));
+        return p.y >= y - 16 && d <= reach && (d <= 40 || exposed(a, p));
       };
-      // (a search a kind, each up to 24: one search for all filled its 400 with wildflowers near minevale3, PF0)
-      for (const f of BED_FLOWERS) {
+      // (a search a kind, each up to 24: one search for all filled its 400 with wildflowers near minevale3, PF0; a tall
+      // flower is found as its two halves, so counted as half)
+      for (const f of kinds) {
         const id = reg.blocksByName?.[f]?.id;
         if (id === undefined) continue;
-        const n = nearestBlocks(a, [id], FLOWER_REACH + 48, 24, keep, { min: y - 16 }).length;
+        const found = nearestBlocks(a, [id], reach + 48, 24, keep, { min: y - 16 }).length;
+        const n = TALL_FLOWERS.includes(f) ? Math.ceil(found / 2) : found;
         if (n) counts[f] = n;
       }
     } catch {
       // (a search that failed counts nothing: the bed takes wildflowers)
     }
-    this.flowerCensus.set(v.name, { at: Date.now(), counts });
+    this.flowerCensus.set(ck, { at: Date.now(), counts });
     return counts;
+  }
+
+  /** #162 (MC_DYE_BED): the dye census: every dye flower, tall ones too, out to DYE_REACH (the tall flowers near G1 stand
+   *  beyond the bed flowers' 80). */
+  dyeCounts(v: Village, by?: BotAgent): Record<string, number> {
+    return this.flowerCounts(v, by, DYE_FLOWERS, DYE_REACH);
+  }
+
+  /** #162: the dye colours a village can make (its census, storage, the composter and the merchant). */
+  makeableColours(v: Village): string[] {
+    return makeableColours(dyeRecipes(this.registry), { census: this.dyeCounts(v), stores: storageContents(v), composter: DYE_BED.on, merchant: MERCHANT_ON });
   }
 
   /** A member's flower work's mix (#140): from the village's census, seeded by the member and the village's works so far. */
@@ -3642,9 +3660,16 @@ export class MineflayerWorld implements WorldAdapter {
       } else v.monument = newMonument(this.catalogWoodOf(v), now);
       // (M2, #145: the glass colours the flowers near the village give, chosen once; M3: the architect's when it chose)
       if (MONUMENT.glazing && v.monument.palette === 'full') {
-        const counts = this.flowerCounts(v);
+        // (#162, MC_DYE_BED: the dye census, tall flowers and out to 144)
+        const counts = DYE_BED.on ? this.dyeCounts(v) : this.flowerCounts(v);
         if (!(M3.architect && m3(v.monument).arch?.by !== 'code')) v.monument.colours = glassColours(counts);
         v.monument.flowers = dyeFlowers(counts);
+        // (#162: a detail cathedral's windows in every colour the village can make, each colour standing for itself)
+        if (DYE_BED.on && m3(v.monument).detail) {
+          const cs = windowColours(DETAIL_COLOURS, this.makeableColours(v));
+          v.monument.colours = Object.fromEntries(cs.map((x) => [x, x]));
+          console.log(`[dyebed] ${v.name}: the windows' colours: ${cs.join(', ') || 'none (plain glass)'}`);
+        }
       }
       const c = monumentPlan(v.monument);
       this.villages.save();
@@ -3677,7 +3702,7 @@ export class MineflayerWorld implements WorldAdapter {
     const mem = mayor?.memory ?? {};
     const spec = [mem.designModel, mem.planModel, mem.execModel, rawSetting('MC_PLAN_MODEL'), rawSetting('MC_EXEC_MODEL'), 'ollama:gpt-oss:120b-cloud']
       .map((x) => (typeof x === 'string' ? parseSpec(x) : null)).find((x) => x);
-    const counts = MONUMENT.glazing && MONUMENT.palette === 'full' ? this.flowerCounts(v) : null;
+    const counts = MONUMENT.glazing && MONUMENT.palette === 'full' ? (DYE_BED.on ? this.dyeCounts(v) : this.flowerCounts(v)) : null;
     const facts: ArchitectFacts = {
       // (the roster as memory keeps it too: M3a's trigger came while members were still spawning, 11 of 25)
       village: v.name, members: Math.max([...this.agents.values()].filter((a) => a.village() === v).length, rosterOf(v.name).length),
@@ -6572,6 +6597,19 @@ export class MineflayerWorld implements WorldAdapter {
         // (M2, #145, MC_KILN: a plan of the stage's bill against the yard and the kiln's load: the yard holds made goods)
         const wants = KILN.on ? stageWantsPlanned(m, planOf(this)) : stageWants(m, (b) => this.monumentRaw(m, b));
         for (const [item, q] of Object.entries(wants)) {
+          // (#162, MC_DYE_BED: a dye the stage wants, made by the dyer: up to 8 a chore, 2 at once)
+          if (/_dye$/.test(item) && dyeBedOn(v)) {
+            const n = Array.from({ length: 2 }, (_, i) => i + 1).find((i) => !busy.has(`monument:dye:${item}:${i}`));
+            if (!n || (this.monumentBack.get(`${v.name}:dye:${item}`) ?? 0) > now) continue;
+            const key = `monument:dye:${item}:${n}`, amount = Math.min(8, q);
+            add({
+              id: `monument:dye:${item}`, kind: 'monument', key, excludes: [`${key}=`], rank: 160,
+              name: `Make ${amount} ${item.replace(/_/g, ' ')} for the ${N}'s windows (stage ${st}: ${stageName})`,
+              facts: `the ${N}'s stage ${st} still wants ${q} ${item}; dyes come from flowers, lapis and bone meal, mixed at the table${m3(m).dyeBed ? '; the dye bed copies its tall flowers with bone meal' : ''}`,
+              effect: `+${amount} ${item} in the ${N}'s yard for its stained glass`,
+            }, { kind: 'monument', step: 'dye', item, amount });
+            continue;
+          }
           // (what is not gathered (glass, coal for its smelting) is made at the build from storage; M2's chains)
           // (M2, MC_GLAZING: a dye's flower, picked where it grows)
           const flower = MONUMENT.glazing && !!FLOWER_DYE[item];
@@ -7578,6 +7616,19 @@ export class MineflayerWorld implements WorldAdapter {
           console.log(`[monument] ${v.name}: ${worker.name} builds job ${job} (stage ${monumentPlan(m).jobs[job].stage}, ${monumentPlan(m).jobs[job].blocks} blocks)`);
           return;
         }
+        if (d.step === 'dye') {
+          const make = worker.enqueue('make_dye', { item: d.item, count: d.amount, chore: true });
+          const deposit = worker.enqueue('deposit', { item: 'all', chore: true });
+          worker.memory.monumentGather = d.item;
+          const failed = (why: string) => {
+            if (why !== 'cancelled' && !make.code) this.monumentBack.set(`${v.name}:dye:${d.item}`, Date.now() + 3 * 60000);
+          };
+          this.setChore(v, worker, opt.key, [make, deposit], `make ${d.amount} ${d.item} for the ${N}`, failed, meta, opt.holds, opt);
+          const c = this.chores.get(worker.name.toLowerCase());
+          if (c) c.choice.monument = { item: d.item, material: 'flowers', n: d.amount, dye: true };
+          console.log(`[monument] ${v.name}: ${worker.name} makes ${d.amount} ${d.item} for stage ${currentStage(m)}`);
+          return;
+        }
         if (d.step === 'cut') {
           const st = worker.enqueue('cut_stone', { chore: true });
           const failed = (why: string) => {
@@ -8516,7 +8567,7 @@ type OptionRun =
   | { kind: 'help'; id: string; step: InitiativeStep }
   | { kind: 'monument'; step: 'site' } | { kind: 'monument'; step: 'job'; job: number }
   | { kind: 'monument'; step: 'gather'; item: string; material: Material | 'flowers'; amount: number; block: string; deposit: string }
-  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' }
+  | { kind: 'monument'; step: 'kiln'; lane: number } | { kind: 'monument'; step: 'cut' } | { kind: 'monument'; step: 'dye'; item: string; amount: number }
   | { kind: 'grow'; houseless: number }
   | { kind: 'eat'; level: number; item: string; n: number; own?: boolean }
   | { kind: 'own'; what: 'chest' }

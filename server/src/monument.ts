@@ -37,6 +37,7 @@ import { placeOutward } from './outward';
 import { villageHome, type Area, type Monument, type Village } from './village';
 import { KILN, kilnHolds } from './kiln';
 import { CUTTER, needsCutting, type CutStep, type CutterRecord } from './cutter';
+import type { DyeBed } from './dyeBed';
 
 export { KILN };
 export const MONUMENT = {
@@ -448,12 +449,13 @@ export function setM3(s: Partial<typeof M3>): void {
   Object.assign(M3, s);
 }
 
-export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter', 'carver'] as const;
+export const TRADES = ['quarryman', 'mason', 'glazier', 'carpenter', 'carver', 'dyer'] as const;
 export type Trade = (typeof TRADES)[number];
 /** What each trade does for the cathedral, in the prompt's words. */
 export const TRADE_WORK: Record<Trade, string> = {
   quarryman: 'its stone dug and its site levelled', mason: 'its kiln and its stonework', glazier: 'its sand, dye flowers and glass', carpenter: 'its logs, roof and fuel',
   carver: 'its stone cut at the stonecutter: capitals, arches, tracery and polished stone',
+  dyer: 'its dyes: flowers, lapis and bone meal, the dye bed, the mixes',
 };
 /** M3: the weight an option of the member's own trade carries (and its tag says so). */
 export const TRADE_WEIGHT = 1.5;
@@ -478,8 +480,9 @@ export type MonumentM3 = Monument & {
   type?: MonumentType;
   /** #162: drawn with the detail palette, its stone cut at the stonecutter. */
   detail?: boolean;
-  /** #162: its stonecutter (mcCutter.ts). */
+  /** #162: its stonecutter (mcCutter.ts) and dye bed (mcDyeBed.ts). */
   cutter?: CutterRecord;
+  dyeBed?: DyeBed;
   trades?: Record<string, TradeRecord>;
   /** MC_MONUMENT_NEWS: the latest news (shown for a village day). */
   news?: { t: number; text: string };
@@ -494,6 +497,7 @@ const WOODS = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oa
 export function tradeOfItem(item: string): Trade {
   if (/_log$/.test(item) || WOODS.test(item)) return 'carpenter';
   if (/^(red_)?sand$/.test(item) || FLOWER_DYE[item]) return 'glazier';
+  if (/_dye$/.test(item)) return 'dyer';
   return 'quarryman';
 }
 /** The trade a job belongs to: its bill's most blocks of glass, wood or stone. */
@@ -508,6 +512,7 @@ export function tradeOfStep(m: Monument, step: { step: string; item?: string; jo
   if (step.step === 'site') return 'quarryman';
   if (step.step === 'kiln') return 'mason';
   if (step.step === 'cut') return 'carver';
+  if (step.step === 'dye') return 'dyer';
   if (step.step === 'job' && step.job !== undefined) return tradeOfJob(m, step.job);
   return tradeOfItem(step.item ?? '');
 }

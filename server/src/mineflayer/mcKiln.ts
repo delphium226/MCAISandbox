@@ -26,6 +26,7 @@ import { prepareSite, surfaceAt, withScanTurn } from './mcBuild';
 import { abortable, countItem, itemId, num, reach } from './mcUtil';
 import { Materials } from './mcMaterials';
 import { CUTTER } from '../cutter';
+import { DYE_BED } from '../dyeBed';
 
 /** The most input one trip carries (masons at once: kilnLanes). */
 const TRIP_LOAD = 256;
@@ -38,7 +39,8 @@ const cutPlans = new WeakMap<object, Materials>();
 export const planOf = (w: { materials: { plan: PlanOf }; registry?: ConstructorParameters<typeof Materials>[0] }): PlanOf => {
   if (!CUTTER.on || !w.registry) return (bill, have) => w.materials.plan(bill, have);
   let cut = cutPlans.get(w);
-  if (!cut) cutPlans.set(w, (cut = new Materials(w.registry, { cut: true })));
+  // (#162's dye bed: the dyes asked for as such, the dyer makes them)
+  if (!cut) cutPlans.set(w, (cut = new Materials(w.registry, { cut: true, dyes: DYE_BED.on })));
   return (bill, have) => cut!.plan(bill, have);
 };
 

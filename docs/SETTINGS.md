@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-209 settings.
+210 settings.
 
 ## Game speed
 
@@ -201,6 +201,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
+| `MC_DYE_BED` | flag | `off` |  | `MC_MONUMENT_DETAIL`, `MC_GLAZING` | MC_DYE_BED=on (#162, tier 2's chain B; off by default): the dye census counts tall flowers too, out to 144 (for the glass colours, the architect's and the detail palette's), the detail cathedral's windows take every colour the village can make (flowers, lapis, bone meal, mixes), its plan asks for the dyes, and the dyer's make_dye chore makes them: bone meal from a composter, tall flowers copied on a dye bed beside the storage hut, the mixes at the table. With MC_MONUMENT_DETAIL the merchant also sells a bell (12 emeralds). |
 | `MC_GLAZING` | flag | `off` |  | `MC_MONUMENT` | MC_GLAZING=on (M2, #145; off by default; with MC_MONUMENT_PALETTE=full): the cathedral's stained panes in the colours the flowers near the village give (chosen once), the flowers gathered for their dyes, its sand smelted into glass in the kiln; plain panes without. |
 | `MC_IRON_AGE` | flag | `off` |  |  | MC_IRON_AGE: the widened iron chain (dig on up to 3 legs, smelt at the works furnaces, forge for a named member, new iron levels as each ends); usable without the ladder. |
 | `MC_IRON_STAIRS2` | flag | `off` |  | `MC_IRON_AGE` | MC_IRON_STAIRS2 (with MC_IRON_AGE, #101): each iron level's stairs get a second lane beside the first, dug by a second miner (a lock per lane) or on a later trip; miners walk down one lane and up the other. |
