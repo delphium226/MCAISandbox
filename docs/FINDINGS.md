@@ -2175,3 +2175,19 @@ CLAUDE.md when a phase ends.
   stocked, code 9f0f68c (before c1b6bc1). Gated options taken 160 of 170 menus; [lag] 0, loop p50 5-27 ms but six 5-min
   samples at 136-292 ms (C0 had five); [stuck] 338 (C0 348); 5% of the cap gate's samples came with fewer than 3
   projects open; $1.21 against C0's $1.00. Logs: runs/2026-10-25/fix-149/ (report.md).
+- F323 (10-26, train6, #149) **c1b6bc1's small-work spot cache ends the pad village's stalls: 0 [lag] in 90 minutes
+  against 429.** iron_age_g1 resumed (pads + outward on, profile train4-pad, 24 staged members with model chores, 1x, 90
+  min after), code 34d2c4e: loop p50 5.6-6.6 ms in every 10-minute bin (X1 up to 137), loop max 0.24-0.43 s (X1 4.6-6.2
+  s), tick p99 4.1-4.3 ms (X1 up to 4.3 s); [stuck] 56 vs 434, [stuck-world] 4 vs 177; busy 29% (X1 30%). No small works
+  in either run (the resumed village has none to give), so F319's 22-vs-66 needs a blank pad run. Two members trapped
+  after amethyst trips at the same geode as trains 4-5 (#133). $0.23. Logs: runs/2026-10-26/train6/ (report.md).
+- F324 (10-26, train6, #140) **With c1b6bc1's fix the flower mix no longer holds the cap: lily of the valley ran out at
+  AFTER ~32 as in C1, and each of the 6 mixed beds started after that dropped it on its first failed gather and was
+  built with wildflowers; at most one bed open at a time, failures after 140 against 143 off (C1: 450).** F1 =
+  MC_FLOWER_MIX on, F0 off, policy options and pen variety on (defaults), gardens on, blank minevale3, 25 members, 1x,
+  120 min after, shears and carrots stocked. Beds 20 (9 mixed, all wildflowers + lily) against 30 plain. The menu still
+  offers mixed beds with a used-up flower (one wasted collect each). F1's hour 2 was thinner (busy 62.2 vs 68,
+  initiatives started 48 vs 91): members idled at the project gate with 3 open, and no gated "another project" option
+  was offered in its last 30 minutes (F0: 53, taken 31), so F0 kept 5-6 open and F1 3; not from beds, not traced. F0
+  repeats F322's gain with policy options on by default (68 vs 71.7 in hour 2). $1.19 vs $1.28. Logs:
+  runs/2026-10-26/train6/ (report.md).
