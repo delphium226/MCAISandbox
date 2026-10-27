@@ -2202,3 +2202,27 @@ CLAUDE.md when a phase ends.
   the dye bed's ground (none within 48 of a crowded hut; found at 64), and the yard's dyes (dyers mixed them away). The
   dye census at reach 144 with tall flowers makes 12 colours near G1 against today's 2. No member took the dyer trade
   (dye chores spread thin). Logs: runs/2026-10-26/tier2/ (report.md).
+- F326 (10-27, train7) **The new defaults run together without a stall, but pads per building + grow outward
+  leave the after phase no small works: with no monument the village idles from minute 60.** C (model chooser, every
+  current default: pads + outward, pen variety, policy options, flower mix, bigger houses; blank minevale3, 25 members,
+  1x, 150 min after, code b335ca3): [lag] 0, complete at 6.4 min, 25 houses for 25 members, pens worked; busy 74.5% in
+  hour 1, 12.7% in hour 2, every idle menu "nothing feasible" with "initiate: no room (greens full)" (all 5 greens used),
+  "help: no project open", "gather: nothing wanted"; food ran short in hour 2. Initiatives built 53-70 a run (26-38 of
+  them lamps) against 152-195 in train 6 with pads off (F324): F319's small-works gap measured on a blank pad village.
+  The storage hut's #133 trap returned on this layout in A and B (the mine tunnel at y 54 under the hut, walks aiming
+  straight up at the chest; 5 teleports). Logs: runs/2026-10-27/train7/ (report.md).
+- F327 (10-27, train7) **The monument starts after iron and builds 92% of a 1:3 Notre-Dame at 1x model-driven in about
+  80 minutes, then stalls at stage 7 for dyes; it holds the village's other life better than no monument.** A (model,
+  monument with quarry, kiln, glazing, detail, dye bed, roles, news, lodge, deep stone, geode guard, furnishing) and B
+  (the same, fixed chooser): begun at the iron age (+30 both), stage 6 done at +107 / +95, 3,296 of 3,587 blocks, then
+  job 13 (glass and rose) short of red, purple, orange, pink, magenta and light-blue panes to the end: dye chores failed
+  83 times in A (red needs beetroot, pink a cactus flower, the dye bed no bone meal without crops to compost). Against C
+  (F326): hour 2 busy 53.5 / 64.3 vs 12.7, everyone fed (C not), A reached letters at +115 (C one letters stage by
+  +136). Recommend on by default once stage 7's dyes have a supply or a stand-in. Logs: runs/2026-10-27/train7/.
+- F328 (10-27, train7, #164 step 0) **The model chooser changes what members do but not how much: 68% of its picks
+  were not code's first option, and all talk, speech acts and promises came with it, yet the fixed chooser was busier
+  and built faster at a quarter of the cost; neither made a law or custom.** A (model) against B (fixed), both with the
+  monument: busy 80.3 / 53.5 vs 89 / 64.3; cathedral stage 6 at +107 vs +95; distinct choice keys 358 vs 399; acts
+  650 vs 0, promises 26 vs 0, pay lines 97 vs 26, barter offers 87 vs 56; letters chosen and reached (B: diamond from
+  predicted ballots, not begun); proposals 0 vs 1, laws and customs 0 in both; failed after 324 vs 415; $1.00 (1,870
+  calls) vs $0.25 (331). One pair. Logs: runs/2026-10-27/train7/ (report.md).
