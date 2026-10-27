@@ -34,34 +34,34 @@ each phase's goal and design, and links to its issues; it no longer carries chec
 
 ## Next session starts with
 
-(updated 2026-10-26 ~21:30 by the planning session that took over on 10-25 13:40, paused for the night at the user's
-request; the strategy is `docs/STRATEGY.md`; the morning state (sessions, ids, the queue, what waits on the user) is in
-`runs/2026-10-26/planning/state.md`, the day's log in `runs/2026-10-25/planning/state.md`)
+(updated 2026-10-27 ~15:15 by the planning session that took over on 10-25 13:40, handing over at ~68% context to a
+fresh planning session; the strategy is `docs/STRATEGY.md`; the live state (sessions, ids, the queue, what waits on
+the user) is in `runs/2026-10-27/planning/state.md`)
 
 - **How work runs:** the planning session owns STRATEGY.md and this handover, briefs work sessions and checks their
-  reports. Rules added 10-24/25: the context rule, the test train (offline checks in build sessions; condensed trains,
-  ~1 a day), pushes to `private` without asking, the planning session decides routine steps itself.
-- **G8:** iron and letters reached model-driven (W4; train 2 L1, F315); trade voted next.
-- **Built and pushed on 10-24/25** (F305-F317): #100 vein dig, #112, #102, #111/#107 payments and talk, #21 letters +
-  #134 pace, home basics, #121 storage that grows, #117 prompt (Maslow basics), #97 holds, #122 policy options, #136
-  halo, #84 C1+C2 per-building pads and graded paths, #138 growing outward, #115 run profiles (settings registry,
-  profiles, culture mixes, pause/resume, live settings, schedules), #139 pens, #140 flowers, one crafting table a house.
-- **Built and pushed on 10-25 after 13:40** (F318-F322): #142, #149 (small-work spot cache; live check pending), #140
-  (beds drop a used-up flower), trains 4-5 and the policy confirm run; **the monument** (G8, the user's: a Gothic
-  cathedral after the iron age, no vote): M0 grammar, M1 staged project, M2 quarry/kiln/glazing (flags off), #152 kiln;
-  Notre-Dame and Chartres built in full at 1:4 from the village's own stone; a castle (Conwy 1:2, #153) after M3.
-- **On by default now:** storage grow, home basics, prompt self, letters pace, pad halo, choice holds, open storage
-  hut, vanilla pieces, wood variants, gen homes, **pen variety, policy options** (10-25) (plus the older defaults).
-- **Built and pushed on 10-26** (F323-F325): M3 trades/news/architect (b1b22dc), the castle (Conwy, White Tower;
-  3bc68da), test train 6 (#149 live: 0 [lag]), tier 2 detail with stonecutter and dye bed (#162), the masons' lodge
-  with bulk trips (#163, 3be5aa4), Cologne (699ce77). **Defaults turned on 10-26:** pads per building, growing outward,
-  flower mix, gardens (always on).
-- **Standing in the test worlds** (stopped and saved): Cologne 1:3 (world 1, /tp -1732 75 68), detail Chartres 1:4
-  (world 3), Conwy 1:3 (world 4, /tp -1712 72 44), Salisbury 1:3 (world 5).
-- **Next:** #165 (Cologne's follow-ups: [stuck] 5x, yard andesite unused, kiln brick buffer, quarry topsoil); tier 2's
-  chains C-E (lanterns, banners, candles, bell); M4 (a 1:2 cathedral); then **#164, strengthening the model's
-  influence** (the user's, parked until the monument work is done; an on/off pair first); #133, #151, #141, #154, #155.
-  The scale rounds to whole numbers (1:3, not 1:2.7).
+  reports. Rules: the context rule, the test train, pushes to `private` without asking, the planning session decides
+  routine steps itself. **The user (10-27): ignore the Claude weekly plan limit, keep going.** Always give LAN
+  addresses (192.168.1.84) beside 127.0.0.1. Sessions started from a session-begun turn must be proposed as cards.
+- **G8:** iron and letters reached model-driven; trade voted next. **The monument** (a village builds one by itself
+  after the iron age): Gothic cathedrals (Notre-Dame, Chartres, Salisbury, Cologne) and a castle (Conwy, White Tower),
+  **at 1:3 since 10-27** (the user's); quarry, kiln, glazing, lodge with bulk trips, tier 2 detail (stonecutter, dye
+  bed, lanterns, banners, candles, bell), tier 3 deepslate (no rung) and the geode guard; copper roof waits for the
+  copper rung (re-roof). All behind flags, off. The materials ladder (tiers 0-6) is on #162.
+- **Built and pushed 10-27:** 1:3 default (fdfeff1), #165 fixes + furnishing (f9004e5: Notre-Dame 1:3 in 39 min, 11.1
+  min/1,000 blocks), tier 3 chain A + geode guard (de6a566, 9350d4f: an all-deepslate roof), bigger houses and
+  decorations (#141: 93a3ce7, ebf8935; big houses +51% wood, interior x2.2, +23% growth time).
+- **On by default now:** storage grow, home basics, prompt self, letters pace, pad halo, choice holds, open storage hut,
+  vanilla pieces, wood variants, gen homes, pen variety, policy options, pads per building, growing outward, flower
+  mix, gardens (always), monuments at 1:3, **bigger houses** (being committed by the houses session).
+- **In flight (10-27 15:15):** the houses session (local_2d45e967: MC_BIG_HOUSES default + shears fix + decorations
+  rerun on worlds 4/5); tier 3 chain B/C (local_9833bf5a: copper roof live, then copper-ore trips and geodes from the
+  atlas, world 3); **test train 7** (local_06745716, brief runs/2026-10-27/planning/brief_train7.md: all defaults
+  together, the monument as a default, the model on/off comparison for #164; waits for the two commits; worlds 1/4/5).
+- **Standing:** furnished Notre-Dame 1:3 (world 2); checkpoints mon_conwy_1_3, mon_salisbury_1_3 (and mon_cologne_1_3
+  once train 7 saves it).
+- **Next after train 7:** the monument default (the user's call), #164 strengthening the model's influence, decorations
+  if the rerun still fails, the cobblestone mine's tunnels (gravel/water) and fields with no site (train data), #133,
+  a timber monument if wanted, tier 3 chain C live.
 
 ## Earlier phases
 
