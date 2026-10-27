@@ -18,6 +18,7 @@ import { FOOD_POINTS } from './appetite';
 import type { Rule } from './social';
 import type { Village } from './village';
 import { rawSetting } from './settings';
+import { customOf, noteStarted } from './customs';
 
 const isFood = (item: string) => item in FOOD_POINTS;
 
@@ -477,6 +478,9 @@ export function addLaw(village: string, by: string, raw: Record<string, unknown>
   };
   st.laws.push(l);
   logAct({ type: 'law', village, agent: by, id: l.id, rule: type, params, text: l.text, status: l.status, ...(bad ? { refused: bad } : {}) });
+  // (#164, MC_CUSTOMS: a norm that names a custom's act starts that custom, in the ledger; it stays a norm on the ballot)
+  const custom = type === 'norm' && !bad ? customOf(String(params.text)) : null;
+  if (custom) noteStarted(village, by, custom, l.id, now);
   touchMemory();
   return l;
 }

@@ -5,7 +5,7 @@ environment variable of the agent server (or the sandbox). "Default" is the valu
 or `off`; any of on/1/true turns a flag on, off/0/false turns it off, as each reads it). "Live" settings may change
 during a run; the others need a restart. "Not in" names run kinds a setting must not be raised in.
 
-225 settings.
+227 settings.
 
 ## Game speed
 
@@ -149,6 +149,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_BALLOT_FALLBACK_MS` | number | `30000` |  |  | A ballot's call is cut off this long after its send. |
 | `MC_BALLOTS_PARALLEL` | number | `2` |  |  | Ballots of one vote at once (the gate's low class has 2 of the 3 cloud slots at most: the critique's M2). |
 | `MC_COUNCIL` | flag | `off` |  |  | The council: village votes on rules and levies. |
+| `MC_CUSTOM_FACTS` | flag | `off` |  | `MC_CUSTOMS` | #164: a custom's option says who did it yesterday and when the member last did ("done yesterday by Ben, Kai and 2 others; you: never"); the channel the test's off arm removes. |
+| `MC_CUSTOMS` | flag | `off` |  | `MC_RULES` | #164 (G4): customs, acts with a world effect code counts and no reward (a flower pot or lantern at your door, a torch or flower on the green's custom stone, tools back to storage at dusk, meeting at the green at dusk): the ledger (did, started, exposed), seeded members, a norm naming one starts it. |
 | `MC_DELIBERATE` | flag | `off` |  |  | #107, deliberation's zero-cost form (MC_DELIBERATE, off): a later voter's ballot shows earlier voters' reasons for each item, attributed, both sides when both were given (the staggered offsets order the voters). |
 | `MC_LAW_BACKING` | string | (unset) |  |  | #164 (off by default): failures counts a night's back of a law also when the backer's failed chores that day name the law's target (their messages, not only the chore lines; train 7 refused 85-92% of backs). |
 | `MC_LEVY` | string | (unset) |  |  | A levy in force from the start, set by code (Experiment 2's imposed base, `MC_LEVY=0.2`), until a voted one replaces it. |
@@ -161,8 +163,8 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 | `MC_PROPOSALS` | flag | `off` |  |  | Members' proposals (G1). |
 | `MC_QUESTIONS` | flag | `off` |  | `MC_ACTS` | Question acts (with MC_ACTS). |
 | `MC_RULE_FEASIBLE` | flag | `off` |  |  | #164: a duty or contribution on the ballot says how many members did that work or put that class yesterday (train 7 passed a tool contribution met on 4% of member-days). |
-| `MC_RULE_RESULTS` | flag | `off` |  |  | #164: each rule in force with its result in code's counts (members who met it on the last days, or "words only") in the night prompt and on the ballot. |
-| `MC_RULE_WORDS` | flag | `off` |  |  | #164: a norm (a rule code cannot read as a type) says on the ballot that code will not enforce or count it (train 7: 94-98% yes on norms with no stake shown). |
+| `MC_RULE_RESULTS` | flag | `off` |  |  | #164: each rule in force with its id and its result in code's counts (members who met it on the last days, or "words only") in the night prompt and on the ballot; a law may repeal a rule in force by its id, with the rule's result beside it on the ballot. |
+| `MC_RULE_WORDS` | flag | `off` |  |  | #164: a norm (a rule code cannot read as a type) says on the ballot that code will not enforce or count it (train 7: 94-98% yes on norms with no stake shown), and so does the night's invitation to propose a custom in words. |
 | `MC_RULES` | flag | `off` |  |  | Village rules (laws read by members). |
 | `MC_TALK_HOLDOUT` | string | (unset) |  |  | Members held out of talk (a holdout experiment). |
 | `MC_VOTE` | string | (unset) |  |  | The neighbourhood style vote: model, predicted or off. |
