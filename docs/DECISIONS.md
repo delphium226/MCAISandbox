@@ -897,3 +897,6 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   grows). It still acts only with MC_GARDENS on (off by default); `MC_FLOWER_MIX=off` turns it off.
 - 10-26 (the user's) **MC_GARDENS always on** (#45: front beds, flower rings, saplings; with it the flower mix, on
   by default since e854a3a, takes effect). `=off` remains for tests; small_works checks the pieces without it.
+- 10-27 (the user's) **Monuments at 1:3 from now on**: MC_MONUMENT_SCALE defaults to 0.3333 (was 0.5). Built so far at
+  1:3: Conwy (2,008 blocks), Salisbury (3,149), Cologne (6,902). M4's 1:2 target and 1:1 are dropped for now; 1:4
+  stays for quick tests.

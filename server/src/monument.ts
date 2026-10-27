@@ -43,7 +43,8 @@ export { KILN };
 export const MONUMENT = {
   on: /^(on|1|true|yes)$/i.test(rawSetting('MC_MONUMENT') ?? 'off'),
   preset: rawSetting('MC_MONUMENT_PRESET') || 'notre_dame',
-  scale: Math.max(0.05, Math.min(1, Number(rawSetting('MC_MONUMENT_SCALE') ?? 0.5) || 0.5)),
+  // (1:3 by default since 10-27, the user's: monuments stay at 1:3 from now on)
+  scale: Math.max(0.05, Math.min(1, Number(rawSetting('MC_MONUMENT_SCALE') ?? 1 / 3) || 1 / 3)),
   share: Math.max(0.1, Math.min(1, Number(rawSetting('MC_MONUMENT_SHARE') ?? 0.6) || 0.6)),
   palette: (/^full$/i.test(rawSetting('MC_MONUMENT_PALETTE') ?? 'today') ? 'full' : 'today') as 'today' | 'full',
   /** M2 (#145, MC_GLAZING): stained panes from the flowers' dyes, and sand smelted into glass in the kiln. */
