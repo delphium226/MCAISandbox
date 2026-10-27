@@ -75,7 +75,7 @@ during a run; the others need a restart. "Not in" names run kinds a setting must
 
 | Setting | Type | Default | Live | Requires | Description |
 | --- | --- | --- | --- | --- | --- |
-| `MC_BIG_HOUSES` | string | `off` |  |  | #141: members' own houses bigger: long (+2 on the longer wall), both (+2 on each wall: 7x5 to 9x7, interior x2.1, wood +50%; the user's pick) or x15 (walls x1.5); the house and landmark budgets and the box cap rise with it. |
+| `MC_BIG_HOUSES` | string | `both` |  |  | #141: members' own houses bigger: long (+2 on the longer wall), both (+2 on each wall: 7x5 to 9x7, interior x2.1, wood +50%; the user's pick) or x15 (walls x1.5); the house and landmark budgets and the box cap rise with it. |
 | `MC_FLOWER_MIX` | flag | `on` |  |  | #140: with MC_GARDENS, a flower bed or ring is planted from a mix of 2-4 of the one-block flowers counted within 80 of the storage hut (each with enough blocks to gather), drawn per member; the option, the design and the bill name the mix, and its crew picks each kind by name. |
 | `MC_GARDENS` | flag | `on` |  |  | #45: flower beds and front gardens (MC_GARDENS, off). A front garden is two beds of flowers on the grass either side of a house's door walkway (the walkway itself left as it is), one design a walkway's direction; a flower ring circles a green's centre, its four sides open. Planted from flowers... |
 | `MC_GEN_HOMES` | flag | `on` |  |  | Generated homes (buildingGen) beside the catalogue's. |

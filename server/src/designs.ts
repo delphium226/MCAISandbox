@@ -27,11 +27,12 @@ export const DESIGN_BLOCKS = [
  */
 // (250 and 400 until D.2: generated buildings, fuller and with overhangs, made a village ~760 units, Minevale13)
 /**
- * #141's bigger houses (MC_BIG_HOUSES=off|long|both|x15; off by default; spec runs/2026-10-27/houses/spec.md): a member's
- * own house grows by 2 on its longer wall (long), on each wall (both: 7x5 to 9x7, the user's pick, 10-27) or by half (x15),
+ * #141's bigger houses (MC_BIG_HOUSES=off|long|both|x15; spec runs/2026-10-27/houses/spec.md): a member's
+ * own house grows by 2 on its longer wall (long), on each wall (both: 7x5 to 9x7, the user's pick, 10-27; on by default
+ * since 10-27, the user's) or by half (x15),
  * and the budgets and caps with it, a hall staying bigger than a house. `box` is V2_LIMITS.maxBox (overhang included).
  */
-export const BIG_HOUSES = (/^(long|both|x15)$/i.exec(rawSetting('MC_BIG_HOUSES') ?? 'off')?.[1]?.toLowerCase() ?? 'off') as 'off' | 'long' | 'both' | 'x15';
+export const BIG_HOUSES = (/^(long|both|x15)$/i.exec(rawSetting('MC_BIG_HOUSES') ?? 'both')?.[1]?.toLowerCase() ?? 'off') as 'off' | 'long' | 'both' | 'x15';
 const SIZES = {
   off: { house: 150, large: 230, landmark: 300, walls: 9, landmarkWalls: 11, box: 9 },
   long: { house: 180, large: 275, landmark: 350, walls: 9, landmarkWalls: 11, box: 11 },

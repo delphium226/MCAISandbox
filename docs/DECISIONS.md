@@ -906,3 +906,5 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   Built after the 10-27 budget reset.
 - 10-27 (the user's, tier 3 spec) **Deepslate needs no rung; the copper roof waits for the copper rung** (deepslate
   first, re-roofed later).
+- 10-27 (the user's, on #141's A/B: wood per home +51%, interior x2.2, growth to 12 houses +23%, no [lag]) **MC_BIG_HOUSES
+  on by default (both)**; MC_HOUSE_DECOR stays off until decorations pass a rerun with beds done.

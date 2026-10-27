@@ -93,7 +93,7 @@ export const SETTINGS: readonly Setting[] = [
     describe: 'Barter between members (with MC_OWN).' },
   { name: 'MC_BARTER_LAPSE_MIN', type: 'number', default: '10', group: 'economy', live: false, read: 'barter.ts',
     describe: 'Minutes an unanswered barter offer stays up.' },
-  { name: 'MC_BIG_HOUSES', type: 'string', default: 'off', group: 'building', live: false, values: ['off', 'long', 'both', 'x15'], read: 'designs.ts',
+  { name: 'MC_BIG_HOUSES', type: 'string', default: 'both', group: 'building', live: false, values: ['off', 'long', 'both', 'x15'], read: 'designs.ts',
     describe: "#141: members' own houses bigger: long (+2 on the longer wall), both (+2 on each wall: 7x5 to 9x7, interior x2.1, wood +50%; the user's pick) or x15 (walls x1.5); the house and landmark budgets and the box cap rise with it." },
   { name: 'MC_BLOCK_MIN', type: 'number', default: '6', group: 'choices', live: false, read: 'mineflayer/mcWorld.ts',
     describe: 'Minutes a work block lasts (divided by the time scale).' },

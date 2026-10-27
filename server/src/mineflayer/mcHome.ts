@@ -18,6 +18,7 @@ import { OWN, ownOf } from '../own';
 import { givePurse } from '../pay';
 import { placedDoor } from '../streetPlan';
 import { STORAGE_SKILLS, storageContents, withdrawItems } from './mcStorage';
+import { SURVIVAL_SKILLS } from './mcSurvival';
 import { ContentionError, goals, syncInventory, unmoved, walk } from './mcUtil';
 import { FOUNDRY as WOOL } from './foundry/wool';
 import { rawSetting } from '../settings';
@@ -326,11 +327,12 @@ async function decorateHome(a: BotAgent, _args: Record<string, unknown>, signal:
   for (const p of picks) for (const [n, q] of Object.entries(p.cost.take)) want[n] = (want[n] ?? 0) + q;
   const before: Counts = {};
   for (const n of Object.keys(want)) before[n] = await a.world.rcon.count(a.name, n).catch(() => 0);
-  await withdrawItems(a, v, want, signal);
-  for (const [n, q] of Object.entries(want)) {
-    const have = await a.world.rcon.count(a.name, n).catch(() => 0);
-    if (have - before[n] < q) throw new ContentionError(`decorate_home: another agent took the ${n}`, 'taken', `stock:${n}`);
-  }
+  await withdrawItems(a, v, want, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+  // (what came is placed; a pick whose items another owner took first is skipped below: H141G's owners failed whole
+  // chores 14 times on one banner)
+  let got = 0;
+  for (const n of Object.keys(want)) got += Math.max(0, (await a.world.rcon.count(a.name, n).catch(() => 0)) - before[n]);
+  if (!got) throw new ContentionError(`decorate_home: another agent took the ${Object.keys(want).join(' and ')}`, 'taken', `stock:${Object.keys(want)[0]}`);
   const walked = await toDoor(a, P, signal);
   const done: string[] = [], failed: string[] = [];
   for (const p of picks) {
@@ -377,15 +379,25 @@ async function shearForBed(a: BotAgent, _args: Record<string, unknown>, signal: 
   if (!v) throw new Error('shear_for_bed: not in a village');
   let borrowed = false;
   try {
-    if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) {
-      if ((storageContents(v).shears ?? 0) < 1) throw new Error('shear_for_bed: no shears in your inventory or in storage (make_iron_tool shears makes a pair from 2 iron)');
-      await withdrawItems(a, v, { shears: 1 }, signal);
-      if ((await a.world.rcon.count(a.name, 'shears').catch(() => 0)) < 1) throw new ContentionError('shear_for_bed: another agent took the shears', 'taken', 'stock:shears');
+    const held = async () => (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) >= 1;
+    if (!(await held())) {
+      if ((storageContents(v).shears ?? 0) >= 1) await withdrawItems(a, v, { shears: 1 }, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+      // (#141's A/B: one pair in storage for many beds gave 17 "another agent took the shears" a run, and 4 of 12 beds
+      // never came: a member finding none makes a pair from 2 of storage's iron, and it goes to storage after, one more pair)
+      if (!(await held()) && (storageContents(v).iron_ingot ?? 0) >= 2) {
+        await withdrawItems(a, v, { iron_ingot: 2 }, signal);
+        await SURVIVAL_SKILLS.craft.run(a, { item: 'shears', count: 1 }, signal).catch((e: Error) => { if (e.message === 'cancelled') throw e; });
+      }
+      if (!(await held())) {
+        if ((storageContents(v).shears ?? 0) < 1 && (storageContents(v).iron_ingot ?? 0) < 2) throw new Error('shear_for_bed: no shears in your inventory or in storage, and no 2 iron to make a pair');
+        throw new ContentionError('shear_for_bed: another agent took the shears', 'taken', 'stock:shears');
+      }
       borrowed = true;
     }
     return await shearWool(a, v, signal);
   } finally {
-    if (borrowed && !signal.aborted && (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) > 0)
+    // (and a pair the member made or held when storage has none: H141D3's Mayor kept the village's only pair, 1 bed of 12)
+    if ((borrowed || (storageContents(v).shears ?? 0) < 1) && !signal.aborted && (await a.world.rcon.count(a.name, 'shears').catch(() => 0)) > 0)
       await STORAGE_SKILLS.deposit.run(a, { item: 'shears' }, signal).catch(() => '');
   }
 }
