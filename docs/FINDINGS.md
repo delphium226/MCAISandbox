@@ -2240,3 +2240,11 @@ CLAUDE.md when a phase ends.
   blocks under cover go out first (by the mine's stairs without digging, else to open ground standing back from village
   ground by the climb), rescue does the same and counts a timeout under ground as in, and a backstop teleports a member
   under ground 8 min with nothing done and hands back its tasks. Not yet run live.
+- F330 (10-27, i164 spec, corrects F328) **Train 7 did make laws: F328's "0 laws, 1 proposal" was a measuring error**
+  (train7/measures.py grepped the log for `[rule`/`[law`/`[proposal`, which are never written; laws live in the acts
+  ledger). `scripts/checks/rules_use.py` on the ledgers: laws proposed A 39, B 21, C 27; rules enacted A 3, B 5, C 4
+  (levy included). A and B passed only free-text norms (iron-dig notices on a board that does not exist) and a 10%
+  levy; C passed typed rules (1 item a day 84% kept, 1 tool a day 4%, lighting duty 14%). B's laws were model laws too:
+  reflections and ballots call the model under MC_CHOOSE=fixed. The gap is consequence, not production: 85-92% of
+  backs refused by the "day touched it" gate, norms voted yes 94-98% with no stake line, and nothing counts or shows a
+  norm's result. Customs (G4) are unbuilt. Spec: runs/2026-10-27/i164/spec.md.
