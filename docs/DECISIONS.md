@@ -912,3 +912,8 @@ Moved from `docs/PLAN.md` on 2026-10-15; add new decisions at the end, dated.
   or a stand-in** (red, pink, bone meal); it held hour-2 busy at 54-64% against 13% without it. **Pad villages get room
   for small works** by more or bigger greens (pads and outward growth stay on). **#164 gives the model's choices stakes**
   (options whose results differ: rungs, laws, trades), not more on/off pairs first.
+- 10-27 (the user's, on the #164 spec runs/2026-10-27/i164/spec.md) **Rules and customs get consequences:** claim rules
+  are enforced (claimed work leaves others' menus while the claim holds); customs carry no material reward, and the
+  dusk gathering at the green is one template; untyped norms stay votable with a "words only" ballot line, and a kept
+  farm plot becomes a claim on an own-farm site; a back counts when the backer's failures that day name the law's
+  target; the first test is one pilot train (R1/R0/F1, ~$3), E.10's replicates only after it passes.
